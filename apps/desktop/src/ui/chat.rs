@@ -111,6 +111,8 @@ pub struct ChatView {
     /// The list moving to messages that arrived while it was at the newest, from where it
     /// was, as the desktop's list glides over 180 ms instead of jumping.
     glide: Option<(f32, std::time::Instant)>,
+    /// The glide waited a frame for rows to be measured, which it doesn't do twice running.
+    glide_waited: bool,
     /// The call this device is in, above the chat of its conversation.
     call_stage: Option<Entity<super::voice_stage::VoiceStage>>,
     last_list_id: String,
@@ -324,6 +326,7 @@ impl ChatView {
             typed_in: RefCell::new(None),
             fresh: Rc::new(RefCell::new(HashMap::new())),
             glide: None,
+            glide_waited: false,
             call_stage: None,
             last_list_id: String::new(),
             files: Vec::new(),
@@ -482,8 +485,12 @@ impl ChatView {
                     }
                 }
                 if self.at_bottom && !super::motion::reduced_or_system() {
-                    // Held where it shows now, so the new rows come in below it, then moved to them.
-                    if self.glide.is_none() {
+                    // Held where it shows now, so the new rows come in below it, then moved to
+                    // them from there. At its end the list keeps no top of its own, so it's given
+                    // the one it shows, a glide still going or not: the top it says it has there
+                    // is a view's height further down, and a glide from it slid the messages up
+                    // towards the chat's start and back, as two came in close together.
+                    if self.list.logical_scroll_top().item_ix >= self.list.item_count() {
                         let height = self.list.viewport_bounds().size.height;
                         self.list.scroll_by(-height);
                     }
@@ -493,7 +500,7 @@ impl ChatView {
             }
             self.list.splice(old.len()..old.len(), new_rows.len() - old.len());
             // Neighbors change shape when a message joins their run.
-            if old.len() > 0 {
+            if !added.is_empty() && old.len() > 0 {
                 self.list.splice(old.len() - 1..old.len(), 1);
             }
         } else if new_ids.len() >= old_ids.len() && new_ids[new_ids.len() - old_ids.len()..] == old_ids[..] {
@@ -502,7 +509,9 @@ impl ChatView {
             self.list.splice(0..0, added);
             self.list.splice(added..added + 1, 1);
         } else {
+            // At the newest again, so no glide is left to go there.
             self.list.reset(new_rows.len());
+            self.glide = None;
         }
         self.rows = new_rows;
         self.jump_if_asked(cx);
@@ -1263,6 +1272,8 @@ impl ChatView {
         self.link_task = None;
         self.dismissed_link = None;
         self.composer.update(cx, |input, cx| input.set_text("", cx));
+        // At the newest, where a glide still going would pull it back from.
+        self.glide = None;
         self.list.scroll_to(gpui::ListOffset { item_ix: self.rows.len(), offset_in_item: px(0.) });
         self.composer.read(cx).focus(window);
     }
@@ -2602,10 +2613,21 @@ impl ChatView {
                 // The glide to new messages, over 180 ms with `--ease-out`.
                 if let Some((from, began)) = self.glide {
                     let t = began.elapsed().as_secs_f32() / 0.18;
+                    // A row from the top down that's new or changed counts as no height until
+                    // it's laid out, which would move the end, and the glide with it, up by its
+                    // height for a frame: the rows above seemed to jump down and back as a
+                    // message went from sending to sent. It waits a frame for them instead.
+                    let top = self.list.logical_scroll_top().item_ix;
+                    let unmeasured = (top..count).any(|ix| self.list.bounds_for_item(ix).is_none());
                     if t >= 1. {
                         self.list.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
                         self.glide = None;
+                        self.glide_waited = false;
+                    } else if unmeasured && !self.glide_waited {
+                        self.glide_waited = true;
+                        window.request_animation_frame();
                     } else {
+                        self.glide_waited = false;
                         let now_at = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
                         let end = f32::from(self.list.max_offset_for_scrollbar().height);
                         let target = from + (end - from) * super::motion::ease_out()(t);
