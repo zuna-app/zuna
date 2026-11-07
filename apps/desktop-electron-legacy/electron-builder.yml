@@ -44,10 +44,14 @@ win:
     - target: nsis
       arch: [x64]
   icon: resources/icon.png
+# On Windows it's Zuna Legacy in the Start menu, on the desktop and in Apps, so that it never takes
+# the shortcuts or entry of the native app (apps/desktop/installer/zuna.nsi), which is Zuna.
 nsis:
   oneClick: true
   perMachine: false
   deleteAppDataOnUninstall: false
+  shortcutName: Zuna Legacy
+  uninstallDisplayName: Zuna Legacy
   artifactName: Zuna-Setup-${version}.${ext}
 # Apple silicon only: no build for Intel Macs is published.
 mac:

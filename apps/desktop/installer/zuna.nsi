@@ -62,8 +62,8 @@ SectionEnd
 
 Section "Uninstall"
   !insertmacro CloseRunning
-  Delete "$SMPROGRAMS\Zuna Native.lnk"
-  Delete "$DESKTOP\Zuna Native.lnk"
+  Delete "$SMPROGRAMS\Zuna.lnk"
+  Delete "$DESKTOP\Zuna.lnk"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
   ; zuna:// stays with whichever app has it now, if that isn't this one.
@@ -75,19 +75,20 @@ SectionEnd
 
 !else
 
-; Called Zuna Native in the Start menu and in Apps, as its data folder is, so it never takes the
-; desktop app's shortcuts or entry when both are installed.
+; Called Zuna in the Start menu, on the desktop and in Apps. The desktop app is Zuna Legacy there
+; (electron-builder.yml), so neither takes the other's shortcuts or entry when both are installed.
+; The folders keep Zuna Native, as the desktop app's are called Zuna.
 Section "Zuna"
   !insertmacro CloseRunning
   SetOutPath "$INSTDIR"
   File /r "${SOURCE}\*.*"
   File "/oname=Uninstall Zuna.exe" "${UNINSTALLER}"
 
-  CreateShortCut "$SMPROGRAMS\Zuna Native.lnk" "$INSTDIR\Zuna.exe"
+  CreateShortCut "$SMPROGRAMS\Zuna.lnk" "$INSTDIR\Zuna.exe"
   IfSilent +2
-  CreateShortCut "$DESKTOP\Zuna Native.lnk" "$INSTDIR\Zuna.exe"
+  CreateShortCut "$DESKTOP\Zuna.lnk" "$INSTDIR\Zuna.exe"
 
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Zuna Native"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Zuna"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "Zuna contributors"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\Zuna.exe"

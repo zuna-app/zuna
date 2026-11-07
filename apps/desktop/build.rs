@@ -51,7 +51,8 @@ fn link_ffmpeg() {
 }
 
 /// The app's icon in the exe, for Explorer, the taskbar and shortcuts, from the desktop's own
-/// sizes: an ICO of PNGs, which Windows has read since Vista, compiled in as a resource.
+/// sizes: an ICO of PNGs, which Windows has read since Vista, compiled in as a resource, with its
+/// name and version, which Task Manager shows as the app's name rather than Zuna.exe.
 fn embed_icon(root: &str) {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
@@ -83,6 +84,27 @@ fn embed_icon(root: &str) {
     let icon = out.join("zuna.ico");
     std::fs::write(&icon, ico).unwrap();
     let rc = out.join("zuna.rc");
-    std::fs::write(&rc, format!("1 ICON \"{}\"\n", icon.display().to_string().replace('\\', "\\\\"))).unwrap();
+    println!("cargo:rerun-if-env-changed=ZUNA_VERSION");
+    let version = std::env::var("ZUNA_VERSION").unwrap_or_else(|_| std::env::var("CARGO_PKG_VERSION").unwrap());
+    let mut numbers: Vec<u16> = version.split(['.', '-', '+']).map(|part| part.parse().unwrap_or(0)).take(4).collect();
+    numbers.resize(4, 0);
+    let numbers = numbers.iter().map(u16::to_string).collect::<Vec<_>>().join(",");
+    let strings: String = [
+        ("CompanyName", "Zuna contributors"),
+        ("FileDescription", "Zuna"),
+        ("FileVersion", version.as_str()),
+        ("InternalName", "Zuna"),
+        ("LegalCopyright", "Zuna contributors. Licensed under AGPL-3.0."),
+        ("OriginalFilename", "Zuna.exe"),
+        ("ProductName", "Zuna"),
+        ("ProductVersion", version.as_str()),
+    ]
+    .iter()
+    .map(|(key, value)| format!("      VALUE \"{key}\", \"{value}\"\n"))
+    .collect();
+    let info = format!(
+        "1 VERSIONINFO\nFILEVERSION {numbers}\nPRODUCTVERSION {numbers}\nFILEOS 0x40004\nFILETYPE 0x1\nBEGIN\n  BLOCK \"StringFileInfo\"\n  BEGIN\n    BLOCK \"040904b0\"\n    BEGIN\n{strings}    END\n  END\n  BLOCK \"VarFileInfo\"\n  BEGIN\n    VALUE \"Translation\", 0x409, 1200\n  END\nEND\n"
+    );
+    std::fs::write(&rc, format!("1 ICON \"{}\"\n{info}", icon.display().to_string().replace('\\', "\\\\"))).unwrap();
     embed_resource::compile(&rc, embed_resource::NONE).manifest_optional().unwrap();
 }
