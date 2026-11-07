@@ -256,7 +256,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     let faint = if own { theme.bubble_own_faint } else { theme.text2 };
     let meta_color = if bare { theme.text3 } else { theme.bubble_meta };
 
-    let meta = meta_element(message, own, is_deleted, context.read_up_to, meta_color, only_images, &theme);
+    let meta = meta_element(message, own, is_deleted, context.read_up_to, meta_color, only_images, &theme, window);
 
     let mut bubble = div()
         .relative()
@@ -574,7 +574,11 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     row.into_any_element()
 }
 
-fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: f64, color: Hsla, overlay: bool, theme: &Theme) -> gpui::Div {
+/// How long a message can take to send before it's shown as waiting, with the clock in place of
+/// its tick: as long as its bubble waits to dim.
+const SLOW_SEND_MS: f64 = 500.;
+
+fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: f64, color: Hsla, overlay: bool, theme: &Theme, window: &mut Window) -> gpui::Div {
     let color = if overlay { gpui::white() } else { color };
     let mut meta = div().flex().flex_none().items_center().gap(px(3.)).h(px(16.)).text_size(px(11.5)).line_height(px(16.)).text_color(color).whitespace_nowrap();
     if overlay {
@@ -594,23 +598,36 @@ fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: 
     }
     meta = meta.child(format_time(message.created_at));
     if own && !is_deleted {
+        let ticks = |read: bool| {
+            gpui::svg()
+                .path(if read { "icons/ticks-read.svg" } else { "icons/ticks-sent.svg" })
+                .w(px(18.))
+                .h(px(10.))
+                .text_color(if read { theme.accent_text } else { color })
+        };
+        // Ticks pop in when they first show, as `.msg.is-fresh .msg-tick`, under one id while the
+        // message sends and once it's sent, so a quick send's tick is simply there all along. Shown
+        // only after the clock, they're new to GPUI, and pop in then.
+        let popping = |ticks: gpui::Svg| ticks.enter(SharedString::from(format!("tick-sent-{}", message.id)), Enter::Pop, 120).into_any_element();
         let tick: AnyElement = match message.status.as_str() {
-            // `.msg-tick.is-sending`: only after 350 ms, faded in.
-            "sending" => icon("clock", 11., color).enter_after(SharedString::from(format!("tick-sending-{}", message.id)), Enter::Fade, 350, 120).into_any_element(),
+            // Shown as sent at once, as nearly every message is a moment later. Its time is this
+            // device's own until the server takes it, so this is how long it's been sending.
+            "sending" if read_up_to >= 0. && crate::format::now_ms() - message.created_at < SLOW_SEND_MS => {
+                // Drawn again to show the clock if it's still sending by then.
+                window.request_animation_frame();
+                popping(ticks(false))
+            }
+            // `.msg-tick.is-sending`: once it's been sending for as long as the bubble takes to dim.
+            "sending" => icon("clock", 11., color).enter(SharedString::from(format!("tick-sending-{}", message.id)), Enter::Fade, 120).into_any_element(),
             "failed" => icon("circle-alert", 12., theme::color(theme::hex(0xf4bcbe))).into_any_element(),
             _ => match message.seq {
                 Some(seq) if read_up_to >= 0. => {
                     let read = read_up_to >= seq;
-                    let ticks = gpui::svg()
-                        .path(if read { "icons/ticks-read.svg" } else { "icons/ticks-sent.svg" })
-                        .w(px(18.))
-                        .h(px(10.))
-                        .text_color(if read { theme.accent_text } else { color });
-                    // A just-sent message's ticks pop in, as `.msg.is-fresh .msg-tick`.
+                    // A just-sent message's ticks, or one sent from another device.
                     if crate::format::now_ms() - message.created_at < 1500. {
-                        ticks.enter(SharedString::from(format!("tick-sent-{}", message.id)), Enter::Pop, 120).into_any_element()
+                        popping(ticks(read))
                     } else {
-                        ticks.into_any_element()
+                        ticks(read).into_any_element()
                     }
                 }
                 _ => div().into_any_element(),

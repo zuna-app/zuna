@@ -494,13 +494,14 @@ private struct MessageItem: View {
         .accessibilityIdentifier(A11y.Chat.meta(message.id))
     }
 
-    /// The desktop's marks: a clock while sending, a thin tick once sent, and a
-    /// second beside it, in the accent's color, once read.
+    /// The desktop's marks: a thin tick once sent, and at once while sending, a
+    /// clock in its place if sending takes a while, and a second tick beside the
+    /// first, in the accent's color, once read.
     @ViewBuilder
     private var ticks: some View {
         switch message.status {
         case .sending:
-            DesktopIcon.clock.view().accessibilityLabel("Sending")
+            SendingMark(createdAt: message.createdAt, tick: context.readUpTo >= 0)
         case .failed:
             Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not sent")
         default:
@@ -530,6 +531,34 @@ private struct MessageItem: View {
 }
 
 /// What a long press on a message offers, as the desktop's message menu: reactions, then actions.
+/// A message still sending, shown as sent at once, as nearly every message is a
+/// moment later. The clock takes the tick's place only once it's taken as long
+/// as the desktop's bubble waits to dim. Its time is this device's own until the
+/// server takes it, so one found sending for longer than that shows the clock.
+private struct SendingMark: View {
+    let createdAt: Int
+    /// Whether it has a tick at all, which it hasn't where nobody's reading is known.
+    let tick: Bool
+    @State private var slow = false
+
+    var body: some View {
+        Group {
+            if slow {
+                DesktopIcon.clock.view().transition(.opacity)
+            } else if tick {
+                DesktopIcon.sent.view()
+            }
+        }
+        .accessibilityLabel("Sending")
+        .task {
+            let waited = Date.now.timeIntervalSince1970 * 1000 - Double(createdAt)
+            if waited < 500 { try? await Task.sleep(for: .milliseconds(500 - waited)) }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.12)) { slow = true }
+        }
+    }
+}
+
 struct MessageMenu: View {
     let context: MessageRowContext
     let actions: ChatActions
