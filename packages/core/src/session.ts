@@ -3177,23 +3177,13 @@ export class ServerSession {
   }
 
   /**
-   * A commit says who it adds, but joining takes a whole tree on trust, so whoever's
-   * in it that this device hadn't heard of gets the same warning as an unexpected
-   * join. A brand new device has heard of nobody, and takes the tree as it finds it.
+   * Whoever is in a tree this device joins is known from then on. Who may be there isn't
+   * this device's memory to judge: a group's roster says who was let in, a DM can only
+   * hold its two people, and anyone can come into a channel, and checkTree has already
+   * warned about anyone else.
    */
   private noteArrivalsAtJoin(groupId: string): void {
-    const known = this.knownMembers(groupId);
-    const inTree = this.treeUsers(groupId);
-    // Anyone on the server can come into a channel.
-    if (known.size > 0 && this.groups.get(groupId)?.kind !== "channel") {
-      const group = this.groups.get(groupId);
-      for (const userId of inTree) {
-        // In a group, the roster says who was let in, and checkTree warns about anyone else.
-        if (group?.kind === "group") continue;
-        if (!known.has(userId) && userId !== this.account.userId) this.addSystemRow(groupId, Date.now(), userId, { type: "unexpected_join", actorId: userId });
-      }
-    }
-    this.setKnownMembers(groupId, new Set([...known, ...inTree]));
+    this.setKnownMembers(groupId, new Set([...this.knownMembers(groupId), ...this.treeUsers(groupId)]));
   }
 
   /** Makes sure this device can use the group, starting it if nobody has yet. */
@@ -3837,15 +3827,12 @@ export class ServerSession {
       // with no device in the group does, so a rejoin can never go unnoticed.
       if (!usersBefore.has(senderCert.userId)) {
         const group = this.groups.get(groupId);
-        if (group?.kind === "group" && !this.admitted(group, senderCert.userId)) {
-          // checkTree has already warned about them, and they're being removed.
-        } else if (known.size > 0 && !known.has(senderCert.userId) && group?.kind !== "group") {
-          // Nobody in the chat added this person. Shown as a warning, never hidden.
-          this.addSystemRow(groupId, event.created_at, senderCert.userId, {
-            type: "unexpected_join",
-            actorId: senderCert.userId,
-          }, event.seq);
-        } else {
+        // A group's roster says who may be in it, and a DM can only hold its two people,
+        // whether or not this device saw them there before: it may have joined while their
+        // devices were out, or didn't check out. checkTree has already warned about anyone
+        // else, and they're being removed.
+        const belongs = group?.kind === "group" ? this.admitted(group, senderCert.userId) : !!group && this.dmPeople(group).includes(senderCert.userId);
+        if (belongs) {
           this.addSystemRow(groupId, event.created_at, senderCert.userId, {
             type: "member_rejoined",
             actorId: senderCert.userId,

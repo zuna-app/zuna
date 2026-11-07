@@ -1106,6 +1106,31 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     expect(notices).toEqual([]);
     expect(sessionOf(bob).treeUsers(groupId)).toContain(dave.userId);
   });
+
+  it("calls the other person of a DM back once verified, not unexpected, on a device that never saw them there", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    carol.session.sendMessage(`user:${bob.userId}`, { text: "hello" });
+    await waitFor(() => bob.texts(`user:${carol.userId}`).includes("hello"), "delivery");
+    const groupId = carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;
+    const notices = () => {
+      const rows = sessionOf(carol).db.all("SELECT id, body FROM messages WHERE group_id = ? AND id LIKE 'sys-%'", [groupId]) as { id: string; body: Uint8Array }[];
+      return rows.map((row) => sessionOf(carol).openJson("message", `${groupId}/${row.id}`, row.body).system.type as string);
+    };
+    // As a new device of carol's that joined while it held another key for bob, so his device didn't check out and was removed.
+    sessionOf(carol).db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [sessionOf(carol).sealPin(bob.userId, wasm.signingKeygen().publicKey), bob.userId]);
+    sessionOf(carol).setKnownMembers(groupId, [carol.userId]);
+    await sessionOf(carol).checkTree(groupId);
+    await waitFor(() => !(sessionOf(carol).treeMembers(groupId) as { userId: string }[]).some((member) => member.userId === bob.userId), "bob's device to be removed", 30_000);
+    const warned = notices().filter((type) => type === "unexpected_join").length;
+    expect(warned).toBeGreaterThan(0);
+
+    await carol.session.markVerified(bob.userId, carol.session.safetyCheck(bob.userId)!.covers);
+    bob.session.sendMessage(`user:${carol.userId}`, { text: "back" });
+    await waitFor(() => carol.texts(`user:${bob.userId}`).includes("back"), "bob to rejoin", 30_000);
+    await waitFor(() => notices().includes("member_rejoined"), "the rejoin notice");
+    expect(notices().filter((type) => type === "unexpected_join").length).toBe(warned);
+  });
 });
 
 describe("a leaf naming someone nobody can check yet (Z-43)", () => {
