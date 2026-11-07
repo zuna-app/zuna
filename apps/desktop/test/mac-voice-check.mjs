@@ -49,7 +49,8 @@ try {
   check("LiveKit starts", media.exitCode === null, media.output.slice(-300));
   const { setupLink } = await startServer(serverBinary, ["--livekit-url", liveKitUrl, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
 
-  const first = await startApp("first", { ZUNA_FAKE_MIC: "1", RUST_LOG: "info,zuna=debug" });
+  // Moving bars in place of a screen, past macOS's picker, which nobody's here to click.
+  const first = await startApp("first", { ZUNA_FAKE_MIC: "1", ZUNA_FAKE_SCREEN: "1", RUST_LOG: "info,zuna=debug" });
   apps.push(first);
   await sleep(2000);
   await first.shot("welcome");
@@ -109,6 +110,22 @@ try {
   check("in a voice channel, each hears the other's tone", heard, `owner ${loudest(first)}, guest ${loudest(second)}`);
   await first.shot("voice");
   await second.shot("voice");
+
+  // --- Sharing a screen: bars from the owner, captured and encoded on the GPU, drawn as the guest decodes them ---
+  await first.click(855, 795);
+  await sleep(1200);
+  await first.shot("screen-picker");
+  await first.click(904, 674);
+  const shared = await until(() => /screen share publishing from this connection/.test(first.log()), "the owner's share to go out", 30_000).catch(() => false);
+  check("a screen is shared from the app's own connection", shared, first.log().split("\n").filter((line) => /screen/i.test(line)).slice(-3).join(" | "));
+  const onGpu = await until(() => /video: decoded on the GPU at (\d+)×(\d+)/.exec(second.log()), "the guest to decode the share", 30_000).catch(() => null);
+  check("the guest decodes the share with VideoToolbox and draws it from the GPU", !!onGpu, second.log().split("\n").filter((line) => /video|screen/i.test(line)).slice(-3).join(" | "));
+  await sleep(1500);
+  await second.shot("watching-share");
+  await first.shot("sharing");
+  // Stopping, from the same button.
+  await first.click(855, 795);
+  await sleep(1500);
 
   // --- Leaving, and the devices Core Audio lists ---
   await first.click(1017, 795);

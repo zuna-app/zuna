@@ -200,7 +200,9 @@ impl Render for ScreenPicker {
         // What the limits leave out of the lists, which is nothing for someone they don't apply to.
         let limit = |value: u32| if limits.is_some() { value } else { 0 };
         let max_kbps = limit(rules.as_ref().map(|rules| rules.max_kbps).unwrap_or(0));
-        let program = crate::voice::screen::program_path().is_some();
+        // On macOS the app captures the picture itself, and the program only takes the sound.
+        let has_program = crate::voice::screen::program_path().is_some();
+        let program = cfg!(target_os = "macos") || has_program;
         let source = self.source();
         let pick = self.sound_pick(source.as_ref(), settings.screen_sound_by_default);
 
@@ -331,7 +333,7 @@ impl Render for ScreenPicker {
         if let Some(limits) = limits {
             body.push(div().text_size(px(12.5)).text_color(theme.text2).child(limits).into_any_element());
         }
-        if terms.sound && program {
+        if terms.sound && has_program {
             // Whose sound goes with the share: nobody's, everything but Zuna's, or one app's.
             let window_app = self.window_app.as_ref().filter(|(id, _)| Some(id) == self.chosen.as_ref()).and_then(|(_, app)| app.clone());
             let mut listed: Vec<(SoundApp, bool)> = Vec::new();

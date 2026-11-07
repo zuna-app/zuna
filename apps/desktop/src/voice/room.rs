@@ -106,6 +106,10 @@ pub struct Frame {
     pub bgra: Arc<Vec<u8>>,
     /// Counts up with each new frame, so a view knows when to draw again.
     pub serial: u64,
+    /// On macOS, what VideoToolbox decoded, as it is on the GPU, in place of `bgra`, which is
+    /// then empty: GPUI draws it from there, so it never passes through the CPU.
+    #[cfg(target_os = "macos")]
+    pub surface: Option<crate::platform::screen_capture::Picture>,
 }
 
 pub type Feed = Arc<Mutex<Option<Frame>>>;
@@ -191,6 +195,9 @@ pub struct VoiceRoom {
     mic: Mutex<Option<(NativeAudioSource, LocalTrackPublication)>>,
     camera: Mutex<Option<(LocalTrackPublication, crate::media::record::Camera, Feed)>>,
     share_sound: Mutex<Option<(NativeAudioSource, LocalTrackPublication)>>,
+    /// On macOS a share's picture goes from this connection, as a browser's does.
+    #[cfg(target_os = "macos")]
+    share_video: Mutex<Option<(NativeVideoSource, LocalTrackPublication)>>,
     pub server_muted: AtomicBool,
     pub url: String,
 }
@@ -242,7 +249,7 @@ impl VoiceRoom {
         }
         let (sender, receiver) = unbounded();
         tokio_spawn(watch(room.clone(), shared.clone(), events, sender));
-        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
+        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), #[cfg(target_os = "macos")] share_video: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
     }
 
     /// LiveKit's room, for reading its statistics.
@@ -444,7 +451,7 @@ impl VoiceRoom {
             livekit::webrtc::native::yuv_helper::argb_to_i420(&bgra, width * 4, y, stride_y, u, stride_u, v, stride_v, width as i32, height as i32);
             let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_micros() as i64).unwrap_or(0);
             sending.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: at, frame_metadata: None, buffer });
-            show(&preview, Frame { width, height, bgra: Arc::new(bgra), serial: serial.fetch_add(1, Ordering::Relaxed) + 1 });
+            show(&preview, Frame { width, height, bgra: Arc::new(bgra), serial: serial.fetch_add(1, Ordering::Relaxed) + 1, #[cfg(target_os = "macos")] surface: None });
         })?;
         let track = LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(source));
         let options = TrackPublishOptions {
@@ -475,6 +482,36 @@ impl VoiceRoom {
 
     pub async fn stop_share_sound(&self) {
         let taken = self.share_sound.lock().take();
+        if let Some((_, publication)) = taken {
+            self.room.local_participant().unpublish_track(&publication.sid()).await.ok();
+        }
+    }
+
+    // --- A share's picture, on macOS ---
+
+    /// Sends a screen share's picture from this connection, as the Electron app sends
+    /// Chromium's on macOS: H.264 from VideoToolbox, in one layer, at the server's terms.
+    #[cfg(target_os = "macos")]
+    pub async fn start_share_video(&self, width: u32, height: u32, fps: u32, kbps: u32) -> Result<NativeVideoSource, String> {
+        let source = NativeVideoSource::new(VideoResolution { width, height }, true);
+        let track = LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source.clone()));
+        let options = TrackPublishOptions {
+            source: TrackSource::Screenshare,
+            video_codec: VideoCodec::H264,
+            simulcast: false,
+            video_encoding: Some(VideoEncoding { max_bitrate: kbps as u64 * 1000, max_framerate: fps as f64 }),
+            video_encoder: livekit::options::VideoEncoderBackend::VideoToolbox,
+            ..Default::default()
+        };
+        let publication = self.room.local_participant().publish_track(LocalTrack::Video(track), options).await.map_err(|error| error.to_string())?;
+        self.shared.apply_sending_index(&self.room);
+        *self.share_video.lock() = Some((source.clone(), publication));
+        Ok(source)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn stop_share_video(&self) {
+        let taken = self.share_video.lock().take();
         if let Some((_, publication)) = taken {
             self.room.local_participant().unpublish_track(&publication.sid()).await.ok();
         }
@@ -607,6 +644,15 @@ impl Shared {
                         if stopping.load(Ordering::Relaxed) {
                             break;
                         }
+                        #[cfg(target_os = "macos")]
+                        if let Some((width, height, picture)) = crate::platform::screen_capture::decoded(frame.buffer.as_ref()) {
+                            if serial == 0 {
+                                log::debug!("video: decoded on the GPU at {width}×{height}, drawn from there");
+                            }
+                            serial += 1;
+                            show(&writing, Frame { width, height, bgra: Arc::new(Vec::new()), serial, surface: Some(picture) });
+                            continue;
+                        }
                         let i420 = frame.buffer.to_i420();
                         let (width, height) = (i420.width(), i420.height());
                         let (stride_y, stride_u, stride_v) = i420.strides();
@@ -615,7 +661,7 @@ impl Shared {
                         // libyuv's ARGB is BGRA in memory, which is what GPUI draws.
                         livekit::webrtc::native::yuv_helper::i420_to_argb(y, stride_y, u, stride_u, v, stride_v, &mut bgra, width * 4, width as i32, height as i32);
                         serial += 1;
-                        show(&writing, Frame { width, height, bgra: Arc::new(bgra), serial });
+                        show(&writing, Frame { width, height, bgra: Arc::new(bgra), serial, #[cfg(target_os = "macos")] surface: None });
                     }
                 });
                 self.videos.lock().insert(sid, RemoteVideo { feed, stop });

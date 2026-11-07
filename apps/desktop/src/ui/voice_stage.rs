@@ -139,7 +139,18 @@ impl VoiceStage {
         Some(image)
     }
 
+    /// What VideoToolbox decoded, drawn by GPUI from the GPU as it is, on macOS.
+    #[cfg(target_os = "macos")]
+    fn surface(tile: &VideoTile, fit: gpui::ObjectFit) -> Option<AnyElement> {
+        let picture = tile.feed.lock().as_ref()?.surface.clone()?;
+        Some(gpui::surface(picture.0).size_full().object_fit(fit).into_any_element())
+    }
+
     fn video(&mut self, tile: &VideoTile, contain: bool) -> AnyElement {
+        #[cfg(target_os = "macos")]
+        if let Some(surface) = Self::surface(tile, if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Cover }) {
+            return surface;
+        }
         match self.picture(tile, !contain) {
             Some(image) => img(image).size_full().object_fit(if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Fill }).rounded(RADIUS_L).into_any_element(),
             None => div().size_full().bg(gpui::black()).into_any_element(),
@@ -334,7 +345,13 @@ impl VoiceStage {
     fn screen_tile(&mut self, tile: &VideoTile, focused: bool, size: (f32, f32), full: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let name = self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(&tile.user_id)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
-        let video = if full {
+        #[cfg(target_os = "macos")]
+        let surface = if full { Self::surface(tile, gpui::ObjectFit::Contain) } else { None };
+        #[cfg(not(target_os = "macos"))]
+        let surface: Option<AnyElement> = None;
+        let video = if let Some(surface) = surface {
+            surface
+        } else if full {
             match self.picture(tile, false) {
                 Some(image) => img(image).size_full().object_fit(gpui::ObjectFit::Contain).into_any_element(),
                 None => div().size_full().into_any_element(),

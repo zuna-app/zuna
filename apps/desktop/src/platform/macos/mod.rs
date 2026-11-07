@@ -9,6 +9,7 @@ pub mod location;
 mod menu;
 pub mod notifications;
 pub mod ptt;
+pub mod screen_capture;
 pub mod screens;
 pub mod tray;
 pub mod updates;

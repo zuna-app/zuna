@@ -361,6 +361,9 @@ pub struct ShareHandles {
     sound_watch: Option<Task<()>>,
     /// What the native program said last about how it's going.
     pub stats: Option<Value>,
+    /// On macOS, the capture in the app, whose picture goes from this device's own connection.
+    #[cfg(target_os = "macos")]
+    capture: Option<crate::platform::screen_capture::Capture>,
 }
 
 impl Voice {
@@ -370,6 +373,13 @@ impl Voice {
         }
         if let Some(mut sound) = self.share.sound.take() {
             sound.stop();
+        }
+        #[cfg(target_os = "macos")]
+        if self.share.capture.take().is_some() {
+            crate::platform::screen_capture::picked_done();
+            if let Some(room) = self.room.clone() {
+                crate::host::tokio().spawn(async move { room.stop_share_video().await });
+            }
         }
         if let Some(room) = &self.room {
             room.set_send_key_hook(None);
@@ -436,6 +446,12 @@ impl Voice {
             .collect::<Vec<_>>();
         let share = ShareInfo { name: choice.source.name.clone(), native: true, fps: terms.fps, kbps: terms.kbps, height: terms.height, held, info: None };
         let core = self.core(cx);
+        #[cfg(target_os = "macos")]
+        {
+            self.start_screen_here(choice, terms, share, core, room, server_id, channel_id, wants_sound, settings.screen_cursor, cx);
+            return;
+        }
+        #[allow(unreachable_code)]
         cx.spawn(async move |this, cx| {
             let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "browser": false, "sound": wants_sound })]).await;
             let access = match access {
@@ -560,6 +576,128 @@ impl Voice {
                     cx.background_executor().timer(Duration::from_millis(100)).await;
                 }
                 log::info!("screen share sound may go out: {}", room.may_publish(SCREEN_SOUND_SOURCE));
+                this.update(cx, |voice, cx| voice.start_share_sound(room.clone(), terms.sound_kbps, choice.sound_app.clone(), cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    /// On macOS: macOS's picker chooses, the app captures with ScreenCaptureKit, and the picture
+    /// goes from this device's own connection, as Chromium's does from the Electron app there,
+    /// each frame handed to VideoToolbox as it was captured, in an IOSurface.
+    #[cfg(target_os = "macos")]
+    #[allow(clippy::too_many_arguments)]
+    fn start_screen_here(&mut self, choice: ScreenChoice, terms: super::rules::ScreenTerms, share: ShareInfo, core: crate::host::Core, room: Arc<VoiceRoom>, server_id: String, channel_id: String, wants_sound: bool, cursor: bool, cx: &mut Context<Self>) {
+        use crate::platform::screen_capture as capture;
+        use livekit::webrtc::prelude::{VideoFrame, VideoRotation};
+        use livekit::webrtc::video_frame::native::NativeBuffer;
+        // Shown now, from the window's thread, where macOS's picker belongs.
+        let picking = (!capture::fake()).then(|| capture::pick(!choice.source.screen));
+        cx.spawn(async move |this, cx| {
+            let picked = match picking {
+                Some(picking) => match cx.background_executor().spawn(async move { picking.recv().ok() }).await {
+                    Some(Ok(picked)) => Some(picked),
+                    // Cancelled, with nothing to say, or the picker couldn't start.
+                    Some(Err(problem)) => {
+                        capture::picked_done();
+                        if !problem.is_empty() {
+                            this.update(cx, |voice, cx| voice.toast(format!("Couldn't share your screen. {problem}"), ToastKind::Error, cx)).ok();
+                        }
+                        return;
+                    }
+                    None => return,
+                },
+                None => None,
+            };
+            let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "browser": true, "sound": wants_sound })]).await;
+            let access = match access {
+                Ok(access) => access,
+                Err(error) => {
+                    capture::picked_done();
+                    this.update(cx, |voice, cx| voice.toast(error.message, ToastKind::Error, cx)).ok();
+                    return;
+                }
+            };
+            let sound_allowed = access.get("sound").and_then(Value::as_bool).unwrap_or(false);
+            // The media server lets this connection share once the chat server has told it.
+            let waited = std::time::Instant::now();
+            while !room.may_publish(super::room::SCREEN_SOURCE) && waited.elapsed() < SHARE_PERMISSION_WAIT {
+                cx.background_executor().timer(Duration::from_millis(100)).await;
+            }
+            let (width, height) = match &picked {
+                Some(picked) => capture::size(picked, terms.height),
+                None => capture::fake_size(terms.height),
+            };
+            let publishing = room.clone();
+            let (fps, kbps) = (terms.fps, terms.kbps);
+            let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
+            let source = match source {
+                Ok(source) => source,
+                Err(problem) => {
+                    capture::picked_done();
+                    this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
+                    return;
+                }
+            };
+            let send = move |picture: capture::Picture| {
+                let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_micros() as i64).unwrap_or(0);
+                // SAFETY: the buffer comes with a reference of its own, which LiveKit takes.
+                let buffer = unsafe { NativeBuffer::from_cv_pixel_buffer(capture::into_native(picture)) };
+                source.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: at, frame_metadata: None, buffer });
+            };
+            let (stopped, mut ended) = unbounded::<Option<String>>();
+            let running = match picked {
+                Some(picked) => capture::capture(picked, terms.height, fps, cursor, send, move |problem| {
+                    stopped.unbounded_send(problem).ok();
+                }),
+                None => Ok(capture::capture_fake(terms.height, fps, send)),
+            };
+            let running = match running {
+                Ok(running) => running,
+                Err(problem) => {
+                    capture::picked_done();
+                    let stopping = room.clone();
+                    crate::host::tokio().spawn(async move { stopping.stop_share_video().await });
+                    this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
+                    return;
+                }
+            };
+            let ok = this
+                .update(cx, |voice, cx| {
+                    if voice.room.as_ref().is_none_or(|current| !Arc::ptr_eq(current, &room)) {
+                        drop(running);
+                        let stopping = room.clone();
+                        crate::host::tokio().spawn(async move { stopping.stop_share_video().await });
+                        return false;
+                    }
+                    voice.share.capture = Some(running);
+                    voice.screen = Some(share.clone());
+                    // macOS ends it as the picked window closes, or from Stop in the menu bar.
+                    voice.share.watch = Some(cx.spawn(async move |this, cx| {
+                        if let Some(problem) = ended.next().await {
+                            this.update(cx, |voice, cx| {
+                                if voice.share.capture.is_some() {
+                                    voice.end_share(true, cx);
+                                    if let Some(problem) = problem {
+                                        voice.toast(format!("Your screen share stopped: {problem}"), ToastKind::Error, cx);
+                                    }
+                                }
+                            })
+                            .ok();
+                        }
+                    }));
+                    voice.announce(cx);
+                    voice.sound(VoiceSound::SelfJoin);
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            log::info!("screen share publishing from this connection, {width}×{height}, sound {}", if sound_allowed { "allowed" } else { "not allowed" });
+            if ok && sound_allowed {
+                let waited = std::time::Instant::now();
+                while !room.may_publish(SCREEN_SOUND_SOURCE) && waited.elapsed() < SHARE_PERMISSION_WAIT {
+                    cx.background_executor().timer(Duration::from_millis(100)).await;
+                }
                 this.update(cx, |voice, cx| voice.start_share_sound(room.clone(), terms.sound_kbps, choice.sound_app.clone(), cx)).ok();
             }
         })
