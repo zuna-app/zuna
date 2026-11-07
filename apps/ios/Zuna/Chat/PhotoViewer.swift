@@ -33,6 +33,8 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         self.file = file
         self.image = image
         super.init(nibName: nil, bundle: nil)
+        // Over the whole screen the status bar stays the chat's unless the viewer takes it, and it covers a screenshot's top.
+        modalPresentationCapturesStatusBarAppearance = true
     }
 
     @available(*, unavailable)
@@ -58,6 +60,12 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.decelerationRate = .fast
+        if #available(iOS 26.0, *) {
+            // The system's blur at a scroll view's edges would smear a picture that reaches them, such as a phone's screenshot.
+            for edge in [scrollView.topEdgeEffect, scrollView.bottomEdgeEffect, scrollView.leftEdgeEffect, scrollView.rightEdgeEffect] {
+                edge.isHidden = true
+            }
+        }
         view.addSubview(scrollView)
 
         imageView.image = image

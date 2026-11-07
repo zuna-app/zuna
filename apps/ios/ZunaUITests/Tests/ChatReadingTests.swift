@@ -186,6 +186,64 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("the viewer to close") { !viewer.exists }
     }
 
+    /// A phone's screenshot fills the viewer, so nothing may lie over its top: not the
+    /// status bar, nor the blur iOS 26 puts at a scroll view's edges.
+    func testShowsAPhoneScreenshotWithNothingOverItsTop() throws {
+        let alice = try Peer("alice")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 1179, height: 2556)
+        let png = UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1179, height: 300))
+            for row in 0..<36 {
+                (row % 2 == 0 ? UIColor.systemBlue : UIColor.systemOrange).setFill()
+                context.fill(CGRect(x: 60, y: 360 + row * 60, width: 1059, height: 30))
+            }
+        }
+        let name = "screenshot-\(UUID().uuidString.prefix(4)).png"
+        try alice.sendImage(to: "user:\(bobId)", png: png, name: name, width: 1179, height: 2556, text: "")
+
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let tile = zuna.element(A11y.Chat.attachment(name))
+        XCTAssertTrue(tile.waitForExistence(timeout: 30))
+        try waitFor("the picture to load") { tile.value as? String == "Loaded" }
+        tile.tap()
+        let viewer = zuna.element(A11y.Chat.photoViewer)
+        XCTAssertTrue(viewer.waitForExistence(timeout: 10))
+
+        // The red band is the picture's top hundred points, above the buttons.
+        try waitFor("the top of the picture to show as it is") {
+            let shot = self.zuna.app.screenshot().image
+            let width = shot.size.width
+            return [6.0, 20, 34].allSatisfy { y in
+                stride(from: width * 0.04, through: width * 0.96, by: width / 24).allSatisfy { x in
+                    let (red, green, blue) = Self.color(of: shot, at: CGPoint(x: x, y: y))
+                    return red > 0.8 && green < 0.25 && blue < 0.25
+                }
+            }
+        }
+        zuna.screenshot("63b-screenshot-preview")
+        zuna.app.buttons["Close"].tap()
+        try waitFor("the viewer to close") { !viewer.exists }
+    }
+
+    /// One point's color in a screenshot, in sRGB from 0 to 1.
+    private static func color(of image: UIImage, at point: CGPoint) -> (CGFloat, CGFloat, CGFloat) {
+        guard let cgImage = image.cgImage else { return (0, 0, 0) }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        let x = (point.x * image.scale).rounded(.down), y = (point.y * image.scale).rounded(.down)
+        context?.draw(cgImage, in: CGRect(x: -x, y: y - CGFloat(cgImage.height) + 1, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
+        return (CGFloat(pixel[0]) / 255, CGFloat(pixel[1]) / 255, CGFloat(pixel[2]) / 255)
+    }
+
     func testShowsReactionsAndTogglesThemBothWays() throws {
         let alice = try Peer("alice")
         let id = try alice.send(to: "user:\(bobId)", ["text": "React to this \(UUID().uuidString.prefix(4))"])
