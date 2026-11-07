@@ -93,7 +93,9 @@ export function Features() {
               </span>
               {["peepoHappy", "peepoClap", "peepoSad"].map((name, index) => (
                 <span key={name} className={`emote-row ${index === 0 ? "is-active" : ""}`}>
-                  <i className={`emote emote-${index}`} />
+                  <span className="emote">
+                    <img src={`/emotes/${name}.webp`} alt="" />
+                  </span>
                   {name}
                 </span>
               ))}
