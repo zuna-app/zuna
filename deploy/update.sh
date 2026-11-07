@@ -704,6 +704,23 @@ restart() {
   fail "$unit didn't start."
 }
 
+# Shows what Apple said about the relay's APNs key, which the relay asks before it listens.
+apns_answer() {
+  local invocation lines=""
+  invocation="$(systemctl show -p InvocationID --value zuna-push)"
+  for _ in $(seq 1 10); do
+    lines="$(journalctl _SYSTEMD_INVOCATION_ID="$invocation" --no-pager -o cat 2>/dev/null | grep "the APNs key" | sed 's/^[0-9/]* [0-9:]* //' || true)"
+    if [[ "$lines" == *environment=production* && "$lines" == *environment=sandbox* ]]; then break; fi
+    sleep 0.5
+  done
+  if [ -z "$lines" ]; then return; fi
+  printf '%s\n' "$lines" | sed 's/^/  /'
+  if [[ "$lines" == *"Apple refuses"* ]]; then
+    echo "Phones can't register until Apple takes the key. Give the relay the right one, with its Key ID:"
+    echo "  sudo zuna-update --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG"
+  fi
+}
+
 if [ "$VOICE" = on ]; then
   if [ "$VOICE_RESTART" = 1 ]; then action=restart; else action=start; fi
   if [ "$LIVEKIT_NEW" = 1 ]; then binary=livekit-server; else binary=""; fi
@@ -717,7 +734,10 @@ if [ -n "$SERVER_IP" ]; then
 elif [ -n "$SERVER_DOMAIN" ]; then
   restart zuna zuna-server "http://$(local_address "$SERVER_PORT")/healthz"
 fi
-if [ -n "$RELAY_DOMAIN" ]; then restart zuna-push zuna-push "http://$(local_address "$RELAY_PORT")/healthz"; fi
+if [ -n "$RELAY_DOMAIN" ]; then
+  restart zuna-push zuna-push "http://$(local_address "$RELAY_PORT")/healthz"
+  if [ -f /etc/zuna/apns.p8 ]; then apns_answer; fi
+fi
 if [ -n "$WEB_DOMAIN" ]; then restart zuna-web zuna-web "http://$(local_address "$WEB_PORT")/healthz"; fi
 
 echo

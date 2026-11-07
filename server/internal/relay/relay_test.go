@@ -2,6 +2,7 @@ package relay_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -76,6 +78,7 @@ type harness struct {
 	url    string
 	client *http.Client
 	apns   *fakeAPNs
+	pusher *relay.APNs
 	relay  *relay.Relay
 	public *ecdsa.PublicKey
 }
@@ -101,7 +104,7 @@ func newHarness(t *testing.T) *harness {
 	server.EnableHTTP2 = true
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	return &harness{t: t, url: server.URL, client: server.Client(), apns: fake, relay: service, public: &key.PublicKey}
+	return &harness{t: t, url: server.URL, client: server.Client(), apns: fake, pusher: apns, relay: service, public: &key.PublicKey}
 }
 
 func (h *harness) post(path string, body any) (int, map[string]any) {
@@ -244,6 +247,36 @@ func (h *harness) checkToken(authorization string) {
 	r, s := new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:])
 	if !ecdsa.Verify(h.public, digest[:], r, s) {
 		h.t.Fatal("the token's signature doesn't verify")
+	}
+}
+
+// The relay asks Apple about its key as it starts, as a key Apple refuses
+// otherwise only shows as phones failing to register.
+func TestAsksAppleWhetherItTakesTheKey(t *testing.T) {
+	h := newHarness(t)
+	zeros := strings.Repeat("0", 64)
+	h.apns.reply = func(string) (int, string) { return http.StatusBadRequest, "BadDeviceToken" }
+	for environment, path := range map[string]string{"production": "/3/device/" + zeros, "sandbox": "/sandbox/3/device/" + zeros} {
+		if err := h.pusher.CheckKey(context.Background(), environment); err != nil {
+			t.Fatalf("a key Apple takes in %s: %v", environment, err)
+		}
+		checked := h.apns.last(t)
+		if checked.Path != path || checked.Headers.Get("apns-push-type") != "background" || checked.Body["zuna"] != nil {
+			t.Fatalf("the check in %s: %+v", environment, checked)
+		}
+		h.checkToken(checked.Headers.Get("authorization"))
+	}
+
+	h.apns.reply = func(string) (int, string) { return http.StatusForbidden, "InvalidProviderToken" }
+	var refused *relay.RefusedError
+	if err := h.pusher.CheckKey(context.Background(), "production"); !errors.As(err, &refused) || refused.Status != http.StatusForbidden || refused.Reason != "InvalidProviderToken" {
+		t.Fatalf("a key Apple refuses: %v", err)
+	}
+
+	// Not reaching Apple isn't Apple refusing the key.
+	h.apns.Close()
+	if err := h.pusher.CheckKey(context.Background(), "production"); err == nil || errors.As(err, &refused) {
+		t.Fatalf("Apple out of reach: %v", err)
 	}
 }
 

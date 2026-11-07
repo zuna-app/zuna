@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +23,14 @@ import (
 // ErrGone means Apple won't deliver to the device any more, such as after the
 // app was deleted; servers should forget it.
 var ErrGone = errors.New("the device can't be reached any more")
+
+// RefusedError is what Apple answered when it refused a push.
+type RefusedError struct {
+	Status int
+	Reason string
+}
+
+func (e *RefusedError) Error() string { return fmt.Sprintf("APNs answered %d %s", e.Status, e.Reason) }
 
 // APNs sends pushes through Apple's Push Notification service with a
 // token key (.p8 file), over HTTP/2.
@@ -152,9 +161,21 @@ func (a *APNs) Send(ctx context.Context, token, environment, kind string, voip b
 		case reply.Reason == "ExpiredProviderToken" && attempt == 0:
 			continue
 		default:
-			return fmt.Errorf("APNs answered %d %s", response.StatusCode, reply.Reason)
+			return &RefusedError{Status: response.StatusCode, Reason: reply.Reason}
 		}
 	}
+}
+
+// CheckKey asks Apple whether it takes the key in an environment, "production"
+// or "sandbox", with a silent push to a phone that can't exist: Apple checks the
+// key first, and answers BadDeviceToken once it takes it. A *RefusedError means
+// it doesn't.
+func (a *APNs) CheckKey(ctx context.Context, environment string) error {
+	err := a.Send(ctx, strings.Repeat("0", 64), environment, KindBackground, false, nil, "")
+	if errors.Is(err, ErrGone) {
+		return nil
+	}
+	return err
 }
 
 // token is the JWT that authenticates the relay to Apple. Apple wants a new

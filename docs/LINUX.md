@@ -69,7 +69,7 @@ For the server and the relay together, with the APNs key you downloaded:
 sudo /opt/zuna/deploy/update.sh --server chat.example.com --relay push.example.com --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
 ```
 
-The relay can also run on its own machine, with only `--relay`, `--apns-key` and `--apns-key-id`. Without an APNs key, the relay runs and phones can register, but pushes fail until you add one.
+The relay can also run on its own machine, with only `--relay`, `--apns-key` and `--apns-key-id`. Without an APNs key, or with one Apple refuses, the relay runs, but phones can't register and pushes fail until you add the right one. The script shows what Apple said about the key.
 
 To let people use Zuna in a browser too, add the web app, on a domain of its own:
 

@@ -296,6 +296,8 @@ scenario_relay() {
   relay_keys "$log" "push.zuna.test" "/root/AuthKey_ABC123DEFG.p8"
   grep -q "Its Key ID, from its name: ABC123DEFG" "$log" || echo "the Key ID wasn't taken from the file's name"
   grep -q "zuna-push is running" "$log" || { echo "the relay didn't start"; return; }
+  grep -q "Apple refuses the APNs key.*environment=production" "$log" && grep -q "Apple refuses the APNs key.*environment=sandbox" "$log" ||
+    echo "it didn't say Apple refuses the key"
   address="$(in_vm fedora sh -c "ip -4 -o addr show scope global | awk '{ split(\$4, a, \"/\"); print a[1]; exit }'")"
   in_vm fedora curl -fs -o /dev/null "http://$address:8090/healthz" || echo "the relay doesn't answer at $address:8090"
   in_vm fedora grep -q '^ZUNA_PUSH_APNS_KEY_ID=ABC123DEFG$' /etc/zuna/push.env || echo "the relay wasn't given the Key ID"

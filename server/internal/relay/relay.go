@@ -310,7 +310,7 @@ func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "busy")
 		return
 	case err != nil:
-		slog.Warn("checking a phone with APNs", "error", err)
+		slog.Warn("checking a phone with APNs", "environment", phone.environment(), "error", err)
 		writeError(w, http.StatusBadGateway, "push_failed")
 		return
 	}
@@ -400,7 +400,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	case errors.Is(err, errBusy):
 		writeError(w, http.StatusServiceUnavailable, "busy")
 	default:
-		slog.Warn("pushing through APNs", "error", err)
+		slog.Warn("pushing through APNs", "environment", target.environment(), "error", err)
 		writeError(w, http.StatusBadGateway, "push_failed")
 	}
 }

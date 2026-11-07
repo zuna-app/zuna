@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"zuna/server/internal/clientip"
 	"zuna/server/internal/relay"
@@ -60,6 +62,7 @@ func main() {
 		if apns, err = relay.NewAPNs(p8, *keyID, *teamID, *topic); err != nil {
 			fail("%v", err)
 		}
+		checkKey(apns, *keyID, *teamID)
 	} else {
 		slog.Warn("no APNs key: phones can't register, and pushes fail")
 	}
@@ -80,6 +83,26 @@ func main() {
 	slog.Info("zuna-push listening", "address", *listen, "version", version)
 	if err := server.ListenAndServe(); err != nil {
 		fail("%v", err)
+	}
+}
+
+// checkKey asks Apple whether it takes the APNs key in each environment, and says
+// so before the relay listens, as a key it refuses otherwise only shows as phones
+// failing to register. deploy/update.sh shows what it says.
+func checkKey(apns *relay.APNs, keyID, teamID string) {
+	for _, environment := range []string{"production", "sandbox"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := apns.CheckKey(ctx, environment)
+		cancel()
+		var refused *relay.RefusedError
+		switch {
+		case err == nil:
+			slog.Info("Apple takes the APNs key", "environment", environment, "key_id", keyID, "team", teamID)
+		case errors.As(err, &refused):
+			slog.Error("Apple refuses the APNs key, so phones can't register: check its Key ID, team and environments", "environment", environment, "key_id", keyID, "team", teamID, "error", err)
+		default:
+			slog.Warn("couldn't ask Apple about the APNs key", "environment", environment, "error", err)
+		}
 	}
 }
 
