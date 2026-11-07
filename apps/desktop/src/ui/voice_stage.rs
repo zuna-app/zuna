@@ -854,7 +854,22 @@ impl Render for VoiceStage {
             for user in &ringing {
                 tiles.push(self.ringing_tile(user, tile_size, cx));
             }
-            let measured = self.area.clone();
+            // The room the tiles have, measured as it's drawn in either layout, and drawn again at
+            // once when it changes. Only the grid measured it, so a stage made with a share
+            // already filling it, as coming back to the channel from a text chat makes one, drew
+            // the share at the least size until it was clicked. Nothing's drawn until it's known.
+            let (measured, stage_id) = (self.area.clone(), cx.entity_id());
+            let measure = canvas(
+                move |bounds, window, _| {
+                    if measured.replace(bounds) != bounds {
+                        window.on_next_frame(move |_, cx| cx.notify(stage_id));
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .inset_0();
+            let known = area.size.width > px(0.) && area.size.height > px(0.);
             let mut grid_area = div().flex_1().min_h_0().flex().flex_col().p(px(12.)).gap(px(GAP)).when(self.room.call, |el| el.pt_0());
             if let Some(focused) = &focused {
                 let focus_size = (area_width, (area_height - STRIP_HEIGHT - GAP).max(80.));
@@ -865,9 +880,12 @@ impl Render for VoiceStage {
                     let video = self.video(focused, true);
                     div().id("focused-camera").size_full().rounded(RADIUS_L).overflow_hidden().bg(gpui::black()).cursor_pointer().on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.set_focus(None, cx))).child(video).into_any_element()
                 };
-                grid_area = grid_area
-                    .child(div().flex_1().min_h_0().flex().items_center().justify_center().child(content))
-                    .child(div().id("voice-strip").flex_none().h(px(STRIP_HEIGHT)).flex().gap(px(8.)).overflow_x_scroll().children(tiles));
+                grid_area = grid_area.child(
+                    div().relative().flex_1().min_h_0().flex().flex_col().gap(px(GAP)).child(measure).when(known, |el| {
+                        el.child(div().flex_1().min_h_0().flex().items_center().justify_center().child(content))
+                            .child(div().id("voice-strip").flex_none().h(px(STRIP_HEIGHT)).flex().gap(px(8.)).overflow_x_scroll().children(tiles))
+                    }),
+                );
             } else {
                 grid_area = grid_area.child(
                     div()
@@ -880,8 +898,8 @@ impl Render for VoiceStage {
                         .items_center()
                         .gap(px(GAP))
                         .overflow_hidden()
-                        .child(canvas(move |bounds, _, _| measured.set(bounds), |_, _, _, _| {}).absolute().inset_0())
-                        .children(tiles.into_iter().map(|tile| div().flex_none().w(px(cell.0.floor())).h(px(cell.1.floor())).flex().items_center().justify_center().child(tile))),
+                        .child(measure)
+                        .when(known, |el| el.children(tiles.into_iter().map(|tile| div().flex_none().w(px(cell.0.floor())).h(px(cell.1.floor())).flex().items_center().justify_center().child(tile)))),
                 );
             }
             div()

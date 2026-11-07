@@ -34,6 +34,13 @@ function spreadIn(file, [x, y, width, height]) {
   return Number(execFileSync("magick", [file, "-crop", `${width}x${height}+${x}+${y}`, "+repage", "-colorspace", "Gray", "-format", "%[fx:standard_deviation]", "info:"], { encoding: "utf8" }));
 }
 
+/** The size of what isn't the stage's background in a part of a screenshot, as a share's black tile shows against it. */
+function tileIn(file, [x, y, width, height]) {
+  const box = execFileSync("magick", [file, "-crop", `${width}x${height}+${x}+${y}`, "+repage", "-alpha", "off", "-fuzz", "1.5%", "-fill", "#ff00ff", "-opaque", "#0f0f11", "-fuzz", "0", "-fill", "white", "+opaque", "#ff00ff", "-fill", "black", "-opaque", "#ff00ff", "-format", "%@", "info:"], { encoding: "utf8" });
+  const [, tileWidth, tileHeight] = box.match(/^(\d+)x(\d+)/) ?? [];
+  return { width: Number(tileWidth ?? 0), height: Number(tileHeight ?? 0) };
+}
+
 /** The share of a part of two screenshots that differs, from 0 to 1. */
 function changedIn(first, second, [x, y, width, height]) {
   const compared = spawnSync("magick", [first, second, "-crop", `${width}x${height}+${x}+${y}`, "+repage", "-fuzz", "3%", "-metric", "AE", "-compare", "-format", "%[distortion]", "info:"], { encoding: "utf8" });
@@ -298,6 +305,27 @@ try {
   const played = await loudestOn(speakers, 5);
   check("what the Electron app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
   await shot("04-both-talking");
+
+  // --- The Electron app's share, filling the stage, and the channel come back to ---
+  // KDE's chooser for the Electron app: the KWin's one screen. The share fills the stage as it
+  // starts, and a stage made again on coming back from another chat drew it at the least size.
+  await page.getByRole("button", { name: "Share your screen" }).first().click();
+  await page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await sleep(3000);
+  await drive({ do: "click", x: 700, y: 290 });
+  await page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await sleep(4000);
+  // Between the stage's header and the strip below a share that fills it.
+  const stageArea = [386, 90, 1014, 620];
+  const filled = tileIn(await shot("04-their-share"), stageArea);
+  await drive({ do: "click", x: 190, y: 397 });
+  await sleep(1000);
+  await drive({ do: "click", x: 134, y: 221 });
+  const again = tileIn(await shot("04-their-share-again"), stageArea);
+  check("someone's share fills the stage as it starts, and again coming back to the channel from another chat", filled.width > 900 && again.width === filled.width && again.height === filled.height, `${filled.width}x${filled.height}, then ${again.width}x${again.height}`);
+  await page.getByRole("button", { name: "Stop sharing" }).first().click();
+  await sleep(2000);
 
   // --- Stream stats, with both microphones muted, copied with the mouse alone ---
   await page.getByRole("button", { name: "Mute", exact: true }).first().click();
