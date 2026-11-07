@@ -25,7 +25,8 @@ type Row = { what: string; zuna: Cell; matrix: Cell; fluxer: Cell };
  *
  * Zuna's lines are the ones the rest of the page makes, from the code: MLS in every chat and channel, encrypted voice channels and calls, the sender's
  * previews, the search index on each device, history from the server on a new device, a username and password, and deploy/install.sh. Its frame rate
- * and resolution are each the most a share can be set to, not one share doing both.
+ * and resolution are each the most a share can be set to, not one share doing both, and one app's sound goes with a share from the desktop apps on
+ * Windows, Linux and macOS, as the Streaming section says.
  */
 const GROUPS: { name: string; rows: Row[] }[] = [
   {
@@ -74,8 +75,8 @@ const GROUPS: { name: string; rows: Row[] }[] = [
       },
       {
         what: "Screen sharing",
-        zuna: { mark: "yes", text: "Up to 240 fps or 4K" },
-        matrix: { mark: "yes", text: "With sound on some systems" },
+        zuna: { mark: "yes", text: "Up to 240 fps or 4K, with an app's sound" },
+        matrix: { mark: "yes", text: "Sound only on some systems" },
         fluxer: { mark: "partly", text: "720p at 30 fps, unless you pay" },
       },
       {
