@@ -89,6 +89,12 @@ impl VoiceStage {
         VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick }
     }
 
+    /// The channel's chat beside it closed, from its ×.
+    pub fn hide_chat(&mut self, cx: &mut Context<Self>) {
+        self.chat_open = false;
+        cx.notify();
+    }
+
     /// A video's newest picture, made into an image once per frame. Covering a 16:9 tile, it's
     /// cropped to 16:9 first: GPUI rounds a covering picture's corners past the tile's, where
     /// they'd be cut off square.
@@ -960,8 +966,12 @@ impl Render for VoiceStage {
         if !self.room.call && self.chat_open {
             if let Some(conversation) = &conversation {
                 if self.chat.is_none() {
-                    let (state, server_id, key) = (self.state.clone(), self.room.server_id.clone(), conversation.key.clone());
-                    self.chat = Some(cx.new(|cx| super::chat::ChatView::new(state, server_id, key, window, cx)));
+                    let (state, server_id, key, stage) = (self.state.clone(), self.room.server_id.clone(), conversation.key.clone(), cx.entity().downgrade());
+                    self.chat = Some(cx.new(|cx| {
+                        let mut chat = super::chat::ChatView::new(state, server_id, key, window, cx);
+                        chat.beside_voice = Some(stage);
+                        chat
+                    }));
                 }
                 if let Some(chat) = &self.chat {
                     wrap = wrap.child(div().flex_none().w(px(400.)).flex().border_l_1().border_color(theme.line).child(chat.clone()));

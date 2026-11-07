@@ -327,6 +327,24 @@ try {
   await page.getByRole("button", { name: "Stop sharing" }).first().click();
   await sleep(2000);
 
+  // --- The channel's chat beside the stage ---
+  // Without the member list a channel's chat has elsewhere, which took 240 of its 400 px.
+  await drive({ do: "click", x: 1020, y: 863 });
+  await sleep(800);
+  const beside = await shot("04-chat-beside");
+  check("the channel's chat opens beside the stage without the member list", spreadIn(beside, [1176, 84, 200, 70]) < 0.02 && spreadIn(beside, [1130, 836, 250, 36]) > 0.05, `spread ${spreadIn(beside, [1176, 84, 200, 70]).toFixed(3)} where the list was`);
+  await drive({ do: "click", x: 1150, y: 853 });
+  await drive({ do: "type", text: "Hello from beside the call" });
+  await drive({ do: "key", key: "enter" });
+  await page.getByRole("button", { name: "Show chat" }).first().click();
+  const arrived = await page.getByText("Hello from beside the call").first().waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+  check("and what's sent from it reaches the Electron app", arrived);
+  await page.getByRole("button", { name: "Hide chat" }).first().click();
+  // Its ×, at the end of its header.
+  await drive({ do: "click", x: 1374, y: 56 });
+  await sleep(800);
+  check("and its × hides it", spreadIn(await shot("04-chat-hidden"), [1130, 836, 250, 36]) < 0.02);
+
   // --- Stream stats, with both microphones muted, copied with the mouse alone ---
   await page.getByRole("button", { name: "Mute", exact: true }).first().click();
   await drive({ do: "click", x: 704, y: 863 });

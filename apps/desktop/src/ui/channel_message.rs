@@ -114,11 +114,13 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
         .flex()
         .flex_col()
         .items_start()
-        .child(div().size(px(68.)).rounded_full().bg(theme.bg3).flex().items_center().justify_center().child(icon("hash", 44., theme.text1)))
-        .child(div().my(px(8.)).text_size(px(32.)).line_height(px(40.)).font_weight(FontWeight::BOLD).child(format!("Welcome to #{title}!")))
-        .child(div().text_size(px(16.)).line_height(px(22.)).text_color(theme.text2).child(text))
+        // Its lines held to the column's width, to wrap where it's narrow, as beside a voice channel's stage.
+        .child(div().size(px(68.)).rounded_full().bg(theme.bg3).flex().items_center().justify_center().child(if context.voice_channel { icon("volume-2", 40., theme.text1) } else { icon("hash", 44., theme.text1) }))
+        .child(div().w_full().my(px(8.)).text_size(px(32.)).line_height(px(40.)).font_weight(FontWeight::BOLD).child(format!("Welcome to #{title}!")))
+        .child(div().w_full().text_size(px(16.)).line_height(px(22.)).text_color(theme.text2).child(text))
         .child(
             div()
+                .w_full()
                 .mt(px(6.))
                 .flex()
                 .items_start()
@@ -127,7 +129,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .line_height(px(18.))
                 .text_color(muted())
                 .child(div().mt(px(2.)).child(icon("lock", 13., muted())))
-                .child("End-to-end encrypted. Everyone on this server can read it, and the server itself can't."),
+                .child(div().flex_1().min_w_0().child("End-to-end encrypted. Everyone on this server can read it, and the server itself can't.")),
         );
     if let (true, Some(channel_id)) = (context.is_server_admin, context.channel_id.clone()) {
         let state = context.state.clone();

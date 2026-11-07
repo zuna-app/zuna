@@ -116,6 +116,9 @@ pub struct ChatView {
     glide_waited: bool,
     /// The call this device is in, above the chat of its conversation.
     call_stage: Option<Entity<super::voice_stage::VoiceStage>>,
+    /// The voice channel's stage this chat sits beside, as `ChatView`'s `voice`: no member
+    /// list, a speaker for its name's #, and an × that hides it.
+    pub beside_voice: Option<gpui::WeakEntity<super::voice_stage::VoiceStage>>,
     last_list_id: String,
     files: Vec<StagedFile>,
     /// What's being completed: ':' or '@', what's typed after it, and where it starts.
@@ -329,6 +332,7 @@ impl ChatView {
             glide: None,
             glide_waited: false,
             call_stage: None,
+            beside_voice: None,
             last_list_id: String::new(),
             files: Vec::new(),
             trigger: None,
@@ -1958,7 +1962,7 @@ impl ChatView {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(icon("hash", 22., muted_color))
+                    .child(icon(if self.beside_voice.is_some() { "volume-2" } else { "hash" }, 22., muted_color))
                     .child(div().min_w_0().one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).child(conversation.title.clone())),
             )
             .when(!conversation.description.is_empty(), |el| {
@@ -1978,23 +1982,25 @@ impl ChatView {
                     }),
             )
             .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tip("Pinned messages", Side::Bottom).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
-            .child(
-                action("channel-members", "users", show_members && panel.is_none())
-                    .tip(if show_members { "Hide member list" } else { "Show member list" }, Side::Bottom)
-                    .on_click(move |_, _, cx| {
-                        members_state.update(cx, |state, cx| {
-                            // It takes the place of whatever panel was open.
-                            if state.panel.is_some() {
-                                state.panel = None;
-                                cx.notify();
-                                if !state.settings.hide_member_list {
-                                    return;
+            .when(self.beside_voice.is_none(), |el| {
+                el.child(
+                    action("channel-members", "users", show_members && panel.is_none())
+                        .tip(if show_members { "Hide member list" } else { "Show member list" }, Side::Bottom)
+                        .on_click(move |_, _, cx| {
+                            members_state.update(cx, |state, cx| {
+                                // It takes the place of whatever panel was open.
+                                if state.panel.is_some() {
+                                    state.panel = None;
+                                    cx.notify();
+                                    if !state.settings.hide_member_list {
+                                        return;
+                                    }
                                 }
-                            }
-                            state.update_settings(|settings| settings.hide_member_list = !settings.hide_member_list, cx);
-                        })
-                    }),
-            )
+                                state.update_settings(|settings| settings.hide_member_list = !settings.hide_member_list, cx);
+                            })
+                        }),
+                )
+            })
             .child(
                 div()
                     .id("channel-search")
@@ -2019,6 +2025,11 @@ impl ChatView {
                     .child("Search")
                     .child(icon("search", 15., if searching { theme.text1 } else { muted_color })),
             )
+            .when_some(self.beside_voice.clone(), |el, stage| {
+                el.child(action("channel-hide-chat", "x", false).tip("Hide chat", Side::Bottom).on_click(move |_, _, cx| {
+                    stage.update(cx, |stage, cx| stage.hide_chat(cx)).ok();
+                }))
+            })
             .into_any_element()
     }
 
@@ -2464,6 +2475,7 @@ impl ChatView {
             is_channel: conversation.kind == "channel",
             channel_title: conversation.title.clone(),
             channel_description: conversation.description.clone(),
+            voice_channel: self.beside_voice.is_some(),
             channel_id: conversation.group_id.clone(),
             is_server_admin: server.is_admin(),
             editing_id: if conversation.kind == "channel" { state.editing.get(&conversation.list_id()).map(|message| message.id.clone()) } else { None },
@@ -2845,7 +2857,7 @@ impl Render for ChatView {
         let state = self.state.clone();
         let user_id = conversation.peer_id.clone().unwrap_or_default();
         let typing_line = is_channel.then(|| self.channel_typing(&conversation, cx));
-        let members = (is_channel && side_panel.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| {
+        let members = (is_channel && side_panel.is_none() && self.beside_voice.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| {
             let (state, server_id) = (self.state.clone(), self.server_id.clone());
             let view = self.member_view.get_or_insert_with(|| cx.new(|cx| MemberList::new(state, server_id, cx))).clone();
             gpui::AnyView::from(view).cached(gpui::StyleRefinement::default().flex_none().w(px(240.)).h_full()).into_any_element()

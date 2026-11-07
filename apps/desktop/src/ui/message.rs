@@ -52,6 +52,8 @@ pub struct ChatContext {
     pub is_channel: bool,
     pub channel_title: String,
     pub channel_description: String,
+    /// A voice channel's chat, beside its stage, which a speaker stands for in place of the #.
+    pub voice_channel: bool,
     pub channel_id: Option<String>,
     pub is_server_admin: bool,
     /// The message being edited where it is, in a channel, and the field it's edited in.
