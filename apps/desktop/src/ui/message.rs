@@ -1272,11 +1272,8 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
             );
             tile = if fills { tile.absolute().inset_0() } else { tile.w(px(w as f32)).h(px(h as f32)) };
             if let Some(image) = image {
-                let state = context.state.clone();
-                let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
-                tile = tile
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)));
+                let (full, name) = (image.clone(), attachment.name.clone());
+                tile = tile.cursor_pointer().on_click(move |_, window, cx| super::image_viewer::open(full.clone(), name.clone(), window, cx));
                 // Drawn at twice the size it's shown at, for a sharp screen, never whole: a photo from a
                 // camera decoded whole is 48 MB. The preview stays until it's ready.
                 let picture = match covered(&image, shape, if single { 1200 } else { 418 }, cx) {

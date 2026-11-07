@@ -4,6 +4,7 @@ pub mod channel_message;
 pub mod chat;
 pub mod components;
 pub mod conversations;
+pub mod image_viewer;
 pub mod menu;
 pub mod motion;
 // The cards are Windows's. On Linux the system's notifications take their place, with the same calls.
@@ -552,11 +553,11 @@ impl Root {
 }
 
 impl Root {
-    /// The dialog going away fades out, as `AnimatePresence` lets `Modal` do. The image
-    /// viewer and settings aren't `motion` elements there, so they simply go.
+    /// The dialog going away fades out, as `AnimatePresence` lets `Modal` do. Settings
+    /// aren't `motion` elements there, so they simply go.
     fn close_overlay(&mut self) {
-        if let Some((overlay, view)) = self.overlay.take() {
-            if !matches!(overlay, crate::state::Overlay::Image { .. }) && !motion::reduced_or_system() {
+        if let Some((_, view)) = self.overlay.take() {
+            if !motion::reduced_or_system() {
                 self.closing = Some((view, std::time::Instant::now()));
             }
         }

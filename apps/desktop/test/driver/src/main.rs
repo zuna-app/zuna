@@ -337,6 +337,7 @@ impl Driver {
                             "active": window.flags & 0x1 != 0,
                             "minimized": window.flags & 0x2 != 0,
                             "maximized": window.flags & 0x4 != 0,
+                            "fullscreen": window.flags & 0x8 != 0,
                             "demandsAttention": window.flags & 0x80 != 0,
                             "x": window.geometry.0,
                             "y": window.geometry.1,

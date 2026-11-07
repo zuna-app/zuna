@@ -11,7 +11,7 @@ use super::menu::{MenuEntry, open_menu};
 use crate::format::{avatar_color, format_bytes, format_duration, format_full, name_color};
 use crate::markup::plain_text;
 use crate::models::{Attachment, AvatarRef, ConversationView, MessageView};
-use crate::state::{AppState, Overlay, Picture, ServerState, SharedKind};
+use crate::state::{AppState, Picture, ServerState, SharedKind};
 use crate::theme::{self, RADIUS_M};
 
 /// Pictures this large wait to be asked for, as on the desktop (`loadsByItself`).
@@ -190,11 +190,11 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
     };
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
     let (group, id) = (message.group_id.clone(), message.id.clone());
-    let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
+    let name = attachment.name.clone();
     let click_state = state.clone();
     let server_id = server.entry.id.clone();
     let load = reference(attachment);
-    let ready = picture.is_some();
+    let full = picture.clone();
     let hover = SharedString::from(format!("shared-{}-{}", message.id, attachment.file_id));
     let mut square = round_corners(
         div()
@@ -212,16 +212,15 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
     let square = square
         .cursor_pointer()
         .tooltip(tooltip(format_full(message.created_at)))
-        .on_click(move |_, _, cx| {
-            click_state.update(cx, |state, cx| {
+        .on_click(move |_, window, cx| match &full {
+            Some(full) => super::image_viewer::open(full.clone(), name.clone(), window, cx),
+            _ => click_state.update(cx, |state, cx| {
                 if video {
                     state.jump_to_message(&group, &id, cx);
-                } else if ready {
-                    state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx);
                 } else {
                     state.decrypted_picture(&server_id, &load, cx);
                 }
-            })
+            }),
         })
         .on_mouse_down(MouseButton::Right, show_in_chat(state.clone(), message))
         .when_some(thumb, |el, thumb| el.child(round_corners(cover(thumb, 1., 120, cx).absolute().inset_0().size_full(), corners)))

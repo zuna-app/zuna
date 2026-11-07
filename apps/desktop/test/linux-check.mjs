@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { crc32, deflateSync } from "node:zlib";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
 import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
@@ -237,6 +237,42 @@ try {
   await shot("10f-list-read");
   peer.stdin.write(`${JSON.stringify({ quiet: false })}\n`);
 
+  // --- A picture, opened as Telegram's are: in a window of its own over the whole screen ---
+  // Found by its color, wherever the chat lays it out.
+  const green = [46, 160, 67];
+  const landscape = join(work, "landscape.png");
+  writeFileSync(landscape, png(1600, 900, Buffer.alloc(1600 * 900 * 4).fill(Buffer.from([...green, 255]))));
+  peer.stdin.write(`${JSON.stringify({ sendFile: { path: landscape, name: "landscape.png", mime: "image/png", width: 1600, height: 900 } })}\n`);
+  await until(() => heard.some((line) => line.sentFile === "landscape.png"), "the picture to go", 20_000);
+  await sleep(3000);
+  const tile = readPng(await shot("10g-picture-arrived")).box((color) => near(color, green, 8));
+  check("a picture from the other person shows in the chat", !!tile && tile.width > 150, JSON.stringify(tile));
+  const viewers = async () => (await drive({ do: "windows" })).windows.filter((window) => window.appId === "zuna" && window.fullscreen);
+  const openTile = async () => {
+    await drive({ do: "move", ...tile.middle });
+    await sleep(300);
+    await drive({ do: "click", ...tile.middle });
+    return until(async () => (await viewers())[0], "the viewer's window", 5_000).catch(() => null);
+  };
+  const viewer = tile ? await openTile() : null;
+  check("clicking it opens it in a window of its own, over the whole screen, in front", viewer?.x === 0 && viewer.y === 0 && viewer.width === 1400 && viewer.height === 900 && viewer.active, JSON.stringify(viewer));
+  check("which is named only Zuna, not after the picture", viewer?.title === "Zuna", viewer?.title);
+  await sleep(600);
+  // Fitted to the screen less 40 px around, 1320 by 742, in the middle, on a dark shade.
+  const viewed = readPng(await shot("10h-picture-viewer"));
+  const fitted = viewed.box((color) => near(color, green, 8));
+  const shade = [viewed.at(12, 12), viewed.at(1388, 450), viewed.at(700, 885)];
+  check("the picture is fitted to the screen, in its middle", !!fitted && Math.abs(fitted.width - 1320) <= 3 && Math.abs(fitted.height - 742) <= 3 && Math.abs(fitted.middle.x - 700) <= 2 && Math.abs(fitted.middle.y - 450) <= 2, JSON.stringify(fitted));
+  check("on a dark shade over what's behind", shade.every((color) => Math.max(...color) < 40), JSON.stringify(shade));
+  await drive({ do: "key", key: "escape" });
+  check("Escape closes it", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
+  check("leaving the chat's window, in front again", !!(await until(async () => ((await windowOf())?.active ? true : null), "the chat's window to be in front", 5_000).catch(() => null)));
+  if (tile && (await openTile())) {
+    await drive({ do: "click", x: 20, y: 450 });
+    check("a click on the shade closes it too", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
+  } else check("it opens again", false);
+  await sleep(500);
+
   // --- Notifications and the badge, with another chat open ---
   await drive({ do: "click", x: 237, y: 311 });
   await sleep(800);
@@ -364,6 +400,48 @@ function avatarColor(seed) {
   for (let index = 0; index < seed.length; index++) hash = (Math.imul(hash, 31) + seed.charCodeAt(index)) | 0;
   const hex = colors[Math.abs(hash) % colors.length];
   return [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+}
+
+/** A screenshot's pixels, as Spectacle saves them: 8 bits a channel, RGB or RGBA. `box` is
+ * where the pixels that pass a test lie, and its middle. */
+function readPng(file) {
+  const data = readFileSync(file);
+  let width = 0;
+  let height = 0;
+  let channels = 4;
+  const compressed = [];
+  for (let at = 8; at < data.length; ) {
+    const length = data.readUInt32BE(at);
+    const type = data.toString("latin1", at + 4, at + 8);
+    const body = data.subarray(at + 8, at + 8 + length);
+    if (type === "IHDR") [width, height, channels] = [body.readUInt32BE(0), body.readUInt32BE(4), body[9] === 2 ? 3 : 4];
+    if (type === "IDAT") compressed.push(body);
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(compressed));
+  const stride = width * channels;
+  const pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const corner = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
+      const guess = left + up - corner;
+      const paeth = Math.abs(guess - left) <= Math.abs(guess - up) && Math.abs(guess - left) <= Math.abs(guess - corner) ? left : Math.abs(guess - up) <= Math.abs(guess - corner) ? up : corner;
+      pixels[y * stride + x] = (raw[y * (stride + 1) + 1 + x] + [0, left, up, (left + up) >> 1, paeth][filter]) & 255;
+    }
+  }
+  const at = (x, y) => [...pixels.subarray(y * stride + x * channels, y * stride + x * channels + 3)];
+  const box = (test) => {
+    let [left, top, right, bottom] = [width, height, -1, -1];
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++)
+        if (test(at(x, y))) [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
+    if (right < 0) return null;
+    return { x: left, y: top, width: right - left + 1, height: bottom - top + 1, middle: { x: Math.round((left + right) / 2), y: Math.round((top + bottom) / 2) } };
+  };
+  return { width, height, at, box };
 }
 
 /** RGBA rows as a PNG. */

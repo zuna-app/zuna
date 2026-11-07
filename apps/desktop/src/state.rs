@@ -126,8 +126,6 @@ pub enum Overlay {
     Invite,
     Verify { user_id: String },
     LeaveServer,
-    /// A picture from a message, over everything, by its file.
-    Image { file_id: String, name: String },
     /// Where to forward messages: any chat on any server.
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     /// People to add to a group.
