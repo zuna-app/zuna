@@ -456,7 +456,8 @@ struct CodeBlockView: View {
             Divider().overlay(Theme.line)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(highlighted)
-                    .font(.system(size: 13, design: .monospaced))
+                    // Monospaced at the footnote style's size, 13 points by default, which follows the text size.
+                    .font(.system(.footnote, design: .monospaced))
                     .lineSpacing(3)
                     .fixedSize()
                     .textSelection(.enabled)

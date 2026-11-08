@@ -28,14 +28,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: in `receive`, hop to a private serial queue (keeps replies and events in order); decode a small envelope (kind, id, ok, error) from the raw Data and resume with that Data, then decode `Reply<V> { value }` in `call`. Decode events in a single pass the same way.
 - Check after: `swift test` (CoreConnectionTests, WireTests), `npm run test:ios`, `npm run test:ios:perf`.
 
-### Let message times and code scale with Dynamic Type
-- Where: apps/ios/Zuna/Chat/MessageRow.swift:268-277, 476-512 (491, 504); apps/ios/Zuna/Channels/ChannelMessages.swift:181-184, 197; apps/ios/Zuna/Chat/MessageParts.swift:459
-- Category: ux
-- Severity: low ; Effort: M ; Confidence: medium
-- What's wrong: message text scales, but the time and marks are fixed at 11 pt (and their reserved space is measured at 11 pt), "(edited)" in channels is 11 pt, and code blocks are 13 pt. Rows don't read `dynamicTypeSize`, so changing text size while running doesn't redraw rows on screen.
-- Suggested change: scale the time font and its measurement with `UIFontMetrics(forTextStyle: .caption2)`, the same for "(edited)", a monospaced text style for code, and read `@Environment(\.dynamicTypeSize)` in `MessageRow`.
-- Check after: the large-text screen tour in `npm run test:ios:ui`.
-
 ### Bound the loaded message lists, and clean up after removed servers
 - Where: apps/ios/Zuna/State/AppModel.swift:188-202, 493-504; apps/ios/Zuna/State/MessageLists.swift:47-120; apps/ios/Zuna/State/ComposerState.swift:28-41
 - Category: robustness

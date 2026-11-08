@@ -258,6 +258,8 @@ private struct SystemRow: View {
 /// accent's color, others on the left, the time tucked into the last line.
 private struct MessageItem: View {
     @Environment(AppModel.self) private var model
+    /// Read so the row draws again when the text size changes, which the time's size follows.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let context: MessageRowContext
     let server: AppModel.ServerState
     let actions: ChatActions
@@ -473,23 +475,28 @@ private struct MessageItem: View {
             .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text2)
     }
 
+    /// The time's size: 11 points at the default text size, growing and shrinking with it.
+    private var metaSize: CGFloat {
+        UIFontMetrics(forTextStyle: .caption2).scaledValue(for: 11, compatibleWith: UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize)))
+    }
+
     /// The time and its marks, as the desktop shows them.
     private var meta: some View {
         HStack(spacing: 3) {
             if message.timeDiffers == true {
-                Image(systemName: "exclamationmark.shield").font(.system(size: 9)).accessibilityLabel("The time of this message may not be right")
+                Image(systemName: "exclamationmark.shield").font(.system(size: metaSize * 9 / 11)).accessibilityLabel("The time of this message may not be right")
             }
             if message.pinnedAt != nil {
-                Image(systemName: "pin.fill").font(.system(size: 9)).rotationEffect(.degrees(35))
+                Image(systemName: "pin.fill").font(.system(size: metaSize * 9 / 11)).rotationEffect(.degrees(35))
             }
             if message.expiresAt != nil {
-                Image(systemName: "timer").font(.system(size: 9)).accessibilityLabel("Disappears")
+                Image(systemName: "timer").font(.system(size: metaSize * 9 / 11)).accessibilityLabel("Disappears")
             }
             if message.editedAt != nil && !deleted { Text("edited") }
             Text(Format.time(message.createdAt))
             if own && !deleted { ticks }
         }
-        .font(.system(size: 11))
+        .font(.system(size: metaSize))
         .monospacedDigit()
         .foregroundStyle(onlyMedia ? .white : own ? Color.white.opacity(0.55) : Theme.text3)
         .accessibilityElement(children: .combine)
@@ -502,13 +509,14 @@ private struct MessageItem: View {
 
     /// Room for the meta at the end of the last line, measured as it will draw.
     private var metaWidth: CGFloat {
-        let font = UIFont.systemFont(ofSize: 11)
+        let font = UIFont.monospacedDigitSystemFont(ofSize: metaSize, weight: .regular)
+        let grow = metaSize / 11
         var width = (Format.time(message.createdAt) as NSString).size(withAttributes: [.font: font]).width
         if message.editedAt != nil { width += ("edited" as NSString).size(withAttributes: [.font: font]).width + 3 }
-        if message.timeDiffers == true { width += 12 }
-        if message.pinnedAt != nil { width += 12 }
-        if message.expiresAt != nil { width += 12 }
-        if own { width += 21 }
+        if message.timeDiffers == true { width += 12 * grow }
+        if message.pinnedAt != nil { width += 12 * grow }
+        if message.expiresAt != nil { width += 12 * grow }
+        if own { width += 21 * grow }
         return ceil(width) + 8
     }
 }

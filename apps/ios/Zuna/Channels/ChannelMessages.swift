@@ -192,7 +192,7 @@ struct ChannelMessageRow: View {
     /// "(edited)" after the text, small and faint, as in Discord.
     private var edited: NSAttributedString? {
         guard message.editedAt != nil, !deleted else { return nil }
-        return NSAttributedString(string: " (edited)", attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: UIColor(Theme.channelMuted)])
+        return NSAttributedString(string: " (edited)", attributes: [.font: UIFont.systemFont(ofSize: UIFontMetrics(forTextStyle: .caption2).scaledValue(for: 11)), .foregroundColor: UIColor(Theme.channelMuted)])
     }
 
     @ViewBuilder
