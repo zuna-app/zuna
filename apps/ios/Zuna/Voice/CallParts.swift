@@ -63,7 +63,8 @@ struct MemberSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .navigationDestination(isPresented: $verifying) {
+            // A sheet of its own: VerifyView has its own navigation stack, which one pushed here would nest.
+            .sheet(isPresented: $verifying) {
                 VerifyView(serverId: server.entry.id, userId: member.userId)
             }
         }
