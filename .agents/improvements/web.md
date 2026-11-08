@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Delay revoking the recovery key's download URL
-- Where: packages/ui/src/features/onboarding/Onboarding.tsx:400-409 (revoked right after `click()`, on a detached anchor)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: low to medium
-- What's wrong: this is known to fail downloads in some WebKit versions, and the file is the account's only way back.
-- Suggested change: revoke after about 30 s, and append the anchor to the page before clicking.
-- Check after: web check in WebKit.
-
 ### Make browser notifications fail quietly and follow permission changes
 - Where: apps/web/src/notifications.ts:18-34 (`new Notification` throws on Chrome for Android, including tablets ≥ 860 px); features/overlays/Settings.tsx:283 (reads the permission once)
 - Category: robustness

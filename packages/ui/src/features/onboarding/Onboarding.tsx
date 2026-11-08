@@ -401,11 +401,16 @@ function RecoveryKeyStep({ recoveryKey, onDone }: { recoveryKey: string; onDone:
     const blob = new Blob([`Zuna recovery key\n\n${recoveryKey}\n\nKeep this somewhere safe. It's the only way back into your account if you forget your password.\n`], {
       type: "text/plain",
     });
+    // In the page while it's clicked, and the address kept for a while after, as some
+    // WebKit versions drop a download whose address goes at once, and this file is the
+    // account's only way back.
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = "zuna-recovery-key.txt";
+    document.body.append(link);
     link.click();
-    URL.revokeObjectURL(link.href);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 30_000);
   };
 
   return (
