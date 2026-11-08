@@ -7,11 +7,10 @@
 // tools and a Rust MSVC toolchain (rustup toolchain install stable-x86_64-pc-windows-msvc);
 // on Linux, clang, pkg-config and the glib and libva headers; on macOS, Xcode's command line
 // tools. docs/SCREEN_SHARE.md has more.
-import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { env, root } from "./lib.mjs";
+import { env, msvcToolchain, root, run } from "./lib.mjs";
 
 if (process.platform !== "win32" && process.platform !== "linux" && process.platform !== "darwin") {
   console.log("Native screen capture is for Windows, Linux and macOS, so there's nothing to build here.");
@@ -39,8 +38,7 @@ function swapIn(gathered) {
 // Only the computer's sound, which needs neither FFmpeg nor LiveKit.
 if (process.platform === "darwin") {
   const target = join(crate, "target");
-  const result = spawnSync("cargo", ["build", "--release", "--no-default-features"], { cwd: crate, stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: target } });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  run("cargo", ["build", "--release", "--no-default-features"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target } });
   const gathered = `${dist}-new`;
   rmSync(gathered, { recursive: true, force: true });
   mkdirSync(gathered, { recursive: true });
@@ -54,19 +52,8 @@ const ffmpeg = await ensureFfmpeg(join(crate, ".deps"));
 // from a target folder this deep in a checkout.
 const target = isWindows ? join(process.env.LOCALAPPDATA, "zss") : join(crate, "target");
 
-function msvcToolchain() {
-  const list = spawnSync("rustup", ["toolchain", "list"], { encoding: "utf8", env }).stdout ?? "";
-  const found = list.split("\n").map((line) => line.split(" ")[0]).find((name) => name.endsWith("-pc-windows-msvc"));
-  if (!found) {
-    console.error("Building on Windows needs a Rust MSVC toolchain: rustup toolchain install stable-x86_64-pc-windows-msvc");
-    process.exit(1);
-  }
-  return found;
-}
-
 const args = [...(isWindows ? [`+${msvcToolchain()}`] : []), "build", "--release"];
-const result = spawnSync("cargo", args, { cwd: crate, stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: target, ZUNA_FFMPEG_DIR: ffmpeg } });
-if (result.status !== 0) process.exit(result.status ?? 1);
+run("cargo", args, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_FFMPEG_DIR: ffmpeg } });
 
 // Gathered apart and swapped in, so whatever goes wrong leaves a whole build. The program may be
 // running, which on Windows keeps it from being deleted but not moved, so it carries on from there.

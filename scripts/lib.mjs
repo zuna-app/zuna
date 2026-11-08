@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** The version every app is released with: the root package.json's. */
+export const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+
 // Tools installed per-user may not be on PATH yet in an already open terminal.
 const extraPaths = [
   join(homedir(), ".cargo", "bin"),
@@ -134,6 +137,49 @@ export async function devServerRunning() {
   } catch {
     return false;
   }
+}
+
+const systemNames = { win32: "Windows", linux: "Linux", darwin: "macOS" };
+const devScripts = { win32: "npm run dev:windows", linux: "npm run dev:linux", darwin: "npm run dev:macos" };
+
+/**
+ * A native app script's command line, `<command> [flags] [-- app args]`, with `run` as the
+ * command when none is given. Exits 1 on any system but the one the script builds for, and
+ * 2 on a command it doesn't take, rather than building something else.
+ */
+export function parseAppArgs(platform, commands) {
+  if (process.platform !== platform) {
+    const here = devScripts[process.platform];
+    console.error(`This builds the native app on ${systemNames[platform]}.${here ? ` Here, use ${here}.` : ""}`);
+    process.exit(1);
+  }
+  const [command = "run", ...rest] = process.argv.slice(2);
+  if (!commands.includes(command)) {
+    console.error(`There's no command "${command}" here. It takes ${commands.join(", ")}.`);
+    process.exit(2);
+  }
+  const split = rest.indexOf("--");
+  return { command, flags: split < 0 ? rest : rest.slice(0, split), appArgs: split < 0 ? [] : rest.slice(split + 1) };
+}
+
+/** Bundles the client core for the native app's QuickJS, which its build takes in. */
+export function bundleCore() {
+  run(process.execPath, [join(root, "apps", "desktop", "core-bundle", "build.mjs")]);
+}
+
+/** The Rust MSVC toolchain, which builds on Windows need: the native app's and the screen capture's. */
+export function msvcToolchain() {
+  const list = spawnSync("rustup", ["toolchain", "list"], { encoding: "utf8", env });
+  if (list.error?.code === "ENOENT") {
+    console.error('"rustup" was not found. See CONTRIBUTING.md for the tools you need.');
+    process.exit(1);
+  }
+  const found = (list.stdout ?? "").split("\n").map((line) => line.trim().split(" ")[0]).find((name) => name.endsWith("-pc-windows-msvc"));
+  if (!found) {
+    console.error("Building on Windows needs a Rust MSVC toolchain: rustup toolchain install stable-x86_64-pc-windows-msvc");
+    process.exit(1);
+  }
+  return found;
 }
 
 export function run(command, args, options = {}) {

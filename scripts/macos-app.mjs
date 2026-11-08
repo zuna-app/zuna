@@ -18,29 +18,19 @@
 // puts it elsewhere. --test-control builds in the checks' socket (src/test_control.rs).
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
 
-if (process.platform !== "darwin") {
-  console.log("This builds the native app on macOS. On Windows it's npm run dev:windows, and on Linux npm run dev:linux.");
-  process.exit(0);
-}
-
-const [command = "run", ...rest] = process.argv.slice(2);
-const split = rest.indexOf("--");
-const flags = split < 0 ? rest : rest.slice(0, split);
-const appArgs = split < 0 ? [] : rest.slice(split + 1);
+const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "bundle"]);
 const release = command === "build" || flags.includes("--release");
 const testControl = flags.includes("--test-control");
 
 const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the other systems' builds keep theirs, and kept between checkouts.
 const target = join(homedir(), "Library", "Caches", "zuna-desktop-target");
-// The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 // The bundle carries the share's sound program from apps/screenshare/dist, so an old one would go in after a pull.
 ensureNativeScreenCurrent();
@@ -165,16 +155,13 @@ checkMetal();
 // The FFmpeg the app's media links to (FFMPEG_DIR in apps/desktop/.cargo/config.toml), built
 // from its pinned source the first time.
 const ffmpeg = await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
-const built = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
-if (built.status !== 0) process.exit(built.status ?? 1);
+bundleCore();
 
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];
-const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
-if (result.status !== 0) process.exit(result.status ?? 1);
+run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 const program = join(target, release ? "release" : "debug", "zuna");
 // The app's media through FFmpeg, as a library of its own (apps/desktop/media-ffmpeg).
-const mediaBuilt = spawnSync("cargo", ["build", ...(release ? ["--release"] : [])], { stdio: "inherit", cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
-if (mediaBuilt.status !== 0) process.exit(mediaBuilt.status ?? 1);
+run("cargo", ["build", ...(release ? ["--release"] : [])], { cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
 const media = join(target, release ? "release" : "debug", "libzuna_media_ffmpeg.dylib");
 
 if (command === "build") {

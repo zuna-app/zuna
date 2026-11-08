@@ -76,22 +76,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: in build-web.mjs run Vite directly as dev-web.mjs:27 does (`run(process.execPath, [join(root, "node_modules", "vite", "bin", "vite.js"), "build"], { cwd: join(root, "apps", "web") })`); in web-check.mjs use the vite-node helper below.
 - Check after: `npm run build:web` on Windows has no DEP0190; `node apps/web/test/web-check.mjs`.
 
-### Share the native app scripts' common steps through scripts/lib.mjs, and use `run()` there
-- Where: scripts/windows-app.mjs:26-29, :37, :39-50, :54-55; linux-app.mjs:26-29, :36, :38-39, :44-45, :54-55; macos-app.mjs:32-35, :43, :164-173; build-screenshare.mjs:57-65
-- Category: cleanup
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: all three app scripts repeat argv parsing, reading the version, bundling the core, and checking `spawnSync` results by hand; the MSVC toolchain lookup is copied between windows-app.mjs:39 and build-screenshare.mjs:57. Direct `spawnSync` skips lib's `run()`: when cargo or rustup isn't on PATH, `status` is null and the scripts exit 1 with no message.
-- Suggested change: export `appVersion`, `parseAppArgs(argv) -> { command, flags, appArgs }`, `bundleCore()` and `msvcToolchain()` from lib.mjs; replace hand-written `spawnSync` + status checks with `run(...)` (with `cwd`/`env`). Keep platform-specific steps where they are.
-- Check after: `npm run dev:windows` and `dist:windows`; `dev:linux` and `dist:linux`; `build:macos`, each on its own OS.
-
-### Make the app scripts fail on the wrong OS or an unknown command
-- Where: scripts/windows-app.mjs:21-24, :52; linux-app.mjs:21-24, :43; macos-app.mjs:27-30, :184
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: on the wrong OS each script prints a line and exits 0, so `npm run build:windows` "succeeds" on Linux. windows-app.mjs builds for any command that isn't `run` (`buidl` makes a debug build); macos-app.mjs starts the app for anything that isn't `build` or `bundle`.
-- Suggested change: exit 1 naming the right script ("Use npm run dev:windows, dev:linux or dev:macos"); check `command` against each script's list (`run|build|dist|install`, `run|build|dist`, `run|build|bundle`), print usage and exit 2 otherwise.
-- Check after: `npm run build:windows` on Linux exits 1; `node scripts/windows-app.mjs buidl` exits 2.
-
 ### Keep the signing certificate out of dist/ and delete it on every exit
 - Where: scripts/windows-app.mjs:178-196
 - Category: robustness

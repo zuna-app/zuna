@@ -16,30 +16,18 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, r
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
 
-if (process.platform !== "linux") {
-  console.log("This builds the native app on Linux. On Windows, it's npm run dev:windows.");
-  process.exit(0);
-}
-
-const [command = "run", ...rest] = process.argv.slice(2);
-const split = rest.indexOf("--");
-const flags = split < 0 ? rest : rest.slice(0, split);
-const appArgs = split < 0 ? [] : rest.slice(split + 1);
+const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
 
 const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the Windows build's is, and kept between checkouts.
 const target = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
-// The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 // A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
 ensureNativeScreenCurrent();
-
-const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
-if (bundle.status !== 0) process.exit(bundle.status ?? 1);
+bundleCore();
 // The FFmpeg the screen capture pins, which the app's media links to (FFMPEG_DIR in .cargo/config.toml).
 await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
 
@@ -47,8 +35,7 @@ const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] 
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
 // copy's ~/.local/share/zuna, so that `npm run dev:clean` starts it over with the test server.
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
-if (result.status !== 0) process.exit(result.status ?? 1);
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
@@ -57,8 +44,7 @@ if (command === "build" || command === "dist") {
   // The screen capture and FFmpeg's libraries, which the program finds at $ORIGIN/screenshare.
   const screenshare = join(root, "apps", "screenshare", "dist");
   if (!existsSync(join(screenshare, "zuna-screenshare"))) {
-    const built = spawnSync(process.execPath, [join(root, "scripts", "build-screenshare.mjs")], { stdio: "inherit", env, cwd: root });
-    if (built.status !== 0) process.exit(built.status ?? 1);
+    run(process.execPath, [join(root, "scripts", "build-screenshare.mjs")]);
   }
   rmSync(join(dist, "screenshare"), { recursive: true, force: true });
   cpSync(screenshare, join(dist, "screenshare"), { recursive: true });

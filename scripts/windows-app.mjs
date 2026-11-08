@@ -16,46 +16,23 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 
-if (process.platform !== "win32") {
-  console.log("The native app is for Windows. Build it there.");
-  process.exit(0);
-}
-
-const [command = "run", ...rest] = process.argv.slice(2);
-const split = rest.indexOf("--");
-const flags = split < 0 ? rest : rest.slice(0, split);
-const appArgs = split < 0 ? [] : rest.slice(split + 1);
+const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install"]);
 const packaging = command === "dist" || command === "install";
 const release = command === "build" || packaging || flags.includes("--release");
 
 const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
 const target = join(process.env.LOCALAPPDATA ?? root, "zuna-windows-target");
-// The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
-
-function toolchain() {
-  const list = spawnSync("rustup", ["toolchain", "list"], { encoding: "utf8", env }).stdout ?? "";
-  const found = list.split("\n").map((line) => line.split(" ")[0]).find((name) => name.endsWith("-pc-windows-msvc"));
-  if (!found) {
-    console.error("The native app needs a Rust MSVC toolchain: rustup toolchain install stable-x86_64-pc-windows-msvc");
-    process.exit(1);
-  }
-  return found;
-}
 
 // A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
 ensureNativeScreenCurrent();
+bundleCore();
 
-const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
-if (bundle.status !== 0) process.exit(bundle.status ?? 1);
-
-const cargo = [`+${toolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
+const cargo = [`+${msvcToolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
-if (result.status !== 0) process.exit(result.status ?? 1);
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 
 if (command === "build" || packaging) {
   const dist = join(root, "dist", "windows");
@@ -94,11 +71,9 @@ if (packaging) {
   const plugins = await getNsisPluginsPath(undefined, undefined);
   const out = join(dist, `Zuna-Native-Setup-${version}.exe`);
   const nsis = (defines) => {
-    const made = spawnSync(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
-      stdio: "inherit",
+    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
       env: { ...process.env, ...(makensis.env ?? {}) },
     });
-    if (made.status !== 0) process.exit(made.status ?? 1);
   };
   // Built twice, as electron-builder builds installers: first a program that only writes the
   // uninstaller, which is run and the uninstaller signed, then the installer that carries it.
