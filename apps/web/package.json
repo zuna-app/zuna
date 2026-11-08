@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Zuna in a browser: the desktop's interface, served by its own host, zuna-web.",
+  "description": "Zuna in a browser, served by its own host, zuna-web.",
   "type": "module",
   "scripts": {
     "dev": "vite",

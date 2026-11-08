@@ -4,13 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Rename the Electron-era leftovers in names, descriptions and comments
-- Where: packages/ui/package.json:6 ("The interface the desktop and web apps share…"); apps/web/package.json:6 ("the desktop's interface"); apps/web/vite.config.ts:26-27 (`envPrefix: "RENDERER_VITE_"` and its comment "the desktop's development build reads", which is false: nothing in apps/desktop reads these variables; the same names appear in scripts/dev-web.mjs:18-20 and Onboarding.tsx:481-484); apps/web/index.html:13; core/serve.ts:1-2 ("Each host's worker"); the `.titlebar-status` class in components/ui.tsx:430, base.css:56-57 and shell.css:61
-- Category: docs / cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: update the descriptions and comments, rename the prefix to `ZUNA_DEV_` in all three places, and rename the class `.connection-status`.
-- Check after: typecheck, `npm run dev:web` (the sign-in form should still start filled in), web check.
-
 ### Revoke the composer's preview URLs
 - Where: packages/ui/src/lib/media.ts:315,324 (`createObjectURL`); features/chat/Composer.tsx:164-167,263-266,581. Nothing revokes them.
 - Category: robustness

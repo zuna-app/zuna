@@ -53,8 +53,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .col { display: flex; flex-direction: column; gap: 10px; }
 
 /* The connection's state, beside the server's name */
-.titlebar-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
-.titlebar-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.connection-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.connection-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } }

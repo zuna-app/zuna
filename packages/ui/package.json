@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "The interface the desktop and web apps share. Each host gives it a Platform.",
+  "description": "The web app's interface. The web app gives it a Platform.",
   "type": "module",
   "exports": {
     ".": "./src/index.tsx",

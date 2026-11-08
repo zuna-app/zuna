@@ -15,9 +15,9 @@ const appEnv = { ...env };
 if (existsSync(devWorldFile)) {
   // The sign-in form starts filled in, so signing in to the test server takes one click.
   const world = JSON.parse(readFileSync(devWorldFile, "utf8"));
-  appEnv.RENDERER_VITE_DEV_SERVER = world.url;
-  appEnv.RENDERER_VITE_DEV_USERNAME = world.username;
-  appEnv.RENDERER_VITE_DEV_PASSWORD = world.password;
+  appEnv.ZUNA_DEV_SERVER = world.url;
+  appEnv.ZUNA_DEV_USERNAME = world.username;
+  appEnv.ZUNA_DEV_PASSWORD = world.password;
 }
 if (!(await devServerRunning())) {
   console.log("The test server isn't running. Start it with: npm run dev:server\n");

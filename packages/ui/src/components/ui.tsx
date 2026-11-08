@@ -406,7 +406,7 @@ export function ConnectionStatus() {
     connection === "connecting" ? "Connecting" : connection === "offline" ? "Waiting for network" : connection === "syncing" ? "Updating" : null;
   if (!status) return null;
   return (
-    <span className="titlebar-status" role="status">
+    <span className="connection-status" role="status">
       <i />
       {status}
     </span>

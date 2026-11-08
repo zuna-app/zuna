@@ -23,8 +23,8 @@ function buildVersion(): Plugin {
 export default defineConfig({
   root: __dirname,
   plugins: [react(), buildVersion()],
-  // The same variables the desktop's development build reads, to fill in the sign-in form.
-  envPrefix: "RENDERER_VITE_",
+  // What npm run dev:web gives the sign-in form to start with, which only development reads.
+  envPrefix: "ZUNA_DEV_",
   resolve: { alias: { "@": resolve(__dirname, "../../packages/ui/src") } },
   optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   worker: { format: "es" },

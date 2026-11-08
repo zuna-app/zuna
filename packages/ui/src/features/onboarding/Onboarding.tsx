@@ -479,9 +479,14 @@ function SignInStep({
 }) {
   const core = useApp((state) => state.core)!;
   // Only `npm run dev:web` sets these, for its local test server. They're empty in a real build.
-  const [url, setUrl] = useState(initialUrl ?? import.meta.env.RENDERER_VITE_DEV_SERVER ?? platform.defaultServer ?? "");
-  const [username, setUsername] = useState(import.meta.env.RENDERER_VITE_DEV_USERNAME ?? "");
-  const [password, setPassword] = useState(import.meta.env.RENDERER_VITE_DEV_PASSWORD ?? "");
+  // npm run dev:web fills the form in with the test server's account. A build never reads
+  // these, so nothing a shell happens to hold under those names goes into it.
+  const dev: { server?: string; username?: string; password?: string } = import.meta.env.DEV
+    ? { server: import.meta.env.ZUNA_DEV_SERVER, username: import.meta.env.ZUNA_DEV_USERNAME, password: import.meta.env.ZUNA_DEV_PASSWORD }
+    : {};
+  const [url, setUrl] = useState(initialUrl ?? dev.server ?? platform.defaultServer ?? "");
+  const [username, setUsername] = useState(dev.username ?? "");
+  const [password, setPassword] = useState(dev.password ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

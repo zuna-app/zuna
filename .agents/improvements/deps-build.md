@@ -171,9 +171,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: delete the line.
 - Check after: `npm run -w @zuna/ios` lists only build:core and typecheck.
 
-### Rename the Electron-era `RENDERER_VITE_` variables, and read them only in development
-- (Same as "Rename the Electron-era leftovers…" in web.md.) Extra detail: packages/ui/src/features/onboarding/Onboarding.tsx:482-484 reads `import.meta.env.RENDERER_VITE_DEV_PASSWORD` without checking `import.meta.env.DEV`, so `vite build` would bake in whatever a shell exported under that name. Read them only `if (import.meta.env.DEV)`, and after `npm run build -w @zuna/web` search dist for "ZUNA_DEV" (none).
-
 ### Give the desktop core bundle its own dependencies, and one esbuild setup shared with iOS
 - Where: apps/desktop/core-bundle/build.mjs:8-41; apps/ios/core-bundle/build.mjs:14-55; apps/ios/package.json:14-18
 - Category: deps

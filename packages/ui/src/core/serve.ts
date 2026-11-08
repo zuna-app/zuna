@@ -1,5 +1,5 @@
 // The client core's home: a dedicated worker that owns all keys and the database.
-// Each host's worker calls this, saying how it fetches pages for link previews.
+// The web app's worker calls this, saying how it fetches pages for link previews.
 
 import { ZunaClient, type CoreEvent, type WebAdapter } from "@zuna/core";
 import { allowLocalLinks } from "@zuna/core/links";
