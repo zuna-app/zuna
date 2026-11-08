@@ -217,10 +217,12 @@ func run(cfg config) error {
 	httpServer := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		// So a slow upload can't hold a connection open for ever. Sockets aren't
-		// bound by it once they've connected, and parts of files get longer.
-		ReadTimeout: api.ReadTimeout,
-		IdleTimeout: 2 * time.Minute,
+		// So a slow upload or a client that stops reading can't hold a connection
+		// open for ever. Sockets aren't bound by them once they've connected, and
+		// large bodies get longer.
+		ReadTimeout:  api.ReadTimeout,
+		WriteTimeout: api.WriteTimeout,
+		IdleTimeout:  2 * time.Minute,
 	}
 
 	errs := make(chan error, 2)
@@ -249,6 +251,9 @@ func run(cfg config) error {
 			Addr:              ":80",
 			Handler:           manager.HTTPHandler(nil),
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       time.Minute,
 		}
 		go func() { errs <- redirect.ListenAndServe() }()
 		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()

@@ -58,9 +58,14 @@ const (
 	expiryInterval = time.Minute
 	// Friends behind one home router share an address, so this allows a burst.
 	defaultAuthBurst = 20
-	// How long a request's body may take. A part of a file gets longer, on a slow connection.
+	// How long a request's body may take. A part of a file gets longer, on a slow connection,
+	// and so does any body allowed past maxJSONBody, such as a commit to a large group.
 	ReadTimeout      = time.Minute
 	chunkReadTimeout = 10 * time.Minute
+	// How long an answer may take to go out, so that a client that stops reading can't
+	// hold its handler and socket for ever. Long enough for a page of a group's changes,
+	// which can run to megabytes, on a slow connection.
+	WriteTimeout = 10 * time.Minute
 )
 
 // Config is the part of the server's configuration the API needs.
@@ -729,12 +734,24 @@ func readJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 }
 
 func readJSONUpTo(w http.ResponseWriter, r *http.Request, limit int64, into any) bool {
+	if limit > maxJSONBody {
+		giveBodyTime(w)
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if err := json.NewDecoder(r.Body).Decode(into); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "The request couldn't be read.")
 		return false
 	}
 	return true
+}
+
+// giveBodyTime lets a body that may be large take chunkReadTimeout to arrive, from
+// now, and leaves the answer WriteTimeout after that. A commit to a group of 1,500
+// devices is about 12 MiB, more than a slow link sends within ReadTimeout.
+func giveBodyTime(w http.ResponseWriter) {
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Now().Add(chunkReadTimeout))
+	_ = controller.SetWriteDeadline(time.Now().Add(chunkReadTimeout + WriteTimeout))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

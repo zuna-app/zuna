@@ -20,22 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Give large request bodies the time they need
-- Where: cmd/zuna-server/main.go:222 (1-minute ReadTimeout); api/groups.go:121, :199 (16 MiB); generations.go:112, :365, :410 (4 MiB); channels.go:186 (6 MiB). Compare files.go:165, where a 1 MiB chunk gets 10 minutes.
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: a commit grows by 8 KiB per device (store/limits.go:13-14). A large channel's commit, about 12 MiB at 1,500 devices, needs roughly 1.6 Mbit/s of upload to arrive within 60 s. On a slower link it times out and is retried indefinitely.
-- Suggested change: in `readJSONUpTo`, when the limit is above `maxJSONBody`, extend the read deadline with `http.NewResponseController(w).SetReadDeadline(time.Now().Add(chunkReadTimeout))`.
-- Check after: Go tests.
-
-### Set a write timeout on the chat server
-- Where: cmd/zuna-server/main.go:217-224 and :248-252 (the redirect server has only ReadHeaderTimeout), and api/files.go:253-276
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: with no WriteTimeout, a client that stops reading a chunk download keeps its handler goroutine and socket stuck until the kernel gives up on the TCP connection. zuna-web and zuna-push both set one.
-- Suggested change: set `WriteTimeout: 2*time.Minute`, and extend it in handleDownloadChunk. The LiveKit proxy already clears its own deadlines (voice.go:216-218), and net/http clears them for hijacked sockets. Give the redirect server timeouts too.
-- Check after: Go tests, and downloading a large file in the native app against `npm run dev:server`.
-
 ### Close sockets and wait for background work on shutdown
 - Where: cmd/zuna-server/main.go:272-283 (and the deferred `db.Close()` at :179), and api/server.go:253-297
 - Category: robustness

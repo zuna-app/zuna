@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"zuna/server/internal/store"
 )
@@ -162,7 +161,7 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	// A slow connection gets longer for this than for an ordinary request.
-	http.NewResponseController(w).SetReadDeadline(time.Now().Add(chunkReadTimeout))
+	giveBodyTime(w)
 	if err := os.MkdirAll(s.fileDir(file.ID), 0o755); err != nil {
 		writeFailure(w, err)
 		return
