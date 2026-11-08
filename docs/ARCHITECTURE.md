@@ -72,7 +72,7 @@ flowchart LR
     Mic --> Room
     Core -->|"token and media key"| Room
   end
-  Native["Native screen capture<br/>Windows and Linux"]
+  Native["Native screen capture<br/>Windows and Linux; macOS captures in the app"]
   Zuna["Zuna server"]
   LiveKit["LiveKit<br/>encrypted media only"]
   Core <-->|"who's where, tokens"| Zuna
@@ -92,7 +92,7 @@ Each person's frames are under a key of their own, bound to who they are in the 
 
 **Who's there** is what each device tells the Zuna server over its socket, which passes it on to everyone. It's for showing who's in a channel, so it isn't a matter of trust: what a device can do in the room is up to LiveKit, from the token, and what it can hear is up to MLS. A device that goes quiet is taken out after 20 seconds, and being in a channel on a second device ends it on the first.
 
-**The microphone** goes through an AudioWorklet before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
+**The microphone** goes through an AudioWorklet on the web, and through the native app's own processing on its audio thread (`apps/desktop/src/voice/mic.rs`), before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
 
 **The soundboard** is a server's sounds, which its admins add and anyone in a voice channel or a call can play to the others there. Each sound is WAV in one channel at 48 kHz, at most five seconds long: the app that adds one decodes what was picked, and the core cuts its silence, holds it to five seconds and makes it about as loud as every other sound, with its loudest sample just under full scale. Its name, emoji and the key to its file are sealed with the community key and signed by the device, as a channel's details are. Playing one isn't media: the core seals which sound, who played it, when and a value used once, under the room's group's content key, and the server hands that to the others in the room, refusing someone muted or deafened, a channel whose admins turned the soundboard off, and more than a sound every two seconds after two at once. Each of them plays the file themselves: on the desktop and the web through the room's own `AudioContext`, beside everyone's voices, and on the iPhone and iPad as its join sounds play.
 

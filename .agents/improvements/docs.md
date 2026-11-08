@@ -12,14 +12,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 - Suggested change: "today the native desktop app runs on Windows, Linux and macOS, but the release workflow publishes none of them (its desktop job went with the Electron app on 2026-11-08), macOS has no package until there's a Developer ID, and the iPhone and iPad app isn't out. Before the first release, the release workflow builds the native installers, which the download buttons give (`downloads.ts`)."
 - Check after: apps/site Platforms.tsx: the macOS card offers a ".dmg" that won't exist (it falls back to the releases page). Changing the site means a browser look (site-check only if markup changes).
 
-### Correct ARCHITECTURE's voice section for the native app
-- Where: docs/ARCHITECTURE.md:75, :95
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: :95 "The microphone goes through an AudioWorklet" is only true on the web; the native app processes it in Rust (voice/mic.rs, RNNoise in voice/audio.rs). The :75 diagram's "Windows and Linux" doesn't show that macOS captures in the app.
-- Suggested change: :95 → "…in an AudioWorklet on the web and on the native app's audio thread (`apps/desktop/src/voice/mic.rs`)…". :75 → "Native screen capture<br/>Windows and Linux; macOS captures in the app".
-- Check after: none.
-
 ### Clear LINUX_APP_PLAN's leftover Electron paths and tooling
 - Where: docs/LINUX_APP_PLAN.md:176, :226, :227
 - Category: docs
