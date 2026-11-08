@@ -120,9 +120,9 @@ public enum Markup {
         var position = 0
         let placed = { (match: NSTextCheckingResult) -> (range: NSRange, inner: NSRange) in (match.range, match.range(at: 1)) }
         while true {
-            // What came before a span no longer counts, as the desktop slices the text there. A
-            // search range from here does the same: without transparent bounds, which aren't asked
-            // for, neither a lookbehind nor ^ sees anything before it.
+            // What came before a span no longer counts, as the desktop slices the text there. A search
+            // range from here does the same for every rule but the lookbehinds, which still see what's
+            // before it, so those rules also match at its start (`\G`), where a slice has nothing before.
             let restRange = NSRange(location: position, length: ns.length - position)
             var earliest: Int?
             for (index, rule) in inlineRules.enumerated() {
@@ -271,8 +271,8 @@ public enum Markup {
         regex(#"\|\|([^\n]+?)\|\|"#),
         regex(#"\*\*([^\n]+?)\*\*"#),
         regex(#"~~([^\n]+?)~~"#),
-        regex("(?<![\(word)*])\\*([^\(space)*](?:[^\\n*]*[^\(space)*])?)\\*(?![\(word)*])"),
-        regex("(?<![\(word)_])_([^\(space)_](?:[^\\n_]*[^\(space)_])?)_(?![\(word)_])"),
+        regex("(?:\\G|(?<![\(word)*]))\\*([^\(space)*](?:[^\\n*]*[^\(space)*])?)\\*(?![\(word)*])"),
+        regex("(?:\\G|(?<![\(word)_]))_([^\(space)_](?:[^\\n_]*[^\(space)_])?)_(?![\(word)_])"),
     ]
 
     private static func regex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
