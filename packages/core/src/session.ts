@@ -168,6 +168,8 @@ const PREVIEW_WAIT_MS = 4000;
 /** How long `sendNow` waits for a message to go once its files are up. */
 const SEND_NOW_WAIT_MS = 60_000;
 const UPLOAD_CONCURRENCY = 3;
+/** How many groups catch up at once after a reconnect. */
+const SYNC_CONCURRENCY = 4;
 /** How far a sound someone played may be from now, by their clock, and how long it's remembered so it plays once. */
 const PLAY_FRESH_MS = 5 * 60_000;
 /** How far a typing signal's time may be from this device's, so an old one sent again shows nobody typing. */
@@ -484,6 +486,24 @@ function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody): Stored
  * after it was sent. The earlier of the server's time and the sender's own counts,
  * so neither can make it last longer than it says.
  */
+/** Runs `task` over `items`, at most `limit` at a time, and starts no more once one has failed, whose error it then throws. */
+async function eachLimited<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < items.length) {
+      const item = items[next++]!;
+      try {
+        await task(item);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 function expiryOf(createdAt: number, body: MessageBody): number | null {
   if (!body.expiresIn) return null;
   return Math.min(createdAt, body.sentAt ?? createdAt) + body.expiresIn * 1000;
@@ -800,7 +820,17 @@ export class ServerSession {
       if (!seen.has(id)) this.markRemoved(id);
     }
     this.emitConversations();
-    for (const group of groups) await this.syncGroup(group.id);
+    // The list just said where each group is, so one this device has caught up with,
+    // at the same epoch, needn't ask for its changes. The rest catch up a few at a time.
+    const behind: string[] = [];
+    for (const group of groups) {
+      if (this.hasMlsGroup(group.id) && this.mlsEpoch(group.id) === group.epoch && this.syncedSeq(group.id) >= group.seq) {
+        this.scheduleReconcile(group.id);
+      } else {
+        behind.push(group.id);
+      }
+    }
+    await eachLimited(behind, SYNC_CONCURRENCY, (id) => this.syncGroup(id));
     await this.syncChannels().catch((error) => {
       if (error instanceof ApiError && error.status === 401) throw error;
       console.warn("[zuna] catching up on channels", error);

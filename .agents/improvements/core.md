@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Skip groups with nothing new when catching up after a reconnect
-- Where: packages/core/src/session.ts:794-803 (`for (const group of groups) await this.syncGroup(group.id)`), 3446-3486 (`pullPage` always calls `api.changes`)
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: every `ready` runs `syncAll`, which pulls `/changes` for every group, one at a time, even though `api.groups()` just returned each group's current `seq`. 100 DMs, groups and channels on a 50–100 ms link means 5–10 s of sequential requests on every reconnect (every iOS wake is one). The status stays "syncing", and channels, calls, the soundboard and history grants wait behind it.
-- Suggested change: in `syncAll`, after `applyGroup`, skip `syncGroup(id)` when `hasMlsGroup(id) && mlsEpoch(id) === group.epoch && syncedSeq(id) >= group.seq`. Sync the rest with a small concurrency limit (~4); `syncGroup` already serializes per group under `withLock`.
-- Check after: `npx vitest run test/e2e.test.ts test/group-race.test.ts test/security.test.ts`.
-
 ### Stop re-ingesting every undecryptable message after every commit
 - Where: packages/core/src/session.ts:4551-4580 (`retryUndecryptable`), 4228 (ingest's early return leaves out `undecryptable`/`unverified`), 4298-4336 (always writes and emits); called at 3705 (every applied commit), 3918, 1211, 1480, 2937, 2955
 - Category: perf
