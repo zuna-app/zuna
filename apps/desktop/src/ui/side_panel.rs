@@ -27,6 +27,8 @@ pub struct SidePanel {
     results: Vec<SearchResult>,
     pins: Option<Vec<MessageView>>,
     searching: Option<Task<()>>,
+    /// From a key press until its results are in, so "No messages match" waits for them.
+    search_pending: bool,
     /// How many of each kind have been shared, and for which state of the chat.
     counts: Option<HashMap<String, f64>>,
     counts_for: Option<(String, u64, usize)>,
@@ -73,6 +75,7 @@ impl SidePanel {
             results: Vec::new(),
             pins: None,
             searching: None,
+            search_pending: false,
             counts: None,
             counts_for: None,
             media: None,
@@ -108,20 +111,23 @@ impl SidePanel {
         let Some(group) = conversation.group_id.clone() else { return };
         if query.chars().count() < 2 {
             self.results.clear();
+            self.searching = None;
+            self.search_pending = false;
             cx.notify();
             return;
         }
         let call = self.state.read(cx).core.call(Some(&self.server_id), "search", vec![json!(query), json!(group), json!(50)]);
+        self.search_pending = true;
         self.searching = Some(cx.spawn(async move |panel, cx| {
             cx.background_executor().timer(Duration::from_millis(120)).await;
-            if let Ok(value) = call.await {
-                panel
-                    .update(cx, |panel, cx| {
-                        panel.results = crate::models::from_value(value);
-                        cx.notify();
-                    })
-                    .ok();
-            }
+            let results = call.await;
+            panel
+                .update(cx, |panel, cx| {
+                    panel.results = results.map(crate::models::from_value).unwrap_or_default();
+                    panel.search_pending = false;
+                    cx.notify();
+                })
+                .ok();
         }));
     }
 
@@ -1073,7 +1079,7 @@ impl Render for SidePanel {
                         .into_any_element(),
                 ];
                 let results = self.results.clone();
-                if results.is_empty() && self.search.read(cx).text().trim().chars().count() >= 2 {
+                if results.is_empty() && !self.search_pending && self.search.read(cx).text().trim().chars().count() >= 2 {
                     parts.push(div().p(px(20.)).text_center().text_color(theme.text2).child("No messages match.").into_any_element());
                 }
                 for result in &results {

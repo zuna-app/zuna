@@ -37,6 +37,8 @@ pub struct ConversationList {
     show_hidden: bool,
     hits: Vec<SearchResult>,
     searching: Option<Task<()>>,
+    /// From a key press until the message hits are in, so "Nothing matches" waits for them.
+    search_pending: bool,
     search_focused: bool,
     /// The channel row under the pointer, whose edit button shows. It takes no room otherwise,
     /// as the desktop's is `display: none`, so a voice channel's limit sits at the row's end.
@@ -133,7 +135,7 @@ impl ConversationList {
         if let Some(voice) = crate::voice::get(cx) {
             subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
         }
-        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, server_menu_open: false, _subscriptions: subscriptions }
+        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_pending: false, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, server_menu_open: false, _subscriptions: subscriptions }
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -146,24 +148,29 @@ impl ConversationList {
         if query.chars().count() < 2 {
             self.hits.clear();
             self.searching = None;
+            self.search_pending = false;
             cx.notify();
             return;
         }
         let state = self.state.clone();
+        self.search_pending = true;
         self.searching = Some(cx.spawn(async move |list, cx| {
             cx.background_executor().timer(Duration::from_millis(120)).await;
             let call = state.update(cx, |state, _| {
                 state.active_server.clone().map(|server| state.core.call(Some(&server), "search", vec![json!(query), crate::host::undefined(), json!(30)]))
             });
-            let Some(call) = call else { return };
-            if let Ok(value) = call.await {
-                let hits: Vec<SearchResult> = crate::models::from_value(value);
-                list.update(cx, |list, cx| {
+            let hits: Option<Vec<SearchResult>> = match call {
+                Some(call) => call.await.ok().map(crate::models::from_value),
+                None => None,
+            };
+            list.update(cx, |list, cx| {
+                if let Some(hits) = hits {
                     list.hits = hits;
-                    cx.notify();
-                })
-                .ok();
-            }
+                }
+                list.search_pending = false;
+                cx.notify();
+            })
+            .ok();
         }));
     }
 
@@ -613,7 +620,7 @@ impl Render for ConversationList {
                 );
             }
         }
-        if visible.is_empty() && hidden.is_empty() && self.hits.is_empty() && self.filter != Filter::Channels {
+        if visible.is_empty() && hidden.is_empty() && self.hits.is_empty() && self.filter != Filter::Channels && !(self.search_pending && !query.is_empty()) {
             let message = if !query.is_empty() {
                 "Nothing matches that search."
             } else if self.filter == Filter::Unread {

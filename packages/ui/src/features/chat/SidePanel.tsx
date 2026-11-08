@@ -582,18 +582,28 @@ function SearchContent({ conversation }: { conversation: ConversationView }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [coverage, setCoverage] = useState<{ done: number; total: number } | null>(null);
+  // From a key press until its results are in, so "No messages found" waits for them.
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!conversation.groupId || query.trim().length < 2) {
       setResults([]);
+      setSearching(false);
       return;
     }
     let cancelled = false;
+    setSearching(true);
     const timer = setTimeout(async () => {
-      const [found, indexed] = await Promise.all([session().search(query, conversation.groupId!), session().searchCoverage()]);
-      if (!cancelled) {
-        setResults(found);
-        setCoverage(indexed);
+      try {
+        const [found, indexed] = await Promise.all([session().search(query, conversation.groupId!), session().searchCoverage()]);
+        if (!cancelled) {
+          setResults(found);
+          setCoverage(indexed);
+        }
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
       }
     }, 140);
     return () => {
@@ -611,7 +621,7 @@ function SearchContent({ conversation }: { conversation: ConversationView }) {
         <input className="input" placeholder="Search messages" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label="Search messages" />
       </div>
       {partial && <p className="faint" style={{ fontSize: 12 }}>Still downloading your history. Older messages will appear in results soon.</p>}
-      {query.trim().length >= 2 && results.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 18 }}>No messages found.</p>}
+      {query.trim().length >= 2 && results.length === 0 && !searching && <p className="muted" style={{ textAlign: "center", padding: 18 }}>No messages found.</p>}
       {query.trim().length < 2 && (
         <p className="faint" style={{ fontSize: 12.5, textAlign: "center", padding: "18px 10px" }}>
           Search runs on this device. The server never sees what you look for.

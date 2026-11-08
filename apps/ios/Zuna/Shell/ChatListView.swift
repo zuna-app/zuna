@@ -68,6 +68,8 @@ struct ChatListView: View {
     @State private var filter = Filter.all
     @State private var showHidden = false
     @State private var messageHits: [SearchResult] = []
+    /// From a key press until the message hits are in, so "Nothing matches" waits for them.
+    @State private var searchingMessages = false
     @State private var sheet: ListSheet?
     /// A chat whose mute is being chosen, from its swipe action.
     @State private var muting: MutingTarget?
@@ -187,7 +189,7 @@ struct ChatListView: View {
                     }
                 }
                 ForEach(visible) { row($0, server) }
-                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, !channelHits, filter != .channels {
+                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, !channelHits, filter != .channels, needle.isEmpty || !searchingMessages {
                     emptyState(searching: !needle.isEmpty)
                 }
             }
@@ -439,13 +441,16 @@ struct ChatListView: View {
         let needle = query.trimmingCharacters(in: .whitespaces)
         guard needle.count >= 2, let serverId = model.activeServerId else {
             messageHits = []
+            searchingMessages = false
             return
         }
+        searchingMessages = true
         try? await Task.sleep(for: .milliseconds(120))
         guard !Task.isCancelled else { return }
         let hits = (try? await model.core.session(serverId).search(needle, limit: 30)) ?? []
         guard !Task.isCancelled else { return }
         messageHits = hits
+        searchingMessages = false
     }
 
     // MARK: Navigation bar

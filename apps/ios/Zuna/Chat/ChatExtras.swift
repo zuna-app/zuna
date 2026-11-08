@@ -39,6 +39,8 @@ struct ChatSearchSheet: View {
     @State private var query = ""
     @State private var results: [SearchResult] = []
     @State private var coverage: SearchCoverage?
+    /// From a key press until its results are in, so "No messages found." waits for them.
+    @State private var searching = false
 
     var body: some View {
         let needle = query.trimmingCharacters(in: .whitespaces)
@@ -51,7 +53,7 @@ struct ChatSearchSheet: View {
                 if needle.count < 2 {
                     Text("Search runs on this device. The server never sees what you look for.")
                         .font(.footnote).foregroundStyle(Theme.text3).frame(maxWidth: .infinity).listRowBackground(Color.clear)
-                } else if results.isEmpty {
+                } else if results.isEmpty, !searching {
                     Text("No messages found.").foregroundStyle(Theme.text2).frame(maxWidth: .infinity).listRowBackground(Color.clear)
                 }
                 ForEach(results, id: \.message.id) { result in
@@ -74,13 +76,16 @@ struct ChatSearchSheet: View {
             .task(id: needle) {
                 guard needle.count >= 2, let groupId = conversation.groupId else {
                     results = []
+                    searching = false
                     return
                 }
+                searching = true
                 try? await Task.sleep(for: .milliseconds(140))
                 guard !Task.isCancelled else { return }
                 let session = model.core.session(serverId)
                 results = (try? await session.search(needle, groupId: groupId)) ?? []
                 coverage = try? await session.searchCoverage()
+                searching = false
             }
         }
     }

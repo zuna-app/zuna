@@ -210,20 +210,27 @@ export function ConversationList() {
 
   // Message search runs against the encrypted index on this device.
   const [messageHits, setMessageHits] = useState<SearchResult[]>([]);
+  // From a key press until the message hits are in, so "Nothing matches" waits for them.
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     const needle = query.trim();
     if (needle.length < 2 || !server) {
       setMessageHits([]);
+      setSearching(false);
       return;
     }
     let cancelled = false;
+    setSearching(true);
     const timer = setTimeout(() => {
       void session()
         .search(needle, undefined, 30)
         .then((hits) => {
           if (!cancelled) setMessageHits(hits);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
     }, 120);
     return () => {
       cancelled = true;
@@ -420,7 +427,7 @@ export function ConversationList() {
             })}
           </div>
         )}
-        {visible.length === 0 && hidden.length === 0 && messageHits.length === 0 && filter !== "channels" && (
+        {visible.length === 0 && hidden.length === 0 && messageHits.length === 0 && filter !== "channels" && !(query && searching) && (
           <div className="empty-state" style={{ padding: "32px 20px" }}>
             <p>{query ? "Nothing matches that search." : filter === "unread" ? "You're all caught up." : filter === "groups" ? "No groups yet." : "It's quiet here."}</p>
             {!query && filter !== "unread" && (

@@ -4,13 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Show "searching" instead of flashing "No results"
-- Where: packages/ui/src/features/chat/SidePanel.tsx:585-623 ("No messages found." shows during the debounce; the async timeout has no try/catch); features/shell/ConversationList.tsx:203-223,417-419 ("Nothing matches that search." shows before the message hits arrive)
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: add a `searching` state, only show the empty text when it's false, and add a try/catch.
-- Check after: web check. Parity: check apps/desktop/src/ui/side_panel.rs for the same flash.
-
 ### Resize the sidebar without re-rendering the app on every pointer move
 - Where: packages/ui/src/features/shell/Shell.tsx:161,169-193
 - Category: perf
