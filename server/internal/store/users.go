@@ -234,6 +234,18 @@ func (d *DB) Users(ctx context.Context, since int64) ([]*PublicUser, error) {
 	return users, deviceRows.Err()
 }
 
+// UserRole is someone's server role, and whether their account was deleted, for
+// checks that need no more of them.
+func (d *DB) UserRole(ctx context.Context, id string) (string, bool, error) {
+	var role string
+	var deletedAt *int64
+	err := d.sql.QueryRowContext(ctx, `SELECT role, deleted_at FROM users WHERE id = ?`, id).Scan(&role, &deletedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, ErrNotFound
+	}
+	return role, deletedAt != nil, err
+}
+
 func (d *DB) User(ctx context.Context, id string) (*PublicUser, error) {
 	u, err := scanPublicUser(d.sql.QueryRowContext(ctx, `SELECT `+publicUserColumns+` FROM users WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {

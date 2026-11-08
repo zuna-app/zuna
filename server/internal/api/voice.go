@@ -524,7 +524,7 @@ func (s *Server) endVoiceIn(ctx context.Context, roomID string) {
 
 func (s *Server) handleVoiceDisconnect(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	target := r.PathValue("user")
-	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
+	if allowed, err := s.canModerate(r, sess, target); err != nil {
 		writeFailure(w, err)
 		return
 	} else if !allowed {
@@ -543,7 +543,7 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
+	if allowed, err := s.canModerate(r, sess, target); err != nil {
 		writeFailure(w, err)
 		return
 	} else if !allowed {

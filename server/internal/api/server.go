@@ -636,7 +636,7 @@ func (s *Server) member(next memberHandler) http.HandlerFunc {
 
 func (s *Server) admin(next authedHandler) http.HandlerFunc {
 	return s.withDevice(func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-		if sess.Role != "owner" && sess.Role != "admin" {
+		if !isServerAdmin(sess) {
 			writeError(w, http.StatusForbidden, "forbidden", "Only server admins can do this.")
 			return
 		}

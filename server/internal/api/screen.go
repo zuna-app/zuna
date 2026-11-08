@@ -225,7 +225,7 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 			writeFailure(w, err)
 			return
 		}
-		isAdmin := sess.Role == "owner" || sess.Role == "admin"
+		isAdmin := isServerAdmin(sess)
 		switch {
 		case rules.Who == "nobody":
 			writeError(w, http.StatusForbidden, "screen_forbidden", "Screen sharing is off on this server.")
@@ -300,7 +300,7 @@ func (s *Server) handleStopScreen(w http.ResponseWriter, r *http.Request, sess *
 // call is between the people in it.
 func (s *Server) handleStopScreenOf(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	target := r.PathValue("user")
-	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
+	if allowed, err := s.canModerate(r, sess, target); err != nil {
 		writeFailure(w, err)
 		return
 	} else if !allowed {
@@ -363,8 +363,8 @@ func (s *Server) enforceScreenRules(ctx context.Context) {
 	s.voice.mu.Unlock()
 	admins := map[string]bool{}
 	for user := range users {
-		if found, err := s.db.User(ctx, user); err == nil {
-			admins[user] = found.Role == "owner" || found.Role == "admin"
+		if role, _, err := s.db.UserRole(ctx, user); err == nil {
+			admins[user] = isAdminRole(role)
 		}
 	}
 	s.endShares(ctx, "rules", func(share *screenShare) bool {

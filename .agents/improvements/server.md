@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Use isServerAdmin for every server-role check
-- Where: server/internal/api/server.go:634, channels.go:161, screen.go:231 and :370; the helper is at accounts.go:733. Also admin.go:369-378, where `canModerate` loads the full user with devices just to read its role.
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the role check is written out four times next to an existing helper.
-- Suggested change: add an `isAdminRole(role)` helper and use it at those four sites. A light `store.UserRole` would do in place of `db.User` in `canModerate`.
-- Check after: Go tests.
-
 ### Share the "file in a message they can see" SQL
 - Where: server/internal/store/messages.go:637-645 and :693-702
 - Category: cleanup

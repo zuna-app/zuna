@@ -729,7 +729,12 @@ func (s *Server) canManageInvites(r *http.Request, sess *store.Session) (bool, e
 }
 
 func isServerAdmin(sess *store.Session) bool {
-	return sess.Role == "owner" || sess.Role == "admin"
+	return isAdminRole(sess.Role)
+}
+
+// isAdminRole says whether a server role is one of its admins', which the owner is too.
+func isAdminRole(role string) bool {
+	return role == "owner" || role == "admin"
 }
 
 // invitesOf says whose invites someone may see and revoke: everyone's for

@@ -355,15 +355,15 @@ func (s *Server) handleSetEmoteSet(w http.ResponseWriter, r *http.Request, _ *st
 
 // canModerate reports whether the actor may act on the target. The owner can
 // act on anyone; admins only on regular members.
-func (s *Server) canModerate(r *http.Request, sess *store.Session, targetID string) (*store.PublicUser, bool, error) {
-	target, err := s.db.User(r.Context(), targetID)
+func (s *Server) canModerate(r *http.Request, sess *store.Session, targetID string) (bool, error) {
+	role, deleted, err := s.db.UserRole(r.Context(), targetID)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
-	if targetID == sess.UserID || target.Role == "owner" || target.Deleted {
-		return target, false, nil
+	if targetID == sess.UserID || role == "owner" || deleted {
+		return false, nil
 	}
-	return target, sess.Role == "owner" || target.Role == "member", nil
+	return sess.Role == "owner" || role == "member", nil
 }
 
 func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *store.Session) {
@@ -378,7 +378,7 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 		return
 	}
 	targetID := r.PathValue("id")
-	_, allowed, err := s.canModerate(r, sess, targetID)
+	allowed, err := s.canModerate(r, sess, targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -403,13 +403,20 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 
 func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	targetID := r.PathValue("id")
-	target, allowed, err := s.canModerate(r, sess, targetID)
+	allowed, err := s.canModerate(r, sess, targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	if !allowed {
 		writeError(w, http.StatusForbidden, "forbidden", "You can't ban this user.")
+		return
+	}
+	// Their devices, read before the ban takes them away, so that what's kept for
+	// each about notifications can be let go of after.
+	target, err := s.db.User(r.Context(), targetID)
+	if err != nil {
+		writeFailure(w, err)
 		return
 	}
 	groups, err := s.db.UserGroupIDs(r.Context(), targetID)
@@ -442,7 +449,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 
 func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	targetID := r.PathValue("id")
-	_, allowed, err := s.canModerate(r, sess, targetID)
+	allowed, err := s.canModerate(r, sess, targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return

@@ -158,7 +158,7 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 	}
 	// A channel's admins are the server's.
 	role := "member"
-	if sess.Role == "owner" || sess.Role == "admin" {
+	if isServerAdmin(sess) {
 		role = "admin"
 	}
 	if err := s.db.JoinChannel(r.Context(), id, sess.UserID, role, body.Proof, body.WantHistory); err != nil {
