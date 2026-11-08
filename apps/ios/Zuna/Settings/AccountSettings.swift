@@ -25,8 +25,16 @@ struct ProfileView: View {
                     if let me {
                         // Made here, as the picker's label isn't on the main actor.
                         let avatar = AvatarView(name: me.displayName, seed: me.id, source: me.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 96)
+                        let uploading = busy
                         PhotosPicker(selection: $photo, matching: .images) {
                             avatar
+                                .overlay {
+                                    // A new picture on its way up.
+                                    if uploading {
+                                        Circle().fill(.black.opacity(0.45))
+                                        ProgressView().tint(.white)
+                                    }
+                                }
                                 .overlay(alignment: .bottomTrailing) {
                                     Image(systemName: "camera.fill")
                                         .font(.footnote)

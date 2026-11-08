@@ -13,6 +13,8 @@ struct ServerSettingsView: View {
     @State private var loaded = false
     @State private var icon: PhotosPickerItem?
     @State private var inviting = false
+    /// A new picture on its way up.
+    @State private var uploadingIcon = false
 
     var body: some View {
         let server = model.servers[serverId]
@@ -22,8 +24,15 @@ struct ServerSettingsView: View {
                     HStack(spacing: 14) {
                         // Made here, as the picker's label isn't on the main actor.
                         let picture = AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 64, rounded: true)
+                        let uploading = uploadingIcon
                         PhotosPicker(selection: $icon, matching: .images) {
                             picture
+                                .overlay {
+                                    if uploading {
+                                        RoundedRectangle(cornerRadius: 64 * 0.28, style: .continuous).fill(.black.opacity(0.45))
+                                        ProgressView().tint(.white)
+                                    }
+                                }
                                 .overlay(alignment: .bottomTrailing) {
                                     Image(systemName: "photo").font(.caption).foregroundStyle(Theme.text1)
                                         .frame(width: 24, height: 24).background(Theme.bg4, in: .circle)
@@ -112,7 +121,9 @@ struct ServerSettingsView: View {
         .onChange(of: icon) { _, item in
             guard let item, let server else { return }
             icon = nil
+            uploadingIcon = true
             run {
+                defer { uploadingIcon = false }
                 guard let media = try await item.loadTransferable(type: PickedMedia.self) else { return }
                 let url = media.url
                 let file = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.avatar(from: url) }.value

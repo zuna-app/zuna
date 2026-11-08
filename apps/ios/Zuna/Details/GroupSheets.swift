@@ -90,9 +90,13 @@ struct NewGroupSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(selected.isEmpty ? "Create" : "Create with \(selected.count + 1) people") { create() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || busy)
-                        .accessibilityIdentifier(A11y.Groups.create)
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Button(selected.isEmpty ? "Create" : "Create with \(selected.count + 1) people") { create() }
+                            .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .accessibilityIdentifier(A11y.Groups.create)
+                    }
                 }
             }
         }
@@ -152,9 +156,13 @@ struct AddMembersSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { add() }
-                        .disabled(selected.isEmpty || busy)
-                        .accessibilityIdentifier(A11y.Groups.add)
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Button("Add") { add() }
+                            .disabled(selected.isEmpty)
+                            .accessibilityIdentifier(A11y.Groups.add)
+                    }
                 }
             }
         }
@@ -184,6 +192,7 @@ struct EditGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var description = ""
+    @State private var busy = false
 
     var body: some View {
         NavigationStack {
@@ -208,7 +217,13 @@ struct EditGroupSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }.accessibilityIdentifier(A11y.Groups.save)
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Button("Save") { save() }
+                            .disabled(name.trimmingCharacters(in: .whitespaces) == conversation.title && description == conversation.description)
+                            .accessibilityIdentifier(A11y.Groups.save)
+                    }
                 }
             }
             .onAppear {
@@ -216,19 +231,22 @@ struct EditGroupSheet: View {
                 description = conversation.description
             }
         }
-        .presentationDetents([.medium])
+        // Taller once the keyboard and a long description want the room.
+        .presentationDetents([.medium, .large])
     }
 
     private func save() {
         guard let groupId = conversation.groupId else { return }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let changes = GroupMetaChanges(name: trimmed.isEmpty ? conversation.title : trimmed, description: description)
+        busy = true
         Task {
             do {
                 try await model.core.session(serverId).updateGroupMeta(groupId, changes)
                 dismiss()
             } catch {
                 model.toast(ErrorText.describe(error), .error)
+                busy = false
             }
         }
     }
