@@ -192,6 +192,11 @@ final class VoicePlayer {
     private(set) var videoPlayer: AVPlayer?
     @ObservationIgnored private var ticks: Any?
     @ObservationIgnored private var ended: NSObjectProtocol?
+    /// Hears the player pause by itself: headphones taken out, or a phone call coming in.
+    @ObservationIgnored private var statusWatch: NSKeyValueObservation?
+    /// This player set the audio session up, and lets it go when it's done, so music it
+    /// interrupted carries on.
+    @ObservationIgnored private var ownsSession = false
 
     enum Failure: LocalizedError {
         case unavailable
@@ -200,16 +205,10 @@ final class VoicePlayer {
 
     func play(_ url: URL, id: String, from time: TimeInterval, video: Bool = false) async throws {
         if current != id || player == nil {
-            stop()
+            stop(releasing: false)
             let playable = video ? url : try await Self.playable(url)
             // Another one was asked for meanwhile.
             guard player == nil else { return }
-            // Voice messages play even with the phone set to silent, as in other messengers,
-            // and within a call's session, which plays and keeps its microphone.
-            if !CallAudio.active {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                try AVAudioSession.sharedInstance().setActive(true)
-            }
             let item = AVPlayerItem(url: playable)
             let player = AVPlayer(playerItem: item)
             self.player = player
@@ -223,8 +222,24 @@ final class VoicePlayer {
                     if self?.isPlaying == true { self?.position = time.seconds }
                 }
             }
+            statusWatch = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+                guard player.timeControlStatus == .paused else { return }
+                Task { @MainActor in
+                    // Paused by the system rather than here, so the button shows play again.
+                    guard let self, self.player === player, self.isPlaying, player.timeControlStatus == .paused else { return }
+                    self.isPlaying = false
+                    self.releaseSession()
+                }
+            }
         }
         guard let player else { return }
+        // Voice messages play even with the phone set to silent, as in other messengers,
+        // and within a call's session, which plays and keeps its microphone.
+        if !CallAudio.active, !ownsSession {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            try AVAudioSession.sharedInstance().setActive(true)
+            ownsSession = true
+        }
         isPlaying = true
         position = time
         // Playing waits for the seek.
@@ -242,21 +257,35 @@ final class VoicePlayer {
     }
 
     func pause() {
-        player?.pause()
         isPlaying = false
+        player?.pause()
+        releaseSession()
     }
 
-    func stop() {
+    /// Stops and forgets what was playing. `releasing` lets the audio session go, which
+    /// playing another one straight after doesn't, so music doesn't come back in between.
+    func stop(releasing: Bool = true) {
         if let ticks { player?.removeTimeObserver(ticks) }
         if let ended { NotificationCenter.default.removeObserver(ended) }
         ticks = nil
         ended = nil
+        statusWatch = nil
+        isPlaying = false
         player?.pause()
         player = nil
         videoPlayer = nil
         current = nil
-        isPlaying = false
         position = 0
+        if releasing { releaseSession() }
+    }
+
+    /// Done with sound for now: what this interrupted, such as music, carries on.
+    private func releaseSession() {
+        guard ownsSession else { return }
+        ownsSession = false
+        // A call that started meanwhile has the session now.
+        guard !CallAudio.active else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     /// The file to play: a copy with its durations put right, for Opus as Chromium writes it (`VoiceFile`).
