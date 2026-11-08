@@ -7,6 +7,9 @@ import ZunaModels
 @MainActor
 final class MessageListBridge {
     var scrollToBottom: () -> Void = {}
+    /// Going back from a window around an old message to the newest, which the list scrolls down to
+    /// once they're in, rather than keeping its place as it does when a window gets more of itself.
+    var toNewest = false
     /// The list has been shown once, which is when it opens at the first unread message.
     var opened = false
     /// The first unread message when the chat opened, with a line above it until the chat is left.
@@ -44,6 +47,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     var bridge: MessageListBridge!
     var onAtBottomChange: (Bool) -> Void = { _ in }
     var onNearOldest: () -> Void = {}
+    /// Near the newest message of a window around an old one, where the page after it is wanted.
+    var onNearNewest: () -> Void = {}
     var onJumpHandled: (String) -> Void = { _ in }
     /// The newest message that's been on screen enough to count as read.
     var onSeen: (Int) -> Void = { _ in }
@@ -166,8 +171,11 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         // glides to them while it's there. Anything else, as older pages or going back to the
         // newest messages, just appears.
         // Back from a window around an old message to the newest, which take its place: at the newest.
-        let returned = previous?.detached == true && !input.detached
-        let added = returned ? 0 : oldIds.first.flatMap { ids.firstIndex(of: $0) } ?? 0
+        let returned = bridge.toNewest && !input.detached
+        if returned { bridge.toNewest = false }
+        // More of such a window, older or newer, which comes in out of sight: what's on screen stays put.
+        let paging = previous?.detached == true && !returned
+        let added = returned || paging ? 0 : oldIds.first.flatMap { ids.firstIndex(of: $0) } ?? 0
         let now = CACurrentMediaTime()
         fresh = fresh.filter { now - $0.value < 0.12 }
         for id in ids.prefix(added) { fresh[id] = now }
@@ -177,7 +185,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let sent = previous != nil && input.items.last.map { $0.id != oldIds.first && $0.senderId == input.server.me?.userId && $0.status == .sending } == true
         if sent, added > 0, !atBottom { scrollToBottom(animated: false) }
         let animate = added > 0 && atBottom && !model.reduceMotion
-        let anchor = atBottom || oldIds.isEmpty || scrollingDown || returned ? nil : visibleAnchor()
+        let anchor = returned || oldIds.isEmpty ? nil : paging ? visibleAnchor() : atBottom || scrollingDown ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
         if oldIds.isEmpty, !input.detached {
             openedAt = openAt ?? model.savedPositions[input.listKey]
@@ -270,7 +278,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 selecting: input.selection != nil,
                 selected: input.selection?.contains(message.id) ?? false,
                 channel: channel,
-                startOfChat: index == 0 && !input.hasMore && !input.detached,
+                startOfChat: index == 0 && !input.hasMore,
                 editing: input.editing == message.id,
                 jumbo: message.attachments.isEmpty && message.deletedAt == nil ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
             )
@@ -517,6 +525,10 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         if remaining < 800 {
             DispatchQueue.main.async { [weak self] in self?.onNearOldest() }
         }
+        // Upside down, the newest end is the top of the content.
+        if input?.detached == true, scrollView.contentOffset.y + scrollView.adjustedContentInset.top < 800 {
+            DispatchQueue.main.async { [weak self] in self?.onNearNewest() }
+        }
     }
 }
 
@@ -590,6 +602,7 @@ struct MessageListView: UIViewControllerRepresentable {
     let bridge: MessageListBridge
     let onAtBottomChange: (Bool) -> Void
     let onNearOldest: () -> Void
+    var onNearNewest: () -> Void = {}
     let onJumpHandled: (String) -> Void
     let onSeen: (Int) -> Void
 
@@ -605,6 +618,7 @@ struct MessageListView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: MessageListController, context: Context) {
         controller.onAtBottomChange = onAtBottomChange
         controller.onNearOldest = onNearOldest
+        controller.onNearNewest = onNearNewest
         controller.onJumpHandled = onJumpHandled
         controller.onSeen = onSeen
         controller.update(input)

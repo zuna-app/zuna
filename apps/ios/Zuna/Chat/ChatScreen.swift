@@ -280,6 +280,7 @@ struct ChatScreen: View {
                     if let list, !atBottom || list.detached {
                         let action = {
                             if list.detached {
+                                bridge.toNewest = true
                                 Task { await model.returnToLatest(serverId, listId) }
                             } else {
                                 bridge.scrollToBottom()
@@ -423,8 +424,13 @@ struct ChatScreen: View {
             bridge: bridge,
             onAtBottomChange: { atBottom = $0 },
             onNearOldest: {
-                guard list.hasMore, !list.loading, !list.detached else { return }
+                // In a window around an old message too, which reads on both ways.
+                guard list.hasMore, !list.loading else { return }
                 Task { await model.loadOlder(serverId, listId) }
+            },
+            onNearNewest: {
+                guard list.detached, !list.loading else { return }
+                Task { await model.loadNewer(serverId, listId) }
             },
             onJumpHandled: { id in
                 highlighted = id

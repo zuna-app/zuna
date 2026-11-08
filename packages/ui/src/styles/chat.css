@@ -40,6 +40,8 @@
 .list-center { flex: 1; display: grid; place-items: center; padding: 20px; color: var(--text-2); }
 .list-top { position: relative; height: 8px; }
 .list-loading { position: absolute; z-index: 1; top: 4px; left: 0; right: 0; height: 28px; display: grid; place-items: center; color: var(--text-3); pointer-events: none; }
+.list-footer { position: relative; }
+.list-footer .list-loading { top: auto; bottom: 4px; }
 
 .chat-empty-card { max-width: 320px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-2); }
 .chat-empty-card > svg { color: var(--text-3); margin-bottom: 4px; }

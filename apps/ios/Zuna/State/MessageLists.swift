@@ -160,6 +160,41 @@ extension AppModel {
         }
     }
 
+    /// The page after the newest loaded in a window around an old message. Once nothing's left
+    /// after it, the window is the chat's newest messages again, and new ones come into it.
+    func loadNewer(_ serverId: String, _ listId: String) async {
+        let key = Self.listKey(serverId, listId)
+        guard let list = lists[key], list.detached, !list.loading,
+              let newest = list.items.last(where: { $0.seq != nil })?.seq else { return }
+        lists[key]?.loading = true
+        do {
+            let page = try await core.session(serverId).loadNewer(listId, after: newest)
+            guard var current = lists[key], current.detached else { return }
+            let known = Set(current.items.map(\.id))
+            current.items = Self.sorted(current.items + page.messages.filter { !known.contains($0.id) })
+            current.loading = false
+            current.detached = page.hasMore
+            lists[key] = current
+            // What came while the window wasn't taking new messages, between that page and now.
+            // Only after the window's end, as one not yet a page long would take older ones in too.
+            let end = current.items.last(where: { $0.seq != nil })?.seq ?? newest
+            if !page.hasMore, let latest = try? await core.session(serverId).loadMessages(listId), var caught = lists[key], !caught.detached {
+                let known = Dictionary(caught.items.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { $1 })
+                for message in latest.messages {
+                    if let index = known[message.id] {
+                        caught.items[index] = message
+                    } else if message.seq.map({ $0 > end }) ?? true {
+                        caught.items.append(message)
+                    }
+                }
+                caught.items = Self.sorted(caught.items)
+                lists[key] = caught
+            }
+        } catch {
+            lists[key]?.loading = false
+        }
+    }
+
     /// Shows a message, loading the messages around it if they aren't loaded.
     func jumpToMessage(_ serverId: String, groupId: String, messageId: String, seq: Int? = nil) async {
         let key = Self.listKey(serverId, groupId)

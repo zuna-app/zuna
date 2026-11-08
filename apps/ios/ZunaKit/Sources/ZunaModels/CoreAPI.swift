@@ -87,6 +87,8 @@ public struct SessionCalls: Sendable {
     }
 
     public func loadAround(_ groupId: String, seq: Int) async throws -> [MessageView] { try await call("loadAround", [groupId, seq]) }
+    /// The page after `after`, oldest first, for reading on from a message jumped to; with no more, the newest.
+    public func loadNewer(_ groupId: String, after: Int) async throws -> MessagePage { try await call("loadNewer", [groupId, after]) }
     public func messageById(_ groupId: String, id: String) async throws -> MessageView? { try await call("messageById", [groupId, id]) }
     /// The messages in a group after `after` that mention you or reply to you, oldest first, leaving out those already jumped to.
     public func unreadMentions(_ groupId: String, after: Int) async throws -> [MessagePlace] { try await call("unreadMentions", [groupId, after]) }

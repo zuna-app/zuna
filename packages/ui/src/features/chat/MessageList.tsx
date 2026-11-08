@@ -89,9 +89,15 @@ function continues(a: MessageView | undefined, b: MessageView | undefined): bool
 }
 
 /** Always the same height, so loading older messages doesn't push the ones on screen. */
-const Header = ({ context }: { context?: { loading: boolean } }) => (
+interface ListContext {
+  loading: boolean;
+  /** What's loading is after the newest message shown, in a window reading on. */
+  newer: boolean;
+}
+
+const Header = ({ context }: { context?: ListContext }) => (
   <div className="list-top">
-    {context?.loading && (
+    {context?.loading && !context.newer && (
       <div className="list-loading">
         <Spinner size={15} delayed />
       </div>
@@ -99,7 +105,15 @@ const Header = ({ context }: { context?: { loading: boolean } }) => (
   </div>
 );
 
-const ListFooter = () => <div className="list-footer" />;
+const ListFooter = ({ context }: { context?: ListContext }) => (
+  <div className="list-footer">
+    {context?.loading && context.newer && (
+      <div className="list-loading">
+        <Spinner size={15} delayed />
+      </div>
+    )}
+  </div>
+);
 
 /**
  * As Telegram's "@": goes to the oldest unread message here that mentions you or
@@ -150,6 +164,7 @@ export function MessageList({
   const list = useApp((state) => state.lists[listId]);
   const loadOlder = useApp((state) => state.loadOlder);
   const returnToLatest = useApp((state) => state.returnToLatest);
+  const loadNewerPage = useApp((state) => state.loadNewer);
   const jumpTarget = useApp((state) => state.jumpTarget);
   // Being here lasts 5 s after the window loses focus, which stops reading at once.
   const here = useApp((state) => state.windowFocused && state.personHere);
@@ -194,6 +209,8 @@ export function MessageList({
   // A chat with unread messages opens at the first, as Telegram's does, under a line
   // that stays there until the chat is left. Decided once, from what's loaded then.
   const detached = !!list?.detached;
+  // A window around an old message that hasn't read on to the newest yet.
+  const readingOn = detached && !!list?.hasNewer;
   const unreadLine = useRef<string | null | undefined>(undefined);
   const openAtUnread = useRef(false);
   if (unreadLine.current === undefined && (items.length > 0 || list?.loaded)) {
@@ -255,7 +272,19 @@ export function MessageList({
   const loadMore = useRef<() => void>(() => undefined);
   loadMore.current = () => {
     if (start > 0) setReleased(true);
-    else if (list?.hasMore && !list.detached) void loadOlder(listId);
+    // In a window around a message jumped to too, which reads on both ways.
+    else if (list?.hasMore) void loadOlder(listId);
+  };
+  // The end of such a window isn't the newest message, so nearing it reads on.
+  const windowEnds = useRef(false);
+  windowEnds.current = readingOn;
+  const loadNewer = useRef<() => void>(() => undefined);
+  const loadingNewer = useRef(false);
+  if (!list?.loading) loadingNewer.current = false;
+  loadNewer.current = () => {
+    if (!readingOn || list?.loading) return;
+    loadingNewer.current = true;
+    void loadNewerPage(listId);
   };
 
   // The list corrects itself on the way, which isn't anyone scrolling away again.
@@ -303,7 +332,7 @@ export function MessageList({
   const reading = useRef({ want: 0, busy: false });
   useEffect(() => {
     const groupId = conversation.groupId;
-    const upTo = atBottom && !detached ? newestSeq : onScreen;
+    const upTo = atBottom && !readingOn ? newestSeq : onScreen;
     if (!here || !groupId || upTo <= conversation.ownRead) return;
     // One position at a time, as the server keeps the last it gets. While scrolling,
     // the furthest so far goes once the one before it is done.
@@ -323,7 +352,7 @@ export function MessageList({
         });
     };
     send();
-  }, [atBottom, detached, here, newestSeq, onScreen, conversation.ownRead, conversation.groupId, session]);
+  }, [atBottom, readingOn, here, newestSeq, onScreen, conversation.ownRead, conversation.groupId, session]);
 
   // Whenever anything changes size (a new message, a picture loading, the message
   // box growing, a reply bar opening) this runs before the frame is painted. On the
@@ -406,9 +435,14 @@ export function MessageList({
       ownTop = null;
       if (scrolledByHand.current && !own) {
         const away = contentEnd() - element.clientHeight - top;
+        if (windowEnds.current) {
+          // Not the newest, so nothing to stay on: what's after it loads instead.
+          stuck.current = false;
+          if (top > lastTop && away < LOAD_AHEAD_PX) loadNewer.current();
+        }
         // Any way up lets go, however little: a row drawn above as the list moves would
         // otherwise put it straight back at the end, again and again.
-        if (away <= 1 || (top > lastTop && away <= AT_BOTTOM_PX)) stuck.current = true;
+        else if (away <= 1 || (top > lastTop && away <= AT_BOTTOM_PX)) stuck.current = true;
         else if (top < lastTop) stuck.current = false;
         setAtBottom(stuck.current);
         if (top < lastTop && top < LOAD_AHEAD_PX && (!stuck.current || top < 1)) loadMore.current();
@@ -472,7 +506,8 @@ export function MessageList({
   const pickByDragging = useDragPick(listId, scroller);
 
   const scrollToBottom = () => {
-    if (list?.detached) void returnToLatest(listId);
+    // A window that has read on to the newest is already there, and only scrolls.
+    if (readingOn) void returnToLatest(listId);
     else goToNewest();
   };
 
@@ -491,7 +526,7 @@ export function MessageList({
       const unread = message.id === unreadLine.current;
       return (
         <div className="list-item" data-id={message.id} data-seq={message.seq !== null && !message.id.startsWith("sys-") ? message.seq : undefined}>
-          {!previous && !hasMore && !detached && startOfChat}
+          {!previous && !hasMore && startOfChat}
           {isChannel ? (
             // One line across the list, as in Discord: the day in the middle, and red with
             // "New" at its end above the first unread message.
@@ -569,14 +604,14 @@ export function MessageList({
         // the frame is drawn, rather than a frame later, which made the list jitter.
         skipAnimationFrameInResizeObserver
         itemContent={itemContent}
-        context={{ loading: list.loading }}
+        context={{ loading: list.loading, newer: loadingNewer.current }}
         components={{ Header, Footer: ListFooter }}
         className="virtuoso"
       />
       {conversation.groupId && (
-        <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} hidden={atBottom && !list.detached} raised={!atBottom || list.detached} />
+        <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} hidden={atBottom && !readingOn} raised={!atBottom || readingOn} />
       )}
-      {(!atBottom || list.detached) &&
+      {(!atBottom || readingOn) &&
         (isChannel ? (
           // A bar along the bottom of the list, as in Discord.
           <button className="jump-present" onClick={scrollToBottom}>

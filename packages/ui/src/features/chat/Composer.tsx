@@ -296,7 +296,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     }
     startSlowWait();
     // From a window of older messages, sending goes back to the newest.
-    if (useApp.getState().lists[listId]?.detached) void useApp.getState().returnToLatest(listId);
+    const list = useApp.getState().lists[listId];
+    if (list?.detached && list.hasNewer) void useApp.getState().returnToLatest(listId);
     setText("");
     setReply(listId, null);
     setLinkPreview(null);

@@ -62,6 +62,8 @@ export interface MessageList {
   firstIndex: number;
   /** The list is showing a window around a jump target, not the latest messages. */
   detached: boolean;
+  /** Such a window has messages after its newest, so it reads on rather than taking new ones. */
+  hasNewer: boolean;
 }
 
 export type Toast = { id: number; kind: "info" | "error" | "security"; message: string };
@@ -117,6 +119,7 @@ interface AppState {
   /** The newest page, and with unread messages, the pages back to the first of them unless `toUnread` is false. */
   loadList(listId: string, groupId: string | null, toUnread?: boolean): Promise<void>;
   loadOlder(listId: string): Promise<void>;
+  loadNewer(listId: string): Promise<void>;
   jumpToMessage(groupId: string, messageId: string, seq?: number | null): Promise<void>;
   returnToLatest(listId: string): Promise<void>;
   setOverlay(overlay: Overlay): void;
@@ -170,7 +173,7 @@ function mentionMap(users: UserView[]): Map<string, string> {
 }
 
 function emptyList(): MessageList {
-  return { items: [], hasMore: true, loading: false, loaded: false, firstIndex: BASE_INDEX, detached: false };
+  return { items: [], hasMore: true, loading: false, loaded: false, firstIndex: BASE_INDEX, detached: false, hasNewer: false };
 }
 
 /** How many of a chat's newest messages stay in memory once it's closed. Opening it again loads older ones as it's scrolled. */
@@ -418,7 +421,8 @@ export const useApp = create<AppState>((set, get) => {
         items = list.items.slice();
         items[index] = message;
       } else {
-        if (list.detached) return state;
+        // A window around an old message takes new ones once it has read on to the newest.
+        if (list.detached && list.hasNewer) return state;
         items = sortMessages([...list.items, message]);
       }
       return { lists: { ...state.lists, [message.groupId]: { ...list, items } } };
@@ -836,6 +840,55 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
+    async loadNewer(listId) {
+      const list = get().lists[listId];
+      if (!list || list.loading || !list.detached || !list.hasNewer) return;
+      const newest = list.items.findLast((item) => item.seq !== null);
+      if (!newest) return;
+      let session: RemoteSession;
+      try {
+        session = get().session();
+      } catch {
+        return;
+      }
+      const same = (current: MessageList | undefined): current is MessageList => !!current && current.detached && current.hasNewer;
+      set((state) => ({ lists: { ...state.lists, [listId]: { ...list, loading: true } } }));
+      try {
+        const page = await session.loadNewer(listId, newest.seq!);
+        let end = newest.seq!;
+        set((state) => {
+          const current = state.lists[listId];
+          if (!same(current)) return state;
+          const known = new Set(current.items.map((item) => item.id));
+          const items = sortMessages([...current.items, ...page.messages.filter((message) => !known.has(message.id))]);
+          end = items.findLast((item) => item.seq !== null)?.seq ?? end;
+          return { lists: { ...state.lists, [listId]: { ...current, items, hasNewer: page.hasMore, loading: false } } };
+        });
+        if (page.hasMore) return;
+        // What came while the window wasn't taking new messages, between that page and now. Only
+        // after its end, as one not yet a page long would take older ones in too.
+        const latest = await session.loadMessages(listId);
+        set((state) => {
+          const current = state.lists[listId];
+          if (!current?.detached || current.hasNewer) return state;
+          const known = new Map(current.items.map((item, index) => [item.id, index]));
+          const items = [...current.items];
+          for (const message of latest.messages) {
+            const index = known.get(message.id);
+            if (index !== undefined) items[index] = message;
+            else if (message.seq === null || message.seq > end) items.push(message);
+          }
+          return { lists: { ...state.lists, [listId]: { ...current, items: sortMessages(items) } } };
+        });
+      } catch {
+        set((state) => {
+          const current = state.lists[listId];
+          if (!same(current)) return state;
+          return { lists: { ...state.lists, [listId]: { ...current, loading: false } } };
+        });
+      }
+    },
+
     async jumpToMessage(groupId, messageId, seq) {
       const session = get().session();
       const list = get().lists[groupId];
@@ -857,7 +910,7 @@ export const useApp = create<AppState>((set, get) => {
         set((state) => ({
           lists: {
             ...state.lists,
-            [groupId]: { items: sortMessages(window), hasMore: true, loading: false, loaded: true, firstIndex: BASE_INDEX, detached: true },
+            [groupId]: { items: sortMessages(window), hasMore: true, loading: false, loaded: true, firstIndex: BASE_INDEX, detached: true, hasNewer: true },
           },
           jumpTarget,
         }));

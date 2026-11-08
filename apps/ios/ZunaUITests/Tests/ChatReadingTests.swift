@@ -384,6 +384,49 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("the newest message again") { newest.isHittable }
     }
 
+    /// A window opened around an old message reads on both ways: older pages above it, newer
+    /// ones below, until it's at the newest, where it takes new messages again.
+    func testReadsOnBothWaysFromAMessageJumpedTo() throws {
+        let carol = try Peer("carol")
+        let tag = UUID().uuidString.prefix(4)
+        var ids: [Int: String] = [:]
+        for index in 1...150 {
+            ids[index] = try carol.send(to: "user:\(bobId)", ["text": "Read on \(tag) \(index)"])
+        }
+        let last = try carol.send(to: "user:\(bobId)", ["text": "Back to sixty \(tag)", "replyTo": ids[60]!])
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat("user:\(World.current["carol"].userId)")
+        try toNewest(until: message(last))
+        try waitFor("the newest message") { self.message(last).isHittable }
+
+        // The quote goes up to the sixtieth, pages above the newest, in a window around it.
+        zuna.app.buttons.matching(identifier: A11y.Chat.reply).firstMatch.tap()
+        try waitFor("the sixtieth message") { self.message(ids[60]!).isHittable }
+        XCTAssertFalse(message(last).exists)
+        let toBottom = zuna.element(A11y.Chat.toBottom)
+        XCTAssertTrue(toBottom.exists)
+
+        // Above it, older pages, to the first message.
+        let list = zuna.element(A11y.Chat.list)
+        try waitFor("the first message", timeout: 60) {
+            list.swipeDown(velocity: .fast)
+            return self.message(ids[1]!).exists
+        }
+
+        // Below it, page after page to the newest, where it then stays and takes new messages.
+        try waitFor("the newest message, read on to", timeout: 90) {
+            list.swipeUp(velocity: .fast)
+            return self.message(last).exists
+        }
+        list.swipeUp(velocity: .fast)
+        try waitFor("no way down") { !toBottom.exists }
+        zuna.screenshot("65b-read-on")
+        let after = try carol.send(to: "user:\(bobId)", ["text": "After all that \(tag)"])
+        try waitFor("a new message in it", timeout: 20) { self.message(after).isHittable }
+    }
+
     func testGoesToUnreadMentionsOneByOne() throws {
         let alice = try Peer("alice")
         let tag = UUID().uuidString.prefix(4)

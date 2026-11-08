@@ -448,6 +448,59 @@ async function runIn(name) {
       check("a reply in another chat shows a notification, until the chat is read", false, JSON.stringify(await notification("You said: Ping me back")) ?? error.message.split("\n")[0]);
     }
 
+    // A message found by search opens in a window around it, which reads on both ways, and takes new messages once it has read on to the newest
+    try {
+      await page.locator(".conv-row", { hasText: "Jordan" }).click();
+      await page.locator(".composer-input").click();
+      await page.keyboard.type("count to 160");
+      await page.keyboard.press("Enter");
+      // Whether "Count n" is drawn, without the time at the end of a message's text.
+      const shows = (n) =>
+        page.evaluate(
+          (text) =>
+            [...document.querySelectorAll(".msg-text")].some((element) => {
+              const copy = element.cloneNode(true);
+              for (const meta of copy.querySelectorAll(".msg-meta")) meta.remove();
+              return copy.textContent.trim() === text;
+            }),
+          `Count ${n}`,
+        );
+      const down = page.locator(".to-bottom:not(.to-mention)");
+      for (let i = 0; i < 240 && !(await shows(160)); i++) {
+        if (await down.count()) await down.click();
+        await sleep(500);
+      }
+      await fill(page.locator("#conversation-search"), "Count 60");
+      await page.locator(".hit-row", { has: page.locator(".conv-preview", { hasText: /^Count 60$/ }) }).click({ timeout: 15_000 });
+      for (let i = 0; i < 30 && !(await shows(60)); i++) await sleep(500);
+      await fill(page.locator("#conversation-search"), "");
+      check("a message found by search opens away from the newest", (await shows(60)) && !(await shows(160)) && (await down.count()) === 1);
+      const scroller = page.locator(".message-list .virtuoso");
+      for (let i = 0; i < 80 && !(await shows(1)); i++) {
+        await scroller.evaluate((element) => element.scrollBy(0, -element.clientHeight));
+        await sleep(200);
+      }
+      check("reading up from it loads older messages", await shows(1));
+      for (let i = 0; i < 120 && !(await shows(160)); i++) {
+        await scroller.evaluate((element) => element.scrollBy(0, element.clientHeight));
+        await sleep(200);
+      }
+      check("reading down from it loads newer ones, to the newest", await shows(160));
+      await scroller.evaluate((element) => element.scrollBy(0, element.scrollHeight));
+      await sleep(800);
+      check("there it's at the newest, with no way down", (await down.count()) === 0);
+      await page.locator(".composer-input").click();
+      await page.keyboard.type("Read it all");
+      await page.keyboard.press("Enter");
+      await page.locator(".msg.is-other .msg-text", { hasText: "You said: Read it all" }).waitFor({ timeout: 20_000 });
+      check("then it takes new messages as they come", await shows(160));
+      await page.screenshot({ path: prefix("03d-read-on") });
+    } catch (error) {
+      check("a window around a message found reads on both ways", false, error.message.split("\n")[0]);
+      await page.screenshot({ path: prefix("03d-read-on") });
+      await fill(page.locator("#conversation-search"), "").catch(() => undefined);
+    }
+
     // Everything is still there after a reload
     leaving.add(page);
     await page.reload();
