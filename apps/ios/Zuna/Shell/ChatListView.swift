@@ -562,13 +562,15 @@ private struct ChatRow: View {
                 .frame(width: 56, height: 56)
                 .background(Theme.bg4, in: .circle)
         } else {
-            AvatarView(
-                name: conversation.title,
-                seed: conversation.peerId ?? conversation.groupId ?? conversation.key,
-                source: conversation.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none,
-                size: 56,
-                online: peer?.online ?? false
-            )
+            WithPresence(serverId: server.entry.id, user: peer) { online in
+                AvatarView(
+                    name: conversation.title,
+                    seed: conversation.peerId ?? conversation.groupId ?? conversation.key,
+                    source: conversation.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none,
+                    size: 56,
+                    online: online
+                )
+            }
         }
     }
 
@@ -609,7 +611,7 @@ private struct ChatRow: View {
 
     @ViewBuilder
     private func preview(selfId: String, isSaved: Bool, peer: UserView?) -> some View {
-        let typing = conversation.groupId.flatMap { server.typing[$0] }.map { !$0.isEmpty } ?? false
+        let typing = !model.live(server.entry.id).typists(in: conversation.groupId).isEmpty
         let (author, body) = Format.preview(conversation.lastMessage, users: server.users, selfId: selfId, kind: conversation.kind)
         Group {
             if typing {

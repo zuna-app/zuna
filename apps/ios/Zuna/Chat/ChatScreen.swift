@@ -129,7 +129,9 @@ struct ChatScreen: View {
                                 .frame(width: 36, height: 36)
                                 .background(Theme.bg4, in: .circle)
                         } else {
-                            AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: peer?.online ?? false)
+                            WithPresence(serverId: serverId, user: peer) { online in
+                                AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: online)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
@@ -262,7 +264,7 @@ struct ChatScreen: View {
                 }
             }
             if channel != nil, !conversation.removed, selection == nil {
-                ChannelTyping(names: typingNames(server, conversation))
+                ChannelTypingLine(server: server, groupId: conversation.groupId)
             }
             if conversation.removed {
                 VStack(spacing: 8) {
@@ -475,12 +477,6 @@ struct ChatScreen: View {
         server.isAdmin ? { sheet = .editChannel(channel.id) } : nil
     }
 
-    /// Who's typing in a channel, by name, apart from you.
-    private func typingNames(_ server: AppModel.ServerState, _ conversation: ConversationView) -> [String] {
-        let ids = conversation.groupId.flatMap { server.typing[$0]?.keys } ?? Dictionary<String, Date>().keys
-        return ids.filter { $0 != server.me?.userId }.sorted().map { server.users[$0]?.displayName ?? "Someone" }
-    }
-
     /// Runs an action on the core, explaining a failure in a toast.
     private func run(_ action: @escaping () async throws -> Void) {
         Task {
@@ -661,6 +657,19 @@ private struct CallBanner: View {
     }
 }
 
+/// Who's typing in a channel, by name, apart from you: a view of its own, so that only it
+/// draws again as that changes.
+private struct ChannelTypingLine: View {
+    @Environment(AppModel.self) private var model
+    let server: AppModel.ServerState
+    let groupId: String?
+
+    var body: some View {
+        let ids = model.live(server.entry.id).typists(in: groupId)
+        ChannelTyping(names: ids.filter { $0 != server.me?.userId }.sorted().map { server.users[$0]?.displayName ?? "Someone" })
+    }
+}
+
 private struct ChatHeader: View {
     @Environment(AppModel.self) private var model
     let conversation: ConversationView
@@ -692,13 +701,18 @@ private struct ChatHeader: View {
         }
     }
 
+    private var live: LiveState { model.live(server.entry.id) }
+
+    private var peerOnline: Bool {
+        peer.map { live.isOnline($0) } ?? false
+    }
+
     private var typingNames: [String] {
-        let ids = conversation.groupId.flatMap { server.typing[$0]?.keys } ?? Dictionary<String, Date>().keys
-        return ids.map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
+        live.typists(in: conversation.groupId).map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
     }
 
     private var online: Bool {
-        typingNames.isEmpty && conversation.kind == .dm && !isSaved && peer?.online == true && peer?.banned != true && peer?.deleted != true
+        typingNames.isEmpty && conversation.kind == .dm && !isSaved && peerOnline && peer?.banned != true && peer?.deleted != true
     }
 
     private var status: String {
@@ -709,14 +723,14 @@ private struct ChatHeader: View {
         }
         if conversation.kind == .group {
             let count = conversation.members.count
-            let online = conversation.members.filter { server.users[$0.userId]?.online == true }.count
+            let online = conversation.members.filter { live.isOnline($0.userId, in: server) }.count
             return "\(count) \(count == 1 ? "member" : "members")" + (online > 0 ? ", \(online) online" : "")
         }
         if isSaved { return "Notes to yourself" }
         if peer?.deleted == true { return "Deleted their account" }
         if peer?.banned == true { return "Removed from this server" }
-        if peer?.online == true { return "online" }
-        return Format.lastSeen(peer?.lastSeenAt, hidden: peer?.hidesLastSeen ?? false)
+        if peerOnline { return "online" }
+        return Format.lastSeen(peer.flatMap { live.lastSeenAt($0) }, hidden: peer?.hidesLastSeen ?? false)
     }
 }
 

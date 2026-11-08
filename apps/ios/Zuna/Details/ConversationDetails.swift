@@ -281,13 +281,15 @@ struct ConversationDetails: View {
 
     private func header(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSelf: Bool, isAdmin: Bool) -> some View {
         VStack(spacing: 6) {
-            AvatarView(
-                name: conversation.title,
-                seed: conversation.peerId ?? conversation.groupId ?? conversation.key,
-                source: conversation.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none,
-                size: 96,
-                online: peer?.online ?? false
-            )
+            WithPresence(serverId: server.entry.id, user: peer) { online in
+                AvatarView(
+                    name: conversation.title,
+                    seed: conversation.peerId ?? conversation.groupId ?? conversation.key,
+                    source: conversation.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none,
+                    size: 96,
+                    online: online
+                )
+            }
             .overlay(alignment: .bottomTrailing) {
                 if conversation.kind == .group, isAdmin {
                     Button {
@@ -321,9 +323,11 @@ struct ConversationDetails: View {
                 }
             }
             if let peer, !isSelf {
-                Text(peer.online ? "online" : Format.lastSeen(peer.lastSeenAt, hidden: peer.hidesLastSeen))
-                    .font(.footnote)
-                    .foregroundStyle(peer.online ? Theme.green : Theme.text3)
+                WithPresence(serverId: server.entry.id, user: peer) { online in
+                    Text(online ? "online" : Format.lastSeen(model.live(server.entry.id).lastSeenAt(peer), hidden: peer.hidesLastSeen))
+                        .font(.footnote)
+                        .foregroundStyle(online ? Theme.green : Theme.text3)
+                }
             }
             DetailsActions(actions: actions(server, conversation, peer: peer, isSelf: isSelf))
                 .padding(.top, 22)
@@ -438,7 +442,9 @@ struct ConversationDetails: View {
                     if member.userId != selfId { memberMenu = member.userId }
                 } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: user?.displayName ?? "?", seed: member.userId, source: user?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 40, online: user?.online ?? false)
+                        WithPresence(serverId: server.entry.id, user: user) { online in
+                            AvatarView(name: user?.displayName ?? "?", seed: member.userId, source: user?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 40, online: online)
+                        }
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(user?.displayName ?? "Unknown").foregroundStyle(Theme.text1)

@@ -24,7 +24,9 @@ struct PeoplePicker: View {
                     if selected.contains(user.id) { selected.remove(user.id) } else { selected.insert(user.id) }
                 } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: user.online)
+                        WithPresence(serverId: serverId, user: user) { online in
+                            AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: online)
+                        }
                         VStack(alignment: .leading, spacing: 1) {
                             Text(user.displayName).foregroundStyle(Theme.text1)
                             Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)

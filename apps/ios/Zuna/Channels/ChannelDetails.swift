@@ -170,7 +170,7 @@ struct ChannelDetails: View {
     /// Everyone who can read the channel, which is everyone on the server: online first, then the rest, faded.
     @ViewBuilder
     private func members(_ server: AppModel.ServerState) -> some View {
-        let (online, offline) = server.channelMembers
+        let (online, offline) = server.channelMembers(model.live(server.entry.id))
         if !online.isEmpty {
             Section("Online — \(online.count)") {
                 ForEach(online) { member($0, server: server) }
@@ -190,7 +190,9 @@ struct ChannelDetails: View {
             if !user.isSelf { sheet = .profile(user.id) }
         } label: {
             HStack(spacing: 12) {
-                AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 36, online: user.online)
+                WithPresence(serverId: server.entry.id, user: user) { online in
+                    AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 36, online: online)
+                }
                 Text(user.displayName)
                     .font(.body.weight(.medium))
                     .foregroundStyle(Theme.nameColor(user.id))

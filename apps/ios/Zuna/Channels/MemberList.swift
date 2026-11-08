@@ -4,12 +4,12 @@ import ZunaModels
 extension AppModel.ServerState {
     /// Who can read a channel, which is everyone on the server, as the desktop lists
     /// them: those online, and you, first, then the rest, each by name.
-    var channelMembers: (online: [UserView], offline: [UserView]) {
+    @MainActor func channelMembers(_ live: LiveState) -> (online: [UserView], offline: [UserView]) {
         let people = users.values
             .filter { !$0.banned && !$0.deleted }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        let here = people.filter { $0.online || $0.isSelf }
-        return (here, people.filter { !$0.online && !$0.isSelf })
+        let here = people.filter { live.isOnline($0) || $0.isSelf }
+        return (here, people.filter { !live.isOnline($0) && !$0.isSelf })
     }
 }
 
@@ -24,7 +24,7 @@ struct ChannelMemberList: View {
     static let width: CGFloat = 240
 
     var body: some View {
-        let members = server.channelMembers
+        let members = server.channelMembers(model.live(server.entry.id))
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
                 if !members.online.isEmpty {

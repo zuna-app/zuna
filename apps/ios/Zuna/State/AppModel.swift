@@ -20,17 +20,15 @@ final class AppModel {
         var voice: [String: VoiceMember] = [:]
         /// The calls going on in this person's conversations, by group.
         var calls: [String: CallView] = [:]
-        /// Changed through setUsers and setPresence, so that presence, which comes far more often,
-        /// doesn't rebuild who can be mentioned.
+        /// Changed through setUsers, which also works out who can be mentioned. Their presence
+        /// here is as it was when they were loaded: what's come since is in `LiveState`.
         private(set) var users: [String: UserView]
-        /// Lowercased username to user ID, for highlighting mentions. Changes only with the people, not with presence.
+        /// Lowercased username to user ID, for highlighting mentions.
         private(set) var mentionable: [String: String]
         var emotes: EmoteSet
         /// The server's soundboard, for its voice channels and calls.
         var sounds: [SoundView]
         var prefs: Preferences
-        /// groupId -> userId -> when the typing indicator expires.
-        var typing: [String: [String: Date]] = [:]
 
         init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], calls: [CallView] = [], users: [String: UserView], emotes: EmoteSet, sounds: [SoundView] = [], prefs: Preferences) {
             self.entry = entry
@@ -52,14 +50,6 @@ final class AppModel {
         mutating func setUsers(_ users: [String: UserView]) {
             self.users = users
             mentionable = Self.mentionable(users)
-        }
-
-        /// Someone coming online or going, in one write of their row.
-        mutating func setPresence(_ userId: String, online: Bool, lastSeenAt: Int?) {
-            guard var user = users[userId] else { return }
-            user.online = online
-            user.lastSeenAt = lastSeenAt
-            users[userId] = user
         }
 
         private static func mentionable(_ users: [String: UserView]) -> [String: String] {
@@ -198,6 +188,21 @@ final class AppModel {
     var hasServerList: Bool {
         order.count > 1
     }
+    /// Who's typing and who's online on each server, apart from `servers` (see LiveState.swift).
+    private(set) var liveStates: [String: LiveState] = [:]
+
+    /// A server's typing and presence, which a view reads only where it shows them.
+    func live(_ serverId: String) -> LiveState {
+        liveStates[serverId] ?? .none
+    }
+
+    private func liveState(_ serverId: String) -> LiveState {
+        if let state = liveStates[serverId] { return state }
+        let state = LiveState()
+        liveStates[serverId] = state
+        return state
+    }
+
     /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
     var lists: [String: MessageList] = [:]
     /// When each list was last opened, to let go of those not opened for longest (`keepRecentLists`).
@@ -288,6 +293,9 @@ final class AppModel {
                 return loaded
             }
             servers = loaded
+            // The people came with their presence as it is now.
+            liveStates = liveStates.filter { loaded[$0.key] != nil }
+            for state in liveStates.values { state.forgetPresence() }
             prefetchEmotesSoon()
             let previous = order
             order = entries.map(\.id).filter { loaded[$0] != nil }
@@ -461,13 +469,13 @@ final class AppModel {
         case let .messageMoved(serverId, fromGroupId, message):
             move(serverId, from: fromGroupId, message)
         case let .presence(serverId, userId, online, lastSeenAt):
-            servers[serverId]?.setPresence(userId, online: online, lastSeenAt: lastSeenAt)
+            liveState(serverId).setPresence(userId, online: online, lastSeenAt: lastSeenAt)
         case let .typing(serverId, groupId, userId):
-            servers[serverId]?.typing[groupId, default: [:]][userId] = Date().addingTimeInterval(5)
-            Task { [weak self] in
+            let live = liveState(serverId)
+            live.startTyping(userId, in: groupId)
+            Task { [weak live] in
                 try? await Task.sleep(for: .milliseconds(5100))
-                guard let self, let expiry = servers[serverId]?.typing[groupId]?[userId], expiry <= Date() else { return }
-                servers[serverId]?.typing[groupId]?[userId] = nil
+                live?.stopTyping(userId, in: groupId)
             }
         case let .settings(serverId, info):
             servers[serverId]?.info = info
@@ -518,6 +526,7 @@ final class AppModel {
         defer { onServersChanged?() }
         voice.serverGone(serverId)
         servers[serverId] = nil
+        liveStates[serverId] = nil
         // What was kept for its chats goes with it: their messages, drafts and staged files.
         let prefix = "\(serverId)/"
         lists = lists.filter { !$0.key.hasPrefix(prefix) }
@@ -575,6 +584,7 @@ final class AppModel {
                     let me = try await session.getSelf()
                     servers[serverId]?.setUsers(Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) }))
                     servers[serverId]?.me = me
+                    liveStates[serverId]?.forgetPresence()
                 case "emotes":
                     let emotes = try await session.getEmotes()
                     servers[serverId]?.emotes = emotes
