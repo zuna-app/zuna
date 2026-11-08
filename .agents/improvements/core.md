@@ -36,14 +36,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: remove the writes and arguments; leave the old migration; optionally drop the column in a new migration at the end of `MIGRATIONS`; update e2e.test.ts:358 if it goes.
 - Check after: `npx tsc --noEmit`, then `npx vitest run test/e2e.test.ts test/rotation.test.ts`.
 
-### Don't delete a history grant after a temporary failure while checking it
-- Where: packages/core/src/session.ts:1465-1495 (`processHistoryGrants`: the try covers `grantAuthentic`, and `deleteHistoryGrant` runs after the catch), 1510-1517 (`grantAuthentic` calls `api.group` and `ensureUser(…, true)`), 1119-1133 (`ensureUser` returns null on any error)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: if `api.group(groupId)` throws a retryable `ApiError` (429 during the initial burst, 5xx, timeout), it's logged as "could not be opened" and the grant is deleted on the server: that history is gone for good. If the signer isn't cached and `api.user` fails, `ensureUser` returns null, `grantAuthentic` returns false, the person sees a false security warning ("Keys … weren't signed by one of its admins"), and the grant is deleted.
-- Suggested change: delete only on a final outcome (opened and judged, or failed to open/parse). On a retryable `ApiError` (or `status === 0`), `continue` without deleting. Have `grantAuthentic` tell "couldn't look up the signer" apart from "not an admin".
-- Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts` (history grant cases).
-
 ### Give file chunk uploads a timeout that fits a 1 MiB chunk
 - Where: packages/core/src/api.ts:255 (`REQUEST_TIMEOUT_MS = 30_000`), 531 (`uploadChunk` goes through `request`), 534-546 (`downloadChunk` gets 120 s); session.ts:162 (`CHUNK_SIZE = 1 MiB`), 170 (`UPLOAD_CONCURRENCY = 3`)
 - Category: robustness

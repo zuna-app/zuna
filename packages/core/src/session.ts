@@ -1153,14 +1153,19 @@ export class ServerSession {
       if (cached) return cached;
     }
     try {
-      const api = await this.api.user(userId);
-      const user = this.applyUser(api);
-      if (userId === this.account.userId || api.key_generation <= this.headGeneration(userId)) return user;
-      await this.followChain(userId);
-      return this.users.get(userId) ?? user;
+      return await this.fetchUser(userId);
     } catch {
       return this.users.get(userId) ?? null;
     }
+  }
+
+  /** Someone as the server has them now, and their chain followed to it. Throws when they can't be fetched. */
+  private async fetchUser(userId: string): Promise<CachedUser> {
+    const api = await this.api.user(userId);
+    const user = this.applyUser(api);
+    if (userId === this.account.userId || api.key_generation <= this.headGeneration(userId)) return user;
+    await this.followChain(userId);
+    return this.users.get(userId) ?? user;
   }
 
   private toUserView(user: CachedUser): UserView {
@@ -1518,6 +1523,11 @@ export class ServerSession {
           });
         }
       } catch (error) {
+        // Not being able to check it just now is no reason to throw that history away.
+        if (error instanceof ApiError && (error.retryable || error.status === 401)) {
+          console.warn("[zuna] a history grant couldn't be checked yet", error);
+          continue;
+        }
         console.warn("[zuna] a history grant could not be opened", error);
       }
       await this.api.deleteHistoryGrant(grant.id);
@@ -1543,7 +1553,16 @@ export class ServerSession {
     // Everyone in a channel may read all of it, so any of them can hand on its keys.
     const signer = group.members.some((member) => member.userId === grant.signer.userId);
     if (group.kind === "channel" ? !signer : !this.isGroupAdmin(group, grant.signer.userId)) return false;
-    const device = (await this.ensureUser(grant.signer.userId, true))?.devices.get(grant.signer.deviceId);
+    // Fetched afresh. When the server can't be reached that's thrown, so a signer
+    // who couldn't be looked up isn't taken for a device that isn't theirs.
+    let user: CachedUser | null;
+    try {
+      user = await this.fetchUser(grant.signer.userId);
+    } catch (error) {
+      if (error instanceof ApiError && (error.retryable || error.status === 401)) throw error;
+      user = this.users.get(grant.signer.userId) ?? null;
+    }
+    const device = user?.devices.get(grant.signer.deviceId);
     return !!device && grant.signedBy(device.signatureKey);
   }
 
