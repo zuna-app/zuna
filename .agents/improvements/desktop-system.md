@@ -74,13 +74,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move the shared parts to `platform/unix/window.rs`; keep only each system's `run`.
 - Check after: linux-check.mjs, mac-voice-check.mjs.
 
-### Build the notification WAV once for Windows and macOS
-- Where: platform/windows/mod.rs:148-177 duplicates `notification_wav` in platform/mod.rs:231-251 (macOS-only)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: gate `notification_wav` with `cfg(any(windows, macos))` and use `WAV.get_or_init(super::notification_wav)` on Windows.
-- Check after: `npm run dev:windows`.
-
 ### Use GPUI's resvg 0.46 instead of a second 0.45
 - Where: apps/desktop/Cargo.toml:85-87 (`resvg = "0.45"`, commented "the resvg GPUI already has"); Cargo.lock has gpui on resvg 0.46.0 and the app on 0.45.1, so usvg, svgtypes, roxmltree, skrifa and read-fonts are duplicated
 - Category: deps

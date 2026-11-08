@@ -153,25 +153,7 @@ pub fn play_notification_sound() {
         return;
     }
     LAST.store(now, Ordering::Relaxed);
-    let wav = WAV.get_or_init(|| {
-        let rate = 48_000u32;
-        let data: Vec<u8> = super::notification_tones().iter().flat_map(|sample| sample.to_le_bytes()).collect();
-        let mut wav = Vec::with_capacity(44 + data.len());
-        wav.extend_from_slice(b"RIFF");
-        wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-        wav.extend_from_slice(b"WAVEfmt ");
-        wav.extend_from_slice(&16u32.to_le_bytes());
-        wav.extend_from_slice(&1u16.to_le_bytes());
-        wav.extend_from_slice(&1u16.to_le_bytes());
-        wav.extend_from_slice(&rate.to_le_bytes());
-        wav.extend_from_slice(&(rate * 2).to_le_bytes());
-        wav.extend_from_slice(&2u16.to_le_bytes());
-        wav.extend_from_slice(&16u16.to_le_bytes());
-        wav.extend_from_slice(b"data");
-        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        wav.extend_from_slice(&data);
-        wav
-    });
+    let wav = WAV.get_or_init(super::notification_wav);
     unsafe {
         let _ = PlaySoundW(windows::core::PCWSTR(wav.as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
     }

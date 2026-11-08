@@ -228,8 +228,9 @@ pub fn app_icon(size: u32) -> RgbaImage {
     if image.width() == size { image } else { image::imageops::resize(&image, size, size, FilterType::Lanczos3) }
 }
 
-/// The notification sound as a WAV file, for macOS to play with a notification from the bundle.
-#[cfg(target_os = "macos")]
+/// The notification sound as a WAV file: for macOS to play with a notification from the
+/// bundle, and for Windows to play from memory.
+#[cfg(any(windows, target_os = "macos"))]
 pub fn notification_wav() -> Vec<u8> {
     let rate = 48_000u32;
     let data: Vec<u8> = notification_tones().iter().flat_map(|sample| sample.to_le_bytes()).collect();
