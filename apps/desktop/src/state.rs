@@ -580,6 +580,34 @@ impl AppState {
         });
     }
 
+    /// Someone else reading on only moves the ticks in one conversation, so it's set
+    /// there, rather than every conversation and channel fetched again for each
+    /// receipt. This person's own comes with "conversations" too, for what's unread.
+    fn read_moved(&mut self, server_id: &str, event: &Value, cx: &mut Context<Self>) {
+        let (Some(group), Some(user), Some(seq)) = (
+            event.get("groupId").and_then(Value::as_str),
+            event.get("userId").and_then(Value::as_str),
+            event.get("seq").and_then(Value::as_f64),
+        ) else {
+            return;
+        };
+        let Some(server) = self.servers.get_mut(server_id) else { return };
+        if server.me.as_ref().is_some_and(|me| me.user_id == user) {
+            return;
+        }
+        let mut moved = false;
+        for conversation in server.conversations.iter_mut().filter(|conversation| conversation.group_id.as_deref() == Some(group)) {
+            let read = conversation.read_by.entry(user.to_string()).or_insert(0.);
+            if seq > *read {
+                *read = seq;
+                moved = true;
+            }
+        }
+        if moved {
+            cx.notify();
+        }
+    }
+
     pub fn refresh_users(&mut self, server_id: &str, cx: &mut Context<Self>) {
         let id = server_id.to_string();
         self.debounced(format!("users:{id}"), 60, cx, move |state, cx| {
@@ -635,7 +663,8 @@ impl AppState {
                     server.connection = text("state");
                 }
             }
-            "conversations" | "read" => self.refresh_conversations(&server_id, cx),
+            "conversations" => self.refresh_conversations(&server_id, cx),
+            "read" => self.read_moved(&server_id, &event, cx),
             "channels" => self.refresh_conversations(&server_id, cx),
             "users" => {
                 self.refresh_users(&server_id, cx);

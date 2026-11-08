@@ -551,7 +551,19 @@ export const useApp = create<AppState>((set, get) => {
         }, 5100);
         break;
       case "read":
-        refreshConversations(event.serverId);
+        // Someone else reading on only moves the ticks in one conversation, so it's set
+        // there, rather than every conversation and channel fetched again for each
+        // receipt. This person's own comes with "conversations" too, for what's unread.
+        patchServer(event.serverId, (server) => {
+          if (event.userId === server.self?.userId) return {};
+          let moved = false;
+          const conversations = server.conversations.map((conversation) => {
+            if (conversation.groupId !== event.groupId || (conversation.readBy[event.userId] ?? 0) >= event.seq) return conversation;
+            moved = true;
+            return { ...conversation, readBy: { ...conversation.readBy, [event.userId]: event.seq } };
+          });
+          return moved ? { conversations } : {};
+        });
         break;
       case "settings":
         patchServer(event.serverId, (server) => ({
