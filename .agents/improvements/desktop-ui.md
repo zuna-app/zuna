@@ -20,14 +20,6 @@ Ordered roughly by value.
 - Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
 - Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
 
-### Decode data-URL thumbnails once, not on every draw
-- Where: ui/message.rs:1259, 1438-1445, 1482; ui/media_views.rs:326, 381; ui/chat.rs:1721 (composer link preview, which renders every frame)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `data_url_image` base64-decodes the thumbnail and builds a new `Image` (which hashes all its bytes) on every draw of the row. In `attachments()` the thumbnail is decoded before checking whether the full picture is already there, so it's usually wasted.
-- Suggested change: cache the decoded image by a hash of the data string; decode only in branches that show the thumbnail; keep the composer preview's decoded image inside `LinkDraft`.
-- Check after: `npm run dev:windows`.
-
 ### Virtualize the conversation list and stop cloning per row
 - Where: ui/conversations.rs:170-312 (174 peer clone, 178 `preview_for` runs the `plain_text` regexes, 282 `item.clone()`, 284 `prefs.clone()` per row), 548-556, 688-691
 - Category: perf

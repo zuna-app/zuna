@@ -1432,8 +1432,37 @@ pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: se
     });
 }
 
-/// A tiny picture inside a message, as a data URL.
+thread_local! {
+    /// Pictures from data URLs, by a hash of the URL: thumbnails and link previews are drawn with
+    /// every frame of their row, and decoding one, then hashing its bytes into an image, each time
+    /// came to more than the rest of the row.
+    static DATA_URL_IMAGES: std::cell::RefCell<HashMap<u64, Option<Arc<Image>>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// How many decoded data URLs are kept, all let go together once there are more.
+const DATA_URL_IMAGES_KEPT: usize = 512;
+
+/// A tiny picture inside a message, as a data URL, decoded once.
 pub fn data_url_image(data: &str) -> Option<Arc<Image>> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(found) = DATA_URL_IMAGES.with(|images| images.borrow().get(&key).cloned()) {
+        return found;
+    }
+    let image = decode_data_url(data);
+    DATA_URL_IMAGES.with(|images| {
+        let mut images = images.borrow_mut();
+        if images.len() >= DATA_URL_IMAGES_KEPT {
+            images.clear();
+        }
+        images.insert(key, image.clone());
+    });
+    image
+}
+
+fn decode_data_url(data: &str) -> Option<Arc<Image>> {
     use base64::Engine;
     let (header, encoded) = data.split_once(',')?;
     let mime = header.trim_start_matches("data:").split(';').next().unwrap_or("image/jpeg");
