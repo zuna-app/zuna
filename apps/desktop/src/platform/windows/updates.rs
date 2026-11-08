@@ -35,14 +35,18 @@ pub fn start() {
     if !installed(&exe) {
         return;
     }
-    let Some(publisher) = publisher(&exe) else { return };
+    // Checking this program's own signature hashes all of it, which waited on the window's
+    // thread before the first frame; here it waits on nothing.
     std::thread::Builder::new()
         .name("zuna-updates".into())
-        .spawn(move || loop {
-            if let Err(error) = check(&publisher) {
-                log::warn!("checking for updates: {error}");
+        .spawn(move || {
+            let Some(publisher) = signer(&exe, false) else { return };
+            loop {
+                if let Err(error) = check(&publisher) {
+                    log::warn!("checking for updates: {error}");
+                }
+                std::thread::sleep(CHECK_EVERY);
             }
-            std::thread::sleep(CHECK_EVERY);
         })
         .ok();
 }
@@ -67,7 +71,7 @@ fn newer(candidate: &str, current: &str) -> bool {
     parts(candidate) > parts(current)
 }
 
-fn check(publisher: &str) -> Result<(), String> {
+fn check(publisher: &Signer) -> Result<(), String> {
     if READY.lock().map(|ready| ready.is_some()).unwrap_or(false) {
         return Ok(());
     }
@@ -95,10 +99,12 @@ fn check(publisher: &str) -> Result<(), String> {
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let path = folder.join(&wanted);
     std::fs::write(&path, &bytes).map_err(|error| error.to_string())?;
-    // Only the same publisher's: anyone could put a file on a release page.
-    if publisher_of_valid(&path).as_deref() != Some(publisher) {
+    // Only the same publisher's, by the whole of its certificate's subject and issuer, and not
+    // revoked: anyone could put a file on a release page, and any CA could issue a
+    // certificate whose display name is the same.
+    if signer(&path, true).as_ref() != Some(publisher) {
         std::fs::remove_file(&path).ok();
-        return Err(format!("{wanted} isn't signed by {publisher}"));
+        return Err(format!("{wanted} isn't signed by {}", publisher.name));
     }
     if let Ok(mut ready) = READY.lock() {
         *ready = Some(path);
@@ -106,15 +112,16 @@ fn check(publisher: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a file's Authenticode signature checks out.
-fn verified(path: &Path) -> bool {
+/// Whether a file's Authenticode signature checks out, and with `revocation` that no
+/// certificate in its chain was revoked, which asks the CAs, so only a download does.
+fn verified(path: &Path, revocation: bool) -> bool {
     let wide = HSTRING::from(path.as_os_str());
     unsafe {
         let mut file = WINTRUST_FILE_INFO { cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32, pcwszFilePath: PCWSTR(wide.as_ptr()), ..Default::default() };
         let mut data = WINTRUST_DATA {
             cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
             dwUIChoice: WTD_UI_NONE,
-            fdwRevocationChecks: WTD_REVOKE_NONE,
+            fdwRevocationChecks: if revocation { WTD_REVOKE_WHOLECHAIN } else { WTD_REVOKE_NONE },
             dwUnionChoice: WTD_CHOICE_FILE,
             Anonymous: WINTRUST_DATA_0 { pFile: &mut file },
             dwStateAction: WTD_STATEACTION_VERIFY,
@@ -128,8 +135,24 @@ fn verified(path: &Path) -> bool {
     }
 }
 
-/// Who signed a file, by the name on the signing certificate.
-fn signer_name(path: &Path) -> Option<String> {
+/// Who signed a file: the name on the signing certificate, and the whole of its subject and
+/// of its issuer, which are what's compared.
+#[derive(Clone, Debug, PartialEq)]
+struct Signer {
+    name: String,
+    subject: String,
+    issuer: String,
+}
+
+/// A certificate's name, subject or issuer, written out as X.500 names are.
+unsafe fn name_of(blob: &CRYPT_INTEGER_BLOB) -> String {
+    let mut text = vec![0u16; 1024];
+    let length = unsafe { CertNameToStrW(X509_ASN_ENCODING, blob, CERT_X500_NAME_STR, Some(&mut text)) };
+    if length > 1 { String::from_utf16_lossy(&text[..length as usize - 1]) } else { String::new() }
+}
+
+/// Who signed a file, as the signing certificate says.
+fn signer_of(path: &Path) -> Option<Signer> {
     let wide = HSTRING::from(path.as_os_str());
     unsafe {
         let mut encoding = CERT_QUERY_ENCODING_TYPE::default();
@@ -164,8 +187,10 @@ fn signer_name(path: &Path) -> Option<String> {
             }
             let mut name = vec![0u16; 512];
             let length = CertGetNameStringW(certificate, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, None, Some(&mut name));
+            let details = &*(*certificate).pCertInfo;
+            let (subject, issuer) = (name_of(&details.Subject), name_of(&details.Issuer));
             let _ = CertFreeCertificateContext(Some(certificate));
-            (length > 1).then(|| String::from_utf16_lossy(&name[..length as usize - 1]))
+            (length > 1 && !subject.is_empty() && !issuer.is_empty()).then(|| Signer { name: String::from_utf16_lossy(&name[..length as usize - 1]), subject, issuer })
         })();
         let _ = CryptMsgClose(Some(message));
         let _ = CertCloseStore(Some(store), 0);
@@ -173,17 +198,12 @@ fn signer_name(path: &Path) -> Option<String> {
     }
 }
 
-/// The publisher of a file whose signature checks out.
-fn publisher_of_valid(path: &Path) -> Option<String> {
-    if !verified(path) {
+/// Who signed a file whose signature checks out.
+fn signer(path: &Path, revocation: bool) -> Option<Signer> {
+    if !verified(path, revocation) {
         return None;
     }
-    signer_name(path)
-}
-
-/// This app's own publisher, if it's signed.
-fn publisher(exe: &Path) -> Option<String> {
-    publisher_of_valid(exe)
+    signer_of(path)
 }
 
 #[cfg(test)]
@@ -203,12 +223,12 @@ mod tests {
     fn reads_a_signed_program_s_publisher() {
         let Some(path) = std::env::var_os("ZUNA_SIGNED_EXE") else { return };
         let expected = std::env::var("ZUNA_SIGNED_BY").unwrap_or_default();
-        assert_eq!(publisher(Path::new(&path)).as_deref(), Some(expected.as_str()));
+        assert_eq!(signer(Path::new(&path), false).map(|signer| signer.name).as_deref(), Some(expected.as_str()));
     }
 
     #[test]
     fn an_unsigned_build_has_no_publisher() {
         let exe = std::env::current_exe().unwrap();
-        assert_eq!(publisher(&exe), None);
+        assert_eq!(signer(&exe, false), None);
     }
 }

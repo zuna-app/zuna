@@ -27,14 +27,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
 
-### Check the update's signer more strictly, and off the window's thread
-- Where: platform/windows/updates.rs:30-48 (`WinVerifyTrust` over the whole exe at start, on the window's thread, from main.rs:205), 131-187 (compares only the certificate's simple display name), 117 (`WTD_REVOKE_NONE`)
-- Category: robustness (security-adjacent)
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: hashing a large signed exe delays the first frames of installed, signed builds. Any valid Authenticode certificate, from any CA, whose display name matches the publisher's would be accepted, and the update then runs silently as the app quits.
-- Suggested change: check in the `zuna-updates` thread; compare the full subject DN plus the issuer (don't pin thumbprints, which change on renewal); consider whole-chain revocation for the downloaded installer only. Releases carry no desktop installer right now (see the docs findings), so this matters once that job returns.
-- Check after: the `reads_a_signed_program_s_publisher` test, `npm run install:windows`.
-
 ### Recover on Linux when the Secret Service wasn't there yet
 - Where: host/device_key.rs:15-39 (a key once stored plain in `device-key.bin` is never sealed later), 104-126 (an unseal failure is final: main.rs:164-167 sets `Failed`, and the failed screen at ui/mod.rs:691 has no retry)
 - Category: robustness
