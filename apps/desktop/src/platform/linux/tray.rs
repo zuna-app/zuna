@@ -40,15 +40,22 @@ impl ksni::Tray for ZunaTray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        [16u32, 22, 24, 32, 48, 64]
-            .into_iter()
-            .map(|size| {
-                let image = crate::platform::app_icon(size);
-                // ARGB, a byte at a time, as the specification has it.
-                let data = image.pixels().flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]]).collect();
-                ksni::Icon { width: size as i32, height: size as i32, data }
+        // Made once: ksni asks for it on every change, as the unread count changes, and decoding
+        // and resizing six pictures each time came to more than the change.
+        static ICONS: std::sync::OnceLock<Vec<ksni::Icon>> = std::sync::OnceLock::new();
+        ICONS
+            .get_or_init(|| {
+                [16u32, 22, 24, 32, 48, 64]
+                    .into_iter()
+                    .map(|size| {
+                        let image = crate::platform::app_icon(size);
+                        // ARGB, a byte at a time, as the specification has it.
+                        let data = image.pixels().flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]]).collect();
+                        ksni::Icon { width: size as i32, height: size as i32, data }
+                    })
+                    .collect()
             })
-            .collect()
+            .clone()
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {

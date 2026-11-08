@@ -802,7 +802,7 @@ impl gpui::Element for Clamped {
 }
 
 /// Where an element is, recorded as it's drawn, for opening something against it as the
-/// desktop does with `getBoundingClientRect`. The probe goes in the element as a child.
+/// web does with `getBoundingClientRect`. The probe goes in the element as a child.
 pub fn bounds_probe() -> (std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>, gpui::Canvas<()>) {
     let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
     let seen = bounds.clone();

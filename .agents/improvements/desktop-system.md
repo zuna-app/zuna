@@ -66,20 +66,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
 
-### Cache the Linux tray's icons rather than decoding PNGs on every unread change
-- Where: platform/linux/tray.rs:42-52 (`icon_pixmap` decodes and resizes six sizes per call); platform/mod.rs:220-229 (`app_icon` decodes per call); ksni 0.3.7 (service.rs:598-619) hashes `icon_pixmap()` on every update, and `set_unread` (tray.rs:95-99) triggers one
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: fill a `OnceLock<Vec<ksni::Icon>>` once; memoize `app_icon` by size (the Windows tray, overlay and notification drawing call it too).
-- Check after: linux-check.mjs.
-
-### Reuse the session bus for the portal's source types
-- Where: platform/linux/screens.rs:10-31 (`shared_kinds` opens a new D-Bus connection per call, twice per picker)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: use `super::bus::session()` and read the source types once per picker.
-- Check after: linux-voice-check.mjs.
-
 ### Free the macOS video message writer when recording fails part way
 - Where: media/apple/ffmpeg.rs:74-111 (`RoundWriter` has no `Drop`); media/round.rs:41-42 (an early `?` drops it unfinished)
 - Category: robustness

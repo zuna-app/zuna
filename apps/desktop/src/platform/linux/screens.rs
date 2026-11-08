@@ -1,6 +1,6 @@
 //! What can be shared, for the screen picker. Under Wayland the portal's own dialog picks,
 //! once Share is pressed, so the picker offers one of each kind the portal shares, as the
-//! desktop does (`portalSources` in native-screen.ts), and lists nothing itself.
+//! Electron app's `portalSources` did, and lists nothing itself.
 
 use zbus::zvariant::OwnedValue;
 
@@ -8,7 +8,8 @@ pub use crate::platform::{Source, THUMB_HEIGHT, THUMB_WIDTH};
 
 /// The kinds the ScreenCast portal shares: 1 for screens, 2 for windows. None without a portal.
 fn shared_kinds() -> u32 {
-    let Ok(bus) = zbus::blocking::Connection::session() else { return 0 };
+    // The app's one session bus, not a new connection each time the picker asks.
+    let Some(bus) = super::bus::session() else { return 0 };
     bus.call_method(Some("org.freedesktop.portal.Desktop"), "/org/freedesktop/portal/desktop", Some("org.freedesktop.DBus.Properties"), "Get", &("org.freedesktop.portal.ScreenCast", "AvailableSourceTypes"))
         .ok()
         .and_then(|reply| reply.body().deserialize::<OwnedValue>().ok())
