@@ -55,11 +55,14 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: The npm packages the web app ships
         run: npm audit --omit=dev
-      - name: The encryption core's crates
-        working-directory: crypto
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      # Each with its own .cargo/audit.toml of advisories that don't reach what's built, where it has any.
+      - name: The crates of the encryption core, the native app, its media library and the screen capture
         run: |
-          cargo install cargo-audit --locked --version 0.22.2
-          cargo audit
+          for crate in crypto apps/desktop apps/desktop/media-ffmpeg apps/screenshare; do
+            echo "> cargo audit in $crate"
+            (cd "$crate" && cargo audit)
+          done
 
   # The iOS app: its quick checks, the iOS core host against desktop clients,
   # the Release guard and the UI tests in a simulator (docs/IOS_TESTING.md).

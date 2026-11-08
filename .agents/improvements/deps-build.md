@@ -20,14 +20,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: a `postgres` job (or second pass) with `services: postgres: { image: postgres:17 (pinned by digest), env: { POSTGRES_USER: zuna, POSTGRES_PASSWORD: zuna, POSTGRES_DB: zuna_test }, ports: ["5432:5432"], options: "--health-cmd pg_isready --health-interval 5s --health-retries 10" }`, running `npm run test:server` and `npm run test:core` with `ZUNA_TEST_POSTGRES: postgres://zuna:zuna@localhost:5432/zuna_test?sslmode=disable`. Same setup steps as `test` (Go, Node, Rust, wasm-bindgen, `npm ci`, `build:crypto`).
 - Check after: CI only runs on PRs and tags (and the repo never makes PRs), so this runs on the next `v*` tag; check locally with `ZUNA_TEST_POSTGRES=... npm run test:server`.
 
-### Audit the native app's crates, not only crypto's
-- Where: .github/workflows/ci.yml:61-65
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: the advisories job runs `cargo audit` only in crypto/. apps/desktop/Cargo.lock (GPUI, LiveKit, rusqlite, zbus, ffmpeg-next…), apps/screenshare/Cargo.lock and apps/desktop/media-ffmpeg/Cargo.lock aren't audited. The job compiles cargo-audit from source every run.
-- Suggested change: add `cargo audit --file apps/desktop/Cargo.lock`, `--file apps/screenshare/Cargo.lock`, `--file apps/desktop/media-ffmpeg/Cargo.lock`, each with an `.cargo/audit.toml` of reasoned ignores like crypto/.cargo/audit.toml. Install cargo-audit prebuilt (e.g. `taiki-e/install-action` pinned by SHA, `tool: cargo-audit@0.22.2`) or cache `~/.cargo/bin`.
-- Check after: locally `cargo audit --file apps/desktop/Cargo.lock`.
-
 ### Build the native desktop app somewhere in CI
 - Where: .github/workflows/ci.yml and release.yml (no desktop job); e55fd3c's message
 - Category: robustness
