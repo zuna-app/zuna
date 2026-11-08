@@ -4,14 +4,6 @@ Covered by reading only (no Swift build on Windows): AppModel, MessageLists, Com
 Skimmed: Settings, Details (apart from SharedMedia), Onboarding, Channels (apart from ChannelMessages), the call screens, the ZunaShare views, ZunaBroadcast and the UI tests.
 Nothing was run. Severity is estimated user impact; Confidence says whether the problem is real as described. Any fix here needs a Mac to build, so an implementing agent on Windows must say so in the commit message.
 
-### Stop voice-message playback and recording from rewriting the call's audio session
-- Where: apps/ios/Zuna/Chat/Voice.swift:76-79, 135-142, 191-192; apps/ios/Zuna/Voice/SystemCall.swift:93-94, 345, 352; apps/ios/Zuna/Chat/Composer.swift:429-434
-- Category: robustness
-- Severity: high ; Effort: S ; Confidence: medium
-- What's wrong: in a call the session is `.playAndRecord`/`.videoChat`, owned by CallKit, and LiveKit's automatic configuration is off. `VoicePlayer.play` sets `setCategory(.playback, mode: .spokenAudio)`, which has no input, so the call's microphone stops. `VoiceRecorder.start` switches the mode to `.default`, and `finish` calls `setActive(false, options: .notifyOthersOnDeactivation)` while the call is still running. Only video messages are refused during a call (Composer.swift:430), and nothing restores the session afterwards.
-- Suggested change: give `VoicePlayer` and `VoiceRecorder` a way to know a call is going; while one is, leave the category, mode and activation alone and never deactivate. Alternatively refuse voice-message recording in a call, as video is refused. RoundVideoCard plays through `VoicePlayer.play(video: true)`, so the same fix covers it.
-- Check after: `npm run test:ios:voice` (play a voice message mid-call and check the web side still hears the phone); `npm run test:ios:ui -- --only CallTests,ComposerTests`.
-
 ### Create the PushKit registry at launch, not after the core has started
 - Where: apps/ios/Zuna/Voice/VoiceModel.swift:217-225; apps/ios/Zuna/State/AppModel.swift:228-231; apps/ios/Zuna/CoreController.swift:81-88, 142-158; apps/ios/Zuna/Voice/CallPushes.swift:20-23, 36-40; apps/ios/Zuna/Voice/SystemCall.swift:55-67
 - Category: robustness

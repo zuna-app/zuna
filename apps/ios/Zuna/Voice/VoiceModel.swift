@@ -100,7 +100,9 @@ struct IncomingCall: Identifiable, Equatable {
 final class VoiceModel {
     enum Status: Equatable { case idle, connecting, connected, reconnecting }
 
-    private(set) var status: Status = .idle
+    private(set) var status: Status = .idle {
+        didSet { CallAudio.active = status != .idle }
+    }
     private(set) var serverId: String?
     /// The voice channel, or the group of the conversation whose call it is.
     private(set) var channelId: String?

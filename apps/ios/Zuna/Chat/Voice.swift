@@ -30,6 +30,15 @@ enum Waveform {
     }
 }
 
+/// Whether a voice channel or a call is going on this device. Its audio session is
+/// then CallKit's or LiveKit's, so a voice message plays and records within it and
+/// leaves it as it was: `.playback` has no microphone, and deactivating it would stop
+/// the call's sound. `VoiceModel` keeps it.
+@MainActor
+enum CallAudio {
+    static var active = false
+}
+
 /// Records a voice message from the microphone, sampling how loud it is for the waveform.
 @MainActor
 @Observable
@@ -51,6 +60,8 @@ final class VoiceRecorder {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var url: URL?
+    /// Whether this recording set the audio session up, and so should let it go.
+    @ObservationIgnored private var ownsSession = false
 
     #if DEBUG
     /// UI tests record a tone instead: the simulator's microphone is the Mac's, behind its own permission.
@@ -74,9 +85,13 @@ final class VoiceRecorder {
         guard !isRecording else { return }
         if !fake {
             guard await AVAudioApplication.requestRecordPermission() else { throw Failure.denied }
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try session.setActive(true)
+            // A call's session already records.
+            ownsSession = !CallAudio.active
+            if ownsSession {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+                try session.setActive(true)
+            }
         }
         try FileManager.default.createDirectory(at: OutgoingFiles.folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
         let url = OutgoingFiles.folder.appendingPathComponent(UUID().uuidString).appendingPathExtension("m4a")
@@ -138,7 +153,9 @@ final class VoiceRecorder {
         recorder?.stop()
         recorder = nil
         isRecording = false
-        if !fake { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        // A call that started meanwhile has the session now.
+        if ownsSession, !CallAudio.active { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        ownsSession = false
     }
 
     /// A 440 Hz tone, in place of the microphone, encoded as a real recording is.
@@ -187,9 +204,12 @@ final class VoicePlayer {
             let playable = video ? url : try await Self.playable(url)
             // Another one was asked for meanwhile.
             guard player == nil else { return }
-            // Voice messages play even with the phone set to silent, as in other messengers.
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-            try AVAudioSession.sharedInstance().setActive(true)
+            // Voice messages play even with the phone set to silent, as in other messengers,
+            // and within a call's session, which plays and keeps its microphone.
+            if !CallAudio.active {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                try AVAudioSession.sharedInstance().setActive(true)
+            }
             let item = AVPlayerItem(url: playable)
             let player = AVPlayer(playerItem: item)
             self.player = player
