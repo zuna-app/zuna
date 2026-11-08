@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Answer a typing frame with one query
-- Where: server/internal/api/hub.go:672-688
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: each typing frame runs `Membership` and then `GroupMemberIDs`. The second query alone answers both.
-- Suggested change: call `GroupMemberIDs` and return unless the list contains `c.userID`.
-- Check after: Go tests.
-
 ### Only announce an emote refresh when the set changed
 - Where: server/internal/api/server.go:264-270, emotes/emotes.go:114-171, and the client in session.ts:4096
 - Category: perf
@@ -107,14 +99,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - What's wrong: zuna-push has no signal handling, unlike zuna-server and zuna-web. Every `zuna-update` restart cuts off sends in flight to APNs.
 - Suggested change: mirror zuna-web: `signal.NotifyContext`, then `Shutdown` with a 20 s context (the APNs client timeout is 15 s).
 - Check after: `go test ./internal/relay`, and the installer check.
-
-### Don't let the frame limiter drop presence state
-- Where: server/internal/api/hub.go:643-668
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: every frame over 5/s (burst 30) is dropped, whatever its type. A dropped `active:false` leaves the device marked in use, so the person stays online and `pushWait` (hub.go:432-455) skips pushes to that device. A dropped voice leave leaves a ghost in the channel.
-- Suggested change: rate-limit only typing and ping frames.
-- Check after: Go tests (hub_internal_test, push_test, channels_test).
 
 ### Check the per-user connection limit atomically
 - Where: server/internal/api/hub.go:569-579 and :337-347

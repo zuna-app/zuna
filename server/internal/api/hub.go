@@ -37,6 +37,8 @@ const (
 	// What a client sends is mostly pings and typing, a frame every few seconds.
 	clientFramesPerSecond = 5
 	clientFrameBurst      = 30
+	stateFramesPerSecond  = 20
+	stateFrameBurst       = 60
 )
 
 // Event is one frame pushed to clients.
@@ -641,18 +643,26 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 }
 
 func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
-	limiter := rate.NewLimiter(clientFramesPerSecond, clientFrameBurst)
+	// Typing and pings are worth nothing when there's too much of them. Whether someone's
+	// using their device and where they are in voice are state, which a dropped frame would
+	// leave wrong, so they have a limit of their own, far past anything an app sends, and
+	// typing can't use it up.
+	chatter := rate.NewLimiter(clientFramesPerSecond, clientFrameBurst)
+	state := rate.NewLimiter(stateFramesPerSecond, stateFrameBurst)
 	for {
 		_, data, err := ws.Read(ctx)
 		if err != nil {
 			return
 		}
-		// Nothing here is worth keeping when there's too much of it.
-		if !limiter.Allow() {
-			continue
-		}
 		var frame clientFrame
 		if err := json.Unmarshal(data, &frame); err != nil {
+			continue
+		}
+		limiter := chatter
+		if frame.Type == "active" || frame.Type == "voice" {
+			limiter = state
+		}
+		if !limiter.Allow() {
 			continue
 		}
 		switch frame.Type {
@@ -673,11 +683,9 @@ func (s *Server) relayTyping(ctx context.Context, c *conn, frame clientFrame) {
 	if !store.ValidID(frame.GroupID) || len(frame.Data) > 1024 {
 		return
 	}
-	if _, err := s.db.Membership(ctx, frame.GroupID, c.userID); err != nil {
-		return
-	}
+	// Who's in the group says too whether the one typing is: one query for both, on every frame.
 	members, err := s.db.GroupMemberIDs(ctx, frame.GroupID)
-	if err != nil {
+	if err != nil || !slices.Contains(members, c.userID) {
 		return
 	}
 	s.hub.ToUsersExcept(members, c.deviceID, Event{Type: "typing", Data: map[string]any{
