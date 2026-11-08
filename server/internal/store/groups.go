@@ -355,7 +355,8 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		var epoch int64
 		var kind string
 		var replaced []byte
-		err := tx.QueryRowContext(ctx, `SELECT epoch, kind, group_info FROM groups WHERE id = ?`, c.GroupID).Scan(&epoch, &kind, &replaced)
+		err := tx.QueryRowContext(ctx, `SELECT g.epoch, g.kind, i.info FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id
+			WHERE g.id = ?`, c.GroupID).Scan(&epoch, &kind, &replaced)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -445,15 +446,17 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		}
 		newEpoch := c.ExpectedEpoch + 1
 		if c.Meta != nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ?, group_info = ?, meta = ?, meta_epoch = ? WHERE id = ?`,
-				newEpoch, c.GroupInfo, c.Meta, c.MetaEpoch, c.GroupID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ?, meta = ?, meta_epoch = ? WHERE id = ?`,
+				newEpoch, c.Meta, c.MetaEpoch, c.GroupID); err != nil {
 				return err
 			}
 		} else {
-			if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ?, group_info = ? WHERE id = ?`,
-				newEpoch, c.GroupInfo, c.GroupID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ? WHERE id = ?`, newEpoch, c.GroupID); err != nil {
 				return err
 			}
+		}
+		if err := setGroupInfo(ctx, tx, c.GroupID, c.GroupInfo); err != nil {
+			return err
 		}
 		for _, welcome := range c.Welcomes {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO welcomes(device_id, group_id, data, created_at) VALUES(?,?,?,?)`,
@@ -608,11 +611,10 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			return err
 		}
 		// With nothing to go back to, the group starts again from nothing.
-		var info any
-		if len(groupInfo) > 0 {
-			info = groupInfo
+		if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ? WHERE id = ?`, to, groupID); err != nil {
+			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ?, group_info = ? WHERE id = ?`, to, info, groupID); err != nil {
+		if err := setGroupInfo(ctx, tx, groupID, groupInfo); err != nil {
 			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
@@ -665,11 +667,26 @@ func commitSenders(ctx context.Context, tx handle, groupID string, after int64) 
 	return senders, anyAdmin, rows.Err()
 }
 
+// setGroupInfo keeps a group's latest GroupInfo, or none. It's in a table of its
+// own, as it carries the group's whole ratchet tree, which grows with each device
+// in it: in the group's row, SQLite would write it again with each message, which
+// changes the row's seq, and read past it for anything after it in the row.
+func setGroupInfo(ctx context.Context, tx handle, groupID string, info []byte) error {
+	if len(info) == 0 {
+		_, err := tx.ExecContext(ctx, `DELETE FROM group_infos WHERE group_id = ?`, groupID)
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO group_infos(group_id, info) VALUES(?, ?)
+		ON CONFLICT(group_id) DO UPDATE SET info = excluded.info`, groupID, info)
+	return err
+}
+
 // GroupInfo returns the latest published MLS GroupInfo, used for external joins.
 func (d *DB) GroupInfo(ctx context.Context, groupID string) ([]byte, int64, error) {
 	var info []byte
 	var epoch int64
-	err := d.sql.QueryRowContext(ctx, `SELECT group_info, epoch FROM groups WHERE id = ?`, groupID).Scan(&info, &epoch)
+	err := d.sql.QueryRowContext(ctx, `SELECT i.info, g.epoch FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id
+		WHERE g.id = ?`, groupID).Scan(&info, &epoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, 0, ErrNotFound
 	}

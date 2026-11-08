@@ -455,7 +455,9 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP INDEX history_grants_group;
 		ALTER TABLE users DROP COLUMN banned_by;
 		DROP INDEX group_events_commits;
-		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
+		ALTER TABLE groups ADD COLUMN group_info BLOB;
+		DROP TABLE group_infos;
+		INSERT INTO groups(id, kind, created_by, created_at, group_info) VALUES('g', 'group', 'u', 1, x'0102');
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
 		INSERT INTO files(id, owner_id, chunk_count, total_size, attached_at, created_at) VALUES
@@ -470,6 +472,9 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if info, _, err := db.GroupInfo(ctx, "g"); err != nil || string(info) != "\x01\x02" {
+		t.Fatalf("the group's info moved as %x, %v", info, err)
+	}
 
 	_, files, err := db.DeleteMessage(ctx, "g", "m", Deletion{})
 	if err != nil {

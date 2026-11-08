@@ -656,6 +656,16 @@ ALTER TABLE users ADD COLUMN banned_by TEXT;
 -- The commits old enough to prune, which the hourly prune would otherwise find by
 -- reading every commit, and every commit's whole data, with the write lock held.
 CREATE INDEX group_events_commits ON group_events(created_at) WHERE kind = 'commit';
+`, `
+-- A group's GroupInfo, which carries its whole ratchet tree and so grows with every
+-- device in it. In the group's row, SQLite wrote it again with each message, which
+-- moves the row's seq, and read past it for the columns after it.
+CREATE TABLE group_infos (
+	group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+	info BLOB NOT NULL
+);
+INSERT INTO group_infos(group_id, info) SELECT id, group_info FROM groups WHERE group_info IS NOT NULL;
+ALTER TABLE groups DROP COLUMN group_info;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.
