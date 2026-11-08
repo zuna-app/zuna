@@ -44,13 +44,13 @@ export class Socket {
     this.stopped = true;
     clearTimeout(this.retryTimer);
     clearInterval(this.pingTimer);
-    this.ws?.close();
+    drop(this.ws);
     this.ws = null;
   }
 
-  /** Reconnects right away, for example when the network comes back. */
+  /** Reconnects right away, for example when the network comes back, unless it's connected or on its way. */
   nudge(): void {
-    if (this.stopped || this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.stopped || this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
     clearTimeout(this.retryTimer);
     this.attempts = 0;
     this.connect();
@@ -94,9 +94,15 @@ export class Socket {
       this.scheduleRetry();
       return;
     }
+    // One this replaces, such as one still closing, says nothing more.
+    clearInterval(this.pingTimer);
+    drop(this.ws);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: "auth", token: this.getToken() }));
+    ws.onopen = () => {
+      if (this.ws === ws) ws.send(JSON.stringify({ t: "auth", token: this.getToken() }));
+    };
     ws.onmessage = (event) => {
+      if (this.ws !== ws) return;
       this.lastFrameAt = Date.now();
       let frame: SocketFrame;
       try {
@@ -145,6 +151,16 @@ export class Socket {
     this.attempts++;
     this.retryTimer = setTimeout(() => this.connect(), base * (0.7 + Math.random() * 0.6));
   }
+}
+
+/** Closes a socket this no longer uses, so that nothing it does afterwards reaches the handlers. */
+function drop(ws: WebSocket | null): void {
+  if (!ws) return;
+  ws.onopen = null;
+  ws.onmessage = null;
+  ws.onclose = null;
+  ws.onerror = null;
+  ws.close();
 }
 
 export const decodeFrameData = (value: string): Uint8Array => fromBase64(value);

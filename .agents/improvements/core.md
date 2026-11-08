@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Stop `Socket.nudge()` from opening a second WebSocket while one is still connecting
-- Where: packages/core/src/socket.ts:52-57 (`nudge`), 87-128 (`connect`; `onmessage` at 99-115 has no `this.ws === ws` check, unlike `onclose`), 130-140; callers apps/ios/Zuna/CoreController.swift:274-277, 317-320 (`wakeUp()` then `nudge()`), 385-392, and packages/ui/src/App.tsx:139
-- Category: robustness
-- Severity: high ; Effort: S ; Confidence: high for the mechanism (spot-checked during the review), medium for field impact
-- What's wrong: `nudge()` only returns early when `readyState === OPEN`. While the socket is CONNECTING, it calls `connect()`, which writes a new socket into `this.ws` and never closes the old one. On iOS this happens on every foreground wake: `wakeUp()` calls `resume()` (which starts a socket), and the next line calls `nudge()` while that socket is still connecting. The orphan opens, authenticates and delivers frames, because `onmessage` never checks it's the current socket: every frame arrives twice (each `message` frame is ingested twice). The orphan's `ready` calls `startPinging(orphan)`, replacing the ping timer, so the real socket stops being pinged. `stop()`/`suspend()` only close `this.ws`, so the orphan stays connected after the app suspends: the server sees a live socket for the device (which may hold back pushes), and frames keep reaching a session `reload()` has replaced.
-- Suggested change: in `nudge()`, return when `this.ws` is CONNECTING or OPEN. Have `connect()` close any socket it replaces after nulling that socket's handlers. In `onopen`, `onmessage` and `onclose`, start with `if (this.ws !== ws) return;`.
-- Check after: `cd packages/core && npx vitest run test/e2e.test.ts` (reconnect cases); `npm run test:ios` on a Mac.
-
 ### Give the socket a timeout for connecting and authenticating
 - Where: packages/core/src/socket.ts:87-115, 130-140 (`DEAD_AFTER_MS` only applies after `ready`)
 - Category: robustness
