@@ -52,10 +52,3 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: keep `ServerSession` as the facade (the RPC allowlist depends on it); move standalone parts into modules taking a small context interface (`{ api, db, emit, seal, open, kv }`), with thin public methods left on the facade. Before moving anything the tests touch, add a typed test-only accessor (e.g. `session.testing`), so renames fail at compile time.
 - Check after: `npm run typecheck`, then the whole core suite. The public RPC surface must stay the same, or CoreAPI.swift and the desktop's `call("…")` strings must follow.
 
-### Build the test server once per run and pick a free port
-- Where: packages/core/test/helpers.ts:135-143 (`buildServer` runs `go build` on every `TestServer.start()`; 17 test files construct one), 173 (random port in 20000–40000, never checked)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `go build` runs again for every test file, and a busy port shows as a 15 s "the server didn't start" failure.
-- Suggested change: build once in a vitest `globalSetup` (or memoize per process keyed by the binary's mtime), and pass `--listen 127.0.0.1:0` and read the bound address from the server's output, or retry another port on failure.
-- Check after: `npx vitest run test/rpc.test.ts test/password.test.ts`, then a couple of server-backed files.

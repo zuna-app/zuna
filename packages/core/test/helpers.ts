@@ -1,6 +1,6 @@
 // Test harness: a real Go server plus real clients, in-memory local databases.
 
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, get as httpGet } from "node:http";
@@ -8,8 +8,9 @@ import { get as httpsGet } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { TLSSocket } from "node:tls";
 import { createRequire } from "node:module";
-import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { buildServer } from "./server-binary";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { Agent, buildConnector, setGlobalDispatcher } from "undici";
@@ -130,17 +131,12 @@ function deviceKeyIn(dir: string): Uint8Array {
   return key;
 }
 
-const goBin = [join(process.env.LOCALAPPDATA ?? "", "Programs", "go", "bin"), join(homedir(), "go", "bin")].filter(existsSync);
+/** The server, built once by global-setup.ts for a run, or here, once per process, without it. */
+let built: string | undefined;
+const serverBinary = (): string => (built ??= process.env.ZUNA_TEST_SERVER_BINARY ?? buildServer());
 
-function buildServer(): string {
-  const out = join(tmpdir(), `zuna-test-server${process.platform === "win32" ? ".exe" : ""}`);
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", out, "./cmd/zuna-server"], {
-    cwd: join(root, "server"),
-    env: { ...process.env, PATH: [...goBin, process.env.PATH ?? process.env.Path ?? ""].join(delimiter) },
-    stdio: "inherit",
-  });
-  return out;
-}
+/** The port asked for was taken, so another is tried. */
+class PortTaken extends Error {}
 
 /** Answers at all, whatever its certificate, which is for the apps to check. */
 function healthy(url: string): Promise<boolean> {
@@ -168,9 +164,19 @@ export class TestServer {
   constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number } = {}) {}
 
   async start(): Promise<void> {
-    const binary = buildServer();
+    const binary = serverBinary();
     this.dir = mkdtempSync(join(tmpdir(), "zuna-test-"));
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    // A random port, and another if that one turns out to be taken.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.startOn(binary, 20000 + Math.floor(Math.random() * 20000));
+      } catch (error) {
+        if (!(error instanceof PortTaken) || attempt === 5) throw error;
+      }
+    }
+  }
+
+  private async startOn(binary: string, port: number): Promise<void> {
     this.url = `${this.options.ownCertificate ? "https" : "http"}://127.0.0.1:${port}`;
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     if (this.options.ownCertificate) args.push("--domain", "127.0.0.1");
@@ -202,6 +208,10 @@ export class TestServer {
       if (match) {
         this.setupLink = match[0];
         if (await healthy(this.url)) return;
+      }
+      if (this.process.exitCode !== null) {
+        if (/bind:/.test(output)) throw new PortTaken(output);
+        break;
       }
       await sleep(50);
     }
