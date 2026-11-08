@@ -1603,7 +1603,7 @@ pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, cont
             .filter(|member| **member != context.self_id && context.read_by.get(*member).copied().unwrap_or(0.) >= seq)
             .filter_map(|member| context.users.get(member))
             .collect();
-        readers.sort_by_key(|user| user.display_name.to_lowercase());
+        readers.sort_by_cached_key(|user| user.display_name.to_lowercase());
         if !readers.is_empty() {
             let people = readers
                 .iter()

@@ -362,7 +362,7 @@ impl Dialog {
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
         let query = self.people_search.read(cx).text().trim().to_lowercase();
         let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned && !user.deleted).cloned().collect();
-        users.sort_by_key(|user| user.display_name.to_lowercase());
+        users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let filtered: Vec<_> = users.into_iter().filter(|user| query.is_empty() || user.display_name.to_lowercase().contains(&query) || user.username.to_lowercase().contains(&query)).collect();
         let people_scroll = scroll_handle("new-group-people");
         let mut people = div().id("people-list").max_h(px(260.)).overflow_y_scroll().track_scroll(&people_scroll).pr(gutter(&people_scroll)).flex().flex_col().gap(px(1.)).mx(px(-4.));
@@ -891,7 +891,7 @@ impl Dialog {
         let conversation = server.conversations.iter().find(|item| item.group_id.as_deref() == Some(group_id.as_str())).cloned();
         let members: std::collections::HashSet<String> = conversation.as_ref().map(|c| c.members.iter().map(|member| member.user_id.clone()).collect()).unwrap_or_default();
         let mut users: Vec<_> = server.users.values().filter(|user| !members.contains(&user.id) && !user.banned && !user.deleted).cloned().collect();
-        users.sort_by_key(|user| user.display_name.to_lowercase());
+        users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let mut body = Vec::new();
         if conversation.as_ref().is_some_and(|c| c.history_visible) {
             body.push(notice("users-round", "This group shares its history, so they'll be able to read earlier messages.", cx).into_any_element());

@@ -398,7 +398,7 @@ impl ServerSettings {
         let self_role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
         // Nothing can be done about an account that's gone, and someone banned is in Bans.
         let mut users: Vec<_> = server.users.values().filter(|user| !user.deleted && !user.banned).filter(|user| needle.is_empty() || user.display_name.to_lowercase().contains(&needle) || user.username.to_lowercase().contains(&needle)).cloned().collect();
-        users.sort_by_key(|user| user.display_name.to_lowercase());
+        users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let mut list = div().flex().flex_col().gap(px(3.));
         for user in users {
             let can_act = user.id != server.self_id() && user.role != "owner" && (self_role == "owner" || user.role == "member");

@@ -361,7 +361,7 @@ impl SidePanel {
                     .child(format!("{} {}", conversation.members.len(), if conversation.members.len() == 1 { "member" } else { "members" })),
             );
             let mut sorted = conversation.members.clone();
-            sorted.sort_by_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|u| u.display_name.to_lowercase()).unwrap_or_default()));
+            sorted.sort_by_cached_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|u| u.display_name.to_lowercase()).unwrap_or_default()));
             for member in sorted {
                 let user = server.users.get(&member.user_id).cloned();
                 let name = user.as_ref().map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
@@ -841,7 +841,7 @@ impl SidePanel {
                 }),
         );
         let mut sorted = conversation.members.clone();
-        sorted.sort_by_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|user| user.display_name.to_lowercase()).unwrap_or_default()));
+        sorted.sort_by_cached_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|user| user.display_name.to_lowercase()).unwrap_or_default()));
         for member in sorted {
             let user = server.users.get(&member.user_id).cloned();
             let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());

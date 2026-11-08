@@ -235,9 +235,10 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
     let theme = theme(cx);
     let state = state_entity.read(cx);
     let Some(server) = state.servers.get(server_id) else { return div().into_any_element() };
-    let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned && !user.deleted).cloned().collect();
-    users.sort_by_key(|user| user.display_name.to_lowercase());
-    let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
+    // Each name lowercased once rather than at every comparison, and sorted before being copied.
+    let mut users: Vec<&UserView> = server.users.values().filter(|user| !user.banned && !user.deleted).collect();
+    users.sort_by_cached_key(|user| user.display_name.to_lowercase());
+    let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().cloned().partition(|user| user.online || user.is_self);
     let server_id = server_id.to_string();
     let members_scroll = scroll_handle("member-list");
     let mut list = div().id("member-list").size_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
@@ -1232,7 +1233,7 @@ impl ChatView {
                     conversation.members.iter().filter_map(|member| server.users.get(&member.user_id)).collect()
                 } else {
                     let mut all: Vec<&UserView> = server.users.values().collect();
-                    all.sort_by_key(|user| user.display_name.to_lowercase());
+                    all.sort_by_cached_key(|user| user.display_name.to_lowercase());
                     all
                 };
                 people.retain(|user| !user.banned && !user.deleted && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
