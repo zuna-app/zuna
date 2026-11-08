@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -229,21 +230,27 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 		return
 	}
 	ctx := r.Context()
+	// Everything is checked before anything is kept, and then it's all kept at once, so a
+	// request with one bad field changes nothing, rather than some of it unannounced.
+	changes := map[string]string{}
 	if body.ScreenShare != nil {
 		if problem := body.ScreenShare.problem(); problem != "" {
 			writeError(w, http.StatusBadRequest, "bad_request", problem)
 			return
 		}
+		raw, err := json.Marshal(*body.ScreenShare)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		changes["screen_share"] = string(raw)
 	}
 	if body.Name != nil {
 		if len(*body.Name) < 1 || len(*body.Name) > 64 {
 			writeError(w, http.StatusBadRequest, "bad_request", "Server names are 1-64 characters.")
 			return
 		}
-		if err := s.db.SetSetting(ctx, "name", *body.Name); err != nil {
-			writeFailure(w, err)
-			return
-		}
+		changes["name"] = *body.Name
 	}
 	if body.Registration != nil {
 		if *body.Registration != "invite" && *body.Registration != "open" {
@@ -254,17 +261,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 			writeError(w, http.StatusBadRequest, "bad_request", "Open sign-ups need the community key.")
 			return
 		}
-		if err := s.db.SetSetting(ctx, "registration", *body.Registration); err != nil {
-			writeFailure(w, err)
-			return
-		}
-		key := ""
+		changes["registration"] = *body.Registration
+		changes["community_key"] = ""
 		if *body.Registration == "open" {
-			key = *body.CommunityKey
-		}
-		if err := s.db.SetSetting(ctx, "community_key", key); err != nil {
-			writeFailure(w, err)
-			return
+			changes["community_key"] = *body.CommunityKey
 		}
 	}
 	if body.MaxUploadMB != nil {
@@ -272,10 +272,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 			writeError(w, http.StatusBadRequest, "bad_request", "The upload limit must be at least 1 MB.")
 			return
 		}
-		if err := s.db.SetSetting(ctx, "max_upload_mb", strconv.Itoa(*body.MaxUploadMB)); err != nil {
-			writeFailure(w, err)
-			return
-		}
+		changes["max_upload_mb"] = strconv.Itoa(*body.MaxUploadMB)
 	}
 	if body.RetentionDays != nil {
 		if *body.RetentionDays < 0 || *body.RetentionDays > maxRetentionDays {
@@ -294,22 +291,16 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 			writeError(w, http.StatusForbidden, "forbidden", "Only the server owner can shorten how long messages are kept.")
 			return
 		}
-		if err := s.db.SetSetting(ctx, "retention_days", strconv.Itoa(*body.RetentionDays)); err != nil {
-			writeFailure(w, err)
-			return
-		}
+		changes["retention_days"] = strconv.Itoa(*body.RetentionDays)
 	}
 	if body.AllowMemberInvites != nil {
-		if err := s.db.SetSetting(ctx, "allow_member_invites", strconv.FormatBool(*body.AllowMemberInvites)); err != nil {
-			writeFailure(w, err)
-			return
-		}
+		changes["allow_member_invites"] = strconv.FormatBool(*body.AllowMemberInvites)
+	}
+	if err := s.db.SetSettings(ctx, changes); err != nil {
+		writeFailure(w, err)
+		return
 	}
 	if body.ScreenShare != nil {
-		if err := s.saveScreenRules(ctx, *body.ScreenShare); err != nil {
-			writeFailure(w, err)
-			return
-		}
 		s.enforceScreenRules(ctx)
 	}
 	s.broadcastSettings(r)

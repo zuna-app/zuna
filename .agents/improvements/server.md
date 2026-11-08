@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Validate all settings before saving any
-- Where: server/internal/api/admin.go:219-319
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: validation and `SetSetting` calls alternate field by field. A request with a valid name and an invalid `max_upload_mb` saves the name, then returns 400 without broadcasting, so clients never hear of the change.
-- Suggested change: validate every field first, then write them all through a new `store.SetSettings(map)` in one transaction, then broadcast.
-- Check after: Go tests.
-
 ### Hand a channel's history in one transaction
 - Where: server/internal/api/channels.go:197-211, and store/channels.go:186-201
 - Category: robustness

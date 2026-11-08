@@ -104,14 +104,6 @@ func screenRulesFrom(raw string) ScreenRules {
 	return rules
 }
 
-func (s *Server) saveScreenRules(ctx context.Context, rules ScreenRules) error {
-	raw, err := json.Marshal(rules)
-	if err != nil {
-		return err
-	}
-	return s.db.SetSetting(ctx, "screen_share", string(raw))
-}
-
 // screenShare is a device that's been let share a screen. It's kept in memory along with
 // who's in the voice channels, and goes when the device leaves.
 type screenShare struct {

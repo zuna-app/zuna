@@ -700,6 +700,19 @@ func (d *DB) Settings(ctx context.Context) (map[string]string, error) {
 	return settings, rows.Err()
 }
 
+// SetSettings writes several settings at once, so they're all kept or none is.
+func (d *DB) SetSettings(ctx context.Context, settings map[string]string) error {
+	return d.tx(ctx, func(tx handle) error {
+		for key, value := range settings {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (d *DB) SetSetting(ctx context.Context, key, value string) error {
 	_, err := d.sql.ExecContext(ctx,
 		`INSERT INTO settings(key, value) VALUES(?, ?)
