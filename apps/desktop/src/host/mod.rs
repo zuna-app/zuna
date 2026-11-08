@@ -120,11 +120,13 @@ impl Core {
 
         let weak = Arc::downgrade(&inner);
         let post = Arc::new(move |channel: u32, json: String| {
-            let Ok(message) = serde_json::from_str::<Value>(&json) else { return };
+            // What's in it is taken out, not copied: a list of every conversation and channel
+            // on a large server is megabytes, and copying it took as long as parsing it.
+            let Ok(mut message) = serde_json::from_str::<Value>(&json) else { return };
             match message.get("kind").and_then(Value::as_str) {
                 Some("event") => {
-                    if let Some(event) = message.get("event") {
-                        events_tx.unbounded_send(event.clone()).ok();
+                    if let Some(event) = message.get_mut("event") {
+                        events_tx.unbounded_send(event.take()).ok();
                     }
                 }
                 Some("reply") if channel == UI_CHANNEL => {
@@ -132,7 +134,7 @@ impl Core {
                     let Some(id) = message.get("id").and_then(Value::as_u64) else { return };
                     let Some(reply) = inner.pending.lock().remove(&id) else { return };
                     let result = if message.get("ok").and_then(Value::as_bool) == Some(true) {
-                        Ok(message.get("value").cloned().unwrap_or(Value::Null))
+                        Ok(message.get_mut("value").map(Value::take).unwrap_or(Value::Null))
                     } else {
                         let error = message.get("error");
                         Err(CoreError {
