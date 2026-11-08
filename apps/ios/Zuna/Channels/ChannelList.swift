@@ -75,7 +75,7 @@ struct ChannelRows: View {
         let shown = needle.isEmpty ? server.channels : server.channels.filter { $0.name.lowercased().contains(needle) }
         let all = headings(shown)
         ForEach(all) { heading in
-            let folded = collapsed.contains(heading.name) && needle.isEmpty
+            let folded = collapsed.contains(foldKey(heading.name)) && needle.isEmpty
             headingRow(heading, folded: folded, first: heading.id == all.first?.id)
             // A folded heading keeps showing what mentions you.
             ForEach(folded ? heading.channels.filter { ($0.conversation?.unreadMentions ?? 0) > 0 } : heading.channels) { channel in
@@ -101,6 +101,11 @@ struct ChannelRows: View {
         }
     }
 
+    /// A heading folded here, by server, as two servers can have headings of the same name.
+    private func foldKey(_ heading: String) -> String {
+        "\(server.entry.id)/\(heading)"
+    }
+
     /// A channel's own heading if it has one, or one for its type, in the order they come up.
     private func headings(_ channels: [ChannelView]) -> [Heading] {
         var headings: [Heading] = []
@@ -120,7 +125,8 @@ struct ChannelRows: View {
         HStack(spacing: 4) {
             Button {
                 withAnimation(model.reduceMotion ? nil : .snappy(duration: 0.2)) {
-                    if collapsed.contains(heading.name) { collapsed.remove(heading.name) } else { collapsed.insert(heading.name) }
+                    let key = foldKey(heading.name)
+                    if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
                 }
                 AppSettings.collapsedCategories = collapsed
             } label: {
