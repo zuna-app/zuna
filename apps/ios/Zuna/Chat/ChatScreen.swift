@@ -549,7 +549,7 @@ struct ChatScreen: View {
             ? list.items.first { AppModel.isUnread($0, ownRead: conversation.ownRead, selfId: server.me?.userId, blocked: server.prefs.blocked ?? []) }?.createdAt
             : nil
         let what = unread > 0
-            ? "\(unread > 99 ? "99+" : "\(unread)") new \(unread == 1 ? "message" : "messages")\(since.map { " since \(Format.time($0))" } ?? "")"
+            ? "\(unread > 99 ? "99+" : "\(unread)") new \(unread == 1 ? "message" : "messages")\(since.map { " since \(Format.since($0))" } ?? "")"
             : "You're viewing older messages"
         return Button(action: action) {
             HStack(spacing: 12) {

@@ -46,6 +46,17 @@ enum Format {
         return "\(date.formatted(date: .numeric, time: .omitted)) \(time)"
     }
 
+    /// When something began, after "since": "14:32" today, "yesterday at 9:05", or the date and time.
+    static func since(_ milliseconds: Int, now: Date = .now) -> String {
+        let date = Date(milliseconds: milliseconds)
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if days <= 0 { return time }
+        if days == 1 { return "yesterday at \(time)" }
+        return "\(date.formatted(date: .numeric, time: .omitted)) \(time)"
+    }
+
     /// A day in full, on the line between days in a channel: "November 2, 2026".
     static func fullDay(_ milliseconds: Int) -> String {
         Date(milliseconds: milliseconds).formatted(.dateTime.month(.wide).day().year())
