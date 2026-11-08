@@ -1,6 +1,7 @@
-// Local storage. Implementations exist for SQLite in the app (WASM on OPFS) and
-// for Node's SQLite in tests. All calls are synchronous, so a database write can
-// never interleave with an MLS state change happening alongside it.
+// Local storage, SQLite on every host: as WebAssembly on OPFS in the web app,
+// native SQLite in the desktop app and on iOS, and Node's in tests. All calls are
+// synchronous, so a database write can never interleave with an MLS state change
+// happening alongside it.
 
 export type SqlValue = string | number | bigint | Uint8Array | null;
 

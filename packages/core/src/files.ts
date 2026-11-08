@@ -1,6 +1,7 @@
-// How the core reads files it uploads and hands back files it downloads. The
-// desktop uses Blobs. The iOS app passes references to files on disk instead,
-// since its JavaScript engine has no Blobs that can hold bytes.
+// How the core reads files it uploads and hands back files it downloads. The web
+// app and the tests use Blobs. The native desktop app and the iOS app pass
+// references to files on disk instead, as their JavaScript engines, QuickJS and
+// JavaScriptCore, have no Blobs that can hold bytes.
 
 export interface FileAdapter {
   size(source: Blob): number;

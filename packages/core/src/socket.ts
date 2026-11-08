@@ -77,7 +77,6 @@ export class Socket {
     if (this.connected) this.ws!.send(JSON.stringify({ t: "active", active, put_away: (!active && putAway) || undefined }));
   }
 
-  /** What this device is doing in a voice channel, or that it left. */
   /** What this device is doing in a room, or nothing once it's left, and whether that went. `ring` starts a call ringing everyone else. */
   sendVoice(channelId: string | null, voice: VoiceUpdate | null, ring = false): boolean {
     if (!this.connected) return false;

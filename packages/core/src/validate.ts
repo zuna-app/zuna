@@ -281,7 +281,6 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
   return details;
 }
 
-/** A channel's details, as someone's device signed them, or null if they make no sense. */
 /** A sound on the soundboard: what it's called, an emoji to show with it, and its file. */
 export interface SoundDetails {
   name: string;
@@ -313,6 +312,7 @@ export function parsePlay(value: unknown): { sound: string; user: string; at: nu
   return { sound: value.sound, user: value.user, at: value.at, nonce: value.nonce };
 }
 
+/** A channel's details, as someone's device signed them, or null if they make no sense. */
 export function parseChannelDetails(value: unknown): ChannelDetails | null {
   if (!isObject(value) || !isString(value.name, MAX_CHANNEL_NAME)) return null;
   const name = plainName(value.name).trim();

@@ -28,22 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Fix doc comments that are stacked or sit above the wrong declaration
-- Where: packages/core/src/session.ts:208-209, 226-227 (sits above `voiceTiming`; `rotationTiming` at 240 has none), 438-439 (two docs on `TrustManifest`), 2635-2636 (belongs to `isGroupAdmin` at 2641), 4409-4421 (`changedAfterLeaving`'s doc sits above `editedSince`); socket.ts:73-74 (old and new doc on `sendVoice`); validate.ts:284-285 (`parseChannelDetails`'s doc above `SoundDetails`); test/dev-bots.ts:138-143 (`createWorld`'s doc above `startChannels`)
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: editors attach only the last JSDoc block, so these describe the wrong function to anyone hovering, and to an agent reading.
-- Suggested change: move each onto the declaration it describes; delete stale duplicates (keep the newer `sendVoice` one).
-- Check after: `npx tsc --noEmit`.
-
-### Correct the core's stale notes about where it runs
-- Where: packages/core/src/files.ts:1-3 ("The desktop uses Blobs"), db.ts:1-3 ("SQLite in the app (WASM on OPFS) and … Node's SQLite in tests"), rpc.ts:1-2 ("runs in a Worker")
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: since Electron went, the native desktop runs the core in QuickJS through the iOS bundle (apps/ios/core-bundle/src/entry.ts:94,111), with native files (`nativeFiles`) and native SQLite (apps/desktop/src/host/db.rs). Only the web uses Blobs, OPFS and a Worker.
-- Suggested change: name the hosts accurately: the web (Blobs, OPFS, Worker), desktop and iOS (files on disk, native SQLite, QuickJS or JavaScriptCore via a port), Node for tests.
-- Check after: none.
-
 ### Remove the `last_resort_usable` flag, which only existed for older devices
 - Where: packages/core/src/session.ts:2464-2465, 2472; server/internal/store/users.go:649-656 (`last_resort_at` is 0 when there's none)
 - Category: cleanup

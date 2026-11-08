@@ -1,5 +1,6 @@
-// Calls from the UI thread into the client core, which runs in a Worker so that
-// cryptography and the database can never block scrolling or animation.
+// Calls from an interface into the client core, which runs apart from it, in a
+// Worker on the web and on a thread of its own in the desktop and iOS apps, so
+// that cryptography and the database can never block scrolling or animation.
 
 import type { ZunaClient } from "./client";
 import type { ServerSession } from "./session";

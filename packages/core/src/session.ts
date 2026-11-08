@@ -207,8 +207,7 @@ const UNSAVED_TRUST = "unsaved_trust";
 const MANIFEST_ATTEMPTS = 5;
 /** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
 const LONGEST_WAIT_MS = 24 * 3600 * 1000;
-/** The vault item that lists every pin and verification this account holds, and its preferences. */
-/** Past this, a manifest wouldn't fit in a vault item, and pins and verifications travel only one by one. */
+/** Past this, a manifest wouldn't fit in a vault item, and it isn't written. */
 const MAX_MANIFEST_BYTES = 200 << 10;
 /** What's sealed at rest names its table and row, so it can't be moved to another row or table. */
 const DB_LABEL = (name: string, row: string) => utf8(`zuna/local/${name}|${row}`);
@@ -225,7 +224,6 @@ const OLDER_HPKE_KEPT = 16;
 /** A device that has held a leaf this long, as this device saw it, has continuity with what came before. */
 const CONTINUITY_MS = 7 * 24 * 3600 * 1000;
 
-/** How long things wait before a rotation. Tests shorten these. */
 /**
  * How long a call's or voice channel's media key may last. Its frames are encrypted
  * with AES-GCM under nonces only an RTP timestamp and a 16-bit counter tell apart,
@@ -239,6 +237,7 @@ export const voiceTiming = {
   jitterMs: 60_000,
 };
 
+/** How long things wait before a rotation. Tests shorten these. */
 export const rotationTiming = {
   /** Removals close together share one rotation. */
   gatherMs: 2000,
@@ -438,8 +437,11 @@ const validApiMessage = (message: ApiMessage): boolean =>
   typeof message.sender_device === "string" &&
   Array.isArray(message.reactions);
 
-/** The vault's manifest: every pin and verification, by user, as base64 keys, an empty one for a cleared verification. */
-/** Everything in the vault that decides who this account trusts, in one item, so none of it can be left out alone. */
+/**
+ * The vault's manifest: everything in it that decides who this account trusts, in one item,
+ * so none of it can be left out alone. Every pin and verification, by user, as base64 keys,
+ * an empty one for a cleared verification.
+ */
 interface TrustManifest {
   v: number;
   pins: Record<string, string>;
@@ -2766,12 +2768,12 @@ export class ServerSession {
     return group;
   }
 
-  /** A group's admins are whoever its roster names, which MLS holds. A channel's are the server's. */
   /** This device, as what it signs names it. */
   private get signer(): Signer {
     return { userId: this.account.userId, deviceId: this.account.deviceId };
   }
 
+  /** A group's admins are whoever its roster names, which MLS holds. A channel's are the server's. */
   private isGroupAdmin(group: CachedGroup, userId: string): boolean {
     if (group.kind === "group") return !!this.rosterOf(group)?.roster.admins.includes(userId);
     return group.members.find((member) => member.userId === userId)?.role === "admin";
@@ -4604,14 +4606,6 @@ export class ServerSession {
   }
 
   /**
-   * Whether this changes what a message says, from a device this one already saw
-   * leave the group. An edit keeps the message's place, so it gets past couldBeSent
-   * when sealed under a key from before the device left, which it still holds. An
-   * honest server refuses that, so it can only be one made before it left that's
-   * arriving late, or one made after with the server's help, and this can't tell.
-   * The copy held stays, so trying again later still finds the change.
-   */
-  /**
    * Whether this device holds a later edit than what's arriving. The server can
    * send any version its author signed, so it could bring back what an edit
    * replaced, but not on a device that has seen the edit.
@@ -4621,6 +4615,14 @@ export class ServerSession {
     return (parsed.revision ?? 0) < (this.storedBody(existing)?.revision ?? 0);
   }
 
+  /**
+   * Whether this changes what a message says, from a device this one already saw
+   * leave the group. An edit keeps the message's place, so it gets past couldBeSent
+   * when sealed under a key from before the device left, which it still holds. An
+   * honest server refuses that, so it can only be one made before it left that's
+   * arriving late, or one made after with the server's help, and this can't tell.
+   * The copy held stays, so trying again later still finds the change.
+   */
   private changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
     if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_user, message.sender_device) === null) return false;
     const held = parseMessageBody(this.openJson<StoredBody>("message", `${existing.group_id}/${existing.id}`, existing.body));

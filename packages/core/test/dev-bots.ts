@@ -135,11 +135,6 @@ async function startConversations(bots: TestApp[]): Promise<void> {
   marek.session.sendMessage(groupKey, { text: "The forecast: https://example.com/weather/lake" });
 }
 
-/**
- * Sets up a new server the way its owner would. The owner's device here is only
- * for setup: signing in from the app adds a new device, which reads this history
- * through the keys stored in the owner's encrypted vault.
- */
 /** Somewhere for everyone to talk, and somewhere to hear each other. */
 async function startChannels(owner: TestApp, bots: TestApp[]): Promise<void> {
   const [sam, jordan, priya, marek, lena] = bots as [TestApp, TestApp, TestApp, TestApp, TestApp];
@@ -179,6 +174,11 @@ async function startChannels(owner: TestApp, bots: TestApp[]): Promise<void> {
   priya.session.editMessage(general, works, "Works on my end, and the noise cancelling is really good.", {}, []);
 }
 
+/**
+ * Sets up a new server the way its owner would. The owner's device here is only
+ * for setup: signing in from the app adds a new device, which reads this history
+ * through the keys stored in the owner's encrypted vault.
+ */
 async function createWorld(world: string): Promise<TestApp[]> {
   const setupLink = process.env.ZUNA_DEV_SETUP_LINK;
   if (!setupLink) throw new Error("The server didn't provide a setup link.");
