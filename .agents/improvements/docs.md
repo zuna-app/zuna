@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Say how to check a change to the native app, and which systems weren't built
-- Where: CLAUDE.md ("There's no linter or formatter. The strict check is the type checks…"; the Swift rule in the iOS paragraph)
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: `typecheck` covers only core, ui, web and site. The 34 `#[test]`s in apps/desktop/src aren't mentioned anywhere, and `npm test` doesn't run them. The app only builds on its own system (windows-app.mjs:21, linux-app.mjs:21, macos-app.mjs:27), so `cfg` code for other systems is never compiled (e55fd3c says Windows wasn't built). There's no rule, as for Swift, to say which systems weren't built. A plain cargo run needs the core bundle first (build.rs panics: "node apps/desktop/core-bundle/build.mjs"); on Windows it also needs MSVC and a short target dir (windows-app.mjs:34-35).
-- Suggested change: add: "The native app has no type check of its own. Build it on this system (`npm run dev:windows`, `dev:linux` or `dev:macos`) and run its tests: `node apps/desktop/core-bundle/build.mjs`, then `cargo test` in `apps/desktop` (on Windows with `+stable-x86_64-pc-windows-msvc` and `CARGO_TARGET_DIR` outside the checkout). It only builds for the system it's on, so say in the commit message which of Windows, Linux and macOS weren't built, as for Swift."
-- Check after: CONTRIBUTING's Tests section.
-
 ### Give CONTRIBUTING and README the native app's prerequisites
 - Where: CONTRIBUTING.md:5-14; README.md:96; dev/setup.sh
 - Category: docs

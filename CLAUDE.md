@@ -39,6 +39,8 @@ The test server's address and sign-in details are in `.dev-data/world/world.json
 
 There's no linter or formatter. The strict check is the type checks, which fail on unused locals and parameters.
 
+The native app has no type check of its own. Build it on this system (`npm run dev:windows`, `dev:linux` or `dev:macos`), and run its tests with `cargo test` in `apps/desktop` after `node apps/desktop/core-bundle/build.mjs`, which its build needs; on Windows with `+stable-x86_64-pc-windows-msvc` and `CARGO_TARGET_DIR` at `%LOCALAPPDATA%\zuna-windows-target`, as `scripts/windows-app.mjs` sets them. It only builds for the system it's on, so say in the commit message which of Windows, Linux and macOS weren't built, as for Swift.
+
 One test at a time:
 
 ```bash
