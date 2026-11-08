@@ -12,9 +12,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"zuna/server/internal/clientip"
@@ -80,9 +82,22 @@ func main() {
 		fail("%v", err)
 	}
 	server := &http.Server{Addr: *listen, Handler: service.Handler(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	errs := make(chan error, 1)
+	go func() { errs <- server.ListenAndServe() }()
 	slog.Info("zuna-push listening", "address", *listen, "version", version)
-	if err := server.ListenAndServe(); err != nil {
+	select {
+	case err := <-errs:
 		fail("%v", err)
+	case <-ctx.Done():
+		// Pushes already on their way to Apple finish first, which its client gives 15 s.
+		slog.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("pushes were still being sent when the relay stopped", "error", err)
+		}
 	}
 }
 

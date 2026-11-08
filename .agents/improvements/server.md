@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Give zuna-push a graceful shutdown
-- Where: server/cmd/zuna-push/main.go:82-86
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: zuna-push has no signal handling, unlike zuna-server and zuna-web. Every `zuna-update` restart cuts off sends in flight to APNs.
-- Suggested change: mirror zuna-web: `signal.NotifyContext`, then `Shutdown` with a 20 s context (the APNs client timeout is 15 s).
-- Check after: `go test ./internal/relay`, and the installer check.
-
 ### Update modernc.org/sqlite and pgx
 - Where: server/go.mod:6-12
 - Category: deps
