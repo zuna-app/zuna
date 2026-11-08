@@ -33,6 +33,7 @@ import { Avatar, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMen
 import { refocusComposer } from "@/lib/focus";
 import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
+import { motionReduced } from "@/lib/motion";
 import { muteEntries } from "@/lib/mute";
 import { ReadTicks, readUpToOf } from "@/features/chat/MessageItem";
 import { ChannelSections } from "@/features/voice/ChannelList";
@@ -164,7 +165,7 @@ function useRowReorderAnimation(container: React.RefObject<HTMLDivElement | null
     const root = container.current;
     if (!root) return;
     const next = new Map<string, number>();
-    const animate = document.documentElement.dataset.motion !== "reduced";
+    const animate = !motionReduced();
     const top = root.scrollTop;
     const bottom = top + root.clientHeight;
     for (const row of root.querySelectorAll<HTMLElement>("[data-row-key]")) {

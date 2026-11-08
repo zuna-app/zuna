@@ -5,6 +5,7 @@ import { Virtuoso, type IndexLocationWithAlign, type VirtuosoHandle } from "reac
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
+import { motionReduced } from "@/lib/motion";
 import { isUnread, useApp } from "@/state/store";
 import { MessageItem, readUpToOf } from "./MessageItem";
 import { useDragPick } from "./use-drag-pick";
@@ -69,8 +70,6 @@ function seenIn(scroller: HTMLElement): number {
 
 /** How many rows can fill the window at the smallest they get, and a few more. */
 const firstRows = () => Math.ceil(window.innerHeight / 30) + 4;
-
-const motionReduced = () => document.documentElement.dataset.motion === "reduced" || matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** How far a list still is from its place while it glides. */
 function glideOffset(list: HTMLElement, glide: Animation | null): number {

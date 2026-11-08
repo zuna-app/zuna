@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Honour the system's reduced-motion setting
-- Where: packages/ui/src/styles/base.css:3-7 (only `data-motion="reduced"`); state/settings.ts:25,54; ConversationList.tsx:167 (checks only the dataset); MessageList.tsx:73 (checks both); App.tsx:145; voice.css:287
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: with only the OS setting on, CSS transitions and the conversation-list slide still run, while Motion and the chat's glide stop.
-- Suggested change: one shared `motionReduced()` in `lib/`, and the same CSS block under `@media (prefers-reduced-motion: reduce)`.
-- Check after: web check. Parity: the native app's `reduce_motion` (apps/desktop/src/settings.rs:17,38) also defaults to false and doesn't seem to read the OS setting (low confidence); if so, add a Known gap.
-
 ### Grow the message box where the browser lacks `field-sizing`
 - Where: packages/ui/src/styles/chat.css:366-368 and channel.css:117,210 (`field-sizing: content` with `rows={1}`); the build targets `firefox128` and `safari17`
 - Category: ux
