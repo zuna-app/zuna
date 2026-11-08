@@ -6,7 +6,24 @@ export const fromUtf8 = (bytes: Uint8Array): string => decoder.decode(bytes);
 
 const CHUNK = 0x8000;
 
+// Uint8Array's own base64 and hex, where the engine has them, as QuickJS-ng in the
+// native app does, and recent browsers and JavaScriptCore. Through a binary string
+// instead, each byte goes through the interpreter one at a time: in QuickJS, 28 µs
+// to encode 300 bytes, against 0.1 µs.
+interface NativeBytes {
+  toBase64(): string;
+  toHex(): string;
+}
+interface NativeBytesConstructor {
+  fromBase64(text: string): Uint8Array;
+  fromHex(text: string): Uint8Array;
+}
+const native = Uint8Array as unknown as Partial<NativeBytesConstructor>;
+const nativeBase64 = typeof native.fromBase64 === "function" && typeof (Uint8Array.prototype as Partial<NativeBytes>).toBase64 === "function";
+const nativeHex = typeof native.fromHex === "function" && typeof (Uint8Array.prototype as Partial<NativeBytes>).toHex === "function";
+
 export function toBase64(bytes: Uint8Array): string {
+  if (nativeBase64) return (bytes as unknown as NativeBytes).toBase64();
   let binary = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
@@ -15,6 +32,7 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 export function fromBase64(text: string): Uint8Array {
+  if (nativeBase64) return (Uint8Array as unknown as NativeBytesConstructor).fromBase64(text);
   const binary = atob(text);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -30,12 +48,14 @@ export function fromBase64Url(text: string): Uint8Array {
 }
 
 export function toHex(bytes: Uint8Array): string {
+  if (nativeHex) return (bytes as unknown as NativeBytes).toHex();
   let out = "";
   for (const byte of bytes) out += byte.toString(16).padStart(2, "0");
   return out;
 }
 
 export function fromHex(text: string): Uint8Array {
+  if (nativeHex) return (Uint8Array as unknown as NativeBytesConstructor).fromHex(text);
   const bytes = new Uint8Array(text.length / 2);
   for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(text.slice(i * 2, i * 2 + 2), 16);
   return bytes;
