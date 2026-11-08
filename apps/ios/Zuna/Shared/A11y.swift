@@ -247,6 +247,7 @@ enum A11y {
     }
 
     enum Verify {
+        static let username = "verify.username"
         static let screen = "verify.screen"
         static let emoji = "verify.emoji"
         static let match = "verify.match"

@@ -496,11 +496,17 @@ struct SignInStep: View {
             PrimaryButton(title: "Sign in", busyTitle: "Unlocking your keys", busy: busy, action: submit)
                 .disabled(url.isEmpty || username.isEmpty || password.isEmpty)
                 .accessibilityIdentifier(A11y.Onboarding.signInSubmit)
-            Button("Forgot your password?") { onForgot(url, username) }
-                .font(.callout.weight(.medium))
-                .foregroundStyle(Theme.text2)
-                .disabled(url.isEmpty || username.isEmpty)
-                .accessibilityIdentifier(A11y.Onboarding.forgot)
+            Button("Forgot your password?") {
+                // Recovery needs to know whose account, and where, so it says so rather than doing nothing.
+                if url.isEmpty || username.isEmpty {
+                    error = "Enter the server's address and your username first."
+                } else {
+                    onForgot(url, username)
+                }
+            }
+            .font(.callout.weight(.medium))
+            .foregroundStyle(Theme.text2)
+            .accessibilityIdentifier(A11y.Onboarding.forgot)
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

@@ -311,6 +311,7 @@ struct ConversationDetails: View {
                 Text(isSelf ? peer?.displayName ?? conversation.title : conversation.title)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(Theme.text1)
+                    .multilineTextAlignment(.center)
                 if conversation.kind == .group, isAdmin {
                     Button {
                         sheet = .edit

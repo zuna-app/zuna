@@ -21,6 +21,12 @@ struct VerifyView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    if !isSelf, let username = user?.username {
+                        Text("@\(username)")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.text2)
+                            .accessibilityIdentifier(A11y.Verify.username)
+                    }
                     notice(trust: trust, name: name, isSelf: isSelf)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
                         ForEach(Array((check?.emoji ?? []).enumerated()), id: \.offset) { _, item in
@@ -42,7 +48,8 @@ struct VerifyView: View {
                 .padding(20)
             }
             .background(Theme.bg1)
-            .navigationTitle(isSelf ? "Your security key" : "Verify \(name) (@\(user?.username ?? ""))")
+            // The username goes just under the title, as a long name with it no longer fit the bar.
+            .navigationTitle(isSelf ? "Your security key" : "Verify \(name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .task(id: user?.trust) {

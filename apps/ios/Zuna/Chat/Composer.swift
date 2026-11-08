@@ -562,9 +562,14 @@ struct Composer: View {
                             OutgoingFiles.discard(staged)
                             model.updateComposer(serverId, conversation.key) { $0.files.removeAll { $0.id == staged.id } }
                         } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.text3)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.text3)
+                                // A finger's width to hit, though it's drawn small.
+                                .frame(width: 32, height: 36)
+                                .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .padding(.trailing, -6)
                         .accessibilityLabel("Remove \(staged.file.name)")
                     }
                     .foregroundStyle(Theme.text1)

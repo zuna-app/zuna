@@ -162,7 +162,11 @@ struct ServerMembersView: View {
             Button {
                 // The owner manages admins; admins manage members. Nobody acts on the owner or themselves.
                 let canAct = user.id != server?.me?.userId && user.role != .owner && (selfRole == .owner || user.role == .member)
-                if canAct { target = user }
+                if canAct {
+                    target = user
+                } else if user.id != server?.me?.userId {
+                    model.toast(user.role == .owner ? "Nobody can change the server's owner." : "Only the server's owner can change its admins.")
+                }
             } label: {
                 HStack(spacing: 12) {
                     WithPresence(serverId: serverId, user: user) { online in
