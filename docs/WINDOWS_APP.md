@@ -13,9 +13,9 @@ All of the protocol stays in one place. The app runs the same client core as eve
 
 What the Electron app asked of Electron, the GPUI app asks of Windows directly, in `apps/desktop/src/platform`: the tray's icon and menu, the unread count on the taskbar button, and whether Windows wants quiet for a presentation, a full-screen game or Focus Assist. Notifications are the app's own cards, as the Electron app draws them on Windows, in a window of their own at the bottom right of the screen.
 
-Voice channels and calls go through LiveKit's Rust SDK, which `zuna-screenshare` already publishes with, so frames are encrypted as livekit-client encrypts them and the desktop, the web and the iPhone open them. Its prebuilt libwebrtc uses the static C runtime, so the whole app does (`apps/desktop/.cargo/config.toml`). The microphone goes through WebRTC's own processing and RNNoise, and the sound devices through cpal, in `apps/desktop/src/voice`. A screen share is the desktop's native program, `zuna-screenshare`, started the same way: an installer puts it in `screenshare` beside `Zuna.exe`, and a development build finds the one `npm run build:screenshare` writes.
+Voice channels and calls go through LiveKit's Rust SDK, which `zuna-screenshare` already publishes with, so frames are encrypted as livekit-client encrypts them and the desktop, the web and the iPhone open them. Its prebuilt libwebrtc uses the static C runtime, so the whole app does (`apps/desktop/.cargo/config.toml`). The microphone goes through WebRTC's own processing and RNNoise, and the sound devices through cpal, in `apps/desktop/src/voice`. A screen share is the native program `zuna-screenshare`, started as the Electron app started it: an installer puts it in `screenshare` beside `Zuna.exe`, and a development build finds the one `npm run build:screenshare` writes.
 
-The interface in `apps/desktop/src/ui` follows the desktop's styles in `packages/ui`: the same colors, sizes, spacing, fonts (Inter and JetBrains Mono) and icons (Lucide's, written out by `apps/desktop/scripts/icons.mjs`).
+The interface in `apps/desktop/src/ui` follows the web's styles in `packages/ui`: the same colors, sizes, spacing, fonts (Inter and JetBrains Mono) and icons (Lucide's, written out by `apps/desktop/scripts/icons.mjs`).
 
 ## Building it
 
@@ -31,9 +31,21 @@ That bundles the core and starts a debug build. `npm run build:windows` writes a
 
 `npm run install:windows` makes the installer and installs the app on this computer with it, to use as anyone would, quietly, as an update is installed: it asks the copy that's running to quit, as Quit in the tray does, by starting it with `--quit`, installs, checks that the installed program is the one just built, and starts it again. It starts all of them through Windows, never as its own children: run from inside a packaged app, as Claude's desktop app is, they'd otherwise put the app and its data in that package's own folder, where the shortcuts, `zuna://` links and the rest of Windows never find them.
 
-An installed, signed release build updates itself as the desktop does: every six hours it looks at the newest release on GitHub, downloads `Zuna-Native-Setup-<version>.exe` if it's newer, keeps it only if it's signed by the same publisher as the app running, and installs it quietly as the app quits. A build that isn't signed, or wasn't installed, doesn't update itself. No release carries the installer yet, as the release workflow has no job for the native app, so for now none updates itself.
+An installed, signed release build updates itself as the Electron app's did: every six hours it looks at the newest release on GitHub, downloads `Zuna-Native-Setup-<version>.exe` if it's newer, keeps it only if it's signed by the same publisher as the app running, and installs it quietly as the app quits. A build that isn't signed, or wasn't installed, doesn't update itself. No release carries the installer yet, as the release workflow has no job for the native app, so for now none updates itself.
 
 For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` calls the core and prints the result (a server's session instead with `ZUNA_CHECK_SERVER` set to its ID), and `--core-eval` runs script inside it. A development build started with `ZUNA_FAKE_MIC` set hears a tone, a second on and a second off, in place of a microphone, for checking voice on a machine without one, and `RUST_LOG=zuna=debug` logs how loud each voice it decodes is.
+
+## On Linux
+
+The same app runs under Wayland, as `docs/LINUX_APP_PLAN.md` lays out. Under X11 it says it needs Wayland, and doesn't start.
+
+```bash
+npm run dev:linux
+```
+
+That fetches the FFmpeg `scripts/ffmpeg.mjs` pins the first time, bundles the core and starts a debug build, keeping its data in `.dev-data/native-app`. Otherwise the app keeps it in `~/.local/share/zuna`. `npm run build:linux` writes a release build to `dist/linux`, and `npm run dist:linux` makes its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages`. It never updates itself: updates come with the system's packages, or a new AppImage.
+
+Its checks each run it in a KWin of its own, with its own session bus, keyring and sound devices nobody hears: `apps/desktop/test/linux-check.mjs` for the window, the tray, notifications, the device key and a chat, `linux-voice-check.mjs` for voice, calls, cameras, push to talk, screen sharing and voice and video messages, with the web app in Chromium as the other side, and `linux-package-check.mjs` for the AppImage and the .tar.gz.
 
 ## On macOS
 
@@ -49,4 +61,12 @@ That bundles the core, builds FFmpeg from its pinned source the first time, buil
 
 ## What's missing
 
-A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there.
+- A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there.
+- Servers can't be dragged into another order on the rail.
+- Nothing keeps the screen on while a video is on in a call, or while this device's camera or screen goes out.
+- Code blocks are drawn in one color, where the web colors them.
+- Voice can't reach LiveKit through a server without a domain, as LiveKit's Rust SDK trusts only the system's certificates.
+- A locked screen keeps someone online for the minute anyone stays online after they stop, where a locked iPhone takes them offline at once.
+- The picture viewer doesn't say who sent the picture or when.
+- Stream stats count a video's freezes without how long they took, which LiveKit's Rust SDK reads from a field libwebrtc doesn't write.
+- On Linux, a notification left from before the app started again does nothing when clicked.

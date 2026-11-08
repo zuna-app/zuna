@@ -13,11 +13,3 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 ### Match dev/setup.sh's Go version to go.mod
 - (Folded into the dev/setup.sh entry in deps-build.md.) dev/setup.sh:55-58 asks for "Go 1.25 or newer"; go.mod:3 says 1.26.0, as do CLAUDE.md, README:96 and CONTRIBUTING:6.
 
-### Give WINDOWS_APP.md a Linux section and a full "What's missing"
-- Where: docs/WINDOWS_APP.md:18, :34, :38-50
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: CLAUDE.md points here for the native app, but the doc has a macOS section and no Linux one. "What's missing" lists one item, while FEATURE_PARITY:33, :34 and :37 list five more. :34 "as the desktop does" and :18 "the desktop's" mean Electron/packages/ui.
-- Suggested change: add "## On Linux" (`npm run dev:linux`, Wayland only, data in `~/.local/share/zuna`, `dist:linux`, the checks, LINUX_APP_PLAN). List the missing items in plain words, without linking FEATURE_PARITY. :34 → "as the Electron app's did"; :18 → "the web's".
-- Check after: none.
-
