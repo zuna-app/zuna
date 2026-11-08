@@ -395,6 +395,8 @@ interface MessageRow {
   status: MessageStatus;
   body: Uint8Array | null;
   raw: Uint8Array | null;
+  /** The reactions to a message that hasn't opened yet, as they came, sealed, so they're there once it does. */
+  raw_reactions: Uint8Array | null;
   unproven_delete_at: number | null;
   expires_at: number | null;
 }
@@ -402,7 +404,6 @@ interface MessageRow {
 interface StoredBody extends MessageBody {
   reactions?: ReactionView[];
   system?: SystemEvent;
-  rawReactions?: ApiReaction[];
 }
 
 type OutboxEntry =
@@ -4296,9 +4297,9 @@ export class ServerSession {
             heldAfterLeaving = existing!.body;
           } else if (parsed && existing && this.editedSince(existing, parsed)) {
             laterEdit = existing;
-            body = { ...this.storedBody(existing)!, rawReactions: message.reactions };
+            body = this.storedBody(existing)!;
           } else if (parsed) {
-            body = { ...parsed, rawReactions: message.reactions };
+            body = parsed;
           } else {
             status = "invalid";
             raw = envelope;
@@ -4315,6 +4316,8 @@ export class ServerSession {
     const stored = body
       ? this.sealJson("message", `${message.group_id}/${message.id}`, { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
       : (kept?.body ?? heldAfterLeaving);
+    // A message that didn't open keeps its reactions as they came, to be read once it does.
+    const rawReactions = body ? null : kept ? kept.raw_reactions : raw ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : null;
     const pin = this.pinState(message, existing);
     // When it was first seen to go is when it goes: an edit can't make it last longer.
     const expiresAt = existing?.expires_at ?? (body ? expiryOf(message.created_at, body) : null);
@@ -4327,12 +4330,12 @@ export class ServerSession {
     const isNew = !existing || existing.seq === null;
     this.db.transaction(() => {
       this.db.run(
-        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, unproven_delete_at, expires_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, raw_reactions, unproven_delete_at, expires_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
            pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, pin_revision = excluded.pin_revision, status = excluded.status, body = excluded.body, raw = excluded.raw,
-           unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at`,
+           raw_reactions = excluded.raw_reactions, unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at`,
         [
           message.group_id,
           message.id,
@@ -4350,6 +4353,7 @@ export class ServerSession {
           kept ? kept.status : status,
           stored,
           kept ? kept.raw : raw,
+          rawReactions,
           kept ? (kept.unproven_delete_at ?? Date.now()) : null,
           expiresAt,
         ],
@@ -4597,7 +4601,7 @@ export class ServerSession {
           deleted_at: row.deleted_at,
           pinned_at: row.pinned_at,
           pinned_by: row.pinned_by ?? undefined,
-          reactions: [],
+          reactions: this.rawReactionsOf(row),
         },
         false,
       );
@@ -4606,6 +4610,16 @@ export class ServerSession {
     if (group) {
       this.refreshGroupSecrets(group);
       this.persistGroup(group);
+    }
+  }
+
+  private rawReactionsOf(row: MessageRow): ApiReaction[] {
+    if (!row.raw_reactions) return [];
+    try {
+      const reactions = this.openJson<unknown>("message_reactions", `${row.group_id}/${row.id}`, row.raw_reactions);
+      return Array.isArray(reactions) ? (reactions as ApiReaction[]) : [];
+    } catch {
+      return [];
     }
   }
 

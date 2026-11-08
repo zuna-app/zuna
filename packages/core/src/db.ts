@@ -170,6 +170,8 @@ const MIGRATIONS: string[] = [
   DROP TABLE device_first_leaf; CREATE TABLE device_first_leaf (user_id TEXT NOT NULL, device_id TEXT NOT NULL, at BLOB NOT NULL, PRIMARY KEY (user_id, device_id));
   DROP TABLE identity_state; CREATE TABLE identity_state (user_id TEXT PRIMARY KEY, sealed BLOB, chain_uploaded INTEGER NOT NULL DEFAULT 1, trust_uploaded INTEGER NOT NULL DEFAULT 1);
   `,
+  // The reactions to a message that hasn't opened yet, kept until it does.
+  `ALTER TABLE messages ADD COLUMN raw_reactions BLOB;`,
 ];
 
 export function migrate(db: LocalDb): void {

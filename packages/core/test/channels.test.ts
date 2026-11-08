@@ -92,6 +92,27 @@ describe("text channels", () => {
     }
   });
 
+  it("keep the reactions on a message whose keys come later", async () => {
+    const id = channel(alice, "general")!.id;
+    alice.session.sendMessage(`group:${id}`, { text: "react to this before grace" });
+    await waitFor(() => !!received(bob, "react to this before grace"), "bob to read it");
+    const message = received(bob, "react to this before grace")!;
+    await bob.session.toggleReaction(id, message.id, "👍");
+    await waitFor(() => alice.events.some((event) => event.type === "message" && event.message.id === message.id && event.message.reactions.length > 0), "alice to see the reaction");
+
+    // Grace comes in after both, so the message reaches her before its keys do.
+    const grace = await makeUser("grace");
+    try {
+      await waitFor(() => joined(grace, id), "grace to come into the channel");
+      await waitFor(
+        async () => (await grace.session.loadMessages(id)).messages.some((item) => item.id === message.id && item.status === "sent" && item.reactions.some((reaction) => reaction.key === "👍" && reaction.userIds.includes(bob.userId))),
+        "grace to see bob's reaction on it",
+      );
+    } finally {
+      grace.client.stop();
+    }
+  });
+
   it("say nothing each time someone comes or goes", async () => {
     const id = channel(alice, "general")!.id;
     const { messages } = await alice.session.loadMessages(id);

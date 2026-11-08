@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: in `retryUndecryptable`, skip a row unless `epochKey(group, row.epoch)` and the sender's device are now known. In `ingest`, return early without writing or emitting when the new status and raw bytes equal the existing row's.
 - Check after: `npx vitest run test/e2e.test.ts test/security.test.ts`.
 
-### Keep reactions on a message that opens later, and drop the unused `rawReactions`
-- Where: packages/core/src/session.ts:403, 4269, 4271 (`rawReactions` written into every stored body, never read anywhere), 4570 (`reactions: []` on retry)
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: medium-high
-- What's wrong: an undecryptable row stores only `raw` (the envelope), not its reactions. When its key arrives, `retryUndecryptable` re-ingests it with `reactions: []`, so the message shows no reactions, and a later sync can't bring them back (`synced_seq` is past it; ingest's early return sees `sent`). Separately, every stored body carries `rawReactions` (signed reaction envelopes) that nothing reads.
-- Suggested change: either store raw reactions for undecryptable rows (a new nullable column at the end of `MIGRATIONS`, or sealed next to `raw`) and pass them through on retry, or, once a retried row decrypts, refetch it with `api.message`. Either way remove `rawReactions` from `StoredBody` and 4269/4271.
-- Check after: add an e2e case (a reaction on a message whose key arrives late via a history grant), then `npx vitest run test/e2e.test.ts`.
-
 ### Stop re-verifying every leaf certificate several times per commit
 - Where: packages/core/src/session.ts:3014-3039 (`treeMembers`: `pinnedIdentity` is a DB read plus AEAD open, `certificateStanding` 1568-1577 is a signature check, per leaf). In one `applyCommit` it's called via 3661 (`usersBefore`), 3077 (`noteLeaves`), 3079 and 3081 (`checkTree`, twice), 3574-3575 (`recordDepartures`, twice), 3805 (`describeCommit`), 3520 (`announceConfirmedRemovals`), then 3936-3989 in the following reconcile; 4114-4118 and 4083 schedule a reconcile of every shared group on any `user` frame
 - Category: perf

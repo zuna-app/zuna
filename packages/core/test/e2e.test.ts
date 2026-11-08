@@ -364,6 +364,7 @@ describe("notices", () => {
     db.exec("ALTER TABLE messages DROP COLUMN mention_seen");
     db.exec("DROP INDEX messages_sender");
     db.exec("DROP TABLE device_arrivals");
+    db.exec("ALTER TABLE messages DROP COLUMN raw_reactions");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     // Every migration still runs, and nothing sealed the old way is left to fail to open.
