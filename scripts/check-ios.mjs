@@ -12,7 +12,6 @@ const step = (name) => console.log(`\n=== ${name} (${Math.round((Date.now() - st
 
 step("L0: TypeScript");
 run("npm", ["run", "typecheck"]);
-run("npm", ["run", "typecheck", "-w", "@zuna/e2e"]);
 
 step("L0: the app, with warnings as errors");
 run(process.execPath, [join(iosDir, "core-bundle", "build.mjs")]);

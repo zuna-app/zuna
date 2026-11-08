@@ -26,7 +26,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
-| Type checks: the core, the web's interface, the web app and the site | `npm run typecheck` |
+| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, and the e2e workspace | `npm run typecheck` |
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run build:server`, `npm run build:web` |

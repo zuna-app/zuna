@@ -20,14 +20,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: smallest step: pin it exactly (`"app-builder-lib": "26.18.0"`). Better: drop it. Add `scripts/nsis.mjs` that downloads NSIS from electron-builder-binaries' GitHub release, pinned by URL and SHA-256 as scripts/ffmpeg.mjs pins FFmpeg, and find `signtool.exe` in the Windows SDK that VS's C++ build tools already install (`%ProgramFiles(x86)%\Windows Kits\10\bin\<version>\x64\signtool.exe`). Then remove app-builder-lib and update docs/WINDOWS_APP.md:30.
 - Check after: `npm run dist:windows` and `npm run install:windows` on Windows, also with CSC_LINK set; `npm audit` shows 0.
 
-### Type-check the iOS core bundle's shims and the e2e workspace in `npm run typecheck`
-- Where: package.json:33; apps/ios/package.json:10; tests/e2e/package.json:10; scripts/check-ios.mjs:14-15; .github/workflows/ci.yml:40
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: apps/ios/core-bundle/src (crypto.ts, db.ts, entry.ts, files.ts, web.ts, wire.ts) is bundled by esbuild (no type-check) into the core the native desktop app runs in QuickJS (apps/desktop/core-bundle/build.mjs:15). `npm run typecheck -w @zuna/ios` runs nowhere. `@zuna/e2e`'s typecheck runs only in check-ios.mjs, on a Mac. Both pass today (`npx tsc --noEmit -p apps/ios/core-bundle/tsconfig.json` and `-p tests/e2e/tsconfig.json`).
-- Suggested change: add `&& npm run typecheck -w @zuna/ios && npm run typecheck -w @zuna/e2e` to the root `typecheck`; remove check-ios.mjs:15; update CLAUDE.md's typecheck row.
-- Check after: `npm run typecheck`.
-
 ### Rebuild a stale screen capture for `dev:windows`, as the docs say, and on Linux and macOS
 - Where: scripts/windows-app.mjs:64-65; scripts/linux-app.mjs:52-56; scripts/macos-app.mjs:106-107; scripts/lib.mjs:59-73; docs/SCREEN_SHARE.md:153
 - Category: robustness
