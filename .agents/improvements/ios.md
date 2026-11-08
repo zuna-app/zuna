@@ -36,14 +36,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: search the original NSString with `NSRange(location: position, length: ns.length - position)` and default options, keeping ranges absolute, and confirm against `markup-golden.json`. Cache parsed blocks per message id and text. Fix the comment.
 - Check after: `swift test` (MarkupTests); add a case with ~20,000 `*a*` spans and a time limit.
 
-### Stage picked files off the main actor
-- Where: apps/ios/Zuna/Chat/Composer.swift:577-590; apps/ios/Zuna/Shared/OutgoingFiles.swift:28-59 (38-49)
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `stageFiles` is a View method on the main actor calling the synchronous `OutgoingFiles.stage`: HEIC goes through `UIImage(contentsOfFile:)` plus `jpegData(0.9)` on 12–48 MP photos, and videos are copied with `copyItem`. Picking 10 photos blocks the UI for seconds.
-- Suggested change: run `stage` in a detached task, then append to the composer on the main actor; convert HEIC with ImageIO (`CGImageDestination` to JPEG). The share extension calls the same function (ShareItems.swift:92) and benefits too.
-- Check after: `npm run test:ios:ui -- --only ComposerTests,ShareTests`.
-
 ### Prepare avatars without a full-resolution bitmap on the main thread
 - Where: apps/ios/Zuna/Shared/OutgoingFiles.swift:104-123, 189-196; callers Settings/AccountSettings.swift:100, Details/ConversationDetails.swift:273, Settings/ServerSettingsView.swift:119
 - Category: perf

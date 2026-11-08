@@ -579,7 +579,9 @@ struct Composer: View {
             let accessing = scoped && url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             do {
-                let staged = await OutgoingFiles.withDuration(try OutgoingFiles.stage(url))
+                // Copying a video, or turning a 48 MP HEIC into JPEG, takes a while, and mustn't hold up the screen.
+                let copied = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.stage(url) }.value
+                let staged = await OutgoingFiles.withDuration(copied)
                 model.updateComposer(serverId, conversation.key) { state in
                     if state.files.count < OutgoingFiles.limit { state.files.append(staged) }
                 }
