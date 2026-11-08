@@ -7,6 +7,10 @@ import type { VoiceUpdate } from "./types";
 const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000, 20_000, 30_000];
 const PING_INTERVAL_MS = 25_000;
 const DEAD_AFTER_MS = 70_000;
+/** How long a connection gets to open and authenticate before it's given up and tried again. */
+const READY_WITHIN_MS = 15_000;
+/** How long a connection has to stay up before a drop starts the backoff over, so a server that accepts and then drops isn't retried every half second. */
+const STABLE_AFTER_MS = 60_000;
 
 export interface SocketFrame {
   t: string;
@@ -26,6 +30,8 @@ export class Socket {
   private stopped = false;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private pingTimer: ReturnType<typeof setInterval> | undefined;
+  private readyTimer: ReturnType<typeof setTimeout> | undefined;
+  private readyAt = 0;
   private lastFrameAt = 0;
   private active = false;
 
@@ -43,6 +49,7 @@ export class Socket {
   stop(): void {
     this.stopped = true;
     clearTimeout(this.retryTimer);
+    clearTimeout(this.readyTimer);
     clearInterval(this.pingTimer);
     drop(this.ws);
     this.ws = null;
@@ -96,8 +103,19 @@ export class Socket {
     }
     // One this replaces, such as one still closing, says nothing more.
     clearInterval(this.pingTimer);
+    clearTimeout(this.readyTimer);
     drop(this.ws);
     this.ws = ws;
+    this.readyAt = 0;
+    // A connection that never opens, or never answers `auth`, as behind a hung proxy,
+    // has nothing for the pings to watch yet, so it gets a deadline of its own.
+    this.readyTimer = setTimeout(() => {
+      if (this.ws !== ws) return;
+      drop(ws);
+      this.ws = null;
+      this.handlers.onDisconnect();
+      this.scheduleRetry();
+    }, READY_WITHIN_MS);
     ws.onopen = () => {
       if (this.ws === ws) ws.send(JSON.stringify({ t: "auth", token: this.getToken() }));
     };
@@ -111,7 +129,8 @@ export class Socket {
         return;
       }
       if (frame.t === "ready") {
-        this.attempts = 0;
+        clearTimeout(this.readyTimer);
+        this.readyAt = Date.now();
         this.startPinging(ws);
         if (this.active) ws.send(JSON.stringify({ t: "active", active: true }));
         this.handlers.onReady();
@@ -122,7 +141,9 @@ export class Socket {
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);
+      clearTimeout(this.readyTimer);
       this.ws = null;
+      if (this.readyAt && Date.now() - this.readyAt >= STABLE_AFTER_MS) this.attempts = 0;
       if (event.code === 4401) {
         this.handlers.onUnauthorized();
         return;

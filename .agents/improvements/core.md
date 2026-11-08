@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Give the socket a timeout for connecting and authenticating
-- Where: packages/core/src/socket.ts:87-115, 130-140 (`DEAD_AFTER_MS` only applies after `ready`)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: liveness is only checked once `ready` arrives. A socket stuck in CONNECTING (half-open network, hung proxy), or open but never answering `auth`, has no timer and stays stuck until a `nudge()`; the status stays "connecting".
-- Suggested change: in `connect()`, set a ~15 s timer that closes `ws` unless `ready` arrives first; clear it on `ready` and `onclose` (closing goes through `onclose` → `scheduleRetry`). Consider not resetting `attempts` to 0 until the socket has stayed up a while, so a server that accepts then drops isn't retried every 500 ms forever.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
 ### Skip groups with nothing new when catching up after a reconnect
 - Where: packages/core/src/session.ts:794-803 (`for (const group of groups) await this.syncGroup(group.id)`), 3446-3486 (`pullPage` always calls `api.changes`)
 - Category: perf
