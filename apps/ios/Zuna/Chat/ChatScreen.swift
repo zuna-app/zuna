@@ -319,7 +319,7 @@ struct ChatScreen: View {
                         let file = try await images.openable(attachment, serverId: serverId)
                         // Pictures open in a viewer that closes with a drag, as in Telegram; other files in QuickLook.
                         if attachment.mime.hasPrefix("image/") {
-                            PhotoViewer.show(file, caption: .init(message, server: model.servers[serverId]))
+                            PhotoViewer.show(file, caption: .init(message, server: model.servers[serverId]), placeholder: images.cachedAttachment(attachment))
                         } else {
                             FilePreview.show(file)
                         }

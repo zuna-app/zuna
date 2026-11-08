@@ -10,7 +10,7 @@ import ZunaModels
 final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// The decrypted file under its own name, for Share. Removed when the viewer closes.
     private let file: URL
-    private let image: UIImage
+    private var image: UIImage
     private let scrollView = UIScrollView()
     private let imageView = UIImageView()
     private let backdrop = UIView()
@@ -28,17 +28,44 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         var date: String
     }
 
-    /// Shows a decrypted picture over whatever is on screen.
-    static func show(_ file: URL, caption: Caption) {
-        // Big photos are drawn at most this size, which is sharp on any screen and keeps memory in check.
-        guard let image = downsampled(file, maxPixels: 4096), let top = topViewController() else {
-            FilePreview.show(file)
+    /// Shows a decrypted picture over whatever is on screen. With `placeholder`, the copy its bubble
+    /// already shows, it opens at once with that and turns sharp once the big copy is made; without,
+    /// it opens once that's made. Making it from a big photo takes a moment, so it's made off the
+    /// main thread either way.
+    static func show(_ file: URL, caption: Caption, placeholder: UIImage? = nil) {
+        if let placeholder, let top = topViewController() {
+            let viewer = PhotoViewer(file: file, image: placeholder, caption: caption)
+            present(viewer, over: top)
+            Task {
+                if let sharp = await downsampledAway(file) { viewer.replace(sharp) }
+            }
             return
         }
-        let viewer = PhotoViewer(file: file, image: image, caption: caption)
+        Task {
+            guard let image = await downsampledAway(file), let top = topViewController() else {
+                FilePreview.show(file)
+                return
+            }
+            present(PhotoViewer(file: file, image: image, caption: caption), over: top)
+        }
+    }
+
+    private static func present(_ viewer: PhotoViewer, over top: UIViewController) {
         viewer.modalPresentationStyle = .overFullScreen
         viewer.modalTransitionStyle = .crossDissolve
         top.present(viewer, animated: true)
+    }
+
+    /// Big photos are drawn at most this size, which is sharp on any screen and keeps memory in check.
+    private static func downsampledAway(_ file: URL) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) { downsampled(file, maxPixels: 4096) }.value
+    }
+
+    /// The sharp copy, in place of the one it opened with. It's the same picture, so it fits the same.
+    private func replace(_ sharp: UIImage) {
+        image = sharp
+        imageView.image = sharp
+        view.setNeedsLayout()
     }
 
     private init(file: URL, image: UIImage, caption: Caption) {
@@ -334,7 +361,7 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         return view
     }
 
-    private static func downsampled(_ url: URL, maxPixels: Int) -> UIImage? {
+    nonisolated private static func downsampled(_ url: URL, maxPixels: Int) -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,

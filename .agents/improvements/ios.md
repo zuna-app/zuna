@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Downsample photos for the viewer off the main thread
-- Where: apps/ios/Zuna/Chat/PhotoViewer.swift:32-42, 337-345; apps/ios/Zuna/Chat/ChatScreen.swift:316-324
-- Category: ux
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `PhotoViewer.show` makes the 4096 px ImageIO thumbnail synchronously on the main actor before presenting, so tapping a large photo stalls.
-- Suggested change: present immediately with the cached bubble image (`images.cachedAttachment`), and swap in the 4096 px version from a detached task.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests`.
-
 ### Create the Composer's recorders when they're used, not on every redraw
 - Where: apps/ios/Zuna/Chat/Composer.swift:19-20; Chat/Round.swift:39-49; Chat/AttachSheet.swift:42, 663-672; Chat/Location.swift:134
 - Category: perf
