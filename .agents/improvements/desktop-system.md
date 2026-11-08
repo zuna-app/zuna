@@ -43,22 +43,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
 
-### Free the macOS video message writer when recording fails part way
-- Where: media/apple/ffmpeg.rs:74-111 (`RoundWriter` has no `Drop`); media/round.rs:41-42 (an early `?` drops it unfinished)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: on any encoder error, the library's FFmpeg contexts and an open file leak for the session.
-- Suggested change: hold `Option<*mut c_void>`, take it in `finish`, free it in `Drop` (finish or a new `zuna_media_round_free` in ffi.rs).
-- Check after: `cargo test` in media-ffmpeg, mac-voice-check.mjs.
-
-### Hand decoded video frames across the macOS FFI without an extra copy
-- Where: media/apple/ffmpeg.rs:165-179 (copies each BGRA frame into a new `Vec`, then frees the library's buffer; symbols looked up with `dlsym` on every call); consumer ui/media_views.rs:491-512
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: an extra allocation and copy per frame (~240 MB/s at 1080p30), macOS only.
-- Suggested change: a `next_into` that writes into a caller-allocated buffer; cache the function pointers.
-- Check after: `cargo test` in media-ffmpeg, mac-voice-check.mjs.
-
 ### Share media's constants and `poster` between the app and media-ffmpeg
 - Where: media-ffmpeg/src/lib.rs:5-44 copies `RATE`, `ROUND_SIZE`, `ROUND_FPS`, `Details`, `Frame` and `poster` from src/media/mod.rs:49-105
 - Category: cleanup

@@ -112,6 +112,13 @@ pub extern "C" fn zuna_media_round_seconds(raw: *mut c_void) -> f64 {
     writer(raw).seconds()
 }
 
+/// Lets a writer go without finishing its file, as when recording fails part way.
+#[unsafe(no_mangle)]
+pub extern "C" fn zuna_media_round_free(raw: *mut c_void) {
+    // SAFETY: made by zuna_media_round_create, and not used again.
+    drop(unsafe { Box::from_raw(raw as *mut RoundWriter) });
+}
+
 /// Finishes the file and frees the writer, either way.
 #[unsafe(no_mangle)]
 pub extern "C" fn zuna_media_round_finish(raw: *mut c_void, error: *mut *mut c_char) -> bool {

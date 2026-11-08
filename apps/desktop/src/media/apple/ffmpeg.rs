@@ -104,9 +104,21 @@ pub mod encode {
 
         pub fn finish(self) -> Result<(), String> {
             let finish = function::<unsafe extern "C" fn(*mut c_void, *mut *mut c_char) -> bool>(b"zuna_media_round_finish")?;
+            // The library frees the writer, either way, so dropping it mustn't free it again.
+            let raw = self.0;
+            std::mem::forget(self);
             let mut error = std::ptr::null_mut();
-            // The library frees the writer, either way.
-            if unsafe { finish(self.0, &mut error) } { Ok(()) } else { Err(said(error)) }
+            if unsafe { finish(raw, &mut error) } { Ok(()) } else { Err(said(error)) }
+        }
+    }
+
+    impl Drop for RoundWriter {
+        /// Given up part way, as when recording fails: the library lets it go without writing more.
+        fn drop(&mut self) {
+            if let Ok(free) = function::<unsafe extern "C" fn(*mut c_void)>(b"zuna_media_round_free") {
+                // SAFETY: made by zuna_media_round_create, and not used again.
+                unsafe { free(self.0) };
+            }
         }
     }
 }
