@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: in `connect()`, set a ~15 s timer that closes `ws` unless `ready` arrives first; clear it on `ready` and `onclose` (closing goes through `onclose` → `scheduleRetry`). Consider not resetting `attempts` to 0 until the socket has stayed up a while, so a server that accepts then drops isn't retried every 500 ms forever.
 - Check after: `npx vitest run test/e2e.test.ts`.
 
-### Get a conversation's last message by `seq` instead of scanning the whole group
-- Where: packages/core/src/session.ts:4714-4722 (`lastMessage`), called from `conversationOf` 4833 for every group on every `getConversations()` (4775) and `getChannels()` (6331)
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high (measured; query spot-checked during the review)
-- What's wrong: `ORDER BY COALESCE(seq, 9007199254740991) DESC, created_at DESC LIMIT 1` sorts on an expression, so SQLite can't walk `messages_order(group_id, seq)` and reads and sorts every row of the group with `SELECT *`, blobs included. Measured at 50k messages: 17.6 ms per call (`USE TEMP B-TREE FOR ORDER BY`) vs 0.02 ms ordering by `seq DESC`. The UIs run this for every conversation and channel on every debounced refresh (every 60 ms while messages arrive), slower still in WASM SQLite and under QuickJS.
-- Suggested change: two indexed queries: first `... AND seq IS NULL ORDER BY created_at DESC LIMIT 1` (the newest row still being sent); if none, `... AND seq IS NOT NULL ORDER BY seq DESC LIMIT 1`, keeping the blocked-sender and `deleted_at IS NULL` filters. Optionally cap `unreadCount`'s COUNT (4737-4741, ~10 ms for a fully unread 50k channel) with `SELECT COUNT(*) FROM (SELECT 1 ... LIMIT 1000)` if the UIs show "999+".
-- Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
-
 ### Skip groups with nothing new when catching up after a reconnect
 - Where: packages/core/src/session.ts:794-803 (`for (const group of groups) await this.syncGroup(group.id)`), 3446-3486 (`pullPage` always calls `api.changes`)
 - Category: perf

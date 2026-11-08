@@ -4713,11 +4713,13 @@ export class ServerSession {
 
   private lastMessage(groupId: string): MessageView | null {
     const blocked = this.notFromBlocked("sender_user");
-    const row = this.db.get<MessageRow>(
-      `SELECT * FROM messages WHERE group_id = ? AND deleted_at IS NULL${blocked.sql}
-       ORDER BY COALESCE(seq, 9007199254740991) DESC, created_at DESC LIMIT 1`,
-      [groupId, ...blocked.params],
-    );
+    const where = `group_id = ? AND deleted_at IS NULL${blocked.sql}`;
+    const params = [groupId, ...blocked.params];
+    // The newest still being sent, or else the newest the server has ordered: each down
+    // messages_order, where one query ordering by both would sort the whole group.
+    const row =
+      this.db.get<MessageRow>(`SELECT * FROM messages WHERE ${where} AND seq IS NULL ORDER BY created_at DESC LIMIT 1`, params) ??
+      this.db.get<MessageRow>(`SELECT * FROM messages WHERE ${where} AND seq IS NOT NULL ORDER BY seq DESC LIMIT 1`, params);
     return row ? this.toMessageView(row) : null;
   }
 
