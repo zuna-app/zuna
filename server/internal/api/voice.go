@@ -355,7 +355,7 @@ func (s *Server) handleVoiceToken(call bool) memberHandler {
 // one on a second device ends it on the first, which is told why.
 func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	if frame.Voice == nil || frame.GroupID == "" {
-		s.leaveVoice(c.userID, c.deviceID)
+		s.leaveVoice(c.userID, c.deviceID, false)
 		return
 	}
 	if !store.ValidID(frame.GroupID) {
@@ -441,9 +441,16 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	}
 }
 
-func (s *Server) leaveVoice(userID, deviceID string) {
+// leaveVoice takes a device out of voice. One that went quiet, rather than saying it
+// left, is taken out of the media server's room too, where it could still be talking
+// and listening. One that said so has left the room already, and may be on its way
+// back in, which taking it out would cut short.
+func (s *Server) leaveVoice(userID, deviceID string, quiet bool) {
 	gone, ended := s.voice.takeOut(func(state *VoiceState) bool { return state.DeviceID == deviceID && state.UserID == userID })
 	for _, state := range gone {
+		if quiet {
+			s.removeFromRoom(context.Background(), &state)
+		}
 		s.tellVoice(state, true)
 	}
 	for _, id := range ended {
@@ -464,7 +471,7 @@ func (s *Server) voiceSocketClosed(c *conn) {
 		return
 	}
 	s.voice.stopTimer(c.deviceID)
-	s.voice.timers[c.deviceID] = time.AfterFunc(s.voiceGrace(), func() { s.leaveVoice(c.userID, c.deviceID) })
+	s.voice.timers[c.deviceID] = time.AfterFunc(s.voiceGrace(), func() { s.leaveVoice(c.userID, c.deviceID, true) })
 }
 
 // voiceGrace is how long that moment is, which tests make shorter.

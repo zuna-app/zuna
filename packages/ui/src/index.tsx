@@ -12,6 +12,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { setPlatform, type Platform } from "./platform";
+import { useVoice } from "./voice/store";
 
 export type { BootResult, NotificationRoute, NotificationsToClear, NotifyPayload, Platform } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
@@ -35,5 +36,9 @@ export function startApp(host: Platform): () => void {
       <App />
     </ErrorBoundary>,
   );
-  return () => root.unmount();
+  return () => {
+    // The voice room lives outside React, so it would keep the microphone and the call going.
+    useVoice.getState().leave();
+    root.unmount();
+  };
 }

@@ -460,7 +460,8 @@ func TestEveryoneSeesWhosInVoiceAndALatestDeviceTakesOver(t *testing.T) {
 }
 
 func TestADeviceThatGoesQuietLeavesVoiceUnlessItSaysItsStillThere(t *testing.T) {
-	h := newHarness(t, func(cfg *api.Config) { cfg.VoiceGrace = 200 * time.Millisecond })
+	fake, url := newFakeLiveKit(t)
+	h := newHarness(t, withLiveKit(url), func(cfg *api.Config) { cfg.VoiceGrace = 200 * time.Millisecond })
 	owner := h.owner()
 	voice := owner.createChannel("voice", 0)
 	watcher := h.register("watcher", owner.newInvite())
@@ -485,8 +486,12 @@ func TestADeviceThatGoesQuietLeavesVoiceUnlessItSaysItsStillThere(t *testing.T) 
 	if inVoice() != 1 {
 		t.Fatal("someone who came back and said so was taken out")
 	}
+	if removed := fake.last("RemoveParticipant"); removed != nil {
+		t.Fatalf("someone who came back and said so was taken out of the room: %+v", removed)
+	}
 
-	// Coming back and saying nothing, as an app that restarted, is having left.
+	// Coming back and saying nothing, as an app that restarted, is having left, and the
+	// room is told too, as a tab another took over could still be in it.
 	second.ws.CloseNow()
 	third := owner.connect()
 	third.ping()
@@ -495,6 +500,9 @@ func TestADeviceThatGoesQuietLeavesVoiceUnlessItSaysItsStillThere(t *testing.T) 
 	}
 	if inVoice() != 0 {
 		t.Fatal("someone who came back without saying so is still listed")
+	}
+	if removed := fake.last("RemoveParticipant"); removed["room"] != voice.ID || removed["identity"] != owner.userID+"."+owner.device+".screen" {
+		t.Fatalf("the room wasn't told: %+v", removed)
 	}
 }
 

@@ -520,7 +520,15 @@ async function runIn(name) {
         );
       };
     });
-    const again = fresh.pages()[0] ?? (await fresh.newPage());
+    // Each stream the app opens on the microphone or camera, to tell whether it let them go.
+    await fresh.addInitScript(() => {
+      const streams = (window.__streams = []);
+      const devices = navigator.mediaDevices;
+      if (!devices?.getUserMedia) return;
+      const getUserMedia = devices.getUserMedia.bind(devices);
+      devices.getUserMedia = (constraints) => getUserMedia(constraints).then((stream) => (streams.push(stream), stream));
+    });
+    let again = fresh.pages()[0] ?? (await fresh.newPage());
     watch(again, "fresh browser");
     await again.goto(appUrl);
     await again.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -582,6 +590,24 @@ async function runIn(name) {
     check("turning the camera off lets the screen sleep again", !(await awake()).held);
     await again.getByRole("button", { name: "Disconnect from voice" }).click();
     await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
+
+    // Another tab taking over leaves voice here, rather than keeping the microphone and the call going.
+    await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    const live = () => again.evaluate(() => window.__streams.flatMap((stream) => stream.getTracks()).filter((track) => track.readyState === "live").map((track) => track.kind));
+    const liveBefore = await live();
+    const taker = await fresh.newPage();
+    watch(taker, "tab taking over");
+    await taker.goto(appUrl);
+    await taker.getByText("Zuna is open in another tab").waitFor({ timeout: 15_000 });
+    leaving.add(again);
+    await taker.getByRole("button", { name: "Use here" }).click();
+    await again.getByText("Zuna is open in another tab").waitFor({ timeout: 30_000 });
+    const liveAfter = await live();
+    check("Use here leaves voice in the tab it took over from", liveAfter.length === 0, `live before: ${liveBefore.join(" ") || "none"}, after: ${liveAfter.join(" ") || "none"}`);
+    await taker.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 45_000 });
+    await again.close();
+    again = taker;
 
     // Someone deletes their account, and the app lets go of the server.
     leaver = await profile();

@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Leave voice when another tab takes over with "Use here"
-- Where: apps/web/src/main.tsx:40-47 (holdTab's stop runs `stopApp(); stopCore();`), apps/web/src/tab.ts (holdTab), packages/ui/src/index.tsx:20-38 (`startApp` returns only `() => root.unmount()`), packages/ui/src/voice/store.ts:130 (the room is module-level state), packages/ui/src/voice/room.ts:135-147 (`audioHolder` is appended to `document.body`, outside `#root`), packages/ui/src/features/voice/VoicePanel.tsx:49-55 (voice is only left on `pagehide`). Server: server/internal/api/voice.go `leaveVoice` (~:444) never calls `removeFromRoom`, unlike `endVoiceFor`.
-- Category: robustness
-- Severity: high ; Effort: S ; Confidence: high (client side, spot-checked during the review), medium for how long it lasts
-- What's wrong: on takeover nothing closes the `VoiceRoom`. The mic keeps publishing and remote audio keeps playing while the tab shows "Zuna is open in another tab". The E2EE keys stay installed, so this lasts until the channel's MLS epoch changes. Server side, `voiceSocketClosed` → `leaveVoice` takes the device off the roster after the 20 s grace but never removes it from the LiveKit room.
-- Suggested change: have `startApp`'s returned stop run `useVoice.getState().leave()` before `root.unmount()` (its `closeRoom()` disconnects LiveKit and stops the tracks; it doesn't matter if `setVoiceState` doesn't reach the server before the worker is terminated). Separately, have the server's `leaveVoice` call `removeFromRoom` for each state it takes out, as `endVoiceFor` does.
-- Check after: web check, with a "Use here while in voice" step added; Go tests (channels_test, voice tests). Parity: n/a for the client; the server change helps every platform.
-
 ### Stop re-rendering the whole app on every presence, typing and voice event
 - Where: packages/ui/src/state/store.ts:889-890 (`useActiveServer`, 53 call sites); features/shell/Shell.tsx:159-160 (only needs `activeKey` and `entry.signedOut`); features/chat/ChatView.tsx:20,185,329; features/chat/Composer.tsx:68; features/voice/ChannelList.tsx:45,66 (`memo` on `VoiceOccupant` is defeated); features/chat/EmotePicker.tsx:34
 - Category: perf
