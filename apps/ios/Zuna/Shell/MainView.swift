@@ -3,7 +3,7 @@ import ZunaModels
 
 /// The app once it has a server: Channels, Chats and Settings tabs, as in
 /// Telegram, opening on Chats. Both lists are the active server's, picked
-/// with the server button at their top left. A Calls tab comes with calls.
+/// with the server button at their top left.
 struct MainView: View {
     @Environment(AppModel.self) private var model
     @Environment(Notifications.self) private var notifications

@@ -108,19 +108,3 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: cache the suggestion image by file id, or reuse the copy `ImageStore` holds.
 - Check after: `npm run test:ios:ui -- --only ShareTests`.
 
-### Fix the misplaced doc comment in CoreAPI.swift
-- Where: apps/ios/ZunaKit/Sources/ZunaModels/CoreAPI.swift:410-425
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: "A group's name and description; nil fields stay as they are." sits above `MessagePlace`; `GroupMetaChanges` has no comment.
-- Suggested change: move the line onto `GroupMetaChanges`.
-- Check after: `swift build` in apps/ios/ZunaKit.
-
-### Correct the stale comments in DatabaseBridge and MainView
-- Where: apps/ios/ZunaKit/Sources/ZunaHost/DatabaseBridge.swift:25; apps/ios/Zuna/Shell/MainView.swift:4-6
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: DatabaseBridge says "a future notification extension", but the extension exists and reads the database. MainView says "A Calls tab comes with calls", but calls are built and there's no Calls tab.
-- Suggested change: say "the notification extension", and drop the Calls-tab sentence.
-- Check after: none.
-

@@ -407,13 +407,13 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
     }
 }
 
-/// A group's name and description; nil fields stay as they are.
 /// Where a message is in its chat, to jump to it.
 public struct MessagePlace: Codable, Sendable, Equatable {
     public var id: String
     public var seq: Int
 }
 
+/// A group's name and description; nil fields stay as they are.
 public struct GroupMetaChanges: Codable, Sendable, Equatable {
     public var name: String?
     public var description: String?

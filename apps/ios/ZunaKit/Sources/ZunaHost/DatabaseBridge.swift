@@ -22,7 +22,7 @@ final class SQLiteDatabase {
             throw SQLiteError(description: "Couldn't open \(path): \(message)")
         }
         handle = db
-        // WAL lets a future notification extension read while the app writes.
+        // WAL lets the notification extension read while the app writes.
         try execute("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000;")
     }
 
