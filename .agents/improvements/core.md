@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: split the manifest across numbered items (`manifest:0..n`) written under one version, or shrink entries (binary ids and keys), and size-check the rotation path the same way. Until then, `warnOnce` and stop retrying while the pin set hasn't changed. Fix the comment. Read docs/ACCOUNT_KEY_ROTATION.md and SECURITY_DETAILS first.
 - Check after: `npx vitest run test/rotation.test.ts test/security.test.ts`.
 
-### Don't let one failed side step skip the whole catch-up, and run one catch-up at a time
-- Where: packages/core/src/session.ts:775-822 (`syncAll`: `refreshEmotes` 790 and `processWelcomes` 791 run unguarded before groups sync; channels, calls and sounds are guarded), 750-773 (`onConnected` starts `syncAll` on every `ready` with no guard), 4041 (a `welcome` frame runs `processWelcomes` + `processHistoryGrants` alongside)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a 5xx from `/api/emotes` (cosmetic) aborts `syncAll` before any group syncs; messages missed offline only arrive at the next reconnect, and the status still turns "online" (770). A quick drop and reconnect starts a second `syncAll` alongside the first, doubling every request.
-- Suggested change: wrap `refreshEmotes` like the other non-essential steps (`.catch` rethrowing only on 401), or move it after the group sync. Make `syncAll` single-flight with an "again" flag, as `syncGroup` (3395-3418) does.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
 ### Cut the work behind each conversation-list refresh
 - Where: packages/core/src/session.ts:4775-4878 (`getConversations`/`conversationOf`), 6311-6334 (`getChannels`), 2912-2914 (`emitConversations` names no group); UIs debounce at 60 ms (apps/desktop/src/state.rs:494-519, packages/ui/src/state/store.ts:219-231, apps/ios/Zuna/State/AppModel.swift:506-530)
 - Category: perf

@@ -800,7 +800,33 @@ export class ServerSession {
     }
   }
 
-  private async syncAll(): Promise<void> {
+  private syncingAll: { again: boolean; done: Promise<void> } | null = null;
+
+  /**
+   * Catches up on everything, one catch-up at a time: a quick drop and reconnect while one is
+   * running asks it to go round again rather than starting a second beside it.
+   */
+  private syncAll(): Promise<void> {
+    if (this.syncingAll) {
+      this.syncingAll.again = true;
+      return this.syncingAll.done;
+    }
+    const entry = { again: false, done: Promise.resolve() };
+    entry.done = (async () => {
+      try {
+        do {
+          entry.again = false;
+          await this.syncAllOnce();
+        } while (entry.again && !this.stopped);
+      } finally {
+        this.syncingAll = null;
+      }
+    })();
+    this.syncingAll = entry;
+    return entry.done;
+  }
+
+  private async syncAllOnce(): Promise<void> {
     this.info = await this.api.info();
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
     // Which keys are current comes first of all, since the vault opens with them.
@@ -815,7 +841,11 @@ export class ServerSession {
     this.checkManifestFloor();
     await this.syncUsers();
     await this.saveTrust();
-    await this.refreshEmotes();
+    // Emotes are cosmetic: a failure fetching them is no reason to miss any messages.
+    await this.refreshEmotes().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] catching up on emotes", error);
+    });
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
     // groups we already knew about can have been taken away.
