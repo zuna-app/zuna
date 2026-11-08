@@ -620,6 +620,10 @@ CREATE TABLE reports (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX reports_user ON reports(user_id);
+`, `
+-- A session by its device, which telling who to push to looks up for every message,
+-- and which revoking a device or signing out deletes by.
+CREATE INDEX sessions_device ON sessions(device_id);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

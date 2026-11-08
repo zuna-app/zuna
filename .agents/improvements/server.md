@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Index sessions by device_id
-- Where: server/internal/store/store.go:222-229 and postgres.go:241-249 (no index). Hot use in server/internal/store/push.go:92 and :127 (`EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`), and server/internal/store/users.go:614-616 (`DELETE FROM sessions WHERE device_id = ?` in revokeDevice).
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `sessions` only has indexes on `user_id` and `last_used_at`. `PushTargets` runs on every message sent (called from api/push.go:131). It evaluates the EXISTS once per push registration in the group, and each evaluation is a full scan of `sessions`, which holds every session up to 365 days idle. Revoking a device and logging out also scan it.
-- Suggested change: append `CREATE INDEX sessions_device ON sessions(device_id);` as a new migration at the end of both lists (`migrations` in store.go and `postgresMigrations` in postgres.go).
-- Check after: `go test ./internal/store ./internal/api`, and the same again with `ZUNA_TEST_POSTGRES` set.
-
 ### Stop loading every group with two queries each in GET /api/groups
 - Where: server/internal/store/groups.go:246-273 (`UserGroups` calls `d.Group` once per ID, which runs the group-row query plus `groupMembers`). Callers: api/groups.go:10-17, accounts.go:429, admin.go:426.
 - Category: perf

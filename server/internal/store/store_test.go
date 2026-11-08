@@ -413,6 +413,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE vault_items DROP COLUMN version;
 		ALTER TABLE users DROP COLUMN deleted_at;
 		DROP TABLE reports;
+		DROP INDEX sessions_device;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');

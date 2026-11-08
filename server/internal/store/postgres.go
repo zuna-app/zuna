@@ -503,4 +503,8 @@ CREATE TABLE reports (
 	created_at BIGINT NOT NULL
 );
 CREATE INDEX reports_user ON reports(user_id);
+`, `
+-- A session by its device, which telling who to push to looks up for every message,
+-- and which revoking a device or signing out deletes by.
+CREATE INDEX sessions_device ON sessions(device_id);
 `}
