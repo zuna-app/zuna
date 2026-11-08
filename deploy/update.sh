@@ -456,30 +456,18 @@ fi
 
 step "Installing"
 install -d -m 0755 /etc/zuna
-cat >"$CONF" <<EOF
-# What deploy/update.sh set up on this machine. Change it with the script's options.
-SERVER_DOMAIN="$SERVER_DOMAIN"
-RELAY_DOMAIN="$RELAY_DOMAIN"
-WEB_DOMAIN="$WEB_DOMAIN"
-WEB_SERVER="$WEB_SERVER"
-WEB_SERVERS="$WEB_SERVERS"
-WEB_PREVIEWS="$WEB_PREVIEWS"
-PUSH_RELAYS="$PUSH_RELAYS"
-APNS_KEY_ID="$APNS_KEY_ID"
-LISTEN="$LISTEN"
-TRUSTED_PROXIES="$TRUSTED_PROXIES"
-BEHIND_CLOUDFLARE="$BEHIND_CLOUDFLARE"
-SIGNED_TAGS="$SIGNED_TAGS"
-ALLOW_USER_CHECKOUT="$ALLOW_USER_CHECKOUT"
-SERVER_PORT="$SERVER_PORT"
-RELAY_PORT="$RELAY_PORT"
-WEB_PORT="$WEB_PORT"
-VOICE="$VOICE"
-VOICE_IP="$VOICE_IP"
-VOICE_PORT="$VOICE_PORT"
-VOICE_TCP_PORT="$VOICE_TCP_PORT"
-VOICE_UDP_PORT="$VOICE_UDP_PORT"
-EOF
+# Each value is quoted for the shell, which reads this file back as root, and the file
+# is moved into place whole.
+{
+  echo "# What deploy/update.sh set up on this machine. Change it with the script's options."
+  for name in SERVER_DOMAIN RELAY_DOMAIN WEB_DOMAIN WEB_SERVER WEB_SERVERS WEB_PREVIEWS \
+    PUSH_RELAYS APNS_KEY_ID LISTEN TRUSTED_PROXIES BEHIND_CLOUDFLARE SIGNED_TAGS \
+    ALLOW_USER_CHECKOUT SERVER_PORT RELAY_PORT WEB_PORT VOICE VOICE_IP VOICE_PORT \
+    VOICE_TCP_PORT VOICE_UDP_PORT; do
+    printf '%s=%q\n' "$name" "${!name}"
+  done
+} >"$CONF.new"
+mv -f "$CONF.new" "$CONF"
 
 # sudo zuna-update runs this script, wherever this checkout is.
 cat >/usr/local/sbin/zuna-update.new <<EOF

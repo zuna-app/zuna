@@ -12,14 +12,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: `go get` both, run `go mod tidy`, and check the changelog against the `_pragma` and `_txlock` DSN options used in store.go:89-105.
 - Check after: `npm test`, the PostgreSQL run, and a Docker image build.
 
-### Quote values written to update.conf
-- Where: deploy/update.sh:459-482 (written) and :114 (sourced as root)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: values are written as `KEY="$VALUE"` without escaping. A `"`, `$` or backtick in an option breaks the file, or runs as root on the next update.
-- Suggested change: write each line with `printf '%s=%q\n'`.
-- Check after: deploy/test/install-check.sh.
-
 ### Bracket IPv6 addresses in install-relay.sh's messages
 - Where: deploy/install-relay.sh:130, :141
 - Category: ux
