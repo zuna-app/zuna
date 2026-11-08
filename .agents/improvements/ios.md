@@ -28,14 +28,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: in `receive`, hop to a private serial queue (keeps replies and events in order); decode a small envelope (kind, id, ok, error) from the raw Data and resume with that Data, then decode `Reply<V> { value }` in `call`. Decode events in a single pass the same way.
 - Check after: `swift test` (CoreConnectionTests, WireTests), `npm run test:ios`, `npm run test:ios:perf`.
 
-### Put the session-call boilerplate in one helper and describe errors consistently
-- Where: apps/ios/Zuna/State/AppModel.swift:279, 312, 574-661; apps/ios/Zuna/Onboarding/OnboardingComponents.swift:252-258; apps/ios/Zuna/Voice/VoiceModel.swift:435-439
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: seven AppModel methods repeat `Task { do/catch toast("Couldn't save that: \(error)") }`, interpolating the raw error (a decoding error would dump Swift debug text into a toast). The other 53 call sites use `OnboardingText.describe`, which lives in onboarding and turns any `Couldn't reach|fetch` message into "Check the address and your connection" (onboarding wording that then shows up in chats). `VoiceModel.describe` has two branches returning the same string.
-- Suggested change: add an AppModel helper such as `perform(_ serverId:failure:_ op:)` for those seven methods and the two load toasts; move `describe` to a neutral `ErrorText`, keyed on `CoreCallError.code == "network"` rather than the regex; collapse `VoiceModel.describe`.
-- Check after: `npm run test:ios:ui -- --only ConversationListTests,OnboardingTests`.
-
 ### Let message times and code scale with Dynamic Type
 - Where: apps/ios/Zuna/Chat/MessageRow.swift:268-277, 476-512 (491, 504); apps/ios/Zuna/Channels/ChannelMessages.swift:181-184, 197; apps/ios/Zuna/Chat/MessageParts.swift:459
 - Category: ux

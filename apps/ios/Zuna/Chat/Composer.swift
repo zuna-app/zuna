@@ -468,7 +468,7 @@ struct Composer: View {
                     model.sendRound(serverId, conversation, recording)
                     startSlowWait()
                 } catch {
-                    model.toast(OnboardingText.describe(error), .error)
+                    model.toast(ErrorText.describe(error), .error)
                 }
             }
             return
@@ -484,7 +484,7 @@ struct Composer: View {
             model.sendVoice(serverId, conversation, recording)
             startSlowWait()
         } catch {
-            model.toast(OnboardingText.describe(error), .error)
+            model.toast(ErrorText.describe(error), .error)
         }
     }
 

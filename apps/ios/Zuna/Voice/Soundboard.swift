@@ -193,7 +193,7 @@ struct SoundboardSettingsView: View {
                 self.name = ""
                 self.emoji = ""
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }
@@ -213,7 +213,7 @@ struct SoundboardSettingsView: View {
     private func remove(_ sound: SoundView) {
         let session = model.core.session(serverId)
         Task {
-            do { try await session.deleteSound(sound.id) } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await session.deleteSound(sound.id) } catch { model.toast(ErrorText.describe(error), .error) }
         }
     }
 }
@@ -263,7 +263,7 @@ private struct SoundRename: View {
                 try await session.updateSound(sound.id, changes)
                 dismiss()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }

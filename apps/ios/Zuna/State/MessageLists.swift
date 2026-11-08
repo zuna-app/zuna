@@ -81,7 +81,7 @@ extension AppModel {
             lists[key] = current
         } catch {
             lists[key]?.loading = false
-            toast(OnboardingText.describe(error), .error)
+            toast(ErrorText.describe(error), .error)
         }
     }
 
@@ -155,7 +155,7 @@ extension AppModel {
                 let window = try await core.session(serverId).loadAround(groupId, seq: target)
                 lists[key] = MessageList(items: Self.sorted(window), hasMore: true, loading: false, loaded: true, detached: true)
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
                 return
             }
         }

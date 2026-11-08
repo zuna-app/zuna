@@ -324,7 +324,7 @@ struct ChatScreen: View {
                             FilePreview.show(file)
                         }
                     } catch {
-                        model.toast("Couldn't open \(attachment.name): \(OnboardingText.describe(error))", .error)
+                        model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
                     }
                 }
             },
@@ -334,7 +334,7 @@ struct ChatScreen: View {
                     do {
                         try await model.core.session(serverId).toggleReaction(groupId, messageId: messageId, key: key, emote: emote)
                     } catch {
-                        model.toast(OnboardingText.describe(error), .error)
+                        model.toast(ErrorText.describe(error), .error)
                     }
                 }
             },
@@ -487,7 +487,7 @@ struct ChatScreen: View {
             do {
                 try await action()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }

@@ -84,7 +84,7 @@ extension AppModel {
             do {
                 try await session.editMessage(message.groupId, id: message.id, text: value, emotes: emotes, mentions: mentions)
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -133,7 +133,7 @@ extension AppModel {
                 }
                 await sentTo(serverId, conversation)
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -157,7 +157,7 @@ extension AppModel {
                 try? FileManager.default.removeItem(at: recording.url)
                 await sentTo(serverId, conversation)
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -183,7 +183,7 @@ extension AppModel {
                 try? FileManager.default.removeItem(at: recording.url)
                 await sentTo(serverId, conversation)
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -224,7 +224,7 @@ extension AppModel {
             try await core.forwardMessages(from: serverId, groupId: groupId, ids: messages.map(\.id), to: targetServerId, conversationKey: conversation.key)
             toast("Forwarded to \(conversation.title)")
         } catch {
-            toast(OnboardingText.describe(error), .error)
+            toast(ErrorText.describe(error), .error)
         }
     }
 

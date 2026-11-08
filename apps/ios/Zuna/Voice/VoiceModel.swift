@@ -426,7 +426,7 @@ final class VoiceModel {
             }
         } catch {
             guard mine == attempt else { return }
-            app.toast(Self.describe(error), .error)
+            app.toast((error as? CoreCallError).map { ErrorText.describe($0) } ?? "Couldn't connect to voice.", .error)
             // A server that hasn't set this up, or a channel that's full, won't change in a moment.
             let session = app.core.session(serverId)
             reset(status: .idle)
@@ -435,12 +435,6 @@ final class VoiceModel {
             Task { try? await session.setVoiceState(nil, nil) }
             onEnded?()
         }
-    }
-
-    private static func describe(_ error: Error) -> String {
-        if let error = error as? CoreCallError { return error.message }
-        if error is LiveKitError { return "Couldn't connect to voice." }
-        return "Couldn't connect to voice."
     }
 
     /// What to do when the room goes away without anyone asking: try coming back, as far as that's worth it.
@@ -1068,7 +1062,7 @@ final class VoiceModel {
         do {
             try await session.playSound(channelId, soundId: soundId)
         } catch {
-            app?.toast(OnboardingText.describe(error), .error)
+            app?.toast(ErrorText.describe(error), .error)
             return
         }
         await playHere(serverId: serverId, soundId: soundId, userId: me.userId)

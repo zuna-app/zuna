@@ -19,7 +19,7 @@ extension AppModel {
                 try await core.session(serverId).deleteChannel(channel.id)
                 if chatPath.first == .chat(channel.key) { chatPath = [] }
             } catch {
-                toast(OnboardingText.describe(error), .error)
+                toast(ErrorText.describe(error), .error)
             }
         }
     }

@@ -298,7 +298,7 @@ final class AppModel {
                 onboarding = false
             }
         } catch {
-            toast("Couldn't load your servers: \(error)", .error)
+            toast("Couldn't load your servers. \(ErrorText.describe(error))", .error)
         }
     }
 
@@ -331,7 +331,7 @@ final class AppModel {
                 prefs: try await prefs
             )
         } catch {
-            toast("Couldn't load \(entry.name): \(error)", .error)
+            toast("Couldn't load \(entry.name). \(ErrorText.describe(error))", .error)
             return nil
         }
     }
@@ -364,7 +364,7 @@ final class AppModel {
             try await core.leaveServer(serverId)
             removeServer(serverId)
         } catch {
-            toast(OnboardingText.describe(error), .error)
+            toast(ErrorText.describe(error), .error)
         }
     }
 
@@ -411,7 +411,7 @@ final class AppModel {
         order.move(fromOffsets: source, toOffset: destination)
         let ids = order
         Task {
-            do { try await core.reorderServers(ids) } catch { toast(OnboardingText.describe(error), .error) }
+            do { try await core.reorderServers(ids) } catch { toast(ErrorText.describe(error), .error) }
         }
     }
 
@@ -601,84 +601,49 @@ final class AppModel {
         case .pinned: PreferenceChanges(pinned: flipped(prefs.pinned))
         case .hidden: PreferenceChanges(hidden: flipped(prefs.hidden))
         }
+        perform(serverId) { try await $0.updatePreferences(changes) }
+    }
+
+    /// Runs a call on a server's session in the background, saying in a toast if it failed.
+    private func perform(_ serverId: String, failure: String = "Couldn't save that.", _ call: @escaping @MainActor (SessionCalls) async throws -> Void) {
+        let session = core.session(serverId)
         Task {
             do {
-                try await core.session(serverId).updatePreferences(changes)
+                try await call(session)
             } catch {
-                toast("Couldn't save that: \(error)", .error)
+                toast("\(failure) \(ErrorText.describe(error))", .error)
             }
         }
     }
 
     /// Marks a chat as unread, or takes the mark off. Synced like the other preferences.
     func setMarkedUnread(_ key: String, _ marked: Bool, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.setMarkedUnread(key, marked: marked)
-            } catch {
-                toast("Couldn't save that: \(error)", .error)
-            }
-        }
+        perform(serverId) { try await $0.setMarkedUnread(key, marked: marked) }
     }
 
     /// Blocks someone, or unblocks them. Synced like the other preferences, and nobody is told.
     func setBlocked(_ userId: String, _ blocked: Bool, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.setBlocked(userId, blocked: blocked)
-            } catch {
-                toast("Couldn't save that: \(error)", .error)
-            }
-        }
+        perform(serverId) { try await $0.setBlocked(userId, blocked: blocked) }
     }
 
     /// Has a group notify only about messages that mention you or reply to you. Synced like the other preferences.
     func setMentionsOnly(_ key: String, _ on: Bool, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.setMentionsOnly(key, on: on)
-            } catch {
-                toast("Couldn't save that: \(error)", .error)
-            }
-        }
+        perform(serverId) { try await $0.setMentionsOnly(key, on: on) }
     }
 
     /// Reads a chat to its newest message from the list, without opening it.
     func markChatRead(_ key: String, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.markChatRead(key)
-            } catch {
-                toast("Couldn't mark it as read: \(error)", .error)
-            }
-        }
+        perform(serverId, failure: "Couldn't mark it as read.") { try await $0.markChatRead(key) }
     }
 
     /// Mutes a chat until a time, or (nil) until it's unmuted. Synced like the other preferences.
     func mute(_ key: String, until: Date?, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.mute(key, until: until.map { $0.timeIntervalSince1970 * 1000 })
-            } catch {
-                toast("Couldn't save that: \(error)", .error)
-            }
-        }
+        let millis = until.map { $0.timeIntervalSince1970 * 1000 }
+        perform(serverId) { try await $0.mute(key, until: millis) }
     }
 
     func unmute(_ key: String, on serverId: String) {
-        let session = core.session(serverId)
-        Task {
-            do {
-                try await session.unmute(key)
-            } catch {
-                toast("Couldn't save that: \(error)", .error)
-            }
-        }
+        perform(serverId) { try await $0.unmute(key) }
     }
 
     // MARK: Toasts

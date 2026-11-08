@@ -147,7 +147,7 @@ struct PinnedMessagesView: View {
                                     try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: false)
                                     pins?.removeAll { $0.id == message.id }
                                 } catch {
-                                    model.toast(OnboardingText.describe(error), .error)
+                                    model.toast(ErrorText.describe(error), .error)
                                 }
                             }
                         } label: {

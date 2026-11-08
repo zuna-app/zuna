@@ -101,7 +101,7 @@ struct MemberSheet: View {
         let channelId = member.channelId
         dismiss()
         Task {
-            do { try await action(session, channelId) } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await action(session, channelId) } catch { model.toast(ErrorText.describe(error), .error) }
         }
     }
 }

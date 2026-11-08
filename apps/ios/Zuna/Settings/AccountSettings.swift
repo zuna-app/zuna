@@ -110,7 +110,7 @@ struct ProfileView: View {
             do {
                 try await action()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }
@@ -205,7 +205,7 @@ struct PrivacyView: View {
 
     private func run(_ action: @escaping () async throws -> Void) {
         Task {
-            do { try await action() } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await action() } catch { model.toast(ErrorText.describe(error), .error) }
         }
     }
 }
@@ -369,7 +369,7 @@ struct SecurityView: View {
     private func run(_ action: @escaping () async throws -> Void) {
         busy = true
         Task {
-            do { try await action() } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await action() } catch { model.toast(ErrorText.describe(error), .error) }
             busy = false
         }
     }
@@ -427,7 +427,7 @@ struct DeleteAccountView: View {
                 try await model.deleteAccount(serverId, password: password)
                 dismiss()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }

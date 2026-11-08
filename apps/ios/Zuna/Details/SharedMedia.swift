@@ -354,7 +354,7 @@ private struct MediaTile: View {
                 let file = try await images.openable(attachment, serverId: serverId)
                 PhotoViewer.show(file, caption: .init(message, server: model.servers[serverId]))
             } catch {
-                model.toast("Couldn't open \(attachment.name): \(OnboardingText.describe(error))", .error)
+                model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
             }
         }
     }
@@ -442,7 +442,7 @@ private struct AttachmentRow: View {
                 let file = try await images.openable(attachment, serverId: server.entry.id)
                 FilePreview.show(file)
             } catch {
-                model.toast("Couldn't open \(attachment.name): \(OnboardingText.describe(error))", .error)
+                model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
             }
         }
     }

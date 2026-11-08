@@ -482,7 +482,7 @@ struct RoundVideoCard: View {
             do {
                 try await player.play(file, id: attachment.fileId, from: 0, video: true)
             } catch {
-                model.toast("Couldn't play it: \(OnboardingText.describe(error))", .error)
+                model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)
             }
         }
     }

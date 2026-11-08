@@ -269,7 +269,7 @@ struct ChannelEditor: View {
                     if made.type == .text, opensWhenMade { model.openChat("group:\(id)", channel: true) }
                 }
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -285,7 +285,7 @@ struct ChannelEditor: View {
                 if model.chatPath.contains(where: { $0 == .chat(channel.key) || $0 == .details(channel.key) }) { model.chatPath = [] }
                 dismiss()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -337,7 +337,7 @@ struct ChannelsSettingsView: View {
                         do {
                             try await model.core.session(serverId).reorderChannels(ids)
                         } catch {
-                            model.toast(OnboardingText.describe(error), .error)
+                            model.toast(ErrorText.describe(error), .error)
                         }
                         order = nil
                     }

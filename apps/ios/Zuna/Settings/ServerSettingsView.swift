@@ -126,7 +126,7 @@ struct ServerSettingsView: View {
 
     private func run(_ action: @escaping () async throws -> Void) {
         Task {
-            do { try await action() } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await action() } catch { model.toast(ErrorText.describe(error), .error) }
         }
     }
 }
@@ -199,7 +199,7 @@ struct ServerMembersView: View {
 
     private func run(_ action: @escaping () async throws -> Void) {
         Task {
-            do { try await action() } catch { model.toast(OnboardingText.describe(error), .error) }
+            do { try await action() } catch { model.toast(ErrorText.describe(error), .error) }
         }
     }
 }
@@ -266,7 +266,7 @@ struct ReportsView: View {
                 try await action()
                 await load()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }
@@ -355,7 +355,7 @@ struct EmoteSetView: View {
                 let result = try await model.core.session(serverId).setEmoteSet(set)
                 model.toast(done(result))
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }
@@ -405,7 +405,7 @@ struct StorageView: View {
                             try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(maxUploadMb: upload, retentionDays: days))
                             model.toast("Saved")
                         } catch {
-                            model.toast(OnboardingText.describe(error), .error)
+                            model.toast(ErrorText.describe(error), .error)
                         }
                     }
                 }
@@ -553,7 +553,7 @@ struct ScreenRulesView: View {
                 try await model.core.session(serverId).updateServerSettings(changes)
                 model.toast("Saved")
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }

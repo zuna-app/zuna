@@ -213,7 +213,7 @@ struct AttachLocationPage: View {
                 dismiss()
                 if let conversation = model.servers[serverId]?.conversation(conversationKey) { await model.sentTo(serverId, conversation) }
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
                 sending = false
             }
         }

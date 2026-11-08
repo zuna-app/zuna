@@ -72,7 +72,7 @@ final class ShareInbox {
                 do {
                     try await ShareSender.send(request, through: core)
                 } catch {
-                    result.error = OnboardingText.describe(error)
+                    result.error = ErrorText.describe(error)
                 }
                 try? ShareMailbox.write(result, to: folder.appendingPathComponent("result"), deviceKey: deviceKey)
                 ShareMailbox.post(ShareMailbox.sent)

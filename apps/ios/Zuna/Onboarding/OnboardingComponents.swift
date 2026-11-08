@@ -247,16 +247,20 @@ struct StepScreen<Content: View>: View {
     }
 }
 
-enum OnboardingText {
-    /// Network failures read better without the core's wording, as on the desktop.
+/// What to tell the person about a call that failed, anywhere in the app.
+enum ErrorText {
+    /// The core's words, but a failure to reach the server in plainer ones, by the code the
+    /// core gives it rather than by its wording.
     static func describe(_ error: Error) -> String {
-        let message = (error as? CoreCallError)?.message ?? error.localizedDescription
-        if message.range(of: "Couldn't reach|fetch", options: [.regularExpression, .caseInsensitive]) != nil {
+        if let error = error as? CoreCallError, error.code == "network" {
             return "Couldn't reach that server. Check the address and your connection."
         }
+        let message = (error as? CoreCallError)?.message ?? error.localizedDescription
         return message.isEmpty ? "Something went wrong. Please try again." : message
     }
+}
 
+enum OnboardingText {
     static let projectURL = URL(string: "https://github.com/SocketByte/zuna-chat")!
     static let selfHostingURL = projectURL.appending(path: "blob/main/docs/SELF_HOSTING.md")
     /// The terms of use everyone agrees to when they create an account.

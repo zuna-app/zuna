@@ -167,7 +167,7 @@ struct InviteLinkStep: View {
             do {
                 onInvite(try await model.core.previewInvite(text))
             } catch {
-                self.error = OnboardingText.describe(error)
+                self.error = ErrorText.describe(error)
             }
             busy = false
         }
@@ -295,7 +295,7 @@ struct InviteStep: View {
                 let result = try await model.core.register(preview, username: username, password: password, profile: profile)
                 onCreated(result.serverId, result.recoveryKey)
             } catch {
-                self.error = OnboardingText.describe(error)
+                self.error = ErrorText.describe(error)
                 model.accountFlowActive = false
                 busy = false
             }
@@ -434,7 +434,7 @@ struct NameServerStep: View {
                 do {
                     try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(name: trimmed))
                 } catch {
-                    model.toast("Couldn't rename the server: \(OnboardingText.describe(error))", .error)
+                    model.toast("Couldn't rename the server: \(ErrorText.describe(error))", .error)
                 }
             }
             onDone()
@@ -514,7 +514,7 @@ struct SignInStep: View {
             do {
                 onSignedIn(try await model.core.login(url: url, username: username, password: password))
             } catch {
-                self.error = OnboardingText.describe(error)
+                self.error = ErrorText.describe(error)
                 model.accountFlowActive = false
                 busy = false
             }
@@ -597,7 +597,7 @@ struct RecoverStep: View {
             do {
                 onRecovered(try await model.core.recover(url: url, username: username, recoveryKey: key, newPassword: password))
             } catch {
-                self.error = OnboardingText.describe(error)
+                self.error = ErrorText.describe(error)
                 model.accountFlowActive = false
                 busy = false
             }

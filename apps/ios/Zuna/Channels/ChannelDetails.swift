@@ -143,7 +143,7 @@ struct ChannelDetails: View {
                         try await model.core.session(serverId).deleteChannel(channel.id)
                         model.chatPath = []
                     } catch {
-                        model.toast(OnboardingText.describe(error), .error)
+                        model.toast(ErrorText.describe(error), .error)
                     }
                 }
             }

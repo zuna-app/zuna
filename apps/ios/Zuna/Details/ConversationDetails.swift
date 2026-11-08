@@ -588,7 +588,7 @@ struct ConversationDetails: View {
             do {
                 try await action()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }

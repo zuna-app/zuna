@@ -353,7 +353,7 @@ struct VoiceCard: View {
                 try await player.play(file!, id: attachment.fileId, from: time)
             } catch {
                 loading = false
-                model.toast("Couldn't play it: \(OnboardingText.describe(error))", .error)
+                model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)
             }
         }
     }

@@ -135,7 +135,7 @@ struct InviteSheet: View {
                 copy(created)
                 await refresh(true)
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
             busy = false
         }
@@ -147,7 +147,7 @@ struct InviteSheet: View {
                 try await model.core.session(serverId).revokeInvite(code)
                 await refresh(true)
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }

@@ -104,7 +104,7 @@ struct NewGroupSheet: View {
                 dismiss()
                 model.openChat("group:\(groupId)")
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
                 busy = false
             }
         }
@@ -166,7 +166,7 @@ struct AddMembersSheet: View {
                 try await model.core.session(serverId).addMembers(groupId, userIds: Array(selected))
                 dismiss()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
                 busy = false
             }
         }
@@ -226,7 +226,7 @@ struct EditGroupSheet: View {
                 try await model.core.session(serverId).updateGroupMeta(groupId, changes)
                 dismiss()
             } catch {
-                model.toast(OnboardingText.describe(error), .error)
+                model.toast(ErrorText.describe(error), .error)
             }
         }
     }
