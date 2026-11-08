@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Delete welcomes and bundles of revoked devices
-- Where: server/internal/store/users.go:605-621 (revokeDevice) and :339-373 (BanUser)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: devices are never deleted, only revoked, so the cascade on `welcomes.device_id` never fires. `revokeDevice` doesn't delete welcomes, and `BanUser` deletes neither welcomes nor `account_bundles`. `DeleteAccount` (users.go:409) does delete them, so the three paths disagree, and welcomes that were never fetched stay until their group goes.
-- Suggested change: add welcomes to revokeDevice's table list. In BanUser, also delete the account's welcomes and `account_bundles`. Optionally, have `cleanup` drop welcomes older than about 90 days.
-- Check after: Go tests and the PostgreSQL run.
-
 ### Validate all settings before saving any
 - Where: server/internal/api/admin.go:219-319
 - Category: robustness

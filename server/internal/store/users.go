@@ -355,11 +355,16 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM key_packages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`, userID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE user_id = ?`, userID); err != nil {
-			return err
+		// What waits for their devices goes with them, as when one is removed or the account deleted.
+		for _, query := range []string{
+			`DELETE FROM key_packages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+			`DELETE FROM welcomes WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+			`DELETE FROM account_bundles WHERE user_id = ?`,
+			`DELETE FROM push_registrations WHERE user_id = ?`,
+		} {
+			if _, err := tx.ExecContext(ctx, query, userID); err != nil {
+				return err
+			}
 		}
 		// Banning them is the answer to what they were reported for.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM reports WHERE user_id = ?`, userID); err != nil {
@@ -613,7 +618,8 @@ func revokeDevice(ctx context.Context, tx handle, userID, deviceID string, now i
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, table := range []string{"sessions", "key_packages", "push_registrations", "account_bundles"} {
+	// Devices are never deleted, only revoked, so the cascade on welcomes never comes.
+	for _, table := range []string{"sessions", "key_packages", "push_registrations", "account_bundles", "welcomes"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {
 			return err
 		}
