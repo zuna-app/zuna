@@ -55,6 +55,8 @@ type conn struct {
 	send     chan []byte
 	queued   atomic.Int64
 	close    context.CancelFunc
+	// bye is closed when the server is shutting down, to close the socket saying so.
+	bye chan struct{}
 	// active is set while the person is using this device: the desktop's
 	// window in front with input in the last 5 s, the phone app on screen.
 	// Guarded by the hub's lock.
@@ -75,6 +77,8 @@ type Hub struct {
 	// used in the last few minutes but not now: user -> device -> time.
 	lastUsed map[string]map[string]time.Time
 	db       *store.DB
+	// closing is set once the server is shutting down, after which no socket is taken.
+	closing bool
 }
 
 // newHub makes a hub where someone shows as online for linger after they stop
@@ -221,6 +225,24 @@ func (h *Hub) Disconnect(userID, deviceID string) {
 	}
 }
 
+// CloseAll closes every socket with a close frame saying the server is going away,
+// which apps take as a reason to come back, and takes no more.
+func (h *Hub) CloseAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closing {
+		return
+	}
+	h.closing = true
+	for _, conns := range h.conns {
+		for c := range conns {
+			if c.bye != nil {
+				close(c.bye)
+			}
+		}
+	}
+}
+
 // closeAfterQueued closes the connection once the frames already queued are
 // written, so an event that explains why (force_logout, device_revoked)
 // arrives before the close instead of racing it.
@@ -339,7 +361,7 @@ func (h *Hub) wentAway(userID, deviceID string, linger time.Duration) {
 func (h *Hub) add(c *conn, hidden bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.conns[c.userID]) >= maxConnsPerUser {
+	if h.closing || len(h.conns[c.userID]) >= maxConnsPerUser {
 		return false
 	}
 	h.hidden[c.userID] = hidden
@@ -574,6 +596,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many connections. Please wait a moment.")
 		return
 	}
+	// Shutdown leaves hijacked connections alone, so the server waits for sockets itself.
+	if !s.track() {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "The server is restarting.")
+		return
+	}
+	defer s.work.Done()
 	// Authentication uses a bearer token in the first frame, not cookies, so
 	// cross-origin requests carry no ambient authority. The desktop app's
 	// origin can't be listed here because any server may be joined by any client.
@@ -599,6 +627,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		deviceID: sess.DeviceID,
 		send:     make(chan []byte, sendBufferSize),
 		close:    cancel,
+		bye:      make(chan struct{}),
 	}
 	if !s.hub.add(c, user.HideLastSeen) {
 		ws.Close(websocket.StatusTryAgainLater, "too many connections")
@@ -642,6 +671,9 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-c.bye:
+			ws.Close(websocket.StatusGoingAway, "the server is restarting")
 			return
 		case frame := <-c.send:
 			c.queued.Add(-int64(len(frame)))

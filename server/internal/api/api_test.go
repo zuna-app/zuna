@@ -1201,6 +1201,28 @@ func TestBannedGoOfflineAtOnce(t *testing.T) {
 	}
 }
 
+func TestShutdownClosesSocketsSayingSo(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	sock := owner.connect()
+	// Taken by the hub once this arrives, which comes after "ready".
+	sock.waitFor("activity")
+	h.srv.CloseSockets()
+	sock.expectClose(websocket.StatusGoingAway)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h.srv.Wait(ctx)
+	if ctx.Err() != nil {
+		t.Fatal("the closed socket's handler didn't finish")
+	}
+	// No socket is taken while the server shuts down.
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.url, "http")+"/api/ws", nil)
+	if err == nil {
+		ws.CloseNow()
+		t.Fatal("a socket was taken during shutdown")
+	}
+}
+
 func TestSocketRejectsBadToken(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

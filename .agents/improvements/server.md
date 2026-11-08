@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Close sockets and wait for background work on shutdown
-- Where: cmd/zuna-server/main.go:272-283 (and the deferred `db.Close()` at :179), and api/server.go:253-297
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `Shutdown` doesn't touch hijacked WebSockets, so clients see an abrupt EOF instead of a close frame. Meanwhile `db.Close()` runs while socket handlers, timers and the RunBackground goroutines may still be querying.
-- Suggested change: `RegisterOnShutdown(srv.CloseSockets)`, closing every socket with StatusGoingAway. Track the RunBackground goroutines with a WaitGroup and wait for them, bounded by the shutdown context, before `db.Close()`.
-- Check after: Go tests, and restarting `npm run dev:server` while the native app is connected.
-
 ### Give zuna-push a graceful shutdown
 - Where: server/cmd/zuna-push/main.go:82-86
 - Category: robustness

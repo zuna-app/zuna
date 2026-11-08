@@ -150,6 +150,12 @@ type Server struct {
 	soundLimiter *ratelimit.Keyed
 	liveKit      *http.Client
 
+	// work counts the sockets and background loops the server waits for when it stops,
+	// once stopping is set, so that the database isn't closed under them.
+	workMu   sync.Mutex
+	work     sync.WaitGroup
+	stopping bool
+
 	pushClient *http.Client
 	pushQueue  chan pushJob
 	pushers    sync.Once
@@ -255,8 +261,53 @@ func (s *Server) EnsureSetupInvite(ctx context.Context) (string, error) {
 }
 
 // RunBackground runs periodic maintenance until ctx ends.
-func (s *Server) RunBackground(ctx context.Context) {
+// track counts a piece of work Wait waits for, unless the server is stopping already.
+func (s *Server) track() bool {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
+	if s.stopping {
+		return false
+	}
+	s.work.Add(1)
+	return true
+}
+
+// CloseSockets closes every socket with a close frame and takes no more, for
+// http.Server.RegisterOnShutdown, since Shutdown leaves hijacked connections alone.
+func (s *Server) CloseSockets() {
+	s.hub.CloseAll()
+}
+
+// Wait waits, until ctx ends, for the sockets and the background loops to finish, so
+// that the database can be closed after. The loops end with RunBackground's context.
+func (s *Server) Wait(ctx context.Context) {
+	s.workMu.Lock()
+	s.stopping = true
+	s.workMu.Unlock()
+	done := make(chan struct{})
 	go func() {
+		s.work.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// background runs a loop of RunBackground's, counted for Wait.
+func (s *Server) background(loop func()) {
+	if !s.track() {
+		return
+	}
+	go func() {
+		defer s.work.Done()
+		loop()
+	}()
+}
+
+func (s *Server) RunBackground(ctx context.Context) {
+	s.background(func() {
 		// Keep trying until the first load succeeds, then refresh occasionally.
 		// Clients connected in the meantime are told, so they aren't left without emotes.
 		wait := time.Duration(0)
@@ -281,8 +332,8 @@ func (s *Server) RunBackground(ctx context.Context) {
 			loaded = true
 			wait = emoteRefresh
 		}
-	}()
-	go func() {
+	})
+	s.background(func() {
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		for {
@@ -293,8 +344,8 @@ func (s *Server) RunBackground(ctx context.Context) {
 			case <-ticker.C:
 			}
 		}
-	}()
-	go func() {
+	})
+	s.background(func() {
 		ticker := time.NewTicker(expiryInterval)
 		defer ticker.Stop()
 		for {
@@ -305,7 +356,7 @@ func (s *Server) RunBackground(ctx context.Context) {
 			case <-ticker.C:
 			}
 		}
-	}()
+	})
 }
 
 // removeExpired removes the disappearing messages that are due, and their files.

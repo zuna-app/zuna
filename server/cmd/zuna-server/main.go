@@ -224,6 +224,7 @@ func run(cfg config) error {
 		WriteTimeout: api.WriteTimeout,
 		IdleTimeout:  2 * time.Minute,
 	}
+	httpServer.RegisterOnShutdown(srv.CloseSockets)
 
 	errs := make(chan error, 2)
 	listenAddress := ""
@@ -284,7 +285,10 @@ func run(cfg config) error {
 		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		// Sockets and the background loops outlast Shutdown, and the database closes after this.
+		srv.Wait(shutdownCtx)
+		return err
 	}
 }
 
