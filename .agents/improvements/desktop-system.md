@@ -51,14 +51,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: on either disabled event, `CGEvent::tap_enable(&port, true)` (port via `user_info` or a static); also reset `down` and tell the listener `false`.
 - Check after: mac-voice-check.mjs (push to talk).
 
-### Put a time limit on the share's sound start, and let it be cancelled
-- Where: voice/screen.rs:243-255 (reads the program's first line a byte at a time, no timeout), 316-322 (`ask` uses `.output()`, no timeout)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: on macOS the program can wait up to two minutes for the audio permission (SCREEN_SHARE.md:66), blocking a GPUI background thread; stopping the share meanwhile can't reach the child (`share.sound` isn't set yet). A hung `--sound-apps` blocks the picker's worker forever.
-- Suggested change: read the header on a dedicated thread with a deadline and kill the child on timeout; give `ask` a `try_wait` loop with ~5 s.
-- Check after: mac-voice-check.mjs, linux-voice-check.mjs.
-
 ### Clear Linux's "minimized" flag from the window's activation, rather than polling every 250 ms
 - Where: platform/linux/mod.rs:103-135; ui/mod.rs:110-120 already observes window activation
 - Category: perf

@@ -224,6 +224,26 @@ impl NativeSound {
     }
 }
 
+/// How long the sound program may take to say it's listening, or to answer a question,
+/// before it's stopped: a sound system that doesn't answer would hold the share's start, or
+/// the picker, for good.
+const SOUND_START_LIMIT: Duration = Duration::from_secs(10);
+const SOUND_ANSWER_LIMIT: Duration = Duration::from_secs(5);
+
+/// Stops a child that's still running when the limit is up, unless `done` says it's finished.
+fn stop_after(child: Arc<Mutex<std::process::Child>>, done: Arc<AtomicBool>, limit: Duration) -> Arc<AtomicBool> {
+    let stopped = Arc::new(AtomicBool::new(false));
+    let marked = stopped.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(limit);
+        if !done.load(Ordering::Relaxed) {
+            marked.store(true, Ordering::Relaxed);
+            let _ = child.lock().kill();
+        }
+    });
+    stopped
+}
+
 /// Starts capturing the computer's sound, sending it to `source` in 10 ms of stereo at a time.
 fn start_sound(app: Option<&str>, source: livekit::webrtc::audio_source::native::NativeAudioSource) -> Result<(NativeSound, UnboundedReceiver<Option<String>>), String> {
     let path = program_path().ok_or_else(|| "This build can't capture your computer's sound.".to_string())?;
@@ -239,6 +259,8 @@ fn start_sound(app: Option<&str>, source: livekit::webrtc::audio_source::native:
     let stdin = child.stdin.take();
     let child = Arc::new(Mutex::new(child));
     let stopping = Arc::new(AtomicBool::new(false));
+    let listening = Arc::new(AtomicBool::new(false));
+    let timed_out = stop_after(child.clone(), listening.clone(), SOUND_START_LIMIT);
     // One line saying it's listening, and only sound after that.
     let mut header = Vec::new();
     let mut byte = [0u8; 1];
@@ -247,12 +269,16 @@ fn start_sound(app: Option<&str>, source: livekit::webrtc::audio_source::native:
             Ok(1) if byte[0] == b'\n' => break,
             Ok(1) => header.push(byte[0]),
             _ => {
+                if timed_out.load(Ordering::Relaxed) {
+                    return Err("The computer's sound didn't start in time.".into());
+                }
                 let mut problem = String::new();
                 BufReader::new(stderr).read_to_string(&mut problem).ok();
                 return Err(problem.lines().last().unwrap_or("It stopped by itself.").chars().take(200).collect());
             }
         }
     }
+    listening.store(true, Ordering::Relaxed);
     let (sender, receiver) = unbounded();
     let said: Arc<Mutex<Option<String>>> = Arc::default();
     {
@@ -317,8 +343,16 @@ fn ask(args: &[String]) -> Option<Value> {
     let path = program_path()?;
     let mut all = args.to_vec();
     all.extend(["--exclude-pid".into(), std::process::id().to_string()]);
-    let output = command(&path).args(&all).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    serde_json::from_slice(&output.stdout).ok()
+    let mut child = command(&path).args(&all).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let child = Arc::new(Mutex::new(child));
+    let answered = Arc::new(AtomicBool::new(false));
+    stop_after(child.clone(), answered.clone(), SOUND_ANSWER_LIMIT);
+    let mut answer = Vec::new();
+    stdout.read_to_end(&mut answer).ok();
+    answered.store(true, Ordering::Relaxed);
+    let _ = child.lock().wait();
+    serde_json::from_slice(&answer).ok()
 }
 
 fn read_app(value: &Value) -> Option<SoundApp> {
