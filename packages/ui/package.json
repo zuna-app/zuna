@@ -1,6 +1,6 @@
 {
   "name": "@zuna/ui",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "The web app's interface. The web app gives it a Platform.",

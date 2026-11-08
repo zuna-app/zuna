@@ -1,6 +1,6 @@
 {
   "name": "@zuna/ios",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Zuna for iOS: the native app and the bundle that runs the shared client core in JavaScriptCore.",

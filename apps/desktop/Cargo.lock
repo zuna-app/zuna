@@ -10064,7 +10064,7 @@ source = "git+https://github.com/SocketByte/zed?rev=c5e567c7b0bd8b29b60b0673d80e
 
 [[package]]
 name = "zuna-crypto"
-version = "0.1.0"
+version = "0.10.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -10083,7 +10083,7 @@ dependencies = [
 
 [[package]]
 name = "zuna-windows"
-version = "0.0.0"
+version = "0.10.0"
 dependencies = [
  "ashpd",
  "base64 0.22.1",

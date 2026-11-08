@@ -1,6 +1,6 @@
 [package]
 name = "zuna-media-ffmpeg"
-version = "0.0.0"
+version = "0.10.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "The native app's media through FFmpeg, as a library of its own on macOS."

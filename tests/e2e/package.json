@@ -1,6 +1,6 @@
 {
   "name": "@zuna/e2e",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Cross-client end-to-end tests: the client core and the web app against the iOS app's host, through a real server.",
