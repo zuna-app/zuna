@@ -39,3 +39,10 @@ vite.on("exit", (code) => {
   host.kill();
   process.exit(code ?? 0);
 });
+// Without it every /_zuna request fails, so it doesn't carry on as if it were there.
+host.on("exit", (code) => {
+  if (code === null || code === 0) return;
+  console.error("\nzuna-web stopped: is port 8790 in use?");
+  vite.kill();
+  process.exit(1);
+});

@@ -50,6 +50,10 @@ const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.
 children.push(media);
 media.stdout.on("data", (chunk) => log.write(chunk));
 media.stderr.on("data", (chunk) => log.write(chunk));
+// Its error only goes to the log, and chat works without it, so it's said here.
+media.on("exit", (code) => {
+  if (!stopping) console.error(`\nLiveKit stopped (code ${code}), so voice channels and calls won't work. Is port 7880 in use? See ${logPath}`);
+});
 
 // The server next, since setting everything up needs its one-time setup link.
 const server = spawn(binary, ["--listen", "127.0.0.1:8787", "--data", serverData, "--public-url", URL, "--auth-burst", "1000", "--livekit-url", "ws://127.0.0.1:7880", "--livekit-key", "devkey", "--livekit-secret", "secret"], {

@@ -68,22 +68,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: update each by hand to the current release commit of its newest major, keeping the `# vN` comments (no Dependabot). Check setup-node v5's automatic caching: keep `cache: npm` where it is, none in `advisories`.
 - Check after: CI has no Node 20 deprecation annotations.
 
-### Notice when LiveKit or zuna-web stops in the dev scripts
-- Where: scripts/dev-server.mjs:49-52; scripts/dev-web.mjs:26-41
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: dev-server.mjs watches the chat server and bots exiting, but not LiveKit; if port 7880 is taken (e.g. a LiveKit left by a voice check), LiveKit exits at once, its error goes only to .dev-data/server.log, and the script still prints "is ready". dev-web.mjs ignores zuna-web exiting (port 8790 taken), so Vite runs on with every `/_zuna` request failing.
-- Suggested change: dev-server.mjs: `media.on("exit", (code) => { if (!stopping) console.error(\`\nLiveKit stopped (code ${code}), so voice channels won't work. Is port 7880 in use? See ${logPath}\`); })`. dev-web.mjs: `host.on("exit", (code) => { if (code !== null && code !== 0) { console.error("zuna-web stopped: is port 8790 in use?"); vite.kill(); } })`.
-- Check after: `npm run dev:server` with 7880 taken prints the warning; `npm run dev:web` with 8790 taken stops with the message.
-
-### Install exactly what the lockfile says in ensureBuilt
-- Where: scripts/lib.mjs:43-51; dev/setup.sh:104-106
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `ensureBuilt()` runs `npm install` when the lockfile hash changes after a pull; that may rewrite package-lock.json for the local npm version, leaving an uncommitted change the next commit can pick up. It also left this checkout's tree inconsistent (`npm ls` lists `@zuna/desktop-electron-legacy` and Electron-era packages as extraneous). dev/setup.sh deliberately uses `npm ci`.
-- Suggested change: use `npm ci` in ensureBuilt (it only runs when the lockfile changed, and it prunes leftovers).
-- Check after: after a pull that changes package-lock.json, `npm run dev:server`; `git status` stays clean, `npm ls` shows nothing extraneous.
-
 ### Retire poc/screenshare, which needs the removed Electron, and keep its key-log check
 - Where: poc/screenshare/scripts/demo.mjs:92-94, :236; poc/screenshare/viewer/main.cjs:3; poc/screenshare/README.md:13, :19; poc/screenshare/scripts/deps.mjs:13-34; scripts/lib.mjs:113-117; docs/SECURITY_DETAILS.md:111; docs/SCREEN_SHARE.md:11
 - Category: cleanup

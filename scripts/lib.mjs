@@ -46,9 +46,11 @@ const lockHash = () => createHash("sha256").update(readFileSync(join(root, "pack
 /** Installs and builds whatever is missing or out of date, so a new checkout or a pull just works. */
 export function ensureBuilt() {
   // What was installed goes by the lock file's content, since a pull that leaves it the same still touches it.
+  // Exactly what it says, as npm ci installs, which leaves the lock file alone, where npm install
+  // could rewrite it for this npm, and takes away what's no longer in it.
   const installed = join(root, "node_modules", ".zuna-installed");
   if (!existsSync(installed) || readFileSync(installed, "utf8") !== lockHash()) {
-    const result = spawnSync("npm install", { shell: true, stdio: "inherit", cwd: root });
+    const result = spawnSync("npm ci", { shell: true, stdio: "inherit", cwd: root });
     if (result.status !== 0) process.exit(result.status ?? 1);
     writeFileSync(installed, lockHash());
   }
