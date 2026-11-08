@@ -7,8 +7,7 @@
   "type": "module",
   "scripts": {
     "build:core": "node core-bundle/build.mjs",
-    "typecheck": "tsc --noEmit -p core-bundle/tsconfig.json",
-    "spike:highlight": "node spikes/highlight.mjs"
+    "typecheck": "tsc --noEmit -p core-bundle/tsconfig.json"
   },
   "devDependencies": {
     "@zuna/core": "*",

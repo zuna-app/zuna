@@ -140,13 +140,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: add to .gitattributes `apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures/*.json text eol=lf`, `apps/ios/Zuna/Resources/emoji.json text eol=lf` and `packages/core/test/fixtures/** -text`; `git add --renormalize .` in the same commit; shorten CLAUDE.md's workaround.
 - Check after: on Windows, with the throwaway config but without UPDATE_GOLDEN, `npx vitest run test/golden.test.ts` passes in tests/e2e; `npm run test:core` (metadata tests).
 
-### Remove the dead `spike:highlight` script
-- Where: apps/ios/package.json:11 (`"spike:highlight": "node spikes/highlight.mjs"`; apps/ios/spikes/ doesn't exist)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: delete the line.
-- Check after: `npm run -w @zuna/ios` lists only build:core and typecheck.
-
 ### Give the desktop core bundle its own dependencies, and one esbuild setup shared with iOS
 - Where: apps/desktop/core-bundle/build.mjs:8-41; apps/ios/core-bundle/build.mjs:14-55; apps/ios/package.json:14-18
 - Category: deps
