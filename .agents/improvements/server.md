@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Make the hourly storage recount cheaper and race-free
-- Where: server/internal/store/limits.go:51-99
-- Category: perf
-- Severity: low ; Effort: M ; Confidence: medium
-- What's wrong: every hour it scans messages, reactions, vault_items and group_events in full, then runs `UPDATE users SET stored_bytes = 0, commit_bytes = 0`, rewriting every user row in one transaction. The totals are read outside that transaction, so bytes added in between are lost until the next hour. In PostgreSQL, the blanket update collides with every `countBytes` running at the same time.
-- Suggested change: update only the rows whose totals changed (`... WHERE id = ? AND (stored_bytes != ? OR commit_bytes != ?)`, plus zeroing users who have nothing), or compute and write in one statement inside `tx`.
-- Check after: Go tests (quota tests) and the PostgreSQL run.
-
 ### Cache PostgreSQL placeholder rewriting
 - Where: server/internal/store/postgres.go:105-148, called from store.go:67-86
 - Category: perf

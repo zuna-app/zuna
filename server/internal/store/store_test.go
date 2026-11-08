@@ -593,6 +593,13 @@ func TestStorageIsRecounted(t *testing.T) {
 	if err := send("three", 250); err != nil {
 		t.Fatal(err)
 	}
+	// A recount that finds the totals right changes nothing.
+	if err := db.RecountStorage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := stored(); n != 200 {
+		t.Fatalf("%d bytes after recounting again", n)
+	}
 }
 
 func TestOnlyOldCommitsFarBehindArePruned(t *testing.T) {

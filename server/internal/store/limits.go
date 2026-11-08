@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -48,11 +49,25 @@ func countBytes(ctx context.Context, tx handle, column, userID string, n, limit 
 // RecountStorage works out again what everyone has stored, since the running totals
 // only ever go up: nothing about deleting a message says whose total it was on, and
 // expiring messages deletes a lot of them at once.
+//
+// It counts, and reads the totals, in one read-only snapshot, which keeps no writer
+// waiting, then moves each total that's off by the difference. Whatever was added
+// since the snapshot stays added, and only those rows are written.
 func (d *DB) RecountStorage(ctx context.Context) error {
+	options := &sql.TxOptions{ReadOnly: true}
+	if d.postgres {
+		options.Isolation = sql.LevelRepeatableRead
+	}
+	snapshot, err := d.conn.BeginTx(ctx, options)
+	if err != nil {
+		return err
+	}
+	defer snapshot.Rollback()
+	read := handle{snapshot, d.postgres}
 	stored := map[string]int64{}
 	commits := map[string]int64{}
 	add := func(totals map[string]int64, query string) error {
-		rows, err := d.sql.QueryContext(ctx, query)
+		rows, err := read.QueryContext(ctx, query)
 		if err != nil {
 			return err
 		}
@@ -80,17 +95,38 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 		FROM group_events WHERE kind = 'commit' GROUP BY sender_user`); err != nil {
 		return err
 	}
-	return d.tx(ctx, func(tx handle) error {
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = 0, commit_bytes = 0`); err != nil {
+	type change struct {
+		user            string
+		stored, commits int64
+	}
+	var changes []change
+	rows, err := read.QueryContext(ctx, `SELECT id, stored_bytes, commit_bytes FROM users`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var user string
+		var heldStored, heldCommits int64
+		if err := rows.Scan(&user, &heldStored, &heldCommits); err != nil {
+			rows.Close()
 			return err
 		}
-		for user, n := range stored {
-			if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = ? WHERE id = ?`, n, user); err != nil {
-				return err
-			}
+		if c := (change{user, stored[user] - heldStored, commits[user] - heldCommits}); c.stored != 0 || c.commits != 0 {
+			changes = append(changes, c)
 		}
-		for user, n := range commits {
-			if _, err := tx.ExecContext(ctx, `UPDATE users SET commit_bytes = ? WHERE id = ?`, n, user); err != nil {
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	snapshot.Rollback()
+	if len(changes) == 0 {
+		return nil
+	}
+	return d.tx(ctx, func(tx handle) error {
+		for _, c := range changes {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = stored_bytes + ?, commit_bytes = commit_bytes + ? WHERE id = ?`,
+				c.stored, c.commits, c.user); err != nil {
 				return err
 			}
 		}
