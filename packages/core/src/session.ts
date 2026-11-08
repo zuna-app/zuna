@@ -5303,18 +5303,22 @@ export class ServerSession {
     return row ? this.toMessageView(row) : null;
   }
 
+  /** Replies' targets the server wouldn't give this member, by group and ID, so a page doesn't ask again each time it opens. */
+  private unreachableReplies = new Set<string>();
+
   private async fetchMissingReplies(groupId: string, messages: MessageView[]): Promise<void> {
-    for (const message of messages) {
-      if (message.reply && !message.reply.senderId && !message.reply.deleted) {
-        try {
-          this.ingest(await this.api.message(groupId, message.reply.id), false);
-          const row = this.messageRow(groupId, message.id);
-          if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
-        } catch {
-          // Not visible to this member, for example sent before they joined.
-        }
+    const missing = messages.filter((message) => message.reply && !message.reply.senderId && !message.reply.deleted && !this.unreachableReplies.has(`${groupId}/${message.reply.id}`));
+    await eachLimited(missing, 4, async (message) => {
+      const target = message.reply!.id;
+      try {
+        this.ingest(await this.api.message(groupId, target), false);
+        const row = this.messageRow(groupId, message.id);
+        if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
+      } catch (error) {
+        // Not visible to this member, for example sent before they joined, or gone: that won't change.
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) this.unreachableReplies.add(`${groupId}/${target}`);
       }
-    }
+    });
   }
 
   async loadPins(groupId: string): Promise<MessageView[]> {

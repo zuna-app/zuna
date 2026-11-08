@@ -20,14 +20,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: cache each group's `ConversationView` and invalidate from the places that change it (ingest, read, prefs, group/meta changes, channel changes), or at least cache `lastMessage` and unread counts per group keyed by the latest `updated_seq` and `ownRead`. Optionally have `emitConversations(groupId?)` carry changed ids so hosts could patch (an event shape change: update types.ts, Models.swift and models.rs together).
 - Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
 
-### Remember replies that can't be fetched instead of asking again on every page
-- Where: packages/core/src/session.ts:5164-5176 (`fetchMissingReplies`), called from `loadMessages` 5132
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: for every message on the page whose reply target isn't stored locally, it awaits `api.message` one at a time (up to 50 requests). A reply to something this member can't see gets 403/404 every time, so every open or scroll repeats them.
-- Suggested change: keep a per-session `Set` of `group/id` lookups that failed with 403/404 and skip them; fetch the rest with small concurrency.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
 ### Build the message event from what `ingest` already has, instead of reading and decrypting the row again
 - Where: packages/core/src/session.ts:4327 (`SELECT row_id` after the upsert), 4334-4335 (`messageRow` + `toMessageView`, which opens and re-validates the body just sealed)
 - Category: perf
