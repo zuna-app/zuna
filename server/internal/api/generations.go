@@ -242,6 +242,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		s.hub.ToUsers([]string{sess.UserID}, Event{Type: "device_revoked", Data: map[string]string{"device_id": id}})
 		s.hub.Disconnect(sess.UserID, id)
 	}
+	s.notified.forget(payload.Removed...)
 	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "account", Data: map[string]int64{"generation": payload.Gen}})
 	s.broadcastUser(r, sess.UserID)
 	writeOK(w)

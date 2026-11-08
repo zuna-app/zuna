@@ -179,6 +179,8 @@ func collapseID(key []byte, messageID string) string {
 // waiting for it isn't sent.
 func (s *Server) pushRead(userID, readingDevice, groupID string) {
 	s.waiting.read(groupID, userID)
+	// The phone that read it has cleared its own, so the next read elsewhere needn't wake it.
+	s.notified.remove(readingDevice, groupID)
 	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID}, true)
 }
 
@@ -272,6 +274,7 @@ func (s *Server) sendPush(target store.PushRegistration, kind pushKind, fields m
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusGone {
 		// The relay says the phone can't be reached any more, such as after the app was deleted.
+		s.notified.forget(target.DeviceID)
 		if err := s.db.DeletePushRegistration(context.Background(), target.DeviceID, target.Handle); err != nil {
 			slog.Warn("forgetting a phone that's gone", "error", err)
 		}
@@ -329,6 +332,19 @@ func (n *notifiedChats) remove(deviceID, groupID string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.chats[deviceID], groupID)
+	if len(n.chats[deviceID]) == 0 {
+		delete(n.chats, deviceID)
+	}
+}
+
+// forget drops what was sent to devices that are gone: signed out, removed,
+// banned, or no longer reachable through their relay.
+func (n *notifiedChats) forget(deviceIDs ...string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, id := range deviceIDs {
+		delete(n.chats, id)
+	}
 }
 
 // waitingPushes are notifications held back while someone is on another

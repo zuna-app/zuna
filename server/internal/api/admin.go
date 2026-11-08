@@ -414,7 +414,7 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 
 func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	targetID := r.PathValue("id")
-	_, allowed, err := s.canModerate(r, sess, targetID)
+	target, allowed, err := s.canModerate(r, sess, targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -444,6 +444,9 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 	s.endVoiceFor(r.Context(), targetID, "banned", true)
 	s.hub.EndPresence(targetID)
 	s.hub.Disconnect(targetID, "")
+	for _, device := range target.Devices {
+		s.notified.forget(device.ID)
+	}
 	s.broadcastUser(r, targetID)
 	writeOK(w)
 }

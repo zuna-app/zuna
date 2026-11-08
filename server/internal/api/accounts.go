@@ -392,6 +392,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, sess *stor
 		}
 		s.broadcastUser(r, sess.UserID)
 		s.hub.Disconnect(sess.UserID, sess.DeviceID)
+		s.notified.forget(sess.DeviceID)
 	}
 	writeOK(w)
 }
@@ -602,6 +603,7 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request, sess
 	}
 	s.hub.ToUsers([]string{sess.UserID}, Event{Type: "device_revoked", Data: map[string]string{"device_id": deviceID}})
 	s.hub.Disconnect(sess.UserID, deviceID)
+	s.notified.forget(deviceID)
 	s.broadcastUser(r, sess.UserID)
 	writeOK(w)
 }

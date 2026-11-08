@@ -393,4 +393,12 @@ func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
 	if fields := openPush(t, key, deleted); deleted.Type != "background" || fields["t"] != "delete" || fields["m"] != gone {
 		t.Fatalf("delete push: %+v %v", deleted, fields)
 	}
+
+	// The phone reading it itself clears its own, so a read on the laptop after wakes nothing.
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", bob.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.none(t)
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.none(t)
 }

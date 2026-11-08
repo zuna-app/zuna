@@ -52,14 +52,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: have `Sync` report whether anything changed (compare against `EmoteSet` and the stored name), and only broadcast then. Keep the broadcast after the first load at startup.
 - Check after: Go tests (emote tests with the fake 7TV).
 
-### Remove the reading device's own notified entry
-- Where: server/internal/api/push.go:180-214, :300-332
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `pushClearing(..., exceptDevice=readingDevice, done=true)` skips the reading device before the `remove`. So a phone that was notified and then read the chat itself keeps its entry. The next read on another device sends that phone a pointless silent push, which wakes it through APNs and uses up a relay rate-limit token. Entries for revoked devices are never removed either, so the map grows for the life of the process.
-- Suggested change: in `pushRead`, call `s.notified.remove(readingDevice, groupID)`. Add a `forget(deviceID)` and call it on revoke, logout, the devices a rotation removes, ban, and a 410 from the relay.
-- Check after: Go tests (push_test).
-
 ### Delete welcomes and bundles of revoked devices
 - Where: server/internal/store/users.go:605-621 (revokeDevice) and :339-373 (BanUser)
 - Category: robustness
