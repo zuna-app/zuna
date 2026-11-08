@@ -355,7 +355,7 @@ describe("notices", () => {
     add("sys-added", null, 300);
     add("m2", 2, 400);
     add("still-sending", null, 500);
-    db.exec("DROP TABLE joined_epochs; DROP TABLE epoch_starts; DROP TABLE device_departures; ALTER TABLE pinned_identities DROP COLUMN uploaded");
+    db.exec("DROP TABLE joined_epochs; DROP TABLE epoch_starts; DROP TABLE device_departures");
     db.exec("DROP TABLE identity_chain; DROP TABLE identity_state; DROP TABLE device_first_leaf");
     db.exec("ALTER TABLE messages DROP COLUMN unproven_delete_at");
     db.exec("DROP TABLE media");

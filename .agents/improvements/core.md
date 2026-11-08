@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: split the manifest across numbered items (`manifest:0..n`) written under one version, or shrink entries (binary ids and keys), and size-check the rotation path the same way. Until then, `warnOnce` and stop retrying while the pin set hasn't changed. Fix the comment. Read docs/ACCOUNT_KEY_ROTATION.md and SECURITY_DETAILS first.
 - Check after: `npx vitest run test/rotation.test.ts test/security.test.ts`.
 
-### Remove the never-read `pinned_identities.uploaded` column
-- Where: packages/core/src/db.ts:91; writes in session.ts:896, 1026, 1304, 1309, 2117 (`UPDATE pinned_identities SET uploaded = 0` on every rotation), 6004; packages/core/test/e2e.test.ts:358 drops it
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: nothing selects or filters on it; it's left from when pins were uploaded one by one.
-- Suggested change: remove the writes and arguments; leave the old migration; optionally drop the column in a new migration at the end of `MIGRATIONS`; update e2e.test.ts:358 if it goes.
-- Check after: `npx tsc --noEmit`, then `npx vitest run test/e2e.test.ts test/rotation.test.ts`.
-
 ### Stop the other upload and download workers once one chunk fails
 - Where: packages/core/src/session.ts:5729-5740 (`uploadBlob`), 5752-5763 (`downloadFile`)
 - Category: robustness

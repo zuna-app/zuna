@@ -931,7 +931,7 @@ export class ServerSession {
       this.groups.set(group.id, group);
     }
     // This account's own key comes from its vault, never from what the server says.
-    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.sealPin(this.account.userId, this.account.core.rootPublic)]);
+    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [this.account.userId, this.sealPin(this.account.userId, this.account.core.rootPublic)]);
     this.loadChains();
     this.rotationOpen = this.getKv<RotationIntent>(ROTATION_INTENT) !== null;
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
@@ -1061,7 +1061,7 @@ export class ServerSession {
     // Someone this account has verified is pinned to that key, whatever the server says now.
     const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
     if (!this.pinnedIdentity(api.id)) {
-      this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 0)", [api.id, this.sealPin(api.id, pinned ?? identityKey)]);
+      this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [api.id, this.sealPin(api.id, pinned ?? identityKey)]);
     }
     const previous = this.users.get(api.id);
     const changedNow = !!pinned && !equalBytes(pinned, identityKey) && previous?.trust !== "changed";
@@ -1344,12 +1344,12 @@ export class ServerSession {
         const before = held && this.openVerified(userId, held.identity_key);
         if (before && equalBytes(before, key)) continue;
         this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, this.sealVerified(userId, key)]);
-        if (key.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, this.sealPin(userId, key)]);
+        if (key.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [userId, this.sealPin(userId, key)]);
         touched.add(userId);
       }
       for (const [userId, encoded] of Object.entries(manifest.pins)) {
         if (this.pinnedIdentity(userId)) continue;
-        this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, this.sealPin(userId, fromBase64(encoded))]);
+        this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [userId, this.sealPin(userId, fromBase64(encoded))]);
         touched.add(userId);
       }
     });
@@ -2181,7 +2181,6 @@ export class ServerSession {
     this.db.transaction(() => {
       for (const link of links) this.acceptLink(userId, link);
       this.db.run("DELETE FROM kv WHERE k = ?", [ROTATION_INTENT]);
-      this.db.run("UPDATE pinned_identities SET uploaded = 0");
     });
     this.rotationOpen = false;
     this.removalsUncovered = false;
@@ -6124,7 +6123,7 @@ export class ServerSession {
         for (const link of chain) this.acceptLink(userId, link);
       }
       if (forked) this.updateIdentityState(userId, { forked: 0, known_generation: 0, known_hash: null }, { chain: true });
-      if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [this.sealPin(userId, pin), userId]);
+      if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [this.sealPin(userId, pin), userId]);
       this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, this.sealVerified(userId, pin)]);
       this.noteUnsavedTrust({ verified: userId });
       this.setVerifiedPosition(userId, this.headGeneration(userId));

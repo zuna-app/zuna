@@ -172,6 +172,8 @@ const MIGRATIONS: string[] = [
   `,
   // The reactions to a message that hasn't opened yet, kept until it does.
   `ALTER TABLE messages ADD COLUMN raw_reactions BLOB;`,
+  // Pins went up one by one once; the manifest carries them all now, and nothing read this.
+  `ALTER TABLE pinned_identities DROP COLUMN uploaded;`,
 ];
 
 export function migrate(db: LocalDb): void {
