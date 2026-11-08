@@ -1050,7 +1050,8 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     await waitFor(() => sessionOf(bob).messageRow(groupId, first.id)?.status === "sent", "bob to read it");
     const epoch = sessionOf(carol).mlsEpoch(groupId);
     withServerDatabase((db) => {
-      db.prepare("UPDATE groups SET epoch = 0, group_info = NULL WHERE id = ?").run(groupId);
+      db.prepare("UPDATE groups SET epoch = 0 WHERE id = ?").run(groupId);
+      db.prepare("DELETE FROM group_infos WHERE group_id = ?").run(groupId);
       db.prepare("DELETE FROM group_events WHERE group_id = ?").run(groupId);
     });
     addToRoster(groupId, ghost.userId);
