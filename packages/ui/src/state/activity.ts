@@ -3,6 +3,9 @@
 // window counts 5 s later. While they're here,
 // and for a while after, their other devices hold notifications back, and
 // don't show them if they read the chat here (notificationDelay in the core).
+// So a chat on screen is read only while they're here (personHere), and once
+// they're back: one read in a window left in front with nobody at it would
+// take back the notification their phone is waiting to show.
 
 import { useApp } from "./store";
 
@@ -23,6 +26,7 @@ export function watchActivity(): () => void {
     const { core } = useApp.getState();
     if (!core || active === current) return;
     current = active;
+    useApp.setState({ personHere: active });
     void core.client.setActive(active);
   };
 

@@ -96,6 +96,8 @@ interface AppState {
   toasts: Toast[];
   settings: AppSettings;
   windowFocused: boolean;
+  /** Whether the person is here (activity.ts): the window has focus, with input in the last 5 s. Only then does a chat on screen count as read. */
+  personHere: boolean;
   jumpTarget: { groupId: string; messageId: string; nonce: number } | null;
   replyTo: Record<string, MessageView | null>;
   editing: Record<string, MessageView | null>;
@@ -633,6 +635,7 @@ export const useApp = create<AppState>((set, get) => {
     toasts: [],
     settings: loadSettings(),
     windowFocused: document.hasFocus(),
+    personHere: false,
     jumpTarget: null,
     replyTo: {},
     editing: {},

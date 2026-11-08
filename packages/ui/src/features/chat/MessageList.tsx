@@ -151,7 +151,8 @@ export function MessageList({
   const loadOlder = useApp((state) => state.loadOlder);
   const returnToLatest = useApp((state) => state.returnToLatest);
   const jumpTarget = useApp((state) => state.jumpTarget);
-  const windowFocused = useApp((state) => state.windowFocused);
+  // Being here lasts 5 s after the window loses focus, which stops reading at once.
+  const here = useApp((state) => state.windowFocused && state.personHere);
   const session = useApp((state) => state.session);
   const selfId = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId]?.self?.userId : undefined)) ?? "";
   const virtuoso = useRef<VirtuosoHandle>(null);
@@ -290,7 +291,7 @@ export function MessageList({
     [listId],
   );
 
-  // Read as far as has been on screen in a focused window, which at the newest message is everything.
+  // Read as far as has been on screen while the person is here, which at the newest message is everything.
   const newestSeq = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i]!;
@@ -303,7 +304,7 @@ export function MessageList({
   useEffect(() => {
     const groupId = conversation.groupId;
     const upTo = atBottom && !detached ? newestSeq : onScreen;
-    if (!windowFocused || !groupId || upTo <= conversation.ownRead) return;
+    if (!here || !groupId || upTo <= conversation.ownRead) return;
     // One position at a time, as the server keeps the last it gets. While scrolling,
     // the furthest so far goes once the one before it is done.
     const state = reading.current;
@@ -322,7 +323,7 @@ export function MessageList({
         });
     };
     send();
-  }, [atBottom, detached, windowFocused, newestSeq, onScreen, conversation.ownRead, conversation.groupId, session]);
+  }, [atBottom, detached, here, newestSeq, onScreen, conversation.ownRead, conversation.groupId, session]);
 
   // Whenever anything changes size (a new message, a picture loading, the message
   // box growing, a reply bar opening) this runs before the frame is painted. On the

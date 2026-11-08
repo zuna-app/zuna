@@ -88,8 +88,8 @@ export function App() {
     };
   }, [phase, setOverlay]);
 
-  // Whether the window has focus decides what counts as read. The window usually gains
-  // focus while the app is still starting, so this listens from the first render.
+  // Whether the window has focus decides, with input (activity.ts), what counts as read. The
+  // window usually gains focus while the app is still starting, so this listens from the first render.
   useEffect(() => {
     const setFocused = (focused: boolean) => useApp.setState({ windowFocused: focused });
     setFocused(document.hasFocus());

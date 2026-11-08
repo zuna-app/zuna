@@ -1279,14 +1279,22 @@ impl AppState {
     }
 
     /// Whether the window is in front: focused, and on screen, as GPUI can still think a minimized
-    /// window focused. Only then does a chat open in it count as seen, or the person as here.
+    /// window focused. Only then does a chat open in it hold its notifications back.
     pub fn window_in_front(&self) -> bool {
         self.window_focused && crate::platform::main_visible()
     }
 
-    /// Tells the core whether the person is here, much as Telegram counts it: the window in front
-    /// and input in the last 5 s (`AWAY_AFTER_MS`). While they are, they show as online, and their
-    /// other devices hold notifications back (activity.ts).
+    /// Whether the person is here, much as Telegram counts it: the window in front and input in the
+    /// last 5 s (`AWAY_AFTER_MS`). Only then does a chat open in it count as seen: one read in a
+    /// window left in front with nobody at it would take back the notification their phone is
+    /// waiting to show.
+    pub fn person_here(&self) -> bool {
+        self.window_in_front() && crate::platform::idle_ms() < crate::platform::AWAY_AFTER_MS
+    }
+
+    /// Tells the core whether the person is here (`person_here`). While they are, they show as
+    /// online, and their other devices hold notifications back (activity.ts). Once they're back,
+    /// the open chat reads what came while they were away.
     fn watch_activity(&mut self, cx: &mut Context<Self>) {
         if self._activity.is_some() {
             return;
@@ -1295,10 +1303,11 @@ impl AppState {
             loop {
                 let alive = this
                     .update(cx, |state, cx| {
-                        let here = state.window_in_front() && crate::platform::idle_ms() < crate::platform::AWAY_AFTER_MS;
+                        let here = state.person_here();
                         if state.reported_active != Some(here) {
                             state.reported_active = Some(here);
                             state.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
+                            cx.notify();
                         }
                     })
                     .is_ok();

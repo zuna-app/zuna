@@ -651,17 +651,15 @@ impl ChatView {
 
     fn mark_read(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
-        // Read only where it can be seen: a chat open in a minimized window isn't, and reading it
-        // would take back the notification the person's phone is waiting to show.
-        if !state.window_in_front() {
-            return;
-        }
         let Some(group) = conversation.group_id.clone() else { return };
         let Some(list) = state.lists.get(&group) else { return };
         // The list is in order, so the newest is found from the end, as this runs every frame.
         let newest = list.items.iter().rev().filter(|item| !item.id.starts_with("sys-")).find_map(|item| item.seq).unwrap_or(0.);
         let up_to = if self.at_bottom && !list.detached { newest } else { self.visible_newest };
-        if up_to > conversation.own_read {
+        // Read only while the person is here to see it: not in a minimized window, nor one left in
+        // front with nobody at it, as reading would take back the notification their phone is
+        // waiting to show. They read it once they're back (`watch_activity`).
+        if up_to > conversation.own_read && state.person_here() {
             self.state.update(cx, |state, cx| state.mark_read(&group, up_to, cx));
         }
     }
