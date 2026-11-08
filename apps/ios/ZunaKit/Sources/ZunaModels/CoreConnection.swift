@@ -56,7 +56,8 @@ public final class CoreConnection: @unchecked Sendable {
     public init(runtime: CoreRuntime, onEvent: @escaping @Sendable (CoreEvent) -> Void) {
         self.onEvent = onEvent
         channel = runtime.connect { [weak self] json in
-            self?.inbox.async { self?.receive(json) }
+            guard let self else { return }
+            inbox.async { [weak self] in self?.receive(json) }
         }
     }
 

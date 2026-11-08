@@ -8,8 +8,8 @@ import ZunaModels
 /// while notifications are set to show no names.
 enum ShareSuggestions {
     /// A chat this device just sent to, named as `ShareTarget.id` and notifications name it,
-    /// so the share extension opens with it picked.
-    static func sent(to key: String, on serverId: String, title: String, avatar: AvatarRef?, through core: CoreConnection) async {
+    /// so the share extension opens with it picked. On the main actor, as its pictures are kept there.
+    @MainActor static func sent(to key: String, on serverId: String, title: String, avatar: AvatarRef?, through core: CoreConnection) async {
         guard NotificationSettings.load().preview != .none else { return }
         let id = "\(serverId)/\(key)"
         let image = await picture(avatar, serverId: serverId, through: core)
