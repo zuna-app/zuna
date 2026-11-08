@@ -24,12 +24,12 @@ zuna-crypto = { path = "../../crypto" }
 
 rusqlite = { version = "0.41", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# HTTP and WebSocket at the versions LiveKit's signalling has, so there's one copy of each.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
 webpki-roots = "1"
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-no-provider", "http2", "stream"] }
 x509-parser = "0.18"
 sha2 = "0.10"
 hkdf = "0.12"
@@ -40,17 +40,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
-anyhow = "1"
 parking_lot = "0.12"
 log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 unicode-segmentation = "1"
 regex = "1"
 fancy-regex = "0.14"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 smallvec = "1"
 dirs = "6"
-open = "5"
 raw-window-handle = "0.6"
 
 # Voice channels and calls: LiveKit, as the native screen share uses it, whose frame
@@ -84,7 +82,7 @@ ffmpeg-next = { version = "9", default-features = false, features = ["codec", "f
 
 # Notifications' initials on Linux and macOS, drawn with the resvg GPUI already has.
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts"] }
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts"] }
 
 # The sound devices: through WASAPI on Windows, and Core Audio on macOS.
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]

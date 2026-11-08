@@ -236,7 +236,7 @@ pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
     let client = CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
-                .tls_backend_preconfigured(tls::client_config(&[b"h2", b"http/1.1"]))
+                .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
                 .connect_timeout(std::time::Duration::from_secs(15))
                 .timeout(std::time::Duration::from_secs(60))
                 .build()

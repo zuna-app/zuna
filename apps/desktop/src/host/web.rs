@@ -115,7 +115,7 @@ impl reqwest::dns::Resolve for CheckedResolver {
 /// A client for previews alone: no cookies, the checked resolver, and each redirect checked.
 pub fn client(tls: rustls::ClientConfig) -> reqwest::Client {
     reqwest::Client::builder()
-        .tls_backend_preconfigured(tls)
+        .use_preconfigured_tls(tls)
         .dns_resolver(Arc::new(CheckedResolver))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() > MAX_REDIRECTS {

@@ -87,7 +87,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
     let context = Context::full(&runtime).expect("a QuickJS context");
 
     let http = reqwest::Client::builder()
-        .tls_backend_preconfigured(tls::client_config(&[b"h2", b"http/1.1"]))
+        .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
         .connect_timeout(Duration::from_secs(15))
         .build()
         .expect("an HTTP client");

@@ -72,7 +72,7 @@ fn check(publisher: &str) -> Result<(), String> {
         return Ok(());
     }
     let client = reqwest::Client::builder()
-        .tls_backend_preconfigured(crate::host::tls_config())
+        .use_preconfigured_tls(crate::host::tls_config())
         .user_agent("Zuna")
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(600))

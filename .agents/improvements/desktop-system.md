@@ -74,14 +74,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move the shared parts to `platform/unix/window.rs`; keep only each system's `run`.
 - Check after: linux-check.mjs, mac-voice-check.mjs.
 
-### Use GPUI's resvg 0.46 instead of a second 0.45
-- Where: apps/desktop/Cargo.toml:85-87 (`resvg = "0.45"`, commented "the resvg GPUI already has"); Cargo.lock has gpui on resvg 0.46.0 and the app on 0.45.1, so usvg, svgtypes, roxmltree, skrifa and read-fonts are duplicated
-- Category: deps
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: the comment is false; two SVG stacks compile on Linux and macOS.
-- Suggested change: bump to 0.46 and adapt platform/notification.rs:73-104 to any API changes.
-- Check after: linux-check.mjs (initials), mac-voice-check.mjs.
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps
@@ -89,20 +81,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - What's wrong: three copies of ashpd and two of oo7 build on Linux, and the comment says they're shared.
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
-
-### Drop dependencies nothing uses
-- Where: apps/desktop/Cargo.toml:43 (`anyhow`), 53 (`open`), 46 (env_logger's `humantime` feature, while main.rs:38-47 formats timestamps with chrono), 28 (`tokio-rustls`, which tokio-tungstenite already brings)
-- Category: deps
-- Severity: low ; Effort: S ; Confidence: high for anyhow and open, medium for the other two
-- Suggested change: remove them; build on all three systems; if tokio-rustls turns out to pin a feature, say so in a comment.
-- Check after: `npm run dev:windows`, `dev:linux`, `dev:macos` builds.
-
-### Line up the app's HTTP, WebSocket and windows crates with LiveKit's and GPUI's
-- Where: apps/desktop/Cargo.toml:27, 32 (tokio-tungstenite 0.30, reqwest 0.13) vs livekit-net's 0.29 and 0.12; Cargo.toml:95-98 (windows 0.61) vs gpui's 0.62
-- Category: deps
-- Severity: low ; Effort: M ; Confidence: medium
-- Suggested change: move to windows 0.62 (screenshare already uses it). For tungstenite and reqwest, match LiveKit's versions or note in Cargo.toml that the duplication is deliberate until LiveKit moves.
-- Check after: `npm run dev:windows`, linux-check.mjs.
 
 ### Cache the Linux tray's icons rather than decoding PNGs on every unread change
 - Where: platform/linux/tray.rs:42-52 (`icon_pixmap` decodes and resizes six sizes per call); platform/mod.rs:220-229 (`app_icon` decodes per call); ksni 0.3.7 (service.rs:598-619) hashes `icon_pixmap()` on every update, and `set_unread` (tray.rs:95-99) triggers one
