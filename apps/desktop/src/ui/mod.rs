@@ -780,7 +780,15 @@ impl Render for Root {
                             .child(main),
                     )
                     .on_mouse_move(cx.listener(move |root, event: &MouseMoveEvent, _, cx| {
-                        if let Some((start_x, start_width, _)) = root.resizing {
+                        if let Some((start_x, start_width, width)) = root.resizing {
+                            // Let go where something else took the button's release, as the list's
+                            // scrollbar beside the handle can: the resize ends there, not on the next click.
+                            if event.pressed_button != Some(MouseButton::Left) {
+                                root.resizing = None;
+                                root.state.update(cx, |state, cx| state.update_settings(|settings| settings.list_width = width, cx));
+                                cx.notify();
+                                return;
+                            }
                             let width = (start_width + f32::from(event.position.x) - start_x).clamp(260., 460.);
                             root.resizing = Some((start_x, start_width, width));
                             cx.notify();
