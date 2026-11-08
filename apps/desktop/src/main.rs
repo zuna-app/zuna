@@ -95,8 +95,12 @@ fn main() {
     application.run(move |cx: &mut App| {
         // Windows knows the app by this, as the Start menu's shortcut has it, rather than a name
         // it would work out from the program's path, which Focus Assist's list never matched.
+        // A copy that wasn't installed, as a build, has one of its own, so it isn't taken for the installed app.
         #[cfg(windows)]
-        cx.set_app_identity(platform::AUMID, "Zuna");
+        {
+            let installed = std::env::current_exe().is_ok_and(|exe| platform::updates::installed(&exe));
+            cx.set_app_identity(if installed { platform::AUMID } else { concat!("chat.zuna.desktop", ".dev") }, "Zuna");
+        }
         assets::load_fonts(cx);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         platform::install(cx);
