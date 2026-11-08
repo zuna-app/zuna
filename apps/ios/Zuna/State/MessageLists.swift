@@ -33,6 +33,24 @@ extension AppModel {
         lists[Self.listKey(serverId, listId)]
     }
 
+    /// How many chats keep their loaded messages: those opened most recently. One opened again
+    /// after that loads from this device's database, as when it was first opened.
+    private static let listsKept = 20
+
+    /// Notes a chat being opened, and lets go of the messages of those opened longest ago,
+    /// past `listsKept`, so a long session doesn't keep every page of every chat it opened.
+    func keepRecentLists(opening key: String) {
+        listOpenings += 1
+        listOpened[key] = listOpenings
+        guard lists.count > Self.listsKept else { return }
+        let oldest = lists.keys.filter { $0 != key && !(lists[$0]?.loading ?? false) }.sorted { (listOpened[$0] ?? 0) < (listOpened[$1] ?? 0) }
+        for stale in oldest.prefix(lists.count - Self.listsKept) {
+            lists[stale] = nil
+            listOpened[stale] = nil
+            savedPositions[stale] = nil
+        }
+    }
+
     /// How many pages a chat loads to open at its first unread message, which past that it opens without.
     private static let unreadPages = 20
 
@@ -46,6 +64,7 @@ extension AppModel {
     /// first of them unless `toUnread` is false; later changes arrive as events.
     func loadList(_ serverId: String, _ listId: String, groupId: String?, toUnread: Bool = true) async {
         let key = Self.listKey(serverId, listId)
+        keepRecentLists(opening: key)
         if let existing = lists[key], existing.loaded || existing.loading { return }
         lists[key, default: MessageList()].loading = true
         guard let groupId else {

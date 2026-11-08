@@ -28,11 +28,3 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: in `receive`, hop to a private serial queue (keeps replies and events in order); decode a small envelope (kind, id, ok, error) from the raw Data and resume with that Data, then decode `Reply<V> { value }` in `call`. Decode events in a single pass the same way.
 - Check after: `swift test` (CoreConnectionTests, WireTests), `npm run test:ios`, `npm run test:ios:perf`.
 
-### Bound the loaded message lists, and clean up after removed servers
-- Where: apps/ios/Zuna/State/AppModel.swift:188-202, 493-504; apps/ios/Zuna/State/MessageLists.swift:47-120; apps/ios/Zuna/State/ComposerState.swift:28-41
-- Category: robustness
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: `lists` keeps every chat opened, with every older page loaded, for the app's life, and each keeps receiving updates; link previews and thumbnails are inline images, so this grows by megabytes on a device iOS kills for memory. `removeServer` leaves behind that server's drafts (including staged files never deleted), in-place edits, saved positions, pending read positions and prefetch records.
-- Suggested change: trim a chat's list to its newest page when the chat is left (`viewWillDisappear` knows when), or keep only the N most recent lists. In `removeServer`, filter all per-server dictionaries and discard the staged files.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests,ShellTests`. Same issue on the web and desktop.
-

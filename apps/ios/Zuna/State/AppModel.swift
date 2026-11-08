@@ -200,6 +200,9 @@ final class AppModel {
     }
     /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
     var lists: [String: MessageList] = [:]
+    /// When each list was last opened, to let go of those not opened for longest (`keepRecentLists`).
+    @ObservationIgnored var listOpened: [String: Int] = [:]
+    @ObservationIgnored var listOpenings = 0
     var jumpTarget: JumpTarget?
     var nextJump = 0
     /// Files on their way into the open chat's composer: dropped on an iPad, or added by a UI test.
@@ -515,7 +518,18 @@ final class AppModel {
         defer { onServersChanged?() }
         voice.serverGone(serverId)
         servers[serverId] = nil
-        lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
+        // What was kept for its chats goes with it: their messages, drafts and staged files.
+        let prefix = "\(serverId)/"
+        lists = lists.filter { !$0.key.hasPrefix(prefix) }
+        listOpened = listOpened.filter { !$0.key.hasPrefix(prefix) }
+        for (key, composer) in composers where key.hasPrefix(prefix) {
+            for staged in composer.files { try? FileManager.default.removeItem(atPath: staged.file.blob.path) }
+        }
+        composers = composers.filter { !$0.key.hasPrefix(prefix) }
+        editingInPlace = editingInPlace.filter { !$0.key.hasPrefix(prefix) }
+        inPlaceText = inPlaceText.filter { !$0.key.hasPrefix(prefix) }
+        savedPositions = savedPositions.filter { !$0.key.hasPrefix(prefix) }
+        readsWanted = readsWanted.filter { !$0.key.hasPrefix(prefix) }
         order.removeAll { $0 == serverId }
         if activeServerId == serverId {
             closeChats()
