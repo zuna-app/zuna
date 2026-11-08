@@ -1,5 +1,5 @@
-//! The app doesn't update itself on macOS yet: that needs a build signed with a Developer ID,
-//! which local builds aren't (docs/MACOS_APP_PLAN.md).
+//! The app doesn't update itself on macOS yet. A release is signed with the Developer ID
+//! (`npm run dist:macos`), which an update would be checked against (docs/MACOS_APP_PLAN.md).
 
 use std::path::Path;
 

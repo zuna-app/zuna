@@ -33,7 +33,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Native screen capture, and on macOS a share's sound, which go into the native app's installers and packages, and its bundle on macOS (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, add its installer beside it, or install it on this computer with that installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run dist:windows`, `npm run install:windows` |
 | The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
-| The same app on macOS, on Apple silicon, always as a bundle signed with this Mac's Apple Development identity and started with `open`: a debug build as "Zuna Dev", or a release one in `dist/macos/Zuna.app` | `npm run dev:macos`, `npm run build:macos` |
+| The same app on macOS, on Apple silicon, always as a bundle under the hardened runtime, signed with this Mac's Apple Development identity and started with `open`: a debug build as "Zuna Dev", or a release one in `dist/macos/Zuna.app`; or that signed with the keychain's Developer ID, notarized and stapled, with a DMG and a zip beside it, after `xcrun notarytool store-credentials zuna-notary` once | `npm run dev:macos`, `npm run build:macos`, `npm run dist:macos` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 

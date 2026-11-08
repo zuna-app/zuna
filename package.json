@@ -25,6 +25,7 @@
     "dist:linux": "node scripts/linux-app.mjs dist",
     "dev:linux": "node scripts/linux-app.mjs run",
     "build:macos": "node scripts/macos-app.mjs build",
+    "dist:macos": "node scripts/macos-app.mjs dist",
     "dev:macos": "node scripts/macos-app.mjs run",
     "test": "npm run test:crypto && npm run test:server && npm run test:core",
     "test:crypto": "node scripts/test-crypto.mjs",

@@ -3,12 +3,16 @@
 // installed, and wraps the program in an app bundle, since macOS only asks for the microphone,
 // the camera, notifications and the computer's sound on behalf of a bundle, and keeps the
 // answers, and the Keychain's trust, by its signature. So it's signed with this Mac's Apple
-// Development identity, which stays the same from one build to the next.
+// Development identity, which stays the same from one build to the next, under the hardened
+// runtime a release has, so that whatever the runtime refuses shows in development first.
 //
 //   node scripts/macos-app.mjs run [--release] [--test-control] [-- app args]
 //                                   build it, then start it as macOS starts an app, with `open`
 //   node scripts/macos-app.mjs build
 //                                   a release build in dist/macos/Zuna.app
+//   node scripts/macos-app.mjs dist
+//                                   that, signed with the keychain's Developer ID, notarized and
+//                                   stapled, with a DMG and a zip of it beside it
 //   node scripts/macos-app.mjs bundle [--release] [--test-control]
 //                                   a development build's bundle, not started, for the checks
 //
@@ -16,21 +20,32 @@
 // permissions, and keeps its data in .dev-data/native-app, so that `npm run dev:clean` starts
 // it over with the test server. ZUNA_DATA_DIR
 // puts it elsewhere. --test-control builds in the checks' socket (src/test_control.rs).
+//
+// The private keys stay in the keychain, which signs for codesign, and notarizing takes the
+// credentials `xcrun notarytool store-credentials zuna-notary` saved there, by that name only.
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
 
-const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "bundle"]);
-const release = command === "build" || flags.includes("--release");
+const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "dist", "bundle"]);
+const release = command === "build" || command === "dist" || flags.includes("--release");
 const testControl = flags.includes("--test-control");
 
 const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the other systems' builds keep theirs, and kept between checkouts.
 const target = join(homedir(), "Library", "Caches", "zuna-desktop-target");
+const notaryProfile = "zuna-notary";
+
+// A release people download is signed with the Developer ID, as only that can be notarized.
+const developerId = command === "dist" ? identity("Developer ID Application") : null;
+if (command === "dist" && !developerId) {
+  console.error("There's no Developer ID Application identity in the keychain to sign a release with. Import its certificate with the private key, from a .p12, first.");
+  process.exit(1);
+}
 
 // The bundle carries the share's sound program from apps/screenshare/dist, so an old one would go in after a pull.
 ensureNativeScreenCurrent();
@@ -43,10 +58,10 @@ function checkMetal() {
   process.exit(1);
 }
 
-/** The Apple Development identity to sign with, by its hash, or null to sign ad hoc. */
-function identity() {
+/** The keychain's signing identity of a kind, such as "Apple Development", by its hash, or null. */
+function identity(kind) {
   const found = spawnSync("security", ["find-identity", "-v", "-p", "codesigning"], { encoding: "utf8" }).stdout ?? "";
-  const line = found.split("\n").find((entry) => entry.includes('"Apple Development:'));
+  const line = found.split("\n").find((entry) => entry.includes(`"${kind}:`));
   return line?.match(/\b([0-9A-F]{40})\b/)?.[1] ?? null;
 }
 
@@ -86,8 +101,23 @@ function plist(value, indent = "") {
   return `${indent}<string>${text}</string>`;
 }
 
-/** Wraps the program in an app bundle, with the screen capture beside it once it's built, and signs it. */
-function bundle(program, media, out, { name, id }) {
+/** A plist file's whole text, as Info.plist and entitlements are written. */
+function plistFile(value) {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${plist(value)}\n</plist>\n`;
+}
+
+/** Writes entitlements for codesign where the build keeps its files, and gives their path. */
+function entitlements(name, value) {
+  const path = join(target, `${name}.entitlements`);
+  writeFileSync(path, plistFile(value));
+  return path;
+}
+
+/**
+ * Wraps the program in an app bundle, with the screen capture beside it once it's built, and
+ * signs it, with the Developer ID when it's given and the Apple Development identity otherwise.
+ */
+function bundle(program, media, out, { name, id, developerId = null }) {
   const app = join(out, `${name}.app`);
   rmSync(app, { recursive: true, force: true });
   const macos = join(app, "Contents", "MacOS");
@@ -132,23 +162,88 @@ function bundle(program, media, out, { name, id }) {
     NSLocationUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
     NSLocationWhenInUseUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
   };
-  writeFileSync(
-    join(app, "Contents", "Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${plist(info)}\n</plist>\n`,
-  );
+  writeFileSync(join(app, "Contents", "Info.plist"), plistFile(info));
   writeFileSync(join(app, "Contents", "PkgInfo"), "APPL????");
 
-  const signer = identity();
+  const signer = developerId ?? identity("Apple Development");
   if (!signer) console.warn("> no Apple Development identity in the keychain, so this is signed ad hoc: macOS asks again for each permission and the device key after every build");
-  const sign = (path) => {
-    const signed = spawnSync("codesign", ["--force", "--sign", signer ?? "-", "--timestamp=none", path], { stdio: ["ignore", "ignore", "inherit"] });
+  // Under the hardened runtime, which notarizing asks for, with the entitlements that let it reach
+  // the microphone, the camera and the location. A release's signature is timestamped, as
+  // notarizing also asks, and a development build's may be debugged. An ad hoc signature has no
+  // team for the runtime to check the libraries the app loads against, so it goes without.
+  const options = signer ? ["--options", "runtime", developerId ? "--timestamp" : "--timestamp=none"] : ["--timestamp=none"];
+  const debuggable = developerId ? {} : { "com.apple.security.get-task-allow": true };
+  const appRights = entitlements("zuna", {
+    "com.apple.security.device.audio-input": true,
+    "com.apple.security.device.camera": true,
+    "com.apple.security.personal-information.location": true,
+    ...debuggable,
+  });
+  // The share's sound program reads the computer's sound as input, from a tap's aggregate device.
+  const soundRights = entitlements("zuna-screenshare", { "com.apple.security.device.audio-input": true, ...debuggable });
+  const sign = (path, rights) => {
+    const signed = spawnSync("codesign", ["--force", "--sign", signer ?? "-", ...options, ...(signer && rights ? ["--entitlements", rights] : []), path], { stdio: ["ignore", "ignore", "inherit"] });
     if (signed.status !== 0) throw new Error(`codesign couldn't sign ${path}`);
   };
   // What's inside first, then the bundle, which seals them.
   for (const name of linked) sign(join(frameworks, name));
-  if (existsSync(join(macos, "zuna-screenshare"))) sign(join(macos, "zuna-screenshare"));
-  sign(app);
+  if (existsSync(join(macos, "zuna-screenshare"))) sign(join(macos, "zuna-screenshare"), soundRights);
+  sign(app, appRights);
   return app;
+}
+
+/** Zips a bundle as `ditto` keeps one, with its links and extended attributes, so that its signature holds. */
+function zip(app, out) {
+  rmSync(out, { force: true });
+  run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, out]);
+}
+
+/** Sends a zip or a DMG to Apple's notary service and waits for its answer, with Apple's log if it's refused. */
+function notarize(file) {
+  console.log(`> notarizing ${file}, which takes a few minutes`);
+  const sent = spawnSync("xcrun", ["notarytool", "submit", file, "--keychain-profile", notaryProfile, "--wait", "--output-format", "json"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  let answer = {};
+  try {
+    answer = JSON.parse((sent.stdout ?? "").trim().split("\n").at(-1));
+  } catch {}
+  if (answer.status === "Accepted") return;
+  if (answer.id) spawnSync("xcrun", ["notarytool", "log", answer.id, "--keychain-profile", notaryProfile], { stdio: "inherit" });
+  else console.error(`Notarizing takes the credentials saved in the keychain as "${notaryProfile}". Save them once with:\n\n  xcrun notarytool store-credentials ${notaryProfile}\n`);
+  console.error(`Apple's notary service didn't accept ${file}${answer.status ? `: ${answer.status}` : ""}.`);
+  process.exit(1);
+}
+
+/**
+ * Notarizes the release and staples Apple's ticket to it, then makes a DMG of it to drag into
+ * Applications, signed, notarized and stapled too, and a zip, as an update would be fetched.
+ */
+function packages(app, dist) {
+  run("codesign", ["--verify", "--strict", "--deep", "--verbose=2", app]);
+  // The app first, so that the one in the DMG carries its ticket and opens offline too.
+  const upload = join(target, "Zuna-notarize.zip");
+  zip(app, upload);
+  notarize(upload);
+  rmSync(upload, { force: true });
+  run("xcrun", ["stapler", "staple", app]);
+  // The DMG: the app beside a link to Applications.
+  const image = join(dist, `Zuna-${version}-arm64.dmg`);
+  const staging = join(target, "dmg");
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging, { recursive: true });
+  run("ditto", [app, join(staging, "Zuna.app")]);
+  symlinkSync("/Applications", join(staging, "Applications"));
+  rmSync(image, { force: true });
+  run("hdiutil", ["create", "-volname", "Zuna", "-srcfolder", staging, "-format", "ULFO", image]);
+  rmSync(staging, { recursive: true, force: true });
+  run("codesign", ["--sign", developerId, "--timestamp", image]);
+  notarize(image);
+  run("xcrun", ["stapler", "staple", image]);
+  const archive = join(dist, `Zuna-${version}-arm64.zip`);
+  zip(app, archive);
+  // What Gatekeeper decides about each, as it would for a download.
+  run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
+  run("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", image]);
+  console.log(`> wrote ${image} and ${archive}`);
 }
 
 checkMetal();
@@ -164,11 +259,12 @@ const program = join(target, release ? "release" : "debug", "zuna");
 run("cargo", ["build", ...(release ? ["--release"] : [])], { cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
 const media = join(target, release ? "release" : "debug", "libzuna_media_ffmpeg.dylib");
 
-if (command === "build") {
+if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "macos");
   mkdirSync(dist, { recursive: true });
-  const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop" });
+  const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop", developerId });
   console.log(`> wrote ${app}`);
+  if (command === "dist") packages(app, dist);
 } else if (command === "bundle") {
   const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
   console.log(`> wrote ${app}`);

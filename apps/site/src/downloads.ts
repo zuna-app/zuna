@@ -19,10 +19,10 @@ export interface Download {
   size?: number;
 }
 
-/** What the native app's scripts make (scripts/windows-app.mjs and linux-app.mjs), by the names they give them. macOS's has no package yet. */
+/** What the native app's scripts make (scripts/windows-app.mjs, macos-app.mjs and linux-app.mjs), by the names they give them. */
 const FILES: Record<"windows" | "mac" | "linux", { label: string; match: RegExp }[]> = {
   windows: [{ label: "Installer (.exe)", match: /^Zuna-Native-Setup-.*\.exe$/ }],
-  mac: [{ label: "Apple silicon (.dmg)", match: /\.dmg$/ }],
+  mac: [{ label: "Apple silicon (.dmg)", match: /^Zuna-.*-arm64\.dmg$/ }],
   linux: [
     { label: "AppImage", match: /\.AppImage$/ },
     { label: "Debian, Ubuntu (.deb)", match: /\.deb$/ },

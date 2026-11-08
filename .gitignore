@@ -3,6 +3,13 @@ dist/
 *.log
 .DS_Store
 
+# Signing keys and certificates, which live in a keychain or a password manager, never here
+*.p12
+*.pfx
+*.p8
+*.cer
+*.certSigningRequest
+
 # Build output
 crypto/target/
 crypto/bindgen/target/
