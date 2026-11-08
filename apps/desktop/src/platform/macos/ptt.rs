@@ -151,10 +151,35 @@ fn heard(code: String, down: bool) {
     }
 }
 
+/// The tap's port while it's in place, for turning it on again: macOS turns a tap off after
+/// one slow answer, or while secure input is on, and push to talk would stop for the session.
+/// Set and cleared on the tap's own thread, which is the only one that uses it.
+static TAP_PORT: std::sync::atomic::AtomicPtr<CFMachPort> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// The key counts as let go: a tap that was off may have missed it going up.
+fn released() {
+    let mut tap = tap();
+    if tap.down {
+        tap.down = false;
+        if let Some((_, listener)) = &tap.watching {
+            listener(false);
+        }
+    }
+}
+
 unsafe extern "C-unwind" fn on_event(_proxy: CGEventTapProxy, kind: CGEventType, event: NonNull<CGEvent>, _info: *mut c_void) -> *mut CGEvent {
     // SAFETY: the event is valid for the call.
     let event_ref = unsafe { event.as_ref() };
     match kind {
+        CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
+            let port = TAP_PORT.load(std::sync::atomic::Ordering::Acquire);
+            if !port.is_null() {
+                // SAFETY: the port stays alive on this thread, whose run loop calls this, until
+                // it's cleared, after the run loop stops.
+                CGEvent::tap_enable(unsafe { &*port }, true);
+            }
+            released();
+        }
         CGEventType::KeyDown | CGEventType::KeyUp => {
             // A key held repeats its key down, which says nothing new.
             let repeat = CGEvent::integer_value_field(Some(event_ref), CGEventField::KeyboardEventAutorepeat) != 0;
@@ -212,8 +237,10 @@ fn settle() {
                     };
                     // SAFETY: the common modes are a constant the run loop takes.
                     run_loop.add_source(Some(&source), unsafe { kCFRunLoopCommonModes });
+                    TAP_PORT.store(&*port as *const CFMachPort as *mut CFMachPort, std::sync::atomic::Ordering::Release);
                     ready.send(Some(CFRetainedSend(run_loop))).ok();
                     CFRunLoop::run();
+                    TAP_PORT.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
                     drop(source);
                     drop(port);
                 })

@@ -35,14 +35,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: share `on_stopped` through an `Arc` between `Output` and the `started` block and call it with the error; the watcher at screen.rs:675-687 then ends the share with a toast.
 - Check after: mac-voice-check.mjs; by hand, close the picked window before capture starts.
 
-### Re-enable the macOS push-to-talk event tap when macOS disables it
-- Where: platform/macos/ptt.rs:154-184 (ignores `TapDisabledByTimeout` and `TapDisabledByUserInput`), 187-231 (keeps no handle to the port)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: macOS turns a tap off after one slow callback or after secure input; push to talk then silently stops for the session.
-- Suggested change: on either disabled event, `CGEvent::tap_enable(&port, true)` (port via `user_info` or a static); also reset `down` and tell the listener `false`.
-- Check after: mac-voice-check.mjs (push to talk).
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps
