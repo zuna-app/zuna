@@ -16,7 +16,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, r
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { env, root } from "./lib.mjs";
+import { devNativeAppData, env, root } from "./lib.mjs";
 
 if (process.platform !== "linux") {
   console.log("This builds the native app on Linux. On Windows, it's npm run dev:windows.");
@@ -41,7 +41,10 @@ if (bundle.status !== 0) process.exit(bundle.status ?? 1);
 await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
 
 const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
-const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
+// A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
+// copy's ~/.local/share/zuna, so that `npm run dev:clean` starts it over with the test server.
+const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
+const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 if (result.status !== 0) process.exit(result.status ?? 1);
 
 if (command === "build" || command === "dist") {

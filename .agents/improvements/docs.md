@@ -20,14 +20,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 - Suggested change: CONTRIBUTING:10 → "Rust builds the encryption core and the native desktop app. For the app: on Windows, the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`) and Visual Studio's C++ build tools; on macOS, Xcode with its Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) and an Apple Development identity; on Linux, clang, pkg-config and the development files of libxkbcommon, wayland, fontconfig, freetype2, glib and libva. The gnu toolchain is enough for the encryption core alone." README:96: add "The desktop app needs more on each system (CONTRIBUTING.md)." For setup.sh itself, see the dev/setup.sh entry in deps-build.md.
 - Check after: none.
 
-### Stop saying a Linux development build keeps its data in .dev-data
-- Where: CONTRIBUTING.md:35, :37
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: CONTRIBUTING says "A development build keeps its data in `.dev-data` too, apart from an installed Zuna's" and that cleaning "can't affect an installed copy". True on Windows (windows-app.mjs:53) and macOS (macos-app.mjs:188). On Linux, `dev:linux` sets no ZUNA_DATA_DIR (linux-app.mjs:42-44), and `data_dir()` (host/mod.rs:78-87) gives `~/.local/share/zuna`, the installed copy's folder. FEATURE_PARITY:38 already records this as a gap.
-- Suggested change: better, make linux-app.mjs pass `devNativeAppData` on `run` and close the gap (then CONTRIBUTING is right as written). Otherwise CONTRIBUTING:35 → "On Windows and macOS a development build keeps its data in `.dev-data/native-app`. On Linux it still shares `~/.local/share/zuna` with an installed copy, so set `ZUNA_DATA_DIR`."
-- Check after: FEATURE_PARITY:38; linux-check.mjs if the script changes.
-
 ### Fix the security docs' account of the desktop's pin check and push to talk
 - Where: docs/SECURITY_DETAILS.md:82, :113
 - Category: docs
