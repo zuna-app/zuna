@@ -64,6 +64,14 @@ pub fn scroll_handle(name: &'static str) -> ScrollHandle {
     HANDLES.with(|handles| handles.borrow_mut().entry(name).or_default().clone())
 }
 
+/// Lets a scrolling area's handle go, so the next one by that name starts at the top: for
+/// a name that one thing after another uses, such as the conversation list of each server,
+/// or each dialog's body.
+pub fn forget_scroll(name: &'static str) {
+    HANDLES.with(|handles| handles.borrow_mut().remove(name));
+    OVERFLOWED.with(|overflowed| overflowed.borrow_mut().remove(name));
+}
+
 /// Whether this ran past its height when it was last drawn: then a classic scrollbar takes
 /// 8 px of its width, which this much more padding on the right gives it.
 pub fn gutter(handle: &ScrollHandle) -> Pixels {

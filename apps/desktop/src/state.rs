@@ -987,6 +987,12 @@ impl AppState {
     // --- Overlays, panels, toasts and settings ---
 
     pub fn set_overlay(&mut self, overlay: Option<Overlay>, cx: &mut Context<Self>) {
+        // Each dialog opens at its top, not where the last one was scrolled.
+        if overlay.is_some() && overlay != self.overlay {
+            for name in ["modal-body", "modal-flow", "new-group-people", "forward-list", "add-people"] {
+                crate::ui::scrollbar::forget_scroll(name);
+            }
+        }
         self.overlay = overlay;
         cx.notify();
     }

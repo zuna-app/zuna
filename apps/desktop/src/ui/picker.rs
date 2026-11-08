@@ -82,6 +82,7 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
 
 /// Opens the picker with its top left near this point, kept inside the window.
 pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl Fn(Pick, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) {
+    super::scrollbar::forget_scroll("picker-body");
     if super::menu::reopens_closed(position) {
         return;
     }

@@ -44,14 +44,6 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Scope named scroll handles to their owner instead of one global per name
-- Where: ui/scrollbar.rs:53-65; used by "conv-list", "member-list", "modal-body"/"modal-flow", "new-group-people", "picker-body", "composer-scroll"
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: each name maps to one handle forever, so scroll position carries over between unrelated instances: the conversation list keeps the previous server's offset; the member list keeps another channel's; dialogs and the picker reopen where the last one was scrolled; chats share the composer's scroll.
-- Suggested change: make handles fields of the owning view (as `SidePanel` does at line 76), or key them by owner. Reset the picker's handle on open.
-- Check after: `npm run dev:windows`.
-
 ### Mirror camera frames in place, without per-row allocations, on the UI thread
 - Where: ui/voice_stage.rs:101-140 (110 full clone; 125-133 a `Vec` per row); ui/voice_settings.rs:256-274 (263-266)
 - Category: perf

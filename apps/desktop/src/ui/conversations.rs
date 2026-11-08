@@ -161,6 +161,9 @@ impl ConversationList {
         self.drag_order = None;
         self.hovered_channel = None;
         self.search.update(cx, |input, cx| input.set_text("", cx));
+        // Another server's lists start at their top, not where this one's were.
+        super::scrollbar::forget_scroll("conv-list");
+        super::scrollbar::forget_scroll("member-list");
     }
 
     /// Message search runs against the encrypted index on this device.

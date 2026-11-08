@@ -302,6 +302,8 @@ fn fingerprint(message: &MessageView) -> u64 {
 
 impl ChatView {
     pub fn new(state: Entity<AppState>, server_id: String, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // Each chat's message box scrolls on its own.
+        super::scrollbar::forget_scroll("composer-scroll");
         let composer = cx.new(|cx| {
             let mut input = TextInput::new(cx, "Message").multiline().accepts_files();
             input.set_newline_on_enter(false);
