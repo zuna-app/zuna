@@ -417,7 +417,7 @@ struct RoundVideoCard: View {
                 .stroke(accent.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .padding(2)
-            Text(Format.duration(mine && player.isPlaying ? player.position : duration))
+            Text(Format.duration(mine && (player.isPlaying || player.position > 0) ? player.position : duration))
                 .font(.caption.monospacedDigit().weight(.medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 7)
@@ -444,6 +444,10 @@ struct RoundVideoCard: View {
         .onChange(of: mine) { _, playing in
             // Back to playing by itself, without sound, once it's been heard.
             if playing { looping?.pause() } else { looping?.play() }
+        }
+        .onAppear {
+            // Again on coming back to it, as it stopped when it went out of sight.
+            if !mine { looping?.play() }
         }
         .onDisappear {
             looping?.pause()
@@ -475,7 +479,8 @@ struct RoundVideoCard: View {
     private func toggle() {
         guard let file else { return }
         if player.current == attachment.fileId {
-            if player.isPlaying { player.stop() } else { Task { try? await player.play(file, id: attachment.fileId, from: player.position, video: true) } }
+            // A tap pauses it where it is, as Telegram's does, and another carries on from there.
+            if player.isPlaying { player.pause() } else { Task { try? await player.play(file, id: attachment.fileId, from: player.position, video: true) } }
             return
         }
         Task {
