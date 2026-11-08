@@ -38,12 +38,19 @@ struct ChannelEditor: View {
     @State private var loaded = false
     @State private var busy = false
     @State private var confirmingDelete = false
+    /// Deleted from here, which isn't news to tell.
+    @State private var removed = false
 
     private var server: AppModel.ServerState? { model.servers[serverId] }
 
     private var channel: ChannelView? {
         guard case let .edit(id) = target else { return nil }
         return server?.channels.first { $0.id == id }
+    }
+
+    /// Making one, rather than changing one, which stays so if the channel goes meanwhile.
+    private var isNew: Bool {
+        if case .new = target { true } else { false }
     }
 
     /// As the desktop offers them (AUDIO_QUALITIES in ChannelDialog.tsx), in kbit/s, 0 being the usual.
@@ -87,7 +94,7 @@ struct ChannelEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                if channel == nil {
+                if isNew {
                     Section {
                         Picker("Type", selection: $type) {
                             Label("Text", systemImage: ChannelType.text.symbol).tag(ChannelType.text)
@@ -153,7 +160,7 @@ struct ChannelEditor: View {
                 if type == .voice {
                     voiceSection
                 }
-                if channel != nil {
+                if !isNew {
                     Section {
                         Button("Delete channel", role: .destructive) { confirmingDelete = true }
                             .accessibilityIdentifier(A11y.Channels.delete)
@@ -162,7 +169,7 @@ struct ChannelEditor: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle(channel == nil ? "New channel" : "Edit channel")
+            .navigationTitle(isNew ? "New channel" : "Edit channel")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -170,7 +177,7 @@ struct ChannelEditor: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Button(channel == nil ? "Create" : "Save", action: save)
+                        Button(isNew ? "Create" : "Save", action: save)
                             .disabled(finalName.isEmpty)
                             .accessibilityIdentifier(A11y.Channels.editorSave)
                     }
@@ -182,6 +189,12 @@ struct ChannelEditor: View {
         }
         .accessibilityIdentifier(A11y.Channels.editor)
         .onAppear(perform: load)
+        // Deleted by another admin meanwhile: there's nothing left to change.
+        .onChange(of: !isNew && loaded && channel == nil) { _, gone in
+            guard gone, !busy, !removed else { return }
+            model.toast("That channel was deleted.")
+            dismiss()
+        }
     }
 
     private var voiceSection: some View {
@@ -255,6 +268,7 @@ struct ChannelEditor: View {
             slowMode: slowOn ? slowMode : nil
         )
         let channel = channel
+        guard isNew || channel != nil else { return }
         busy = true
         Task {
             defer { busy = false }
@@ -278,6 +292,7 @@ struct ChannelEditor: View {
         guard let channel else { return }
         let session = model.core.session(serverId)
         busy = true
+        removed = true
         Task {
             defer { busy = false }
             do {
