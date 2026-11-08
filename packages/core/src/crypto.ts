@@ -184,7 +184,7 @@ export const sealVaultItem = (accountKey: Uint8Array, id: string, data: Uint8Arr
 export const openVaultItem = (accountKey: Uint8Array, id: string, sealed: Uint8Array, generation = 0) =>
   wasm.aeadOpen(subkey(accountKey, "vault-item"), sealed, vaultItemLabel(id, generation));
 
-/** The vault item listing everything an account trusts (see TrustManifest in session.ts). */
+/** The vault item listing everything an account trusts, or its first part (manifest.ts). */
 export const MANIFEST_ID = "manifest";
 
 // --- Identity and device certificates ---

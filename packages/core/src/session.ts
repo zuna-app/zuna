@@ -39,7 +39,6 @@ import {
   openProfileAtGeneration,
   openSignal,
   openVaultCore,
-  MANIFEST_ID,
   openVaultItem,
   parseCertificate,
   randomId,
@@ -87,6 +86,7 @@ import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
 import { linkInText } from "./links";
+import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestPart, type TrustManifest } from "./manifest";
 import { MEDIA_KINDS, mediaIn } from "./media";
 import { withoutMetadata, type ByteSource } from "./metadata";
 import { notificationDelay, notificationText, previewText } from "./notify";
@@ -208,8 +208,15 @@ const UNSAVED_TRUST = "unsaved_trust";
 const MANIFEST_ATTEMPTS = 5;
 /** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
 const LONGEST_WAIT_MS = 24 * 3600 * 1000;
-/** Past this, a manifest wouldn't fit in a vault item, and it isn't written. */
-const MAX_MANIFEST_BYTES = 200 << 10;
+/** Parts of a manifest in more than one vault item that came without the rest yet, by its number and hash. */
+const MANIFEST_PARTS = "manifest_parts";
+
+/** A manifest's parts for a rotation, which can't go without it. */
+function sealedManifest(manifest: TrustManifest): { id: string; data: Uint8Array; version: number }[] {
+  const parts = manifestParts(manifest);
+  if (!parts) throw new Error("Your account trusts more people than its vault can list, so its keys can't be replaced.");
+  return parts;
+}
 /** What's sealed at rest names its table and row, so it can't be moved to another row or table. */
 const DB_LABEL = (name: string, row: string) => utf8(`zuna/local/${name}|${row}`);
 /** Keeps changes to this account's keys one at a time. Group IDs are hex, so it can't be one of those. */
@@ -439,34 +446,6 @@ const validApiMessage = (message: ApiMessage): boolean =>
   typeof message.sender_device === "string" &&
   Array.isArray(message.reactions);
 
-/**
- * The vault's manifest: everything in it that decides who this account trusts, in one item,
- * so none of it can be left out alone. Every pin and verification, by user, as base64 keys,
- * an empty one for a cleared verification.
- */
-interface TrustManifest {
-  v: number;
-  pins: Record<string, string>;
-  verified: Record<string, string>;
-  /** How far along each person's chain of keys this account has got. */
-  chains: Record<string, { gen: number; hash: string }>;
-  /** Up to which generation of their keys each person's verification holds. */
-  trust: Record<string, number>;
-  prefs?: unknown;
-}
-
-function parseManifest(value: unknown): TrustManifest | null {
-  const manifest = value as Partial<TrustManifest> | null;
-  const record = <T>(value: unknown, fits: (item: unknown) => item is T): value is Record<string, T> =>
-    !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(fits);
-  const key = (item: unknown): item is string => typeof item === "string";
-  const generation = (item: unknown): item is number => Number.isSafeInteger(item) && (item as number) >= 0;
-  const position = (item: unknown): item is { gen: number; hash: string } =>
-    !!item && typeof item === "object" && generation((item as { gen?: unknown }).gen) && typeof (item as { hash?: unknown }).hash === "string";
-  if (!manifest || !Number.isSafeInteger(manifest.v) || manifest.v! < 1 || !record(manifest.pins, key) || !record(manifest.verified, key)) return null;
-  if (!record(manifest.chains, position) || !record(manifest.trust, generation)) return null;
-  return { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, chains: manifest.chains, trust: manifest.trust, prefs: manifest.prefs };
-}
 
 /** A message as this device stored it: what can be shown, or null if that's nothing. */
 function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody): StoredBody | null {
@@ -1288,9 +1267,9 @@ export class ServerSession {
             this.saveEpochKey(groupId!, Number(epoch), data, "vault");
             touchedGroups.add(groupId!);
           }
-        } else if (item.id === MANIFEST_ID) {
+        } else if (isManifestPart(item.id)) {
           // Who this account trusts comes from here alone, so nothing in it can be left out by itself.
-          this.applyManifest(data);
+          this.takeManifestPart(item.id, data);
         } else if (item.id.startsWith("device:")) {
           this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
           this.setKv("device_names", Object.fromEntries(this.deviceNames));
@@ -1357,21 +1336,50 @@ export class ServerSession {
   // --- Vault manifest ---
 
   /**
-   * Which items a device gets from the vault is the server's choice, and an older
-   * copy of an item still opens. So one item, the manifest, holds every pin and
-   * verification and the preferences, with a number only ever raised. Withholding
-   * one pin or verification then does nothing, a device that has seen a manifest
-   * refuses an older one, and each rotation seals the number into the vault core,
-   * so a new device knows how far back is too far.
+   * Keeps a part of a manifest until every part of the same write is in, then takes the
+   * manifest (manifest.ts). Parts wait in the database, as the vault's cursor has moved past
+   * those already read. A manifest in one item, as nearly every account's is, is taken at once.
    */
-  private applyManifest(data: Uint8Array): void {
+  private takeManifestPart(id: string, data: Uint8Array): void {
+    const part = readManifestPart(id, data);
+    if (!part) return;
+    if (part.parts === 1) {
+      const whole = joinManifestParts([part]);
+      if (whole) this.applyManifest(whole, part.v);
+      return;
+    }
+    const waiting = this.getKv<Record<string, { v: number; part: number; parts: number; hash: string; bytes: string }[]>>(MANIFEST_PARTS) ?? {};
+    const key = `${part.v}/${part.hash}`;
+    const held = (waiting[key] ?? []).filter((other) => other.part !== part.part);
+    held.push({ ...part, bytes: toBase64(part.bytes) });
+    const parts: ManifestPart[] = held.map((other) => ({ ...other, bytes: fromBase64(other.bytes) }));
+    const whole = parts.length === part.parts ? joinManifestParts(parts) : null;
+    if (whole || parts.length >= part.parts) delete waiting[key];
+    else waiting[key] = held;
+    if (whole) this.applyManifest(whole, part.v);
+    // A manifest no newer than the one held would be refused, so its parts aren't worth keeping.
+    const now = this.manifest?.v ?? 0;
+    for (const other of Object.keys(waiting)) if (Number(other.split("/")[0]) <= now) delete waiting[other];
+    this.setKv(MANIFEST_PARTS, waiting);
+  }
+
+  /**
+   * Which items a device gets from the vault is the server's choice, and an older
+   * copy of an item still opens. So the manifest holds every pin and verification and
+   * the preferences, with a number only ever raised, and is only ever taken whole, from
+   * every part of one write. Withholding one pin or verification then does nothing, a
+   * device that has seen a manifest refuses an older one, and each rotation seals the
+   * number into the vault core, so a new device knows how far back is too far.
+   */
+  private applyManifest(data: Uint8Array, v: number): void {
     let manifest: TrustManifest | null;
     try {
       manifest = parseManifest(JSON.parse(fromUtf8(data)));
     } catch {
       manifest = null;
     }
-    if (!manifest) return;
+    // Its parts name its number too, and must agree.
+    if (!manifest || manifest.v !== v) return;
     const held = this.manifest?.v ?? 0;
     if (manifest.v < held) {
       this.warnOnce(`manifest/${manifest.v}`, "The server sent an older copy of the keys your account trusts. It was ignored.");
@@ -1482,10 +1490,13 @@ export class ServerSession {
       .all<{ user_id: string }>("SELECT user_id FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0")
       .map(({ user_id }) => ({ user_id, trust_generation: this.identityState(user_id).trust_generation }));
     const manifest = this.nextManifest();
-    const data = utf8(JSON.stringify(manifest));
-    if (data.length > MAX_MANIFEST_BYTES) return true;
+    const parts = manifestParts(manifest);
+    if (!parts) {
+      this.warnOnce("manifest/size", "Your account trusts more people than its vault can list, so what you verify here doesn't reach your other devices.");
+      return true;
+    }
     try {
-      if (!(await this.putItems([{ id: MANIFEST_ID, data, version: manifest.v }]))) return true;
+      if (!(await this.putItems(parts))) return true;
     } catch (error) {
       if (error instanceof ApiError && error.code === "stale_version") return false;
       throw error;
@@ -2156,7 +2167,7 @@ export class ServerSession {
   /** What the vault holds that isn't epoch keys, sealed under the new key in one go: the manifest, which decides who this account trusts, and the names of its devices. */
   private trustItems(accountKey: Uint8Array, generation: number, manifest: TrustManifest): { id: string; data: Uint8Array; version?: number }[] {
     const seal = (id: string, data: Uint8Array) => ({ id, data: sealVaultItem(accountKey, id, data, generation) });
-    const items: { id: string; data: Uint8Array; version?: number }[] = [{ ...seal(MANIFEST_ID, utf8(JSON.stringify(manifest))), version: manifest.v }];
+    const items: { id: string; data: Uint8Array; version?: number }[] = sealedManifest(manifest).map(({ id, data, version }) => ({ ...seal(id, data), version }));
     for (const [id, name] of this.deviceNames) items.push(seal(`device:${id}`, utf8(name)));
     return items;
   }
@@ -2188,15 +2199,15 @@ export class ServerSession {
     const accountKey = fromBase64(intent.accountKey);
     const manifest = this.nextManifest();
     const core = { ...coreFromJson(intent.core), manifest: manifest.v };
-    const sealed = sealVaultItem(accountKey, MANIFEST_ID, utf8(JSON.stringify(manifest)), intent.generation);
-    const items = ((intent.request.items as { id: string }[] | undefined) ?? []).filter((entry) => entry.id !== MANIFEST_ID);
+    const sealed = sealedManifest(manifest).map(({ id, data, version }) => ({ id, data: toBase64(sealVaultItem(accountKey, id, data, intent.generation)), version }));
+    const items = ((intent.request.items as { id: string }[] | undefined) ?? []).filter((entry) => !isManifestPart(entry.id));
     return {
       ...intent,
       core: coreToJson(core),
       request: {
         ...intent.request,
         vault_core: toBase64(sealVaultCore(accountKey, core, userId)),
-        items: [...items, { id: MANIFEST_ID, data: toBase64(sealed), version: manifest.v }],
+        items: [...items, ...sealed],
       },
     };
   }

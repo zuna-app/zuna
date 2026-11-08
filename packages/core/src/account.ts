@@ -4,7 +4,6 @@ import * as wasm from "@zuna/crypto";
 import { Api, ApiError, checkPinnable, decode, normalizeServerUrl, pinIn, type LoginResponse } from "./api";
 import {
   DEFAULT_KDF,
-  MANIFEST_ID,
   createCertificate,
   derivePasswordKeys,
   deriveRecoveryKeys,
@@ -36,6 +35,7 @@ import {
   type RotationPlan,
   type SlotKind,
 } from "./generations";
+import { manifestParts } from "./manifest";
 import type { InvitePreview, Profile, Role } from "./types";
 
 /** Everything a device needs to act for its account. Stored encrypted at rest. */
@@ -251,7 +251,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     // The account starts with a manifest of what it trusts, so a new device always expects one.
     manifest: 1,
   };
-  const manifest = utf8(JSON.stringify({ v: 1, pins: {}, verified: {}, chains: {}, trust: {} }));
+  const manifest = manifestParts({ v: 1, pins: {}, verified: {}, chains: {}, trust: {} })!;
   const passwordSlot = createSlot("password", password.slotKey, core.rootPublic);
   const recoverySlot = createSlot("recovery", recovery.slotKey, core.rootPublic);
   core.slots = { password: { seal: passwordSlot.slot.seal, sign: passwordSlot.slot.sign }, recovery: { seal: recoverySlot.slot.seal, sign: recoverySlot.slot.sign } };
@@ -267,7 +267,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     hpke_key: core.hpkePublic,
     hpke_key_sig: signHpkeKey(core.identitySecret, core.hpkePublic),
     vault_core: sealVaultCore(accountKey, core),
-    items: [{ id: MANIFEST_ID, data: sealVaultItem(accountKey, MANIFEST_ID, manifest, 0), version: 1 }],
+    items: manifest.map(({ id, data, version }) => ({ id, data: sealVaultItem(accountKey, id, data, 0), version })),
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
   });
   api.token = created.token;

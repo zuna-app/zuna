@@ -10,6 +10,7 @@ import { Api, ApiError, decode } from "../src/api";
 import { createCertificate, openVaultItem, parseCertificate, randomId, sealVaultCore, sealVaultItem, derivePasswordKeys, type VaultCore } from "../src/crypto";
 import { fromBase64, toBase64, utf8 } from "../src/encoding";
 import { EMPTY_LINK_HASH, hash, keyCommitment, openSlot, parseLinkPayload, sealBundle, sealToSlot, signSealProof } from "../src/generations";
+import { joinManifestParts, manifestParts, readManifestPart, type TrustManifest } from "../src/manifest";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -634,6 +635,63 @@ describe("someone holding old keys, with the server's help", () => {
     expect(serverVault(dave.userId).map((item) => item.id).filter((id) => id !== "manifest" && !id.startsWith("device:") && !id.startsWith("ek:"))).toEqual([]);
     const phone = await secondDevice(dave, "dave-phone");
     expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("verified");
+  });
+
+  it("puts a manifest too large for one item in parts, which a device only takes whole, and a rotation carries", async () => {
+    const dave = await person("dave");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    // Pins for 4,000 more people, as an account on a large server gathers, more than one item holds.
+    const session = sessionOf(dave);
+    session.db.transaction(() => {
+      for (let i = 0; i < 4000; i++) {
+        const userId = `stand-in-${String(i).padStart(23, "0")}`;
+        session.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [userId, session.sealPin(userId, new Uint8Array(32).fill(i % 251))]);
+      }
+    });
+    await session.writeManifest();
+    const partIds = () => serverVault(dave.userId).map((item) => item.id).filter((id) => id === "manifest" || id.startsWith("manifest:"));
+    expect(partIds().length).toBeGreaterThan(1);
+
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("verified");
+    expect(Object.keys(sessionOf(phone).manifest.pins).length).toBeGreaterThan(4000);
+
+    // A rotation seals every part under the new key, and a device after it gets the manifest whole.
+    await dave.session.rotate();
+    await waitFor(() => sessionOf(dave).account.core.closedBelow >= 1, "the generation to close");
+    expect(partIds().length).toBeGreaterThan(1);
+    const tablet = await secondDevice(dave, "dave-tablet");
+    expect(tablet.session.safetyCheck(alice.userId)!.trust).toBe("verified");
+
+    // Without one of its parts, a new device takes none of the manifest, and says something's missing.
+    const db = serverDatabase();
+    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest:1'").run(dave.userId);
+    db.close();
+    const laptop = await secondDevice(dave, "dave-laptop");
+    expect(securityEvents(laptop).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+    expect(laptop.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
+  });
+
+  it("won't put together parts of two different manifests, even under one number", () => {
+    const manifest = (key: number): TrustManifest => ({
+      v: 7,
+      pins: Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`user-${i}`, toBase64(new Uint8Array(32).fill(key))])),
+      verified: {},
+      chains: {},
+      trust: {},
+    });
+    const read = (parts: { id: string; data: Uint8Array }[]) => parts.map((part) => readManifestPart(part.id, part.data)!);
+    const first = read(manifestParts(manifest(1))!);
+    const second = read(manifestParts(manifest(2))!);
+    expect(first.length).toBe(2);
+    expect(joinManifestParts(first)).not.toBeNull();
+    expect(joinManifestParts([second[1]!, second[0]!])).not.toBeNull();
+    expect(joinManifestParts([first[0]!, second[1]!])).toBeNull();
+    expect(joinManifestParts([first[0]!])).toBeNull();
+    // A part only reads from its own item.
+    const [part] = manifestParts(manifest(1))!;
+    expect(readManifestPart("manifest:1", part!.data)).toBeNull();
   });
 
   it("lets a new device of an account that never rotated know when its manifest is held back (Z3-04)", async () => {
