@@ -21,15 +21,21 @@ pub fn set_menus(cx: &mut App) {
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    // Once the action is through: it's handled inside the window, which can't be reached
+    // again until then.
     cx.on_action(|_: &Minimize, cx| {
-        if let Some(window) = cx.active_window() {
-            window.update(cx, |_, window, _| window.minimize_window()).ok();
-        }
+        cx.defer(|cx| {
+            if let Some(window) = cx.active_window() {
+                window.update(cx, |_, window, _| window.minimize_window()).ok();
+            }
+        })
     });
     cx.on_action(|_: &Zoom, cx| {
-        if let Some(window) = cx.active_window() {
-            window.update(cx, |_, window, _| window.zoom_window()).ok();
-        }
+        cx.defer(|cx| {
+            if let Some(window) = cx.active_window() {
+                window.update(cx, |_, window, _| window.zoom_window()).ok();
+            }
+        })
     });
     // As the red button does: out of sight, with the app still running.
     cx.on_action(|_: &CloseWindow, cx| crate::platform::later(cx, super::hide_main));
