@@ -74,7 +74,7 @@ struct AttachSheet: View {
                         room: room,
                         camera: hasCamera ? (previewing ? .live(feed) : .still) : nil,
                         openCamera: { Task { await openCamera() } },
-                        choosePhotos: { choosingPhotos = true }
+                        choosePhotos: choosePhotos
                     )
                 case .file:
                     filePage
@@ -291,6 +291,18 @@ struct AttachSheet: View {
         }
     }
 
+    /// Photos' own picker, once there's room for what it picks.
+    private func choosePhotos() {
+        if roomLeft() { choosingPhotos = true }
+    }
+
+    /// Whether the message can take another file, saying why not when it can't.
+    private func roomLeft() -> Bool {
+        guard room <= 0 else { return true }
+        model.toast("A message takes up to \(OutgoingFiles.limit) files, and this one has them all.")
+        return false
+    }
+
     // MARK: Camera
 
     /// The system's camera, for a photo or a video, asking for it the first time.
@@ -331,9 +343,11 @@ struct AttachSheet: View {
     private var filePage: some View {
         ScrollView {
             VStack(spacing: 0) {
-                fileRow("Choose from Photos", "photo.on.rectangle", A11y.Attach.photos) { choosingPhotos = true }
+                fileRow("Choose from Photos", "photo.on.rectangle", A11y.Attach.photos, action: choosePhotos)
                 Divider().overlay(Theme.line).padding(.leading, 60)
-                fileRow("Choose from Files", "folder", A11y.Attach.files) { choosingFiles = true }
+                fileRow("Choose from Files", "folder", A11y.Attach.files) {
+                    if roomLeft() { choosingFiles = true }
+                }
                 if UIPasteboard.general.hasImages {
                     Divider().overlay(Theme.line).padding(.leading, 60)
                     fileRow("Paste image", "doc.on.clipboard", A11y.Attach.paste) {
@@ -404,6 +418,14 @@ private struct GalleryPage: View {
 
     private var grid: some View {
         ScrollView {
+            if room <= 0 {
+                Text("A message takes up to \(OutgoingFiles.limit) files, and this one has them all.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
             if library.status == .limited {
                 HStack(spacing: 12) {
                     Text("You've let Zuna see only some of your photos.")

@@ -588,6 +588,10 @@ struct Composer: View {
     }
 
     private func stageFiles(_ urls: [URL], scoped: Bool = true) async {
+        var leftOut = 0
+        defer {
+            if leftOut > 0 { model.toast("A message takes up to \(OutgoingFiles.limit) files, so \(leftOut == 1 ? "one was" : "\(leftOut) were") left out.") }
+        }
         for url in urls {
             let accessing = scoped && url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
@@ -595,8 +599,16 @@ struct Composer: View {
                 // Copying a video, or turning a 48 MP HEIC into JPEG, takes a while, and mustn't hold up the screen.
                 let copied = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.stage(url) }.value
                 let staged = await OutgoingFiles.withDuration(copied)
+                var added = false
                 model.updateComposer(serverId, conversation.key) { state in
-                    if state.files.count < OutgoingFiles.limit { state.files.append(staged) }
+                    if state.files.count < OutgoingFiles.limit {
+                        state.files.append(staged)
+                        added = true
+                    }
+                }
+                if !added {
+                    leftOut += 1
+                    OutgoingFiles.discard(staged)
                 }
             } catch {
                 model.toast("Couldn't add \(url.lastPathComponent): \(error.localizedDescription)", .error)
