@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Fix the compat-sounding comment on PublicUser
-- Where: server/internal/store/users.go:17-18
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: "Older ones go on seeing the key it began with" suggests old clients still exist. In fact `identity_key` is the root of the chain that every client pins (session.ts:896, :1021), so an agent could wrongly treat it as removable.
-- Suggested change: describe IdentityKey as the root of the identity chain that clients pin, and KeyGeneration and IdentityHead as how far the chain has got.
-- Check after: none.
-
 ### Use isServerAdmin for every server-role check
 - Where: server/internal/api/server.go:634, channels.go:161, screen.go:231 and :370; the helper is at accounts.go:733. Also admin.go:369-378, where `canModerate` loads the full user with devices just to read its role.
 - Category: cleanup

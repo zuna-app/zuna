@@ -13,9 +13,10 @@ type PublicUser struct {
 	ID          string `json:"id"`
 	Username    string `json:"username"`
 	Role        string `json:"role"`
+	// IdentityKey is the root of the account's identity chain, the key every client
+	// pins. KeyGeneration and IdentityHead say how far that chain has got, and
+	// ProfileSig signs the profile with the head's key.
 	IdentityKey []byte `json:"identity_key"`
-	// KeyGeneration, IdentityHead and ProfileSig are for clients that follow an
-	// account's generations. Older ones go on seeing the key it began with.
 	KeyGeneration int64    `json:"key_generation"`
 	IdentityHead  []byte   `json:"identity_head"`
 	HpkeKey       []byte   `json:"hpke_key"`
