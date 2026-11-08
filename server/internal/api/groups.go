@@ -417,6 +417,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store
 	var err error
 	if around := queryInt(r, "around", 0); around > 0 {
 		messages, err = s.db.MessagesAround(r.Context(), groupID, around, member.VisibleFromSeq, limit)
+	} else if r.URL.Query().Has("after") {
+		messages, err = s.db.MessagesAfter(r.Context(), groupID, queryInt(r, "after", 0), member.VisibleFromSeq, limit)
 	} else {
 		messages, err = s.db.MessagesBefore(r.Context(), groupID, queryInt(r, "before", 1<<62), member.VisibleFromSeq, limit)
 	}

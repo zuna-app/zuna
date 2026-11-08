@@ -775,3 +775,42 @@ func TestPlaceholdersBecomePostgresOnes(t *testing.T) {
 		t.Error("postgresArgs changed what it was given")
 	}
 }
+
+func TestMessagesAfterAPlaceComeOldestFirstFromWhatTheMemberMaySee(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 12 {
+		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: fmt.Sprintf("m%d", i), SenderUser: "u", SenderDevice: "d", Envelope: []byte("x")}, nil, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seqs := func(messages []*Message) []int64 {
+		out := make([]int64, len(messages))
+		for i, message := range messages {
+			out[i] = message.Seq
+		}
+		return out
+	}
+	page, err := db.MessagesAfter(ctx, group, 4, 0, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := seqs(page); !slices.Equal(got, []int64{5, 6, 7, 8, 9}) {
+		t.Fatalf("after 4: %v", got)
+	}
+	// The newest page is short, and nothing comes after the newest.
+	if page, _ = db.MessagesAfter(ctx, group, 9, 0, 5); !slices.Equal(seqs(page), []int64{10, 11, 12}) {
+		t.Fatalf("after 9: %v", seqs(page))
+	}
+	if page, _ = db.MessagesAfter(ctx, group, 12, 0, 5); len(page) != 0 {
+		t.Fatalf("after the newest: %v", seqs(page))
+	}
+	// What came before someone could see stays out, wherever they ask from.
+	if page, _ = db.MessagesAfter(ctx, group, 0, 8, 5); !slices.Equal(seqs(page), []int64{9, 10, 11, 12}) {
+		t.Fatalf("after 0, visible from 8: %v", seqs(page))
+	}
+}

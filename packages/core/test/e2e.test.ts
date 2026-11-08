@@ -338,6 +338,52 @@ describe("notices", () => {
     expect(texts).toHaveLength(fillers + 3);
   });
 
+  it("read on from a message jumped to, page by page, to the newest, from the server where this device lacks them", async () => {
+    const groupId = await alice.session.createGroup("Reading on", [bob.userId], false);
+    const key = `group:${groupId}`;
+    const count = 130;
+    for (let i = 0; i < count; i++) alice.session.sendMessage(key, { text: `line ${i}` });
+    await waitFor(async () => {
+      const page = await bob.session.loadMessages(groupId);
+      return page.messages.some((item) => item.text === `line ${count - 1}`);
+    }, "bob to have them all", 60_000);
+    const sent = (await alice.session.loadMessages(groupId)).messages;
+    expect(sent.at(-1)?.text).toBe(`line ${count - 1}`);
+
+    // A window around an early message, as a reply's quote or a search hit opens it.
+    const target = (await bob.session.messageById(groupId, (await waitForMessage(bob, groupId, "line 10")).id))!;
+    const window = await bob.session.loadAround(groupId, target.seq!);
+    expect(window.some((item) => item.id === target.id)).toBe(true);
+    const windowEnd = window.at(-1)!.seq!;
+
+    // What lies after it was never on this device: it comes from the server.
+    (bob.session as any).db.run("DELETE FROM messages WHERE group_id = ? AND seq > ?", [groupId, windowEnd]);
+    // And a notice that shares its number with a message, where a page would end between them.
+    const fiftieth = windowEnd + 50;
+    (bob.session as any).addSystemRow(groupId, Date.now(), alice.userId, { type: "identity_changed", actorId: alice.userId }, fiftieth);
+
+    const seen: MessageView[] = [...window];
+    let page = await bob.session.loadNewer(groupId, windowEnd);
+    seen.push(...page.messages);
+    const pages = [page];
+    while (page.hasMore) {
+      page = await bob.session.loadNewer(groupId, seen.filter((item) => item.seq !== null).at(-1)!.seq!);
+      seen.push(...page.messages);
+      pages.push(page);
+    }
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.slice(0, -1).every((item) => item.messages.length > 0 && item.messages.length <= 50)).toBe(true);
+    // Every line from the window on, once each, in order, to the newest.
+    const lines = seen.map((item) => item.text).filter((text) => text.startsWith("line "));
+    const from = lines.indexOf(window.find((item) => item.text.startsWith("line "))!.text);
+    expect(lines.slice(from)).toEqual(Array.from({ length: count - from }, (_, i) => `line ${i + from}`).slice(0, lines.length - from));
+    expect(lines.at(-1)).toBe(`line ${count - 1}`);
+    expect(new Set(seen.map((item) => item.id)).size).toBe(seen.length);
+    // The notice stays beside its message, on one page.
+    const holder = pages.find((item) => item.messages.some((message) => message.system?.type === "identity_changed"))!;
+    expect(holder.messages.filter((message) => message.seq === fiftieth)).toHaveLength(2);
+  });
+
   it("are fetched again rather than kept from a database from before they were sealed to their rows", () => {
     const db = new DatabaseSync(":memory:");
     const local = {
@@ -372,6 +418,21 @@ describe("notices", () => {
     db.close();
   });
 });
+
+/** A message a client has, by its text, once it has come. */
+async function waitForMessage(app: TestApp, groupId: string, text: string): Promise<MessageView> {
+  let found: MessageView | undefined;
+  await waitFor(async () => {
+    let page = await app.session.loadMessages(groupId);
+    found = page.messages.find((item) => item.text === text);
+    while (!found && page.hasMore) {
+      page = await app.session.loadMessages(groupId, page.messages.find((item) => item.seq !== null)!.seq!);
+      found = page.messages.find((item) => item.text === text);
+    }
+    return !!found;
+  }, `"${text}" to come`, 30_000);
+  return found!;
+}
 
 describe("devices and recovery", () => {
   it("gives a new device the full history and live messages, with no other device online", async () => {

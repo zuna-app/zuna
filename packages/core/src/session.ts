@@ -5402,6 +5402,39 @@ export class ServerSession {
     return rows.map((row) => this.toMessageView(row));
   }
 
+  /**
+   * The page after a sequence number, oldest first, for reading on from a window around
+   * a message jumped to. It asks the server too, as what lies between an old message and
+   * the newest may never have come to this device. With no more after it, it's the newest
+   * page, messages still being sent included, as `loadMessages` gives them.
+   */
+  async loadNewer(groupId: string, after: number): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+    try {
+      const remote = await this.api.messages(groupId, { after, limit: PAGE_SIZE });
+      for (const message of remote) this.ingest(message, false);
+    } catch (error) {
+      console.warn("[zuna] couldn't fetch newer messages", error);
+    }
+    const rows = this.db.all<MessageRow>(
+      `SELECT * FROM messages WHERE group_id = ? AND seq IS NOT NULL AND seq > ?
+       ORDER BY seq ASC, id LIKE 'sys-%' ASC, row_id ASC LIMIT ?`,
+      [groupId, after, PAGE_SIZE + 1],
+    );
+    const hasMore = rows.length > PAGE_SIZE;
+    if (hasMore) {
+      // A notice can share its number with the message before it, so a page never splits them:
+      // the next one starts after the last number left here.
+      const cut = rows.pop()!.seq;
+      while (rows.at(-1)?.seq === cut) rows.pop();
+    }
+    const pendingRows = hasMore
+      ? []
+      : this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND seq IS NULL ORDER BY created_at", [groupId]);
+    const messages = [...rows, ...pendingRows].map((row) => this.toMessageView(row));
+    void this.fetchMissingReplies(groupId, messages);
+    return { messages, hasMore };
+  }
+
   async messageById(groupId: string, id: string): Promise<MessageView | null> {
     let row = this.messageRow(groupId, id);
     if (!row) {

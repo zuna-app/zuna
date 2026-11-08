@@ -450,6 +450,17 @@ func (d *DB) MessagesBefore(ctx context.Context, groupID string, before, visible
 	return d.collectMessages(ctx, groupID, rows)
 }
 
+// MessagesAfter returns up to limit messages newer than seq, oldest first, for
+// reading on from a reply or search result jumped to.
+func (d *DB) MessagesAfter(ctx context.Context, groupID string, after, visibleFrom int64, limit int) ([]*Message, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages
+		WHERE group_id = ? AND seq > ? AND seq > ? ORDER BY seq ASC LIMIT ?`, groupID, after, visibleFrom, limit)
+	if err != nil {
+		return nil, err
+	}
+	return d.collectMessages(ctx, groupID, rows)
+}
+
 // MessagesAround returns the messages surrounding seq, oldest first, for
 // jumping to a reply or search result.
 func (d *DB) MessagesAround(ctx context.Context, groupID string, seq, visibleFrom int64, limit int) ([]*Message, error) {
@@ -458,12 +469,7 @@ func (d *DB) MessagesAround(ctx context.Context, groupID string, seq, visibleFro
 	if err != nil {
 		return nil, err
 	}
-	rows, err := d.sql.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages
-		WHERE group_id = ? AND seq > ? AND seq > ? ORDER BY seq ASC LIMIT ?`, groupID, seq, visibleFrom, half)
-	if err != nil {
-		return nil, err
-	}
-	newer, err := d.collectMessages(ctx, groupID, rows)
+	newer, err := d.MessagesAfter(ctx, groupID, seq, visibleFrom, half)
 	if err != nil {
 		return nil, err
 	}

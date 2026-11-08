@@ -510,9 +510,10 @@ export class Api {
   playCallSound = (groupId: string, data: Uint8Array) => this.request("POST", at`/api/groups/${groupId}/call/sound`, { data });
 
   // Messages
-  messages = async (groupId: string, options: { before?: number; around?: number; limit?: number }) => {
+  messages = async (groupId: string, options: { before?: number; after?: number; around?: number; limit?: number }) => {
     const query = new URLSearchParams();
     if (options.before !== undefined) query.set("before", String(options.before));
+    if (options.after !== undefined) query.set("after", String(options.after));
     if (options.around !== undefined) query.set("around", String(options.around));
     if (options.limit !== undefined) query.set("limit", String(options.limit));
     return (await this.request<{ messages: ApiMessage[] }>("GET", `${at`/api/groups/${groupId}/messages`}?${query}`)).messages;
