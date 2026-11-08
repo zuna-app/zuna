@@ -1,6 +1,6 @@
 // Turns encrypted files into displayable URLs, and prepares images for upload.
 
-import type { AvatarRef, Attachment } from "@zuna/core";
+import type { AvatarRef, Attachment, MessageView } from "@zuna/core";
 import { useEffect, useState } from "react";
 import { useApp } from "@/state/store";
 
@@ -250,6 +250,28 @@ const AUTO_LOAD_BYTES = 20 << 20;
 const AUTO_LOAD_CHUNKS = 21;
 
 /** The file's chunks, unlike its stated size, can't be lied about: decrypting checks them. */
+/** A picture the viewer shows, rather than a file to save. */
+export const isPicture = (attachment: Attachment): boolean => attachment.mime.startsWith("image/") && !!attachment.width && !!attachment.fileId;
+
+/**
+ * The pictures among messages, in the order given, which the viewer goes between, and which of
+ * them is `attachment`. Someone blocked's are left out, as their messages are hidden.
+ */
+export function picturesAmong(messages: MessageView[], attachment: Attachment, blocked: string[] = []): { pictures: Attachment[]; index: number } {
+  const pictures: Attachment[] = [];
+  let index = -1;
+  for (const message of messages) {
+    if (message.deletedAt || blocked.includes(message.senderId)) continue;
+    for (const picture of message.attachments) {
+      if (!isPicture(picture)) continue;
+      if (picture.fileId === attachment.fileId) index = pictures.length;
+      pictures.push(picture);
+    }
+  }
+  // One that isn't among them opens alone.
+  return index >= 0 ? { pictures, index } : { pictures: [attachment], index: 0 };
+}
+
 export const loadsByItself = (attachment: Attachment): boolean => attachment.size <= AUTO_LOAD_BYTES && attachment.chunks <= AUTO_LOAD_CHUNKS;
 
 /** Saves a file. One already drawn is saved from memory; anything else isn't kept there once saved. */

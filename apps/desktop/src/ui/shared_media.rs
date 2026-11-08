@@ -1,11 +1,13 @@
 //! What's been shared in a chat, by kind, as Telegram's details list it
 //! (packages/ui/src/features/chat/SharedMedia.tsx).
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{AnyElement, App, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, Pixels, SharedString, Styled, div, prelude::*, px};
 
 use super::components::*;
+use super::image_viewer;
 use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu};
 use crate::format::{avatar_color, format_bytes, format_duration, format_full, name_color};
@@ -131,6 +133,12 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
             .iter()
             .flat_map(|message| message.attachments.iter().filter(|attachment| attachment_kind(attachment) == kind).map(move |attachment| (message.clone(), attachment.clone())))
             .collect();
+        // The photos for the viewer to go between, oldest first, as in the chat, and none from
+        // someone blocked, as their messages are hidden.
+        let blocked = server.prefs.blocked();
+        let pictures: Rc<Vec<image_viewer::Item>> = Rc::new(
+            tiles.iter().rev().filter(|(message, attachment)| image_viewer::is_picture(attachment) && !blocked.contains(&message.sender_id)).map(|(_, attachment)| image_viewer::Item::of(attachment)).collect(),
+        );
         let mut grid = div().flex().flex_col().gap(px(2.)).rounded(RADIUS_M).overflow_hidden();
         let last_row = tiles.len().saturating_sub(1) / 3;
         for (row_index, row) in tiles.chunks(3).enumerate() {
@@ -144,7 +152,7 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
                     bottom_right: at(row_index == last_row && column == 2),
                     bottom_left: at(row_index == last_row && column == 0),
                 };
-                line = line.child(tile(state, server, message, attachment, kind == SharedKind::Video, corners, cx));
+                line = line.child(tile(state, server, message, attachment, kind == SharedKind::Video, &pictures, corners, cx));
             }
             for _ in row.len()..3 {
                 line = line.child(div().flex_1());
@@ -177,7 +185,7 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
 
 /// A photo or a video, as a square. A photo opens in the viewer, loading first if it's
 /// one too big to load by itself; a video shows where it was sent.
-fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, video: bool, corners: gpui::Corners<Pixels>, cx: &mut App) -> AnyElement {
+fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, video: bool, pictures: &Rc<Vec<image_viewer::Item>>, corners: gpui::Corners<Pixels>, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let key = format!("file:{}", attachment.file_id);
     let wanted = loads_by_itself(attachment) || state.read(cx).pictures.contains_key(&key);
@@ -190,7 +198,7 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
     };
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
     let (group, id) = (message.group_id.clone(), message.id.clone());
-    let name = attachment.name.clone();
+    let (pictures, file_id) = (pictures.clone(), attachment.file_id.clone());
     let click_state = state.clone();
     let server_id = server.entry.id.clone();
     let load = reference(attachment);
@@ -213,7 +221,10 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
         .cursor_pointer()
         .tooltip(tooltip(format_full(message.created_at)))
         .on_click(move |_, window, cx| match &full {
-            Some(full) => super::image_viewer::open(full.clone(), name.clone(), window, cx),
+            Some(full) => {
+                let index = pictures.iter().position(|item| item.file_id() == file_id).unwrap_or(0);
+                image_viewer::open(image_viewer::Gallery::new(&server_id, pictures.to_vec(), index, full.clone()), window, cx);
+            }
             _ => click_state.update(cx, |state, cx| {
                 if video {
                     state.jump_to_message(&group, &id, cx);

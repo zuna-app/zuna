@@ -41,7 +41,7 @@ import { useGrowWithText } from "@/lib/grow";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { timerChangeText } from "@/lib/disappearing";
 import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
-import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
+import { downloadAttachment, loadsByItself, picturesAmong, useDecryptedUrl } from "@/lib/media";
 import { RoundAttachment } from "./Round";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
@@ -120,7 +120,7 @@ function SystemMessage({ message, highlighted, channel }: { message: MessageView
   );
 }
 
-function ImageAttachment({ attachment, serverId, single, uploadProgress }: { attachment: Attachment; serverId: string; single: boolean; uploadProgress?: number }) {
+function ImageAttachment({ attachment, message, serverId, single, uploadProgress }: { attachment: Attachment; message: MessageView; serverId: string; single: boolean; uploadProgress?: number }) {
   const uploading = !attachment.fileId;
   // A very large picture waits for a click, as a video does.
   const [wanted, setWanted] = useState(() => loadsByItself(attachment));
@@ -134,7 +134,13 @@ function ImageAttachment({ attachment, serverId, single, uploadProgress }: { att
       className={`media-tile${single ? " is-single" : ""}`}
       // The box is sized up front, so the list doesn't jump when the image arrives.
       style={single ? { width: Math.max(140, width * scale), minWidth: "100%", aspectRatio: `${width} / ${height}` } : undefined}
-      onClick={() => (url ? setOverlay({ type: "image", url, name: attachment.name }) : setWanted(true))}
+      onClick={() => {
+        if (!url) return setWanted(true);
+        // With the chat's other pictures loaded, which the viewer goes between.
+        const state = useApp.getState();
+        const loaded = state.lists[message.groupId]?.items ?? [message];
+        setOverlay({ type: "image", serverId, ...picturesAmong(loaded, attachment, state.servers[serverId]?.prefs.blocked) });
+      }}
       aria-label={wanted ? `Open ${attachment.name}` : `Load ${attachment.name}, ${formatBytes(attachment.size)}`}
     >
       {attachment.thumb && <img className={`media-thumb${url ? " is-hidden" : ""}`} src={attachment.thumb} alt="" draggable={false} />}
@@ -379,7 +385,7 @@ function Attachments({ message, serverId, flush, own }: { message: MessageView; 
       {images.length > 0 && (
         <div className={`media-grid media-count-${Math.min(images.length, 4)}${flush ? " has-no-text" : ""}`}>
           {images.map((attachment, index) => (
-            <ImageAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} single={images.length === 1} uploadProgress={fileProgress(message, attachment)} />
+            <ImageAttachment key={attachment.fileId || index} attachment={attachment} message={message} serverId={serverId} single={images.length === 1} uploadProgress={fileProgress(message, attachment)} />
           ))}
         </div>
       )}

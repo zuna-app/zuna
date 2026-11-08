@@ -2,6 +2,7 @@
 
 import type { CoreConnection, RemoteSession } from "@zuna/core/rpc";
 import type {
+  Attachment,
   CallView,
   ChannelView,
   ConnectionState,
@@ -76,7 +77,7 @@ export type Overlay =
   | { type: "invite" }
   | { type: "verify"; userId: string }
   | { type: "add-members"; groupId: string }
-  | { type: "image"; url: string; name: string }
+  | { type: "image"; serverId: string; pictures: Attachment[]; index: number }
   | { type: "forward"; serverId: string; groupId: string; ids: string[] }
   | { type: "share-location"; conversationKey: string }
   | { type: "channel"; channelId?: string; channelType?: "text" | "voice" }

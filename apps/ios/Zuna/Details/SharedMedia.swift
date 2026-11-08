@@ -188,7 +188,7 @@ private struct SharedMessages: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 2)], spacing: 2) {
                 ForEach(messages) { message in
                     ForEach(attachments(of: message), id: \.offset) { _, attachment in
-                        MediaTile(message: message, attachment: attachment, serverId: server.entry.id) { show(message) }
+                        MediaTile(message: message, attachment: attachment, serverId: server.entry.id, others: messages) { show(message) }
                     }
                 }
             }
@@ -292,6 +292,8 @@ private struct MediaTile: View {
     let message: MessageView
     let attachment: Attachment
     let serverId: String
+    /// The messages around it, newest first, whose pictures the viewer goes between.
+    let others: [MessageView]
     let show: () -> Void
     @State private var image: UIImage?
     @State private var failed = false
@@ -379,14 +381,9 @@ private struct MediaTile: View {
     }
 
     private func open() {
-        Task {
-            do {
-                let file = try await images.openable(attachment, serverId: serverId)
-                PhotoViewer.show(file, caption: .init(message, server: model.servers[serverId]))
-            } catch {
-                model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
-            }
-        }
+        // Oldest on the left, as in the chat.
+        let gallery = PhotoViewer.Item.pictures(in: others.reversed(), showing: attachment, of: message, server: model.servers[serverId], images: images)
+        PhotoViewer.show(gallery.items, at: gallery.index)
     }
 }
 

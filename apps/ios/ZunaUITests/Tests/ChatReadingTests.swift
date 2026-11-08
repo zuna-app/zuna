@@ -202,6 +202,54 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(zuna.app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
 
+    /// The viewer goes between the chat's pictures with a swipe, as Telegram's does, the older
+    /// on the left, and its title says which of how many.
+    func testSwipesBetweenAChatsPictures() throws {
+        let alice = try Peer("alice")
+        let tag = UUID().uuidString.prefix(4)
+        var names: [String] = []
+        for (index, color) in [UIColor.systemRed, .systemGreen, .systemBlue].enumerated() {
+            let png = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 150)).pngData { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 200, height: 150))
+            }
+            let name = "swipe-\(tag)-\(index + 1).png"
+            try alice.sendImage(to: "user:\(bobId)", png: png, name: name, width: 200, height: 150, text: "")
+            names.append(name)
+        }
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let newest = zuna.element(A11y.Chat.attachment(names[2]))
+        try toNewest(until: newest)
+        try waitFor("the picture to load") { newest.value as? String == "Loaded" }
+        newest.tap()
+        let viewer = zuna.element(A11y.Chat.photoViewer)
+        XCTAssertTrue(viewer.waitForExistence(timeout: 10))
+        let title = zuna.element(A11y.Chat.photoViewerTitle)
+        let place = { () -> (Int, Int)? in
+            let parts = title.label.split(separator: ",").last?.split(separator: " ") ?? []
+            guard parts.count == 3, parts[1] == "of", let at = Int(parts[0]), let of = Int(parts[2]) else { return nil }
+            return (at, of)
+        }
+        let (at, count) = try XCTUnwrap(place(), title.label)
+        XCTAssertEqual(at, count, title.label)
+        XCTAssertTrue(zuna.app.images[names[2]].exists)
+
+        // A swipe to the right shows the one before, and another the one before that.
+        viewer.swipeRight()
+        try waitFor("the picture before it") { self.zuna.app.images[names[1]].exists && place()?.0 == count - 1 }
+        viewer.swipeRight()
+        try waitFor("the first of the three") { self.zuna.app.images[names[0]].exists && place()?.0 == count - 2 }
+        zuna.screenshot("63c-swiped")
+        // And to the left, back again.
+        viewer.swipeLeft()
+        try waitFor("the second again") { place()?.0 == count - 1 }
+        zuna.app.buttons["Close"].tap()
+        try waitFor("the viewer to close") { !viewer.exists }
+    }
+
     /// A phone's screenshot fills the viewer, with the status bar over a shade at its top, as in
     /// Telegram. A tap hides both with the buttons, and then nothing lies over the picture's top,
     /// nor the blur iOS 26 puts at a scroll view's edges.

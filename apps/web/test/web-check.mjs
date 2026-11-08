@@ -339,6 +339,30 @@ async function runIn(name) {
     await page.screenshot({ path: prefix("03b-shared") });
     await page.locator(".side-head").getByLabel("Close").click();
 
+    // Two pictures in another chat, which the viewer goes between, the older on the left, as Telegram's does
+    await page.locator(".conv-row", { has: page.locator(".conv-title", { hasText: "Sam Chen" }) }).click();
+    for (const name of ["lake-1.png", "lake-2.png"]) {
+      await page.locator('input[type="file"]').setInputFiles([{ name, mimeType: "image/png", buffer: picture }]);
+      await page.locator(".file-chip").waitFor();
+      await page.keyboard.press("Enter");
+      await page.locator(".file-chip").waitFor({ state: "detached" });
+    }
+    await page.getByRole("button", { name: "Open lake-2.png" }).click({ timeout: 20_000 });
+    const viewer = page.locator(".image-viewer");
+    await viewer.locator('img[alt="lake-2.png"]').waitFor({ timeout: 10_000 });
+    const place = viewer.locator(".image-count");
+    check("the viewer says which picture of how many", (await place.innerText()) === "2 of 2", await place.innerText());
+    await page.keyboard.press("ArrowLeft");
+    await viewer.locator('img[alt="lake-1.png"]').waitFor({ timeout: 10_000 });
+    check("the left arrow key goes to the one before, the first", (await place.innerText()) === "1 of 2" && (await viewer.locator(".image-nav.is-before").count()) === 0);
+    await page.screenshot({ path: prefix("03c-viewer") });
+    await viewer.locator(".image-nav.is-after").click();
+    await viewer.locator('img[alt="lake-2.png"]').waitFor({ timeout: 10_000 });
+    check("the arrow on the right goes to the next", (await place.innerText()) === "2 of 2" && (await viewer.locator(".image-nav.is-after").count()) === 0);
+    await page.keyboard.press("Escape");
+    await viewer.waitFor({ state: "detached" });
+    await page.locator(".conv-row", { hasText: "Priya" }).click();
+
     // Voice messages: what each browser can record, and whether an iPhone could play what it sends
     const formats = await page.evaluate(() =>
       ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"].filter((type) => window.MediaRecorder?.isTypeSupported(type)),
@@ -397,7 +421,7 @@ async function runIn(name) {
       await round.locator("video").waitFor({ timeout: 20_000 });
       const size = await round.locator("video").evaluate((video) => new Promise((resolve) => setTimeout(() => resolve(`${video.videoWidth}x${video.videoHeight}`), 1000)));
       check("a video message is recorded, sent and shown as a circle", size === "480x480", size);
-      await page.screenshot({ path: prefix("03c-video-message") });
+      await page.screenshot({ path: prefix("03e-video-message") });
       if (process.platform === "darwin") {
         const file = join(shots, `${name}-round.mp4`);
         writeFileSync(file, Buffer.from(await bytesAt(page, await round.locator("video").evaluate((video) => video.currentSrc)), "base64"));
@@ -450,7 +474,7 @@ async function runIn(name) {
 
     // A message found by search opens in a window around it, which reads on both ways, and takes new messages once it has read on to the newest
     try {
-      await page.locator(".conv-row", { hasText: "Jordan" }).click();
+      await page.locator(".conv-row", { has: page.locator(".conv-title", { hasText: "Jordan Blake" }) }).click();
       await page.locator(".composer-input").click();
       await page.keyboard.type("count to 160");
       await page.keyboard.press("Enter");

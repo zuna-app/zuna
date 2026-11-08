@@ -6,7 +6,7 @@ import { AlertCircle, Download, File as FileIcon, Headphones, Image as ImageIcon
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Spinner } from "@/components/ui";
 import { avatarColor, formatDuration, formatFull, nameColor } from "@/lib/format";
-import { loadsByItself, useDecryptedUrl, useVideoFrame } from "@/lib/media";
+import { loadsByItself, picturesAmong, useDecryptedUrl, useVideoFrame } from "@/lib/media";
 import { useActiveServer, useApp } from "@/state/store";
 import { AudioAttachment, FileAttachment, VoiceAttachment } from "./MessageItem";
 
@@ -174,7 +174,7 @@ function SharedMessages({ conversation, groupId, kind }: { conversation: Convers
           {messages.flatMap((message) =>
             message.attachments
               .filter((attachment) => attachmentKind(attachment) === kind)
-              .map((attachment, index) => <MediaTile key={`${message.id}/${index}`} message={message} attachment={attachment} video={kind === "video"} />),
+              .map((attachment, index) => <MediaTile key={`${message.id}/${index}`} message={message} attachment={attachment} video={kind === "video"} among={messages} />),
           )}
         </div>
       ) : (
@@ -255,7 +255,7 @@ function useShowInChat(message: MessageView) {
  * A photo or a video, as a square. A photo opens in the viewer, loading first if
  * it's one too big to load by itself; a video plays where it was sent.
  */
-function MediaTile({ message, attachment, video }: { message: MessageView; attachment: Attachment; video: boolean }) {
+function MediaTile({ message, attachment, video, among }: { message: MessageView; attachment: Attachment; video: boolean; among: MessageView[] }) {
   const serverId = useApp((state) => state.activeServerId);
   const setOverlay = useApp((state) => state.setOverlay);
   const ref = useRef<HTMLButtonElement>(null);
@@ -271,7 +271,12 @@ function MediaTile({ message, attachment, video }: { message: MessageView; attac
       <button
         ref={ref}
         className="shared-tile"
-        onClick={() => (video ? show() : url ? setOverlay({ type: "image", url, name: attachment.name }) : setWanted(true))}
+        onClick={() => {
+          if (video) return show();
+          if (!url || !serverId) return setWanted(true);
+          // Among the others here, oldest on the left as in the chat.
+          setOverlay({ type: "image", serverId, ...picturesAmong([...among].reverse(), attachment, useApp.getState().servers[serverId]?.prefs.blocked) });
+        }}
         onContextMenu={onContextMenu}
         title={formatFull(message.createdAt)}
         aria-label={video ? `Show ${attachment.name} in the chat` : wanted ? `Open ${attachment.name}` : `Load ${attachment.name}`}

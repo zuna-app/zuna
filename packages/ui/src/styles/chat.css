@@ -452,5 +452,17 @@ button.media-load:hover { background: rgba(0, 0, 0, 0.7); }
 .image-zoom { min-width: 50px; height: 30px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-2); border-radius: var(--radius-m); }
 .image-zoom:hover:not(:disabled) { background: var(--hover-strong); color: var(--text-1); }
 .image-save { margin-left: 4px; text-decoration: none !important; color: var(--text-1) !important; }
+.image-viewer img.is-preview { filter: blur(12px); cursor: default; }
+.image-state {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
+  color: var(--text-2); font-size: 14px; pointer-events: none;
+}
+/* The pictures either side, as Telegram's desktop app has them. */
+.image-nav { position: absolute; top: 50%; width: 40px; height: 40px; margin-top: -20px; border-radius: 50%; background: var(--bg-3); cursor: pointer; }
+.image-nav:hover { background: var(--bg-4); }
+.image-nav.is-before { left: 18px; }
+.image-nav.is-after { right: 18px; }
+.image-count { padding: 0 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.image-save[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 .image-close { position: absolute; top: 44px; right: 18px; background: var(--bg-3); cursor: pointer; }
 .image-close:hover { background: var(--bg-4); }
