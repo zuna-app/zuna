@@ -177,9 +177,18 @@ final class ComposerTests: XCTestCase {
         result.tap()
         XCTAssertTrue(message(note).waitForExistence(timeout: 10))
 
-        // Unpinned from the screen of pins, opened from the details as in Telegram.
+        // A pin from the screen of pins, opened from the details as in Telegram, goes back to the chat at it.
         try detailsAction("pins")
-        XCTAssertTrue(zuna.element(A11y.Chat.result(note)).waitForExistence(timeout: 10))
+        let pinned = zuna.element(A11y.Chat.result(note))
+        XCTAssertTrue(pinned.waitForExistence(timeout: 10))
+        pinned.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(zuna.element(A11y.Composer.input).waitForExistence(timeout: 10))
+        XCTAssertTrue(message(note).waitForExistence(timeout: 10))
+        XCTAssertFalse(zuna.element(A11y.Details.screen).exists)
+
+        // Unpinned from there.
+        try detailsAction("pins")
+        XCTAssertTrue(pinned.waitForExistence(timeout: 10))
         let unpin = zuna.app.buttons["Unpin"]
         XCTAssertTrue(unpin.waitForExistence(timeout: 10))
         unpin.tap()

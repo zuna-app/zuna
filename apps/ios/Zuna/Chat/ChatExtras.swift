@@ -137,7 +137,12 @@ struct PinnedMessagesView: View {
             }
             ForEach(pins ?? []) { message in
                 Button {
-                    dismiss()
+                    // Back to the chat itself, past the details this was opened from.
+                    if let index = model.chatPath.firstIndex(of: .chat(conversationKey)) {
+                        model.chatPath = Array(model.chatPath.prefix(through: index))
+                    } else {
+                        dismiss()
+                    }
                     Task { await model.jumpToMessage(serverId, groupId: message.groupId, messageId: message.id, seq: message.seq) }
                 } label: {
                     ResultRow(message: message, server: server) {
