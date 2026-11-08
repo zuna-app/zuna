@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Prepare avatars without a full-resolution bitmap on the main thread
-- Where: apps/ios/Zuna/Shared/OutgoingFiles.swift:104-123, 189-196; callers Settings/AccountSettings.swift:100, Details/ConversationDetails.swift:273, Settings/ServerSettingsView.swift:119
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `avatar(from:)` decodes the whole photo; for any photo not stored upright (most portrait shots), `cgImageOriented()` redraws it at full size (~190 MB for 48 MP) to make a 256 px square, from main-actor closures.
-- Suggested change: `CGImageSourceCreateThumbnailAtIndex` with `kCGImageSourceCreateThumbnailWithTransform` and a max of ~2× target, then crop the centre square; make it nonisolated and call it from a detached task; delete `cgImageOriented()` once unused.
-- Check after: `npm run test:ios:ui -- --only SettingsTests,DetailsTests`.
-
 ### Downsample photos for the viewer off the main thread
 - Where: apps/ios/Zuna/Chat/PhotoViewer.swift:32-42, 337-345; apps/ios/Zuna/Chat/ChatScreen.swift:316-324
 - Category: ux

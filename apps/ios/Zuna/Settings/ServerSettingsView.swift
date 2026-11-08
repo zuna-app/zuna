@@ -116,7 +116,9 @@ struct ServerSettingsView: View {
             icon = nil
             run {
                 guard let media = try await item.loadTransferable(type: PickedMedia.self) else { return }
-                try await model.core.session(serverId).updateServerIcon(try OutgoingFiles.avatar(from: media.url))
+                let url = media.url
+                let file = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.avatar(from: url) }.value
+                try await model.core.session(serverId).updateServerIcon(file)
                 images.forgetServerIcon(server.entry)
             }
         }

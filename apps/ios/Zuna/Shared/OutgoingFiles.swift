@@ -115,8 +115,22 @@ enum OutgoingFiles {
     }
 
     /// A square picture for a group or profile, as the desktop's prepareAvatar: 256 pixels, WebP where the system can write it.
+    /// It's read with ImageIO at about twice that across its short side, and upright, rather than
+    /// decoded whole and redrawn to turn it, which for a 48 MP portrait photo is about 190 MB. It
+    /// takes a moment, so it's for a task off the main actor.
     static func avatar(from source: URL, size: Int = 256) throws -> WireFile {
-        guard let image = UIImage(contentsOfFile: source.path)?.cgImageOriented() else { throw CocoaError(.fileReadCorruptFile) }
+        guard let reader = CGImageSourceCreateWithURL(source as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(reader, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else { throw CocoaError(.fileReadCorruptFile) }
+        let long = max(width, height)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: min(long, 2 * size * long / min(width, height)),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(reader, 0, options as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
         let side = min(image.width, image.height)
         let crop = CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2, width: side, height: side)
         guard let square = image.cropping(to: crop),
@@ -200,12 +214,3 @@ struct PickedMedia: Transferable {
     }
 }
 
-private extension UIImage {
-    /// The bitmap turned the way the picture is meant to be seen.
-    func cgImageOriented() -> CGImage? {
-        guard imageOrientation != .up else { return cgImage }
-        return UIGraphicsImageRenderer(size: size, format: { let format = UIGraphicsImageRendererFormat(); format.scale = 1; return format }()).image { _ in
-            draw(in: CGRect(origin: .zero, size: size))
-        }.cgImage
-    }
-}

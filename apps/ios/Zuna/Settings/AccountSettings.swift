@@ -97,7 +97,8 @@ struct ProfileView: View {
             photo = nil
             run {
                 guard let media = try await item.loadTransferable(type: PickedMedia.self) else { return }
-                let file = try OutgoingFiles.avatar(from: media.url)
+                let url = media.url
+                let file = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.avatar(from: url) }.value
                 try await model.core.session(serverId).updateProfile(ProfileChanges(), avatar: .set(file))
             }
         }
