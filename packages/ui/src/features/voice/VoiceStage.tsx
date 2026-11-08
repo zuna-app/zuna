@@ -26,7 +26,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Spinner, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
 import { avatarColor } from "@/lib/format";
@@ -37,7 +37,8 @@ import { screenRefusal } from "@zuna/core/voice";
 import { ChatView } from "@/features/chat/ChatView";
 import { ScreenPicker } from "./ScreenPicker";
 import { SoundboardButton } from "./Soundboard";
-import { StreamStatsPanel } from "./StreamStatsPanel";
+// With what it measures, which needs LiveKit, only once someone opens it.
+const StreamStatsPanel = lazy(() => import("./StreamStatsPanel").then((module) => ({ default: module.StreamStatsPanel })));
 
 /** Shows one video. A track can be attached to many elements, and each is let go of when it's gone. */
 const VideoView = memo(function VideoView({ tile, contain }: { tile: VideoTile; contain?: boolean }) {
@@ -480,7 +481,11 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
             </Tooltip>
           </header>
         )}
-        {statsOpen && <StreamStatsPanel onClose={() => setStatsOpen(false)} />}
+        {statsOpen && (
+          <Suspense fallback={null}>
+            <StreamStatsPanel onClose={() => setStatsOpen(false)} />
+          </Suspense>
+        )}
 
         {status === "connecting" ? (
           <div className="voice-connecting">

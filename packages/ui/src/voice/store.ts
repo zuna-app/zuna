@@ -4,12 +4,13 @@
 // has works the same in it.
 
 import { screenTerms } from "@zuna/core/voice";
-import { Track } from "livekit-client";
 import { create } from "zustand";
 import { conversationOfGroup, useApp } from "@/state/store";
 import { voiceHooks } from "./events";
 import type { MicReading } from "./mic";
-import { DisconnectReason, VoiceRoom, type RoomQuality, type VideoTile } from "./room";
+// The room, and LiveKit with it, a third of the app's script, only loads on coming into a
+// voice channel or a call, rather than with the app.
+import type { RoomQuality, VideoTile, VoiceRoom } from "./room";
 import { bitrateName, heightName, loadVoiceSettings, loadVolumes, rateName, saveVoiceSettings, saveVolumes, type VoiceSettings } from "./settings";
 import { playVoiceSound, setSoundOutput, type VoiceSound } from "./sounds";
 import type { StatSection, StatsShare, StreamStats } from "./stats";
@@ -176,11 +177,11 @@ export const useVoice = create<VoiceState>((set, get) => {
   };
 
   const applyVolumes = () => {
-    room?.setVolumes((userId, source) => {
+    room?.setVolumes((userId, shareSound) => {
       const { deafened, settings, volumes, streamVolumes, localMutes } = get();
       if (deafened) return 0;
       // A share's sound has a level of its own: it isn't how loud the person talks.
-      if (source === Track.Source.ScreenShareAudio) return settings.outputVolume * settings.screenVolume * (streamVolumes[userId] ?? 1);
+      if (shareSound) return settings.outputVolume * settings.screenVolume * (streamVolumes[userId] ?? 1);
       return localMutes[userId] ? 0 : settings.outputVolume * (volumes[userId] ?? 1);
     });
   };
@@ -237,13 +238,13 @@ export const useVoice = create<VoiceState>((set, get) => {
   };
 
   /** What to do when the room goes away without anyone asking: try coming back, as far as that's worth it. */
-  const onClosed = (reason?: DisconnectReason) => {
+  const onClosed = (forGood?: boolean) => {
     const { serverId, channelId } = get();
     closeRoom();
     // Coming back shares nothing until someone asks again, and the server knows that from the new connection.
     set({ screen: null });
     if (!serverId || !channelId) return;
-    if (reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.DUPLICATE_IDENTITY || reason === DisconnectReason.CLIENT_INITIATED) {
+    if (forGood) {
       get().leave();
       return;
     }
@@ -268,8 +269,9 @@ export const useVoice = create<VoiceState>((set, get) => {
     let joined: VoiceRoom | undefined;
     const current = () => !!joined && room === joined;
     try {
+      const { VoiceRoom } = await import("./room");
       joined = await VoiceRoom.join(app.session(serverId), channelId, get().settings, bitrate, {
-        status(status, reason) {
+        status(status, forGood) {
           if (!current()) return;
           if (status === "connected") {
             reconnects = 0;
@@ -277,7 +279,7 @@ export const useVoice = create<VoiceState>((set, get) => {
           } else if (status === "reconnecting") {
             set({ status: "reconnecting" });
           } else if (status === "closed") {
-            onClosed(reason);
+            onClosed(forGood);
           }
         },
         media: () => {

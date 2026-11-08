@@ -93,10 +93,14 @@ export interface VideoTile {
 }
 
 export type RoomStatus = "connecting" | "connected" | "reconnecting" | "closed";
+
+/** Why a room can close that nothing should try to come back from. */
+const ENDED_FOR_GOOD = new Set([DisconnectReason.PARTICIPANT_REMOVED, DisconnectReason.ROOM_DELETED, DisconnectReason.DUPLICATE_IDENTITY, DisconnectReason.CLIENT_INITIATED]);
 export type RoomQuality = "excellent" | "good" | "poor" | "lost" | "unknown";
 
 export interface RoomEvents {
-  status(status: RoomStatus, reason?: DisconnectReason): void;
+  /** Closed for good, it was ended on purpose, by this device, the server or another of its person's, and isn't to be come back to. */
+  status(status: RoomStatus, forGood?: boolean): void;
   /** Who's sending what changed. */
   media(): void;
   speaking(users: Set<string>): void;
@@ -133,7 +137,7 @@ export class VoiceRoom {
   private capturing = "";
   private closed = false;
   private readonly audioHolder = document.createElement("div");
-  private volumes: (userId: string, source: Track.Source) => number = () => 1;
+  private volumes: (userId: string, shareSound: boolean) => number = () => 1;
 
   private constructor(
     private readonly session: RemoteSession,
@@ -229,7 +233,7 @@ export class VoiceRoom {
         else if (state === ConnectionState.Reconnecting || state === ConnectionState.SignalReconnecting) this.on.status("reconnecting");
       })
       .on(RoomEvent.Disconnected, (reason) => {
-        if (!this.closed) this.on.status("closed", reason);
+        if (!this.closed) this.on.status("closed", reason !== undefined && ENDED_FOR_GOOD.has(reason));
       })
       .on(RoomEvent.ParticipantConnected, (participant) => {
         void this.installFor(participant.identity);
@@ -300,7 +304,7 @@ export class VoiceRoom {
       const audio = track as RemoteAudioTrack;
       this.audioHolder.append(audio.attach());
       const user = userOf(participant.identity);
-      if (user) audio.setVolume(this.volumes(user, publication.source));
+      if (user) audio.setVolume(this.volumes(user, publication.source === Track.Source.ScreenShareAudio));
     }
     this.on.media();
   }
@@ -375,7 +379,8 @@ export class VoiceRoom {
   // --- Listening ---
 
   /** Says how loud everyone is, which also covers being deafened. */
-  setVolumes(volumes: (userId: string, source: Track.Source) => number): void {
+  /** How loud each person is, and their share's sound, which has a level of its own. */
+  setVolumes(volumes: (userId: string, shareSound: boolean) => number): void {
     this.volumes = volumes;
     this.applyVolumes();
   }
@@ -385,7 +390,7 @@ export class VoiceRoom {
       const user = userOf(participant.identity);
       if (!user) continue;
       for (const publication of participant.trackPublications.values()) {
-        if (publication.kind === Track.Kind.Audio && publication.track) (publication.track as RemoteAudioTrack).setVolume(this.volumes(user, publication.source));
+        if (publication.kind === Track.Kind.Audio && publication.track) (publication.track as RemoteAudioTrack).setVolume(this.volumes(user, publication.source === Track.Source.ScreenShareAudio));
       }
     }
   }
@@ -563,4 +568,3 @@ export class VoiceRoom {
   }
 }
 
-export { DisconnectReason };
