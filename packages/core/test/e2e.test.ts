@@ -403,7 +403,7 @@ describe("notices", () => {
     add("still-sending", null, 500);
     db.exec("DROP TABLE joined_epochs; DROP TABLE epoch_starts; DROP TABLE device_departures");
     db.exec("DROP TABLE identity_chain; DROP TABLE identity_state; DROP TABLE device_first_leaf");
-    db.exec("ALTER TABLE messages DROP COLUMN unproven_delete_at");
+    db.exec("DROP INDEX messages_unproven; ALTER TABLE messages DROP COLUMN unproven_delete_at");
     db.exec("DROP TABLE media");
     db.exec("ALTER TABLE messages DROP COLUMN pin_revision");
     db.exec("DROP INDEX messages_expiry; ALTER TABLE messages DROP COLUMN expires_at; DROP TABLE expired");

@@ -180,6 +180,9 @@ const MIGRATIONS: string[] = [
   ALTER TABLE expired ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
   UPDATE expired SET at = CAST(strftime('%s', 'now') AS INTEGER) * 1000;
   `,
+  // The few messages whose deletion is still to be proven, which each start would
+  // otherwise find by reading every message there is.
+  `CREATE INDEX messages_unproven ON messages(unproven_delete_at) WHERE unproven_delete_at IS NOT NULL;`,
 ];
 
 export function migrate(db: LocalDb): void {
