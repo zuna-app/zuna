@@ -766,7 +766,7 @@ impl ChatView {
     }
 
     fn start_round(&mut self, cx: &mut Context<Self>) {
-        let path = std::env::temp_dir().join("Zuna").join("media").join(format!("round-{}.mp4", now_ms() as u64));
+        let path = crate::host::cache_dir().join("media").join(format!("round-{}.mp4", now_ms() as u64));
         std::fs::create_dir_all(path.parent().unwrap()).ok();
         match crate::media::record::RoundRecorder::start(path) {
             Ok(recorder) => {
@@ -825,7 +825,8 @@ impl ChatView {
         }
         self.state.update(cx, |state, cx| state.set_reply(&list_id, None, cx));
         cx.spawn(async move |view, cx| {
-            let prepared: Result<Option<serde_json::Value>, String> = cx
+            // The file to send, and where it was recorded, which goes once it's sent.
+            let prepared: Result<Option<(serde_json::Value, std::path::PathBuf)>, String> = cx
                 .background_executor()
                 .spawn(async move {
                     match recording {
@@ -835,17 +836,18 @@ impl ChatView {
                             if duration < 0.5 {
                                 return Ok(None);
                             }
-                            let path = std::env::temp_dir().join("Zuna").join("media").join(format!("voice-{}.m4a", now_ms() as u64));
+                            let path = crate::host::cache_dir().join("media").join(format!("voice-{}.m4a", now_ms() as u64));
                             std::fs::create_dir_all(path.parent().unwrap()).ok();
                             crate::media::encode::write_voice(&path, &samples).map_err(|_| "The voice message couldn't be recorded.".to_string())?;
-                            Ok(Some(json!({
+                            let file = json!({
                                 "blob": crate::host::file(&path.to_string_lossy(), "audio/mp4"),
                                 "name": "Voice message.m4a",
                                 "mime": "audio/mp4",
                                 "duration": duration,
                                 "voice": true,
                                 "waveform": crate::media::record::encode_waveform(&levels),
-                            })))
+                            });
+                            Ok(Some((file, path)))
                         }
                         Recording::Round(recorder) => {
                             let path = recorder.path.clone();
@@ -858,7 +860,7 @@ impl ChatView {
                                 format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg))
                             });
                             let size = crate::media::encode::ROUND_SIZE;
-                            Ok(Some(json!({
+                            let file = json!({
                                 "blob": crate::host::file(&path.to_string_lossy(), "video/mp4"),
                                 "name": "Video message.mp4",
                                 "mime": "video/mp4",
@@ -867,23 +869,26 @@ impl ChatView {
                                 "duration": duration,
                                 "thumb": thumb,
                                 "round": true,
-                            })))
+                            });
+                            Ok(Some((file, path)))
                         }
                     }
                 })
                 .await;
             view.update(cx, |view, cx| {
                 match prepared {
-                    Ok(Some(file)) => {
+                    Ok(Some((file, recorded))) => {
                         let mut body = json!({});
                         if let Some(reply) = reply {
                             body["replyTo"] = json!(reply);
                         }
                         view.state.update(cx, |state, cx| {
-                            state.call(Some(&server_id), "sendWithAttachments", vec![json!(key), json!([file]), body], cx, |state, result, cx| {
-                                if let Err(error) = result {
-                                    state.toast(error.message, ToastKind::Error, cx);
+                            state.call(Some(&server_id), "sendWithAttachments", vec![json!(key), json!([file]), body], cx, move |state, result, cx| match result {
+                                // It's been uploaded, sealed, and is the server's to keep now.
+                                Ok(_) => {
+                                    std::fs::remove_file(&recorded).ok();
                                 }
+                                Err(error) => state.toast(error.message, ToastKind::Error, cx),
                             })
                         });
                     }

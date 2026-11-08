@@ -92,7 +92,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         .build()
         .expect("an HTTP client");
 
-    let files = options.data_dir.join("files");
+    let files = super::cache_in(&options.data_dir).join("files");
     std::fs::create_dir_all(&files).ok();
     let host = Rc::new(RefCell::new(Host {
         tasks: tasks.clone(),
@@ -531,12 +531,21 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         let name = format!("{}.{}", hex(&zuna_crypto::primitives::random_bytes(12).unwrap_or_default()), if extension.is_empty() { "bin".into() } else { extension });
         let path = h.borrow().files.join(name);
         let mut file = std::fs::File::create(&path).map_err(|error| fail(&c, format!("Couldn't save the file: {error}")))?;
-        if let Some(parts) = a.first().and_then(|value| value.as_array()) {
-            for part in parts.iter::<Value>() {
-                let part = part?;
-                let bytes = read_bytes(&part).unwrap_or_default();
-                file.write_all(&bytes).map_err(|error| fail(&c, error.to_string()))?;
+        // What was written of a file that couldn't be finished goes.
+        let written: rquickjs::Result<()> = (|| {
+            if let Some(parts) = a.first().and_then(|value| value.as_array()) {
+                for part in parts.iter::<Value>() {
+                    let part = part?;
+                    let bytes = read_bytes(&part).unwrap_or_default();
+                    file.write_all(&bytes).map_err(|error| fail(&c, error.to_string()))?;
+                }
             }
+            Ok(())
+        })();
+        if let Err(error) = written {
+            drop(file);
+            std::fs::remove_file(&path).ok();
+            return Err(error);
         }
         string(&c, &path.to_string_lossy())
     });

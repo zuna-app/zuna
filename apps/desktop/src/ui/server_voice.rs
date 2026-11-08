@@ -62,7 +62,7 @@ fn sound_from_file(path: &std::path::Path) -> Result<PathBuf, String> {
     for sample in pcm {
         wav.extend_from_slice(&sample.to_le_bytes());
     }
-    let out = std::env::temp_dir().join("Zuna").join("media").join(format!("sound-{}.wav", crate::format::now_ms() as u64));
+    let out = crate::host::cache_dir().join("media").join(format!("sound-{}.wav", crate::format::now_ms() as u64));
     std::fs::create_dir_all(out.parent().unwrap()).ok();
     std::fs::write(&out, wav).map_err(|error| error.to_string())?;
     Ok(out)

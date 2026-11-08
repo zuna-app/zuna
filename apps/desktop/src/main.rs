@@ -78,6 +78,8 @@ fn main() {
     // The core starts and boots before GPUI does, as GPUI spends most of its start loading the
     // graphics driver, and the core is ready by the time the window is.
     let dir = host::data_dir();
+    // What the last run decrypted or recorded, should it have stopped without quitting.
+    host::clear_cache(&dir);
     let device_key = host::device_key::load(&dir);
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
@@ -214,6 +216,7 @@ const QUIT: &str = "quit";
 fn quit(cx: &mut App) {
     platform::tray::remove();
     platform::updates::install_on_quit();
+    host::clear_cache(&host::data_dir());
     cx.quit();
 }
 

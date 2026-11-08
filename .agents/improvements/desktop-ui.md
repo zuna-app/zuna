@@ -36,14 +36,6 @@ Ordered roughly by value.
 - Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
 - Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
 
-### Clean up decrypted media and recordings left in the system temp folder
-- Where: state.rs:1319-1345 (`media_file` writes `%TEMP%\Zuna\media\{fileId}.{ext}`); ui/chat.rs:763, 832 (recordings); ui/server_voice.rs:65; outside this area, platform/mod.rs:115 (pasted images)
-- Category: robustness (privacy)
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: every voice message, sound and video played is decrypted to a plaintext file there, and every recorded voice or video message is written there. Nothing deletes them (only `RoundRecorder::drop` removes a recording dropped unsent). They pile up without bound and outlive the app, which contradicts SECURITY.md:126 ("Sensitive data the app keeps is encrypted…").
-- Suggested change: use a per-run subfolder, delete it in `quit()`, and remove stale run folders at start-up; delete a recording once `sendWithAttachments` resolves; delete a media file when its cache entry is evicted. Or keep these files under the encrypted data dir, and update SECURITY.md and docs/SECURITY_DETAILS.md if anything is kept.
-- Check after: `npm run dev:windows`, `npm run dev:linux`, `npm run dev:macos` (play, record, quit, confirm the folder is gone). This is a privacy fix on one platform, so add a Known gap row if iOS/web differ.
-
 ### Report a save that wrote nothing as a failure, and read downloaded files through one helper
 - Where: ui/message.rs:1410-1436 (line 1423); state.rs:1304-1312, 1328-1336; host/mod.rs:248-262 (`value_bytes`)
 - Category: robustness

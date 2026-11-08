@@ -11,7 +11,7 @@ mod tls;
 pub mod web;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
@@ -69,6 +69,22 @@ pub fn tokio() -> &'static tokio::runtime::Runtime {
             .build()
             .expect("a tokio runtime")
     })
+}
+
+/// Where files are decrypted to while the app runs, beside the voice and video messages it
+/// records, the sounds it makes and the pictures pasted into it. Nothing there is sealed, so
+/// it's emptied as the app starts and as it quits, as iOS empties its own as the core starts.
+pub fn cache_dir() -> PathBuf {
+    cache_in(&data_dir())
+}
+
+fn cache_in(dir: &Path) -> PathBuf {
+    dir.join("cache")
+}
+
+/// Empties the cache in a data folder, as far as it can: a file still open stays until next time.
+pub fn clear_cache(dir: &Path) {
+    std::fs::remove_dir_all(cache_in(dir)).ok();
 }
 
 /// Where this app keeps its data: `ZUNA_DATA_DIR` where it's set, and otherwise in the system's

@@ -2,16 +2,6 @@
 
 Covered by reading: apps/desktop/src/{host,platform,voice,media}, main.rs, test_control.rs, build.rs, Cargo.toml and Cargo.lock, media-ffmpeg/, core-bundle/, installer/, test/*.mjs (session helpers and cleanup), apps/screenshare (main.rs, shortcut.rs, sound/mod.rs, Cargo.toml, a scan of the rest); the UI call sites where blocking happens (voice_settings.rs, chat.rs, state.rs); LiveKit and ksni sources in ~/.cargo/registry.
 Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and encoder internals (pipeline.rs, capture/*, native/*.c, h264.rs), media/windows/{encode,mf}.rs, apple/camera.rs beyond device listing. Nothing built or run; perf claims come from reading code paths.
-Overlap: the temp-file finding here is the same issue as an entry in desktop-ui.md; implement it once.
-
-### Clear the decrypted files and recordings the app leaves on disk, as iOS does at every start
-- (Same issue as "Clean up decrypted media and recordings left in the system temp folder" in desktop-ui.md.) Extra detail from this review:
-- Where: host/runtime.rs:95-96, 528-542 (`fileAssemble` writes downloaded, decrypted files into `<data>/files` and never removes them; a failed write leaves a partial file); state.rs:1329; ui/chat.rs:762, 832; ui/server_voice.rs:65; platform/mod.rs:111-120 (`%TEMP%/Zuna/paste-*`); media/mod.rs:31 (`avatar-*.jpg` in `<data>/files`)
-- Category: robustness / privacy
-- Severity: high ; Effort: S ; Confidence: high
-- What's wrong (extra): the temp folder is shared by every copy of the app (dev and installed). iOS deletes its decrypted cache on every start (apps/ios/ZunaKit/Sources/ZunaHost/CoreRuntime.swift:75-77).
-- Suggested change: one cache folder per data folder, e.g. `<data>/cache/{files,media,paste}`, emptied in `runtime::run` before the core loads; point `fileAssemble`, `media_file`, recordings, `save_pasted_image` and `prepare_avatar` there instead of `temp_dir()`; delete the partial file when a write fails.
-- Check after: linux-check.mjs (paste and send), mac-voice-check.mjs (voice and video messages), `npm run dev:windows`.
 
 ### Open the microphone and the camera off the window's thread
 - Where: voice/mod.rs:584-589 (`connect` calls `open_microphone`), 565-582, 702-725 (`reopen_mic`, also from the 60 ms ticker at 688-691), 330-350 (`toggle_mic_test`); voice/audio.rs:367-389 (`Input::open` blocks on `started.recv()` until the device is found, built and played); media/camera.rs:55-60 (`record::open` on the caller's thread); callers ui/voice_settings.rs:246, ui/chat.rs:751, 765; dropping a `Camera` joins its reader thread (camera.rs:69-75), from `VoiceRoom::close` (room.rs:539) on the window's thread

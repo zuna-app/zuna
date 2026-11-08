@@ -28,7 +28,7 @@ pub fn prepare_avatar(path: &Path) -> Option<PathBuf> {
     let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&square.to_rgb8()).ok()?;
-    let file = crate::host::data_dir().join("files").join(format!("avatar-{}.jpg", crate::format::now_ms() as u64));
+    let file = crate::host::cache_dir().join("files").join(format!("avatar-{}.jpg", crate::format::now_ms() as u64));
     std::fs::create_dir_all(file.parent()?).ok()?;
     std::fs::write(&file, out).ok()?;
     Some(file)

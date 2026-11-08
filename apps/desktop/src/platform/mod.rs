@@ -112,7 +112,7 @@ pub fn draws_title_bar(#[allow(unused_variables)] window: &gpui::Window) -> bool
 pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
     let extension = image.format().extension();
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join("Zuna").join(format!("paste-{stamp}"));
+    let dir = crate::host::cache_dir().join(format!("paste-{stamp}"));
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join(format!("image.{extension}"));
     std::fs::write(&path, image.bytes()).ok()?;

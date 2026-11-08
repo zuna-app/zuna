@@ -1326,11 +1326,12 @@ impl AppState {
         let id = attachment.file_id.clone();
         let extension = media_extension(&attachment.mime, &attachment.name);
         self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
-            let target = std::env::temp_dir().join("Zuna").join("media").join(format!("{id}.{extension}"));
+            let target = host::cache_dir().join("media").join(format!("{id}.{extension}"));
             let written = result.map_err(|error| error.message).and_then(|value| {
                 std::fs::create_dir_all(target.parent().unwrap()).map_err(|error| error.to_string())?;
                 match value.get("$file").and_then(|file| file.get("path")).and_then(Value::as_str) {
-                    Some(source) => std::fs::copy(source, &target).map(|_| ()).map_err(|error| error.to_string()),
+                    // Moved rather than copied, so there's one decrypted copy, under the name Media Foundation needs.
+                    Some(source) => std::fs::rename(source, &target).or_else(|_| std::fs::copy(source, &target).map(|_| ())).map_err(|error| error.to_string()),
                     None => host::read_bytes(&value).ok_or_else(|| "no file".to_string()).and_then(|bytes| std::fs::write(&target, bytes).map_err(|error| error.to_string())),
                 }
             });
