@@ -27,14 +27,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
 
-### Share media's constants and `poster` between the app and media-ffmpeg
-- Where: media-ffmpeg/src/lib.rs:5-44 copies `RATE`, `ROUND_SIZE`, `ROUND_FPS`, `Details`, `Frame` and `poster` from src/media/mod.rs:49-105
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: change one and the macOS library silently keeps the old values.
-- Suggested change: move them into src/media/common.rs and include it in media-ffmpeg with `#[path]`, as it already does for mf.rs and encode.rs.
-- Check after: `cargo test` in media-ffmpeg.
-
 ### Check the update's signer more strictly, and off the window's thread
 - Where: platform/windows/updates.rs:30-48 (`WinVerifyTrust` over the whole exe at start, on the window's thread, from main.rs:205), 131-187 (compares only the certificate's simple display name), 117 (`WTD_REVOKE_NONE`)
 - Category: robustness (security-adjacent)
