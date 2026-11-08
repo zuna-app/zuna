@@ -268,6 +268,8 @@ export function MessageList({
   };
 
   // The newest message glides in when the list is on it, and sending always brings you to it.
+  // Only this device's own copy is still sending: one written on another of your devices
+  // arrives sent, and leaves the reader where they are.
   const lastItem = items[items.length - 1];
   const lastItemId = lastItem?.id;
   const glideFor = useRef<string | null>(null);
@@ -275,7 +277,7 @@ export function MessageList({
     if (!lastItem || !fresh.current.has(lastItem.id)) return;
     if (stuck.current) {
       glideFor.current = lastItem.id;
-    } else if (lastItem.senderId === selfId) {
+    } else if (lastItem.senderId === selfId && lastItem.status === "sending") {
       goToNewest();
     }
   }, [lastItemId]);

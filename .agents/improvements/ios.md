@@ -76,14 +76,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: hold them as optionals created on first use, or one shared `RoundRecorder` (one recording at a time). Create `CameraFeed` in `.task`.
 - Check after: `npm run test:ios:ui -- --only ComposerTests` (roundStart/roundStop).
 
-### Keep the reader in place when your own message comes from another device
-- Where: apps/ios/Zuna/Chat/MessageListController.swift:160-163
-- Category: ux
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: the list scrolls to the bottom whenever the newest message's sender is you (`newest.senderId == input.server.me?.userId`), not only when this device sent it. Reading history on the phone while typing on the computer yanks the phone to the bottom with each message.
-- Suggested change: also require `newest.status == .sending` (only this device's local copy has it), or bump a "just sent" counter from the send functions and compare.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests,ComposerTests`. The web does the same (packages/ui/src/features/chat/MessageList.tsx:278), so fix it there too, and check apps/desktop/src/ui/chat.rs.
-
 ### Rebuild `mentionable` only when the people change, not on presence
 - Where: apps/ios/Zuna/State/AppModel.swift:23-27, 438-440
 - Category: perf

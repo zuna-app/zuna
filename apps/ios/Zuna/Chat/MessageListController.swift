@@ -157,8 +157,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 guard let self else { return }
                 if let anchor { restore(anchor) }
                 if oldIds.isEmpty { placeOpening() }
-                // Sending always brings you to the newest message.
-                if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, previous != nil {
+                // Sending always brings you to the newest message. Only this device's own copy is
+                // still sending: one written on another of your devices leaves the reader in place.
+                if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, newest.status == .sending, previous != nil {
                     scrollToBottom(animated: true)
                 }
                 handleJump()

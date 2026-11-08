@@ -22,7 +22,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | `web.md` | `packages/ui` and `apps/web`: re-renders, Escape, caches, Platform leftovers | 22 |
 | `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 30 |
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 34 |
-| `ios.md` | `apps/ios`: redraws, main-thread work | 26 |
+| `ios.md` | `apps/ios`: redraws, main-thread work | 25 |
 | `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 16 |
 | `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 33 |
 
