@@ -4325,6 +4325,21 @@ export class ServerSession {
       this.eraseExpired(message.group_id, message.id);
       return;
     }
+    // One that still doesn't open, and nothing newer came for, is left as it is, unannounced.
+    if (
+      existing &&
+      !body &&
+      !kept &&
+      !pinUnsettled &&
+      existing.updated_seq >= message.updated_seq &&
+      status === existing.status &&
+      stored === existing.body &&
+      !!raw &&
+      !!existing.raw &&
+      equalBytes(raw, existing.raw)
+    ) {
+      return;
+    }
 
     let rowId: number;
     const isNew = !existing || existing.seq === null;
@@ -4586,6 +4601,8 @@ export class ServerSession {
     const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND status IN ('undecryptable','unverified')", [groupId]);
     for (const row of rows) {
       if (!row.raw) continue;
+      // Without its epoch's key or its sender's device it can only fail again.
+      if (!this.epochKey(groupId, row.epoch) || !this.users.get(row.sender_user)?.devices.has(row.sender_device)) continue;
       this.ingest(
         {
           group_id: row.group_id,

@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Stop re-ingesting every undecryptable message after every commit
-- Where: packages/core/src/session.ts:4551-4580 (`retryUndecryptable`), 4228 (ingest's early return leaves out `undecryptable`/`unverified`), 4298-4336 (always writes and emits); called at 3705 (every applied commit), 3918, 1211, 1480, 2937, 2955
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `retryUndecryptable` passes every `undecryptable`/`unverified` row of the group through `ingest`; a row that still can't be opened is written again (upsert, search/media deletes, `last_activity_at` update) and emits a `message` event. Every commit in a channel does this for all of that device's unreadable messages in it. A backlog of K commits costs K × N rewrites and events over RPC.
-- Suggested change: in `retryUndecryptable`, skip a row unless `epochKey(group, row.epoch)` and the sender's device are now known. In `ingest`, return early without writing or emitting when the new status and raw bytes equal the existing row's.
-- Check after: `npx vitest run test/e2e.test.ts test/security.test.ts`.
-
 ### Stop re-verifying every leaf certificate several times per commit
 - Where: packages/core/src/session.ts:3014-3039 (`treeMembers`: `pinnedIdentity` is a DB read plus AEAD open, `certificateStanding` 1568-1577 is a signature check, per leaf). In one `applyCommit` it's called via 3661 (`usersBefore`), 3077 (`noteLeaves`), 3079 and 3081 (`checkTree`, twice), 3574-3575 (`recordDepartures`, twice), 3805 (`describeCommit`), 3520 (`announceConfirmedRemovals`), then 3936-3989 in the following reconcile; 4114-4118 and 4083 schedule a reconcile of every shared group on any `user` frame
 - Category: perf
