@@ -45,6 +45,8 @@ npm run dev:macos
 
 That bundles the core, builds FFmpeg from its pinned source the first time, builds the app and its media library (`apps/desktop/media-ffmpeg`), wraps them in "Zuna Dev.app" and starts it with `open`, keeping its data in `.dev-data/native-app`. `npm run build:macos` writes a release build to `dist/macos/Zuna.app`. GPUI compiles its Metal shaders as it builds, which needs Xcode's Metal Toolchain, downloaded once with `xcodebuild -downloadComponent MetalToolchain`. There's no installer, notarization or automatic update on macOS yet.
 
+`node apps/desktop/test/mac-voice-check.mjs` checks it there: two copies built with the `test-control` feature, against a test server and a LiveKit of its own, driven over the test control's socket (`src/test_control.rs`), so it asks nothing of the system and leaves the pointer alone. It covers onboarding, a voice channel and calls with a tone in place of a microphone, a screen share past macOS's picker, and voice and video messages.
+
 ## What's missing
 
 A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there.

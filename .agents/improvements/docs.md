@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Update MACOS_APP_PLAN's Checks to the check that was built
-- Where: docs/MACOS_APP_PLAN.md:193-206, :211
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: :193 names apps/desktop/test/mac-check.mjs, which doesn't exist; the real check is mac-voice-check.mjs with mac-session.mjs, driving two copies over the test-control socket (08a6fa6) and asking nothing of the system. :196 describes `CGEventPostToPid` and `screencapture -l` with Accessibility and Screen Recording; neither is used. :195 puts "the Electron app driven by Playwright" on the other side; the M0 and M2–M4 "done when" entries name the Electron app. :211 says WINDOWS_APP.md covers macOS checks; it doesn't.
-- Suggested change: rewrite the paragraph: "`mac-voice-check.mjs`, with `mac-session.mjs`, runs two copies built with `--test-control` against a test server and a LiveKit of its own, driven over the test control's socket (`src/test_control.rs`), so it needs no permissions and leaves the pointer alone." Drop the Input bullet; say the other side is a second native copy; add a line on the checks to WINDOWS_APP's macOS section.
-- Check after: none.
-
 ### Update IOS_PLAN's status line and its rule against pushing
 - Where: docs/IOS_PLAN.md:3, :9, :14; docs/IOS_TESTING.md:246
 - Category: docs

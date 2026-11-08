@@ -190,25 +190,24 @@ M2 to M4 don't depend on each other once M1 is in, apart from M4's playing and r
 
 ## Checks
 
-There's no compositor to nest on macOS, so `apps/desktop/test/mac-check.mjs` runs the app on the person's own desktop, in a window of its own, with its own data folder, and leaves the pointer alone:
+There's no compositor to nest on macOS, so `apps/desktop/test/mac-voice-check.mjs`, with `mac-session.mjs`, runs two copies of the app, built with the `test-control` feature, on the person's own desktop, each with its own data folder, against a test server and a LiveKit of its own. It drives them over the test control's socket (`src/test_control.rs`), which no build anyone uses has, so it needs no permissions and leaves the pointer alone:
 
-- **The other side** as on Linux: the test server and `test/peer.ts`, and for voice, LiveKit and the Electron app driven by Playwright, as `linux-voice-check.mjs` starts them.
-- **Input** goes to the app's process alone with `CGEventPostToPid`, so the person's own pointer and keyboard aren't taken over, and **screenshots** come from `screencapture -l` with the window's number. Both need permissions for the program running the check, Accessibility and Screen Recording, which the person grants once in System Settings.
+- **The other side** is the second copy of the native app.
 - **Sound:** the app plays a test tone in place of a microphone (`ZUNA_FAKE_MIC`), and `RUST_LOG=zuna=debug` logs how loud each voice it decodes is, so each side's hearing the other needs no device. A share's sound between two copies on one Mac needs the watching one deafened, or what it plays is taken again and grows until it clips.
 - **By hand,** for what only a person can answer or see: each permission's dialog the first time, notifications as macOS draws them and quieted by Focus, the Dock's badge and bounce, macOS's picker for a share, push to talk from another app, a camera, location, and the Keychain asking nothing after a rebuild.
 
 | | Automatically | By hand |
 |---|---|---|
-| M0 | `cargo test`, `--core-check` without a window, the bundle starting with `zuna` in it, onboarding typed through, signing in, a chat with a bot both ways, screenshots of each screen beside the Electron app's, the title bar dragging the window and a double click zooming it, ⌘ shortcuts in the message box | The window on the real screen, at 2× and on an external screen at 1× |
+| M0 | `cargo test`, `--core-check` without a window, the bundle starting with `zuna` in it, onboarding typed through, signing in, a chat with a bot both ways, screenshots of each screen, the title bar dragging the window and a double click zooming it, ⌘ shortcuts in the message box | The window on the real screen, at 2× and on an external screen at 1× |
 | M1 | A second start handing over its link, `open zuna://…` reaching the running one, the Dock's reopen, closing and coming back, the badge's label, the device key's item and the same key after starting again, notifications' requests and their removal once read elsewhere, idle time, the clock under `LC_TIME`'s and macOS's 24-hour setting, files copied in Finder pasted as chips | Notifications and their sound, Focus quieting them, the badge, the bounce, the Keychain after a rebuild, location |
-| M2 | Device lists, a voice channel and a call with the Electron app, each hearing the other's tone, mute, deafen and volumes, ringing, answering and declining, the camera's frames reaching the Electron app | A real microphone and camera, push to talk from another app |
-| M3 | The Electron app's share drawn here, and the stream stats on both sides naming VideoToolbox as the encoder and the decoder | A screen and a window through macOS's picker to the Electron app, with sound and without Zuna's own, and stopping from the menu bar; the CPU sending and watching a 1440p share at 60 fps takes, from `top`, beside the program's on Windows |
-| M4 | `cargo test` reading the fixtures in `apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures`, writing a voice and a video message and reading them back with FFmpeg, recording each in the message box and the Electron app playing it to its end | Playing out loud |
+| M2 | Device lists, a voice channel and a call between the two copies, each hearing the other's tone, mute, deafen and volumes, ringing, answering and declining, the camera's frames reaching the other copy | A real microphone and camera, push to talk from another app |
+| M3 | A share of moving bars past macOS's picker (`ZUNA_FAKE_SCREEN`) drawn by the other copy, and the stream stats on both sides naming VideoToolbox as the encoder and the decoder | A screen and a window through macOS's picker to another device, with sound and without Zuna's own, and stopping from the menu bar; the CPU sending and watching a 1440p share at 60 fps takes, from `top`, beside the program's on Windows |
+| M4 | `cargo test` reading the fixtures in `apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures`, writing a voice and a video message and reading them back with FFmpeg, recording each in the message box and the other copy playing it to its end | Playing out loud |
 
 ## Feature parity and the docs
 
 - `.agents/FEATURE_PARITY.md`: "The native desktop app" gets macOS in each row where it differs, and a Known gap for each piece still to come, removed in the commit that closes it. Under "Not possible or pointless there": the tray and the app's own notification cards on macOS, as the Electron app has neither there.
-- `docs/WINDOWS_APP.md` covers macOS too, with how its checks run.
+- `docs/WINDOWS_APP.md` covers macOS too, with how its checks run (its "On macOS").
 - `CLAUDE.md`: the commands table, the first paragraph, and under "Decisions to keep" that the native app runs on Apple silicon from macOS 14.2.
 - `apps/site` only says the app runs on macOS once it's been checked there.
 
