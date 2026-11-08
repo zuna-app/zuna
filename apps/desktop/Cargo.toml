@@ -63,9 +63,10 @@ nnnoiseless = { version = "0.5", default-features = false }
 # from GPUI's.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
-oo7 = { version = "0.5", default-features = false, features = ["async-std", "native_crypto"] }
+# oo7 and ashpd as GPUI's own: Zed's oo7 at the revision GPUI pins, and the ashpd it uses.
+oo7 = { git = "https://github.com/zed-industries/oo7", rev = "731c1215edb6905876c6137ab300428c7b8d7c13", version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
-ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "location"] }
 # The sound devices, the notification sound's too: listed by the names PipeWire gives them, and
 # played and recorded through it, as ALSA's own list holds hardware that playing takes away
 # from PipeWire. 0.3.49's is for how much a stream is asked for each time.

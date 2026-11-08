@@ -345,42 +345,6 @@ dependencies = [
 
 [[package]]
 name = "ashpd"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f3f79755c74fd155000314eb349864caa787c6592eace6c6882dad873d9c39"
-dependencies = [
- "async-fs",
- "async-net",
- "enumflags2",
- "futures-channel",
- "futures-util",
- "rand 0.9.5",
- "serde",
- "serde_repr",
- "url",
- "zbus",
-]
-
-[[package]]
-name = "ashpd"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33a3c86f3fd70c0ffa500ed189abfa90b5a52398a45d5dc372fcc38ebeb7a645"
-dependencies = [
- "async-fs",
- "async-net",
- "enumflags2",
- "futures-channel",
- "futures-util",
- "rand 0.9.5",
- "serde",
- "serde_repr",
- "url",
- "zbus",
-]
-
-[[package]]
-name = "ashpd"
 version = "0.13.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb8421aaa9644a5faf26735f258b669b15f063313ef8f8e2bdb28912a1a6f111"
@@ -2901,7 +2865,7 @@ dependencies = [
  "accesskit",
  "accesskit_unix",
  "anyhow",
- "ashpd 0.13.13",
+ "ashpd",
  "bytemuck",
  "calloop",
  "calloop-wayland-source",
@@ -2915,7 +2879,7 @@ dependencies = [
  "libc",
  "log",
  "notify-rust",
- "oo7 0.6.0",
+ "oo7",
  "open",
  "parking_lot",
  "raw-window-handle",
@@ -3945,9 +3909,6 @@ name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
-dependencies = [
- "spin 0.9.9",
-]
 
 [[package]]
 name = "lazycell"
@@ -4942,23 +4903,6 @@ dependencies = [
 
 [[package]]
 name = "num-bigint-dig"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e661dda6640fad38e827a6d4a310ff4763082116fe217f279885c97f511bb0b7"
-dependencies = [
- "lazy_static",
- "libm",
- "num-integer",
- "num-iter",
- "num-traits",
- "rand 0.8.8",
- "serde",
- "smallvec",
- "zeroize",
-]
-
-[[package]]
-name = "num-bigint-dig"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7f9a86e097b0d187ad0e65667c2f58b9254671e86e7dbb78036b16692eae099"
@@ -5579,46 +5523,11 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "oo7"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3299dd401feaf1d45afd8fd1c0586f10fcfb22f244bb9afa942cec73503b89d"
-dependencies = [
- "aes",
- "ashpd 0.12.3",
- "async-fs",
- "async-io",
- "async-lock",
- "blocking",
- "cbc",
- "cipher",
- "digest 0.10.7",
- "endi",
- "futures-lite",
- "futures-util",
- "getrandom 0.3.4",
- "hkdf 0.12.4",
- "hmac 0.12.1",
- "md-5",
- "num",
- "num-bigint-dig 0.8.6",
- "pbkdf2",
- "rand 0.9.5",
- "serde",
- "sha2 0.10.9",
- "subtle",
- "zbus",
- "zbus_macros",
- "zeroize",
- "zvariant",
-]
-
-[[package]]
-name = "oo7"
 version = "0.6.0"
 source = "git+https://github.com/zed-industries/oo7?rev=731c1215edb6905876c6137ab300428c7b8d7c13#731c1215edb6905876c6137ab300428c7b8d7c13"
 dependencies = [
  "aes",
- "ashpd 0.13.13",
+ "ashpd",
  "async-fs",
  "async-io",
  "async-lock",
@@ -5634,7 +5543,7 @@ dependencies = [
  "hmac 0.12.1",
  "md-5",
  "num",
- "num-bigint-dig 0.9.1",
+ "num-bigint-dig",
  "pbkdf2",
  "serde",
  "serde_bytes",
@@ -8584,7 +8493,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
- "serde_derive",
 ]
 
 [[package]]
@@ -10177,7 +10085,7 @@ dependencies = [
 name = "zuna-windows"
 version = "0.0.0"
 dependencies = [
- "ashpd 0.11.1",
+ "ashpd",
  "base64 0.22.1",
  "block2 0.6.2",
  "chrono",
@@ -10210,7 +10118,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-screen-capture-kit",
  "objc2-user-notifications",
- "oo7 0.5.0",
+ "oo7",
  "parking_lot",
  "pipewire",
  "raw-window-handle",
@@ -10275,7 +10183,6 @@ dependencies = [
  "enumflags2",
  "serde",
  "serde_bytes",
- "url",
  "winnow 1.0.5",
  "zcheapstr",
  "zvariant_derive",

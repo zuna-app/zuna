@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use ashpd::desktop::location::{Accuracy, LocationProxy};
+use ashpd::desktop::location::{Accuracy, CreateSessionOptions, LocationProxy, StartOptions};
 use futures::StreamExt;
 
 /// How long a position may take, as the web asks.
@@ -19,10 +19,12 @@ enum Found {
 
 async fn find() -> Found {
     let Ok(proxy) = LocationProxy::new().await.inspect_err(|error| log::debug!("location portal: {error}")) else { return Found::Unavailable };
-    let Ok(session) = proxy.create_session(Some(0), Some(0), Some(Accuracy::Exact)).await.inspect_err(|error| log::debug!("location session: {error}")) else { return Found::Unavailable };
-    let Ok(mut updates) = proxy.receive_location_updated().await else { return Found::Unavailable };
+    let options = CreateSessionOptions::default().set_distance_threshold(0).set_time_threshold(0).set_accuracy(Accuracy::Exact);
+    let Ok(session) = proxy.create_session(options).await.inspect_err(|error| log::debug!("location session: {error}")) else { return Found::Unavailable };
+    let Ok(updates) = proxy.receive_location_updated().await else { return Found::Unavailable };
+    futures::pin_mut!(updates);
     // Turned down in the dialog, or in the system's settings.
-    if let Err(error) = proxy.start(&session, None).await.and_then(|request| request.response()) {
+    if let Err(error) = proxy.start(&session, None, StartOptions::default()).await.and_then(|request| request.response()) {
         log::debug!("location refused: {error}");
         session.close().await.ok();
         return Found::Refused;
