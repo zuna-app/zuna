@@ -185,10 +185,18 @@ extension AppModel {
         jumpTarget = JumpTarget(listKey: key, messageId: messageId, nonce: nextJump)
     }
 
-    /// Leaves a detached window for the newest messages.
+    /// Leaves a detached window for the newest messages, which take its place once they're
+    /// loaded, rather than the chat going blank meanwhile.
     func returnToLatest(_ serverId: String, _ listId: String) async {
-        lists[Self.listKey(serverId, listId)] = nil
-        await loadList(serverId, listId, groupId: listId, toUnread: false)
+        let key = Self.listKey(serverId, listId)
+        guard let page = try? await core.session(serverId).loadMessages(listId) else {
+            lists[key] = nil
+            await loadList(serverId, listId, groupId: listId, toUnread: false)
+            return
+        }
+        // Left meanwhile, or already back: what's there stays.
+        guard lists[key]?.detached == true else { return }
+        lists[key] = MessageList(items: Self.sorted(page.messages), hasMore: page.hasMore, loading: false, loaded: true, detached: false)
     }
 
     /// One read position at a time, as the server keeps the last it gets. While scrolling,

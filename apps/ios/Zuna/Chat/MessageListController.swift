@@ -165,7 +165,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         // Messages that came in at the newest end fade in, as on the desktop, and the list
         // glides to them while it's there. Anything else, as older pages or going back to the
         // newest messages, just appears.
-        let added = oldIds.first.flatMap { ids.firstIndex(of: $0) } ?? 0
+        // Back from a window around an old message to the newest, which take its place: at the newest.
+        let returned = previous?.detached == true && !input.detached
+        let added = returned ? 0 : oldIds.first.flatMap { ids.firstIndex(of: $0) } ?? 0
         let now = CACurrentMediaTime()
         fresh = fresh.filter { now - $0.value < 0.12 }
         for id in ids.prefix(added) { fresh[id] = now }
@@ -175,7 +177,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let sent = previous != nil && input.items.last.map { $0.id != oldIds.first && $0.senderId == input.server.me?.userId && $0.status == .sending } == true
         if sent, added > 0, !atBottom { scrollToBottom(animated: false) }
         let animate = added > 0 && atBottom && !model.reduceMotion
-        let anchor = atBottom || oldIds.isEmpty || scrollingDown ? nil : visibleAnchor()
+        let anchor = atBottom || oldIds.isEmpty || scrollingDown || returned ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
         if oldIds.isEmpty, !input.detached {
             openedAt = openAt ?? model.savedPositions[input.listKey]
@@ -186,6 +188,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 guard let self else { return }
                 if let anchor { restore(anchor) }
                 if oldIds.isEmpty { placeOpening() }
+                if returned { scrollToBottom(animated: false) }
                 // Sent from older messages than the newest, which the list went back to.
                 if sent, added == 0 { scrollToBottom(animated: false) }
                 handleJump()
