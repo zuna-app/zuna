@@ -1,7 +1,7 @@
 import type { Emote as ServerEmote } from "@zuna/core";
 import { Search, Smile } from "lucide-react";
 import { motion } from "motion/react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Emote } from "@/components/Emote";
 import { quick, useReturnFocus } from "@/components/ui";
@@ -24,6 +24,53 @@ function EmotePreview({ address }: { address: string }) {
   const { url } = useRemoteImage(address);
   return url ? <img src={url} alt="" /> : null;
 }
+
+type Category = (typeof EMOJI_CATEGORIES)[number];
+
+// The grids are kept apart from what's hovered, which only the footer shows, so moving
+// over hundreds of emotes redraws none of them.
+const EmoteGrid = memo(function EmoteGrid({
+  emotes,
+  serverUrl,
+  onHover,
+  onPick,
+}: {
+  emotes: ServerEmote[];
+  serverUrl: string;
+  onHover: (hovered: Hovered) => void;
+  onPick: (pick: Pick) => void;
+}) {
+  return (
+    <div className="emote-grid">
+      {emotes.map((emote) => (
+        <button
+          key={emote.id}
+          className="emote-cell"
+          aria-label={emote.owner ? `${emote.name} by ${emote.owner}` : emote.name}
+          onMouseEnter={() => onHover({ kind: "emote", id: emote.id, name: emote.name, owner: emote.owner })}
+          onClick={() => onPick({ kind: "emote", id: emote.id, name: emote.name, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner })}
+        >
+          <Emote name={emote.name} emote={emote} serverUrl={serverUrl} size="picker" hoverCard={false} />
+        </button>
+      ))}
+    </div>
+  );
+});
+
+const EmojiGrid = memo(function EmojiGrid({ categories, onHover, onPick }: { categories: Category[]; onHover: (hovered: Hovered) => void; onPick: (pick: Pick) => void }) {
+  return categories.map((category) => (
+    <section key={category.id}>
+      <h4 className="picker-heading">{category.label}</h4>
+      <div className="emoji-grid">
+        {category.emoji.map(([value, name]) => (
+          <button key={value} className="emoji-cell" aria-label={name} onMouseEnter={() => onHover({ kind: "emoji", value, name })} onClick={() => onPick({ kind: "emoji", value })}>
+            {value}
+          </button>
+        ))}
+      </div>
+    </section>
+  ));
+});
 
 export const EmotePicker = memo(function EmotePicker({
   anchor,
@@ -53,6 +100,9 @@ export const EmotePicker = memo(function EmotePicker({
 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
+  const latestPick = useRef(onPick);
+  latestPick.current = onPick;
+  const pick = useCallback((choice: Pick) => latestPick.current(choice), []);
   useEscape(onClose);
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -104,19 +154,7 @@ export const EmotePicker = memo(function EmotePicker({
       <div className="picker-body">
         {tab === "emotes" ? (
           filteredEmotes.length > 0 ? (
-            <div className="emote-grid">
-              {filteredEmotes.map((emote) => (
-                <button
-                  key={emote.id}
-                  className="emote-cell"
-                  aria-label={emote.owner ? `${emote.name} by ${emote.owner}` : emote.name}
-                  onMouseEnter={() => setHovered({ kind: "emote", id: emote.id, name: emote.name, owner: emote.owner })}
-                  onClick={() => onPick({ kind: "emote", id: emote.id, name: emote.name, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner })}
-                >
-                  <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="picker" hoverCard={false} />
-                </button>
-              ))}
-            </div>
+            <EmoteGrid emotes={filteredEmotes} serverUrl={serverUrl} onHover={setHovered} onPick={pick} />
           ) : (
             <div className="empty-state">
               <Smile size={22} />
@@ -124,18 +162,7 @@ export const EmotePicker = memo(function EmotePicker({
             </div>
           )
         ) : (
-          categories.map((category) => (
-            <section key={category.id}>
-              <h4 className="picker-heading">{category.label}</h4>
-              <div className="emoji-grid">
-                {category.emoji.map(([value, name]) => (
-                  <button key={value} className="emoji-cell" aria-label={name} onMouseEnter={() => setHovered({ kind: "emoji", value, name })} onClick={() => onPick({ kind: "emoji", value })}>
-                    {value}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))
+          <EmojiGrid categories={categories} onHover={setHovered} onPick={pick} />
         )}
       </div>
       <div className="picker-footer">

@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Keep the emote picker's grid from re-rendering on every hover
-- Where: packages/ui/src/features/chat/EmotePicker.tsx:38,113-118
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `hovered` state lives in the picker, and each cell gets `emote={{id, animated}}`, a new object every render, so each hover re-renders hundreds of emotes and defeats `Emote`'s `memo`.
-- Suggested change: move the grid into a `memo` component with stable `onHover`/`onPick`, keep `hovered` in the footer only, and pass the server's own emote objects.
-- Check after: web check.
-
 ### Stop rebuilding every message row whenever ChatView renders
 - Where: packages/ui/src/features/chat/ChatView.tsx:467-469 (new `start` and `emptyState` elements every render); features/chat/MessageList.tsx:480-536 (`itemContent` depends on `startOfChat`)
 - Category: perf
