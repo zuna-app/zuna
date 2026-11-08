@@ -20,7 +20,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { platform } from "@/platform";
-import { Avatar, ConfirmPasswordField, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
+import { Avatar, Confirm, ConfirmPasswordField, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { useEscape } from "@/lib/escape";
 import { PROJECT_URL, TERMS_URL } from "@/lib/links";
@@ -32,12 +32,13 @@ import { useActiveServer, useApp } from "@/state/store";
 import { ScreenSettingsSection } from "@/features/voice/ScreenSettings";
 import { VoiceSettingsSection } from "@/features/voice/VoiceSettings";
 
-const ACCENTS: { id: AppSettings["accent"]; color: string; check: string; label: string }[] = [
-  { id: "neutral", color: "#ececee", check: "#111113", label: "Neutral" },
-  { id: "blue", color: "#4b8fe0", check: "#fff", label: "Blue" },
-  { id: "green", color: "#3fa772", check: "#fff", label: "Green" },
-  { id: "red", color: "#d9534f", check: "#fff", label: "Red" },
-  { id: "amber", color: "#d9962a", check: "#111113", label: "Amber" },
+// Each swatch takes its colors from the accent's own tokens (styles/tokens.css), by data-accent.
+const ACCENTS: { id: AppSettings["accent"]; label: string }[] = [
+  { id: "neutral", label: "Neutral" },
+  { id: "blue", label: "Blue" },
+  { id: "green", label: "Green" },
+  { id: "red", label: "Red" },
+  { id: "amber", label: "Amber" },
 ];
 
 const SECTIONS = [
@@ -243,22 +244,12 @@ function PrivacySection() {
 /** Turning metadata removal off says what it shows, and waits to be sure. */
 function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <Modal
-      title="Send files with their metadata?"
-      onClose={onCancel}
-      width={440}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
-          <button className="btn btn-danger" onClick={onConfirm}>Turn off</button>
-        </>
-      }
-    >
+    <Confirm title="Send files with their metadata?" action="Turn off" width={440} onCancel={onCancel} onConfirm={onConfirm}>
       <p style={{ fontSize: 13.5 }}>
         Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.
       </p>
       <p className="muted" style={{ fontSize: 13.5 }}>Your server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.</p>
-    </Modal>
+    </Confirm>
   );
 }
 
@@ -313,7 +304,7 @@ function AppearanceSection() {
         <span className="field-label">Accent color</span>
         <div className="accent-row">
           {ACCENTS.map((accent) => (
-            <button key={accent.id} className={`accent-swatch${settings.accent === accent.id ? " is-active" : ""}`} style={{ background: accent.color, color: accent.check }} onClick={() => update({ accent: accent.id })} aria-label={accent.label} aria-pressed={settings.accent === accent.id}>
+            <button key={accent.id} className={`accent-swatch${settings.accent === accent.id ? " is-active" : ""}`} data-accent={accent.id} onClick={() => update({ accent: accent.id })} aria-label={accent.label} aria-pressed={settings.accent === accent.id}>
               {settings.accent === accent.id && <Check size={15} strokeWidth={2.5} />}
             </button>
           ))}

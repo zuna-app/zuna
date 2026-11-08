@@ -221,19 +221,22 @@ export function Confirm({
   action,
   onCancel,
   onConfirm,
+  width = 420,
   children,
 }: {
   title: string;
   action: string;
   onCancel: () => void;
   onConfirm: () => void;
+  width?: number;
+  /** Words, which go in a paragraph, or paragraphs of their own. */
   children: ReactNode;
 }) {
   return (
     <Modal
       title={title}
       onClose={onCancel}
-      width={420}
+      width={width}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
@@ -241,7 +244,7 @@ export function Confirm({
         </>
       }
     >
-      <p style={{ fontSize: 13.5 }}>{children}</p>
+      {typeof children === "string" ? <p style={{ fontSize: 13.5 }}>{children}</p> : children}
     </Modal>
   );
 }

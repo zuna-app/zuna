@@ -94,7 +94,7 @@
 .server-icon-edit:hover > span:last-child { opacity: 1; }
 
 .accent-row { display: flex; gap: 8px; }
-.accent-swatch { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.accent-swatch { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
 .accent-swatch.is-active { outline: 2px solid var(--text-1); outline-offset: 2px; }
 
 .segmented { display: flex; background: var(--bg-3); border-radius: var(--radius-m); padding: 2px; gap: 1px; }

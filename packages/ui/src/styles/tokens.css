@@ -18,13 +18,6 @@
   --text-2: #a0a0a6;
   --text-3: #6e6e75;
 
-  /* The one emphasis color. Neutral by default, replaceable in Appearance. */
-  --accent: #ececee;
-  --accent-hover: #ffffff;
-  --on-accent: #111113;
-  --accent-soft: rgba(255, 255, 255, 0.1);
-  --accent-text: #ececee;
-
   --bubble-own: #26262a;
   --bubble-own-text: #f2f2f3;
   --bubble-own-faint: rgba(255, 255, 255, 0.55);
@@ -55,22 +48,32 @@
   --message-size: 14.5px;
 }
 
-:root[data-accent="blue"] {
+/* The one emphasis color. Neutral by default, replaceable in Appearance, whose
+   swatches take their colors from these blocks too. */
+:root, .accent-swatch[data-accent="neutral"] {
+  --accent: #ececee;
+  --accent-hover: #ffffff;
+  --on-accent: #111113;
+  --accent-soft: rgba(255, 255, 255, 0.1);
+  --accent-text: #ececee;
+}
+
+:root[data-accent="blue"], .accent-swatch[data-accent="blue"] {
   --accent: #4b8fe0; --accent-hover: #5e9de6; --on-accent: #fff;
   --accent-soft: rgba(75, 143, 224, 0.16); --accent-text: #7fb0ec;
   --bubble-own: #24486f; --bubble-own-text: #fff;
 }
-:root[data-accent="green"] {
+:root[data-accent="green"], .accent-swatch[data-accent="green"] {
   --accent: #3fa772; --accent-hover: #4cb780; --on-accent: #fff;
   --accent-soft: rgba(63, 167, 114, 0.16); --accent-text: #6cc798;
   --bubble-own: #235240; --bubble-own-text: #fff;
 }
-:root[data-accent="red"] {
+:root[data-accent="red"], .accent-swatch[data-accent="red"] {
   --accent: #d9534f; --accent-hover: #e2635f; --on-accent: #fff;
   --accent-soft: rgba(217, 83, 79, 0.16); --accent-text: #ec8784;
   --bubble-own: #6a2c2b; --bubble-own-text: #fff;
 }
-:root[data-accent="amber"] {
+:root[data-accent="amber"], .accent-swatch[data-accent="amber"] {
   --accent: #d9962a; --accent-hover: #e3a43f; --on-accent: #111113;
   --accent-soft: rgba(217, 150, 42, 0.16); --accent-text: #e8b562;
   --bubble-own: #5a4318; --bubble-own-text: #fff;
