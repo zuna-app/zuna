@@ -83,6 +83,12 @@ export async function openSqliteProvider(): Promise<DbProvider> {
       open.get(name)?.close();
       open.delete(name);
       pool.unlink(path(name));
+      // Its journal too, which TRUNCATE keeps, or it would hold a slot in the pool for good.
+      try {
+        pool.unlink(`${path(name)}-journal`);
+      } catch {
+        // There was none.
+      }
     },
   };
 }
