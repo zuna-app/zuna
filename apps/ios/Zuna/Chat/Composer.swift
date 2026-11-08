@@ -23,9 +23,14 @@ struct Composer: View {
     @State private var round: RoundRecorder?
     /// The button records video messages rather than voice ones, as it was last left, as in Telegram.
     @AppStorage("zuna-records-video") private var recordsVideo = false
-    /// The finger is on the microphone; how far it slid to the left, toward cancelling.
+    /// The finger is on the microphone; how far it slid to the left, toward cancelling, and up, toward locking.
     @State private var holding = false
     @State private var slide: CGFloat = 0
+    @State private var rise: CGFloat = 0
+    /// Slid up, it records on with the finger off, as in Telegram, until Send or Cancel.
+    @State private var locked = false
+    /// The touch that locked it is still on the button, and its end isn't a press of Send.
+    @State private var lockedNow = false
     /// When the message just sent from here lets the next one go in slow mode (ms), until the core says.
     @State private var sentUntil: Double = 0
     /// Moves on while slow mode holds back the next message, for its countdown.
@@ -371,41 +376,83 @@ struct Composer: View {
 
     // MARK: Voice messages
 
-    /// Hold to record and let go to send, as in Telegram; sliding left throws it away. A tap switches
-    /// between voice messages and video messages.
+    /// Hold to record and let go to send, as in Telegram; sliding left throws it away, and sliding up
+    /// locks it, recording on with the finger off, when the button sends it. A tap switches between
+    /// voice messages and video messages.
     private var microphone: some View {
-        Image(systemName: recordsVideo ? "video.fill" : "mic.fill")
+        let accent = model.settings.accent
+        return Image(systemName: locked ? "arrow.up" : recordsVideo ? "video.fill" : "mic.fill")
             .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(isRecording ? Color.white : Theme.text2)
+            .foregroundStyle(locked ? accent.onAccent : isRecording ? Color.white : Theme.text2)
             .frame(width: 36, height: 36)
-            .background(isRecording ? Theme.red : Theme.bg3, in: .circle)
-            .scaleEffect(isRecording ? 1.35 : 1)
+            .background(locked ? accent.color : isRecording ? Theme.red : Theme.bg3, in: .circle)
+            .scaleEffect(isRecording && !locked ? 1.35 : 1)
             .animation(.spring(duration: 0.25), value: isRecording)
+            .animation(.spring(duration: 0.25), value: locked)
             .contentTransition(.symbolEffect(.replace))
             .padding(.bottom, 1)
+            .overlay(alignment: .bottom) {
+                // The lock to slide up to, which comes up with the finger.
+                if isRecording, holding, !locked {
+                    VStack(spacing: 3) {
+                        Image(systemName: "lock.fill")
+                        Image(systemName: "chevron.up")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(rise < -Self.lockRise * 0.6 ? Theme.text1 : Theme.text2)
+                    .frame(width: 36)
+                    .padding(.vertical, 10)
+                    .background(Theme.bg2, in: .capsule)
+                    .overlay(Capsule().stroke(Theme.line))
+                    .offset(y: -66 + max(rise, -Self.lockRise) * 0.5)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+                    .accessibilityHidden(true)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: isRecording && holding && !locked)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if !holding {
                             holding = true
-                            Task { await startRecording() }
+                            // Locked, a touch on it sends, once it's let go.
+                            if !locked { Task { await startRecording() } }
                         }
+                        guard !locked else { return }
                         slide = min(0, value.translation.width)
+                        rise = min(0, value.translation.height)
+                        if isRecording, rise < -Self.lockRise, slide > -40 {
+                            locked = true
+                            lockedNow = true
+                            slide = 0
+                            rise = 0
+                        }
                     }
                     .onEnded { _ in
                         holding = false
-                        if slide < -90 { cancelRecording() } else { finishRecording() }
-                        slide = 0
+                        defer {
+                            slide = 0
+                            rise = 0
+                        }
+                        if lockedNow {
+                            lockedNow = false
+                        } else if locked || slide >= -90 {
+                            finishRecording()
+                        } else {
+                            cancelRecording()
+                        }
                     }
             )
-            .accessibilityLabel(recordsVideo ? "Record a video message" : "Record a voice message")
-            .accessibilityHint("Hold to record, and let go to send. Tap to switch between voice and video.")
+            .accessibilityLabel(locked ? (recordsVideo ? "Send video message" : "Send voice message") : recordsVideo ? "Record a video message" : "Record a voice message")
+            .accessibilityHint(locked ? "" : "Hold to record, and let go to send. Slide up to keep recording. Tap to switch between voice and video.")
             .accessibilityAction(named: recordsVideo ? "Switch to voice messages" : "Switch to video messages") { recordsVideo.toggle() }
             .accessibilityIdentifier(A11y.Composer.microphone)
     }
 
     /// How long a hold has to last before it records, so that a tap switches between voice and video instead.
     private static let holdDelay: Duration = .milliseconds(250)
+    /// How far up the finger slides to lock it.
+    private static let lockRise: CGFloat = 80
 
     private var recordingBar: some View {
         HStack(spacing: 8) {
@@ -415,10 +462,17 @@ struct Composer: View {
                 .font(.body.monospacedDigit())
                 .foregroundStyle(Theme.text1)
             Spacer(minLength: 0)
-            Label("Slide to cancel", systemImage: "chevron.left")
-                .font(.subheadline)
-                .foregroundStyle(slide < -90 ? Theme.red : Theme.text2)
-                .offset(x: slide / 2)
+            if locked {
+                Button("Cancel", action: cancelRecording)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.red)
+                    .buttonStyle(.plain)
+            } else {
+                Label("Slide to cancel", systemImage: "chevron.left")
+                    .font(.subheadline)
+                    .foregroundStyle(slide < -90 ? Theme.red : Theme.text2)
+                    .offset(x: slide / 2)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
@@ -426,7 +480,9 @@ struct Composer: View {
         .onChange(of: recorder.elapsed >= VoiceRecorder.limit || (round?.elapsed ?? 0) >= RoundRecorder.limit) { _, over in
             if over { finishRecording() }
         }
-        .accessibilityElement(children: .combine)
+        // Leaving the chat while it records on lets it go, rather than recording for no one.
+        .onDisappear { if isRecording { cancelRecording() } }
+        .accessibilityElement(children: locked ? .contain : .combine)
         .accessibilityIdentifier(A11y.Composer.recording)
     }
 
@@ -453,7 +509,7 @@ struct Composer: View {
                 try await recorder.start()
             }
             // The finger came off while the app asked for the camera or the microphone.
-            if !holding { cancelRecording() }
+            if !holding, !locked { cancelRecording() }
         } catch {
             holding = false
             model.toast(error.localizedDescription, .error)
@@ -461,11 +517,13 @@ struct Composer: View {
     }
 
     private func cancelRecording() {
+        locked = false
         recorder.cancel()
         round?.cancel()
     }
 
     private func finishRecording() {
+        locked = false
         if let round, round.isRecording {
             Task {
                 do {

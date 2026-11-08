@@ -206,6 +206,41 @@ final class MessageActionsTests: XCTestCase {
         card.buttons["Pause"].tap()
     }
 
+    /// Slid up while it's held, a recording carries on with the finger off, as in Telegram: the
+    /// button then sends it, and Cancel throws it away.
+    func testLocksARecordingBySlidingUp() throws {
+        try openAlice()
+        let alice = try Peer("alice")
+        let before = try voiceMessages(alice).count
+        let microphone = zuna.element(A11y.Composer.microphone)
+        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+        if microphone.label == "Record a video message" { microphone.tap() }
+        try waitFor("voice messages") { microphone.label == "Record a voice message" }
+        let center = microphone.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+
+        center.press(forDuration: 1.0, thenDragTo: center.withOffset(CGVector(dx: 0, dy: -140)))
+        try waitFor("it to lock") { microphone.label == "Send voice message" }
+        XCTAssertTrue(zuna.element(A11y.Composer.recording).exists)
+        XCTAssertTrue(zuna.app.buttons["Cancel"].exists)
+        // Let go, it records on, until the button sends it.
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        zuna.screenshot("122-recording-locked")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        microphone.tap()
+        try waitFor("alice to get it", timeout: 30) { try self.voiceMessages(alice).count == before + 1 }
+        let file = try XCTUnwrap((try voiceMessages(alice).last?["attachments"] as? [[String: Any]])?.first)
+        XCTAssertGreaterThan(file["duration"] as? Double ?? 0, 2)
+        try waitFor("the microphone back") { microphone.label == "Record a voice message" }
+
+        // Locked again, Cancel throws it away.
+        center.press(forDuration: 1.0, thenDragTo: center.withOffset(CGVector(dx: 0, dy: -140)))
+        try waitFor("it to lock again") { microphone.label == "Send voice message" }
+        zuna.app.buttons["Cancel"].tap()
+        try waitFor("it to stop") { microphone.label == "Record a voice message" && !self.zuna.element(A11y.Composer.recording).exists }
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertEqual(try voiceMessages(alice).count, before + 1)
+    }
+
     func testRecordsVideoMessagesAndPlaysThem() throws {
         try openAlice()
         let alice = try Peer("alice")
