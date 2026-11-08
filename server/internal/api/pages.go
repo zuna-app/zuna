@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"html/template"
 	"net/http"
 )
@@ -82,10 +83,14 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, data pageData) {
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.WriteHeader(status)
-	if err := pageTemplate.Execute(w, data); err != nil {
+	// Rendered whole before anything is sent, so that a failure can still answer with an error.
+	var page bytes.Buffer
+	if err := pageTemplate.Execute(&page, data); err != nil {
 		writeFailure(w, err)
+		return
 	}
+	w.WriteHeader(status)
+	w.Write(page.Bytes())
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {

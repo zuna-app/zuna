@@ -52,22 +52,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: mirror zuna-web: `signal.NotifyContext`, then `Shutdown` with a 20 s context (the APNs client timeout is 15 s).
 - Check after: `go test ./internal/relay`, and the installer check.
 
-### Log failed requests with their route
-- Where: server/internal/api/server.go:765-767, and about 170 `writeFailure` call sites
-- Category: robustness
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: `slog.Error("request failed", "error", err)` logs no method or route, so a 500 can't be traced to an endpoint.
-- Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
-- Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
-
-### Don't write a second response after a failed render or panic
-- Where: server/internal/api/pages.go:85-88, and server.go:560-568
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: after `WriteHeader` has been called, a failed template render or a recovered panic writes headers and a JSON error again.
-- Suggested change: render into a buffer first and write only if that succeeds. In the panic recovery, skip writing if the response has already started.
-- Check after: Go tests.
-
 ### Update modernc.org/sqlite and pgx
 - Where: server/go.mod:6-12
 - Category: deps

@@ -541,8 +541,32 @@ func forThisMachine(r *http.Request) bool {
 	return name == "localhost" || strings.HasSuffix(name, ".localhost")
 }
 
+// response is the writer every handler gets. It holds the request, so that a failure
+// can be logged with its route, which the mux fills in on that same request, and
+// notes whether anything was written, so that a panic after that writes nothing more.
+// Unwrap lets ResponseController, and the WebSocket and LiveKit proxy's hijacking,
+// reach the writer underneath.
+type response struct {
+	http.ResponseWriter
+	r       *http.Request
+	started bool
+}
+
+func (w *response) WriteHeader(status int) {
+	w.started = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *response) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *response) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(raw http.ResponseWriter, r *http.Request) {
+		w := &response{ResponseWriter: raw, r: r}
 		// Authentication uses bearer tokens, never cookies, so allowing any
 		// origin gives other websites no access. The desktop app needs this
 		// because it talks to whichever servers its user has joined.
@@ -567,8 +591,11 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
-				slog.Error("handler panic", "path", r.URL.Path, "panic", rec)
-				writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")
+				slog.Error("handler panic", "method", r.Method, "path", r.URL.Path, "panic", rec)
+				// Once a response has begun, a second one would only be appended to it.
+				if !w.started {
+					writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")
+				}
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -768,7 +795,11 @@ func writeFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusRequestEntityTooLarge, "limit_reached", "That's more than this server allows.")
 	default:
-		slog.Error("request failed", "error", err)
+		attrs := []any{"error", err}
+		if resp, ok := w.(*response); ok {
+			attrs = append(attrs, "method", resp.r.Method, "route", resp.r.Pattern)
+		}
+		slog.Error("request failed", attrs...)
 		writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")
 	}
 }
