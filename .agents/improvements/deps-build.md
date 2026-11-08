@@ -12,14 +12,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: smallest step: pin it exactly (`"app-builder-lib": "26.18.0"`). Better: drop it. Add `scripts/nsis.mjs` that downloads NSIS from electron-builder-binaries' GitHub release, pinned by URL and SHA-256 as scripts/ffmpeg.mjs pins FFmpeg, and find `signtool.exe` in the Windows SDK that VS's C++ build tools already install (`%ProgramFiles(x86)%\Windows Kits\10\bin\<version>\x64\signtool.exe`). Then remove app-builder-lib and update docs/WINDOWS_APP.md:30.
 - Check after: `npm run dist:windows` and `npm run install:windows` on Windows, also with CSC_LINK set; `npm audit` shows 0.
 
-### Point setup-go's cache at server/go.sum
-- Where: .github/workflows/ci.yml:18-20, :49-51, :79-81; release.yml:27-29, :75-77, :105-107
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high (no `cache-dependency-path`, spot-checked during the review; the cache-miss behaviour is how the action is documented, not seen in a log)
-- What's wrong: actions/setup-go v5 caches keyed on `go.sum` at the repo root; Zuna has only server/go.sum, so every job downloads modules and builds from cold.
-- Suggested change: add `cache-dependency-path: server/go.sum` under `with:` of every `actions/setup-go` step.
-- Check after: the second CI run's setup-go step says "Cache restored".
-
 ### Run the server and core tests against PostgreSQL in CI
 - Where: .github/workflows/ci.yml:13-42; CLAUDE.md (PostgreSQL paragraph and SQL gotcha)
 - Category: robustness
