@@ -45,9 +45,11 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
     let server_id = voice.server_id.clone()?;
     let channel_id = voice.channel_id.clone()?;
     let app = state.read(cx);
-    let server = app.servers.get(&server_id)?.clone();
+    // Borrowed, and only what's shown taken out of it: this draws every frame of a call.
+    let server = app.servers.get(&server_id)?;
+    let server_name = server.entry.name.clone();
     let channel = server.channels.iter().find(|item| item.id == channel_id).cloned();
-    let conversation = if voice.call { voice::conversation_of_group(&server, &channel_id).cloned() } else { None };
+    let conversation = if voice.call { voice::conversation_of_group(server, &channel_id).cloned() } else { None };
     let me = server.users.get(server.self_id()).cloned();
     let share_refusal = voice::rules::screen_refusal(server.info.as_ref().and_then(|info| info.screen_share.as_ref()), server.me.as_ref().map(|me| me.role.as_str()).unwrap_or(""), if voice.call { 0. } else { channel.as_ref().map(|channel| channel.screen_limit).unwrap_or(0.) });
     let mic_off = voice.mic_off();
@@ -142,7 +144,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                                     .child(status_text)
                                     .child(div().id("voice-panel-lock").tip("End-to-end encrypted: the server can't listen in", Side::Top).child(icon("lock", 11., theme.text3))),
                             )
-                            .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(format!("{where_text} / {}", server.entry.name))),
+                            .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(format!("{where_text} / {server_name}"))),
                     )
                     .child(
                         div()

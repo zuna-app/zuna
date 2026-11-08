@@ -68,6 +68,16 @@ const SETTINGS_OUT: std::time::Duration = std::time::Duration::from_millis(170);
 /// How long a dismissed toast takes to go.
 const TOAST_OUT: std::time::Duration = std::time::Duration::from_millis(160);
 
+/// What the server rail shows of each server.
+struct RailItem {
+    id: String,
+    name: String,
+    url: String,
+    has_icon: bool,
+    unread: u32,
+    has_new: bool,
+}
+
 pub struct Root {
     state: Entity<AppState>,
     onboarding: Entity<onboarding::Onboarding>,
@@ -219,16 +229,23 @@ impl Root {
         let state_entity = self.state.clone();
         let state = self.state.read(cx);
         let active_id = state.active_server.clone();
-        let servers: Vec<_> = state.order.iter().filter_map(|id| state.servers.get(id)).cloned().collect();
+        // Only what the rail shows: this draws every frame, and a whole server is its people,
+        // chats, channels and emotes.
+        let servers: Vec<RailItem> = state
+            .order
+            .iter()
+            .filter_map(|id| state.servers.get(id))
+            .map(|server| RailItem { id: server.entry.id.clone(), name: server.entry.name.clone(), url: server.entry.url.clone(), has_icon: server.entry.has_icon, unread: server.unread(), has_new: server.has_new() })
+            .collect();
         let me = state.active().and_then(|server| server.me.as_ref().and_then(|me| server.users.get(&me.user_id)).cloned());
         let mut list = div().flex().flex_col().items_center().gap(px(8.)).w_full();
         for server in servers {
-            let id = server.entry.id.clone();
+            let id = server.id.clone();
             let active = active_id.as_deref() == Some(id.as_str());
-            let unread = server.unread();
-            let has_new = server.has_new();
-            let icon_image = if server.entry.has_icon {
-                let url = format!("{}/api/icon", server.entry.url);
+            let unread = server.unread;
+            let has_new = server.has_new;
+            let icon_image = if server.has_icon {
+                let url = format!("{}/api/icon", server.url);
                 self.state.update(cx, |state, cx| state.remote_picture(&url, cx))
             } else {
                 None
@@ -269,12 +286,12 @@ impl Root {
                             .id(gpui::ElementId::Name(format!("rail-button-{id}").into()))
                             .rounded(RADIUS_L)
                             .cursor_pointer()
-                            .tip(server.entry.name.clone(), Side::Right)
+                            .tip(server.name.clone(), Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
                             .child(avatar(
                                 AvatarProps {
-                                    name: server.entry.name.clone(),
-                                    seed: server.entry.url.clone(),
+                                    name: server.name.clone(),
+                                    seed: server.url.clone(),
                                     image: icon_image,
                                     size: 42.,
                                     online: false,
@@ -373,19 +390,21 @@ impl Root {
     fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let state = self.state.read(cx);
-        let Some(server) = state.active().cloned() else { return div().into_any_element() };
-        if let Some(reason) = server.entry.signed_out.clone() {
-            return self.signed_out(&server, &reason, cx).into_any_element();
+        // Only what's needed past the borrow, not the whole server, as this draws every frame.
+        let Some(server) = state.active() else { return div().into_any_element() };
+        let entry = server.entry.clone();
+        let conversation = server.active_conversation().map(|conversation| conversation.key.clone());
+        let channel = server.active_channel().map(|channel| (channel.id.clone(), channel.kind == "voice"));
+        if let Some(reason) = entry.signed_out.clone() {
+            return self.signed_out(&entry, &reason, cx).into_any_element();
         }
-        let conversation = server.active_conversation().cloned();
-        let channel = server.active_channel().cloned();
         // A voice channel this device is in shows its stage, as in Discord.
-        let in_this_voice = channel.as_ref().is_some_and(|channel| channel.kind == "voice" && crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == server.entry.id && channel_id == channel.id));
-        if let (true, Some(channel)) = (in_this_voice, &channel) {
-            let key = format!("{}:{}", server.entry.id, channel.id);
+        let in_this_voice = channel.as_ref().is_some_and(|(id, voice)| *voice && crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == entry.id && &channel_id == id));
+        if let (true, Some((channel_id, _))) = (in_this_voice, &channel) {
+            let key = format!("{}:{}", entry.id, channel_id);
             if self.stage.as_ref().map(|(current, _)| current != &key).unwrap_or(true) {
                 let state = self.state.clone();
-                let room = voice_stage::StageRoom { server_id: server.entry.id.clone(), id: channel.id.clone(), call: false };
+                let room = voice_stage::StageRoom { server_id: entry.id.clone(), id: channel_id.clone(), call: false };
                 self.stage = Some((key, cx.new(|cx| voice_stage::VoiceStage::new(state, room, cx))));
             }
             return self.stage.as_ref().unwrap().1.clone().into_any_element();
@@ -393,10 +412,10 @@ impl Root {
         self.stage = None;
         match conversation {
             Some(conversation) => {
-                let key = format!("{}:{}", server.entry.id, conversation.key);
+                let key = format!("{}:{}", entry.id, conversation);
                 if self.chat.as_ref().map(|(current, _)| current != &key).unwrap_or(true) {
                     let state = self.state.clone();
-                    let view = cx.new(|cx| chat::ChatView::new(state, server.entry.id.clone(), conversation.key.clone(), window, cx));
+                    let view = cx.new(|cx| chat::ChatView::new(state, entry.id.clone(), conversation.clone(), window, cx));
                     self.chat = Some((key, view));
                 }
                 // Not cached: GPUI draws every cached view inside a cached view that has to be
@@ -429,7 +448,7 @@ impl Root {
                             .p(px(30.))
                             .text_color(theme.text2)
                             .child(div().mb(px(8.)).child(icon("message-circle", 28., theme.text3)))
-                            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(server.entry.name.clone()))
+                            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(entry.name.clone()))
                             .child("Pick someone from the list to start talking.")
                             .child(
                                 div()
@@ -448,9 +467,9 @@ impl Root {
         }
     }
 
-    fn signed_out(&self, server: &crate::state::ServerState, reason: &str, cx: &mut Context<Self>) -> impl IntoElement {
+    fn signed_out(&self, entry: &crate::models::ServerEntry, reason: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let name = server.entry.name.clone();
+        let name = entry.name.clone();
         let title = match reason {
             "banned" => format!("You were removed from {name}"),
             "account_deleted" => format!("Your account on {name} was deleted"),
@@ -465,9 +484,9 @@ impl Root {
         // An account that's gone can't be signed in to again.
         let can_sign_in = reason != "banned" && reason != "account_deleted";
         let state = self.state.clone();
-        let address = server.entry.address.clone();
+        let address = entry.address.clone();
         let remove_state = self.state.clone();
-        let id = server.entry.id.clone();
+        let id = entry.id.clone();
         div().flex_1().flex().items_center().justify_center().child(
             div()
                 .flex()

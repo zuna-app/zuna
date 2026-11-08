@@ -173,6 +173,9 @@ pub struct ChatView {
     /// What the rows need, from the last time the chat's state changed. The messages aren't in
     /// it: each row reads its own and those beside it from the app's state as it's drawn.
     context_cache: Option<Rc<ChatContext>>,
+    /// This chat's conversation as the state has it, taken once per change of the state rather
+    /// than cloned on every frame, a channel's members and all.
+    conversation_cache: RefCell<Option<Rc<ConversationView>>>,
     /// A channel's member list, once it's been shown.
     member_view: Option<Entity<MemberList>>,
     /// Where the messages placed their videos, which are drawn above them.
@@ -318,6 +321,7 @@ impl ChatView {
         let subscriptions = vec![
             cx.observe(&state, |view, _, cx| {
                 view.context_cache = None;
+                view.conversation_cache.replace(None);
                 view.sync_rows(cx);
                 view.refresh_messages(cx);
                 cx.notify();
@@ -379,6 +383,7 @@ impl ChatView {
             mentions_asked: None,
             messages,
             context_cache: None,
+            conversation_cache: RefCell::new(None),
             member_view: None,
             video_slots: Default::default(),
             _subscriptions: subscriptions,
@@ -431,8 +436,13 @@ impl ChatView {
         true
     }
 
-    fn conversation(&self, cx: &gpui::App) -> Option<ConversationView> {
-        self.state.read(cx).servers.get(&self.server_id).and_then(|server| server.find_conversation(&self.key)).cloned()
+    fn conversation(&self, cx: &gpui::App) -> Option<Rc<ConversationView>> {
+        if let Some(cached) = self.conversation_cache.borrow().as_ref() {
+            return Some(cached.clone());
+        }
+        let found = self.state.read(cx).servers.get(&self.server_id).and_then(|server| server.find_conversation(&self.key)).cloned().map(Rc::new);
+        self.conversation_cache.replace(found.clone());
+        found
     }
 
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -647,7 +657,8 @@ impl ChatView {
         }
         let Some(group) = conversation.group_id.clone() else { return };
         let Some(list) = state.lists.get(&group) else { return };
-        let newest = list.items.iter().filter(|item| !item.id.starts_with("sys-")).filter_map(|item| item.seq).fold(0., f64::max);
+        // The list is in order, so the newest is found from the end, as this runs every frame.
+        let newest = list.items.iter().rev().filter(|item| !item.id.starts_with("sys-")).find_map(|item| item.seq).unwrap_or(0.);
         let up_to = if self.at_bottom && !list.detached { newest } else { self.visible_newest };
         if up_to > conversation.own_read {
             self.state.update(cx, |state, cx| state.mark_read(&group, up_to, cx));

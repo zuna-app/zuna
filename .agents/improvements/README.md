@@ -20,7 +20,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 27 |
 | `server.md` | `server/` and `deploy/`: queries, indexes, limits, shutdown, push | 31 |
 | `web.md` | `packages/ui` and `apps/web`: re-renders, Escape, caches, Platform leftovers | 22 |
-| `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 28 |
+| `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 27 |
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 34 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 25 |
 | `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 16 |

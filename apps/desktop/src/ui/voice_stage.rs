@@ -784,14 +784,15 @@ impl Render for VoiceStage {
             window.drop_image(old).ok();
         }
         let state = self.state.read(cx);
-        let Some(server) = state.servers.get(&self.room.server_id).cloned() else { return div().into_any_element() };
+        // Borrowed, with only what's shown taken out of it, as the stage draws with every frame of video.
+        let Some(server) = state.servers.get(&self.room.server_id) else { return div().into_any_element() };
         let voice = self.voice.read(cx);
         let status = voice.status;
         let videos = voice.videos.clone();
         let focus = voice.focus.clone();
         let screen_share = voice.screen.clone();
         let channel = server.channels.iter().find(|channel| channel.id == self.room.id).cloned();
-        let conversation = if self.room.call { voice::conversation_of_group(&server, &self.room.id).cloned() } else { channel.as_ref().and_then(|channel| channel.conversation.clone()) };
+        let conversation = if self.room.call { voice::conversation_of_group(server, &self.room.id).cloned() } else { channel.as_ref().and_then(|channel| channel.conversation.clone()) };
         let title = if self.room.call { conversation.as_ref().map(|item| item.title.clone()).unwrap_or_default() } else { channel.as_ref().map(|item| item.name.clone()).unwrap_or_default() };
         let topic = channel.as_ref().map(|item| item.topic.clone()).unwrap_or_default();
         let call = if self.room.call { server.calls.get(&self.room.id).cloned() } else { None };
@@ -800,6 +801,8 @@ impl Render for VoiceStage {
         let ringing: Vec<String> = call.as_ref().map(|call| call.ringing.iter().filter(|user| !members.iter().any(|member| &member.user_id == *user)).cloned().collect()).unwrap_or_default();
         // Someone in the group who isn't in the call, and isn't being rung, can be rung again.
         let not_here = self.room.call && conversation.as_ref().is_some_and(|conversation| conversation.kind == "group" && conversation.members.iter().any(|member| !members.iter().any(|other| other.user_id == member.user_id) && !ringing.contains(&member.user_id)));
+        let role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
+        let share_refusal = voice::rules::screen_refusal(server.info.as_ref().and_then(|info| info.screen_share.as_ref()), &role, if self.room.call { 0. } else { channel.as_ref().map(|channel| channel.screen_limit).unwrap_or(0.) });
         let cameras: HashMap<String, VideoTile> = videos.iter().filter(|video| video.source == VideoSource::Camera).map(|video| (video.user_id.clone(), video.clone())).collect();
         let screens: Vec<VideoTile> = videos.iter().filter(|video| video.source == VideoSource::Screen).cloned().collect();
         let focused = focus.as_ref().and_then(|key| videos.iter().find(|video| &video.key == key).cloned());
@@ -815,8 +818,6 @@ impl Render for VoiceStage {
         }
         let full_screen = self.full_screen.as_ref().and_then(|(key, _)| videos.iter().find(|video| &video.key == key).cloned());
         let native_self_share = screen_share.as_ref().filter(|share| share.native).cloned();
-        let role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
-        let share_refusal = voice::rules::screen_refusal(server.info.as_ref().and_then(|info| info.screen_share.as_ref()), &role, if self.room.call { 0. } else { channel.as_ref().map(|channel| channel.screen_limit).unwrap_or(0.) });
         let sounds = self.room.call || channel.as_ref().is_some_and(|channel| channel.sounds);
         let chat_unread = conversation.as_ref().is_some_and(|conversation| conversation.unread > 0.);
         let header = self.header(&title, &topic, call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at), not_here, cx);

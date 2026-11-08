@@ -12,14 +12,6 @@ Ordered roughly by value.
 - Suggested change: keep the parse cache in `ChatView`, keyed by (id, text hash, mentionable generation). Add generation counters to `ServerState` (users, conversations, prefs) and a `version` to `MessageList`; the observer skips work when this server's and this list's counters haven't changed. `handle_event` notifies only when it changed something. Fix the two comments.
 - Check after: `npm run dev:windows` (a channel on the test server with bots talking); `npm run dev:linux` and apps/desktop/test/linux-check.mjs.
 
-### Stop cloning whole `ServerState`s in views that render every frame
-- Where: ui/mod.rs:222 (the rail clones every server) and 376 (`main_area` clones the active one); ui/voice.rs:48, 235; ui/voice_stage.rs:787; ui/conversations.rs:400; ui/side_panel.rs:85-90; ui/overlays.rs:362; ui/picker.rs:255-259 (clones the emote set); ui/chat.rs:431-433, 638-652 (ConversationView clone and an O(n) scan of the list in every ChatView render)
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: Root is the window root and isn't cached, so it renders on every frame (caret blink, any animation, each video frame). Each render clones every `ServerState` with its users, conversations, channels and emotes, then clones the active server again for `main_area` and again for the voice panel. VoiceStage does the same at up to 60 fps. The rail needs only id, name, url, has_icon, unread and has_new.
-- Suggested change: borrow `state.read(cx)` once and build small `RailItem`s for the rail; pass `&ServerState` into `main_area`, `voice_panel` and VoiceStage; take only the fields that must outlive the borrow.
-- Check after: `npm run dev:windows` (a call with a share, and typing in a busy server); Linux and macOS builds.
-
 ### Notify the view that owns a hover or tooltip instead of refreshing the whole window
 - Where: ui/motion.rs:533-545 (`track_hover` calls `window.refresh()`); ui/components.rs:320 and ui/message.rs:1122 (refresh on every mouse move while a tooltip or emote card shows); ui/scrollbar.rs:175, 186, 192, 209
 - Category: perf

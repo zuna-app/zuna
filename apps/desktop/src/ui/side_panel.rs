@@ -41,6 +41,8 @@ pub struct SidePanel {
     edit_description: Entity<TextInput>,
     /// What it last showed, which it keeps showing while it closes.
     shown: Option<Panel>,
+    /// What `conversation` gives, until the state changes.
+    snapshot: std::cell::RefCell<Option<(std::rc::Rc<ServerState>, std::rc::Rc<ConversationView>)>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -51,7 +53,10 @@ impl SidePanel {
     pub fn new(state: Entity<AppState>, server_id: String, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| TextInput::new(cx, "Search messages"));
         let subscriptions = vec![
-            cx.observe(&state, |_, _, cx| cx.notify()),
+            cx.observe(&state, |panel, _, cx| {
+                panel.snapshot.replace(None);
+                cx.notify();
+            }),
             cx.subscribe_in(&search, window, |panel, _, event, _, cx| {
                 if *event == InputEvent::Changed {
                     panel.run_search(cx);
@@ -78,15 +83,23 @@ impl SidePanel {
             edit_name,
             edit_description,
             shown: None,
+            snapshot: std::cell::RefCell::new(None),
             _subscriptions: subscriptions,
         }
     }
 
-    fn conversation(&self, cx: &gpui::App) -> Option<(ServerState, ConversationView)> {
+    /// The server and this panel's conversation, copied once per change of the state rather
+    /// than on every frame the panel is drawn.
+    fn conversation(&self, cx: &gpui::App) -> Option<(std::rc::Rc<ServerState>, std::rc::Rc<ConversationView>)> {
+        if let Some(snapshot) = self.snapshot.borrow().as_ref() {
+            return Some(snapshot.clone());
+        }
         let state = self.state.read(cx);
         let server = state.servers.get(&self.server_id)?;
         let conversation = server.find_conversation(&self.key)?.clone();
-        Some((server.clone(), conversation))
+        let snapshot = (std::rc::Rc::new(server.clone()), std::rc::Rc::new(conversation));
+        self.snapshot.replace(Some(snapshot.clone()));
+        Some(snapshot)
     }
 
     fn run_search(&mut self, cx: &mut Context<Self>) {
