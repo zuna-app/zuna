@@ -235,9 +235,10 @@ struct Composer: View {
         }
         .onChange(of: model.pendingAttachments) {
             // All that's waiting now, not as it was when this was called: emptying the list
-            // would lose a file added in between.
+            // would lose a file added in between. Only for the chat on show, as a phone's other
+            // tab may have a chat open under it too.
             let urls = model.pendingAttachments
-            guard !urls.isEmpty else { return }
+            guard !urls.isEmpty, model.chatPath.last == .chat(conversation.key) else { return }
             model.pendingAttachments = []
             Task { await stageFiles(urls, scoped: false) }
         }
