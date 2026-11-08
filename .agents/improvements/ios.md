@@ -36,14 +36,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: remember the last value and return early when unchanged; make `PushStore.defaults` a `static let`.
 - Check after: `npm run test:ios:notify`; `npm run test:ios:ui -- --only NotificationTests`.
 
-### Let failed emotes load again
-- Where: apps/ios/Zuna/Chat/EmoteImages.swift:24-25, 50, 59-63
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: any failed load, including a moment without network, goes into `failed`, which is never cleared, so the emote shows its name for the rest of the app's life even after prefetching put the file on disk.
-- Suggested change: store the failure time and retry after ~60 s; clear a server's entries when its prefetch finishes or the connection comes back.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests`. Check the desktop's emote cache for the same pattern.
-
 ### Fix the emote view showing a stale emote after reuse
 - Where: apps/ios/Zuna/Chat/EmoteImages.swift:130-145; apps/ios/Zuna/Chat/MessageText.swift:238-251
 - Category: robustness

@@ -21,8 +21,17 @@ final class EmoteImages {
 
     private let cache = NSCache<NSString, UIImage>()
     private var loading: [String: Task<UIImage?, Never>] = [:]
-    /// Emotes that failed to load show their name instead, as on the desktop.
-    private var failed: Set<String> = []
+    /// Emotes that failed to load, and when: they show their name instead, as on the desktop, and
+    /// are tried again a minute later, so a moment without the network doesn't last the whole run.
+    private var failed: [String: Date] = [:]
+    private static let retryAfter: TimeInterval = 60
+
+    private func failedRecently(_ key: String) -> Bool {
+        guard let at = failed[key] else { return false }
+        if Date().timeIntervalSince(at) < Self.retryAfter { return true }
+        failed[key] = nil
+        return false
+    }
     /// By server address: fetching its set ahead.
     private var prefetching: [String: Task<Void, Never>] = [:]
 
@@ -41,13 +50,13 @@ final class EmoteImages {
     }
 
     func hasFailed(_ id: String, _ size: Size) -> Bool {
-        failed.contains("\(id)/\(size.rawValue)")
+        failedRecently("\(id)/\(size.rawValue)")
     }
 
     func image(_ id: String, _ size: Size, serverUrl: String) async -> UIImage? {
         let key = "\(id)/\(size.rawValue)"
         if let image = cache.object(forKey: key as NSString) { return image }
-        if failed.contains(key) { return nil }
+        if failedRecently(key) { return nil }
         if let task = loading[key] { return await task.value }
         let task = Task<UIImage?, Never>.detached(priority: .userInitiated) {
             guard let data = await EmoteFiles.shared.data(id, size.rawValue, serverUrl: serverUrl) else { return nil }
@@ -59,7 +68,7 @@ final class EmoteImages {
         if let image {
             cache.setObject(image, forKey: key as NSString)
         } else {
-            failed.insert(key)
+            failed[key] = Date()
         }
         return image
     }
