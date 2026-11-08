@@ -172,6 +172,8 @@ const SEND_NOW_WAIT_MS = 60_000;
 const UPLOAD_CONCURRENCY = 3;
 /** How many groups catch up at once after a reconnect. */
 const SYNC_CONCURRENCY = 4;
+/** How many vault items are asked for at a time. */
+const VAULT_PAGE = 500;
 /** How far a sound someone played may be from now, by their clock, and how long it's remembered so it plays once. */
 const PLAY_FRESH_MS = 5 * 60_000;
 /** How far a typing signal's time may be from this device's, so an old one sent again shows nobody typing. */
@@ -818,25 +820,28 @@ export class ServerSession {
   }
 
   private async syncAllOnce(): Promise<void> {
-    this.info = await this.api.info();
-    this.emit({ type: "settings", serverId: this.serverId, info: this.info });
+    // What the server says about itself, and its emotes, have nothing to do with the
+    // account's keys, so they're asked for alongside them rather than each waiting its turn.
+    const info = this.api.info();
+    info.catch(() => undefined);
+    const emotes = this.refreshEmotes().then(
+      () => null,
+      (error: unknown) => error,
+    );
     // Which keys are current comes first of all, since the vault opens with them.
     // Not being able to tell is no reason to stop the messages from coming.
     await this.syncAccount().catch((error) => {
       if (error instanceof ApiError && error.status === 401) throw error;
       console.warn("[zuna] catching up on this account's keys", error);
     });
+    this.info = await info;
+    this.emit({ type: "settings", serverId: this.serverId, info: this.info });
     // The vault comes next: it holds the keys this account already trusts,
     // which a new device must have before believing what the server says.
     await this.syncVault();
     this.checkManifestFloor();
     await this.syncUsers();
     await this.saveTrust();
-    // Emotes are cosmetic: a failure fetching them is no reason to miss any messages.
-    await this.refreshEmotes().catch((error) => {
-      if (error instanceof ApiError && error.status === 401) throw error;
-      console.warn("[zuna] catching up on emotes", error);
-    });
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
     // groups we already knew about can have been taken away.
@@ -860,21 +865,17 @@ export class ServerSession {
       }
     }
     await eachLimited(behind, SYNC_CONCURRENCY, (id) => this.syncGroup(id));
-    await this.syncChannels().catch((error) => {
-      if (error instanceof ApiError && error.status === 401) throw error;
-      console.warn("[zuna] catching up on channels", error);
+    // Channels, calls and the soundboard don't wait on one another. None of them is any
+    // reason to miss messages, and emotes are cosmetic.
+    const optional = await Promise.allSettled([this.syncChannels(), this.syncCalls(), this.syncSounds(), emotes.then((error) => (error ? Promise.reject(error) : undefined))]);
+    optional.forEach((result, index) => {
+      if (result.status === "fulfilled") return;
+      if (result.reason instanceof ApiError && result.reason.status === 401) throw result.reason;
+      console.warn(`[zuna] catching up on ${["channels", "calls", "the soundboard", "emotes"][index]}`, result.reason);
     });
-    await this.syncCalls().catch((error) => {
-      if (error instanceof ApiError && error.status === 401) throw error;
-      console.warn("[zuna] catching up on calls", error);
-    });
-    await this.syncSounds().catch((error) => {
-      if (error instanceof ApiError && error.status === 401) throw error;
-      console.warn("[zuna] catching up on the soundboard", error);
-    });
-    // After joining, since a grant is only good for epochs before this device came in.
-    await this.processHistoryGrants();
-    await this.topUpKeyPackages();
+    // After joining, since a grant is only good for epochs before this device came in. Key
+    // packages, for being added to groups, are another matter, so they go alongside.
+    await Promise.all([this.processHistoryGrants(), this.topUpKeyPackages()]);
     await this.uploadEpochKeys();
     await this.sendUnsentReads();
     // Back online, so whatever was waiting to try again goes now.
@@ -1243,7 +1244,7 @@ export class ServerSession {
     let cursor = this.getKv<number>("vault_cursor") ?? 0;
     const touchedGroups = new Set<string>();
     fetching: for (;;) {
-      const items = await this.api.vaultItems(cursor);
+      const items = await this.api.vaultItems(cursor, VAULT_PAGE);
       if (items.length === 0) break;
       for (const item of items) {
         const { generation } = item;
@@ -1277,6 +1278,8 @@ export class ServerSession {
         }
       }
       this.setKv("vault_cursor", cursor);
+      // A page short of full was the last, with no need to ask for an empty one to be sure.
+      if (items.length < VAULT_PAGE) break;
     }
     for (const groupId of touchedGroups) this.retryUndecryptable(groupId);
   }

@@ -427,8 +427,8 @@ export class Api {
     )).key_packages;
 
   // Vault
-  vaultItems = async (since: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/vault?since=${since}`)).items;
+  vaultItems = async (since: number, limit = 500) =>
+    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/vault?since=${since}&limit=${limit}`)).items;
   /** An item with a version has to raise the stored one's, or the server answers `stale_version`. */
   putVaultItems = (generation: number, items: { id: string; data: Uint8Array; version?: number }[]) =>
     this.request<{ seq: number }>("PUT", "/api/vault", { generation, items });
