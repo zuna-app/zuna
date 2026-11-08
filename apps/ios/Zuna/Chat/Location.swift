@@ -207,9 +207,12 @@ struct AttachLocationPage: View {
     private func send() {
         guard let found else { return }
         sending = true
+        // It answers the message being replied to, as anything sent from the message box does.
+        let replyTo = model.composer(serverId, conversationKey).replyTo?.id
         Task {
             do {
-                _ = try await model.core.session(serverId).sendMessage(conversationKey, MessageBody(location: found))
+                _ = try await model.core.session(serverId).sendMessage(conversationKey, MessageBody(replyTo: replyTo, location: found))
+                if replyTo != nil { model.reply(serverId, conversationKey, to: nil) }
                 dismiss()
                 if let conversation = model.servers[serverId]?.conversation(conversationKey) { await model.sentTo(serverId, conversation) }
             } catch {
