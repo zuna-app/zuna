@@ -43,34 +43,9 @@ fn fitted(width: u32, height: u32, max_height: u32) -> (u32, u32) {
     ((scaled & !1).max(2), max_height)
 }
 
-/// The cameras there are, by their unique ID and name, as last listed: Settings asks for them
-/// each time it's drawn, so they're listed on a thread of their own, again each time they're
-/// asked for and two seconds have passed, as the sound devices are.
+/// The cameras there are, by their unique ID and name, asking AVFoundation: what's drawn reads
+/// them through `crate::devices`, which keeps them.
 pub fn cameras() -> Vec<CameraDevice> {
-    use parking_lot::Mutex;
-    use std::time::Instant;
-    struct Listed {
-        cameras: Vec<CameraDevice>,
-        reading: bool,
-        read_at: Option<Instant>,
-    }
-    static LISTED: Mutex<Listed> = Mutex::new(Listed { cameras: Vec::new(), reading: false, read_at: None });
-    let mut listed = LISTED.lock();
-    if !listed.reading && listed.read_at.is_none_or(|at| at.elapsed() > Duration::from_secs(2)) {
-        listed.reading = true;
-        std::thread::Builder::new()
-            .name("zuna-cameras".into())
-            .spawn(|| {
-                let cameras = discovered();
-                let mut listed = LISTED.lock();
-                (listed.cameras, listed.reading, listed.read_at) = (cameras, false, Some(Instant::now()));
-            })
-            .ok();
-    }
-    listed.cameras.clone()
-}
-
-fn discovered() -> Vec<CameraDevice> {
     // SAFETY: the device types and media type are AVFoundation's own constants.
     let devices = unsafe {
         let Some(video) = AVMediaTypeVideo else { return Vec::new() };

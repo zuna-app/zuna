@@ -751,7 +751,7 @@ impl VoiceStage {
 
 /// The microphones or speakers, to choose from, above the chevron that asked.
 fn device_menu(voice: &Entity<Voice>, state: &Entity<AppState>, input: bool, position: gpui::Point<Pixels>, cx: &mut App) {
-    let devices = crate::voice::audio::devices(input);
+    let devices = crate::devices::sound(input);
     let current = if input { voice.read(cx).settings.input_device.clone() } else { voice.read(cx).settings.output_device.clone() };
     let mut entries: Vec<MenuEntry> = devices
         .into_iter()

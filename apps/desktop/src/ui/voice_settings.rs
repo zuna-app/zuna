@@ -125,6 +125,8 @@ pub struct VoiceSettingsPage {
     camera: Option<(crate::media::record::Camera, Arc<Mutex<Option<(u32, u32, Vec<u8>, u64)>>>)>,
     camera_image: Option<(u64, Arc<RenderImage>)>,
     retired: Vec<Arc<RenderImage>>,
+    /// How many times the devices had been listed when this last drew them.
+    devices_read: u64,
     _tick: Task<()>,
 }
 
@@ -132,13 +134,15 @@ impl VoiceSettingsPage {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let voice = crate::voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
-        // The meter and the camera are drawn as they change.
+        // The meter and the camera are drawn as they change, and the devices once they've been listed.
         let tick = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_millis(50)).await;
             let alive = this
                 .update(cx, |page, cx| {
                     let voice = page.voice.read(cx);
-                    if voice.status != VoiceStatus::Idle || voice.testing_mic() || page.camera.is_some() {
+                    let listed = crate::devices::reads();
+                    if voice.status != VoiceStatus::Idle || voice.testing_mic() || page.camera.is_some() || listed != page.devices_read {
+                        page.devices_read = listed;
                         cx.notify();
                     }
                 })
@@ -158,7 +162,7 @@ impl VoiceSettingsPage {
             }
         })
         .detach();
-        VoiceSettingsPage { state, voice, choosing_key: false, camera: None, camera_image: None, retired: Vec::new(), _tick: tick }
+        VoiceSettingsPage { state, voice, choosing_key: false, camera: None, camera_image: None, retired: Vec::new(), devices_read: crate::devices::reads(), _tick: tick }
     }
 
     fn update(&self, change: impl FnOnce(&mut VoiceSettings) + 'static, cx: &mut App) {
@@ -166,7 +170,7 @@ impl VoiceSettingsPage {
     }
 
     fn device_select(&self, id: &'static str, label: &str, input: bool, current: &str, cx: &mut Context<Self>) -> AnyElement {
-        let devices = crate::voice::audio::devices(input);
+        let devices = crate::devices::sound(input);
         let shown = devices.iter().find(|device| device.id == current).map(|device| device.name.clone()).unwrap_or_else(|| "Default".into());
         let choices = devices
             .into_iter()
@@ -183,7 +187,7 @@ impl VoiceSettingsPage {
     }
 
     fn camera_select(&self, current: &str, cx: &mut Context<Self>) -> AnyElement {
-        let cameras = crate::media::record::cameras();
+        let cameras = crate::devices::cameras();
         let shown = cameras.iter().find(|camera| camera.id == current).map(|camera| camera.name.clone()).unwrap_or_else(|| "Default".into());
         let choices = cameras
             .into_iter()

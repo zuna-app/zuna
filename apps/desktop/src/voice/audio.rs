@@ -35,53 +35,18 @@ fn find(input: bool, id: &str) -> Option<cpal::Device> {
     if input { host.default_input_device() } else { host.default_output_device() }
 }
 
-/// The microphones or the speakers, with the default first.
+/// The microphones or the speakers, with the default first, asking the system, which can be
+/// slow: what's drawn reads them through `crate::devices`, which keeps them.
 #[cfg(target_os = "linux")]
-pub fn devices(input: bool) -> Vec<Device> {
+pub fn list(input: bool) -> Vec<Device> {
     super::pipewire::devices(input)
 }
 
-/// The microphones or the speakers, with the default first.
-#[cfg(windows)]
-pub fn devices(input: bool) -> Vec<Device> {
-    listed(input)
-}
-
-/// The microphones or the speakers, with the default first, as Core Audio last listed them.
-/// Core Audio can take a long while to answer, or not answer at all, while a device's driver
-/// hangs, which would stop the window as it's drawn, so the list is read on a thread of its
-/// own, again each time it's asked for and none is being read, and this gives the last one read.
-#[cfg(target_os = "macos")]
-pub fn devices(input: bool) -> Vec<Device> {
-    use std::sync::OnceLock;
-    use std::time::{Duration, Instant};
-    struct Lists {
-        inputs: Vec<Device>,
-        outputs: Vec<Device>,
-        reading: bool,
-        read_at: Option<Instant>,
-    }
-    static LISTS: OnceLock<Mutex<Lists>> = OnceLock::new();
-    let lists = LISTS.get_or_init(|| Mutex::new(Lists { inputs: Vec::new(), outputs: Vec::new(), reading: false, read_at: None }));
-    let mut current = lists.lock();
-    let stale = current.read_at.is_none_or(|at| at.elapsed() > Duration::from_secs(2));
-    if stale && !current.reading {
-        current.reading = true;
-        std::thread::Builder::new()
-            .name("zuna-sound-devices".into())
-            .spawn(move || {
-                let (inputs, outputs) = (listed(true), listed(false));
-                let mut current = lists.lock();
-                (current.inputs, current.outputs, current.reading, current.read_at) = (inputs, outputs, false, Some(Instant::now()));
-            })
-            .ok();
-    }
-    let list = if input { &current.inputs } else { &current.outputs };
-    if list.is_empty() { vec![Device { id: "default".into(), name: "Default".into() }] } else { list.clone() }
-}
-
+/// The microphones or the speakers, with the default first, asking the system, which can be
+/// slow, or on macOS not answer at all while a driver hangs: what's drawn reads them through
+/// `crate::devices`, which keeps them.
 #[cfg(any(windows, target_os = "macos"))]
-fn listed(input: bool) -> Vec<Device> {
+pub fn list(input: bool) -> Vec<Device> {
     let host = cpal::default_host();
     let mut list = vec![Device { id: "default".into(), name: "Default".into() }];
     if let Ok(devices) = if input { host.input_devices() } else { host.output_devices() } {

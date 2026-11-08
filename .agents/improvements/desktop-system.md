@@ -2,16 +2,7 @@
 
 Covered by reading: apps/desktop/src/{host,platform,voice,media}, main.rs, test_control.rs, build.rs, Cargo.toml and Cargo.lock, media-ffmpeg/, core-bundle/, installer/, test/*.mjs (session helpers and cleanup), apps/screenshare (main.rs, shortcut.rs, sound/mod.rs, Cargo.toml, a scan of the rest); the UI call sites where blocking happens (voice_settings.rs, chat.rs, state.rs); LiveKit and ksni sources in ~/.cargo/registry.
 Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and encoder internals (pipeline.rs, capture/*, native/*.c, h264.rs), media/windows/{encode,mf}.rs, apple/camera.rs beyond device listing. Nothing built or run; perf claims come from reading code paths.
-Overlap: the device-listing and temp-file findings here are the same issues as two entries in desktop-ui.md; implement them once.
-
-### List sound devices and cameras once on a worker, not on the window's thread at every render
-- (Same issue as "Stop enumerating microphones, speakers and cameras on every frame of Voice settings" in desktop-ui.md; that entry has the call sites.) Extra detail from this review:
-- Where: voice/audio.rs:39-48, 83-95; voice/pipewire.rs:43-98 (a new PipeWire connection and registry round trip per call); media/windows/record.rs:127-168; media/ffmpeg/v4l2.rs:31-63 (opens every `/dev/video*`, which on some laptops flicks the camera light); macOS copies at audio.rs:54-81 and media/apple/camera.rs:49-70
-- Category: perf
-- Severity: high ; Effort: M ; Confidence: high
-- What's wrong (extra): macOS's two separate cached copies have a gap: when the background read finishes, nothing tells the page, so outside a call it keeps showing only "Default" until something else redraws it.
-- Suggested change: one shared cached-list helper for `devices(input)` and `record::cameras()` on all three systems (delete the two macOS copies); when a read completes, bump a global generation counter or `watch` channel that `VoiceSettingsPage` observes to `cx.notify()`.
-- Check after: `npm run dev:windows` with Settings > Voice open during a call (CPU should stay flat), linux-voice-check.mjs, mac-voice-check.mjs.
+Overlap: the temp-file finding here is the same issue as an entry in desktop-ui.md; implement it once.
 
 ### Clear the decrypted files and recordings the app leaves on disk, as iOS does at every start
 - (Same issue as "Clean up decrypted media and recordings left in the system temp folder" in desktop-ui.md.) Extra detail from this review:

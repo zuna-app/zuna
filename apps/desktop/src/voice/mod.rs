@@ -201,6 +201,9 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         mic_test: None,
     });
     cx.set_global(GlobalVoice(voice.clone()));
+    // Listed now, off this thread, so a call's device menus have them the first time they open.
+    crate::devices::sound(true);
+    crate::devices::sound(false);
     voice
 }
 

@@ -2,15 +2,7 @@
 
 Covered: apps/desktop/src/ui/* (read chat.rs, message.rs, mod.rs, conversations.rs, components.rs, motion.rs, scrollbar.rs, text_input.rs, picker.rs, media_views.rs, side_panel.rs, voice_settings.rs; hot paths of voice_stage.rs, voice.rs, overlays.rs, notifications.rs, channel_message.rs), plus state.rs, models.rs, markup.rs, format.rs, theme.rs, settings.rs, main.rs, compared against packages/ui where behaviour differed. GPUI behaviour was checked in a local checkout of the fork (an older rev than the pin), so GPUI-dependent claims are marked.
 Skipped or skimmed: onboarding.rs, the settings UI, server_settings.rs, server_voice.rs, soundboard.rs, stream_stats.rs, screen_picker.rs, invites.rs, shared_media.rs, selection.rs and menu.rs internals. Nothing was built or run.
-Ordered roughly by value. The first was spot-checked during the review.
-
-### Stop enumerating microphones, speakers and cameras on every frame of Voice settings
-- Where: apps/desktop/src/ui/voice_settings.rs:168-200 (`device_select`, `camera_select`, called from `render` at 307, 313, 433; the 50 ms tick at 136-149). Windows: voice/audio.rs:44-48, 84-95 (`listed()` goes straight through cpal/WASAPI); media/windows/record.rs:127-168 (`MFEnumDeviceSources` per call). Linux: voice/pipewire.rs:43-80 (a new main loop, context, connection and sync round trip per call); media/ffmpeg/v4l2.rs:31-60 (opens every `/dev/video*` and lists formats). ui/settings.rs:839 (the page is a non-cached child, so it renders on every frame Root draws).
-- Category: perf
-- Severity: high ; Effort: S ; Confidence: high
-- What's wrong: `devices()` and `cameras()` run inside `render`, which runs every 50 ms in a call, testing the mic or previewing the camera, and on every Root frame (caret blink, hover transitions, spinners). That's blocking OS calls on the UI thread, several per frame. macOS already avoids this: voice/audio.rs:50-79 and media/apple/camera.rs:49-70 read the list on a background thread every 2 s, with a comment that Core Audio "would stop the window as it's drawn".
-- Suggested change: give Windows and Linux the same cached background-thread pattern as macOS, shared from voice/audio.rs and media/record.rs. Independently, stop listing devices in `render`: device ids are their names, so the label can be `if current == "default" { "Default" } else { current }`; read the list in the select's click handler via a lazy `select_box` variant.
-- Check after: `npm run dev:windows` and `npm run dev:linux` with Voice settings open during a call; apps/desktop/test/linux-voice-check.mjs.
+Ordered roughly by value.
 
 ### Stop redrawing the whole app ten times a second while a voice message or sound plays
 - Where: apps/desktop/src/state.rs:1434-1455 (`tick_media`); callers in ui/media_views.rs:155-168, 242-252, 281-286
