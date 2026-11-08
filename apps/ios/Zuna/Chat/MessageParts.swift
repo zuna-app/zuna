@@ -181,12 +181,21 @@ private struct ImageTile: View {
     @State private var failed = false
     /// A very large picture waits for a tap, as a video does.
     @State private var tapped = false
+    /// Tries after one that failed, each from a tap on it.
+    @State private var attempt = 0
 
     var body: some View {
         let uploading = attachment.fileId.isEmpty
         let wanted = attachment.loadsByItself || tapped
         Button {
-            if image != nil { open(attachment) } else { tapped = true }
+            if image != nil {
+                open(attachment)
+            } else if failed {
+                failed = false
+                attempt += 1
+            } else {
+                tapped = true
+            }
         } label: {
             // Over the tile's color rather than in a stack with it, so a picture filling it can't make it wider.
             Theme.bg3.overlay {
@@ -205,7 +214,13 @@ private struct ImageTile: View {
                 } else if uploading {
                     UploadRing(progress: uploadProgress ?? 0)
                 } else if failed {
-                    Image(systemName: "exclamationmark.circle").foregroundStyle(.white)
+                    // A tap tries again.
+                    Label("Try again", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.55), in: .capsule)
                 } else {
                     ProgressView().tint(.white)
                 }
@@ -214,10 +229,10 @@ private struct ImageTile: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open \(attachment.name)")
-        .accessibilityValue(image != nil ? "Loaded" : failed ? "Couldn't load" : "Loading")
+        .accessibilityLabel(image == nil && !wanted && !uploading ? "Download \(attachment.name)" : "Open \(attachment.name)")
+        .accessibilityValue(image != nil ? "Loaded" : failed ? "Couldn't load. Tap to try again" : wanted ? "Loading" : Format.bytes(attachment.size))
         .accessibilityIdentifier(A11y.Chat.attachment(attachment.name))
-        .task(id: "\(attachment.fileId)/\(wanted)") {
+        .task(id: "\(attachment.fileId)/\(wanted)/\(attempt)") {
             guard !uploading, wanted, image == nil else { return }
             image = await images.attachment(attachment, serverId: serverId, size: 260)
             failed = image == nil

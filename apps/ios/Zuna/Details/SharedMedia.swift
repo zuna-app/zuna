@@ -276,6 +276,8 @@ private struct MediaTile: View {
     @State private var image: UIImage?
     @State private var failed = false
     @State private var tapped = false
+    /// Tries after one that failed, each from a tap on it.
+    @State private var attempt = 0
 
     var body: some View {
         let video = attachment.mediaKind == .video
@@ -286,6 +288,9 @@ private struct MediaTile: View {
                 show()
             } else if shown != nil {
                 open()
+            } else if failed {
+                failed = false
+                attempt += 1
             } else {
                 tapped = true
             }
@@ -307,7 +312,12 @@ private struct MediaTile: View {
                             .frame(width: 34, height: 34)
                             .background(.black.opacity(0.5), in: .circle)
                     } else if failed {
-                        Image(systemName: "exclamationmark.circle").foregroundStyle(.white)
+                        // A tap tries again.
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.black.opacity(0.5), in: .circle)
                     } else if !wanted {
                         Image(systemName: "arrow.down.circle")
                             .font(.system(size: 18))
@@ -334,11 +344,11 @@ private struct MediaTile: View {
         .buttonStyle(.plain)
         .modifier(ShowInChat(show: show))
         .accessibilityLabel(video ? "Show \(attachment.name) in the chat" : wanted ? "Open \(attachment.name)" : "Load \(attachment.name)")
-        .accessibilityValue(video ? "" : shown != nil ? "Loaded" : failed ? "Couldn't load" : "Loading")
+        .accessibilityValue(video ? "" : shown != nil ? "Loaded" : failed ? "Couldn't load. Tap to try again" : wanted ? "Loading" : Format.bytes(attachment.size))
         .accessibilityHint(Format.full(message.createdAt))
         .accessibilityIdentifier(A11y.Shared.item(attachment.name))
         // Only once it's on screen, since the grid makes its tiles as they scroll in.
-        .task(id: "\(attachment.fileId)/\(wanted)") {
+        .task(id: "\(attachment.fileId)/\(wanted)/\(attempt)") {
             guard image == nil, wanted else { return }
             image = video
                 ? await images.videoFrame(attachment, serverId: serverId, size: 260)
