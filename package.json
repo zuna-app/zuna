@@ -10,7 +10,7 @@
     "tests/*"
   ],
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.22"
   },
   "scripts": {
     "build:crypto": "node scripts/build-crypto.mjs",

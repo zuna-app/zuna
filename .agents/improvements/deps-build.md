@@ -4,14 +4,6 @@ Covered: root and workspace package.json files and package-lock.json, scripts/*.
 Skipped (other reviewers): apps/desktop's own Cargo dependencies and Rust code, apps/screenshare internals, server/go.mod, Swift packages, deploy/, packages/ui and packages/core logic. Nothing run on Linux or macOS; no CI run watched.
 Confidence is "high" only where the claim was checked in code, the lockfile or a command's output.
 
-### Raise the minimum Node version from 22.5 to 22.12 (or 22.22)
-- Where: package.json:13, CLAUDE.md (Setup line), CONTRIBUTING.md:5, README.md:96, dev/setup.sh:47-50
-- Category: deps
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `"node": ">=22.5"` was chosen for `node:sqlite`. The lockfile has `vite@7.3.7`, `vite-node@5.3.0` and `@vitejs/plugin-react@5.2.0` needing `^20.19.0 || >=22.12.0`, `vitest@5.0.5` needing `^22.12.0 || ^24.0.0 || >=26.0.0`, and `machina@7.0.1` (shipped to the web app via livekit-client) declaring `>=22.22`. On Node 22.5–22.11, dev:web, the web build and every vitest run are outside what their tools support, and npm prints EBADENGINE until 22.22.
-- Suggested change: `"engines": { "node": ">=22.22" }` (or at least `>=22.12`); same in CLAUDE.md, CONTRIBUTING.md:5, README.md:96; change both `22.5` checks and their messages in dev/setup.sh (47, 48, 50). CI already uses Node 24.
-- Check after: `npm ci` on Node 22.22 has no EBADENGINE; `npm run typecheck`; `npm test`.
-
 ### Stop compiling UniFFI and a cdylib into the native desktop app
 - Where: crypto/Cargo.toml:9-10 (`crate-type = ["cdylib", "rlib"]`), :32-34 (`uniffi = "0.32"` for every non-wasm target); crypto/src/lib.rs:14-18 (`mod native;`, `uniffi::setup_scaffolding!();`); apps/desktop/Cargo.toml:23 (path dependency); scripts/build-crypto.mjs:7; scripts/build-crypto-apple.mjs:22-25
 - Category: perf (build time, binary size)

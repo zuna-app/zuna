@@ -18,7 +18,7 @@ Commit subjects are plain imperative sentences that say what changes, with no pr
 
 ## Commands
 
-Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, Rust with the `wasm32-unknown-unknown` target, and a wasm-bindgen CLI of the version in `crypto/Cargo.lock`.
+Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, Rust with the `wasm32-unknown-unknown` target, and a wasm-bindgen CLI of the version in `crypto/Cargo.lock`.
 
 | Task | Command |
 |---|---|

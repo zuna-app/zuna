@@ -44,10 +44,10 @@ at_least() {
 
 node_version=$(node -p process.versions.node 2>/dev/null || true)
 if [ -z "$node_version" ]; then
-  missing "nodejs npm" "nodejs npm" "" "Node 22.5 or newer: https://nodejs.org/en/download"
-elif ! at_least "$node_version" 22.5; then
+  missing "nodejs npm" "nodejs npm" "" "Node 22.22 or newer: https://nodejs.org/en/download"
+elif ! at_least "$node_version" 22.22; then
   by_hand="$by_hand
-  - Node 22.5 or newer, you have $node_version: https://nodejs.org/en/download"
+  - Node 22.22 or newer, you have $node_version: https://nodejs.org/en/download"
 fi
 
 go_version=$(go env GOVERSION 2>/dev/null | sed 's/^go//; s/[^0-9.].*//')

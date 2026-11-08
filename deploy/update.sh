@@ -299,8 +299,8 @@ echo "Go: $(go version)"
 CARGO_BIN="$BUILDER_HOME/.cargo/bin"
 if [ -n "$WEB_DOMAIN" ]; then
   export PATH="/usr/local/node/bin:$PATH"
-  # package.json asks for Node 22.5 or newer.
-  node_ok() { node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)' 2>/dev/null; }
+  # package.json asks for Node 22.22 or newer.
+  node_ok() { node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 22) ? 0 : 1)' 2>/dev/null; }
   if ! node_ok; then
     case "$ARCH" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; esac
     base=https://nodejs.org/dist/latest-v24.x

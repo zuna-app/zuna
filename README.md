@@ -93,7 +93,7 @@ Update it later with `sudo zuna-update`. The [self-hosting guide](docs/SELF_HOST
 
 ## Development
 
-You need Node 22.5+, Go 1.26+ and Rust with the `wasm32-unknown-unknown` target, and the desktop app needs more on each system. [CONTRIBUTING.md](CONTRIBUTING.md) has the details. The iOS app also needs a Mac with Xcode; [IOS_TESTING.md](docs/IOS_TESTING.md) explains how it's built and tested.
+You need Node 22.22+, Go 1.26+ and Rust with the `wasm32-unknown-unknown` target, and the desktop app needs more on each system. [CONTRIBUTING.md](CONTRIBUTING.md) has the details. The iOS app also needs a Mac with Xcode; [IOS_TESTING.md](docs/IOS_TESTING.md) explains how it's built and tested.
 
 ```bash
 npm install
