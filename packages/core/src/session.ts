@@ -4473,9 +4473,9 @@ export class ServerSession {
         }
       }
     }
-    const stored = body
-      ? this.sealJson("message", `${message.group_id}/${message.id}`, { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
-      : (kept?.body ?? heldAfterLeaving);
+    // What's sealed, kept as it is too, so the event needn't open it again.
+    const storedValue: StoredBody | null = body ? { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) } : null;
+    const stored = storedValue ? this.sealJson("message", `${message.group_id}/${message.id}`, storedValue) : (kept?.body ?? heldAfterLeaving);
     // A message that didn't open keeps its reactions as they came, to be read once it does.
     const rawReactions = body ? null : kept ? kept.raw_reactions : raw ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : null;
     const pin = this.pinState(message, existing);
@@ -4501,7 +4501,7 @@ export class ServerSession {
       return;
     }
 
-    let rowId: number;
+    let row!: MessageRow;
     const isNew = !existing || existing.seq === null;
     this.db.transaction(() => {
       this.db.run(
@@ -4533,15 +4533,16 @@ export class ServerSession {
           expiresAt,
         ],
       );
-      rowId = this.db.get<{ row_id: number }>("SELECT row_id FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id])!.row_id;
+      // Read once, for its row ID here and for the event after.
+      row = this.messageRow(message.group_id, message.id)!;
+      const rowId = row.row_id;
       this.db.run("DELETE FROM search WHERE rowid = ?", [rowId]);
       this.db.run("DELETE FROM media WHERE row_id = ?", [rowId]);
       if (body) this.indexMessage(rowId, message.group_id, body);
       this.db.run("UPDATE groups SET last_activity_at = MAX(last_activity_at, ?) WHERE id = ?", [message.created_at, message.group_id]);
     });
 
-    const row = this.messageRow(message.group_id, message.id)!;
-    const view = this.toMessageView(row);
+    const view = this.toMessageView(row, storedValue ? readStoredBody(row, storedValue) : undefined);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
     if (expiresAt !== null && expiresAt < this.nextExpiry) this.expireMessages();
     // The first message in a new chat often beats its welcome, and only opens once that's in.
@@ -4885,9 +4886,10 @@ export class ServerSession {
     return row.body ? readStoredBody(row, this.openJson<StoredBody>("message", `${row.group_id}/${row.id}`, row.body)) : {};
   }
 
-  private toMessageView(row: MessageRow): MessageView {
+  /** `opened`, when given, is what the row's body holds, already open, as when it was just sealed. */
+  private toMessageView(row: MessageRow, opened?: StoredBody | null): MessageView {
     // A copy kept after a deletion the server claimed stays out of sight.
-    const stored = row.deleted_at === null ? this.storedBody(row) : {};
+    const stored = row.deleted_at === null ? (opened !== undefined ? opened : this.storedBody(row)) : {};
     const body: StoredBody = stored ?? {};
     const view: MessageView = {
       id: row.id,

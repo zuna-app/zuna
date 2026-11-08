@@ -20,14 +20,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: cache each group's `ConversationView` and invalidate from the places that change it (ingest, read, prefs, group/meta changes, channel changes), or at least cache `lastMessage` and unread counts per group keyed by the latest `updated_seq` and `ownRead`. Optionally have `emitConversations(groupId?)` carry changed ids so hosts could patch (an event shape change: update types.ts, Models.swift and models.rs together).
 - Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
 
-### Build the message event from what `ingest` already has, instead of reading and decrypting the row again
-- Where: packages/core/src/session.ts:4327 (`SELECT row_id` after the upsert), 4334-4335 (`messageRow` + `toMessageView`, which opens and re-validates the body just sealed)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every ingested message (live, or one of 200 per catch-up page) is decrypted, sealed, written, then read back with `SELECT *`, unsealed and parsed again to build the event.
-- Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
-- Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
-
 ### Have `previewPush` and the session share one rule for whether a message could have been sent
 - Where: packages/core/src/push.ts:108-122 (a hand copy of `couldBeSent`, session.ts:4396-4407, including the sealed-row labels); push.ts:65-79 and 189-200 (`previewPush` and `previewCall` repeat the same setup)
 - Category: cleanup
