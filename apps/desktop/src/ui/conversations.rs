@@ -54,6 +54,33 @@ pub struct ConversationList {
     _subscriptions: Vec<Subscription>,
 }
 
+thread_local! {
+    /// Each last message's text made plain for its row, by a hash of the text: every row is
+    /// drawn again on every change to the app's state, and making it plain runs nine patterns.
+    static PLAIN_PREVIEWS: std::cell::RefCell<std::collections::HashMap<u64, String>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// A message's text made plain, as its row shows it, at most 80 characters.
+fn plain_preview(text: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(found) = PLAIN_PREVIEWS.with(|previews| previews.borrow().get(&key).cloned()) {
+        return found;
+    }
+    let plain: String = plain_text(text).chars().take(80).collect();
+    PLAIN_PREVIEWS.with(|previews| {
+        let mut previews = previews.borrow_mut();
+        // Let go of all at once past a few thousand, which a server's rows never come to.
+        if previews.len() > 4096 {
+            previews.clear();
+        }
+        previews.insert(key, plain.clone());
+    });
+    plain
+}
+
 /// What a row says under its name (previewFor).
 pub fn preview_for(message: Option<&MessageView>, users: &std::collections::HashMap<String, UserView>, self_id: &str, kind: &str) -> String {
     let Some(message) = message else { return String::new() };
@@ -77,7 +104,7 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
         None
     };
     let body = if !message.text.is_empty() {
-        plain_text(&message.text).chars().take(80).collect()
+        plain_preview(&message.text)
     } else if message.location.is_some() {
         "Location".to_string()
     } else if let Some(first) = message.attachments.first() {
@@ -310,9 +337,10 @@ impl ConversationList {
         first = first.child(div().flex_none().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(item.last_message.as_ref().map(|m| m.created_at).unwrap_or(0.))));
         let key = item.key.clone();
         let state = self.state.clone();
-        let menu_item = item.clone();
+        // The menu is made from the state when it opens, rather than each row carrying a copy of
+        // its conversation and the server's preferences on every draw.
+        let (menu_key, menu_server) = (item.key.clone(), server.entry.id.clone());
         let menu_state = self.state.clone();
-        let prefs = server.prefs.clone();
         div()
             .id(SharedString::from(format!("conv-{}", item.key)))
             .w_full()
@@ -326,7 +354,13 @@ impl ConversationList {
             .cursor_pointer()
             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx)))
             .on_mouse_down(MouseButton::Right, move |event, _, cx| {
-                open_menu(event.position, row_entries(&menu_item, &prefs, menu_state.clone()), false, cx);
+                let entries = {
+                    let state = menu_state.read(cx);
+                    let Some(server) = state.servers.get(&menu_server) else { return };
+                    let Some(item) = server.find_conversation(&menu_key) else { return };
+                    row_entries(item, &server.prefs, menu_state.clone())
+                };
+                open_menu(event.position, entries, false, cx);
             })
             .child(avatar_el)
             .child(
