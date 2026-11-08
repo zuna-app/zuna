@@ -1,6 +1,6 @@
 # The web app
 
-Zuna in a browser: the desktop app's interface and everything it does, except system notifications. You host it yourself with `zuna-web`, a small program of its own. It's never part of a chat server.
+Zuna in a browser: the same chats, channels and calls as the desktop app, with the differences below. You host it yourself with `zuna-web`, a small program of its own. It's never part of a chat server.
 
 ## Before you run it
 
@@ -18,11 +18,14 @@ A web app's code comes from its host on every visit. Whoever controls the host c
 | New messages | System notifications, sound, dock or taskbar badge | The browser's notifications, which it asks to allow at your first click, and sound. The tab's title counts them: `(3) Zuna` |
 | Your phone | While you use the app, notified 30 seconds later about what you didn't read there | The same, while the tab is in front |
 | Invite links | `zuna://` links open the app | Paste the link, or open `https://web.example/#join=<invite link>` |
-| Updates | Signed builds update themselves | A reload, offered when the host has a newer version |
-| Running in the background | Stays in the tray | Runs while its tab is open |
+| Updates | Signed builds update themselves on Windows. On Linux they come with the system's packages or a new AppImage, and macOS has none yet | A reload, offered when the host has a newer version |
+| Running in the background | Stays in the tray on Windows and Linux, and in the Dock on macOS | Runs while its tab is open |
 | Tabs and windows | One window | One tab at a time. Another tab offers "Use here" |
 | Window size | At least 860 × 540 | The same. A smaller window shows a notice |
 | Device key | In the operating system's keychain | In the browser's storage, with a warning in Settings |
+| Servers without a domain | Joined by the pin in their invite links | Not possible: a browser can't check a certificate by its key |
+| Screen sharing | Captured natively and encoded on the graphics card, with one app's sound or the whole computer's | The browser's own capture and encoder, with whatever sound the browser offers, such as a tab's |
+| Push to talk | Works while another app is in front | Only while Zuna's tab is in front |
 
 Current Chrome, Edge, Firefox and Safari can all run it. One thing to know:
 

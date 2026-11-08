@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Stop calling the web app the desktop app without notifications
-- Where: README.md:90; docs/WEB.md:3, :14-25; packages/ui/package.json:6; apps/web/package.json:6
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: README calls it "the desktop app without notifications"; WEB.md:3 says "the desktop app's interface and everything it does, except system notifications". The native app now does things the web can't (IP-only servers, native capture, one app's sound, push to talk from other windows, zuna://; FEATURE_PARITY:230). WEB.md's table says "Signed builds update themselves" (only Windows) and "Stays in the tray" (macOS uses the Dock). The package descriptions say "The interface the desktop and web apps share…" and "the desktop's interface".
-- Suggested change: README → "…host the web app: the same chats, channels and calls in a browser, with the limits WEB.md lists." WEB.md:3 → "Zuna in a browser: the same chats, channels and calls as the desktop app, with the differences below." Add rows for servers without a domain, screen sharing and push to talk; fix Updates and Background per system. packages/ui → "The web app's interface. The web app gives it a Platform."; apps/web → "Zuna in a browser, served by its own host, zuna-web."
-- Check after: none (the site doesn't repeat it).
-
 ### Drop source comments that point at deleted Electron files and APIs
 - (Covered in detail by the last entries of desktop-ui.md and desktop-system.md; do those once.) Extra here: deploy/update.sh:340-342 still sets `ELECTRON_SKIP_BINARY_DOWNLOAD`, which can go (run deploy/test/install-check.sh after).
 
