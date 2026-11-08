@@ -224,6 +224,8 @@ pub struct AppState {
     pub paused_at: HashMap<String, f64>,
     pub play_when_ready: Option<(String, f64)>,
     media_tick: Option<Task<()>>,
+    /// Notified while something plays, in place of the whole state, so only the chat draws again.
+    pub media_clock: Entity<MediaClock>,
     pub editing: HashMap<String, MessageView>,
     /// A message to scroll to and highlight: (groupId, messageId, nonce).
     pub jump_target: Option<(String, String, u64)>,
@@ -320,6 +322,7 @@ impl AppState {
             paused_at: HashMap::new(),
             play_when_ready: None,
             media_tick: None,
+            media_clock: cx.new(|_| MediaClock),
             editing: HashMap::new(),
             jump_target: None,
             pictures: HashMap::new(),
@@ -1432,7 +1435,8 @@ impl AppState {
         }
     }
 
-    /// Draws again while something plays, so its time and waveform move.
+    /// Draws the chat again while something plays, so its time and waveform move. It ticks
+    /// `media_clock`, which only the chat watches, rather than waking every view of the app.
     pub fn tick_media(&mut self, cx: &mut Context<Self>) {
         if self.media_tick.is_some() {
             return;
@@ -1441,7 +1445,7 @@ impl AppState {
             cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
             let going = state
                 .update(cx, |state, cx| {
-                    cx.notify();
+                    state.media_clock.update(cx, |_, cx| cx.notify());
                     let going = crate::media::player::current().is_some();
                     if !going {
                         state.media_tick = None;
@@ -1459,6 +1463,9 @@ impl AppState {
         format!("{server_url}/api/emotes/{id}/2x.webp")
     }
 }
+
+/// What `tick_media` notifies while something plays.
+pub struct MediaClock;
 
 /// The extension a media file needs for Windows to read it.
 fn media_extension(mime: &str, name: &str) -> String {

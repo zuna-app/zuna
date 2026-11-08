@@ -4,14 +4,6 @@ Covered: apps/desktop/src/ui/* (read chat.rs, message.rs, mod.rs, conversations.
 Skipped or skimmed: onboarding.rs, the settings UI, server_settings.rs, server_voice.rs, soundboard.rs, stream_stats.rs, screen_picker.rs, invites.rs, shared_media.rs, selection.rs and menu.rs internals. Nothing was built or run.
 Ordered roughly by value.
 
-### Stop redrawing the whole app ten times a second while a voice message or sound plays
-- Where: apps/desktop/src/state.rs:1434-1455 (`tick_media`); callers in ui/media_views.rs:155-168, 242-252, 281-286
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: `tick_media` calls `cx.notify()` on `AppState` every 100 ms while anything plays. All 14 views that observe `AppState` re-render, and ChatView invalidates its context and redraws the cached message list, all to move one waveform and one time label.
-- Suggested change: move the playback clock into a small `Entity<MediaClock>`; only ChatView observes it and calls `refresh_messages`. The rows already read `player::position`.
-- Check after: `npm run dev:windows`; Linux and macOS builds.
-
 ### Rebuild the chat's row context and markup cache only when something it uses changed
 - Where: ui/chat.rs:317-323 (observer), 455-485 (`sync_rows` hashes every loaded message), 2502-2577 (`chat_context` clones `users` and `mentionable`), 2740-2745; ui/message.rs:62-64 (the `parsed` cache lives inside the context); state.rs:726 (`handle_event` always notifies)
 - Category: perf

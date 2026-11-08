@@ -314,6 +314,7 @@ impl ChatView {
                 view.update(cx, |view, cx| view.on_scroll(visible, scrolled, cx));
             }
         });
+        let media_clock = state.read(cx).media_clock.clone();
         let subscriptions = vec![
             cx.observe(&state, |view, _, cx| {
                 view.context_cache = None;
@@ -321,6 +322,8 @@ impl ChatView {
                 view.refresh_messages(cx);
                 cx.notify();
             }),
+            // Something playing moves its own time and waveform, and nothing else here.
+            cx.observe(&media_clock, |view, _, cx| view.refresh_messages(cx)),
             cx.subscribe_in(&composer, window, |view, _, event, window, cx| view.on_composer(event, window, cx)),
             cx.subscribe_in(&inline_editor, window, |view, _, event, window, cx| view.on_inline_editor(event, window, cx)),
         ];
