@@ -4273,9 +4273,32 @@ export class ServerSession {
     }
   }
 
+  /** Groups being fetched because something arrived in one this device didn't know of. */
+  private discovering = new Set<string>();
+
+  /**
+   * A group heard of only through a message or event in it, as when its own frame was missed:
+   * fetched, then caught up on, as its frame would have. One this member can't see is left be.
+   */
+  private discoverGroup(groupId: string): void {
+    if (this.discovering.has(groupId) || this.stopped) return;
+    this.discovering.add(groupId);
+    void this.api
+      .group(groupId)
+      .then((group) => {
+        // Its own frame may have come meanwhile, which already caught up on it.
+        if (this.groups.has(groupId) || (group.kind === "channel" && !this.channelsOn)) return;
+        this.applyGroup(group);
+        this.emitConversations();
+        this.backgroundSync(groupId);
+      })
+      .catch(() => undefined)
+      .finally(() => this.discovering.delete(groupId));
+  }
+
   private onLiveMessage(message: ApiMessage): void {
     if (!this.groups.has(message.group_id)) {
-      this.backgroundSync(message.group_id);
+      this.discoverGroup(message.group_id);
       return;
     }
     this.ingest(message, true);
@@ -4290,7 +4313,7 @@ export class ServerSession {
 
   private async onLiveEvent(event: ApiEvent): Promise<void> {
     if (!this.groups.has(event.group_id)) {
-      this.backgroundSync(event.group_id);
+      this.discoverGroup(event.group_id);
       return;
     }
     await this.withLock(event.group_id, async () => {

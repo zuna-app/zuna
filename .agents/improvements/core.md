@@ -28,14 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Make the sync a live frame starts for an unknown group actually fetch it, or drop the call
-- Where: packages/core/src/session.ts:4120-4124 (`onLiveMessage`), 4135-4139 (`onLiveEvent`) call `backgroundSync` for a group not in `this.groups`; 3447-3448 (`pullPage` returns false when there's no `cached`)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: for an unknown group these calls do nothing; the group only arrives via a `group` frame or the next full sync. The code reads as if it fetched the group.
-- Suggested change: either `api.group(id)` → `applyGroup` (keeping the `kind === "channel" && !this.channelsOn` filter from 4030) → `backgroundSync`, or remove the call and comment that the `group` frame brings it.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
 ### Fix doc comments that are stacked or sit above the wrong declaration
 - Where: packages/core/src/session.ts:208-209, 226-227 (sits above `voiceTiming`; `rotationTiming` at 240 has none), 438-439 (two docs on `TrustManifest`), 2635-2636 (belongs to `isGroupAdmin` at 2641), 4409-4421 (`changedAfterLeaving`'s doc sits above `editedSince`); socket.ts:73-74 (old and new doc on `sendVoice`); validate.ts:284-285 (`parseChannelDetails`'s doc above `SoundDetails`); test/dev-bots.ts:138-143 (`createWorld`'s doc above `startChannels`)
 - Category: docs
