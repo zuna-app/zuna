@@ -70,9 +70,10 @@ private struct VideoTile: View {
 
     var body: some View {
         let uploading = attachment.fileId.isEmpty
-        let width = CGFloat(attachment.width ?? 16), height = CGFloat(attachment.height ?? 9)
+        let width = CGFloat(max(1, attachment.width ?? 16)), height = CGFloat(max(1, attachment.height ?? 9))
         let scale = min(1, 260 / width, 300 / height)
         let shownWidth = max(160, width * scale)
+        let shownHeight = min(ImageGrid.tallest, shownWidth * height / width)
         Button(action: open) {
             ZStack {
                 Color.black
@@ -89,7 +90,7 @@ private struct VideoTile: View {
                         .background(.black.opacity(0.5), in: .circle)
                 }
             }
-            .frame(width: shownWidth, height: shownWidth * height / width)
+            .shrinking(toFit: shownWidth, shownHeight)
             .clipped()
             .overlay(alignment: .topLeading) {
                 Text(badge(uploading: uploading))
@@ -125,6 +126,9 @@ private struct VideoTile: View {
 }
 
 private struct ImageGrid: View {
+    /// The most a picture or a video takes up and down in a chat.
+    static let tallest: CGFloat = 340
+
     let images: [Attachment]
     let serverId: String
     let uploadProgress: Double?
@@ -132,11 +136,13 @@ private struct ImageGrid: View {
 
     var body: some View {
         if images.count == 1, let image = images.first {
-            // Sized up front, so the list doesn't jump when the picture arrives.
-            let width = CGFloat(image.width ?? 320), height = CGFloat(image.height ?? 240)
+            // Sized up front, so the list doesn't jump when the picture arrives. One much taller than
+            // wide, as a long screenshot, is cut to a height a screen holds, as Telegram does.
+            let width = CGFloat(max(1, image.width ?? 320)), height = CGFloat(max(1, image.height ?? 240))
             let scale = min(1, 260 / width, 300 / height)
+            let shownWidth = max(140, width * scale)
             ImageTile(attachment: image, serverId: serverId, uploadProgress: uploadProgress, open: open)
-                .frame(width: max(140, width * scale), height: max(80, height * max(scale, 140 / width)))
+                .shrinking(toFit: shownWidth, min(Self.tallest, max(80, height * shownWidth / width)))
         } else {
             // Two to a row, as on the desktop, with the first across both when one is left over.
             let odd = images.count % 2
@@ -146,12 +152,22 @@ private struct ImageGrid: View {
                     HStack(spacing: 2) {
                         ForEach(Array(row.enumerated()), id: \.offset) { _, image in
                             ImageTile(attachment: image, serverId: serverId, uploadProgress: uploadProgress, open: open)
-                                .frame(width: row.count == 1 ? 258 : 128, height: row.count == 1 ? 160 : 128)
+                                .aspectRatio(row.count == 1 ? 258 / 160 : 1, contentMode: .fit)
                         }
                     }
                 }
             }
+            .frame(idealWidth: 258, maxWidth: 258)
         }
+    }
+}
+
+extension View {
+    /// This size where there's room, and smaller as a whole where a bubble has less, as beside
+    /// the sender's picture in a group on the smallest phones.
+    func shrinking(toFit width: CGFloat, _ height: CGFloat) -> some View {
+        aspectRatio(CGSize(width: width, height: height), contentMode: .fit)
+            .frame(idealWidth: width, maxWidth: width)
     }
 }
 

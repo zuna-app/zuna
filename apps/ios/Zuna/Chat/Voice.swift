@@ -312,13 +312,15 @@ struct VoiceCard: View {
             .accessibilityLabel(mine && player.isPlaying ? "Pause" : "Play voice message")
             VStack(alignment: .leading, spacing: 4) {
                 GeometryReader { geometry in
-                    HStack(alignment: .center, spacing: 2) {
+                    // Each bar's share of the width, as a narrow bubble narrows the whole wave.
+                    let step = geometry.size.width / CGFloat(max(1, bars.count))
+                    HStack(alignment: .center, spacing: step * 0.45) {
                         ForEach(Array(bars.enumerated()), id: \.offset) { index, height in
                             Capsule()
                                 .fill(Double(index) / Double(bars.count) < progress
                                     ? (own ? Color.white : Theme.text1)
                                     : (own ? Color.white.opacity(0.4) : Theme.text3))
-                                .frame(width: 2.5, height: max(3, height * 22))
+                                .frame(width: step * 0.55, height: max(3, height * 22))
                         }
                     }
                     .frame(maxHeight: .infinity)
@@ -327,7 +329,8 @@ struct VoiceCard: View {
                         toggle(from: min(1, max(0, location.x / geometry.size.width)) * duration, seeking: true)
                     }
                 }
-                .frame(width: CGFloat(bars.count) * 4.5, height: 24)
+                .frame(minWidth: 120, idealWidth: CGFloat(bars.count) * 4.5, maxWidth: CGFloat(bars.count) * 4.5)
+                .frame(height: 24)
                 Text(Format.duration(mine && (player.isPlaying || position > 0) ? position : duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text3)

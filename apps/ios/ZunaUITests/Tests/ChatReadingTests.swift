@@ -439,4 +439,79 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(message(id).isHittable)
         zuna.screenshot("66-search-hit")
     }
+
+    /// Opens the chat at its newest message, past any unread ones other tests left above it.
+    private func toNewest(until element: XCUIElement) throws {
+        let toBottom = zuna.element(A11y.Chat.toBottom)
+        try waitFor("the newest message", timeout: 20) {
+            if element.exists { return true }
+            if toBottom.exists { toBottom.tap() }
+            return false
+        }
+    }
+
+    /// A picture much taller than wide, as a long screenshot, is cut to a height a screen holds.
+    func testCutsAVeryTallPictureToAScreensHeight() throws {
+        let alice = try Peer("alice")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 300, height: 3000)
+        let png = UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            UIColor.systemPurple.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        let name = "tall-\(UUID().uuidString.prefix(4)).png"
+        try alice.sendImage(to: "user:\(bobId)", png: png, name: name, width: 300, height: 3000, text: "")
+
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let tile = zuna.element(A11y.Chat.attachment(name))
+        try toNewest(until: tile)
+        XCTAssertLessThanOrEqual(tile.frame.height, 341, "\(tile.frame)")
+        XCTAssertGreaterThan(tile.frame.height, 300, "\(tile.frame)")
+        zuna.screenshot("62b-tall-picture")
+    }
+
+    /// In a group, a picture with nothing else says who sent it, kept off its edges.
+    func testNamesWhoSentAPictureAloneInAGroup() throws {
+        let alice = try Peer("alice"), carol = try Peer("carol")
+        let weekend = try XCTUnwrap((try carol.call("getConversations") as? [[String: Any]])?.first { $0["title"] as? String == "Weekend" })
+        let key = try XCTUnwrap(weekend["key"] as? String)
+        // Someone else's message first, so the picture starts a run of its own, under its name.
+        _ = try alice.send(to: key, ["text": "Pictures, anyone?"])
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 260, height: 180), format: format).pngData { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 260, height: 180))
+        }
+        let name = "group-\(UUID().uuidString.prefix(4)).png"
+        try carol.sendImage(to: key, png: png, name: name, width: 260, height: 180)
+        // And one with a caption, as wide as a picture goes, which has to fit beside the picture of who sent it.
+        _ = try alice.send(to: key, ["text": "Nice"])
+        let captioned = "captioned-\(UUID().uuidString.prefix(4)).png"
+        try carol.sendImage(to: key, png: png, name: captioned, width: 260, height: 180, text: "Taken from the top of the hill")
+
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(key)
+        let tile = zuna.element(A11y.Chat.attachment(name))
+        try toNewest(until: tile)
+        let names = zuna.app.staticTexts.matching(NSPredicate(format: "label == 'carol'")).allElementsBoundByIndex
+        let sender = try XCTUnwrap(names.last { $0.frame.maxY <= tile.frame.minY + 1 }, "no name over the picture")
+        // Inside the bubble, away from its left edge, which the picture reaches.
+        XCTAssertGreaterThanOrEqual(sender.frame.minX - tile.frame.minX, 10, "\(sender.frame) \(tile.frame)")
+        let wide = zuna.element(A11y.Chat.attachment(captioned))
+        try toNewest(until: wide)
+        // The row's 8 points, the sender's 32-point picture and 8 between, then the bubble's 12: a row
+        // too wide for the screen would be centered on it, and start further left.
+        XCTAssertGreaterThanOrEqual(wide.frame.minX, 58, "\(wide.frame)")
+        // And it ends inside its bubble, which leaves 48 points and the row's 8 on the right, and
+        // its own 12: on the smallest phones the picture narrows, rather than being cut there.
+        XCTAssertLessThanOrEqual(wide.frame.maxX, zuna.app.frame.width - 68, "\(wide.frame)")
+        zuna.screenshot("62c-group-picture")
+    }
 }

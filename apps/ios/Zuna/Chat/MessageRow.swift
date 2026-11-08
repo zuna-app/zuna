@@ -378,6 +378,10 @@ private struct MessageItem: View {
                 Text(server.users[message.senderId]?.displayName ?? "Unknown")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.nameColor(message.senderId))
+                    .lineLimit(1)
+                    // Pictures alone fill the bubble to its edges, which the name keeps away from.
+                    .padding(.horizontal, onlyMedia || onlyRound ? 12 : 0)
+                    .padding(.top, onlyMedia ? 6 : 0)
             }
             content
         }
