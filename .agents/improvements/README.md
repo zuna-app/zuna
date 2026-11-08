@@ -18,11 +18,11 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `core.md` | `packages/core` | 1 |
-| `deps-build.md` | dependencies and repo hygiene | 2 |
+| `deps-build.md` | dependencies and repo hygiene | 1 |
 
 What's left is a choice, not just a fix:
 
-- **Ask the user first:** deleting the untracked `apps/desktop-electron-legacy` folder (1.3 GB) and `poc/screenshare`'s leftovers (`.deps`, `node_modules`, `results`) on the machine that has them, and dropping `app-builder-lib` for a pinned NSIS download and the Windows SDK's signtool (`deps-build.md`). It's pinned exactly in the meantime.
+- **Ask the user first:** dropping `app-builder-lib` for a pinned NSIS download and the Windows SDK's signtool (`deps-build.md`). It's pinned exactly in the meantime.
 - **Large:** splitting `session.ts` along its markers (`core.md`). The trust manifest's format already moved to `manifest.ts`.
 
 ## Checks still owed

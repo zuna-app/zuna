@@ -12,11 +12,3 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: smallest step: pin it exactly (`"app-builder-lib": "26.18.0"`). Better: drop it. Add `scripts/nsis.mjs` that downloads NSIS from electron-builder-binaries' GitHub release, pinned by URL and SHA-256 as scripts/ffmpeg.mjs pins FFmpeg, and find `signtool.exe` in the Windows SDK that VS's C++ build tools already install (`%ProgramFiles(x86)%\Windows Kits\10\bin\<version>\x64\signtool.exe`). Then remove app-builder-lib and update docs/WINDOWS_APP.md:30.
 - Check after: `npm run dist:windows` and `npm run install:windows` on Windows, also with CSC_LINK set; `npm audit` shows 0.
 
-### Delete the leftover Electron folder here, then drop its .gitignore patterns
-- Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the checkout still holds apps/desktop-electron-legacy (node_modules, out, release with old installers), hidden only because `.gitignore`'s `out/` and `release/` (for electron-vite and electron-builder) and `node_modules/` match it. No tracked path or tool uses `out/` or `release/`. The `apps/*` workspace glob still picks the folder up as a link.
-- Suggested change: locally (not a commit, and only with the user's go-ahead since it deletes 1.3 GB): `rm -rf apps/desktop-electron-legacy && npm ci`. Then commit removing `out/` and `release/` from .gitignore. The other maintainer must delete the folder too, or it shows up as untracked; mention it in the commit body.
-- Check after: `git status --short --ignored` lists no apps/desktop-electron-legacy; `npm ls` shows nothing extraneous.
-
