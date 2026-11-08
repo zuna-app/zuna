@@ -1,4 +1,4 @@
-//! WebAssembly bindings for the desktop app.
+//! WebAssembly bindings, for the web app and the tests.
 
 use crate::{mls, primitives};
 use js_sys::{Array, Object, Reflect, Uint8Array};

@@ -19,7 +19,7 @@ const targets = [
 const library = (triple) => join(crate, "target", triple, "release", "libzuna_crypto.a");
 
 for (const target of targets) {
-  run("cargo", ["rustc", "--release", "--lib", "--target", target.triple, "--crate-type", "staticlib"], {
+  run("cargo", ["rustc", "--release", "--lib", "--target", target.triple, "--crate-type", "staticlib", "--features", "uniffi"], {
     cwd: crate,
     env: { ...env, ...target.env },
   });

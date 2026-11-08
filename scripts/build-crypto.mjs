@@ -4,7 +4,8 @@ import { root, run } from "./lib.mjs";
 
 const crate = join(root, "crypto");
 
-run("cargo", ["build", "--release", "--target", "wasm32-unknown-unknown"], { cwd: crate });
+// The crate is a Rust library to the desktop app, so the WebAssembly module is asked for here.
+run("cargo", ["rustc", "--release", "--lib", "--target", "wasm32-unknown-unknown", "--crate-type", "cdylib"], { cwd: crate });
 run("wasm-bindgen", [
   "--target",
   "web",

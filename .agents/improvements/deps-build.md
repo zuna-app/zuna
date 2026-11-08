@@ -4,14 +4,6 @@ Covered: root and workspace package.json files and package-lock.json, scripts/*.
 Skipped (other reviewers): apps/desktop's own Cargo dependencies and Rust code, apps/screenshare internals, server/go.mod, Swift packages, deploy/, packages/ui and packages/core logic. Nothing run on Linux or macOS; no CI run watched.
 Confidence is "high" only where the claim was checked in code, the lockfile or a command's output.
 
-### Stop compiling UniFFI and a cdylib into the native desktop app
-- Where: crypto/Cargo.toml:9-10 (`crate-type = ["cdylib", "rlib"]`), :32-34 (`uniffi = "0.32"` for every non-wasm target); crypto/src/lib.rs:14-18 (`mod native;`, `uniffi::setup_scaffolding!();`); apps/desktop/Cargo.toml:23 (path dependency); scripts/build-crypto.mjs:7; scripts/build-crypto-apple.mjs:22-25
-- Category: perf (build time, binary size)
-- Severity: medium ; Effort: S ; Confidence: high (spot-checked during the review)
-- What's wrong: the native desktop app links zuna-crypto and never uses UniFFI, yet 24 crates come in only through uniffi (uniffi_bindgen, cargo_metadata, goblin, scroll, askama and macros, camino, weedle2, textwrap, basic-toml…). The cdylib crate type makes Cargo link a `zuna_crypto.dll` for the dependency too: 3.7 MB release, 4.1 MB debug with a 70 MB .pdb, relinked after every crypto change and never used.
-- Suggested change: in crypto/Cargo.toml set `crate-type = ["rlib"]`; make uniffi optional (`uniffi = { version = "0.32", optional = true }` under the non-wasm target, `[features] uniffi = ["dep:uniffi"]`); gate `mod native;` and `uniffi::setup_scaffolding!();` with `#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi"))]`. In build-crypto-apple.mjs:22 add `"--features", "uniffi"` to the `cargo rustc ... --crate-type staticlib` call (it already overrides the crate type). In build-crypto.mjs:7 use `cargo rustc --release --lib --target wasm32-unknown-unknown --crate-type cdylib` instead of `cargo build`. test-crypto.mjs and check-ios.mjs's `cargo test --lib` need no change. Update the comments at Cargo.toml:6, :24, :32 (they also say "the desktop loads it as WebAssembly", which is now false).
-- Check after: `npm run build:crypto`, `npm run test:crypto`, `npm test`, `npm run build:windows` (no zuna_crypto.dll in the target folder). On a Mac: `npm run build:ios`, `npm run test:ios:check`.
-
 ### Replace or pin app-builder-lib, which is half the lockfile
 - Where: package.json:50; scripts/windows-app.mjs:88-90, 186-187
 - Category: deps

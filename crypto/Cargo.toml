@@ -3,11 +3,18 @@ name = "zuna-crypto"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "Zuna's end-to-end encryption core: OpenMLS group key agreement plus account-key and content primitives, compiled to WebAssembly for the desktop and natively for iOS."
+description = "Zuna's end-to-end encryption core: OpenMLS group key agreement plus account-key and content primitives, compiled to WebAssembly for the web app and the tests, and natively for the desktop app and iOS."
 publish = false
 
+# A Rust library to the desktop app. The WebAssembly build and iOS's static library each ask for
+# their own crate type (scripts/build-crypto.mjs, scripts/build-crypto-apple.mjs), so nothing else
+# links a shared library nobody loads.
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
+
+[features]
+# The iOS app's bindings, which only its build asks for.
+uniffi = ["dep:uniffi"]
 
 [dependencies]
 openmls = "0.9"
@@ -21,7 +28,7 @@ argon2 = "0.5"
 hkdf = "0.12"
 sha2 = "0.10"
 
-# The desktop app loads the core as WebAssembly.
+# The web app and the tests load the core as WebAssembly.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { version = "0.9", features = ["js"] }
 getrandom = { version = "0.2", features = ["js"] }
@@ -29,9 +36,10 @@ wasm-bindgen = "0.2"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
 
-# Native platforms (the iOS app) call it through UniFFI.
+# The iOS app calls it through UniFFI, with the uniffi feature. The desktop app calls it as a
+# Rust crate, without it.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uniffi = "0.32"
+uniffi = { version = "0.32", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
