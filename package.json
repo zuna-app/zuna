@@ -48,6 +48,6 @@
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "app-builder-lib": "26.18.0",
-    "vite-node": "^5.3.0"
+    "vite-node": "^6.0.0"
   }
 }

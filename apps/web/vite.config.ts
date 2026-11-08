@@ -21,11 +21,11 @@ function buildVersion(): Plugin {
 }
 
 export default defineConfig({
-  root: __dirname,
+  root: import.meta.dirname,
   plugins: [react(), buildVersion()],
   // What npm run dev:web gives the sign-in form to start with, which only development reads.
   envPrefix: "ZUNA_DEV_",
-  resolve: { alias: { "@": resolve(__dirname, "../../packages/ui/src") } },
+  resolve: { alias: { "@": resolve(import.meta.dirname, "../../packages/ui/src") } },
   optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   worker: { format: "es" },
   build: {

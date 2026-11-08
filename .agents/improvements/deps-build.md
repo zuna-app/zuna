@@ -76,11 +76,3 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: locally (not a commit, and only with the user's go-ahead since it deletes 1.3 GB): `rm -rf apps/desktop-electron-legacy && npm ci`. Then commit removing `out/` and `release/` from .gitignore. The other maintainer must delete the folder too, or it shows up as untracked; mention it in the commit body.
 - Check after: `git status --short --ignored` lists no apps/desktop-electron-legacy; `npm ls` shows nothing extraneous.
 
-### Move to Vite 8, which the Electron removal unblocked, all workspaces at once
-- Where: apps/web/package.json:15,19; apps/site/package.json:20,26; packages/ui/package.json:37; package.json:51
-- Category: deps
-- Severity: low ; Effort: M ; Confidence: medium
-- What's wrong: Vite was held at 7 for electron-vite, a gotcha CLAUDE.md dropped in e55fd3c. `npm outdated` shows vite 8.3.6, @vitejs/plugin-react 6.2.1, vite-node 6.0.0. vite-node 6 needs `vite ^8`, vite-node 5 `^7.3.1`; vitest 5 accepts `^6.4 || ^7 || ^8`. Moving one without the others installs two Vite majors.
-- Suggested change: in one commit, `vite@^8.3.6` in web, site and ui, `@vitejs/plugin-react@^6.2.1` in web and site, `vite-node@^6.0.0` at the root; check `npm ls vite` shows one version. A build-speed and maintenance move, not a fix: do it last. (The user's memory still records a "keep one Vite major" preference; keeping every workspace on the same major is still right.)
-- Check after: `npm run typecheck`; `npm test`; `npm run build -w @zuna/web` and web-check.mjs; `npm run build -w @zuna/site` and site-check.mjs; `npm run dev:server` (dev-bots through vite-node).
-

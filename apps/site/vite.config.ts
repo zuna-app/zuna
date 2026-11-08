@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  root: __dirname,
+  root: import.meta.dirname,
   plugins: [react()],
   // build.mjs fills this in from the latest GitHub release. Without one, downloads lead to the releases page.
   define: { __RELEASE__: "null" },
