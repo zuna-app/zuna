@@ -124,14 +124,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: export `bundleCore({ target, outDir })` from apps/ios/core-bundle/build.mjs (or a shared packages/core-bundle) and call it with `es2022` from the desktop and `safari18` from iOS; move `core-js` and `shiki` to `dependencies` in apps/ios/package.json; if apps/desktop gets a package.json, declare `esbuild` there.
 - Check after: `node apps/desktop/core-bundle/build.mjs` produces the same three files; `npm run dev:windows`; `npm audit --omit=dev`.
 
-### Declare what tests/e2e imports
-- Where: tests/e2e/package.json:11-19; tests/e2e/golden/markup.tsx; tests/e2e/test/crypto.test.ts
-- Category: deps
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: tests/e2e imports `react`, `react-dom/server` and `@zuna/crypto`, and its typecheck needs `@types/react`; none is in its package.json (they resolve via packages/ui's hoisting).
-- Suggested change: add `"react": "^19.3.1"`, `"react-dom": "^19.3.1"`, `"@types/react": "^19.2.0"`, `"@types/react-dom": "^19.2.0"` and `"@zuna/crypto": "*"` to its devDependencies (match the versions packages/ui uses), then `npm install`.
-- Check after: `npm run typecheck -w @zuna/e2e`; on a Mac `npm run test -w @zuna/e2e -- test/golden.test.ts`.
-
 ### Move to Vite 8, which the Electron removal unblocked, all workspaces at once
 - Where: apps/web/package.json:15,19; apps/site/package.json:20,26; packages/ui/package.json:37; package.json:51
 - Category: deps
@@ -139,12 +131,4 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - What's wrong: Vite was held at 7 for electron-vite, a gotcha CLAUDE.md dropped in e55fd3c. `npm outdated` shows vite 8.3.6, @vitejs/plugin-react 6.2.1, vite-node 6.0.0. vite-node 6 needs `vite ^8`, vite-node 5 `^7.3.1`; vitest 5 accepts `^6.4 || ^7 || ^8`. Moving one without the others installs two Vite majors.
 - Suggested change: in one commit, `vite@^8.3.6` in web, site and ui, `@vitejs/plugin-react@^6.2.1` in web and site, `vite-node@^6.0.0` at the root; check `npm ls vite` shows one version. A build-speed and maintenance move, not a fix: do it last. (The user's memory still records a "keep one Vite major" preference; keeping every workspace on the same major is still right.)
 - Check after: `npm run typecheck`; `npm test`; `npm run build -w @zuna/web` and web-check.mjs; `npm run build -w @zuna/site` and site-check.mjs; `npm run dev:server` (dev-bots through vite-node).
-
-### Use a free port and clean up on failure in the e2e web app helper
-- Where: tests/e2e/src/web-app.ts:20, :32-40, :44-56; tests/e2e/src/host.ts:100
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `startWebApp` picks `21000 + random * 20000` with no retry; if `chromium.launchPersistentContext` throws, the spawned zuna-web and both temporary folders are left behind. host.ts:100's simulator control port is random the same way. Line 20 copies lib.mjs's PATH additions.
-- Suggested change: get a free port first (`net.createServer().listen(0, "127.0.0.1", …)`, read the port, close); wrap everything after the spawn in try/catch that kills zuna-web and removes both folders before rethrowing; import `env` from scripts/lib.mjs as ui-run.ts does.
-- Check after: on a Mac, `npm run test:ios:voice` and `npm run test:ios:notify`.
 

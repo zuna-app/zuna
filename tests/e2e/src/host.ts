@@ -9,6 +9,7 @@ import { connectCore, type CoreConnection, type RemoteSession } from "@zuna/core
 import type { CoreEvent, MessageView, PushPreview } from "@zuna/core";
 import { waitFor } from "../../../packages/core/test/helpers";
 import { hostBinary } from "./paths";
+import { freePort } from "./ports";
 import { BUNDLE_ID, launch, simulatorId, terminate } from "./simulator";
 import { decodeWire, encodeWire } from "./wire";
 import { promisify } from "node:util";
@@ -47,7 +48,7 @@ export class HostApp {
   /** Starts the host (a process, or the app in the simulator) and connects to it. */
   async open(): Promise<this> {
     this.log = "";
-    const port = this.options.target === "simulator" ? this.launchInSimulator() : await this.spawnProcess();
+    const port = this.options.target === "simulator" ? await this.launchInSimulator() : await this.spawnProcess();
     const socket = await this.connect(port);
     this.socket = socket;
     this.gone = new Promise((resolve) => socket.addEventListener("close", () => resolve()));
@@ -96,8 +97,9 @@ export class HostApp {
   bootSession: string | null = null;
 
   /** Launches the app in the E2E simulator, with fresh data the first time. */
-  private launchInSimulator(): number {
-    const port = 40_000 + Math.floor(Math.random() * 10_000);
+  private async launchInSimulator(): Promise<number> {
+    // The simulator shares this Mac's network, so a port free here is free there.
+    const port = await freePort();
     // A short grace period keeps background tests quick.
     const args = ["-ZunaControlPort", String(port), "-ZunaSuspendDelay", "0.5"];
     if (!this.launchedOnce) args.push("-ZunaResetData", "YES");
