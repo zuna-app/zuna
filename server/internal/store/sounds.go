@@ -70,6 +70,12 @@ func (d *DB) CreateSound(ctx context.Context, sound Sound) (*Sound, error) {
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}
+		if err != nil {
+			return err
+		}
+		// Its file with it, so everyone here may fetch it, and cleaning up uploads leaves it
+		// alone: a sound without its file could otherwise be left behind.
+		_, err = tx.ExecContext(ctx, `UPDATE files SET attached_at = ?, standalone = 1 WHERE id = ? AND owner_id = ?`, sound.CreatedAt, sound.FileID, sound.CreatedBy)
 		return err
 	})
 	if err != nil {

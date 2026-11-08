@@ -255,18 +255,25 @@ func (s *Server) RunBackground(ctx context.Context) {
 		// Keep trying until the first load succeeds, then refresh occasionally.
 		// Clients connected in the meantime are told, so they aren't left without emotes.
 		wait := time.Duration(0)
+		loaded := false
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(wait):
 			}
-			if err := s.emotes.RefreshCurrent(ctx); err != nil {
+			changed, err := s.emotes.RefreshCurrent(ctx)
+			if err != nil {
 				slog.Warn("couldn't load the 7TV emote set; it will be retried", "error", err)
 				wait = emoteRetry
 				continue
 			}
-			s.hub.ToAll(Event{Type: "emotes"})
+			// Every device fetches the set again when told, so only the first load and a set
+			// that changed are worth telling them about.
+			if !loaded || changed {
+				s.hub.ToAll(Event{Type: "emotes"})
+			}
+			loaded = true
 			wait = emoteRefresh
 		}
 	}()

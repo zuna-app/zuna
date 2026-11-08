@@ -348,7 +348,7 @@ func (s *Server) handleSetEmoteSet(w http.ResponseWriter, r *http.Request, _ *st
 		writeError(w, http.StatusBadRequest, "invalid_emote_set", "Paste a 7TV emote set link, such as https://7tv.app/emote-sets/...")
 		return
 	}
-	name, count, err := s.emotes.Sync(r.Context(), setID)
+	name, count, _, err := s.emotes.Sync(r.Context(), setID)
 	if errors.Is(err, emotes.ErrSetNotFound) {
 		writeError(w, http.StatusNotFound, "invalid_emote_set", "7TV has no emote set with that ID.")
 		return

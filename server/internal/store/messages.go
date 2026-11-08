@@ -794,10 +794,31 @@ type Emote struct {
 
 // ReplaceEmoteSet makes emotes the current set. Emotes previously known stay
 // in the table so old messages using them keep rendering.
-func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote) error {
-	return d.tx(ctx, func(tx handle) error {
+// ReplaceEmoteSet makes these the server's emotes, and the set's ID and name its
+// settings, all at once, and says whether any of it differs from what was there.
+func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote, setID, setName string) (bool, error) {
+	before, err := d.EmoteSet(ctx)
+	if err != nil {
+		return false, err
+	}
+	oldID, err := d.Setting(ctx, "emote_set_id", "")
+	if err != nil {
+		return false, err
+	}
+	oldName, err := d.Setting(ctx, "emote_set_name", "")
+	if err != nil {
+		return false, err
+	}
+	changed := oldID != setID || oldName != setName || !sameEmotes(before, emotes)
+	return changed, d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE emotes SET in_set = 0`); err != nil {
 			return err
+		}
+		for key, value := range map[string]string{"emote_set_id": setID, "emote_set_name": setName} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
+				return err
+			}
 		}
 		for _, e := range emotes {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO emotes(id, name, animated, zero_width, width, height, owner, in_set)
@@ -811,6 +832,23 @@ func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote) error {
 		}
 		return nil
 	})
+}
+
+// sameEmotes says whether two sets hold the same emotes, however they're ordered.
+func sameEmotes(a, b []Emote) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	byID := make(map[string]Emote, len(a))
+	for _, e := range a {
+		byID[e.ID] = e
+	}
+	for _, e := range b {
+		if byID[e.ID] != e {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *DB) EmoteSet(ctx context.Context) ([]Emote, error) {

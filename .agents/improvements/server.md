@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Only announce an emote refresh when the set changed
-- Where: server/internal/api/server.go:264-270, emotes/emotes.go:114-171, and the client in session.ts:4096
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every 6 hours the server sends `emotes` to every connected device, and all of them refetch `/api/emotes` at the same moment, though the set usually hasn't changed.
-- Suggested change: have `Sync` report whether anything changed (compare against `EmoteSet` and the stored name), and only broadcast then. Keep the broadcast after the first load at startup.
-- Check after: Go tests (emote tests with the fake 7TV).
-
 ### Delete welcomes and bundles of revoked devices
 - Where: server/internal/store/users.go:605-621 (revokeDevice) and :339-373 (BanUser)
 - Category: robustness
@@ -51,22 +43,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - What's wrong: `TakeHistoryRequest` commits, then `AddHistoryGrant` inserts separately. If the insert fails, the joiner's request is used up, no grant is stored, and nobody else will answer.
 - Suggested change: one store method that does the conditional update and the insert in `d.tx`.
 - Check after: Go tests (channels_test) and the PostgreSQL run.
-
-### Make multi-step writes atomic: sounds and emote sets
-- Where: server/internal/api/sounds.go:62-75, and emotes/emotes.go:160-168
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `handleCreateSound` creates the sound, then attaches its file in a separate statement. If attaching fails, `cleanup` deletes the unattached file after 24 h (server.go:310-315), leaving a sound with no file. `Sync` replaces the emote set, then writes its ID and name as two separate settings, so a failure leaves them disagreeing.
-- Suggested change: do the attach inside `CreateSound`'s transaction, and write both emote settings inside `ReplaceEmoteSet`'s.
-- Check after: Go tests.
-
-### Don't cache a truncated emote image
-- Where: server/internal/emotes/emotes.go:273
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `io.LimitReader(resp.Body, maxImageBytes)` cuts the download off silently at 8 MiB. The truncated file is then renamed into place and served forever as immutable (line 247).
-- Suggested change: read up to `maxImageBytes+1` bytes, and fail if more than the limit arrived.
-- Check after: Go tests, plus an oversized-image case.
 
 ### Give large request bodies the time they need
 - Where: cmd/zuna-server/main.go:222 (1-minute ReadTimeout); api/groups.go:121, :199 (16 MiB); generations.go:112, :365, :410 (4 MiB); channels.go:186 (6 MiB). Compare files.go:165, where a 1 MiB chunk gets 10 minutes.

@@ -68,11 +68,6 @@ func (s *Server) handleCreateSound(w http.ResponseWriter, r *http.Request, sess 
 		writeFailure(w, err)
 		return
 	}
-	// So that everyone here may fetch it, and cleaning up uploads leaves it alone.
-	if err := s.db.AttachFile(ctx, file.ID, sess.UserID); err != nil {
-		writeFailure(w, err)
-		return
-	}
 	s.broadcastSounds()
 	writeJSON(w, http.StatusCreated, map[string]any{"sound": sound})
 }

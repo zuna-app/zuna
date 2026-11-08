@@ -111,27 +111,28 @@ type setResponse struct {
 }
 
 // Sync downloads the named set and makes it this server's current set.
-// It returns the set's name and how many emotes it contains.
-func (s *Service) Sync(ctx context.Context, setID string) (string, int, error) {
+// It returns the set's name, how many emotes it contains, and whether
+// anything changed from the set the server had.
+func (s *Service) Sync(ctx context.Context, setID string) (string, int, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.APIBase+"/emote-sets/"+setID, nil)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("contacting 7TV: %w", err)
+		return "", 0, false, fmt.Errorf("contacting 7TV: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
-		return "", 0, ErrSetNotFound
+		return "", 0, false, ErrSetNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("7TV responded with status %d", resp.StatusCode)
+		return "", 0, false, fmt.Errorf("7TV responded with status %d", resp.StatusCode)
 	}
 	var set setResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSetBytes)).Decode(&set); err != nil {
-		return "", 0, fmt.Errorf("reading 7TV response: %w", err)
+		return "", 0, false, fmt.Errorf("reading 7TV response: %w", err)
 	}
 
 	emotes := make([]store.Emote, 0, len(set.Emotes))
@@ -158,17 +159,12 @@ func (s *Service) Sync(ctx context.Context, setID string) (string, int, error) {
 		}
 		emotes = append(emotes, emote)
 	}
-	if err := s.db.ReplaceEmoteSet(ctx, emotes); err != nil {
-		return "", 0, err
-	}
-	if err := s.db.SetSetting(ctx, "emote_set_id", setID); err != nil {
-		return "", 0, err
-	}
-	if err := s.db.SetSetting(ctx, "emote_set_name", set.Name); err != nil {
-		return "", 0, err
+	changed, err := s.db.ReplaceEmoteSet(ctx, emotes, setID, set.Name)
+	if err != nil {
+		return "", 0, false, err
 	}
 	go s.prefetch(emotes)
-	return set.Name, len(emotes), nil
+	return set.Name, len(emotes), changed, nil
 }
 
 // prefetch downloads a set's images ahead of time, so the first person to open
@@ -197,13 +193,14 @@ func (s *Service) prefetch(emotes []store.Emote) {
 }
 
 // RefreshCurrent re-syncs the configured set, picking up changes on 7TV.
-func (s *Service) RefreshCurrent(ctx context.Context) error {
+// It says whether anything changed, so that clients are only told then.
+func (s *Service) RefreshCurrent(ctx context.Context) (bool, error) {
 	setID, err := s.db.Setting(ctx, "emote_set_id", DefaultSet)
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, _, err = s.Sync(ctx, setID)
-	return err
+	_, _, changed, err := s.Sync(ctx, setID)
+	return changed, err
 }
 
 
@@ -263,9 +260,15 @@ func (s *Service) download(ctx context.Context, id, file, path string) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := io.Copy(tmp, io.LimitReader(resp.Body, maxImageBytes)); err != nil {
+	// One byte past the limit says it was cut off, and a cut-off image isn't kept, as it'd be served for good.
+	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxImageBytes+1))
+	if err != nil {
 		tmp.Close()
 		return err
+	}
+	if written > maxImageBytes {
+		tmp.Close()
+		return fmt.Errorf("the emote's image is larger than %d bytes", maxImageBytes)
 	}
 	if err := tmp.Close(); err != nil {
 		return err
