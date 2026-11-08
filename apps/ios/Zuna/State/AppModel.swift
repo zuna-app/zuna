@@ -667,6 +667,10 @@ final class AppModel {
         let toast = Toast(id: nextToast, kind: kind, message: message)
         nextToast += 1
         toasts = Array(toasts.suffix(3)) + [toast]
+        // VoiceOver says it, as a toast that only shows would go unheard: at once, over what
+        // it's saying, for errors and security warnings.
+        let priority: UIAccessibilityPriority = kind == .info ? .default : .high
+        UIAccessibility.post(notification: .announcement, argument: NSAttributedString(string: message, attributes: [.accessibilitySpeechAnnouncementPriority: priority]))
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(kind == .security ? 12 : 4.5))
             self?.dismissToast(toast.id)

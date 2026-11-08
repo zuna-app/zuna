@@ -60,14 +60,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: add an AppModel helper such as `perform(_ serverId:failure:_ op:)` for those seven methods and the two load toasts; move `describe` to a neutral `ErrorText`, keyed on `CoreCallError.code == "network"` rather than the regex; collapse `VoiceModel.describe`.
 - Check after: `npm run test:ios:ui -- --only ConversationListTests,OnboardingTests`.
 
-### Announce toasts to VoiceOver
-- Where: apps/ios/Zuna/State/AppModel.swift:665-673; apps/ios/Zuna/Shell/MainView.swift:139-166
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: toasts carry errors and security warnings, but nothing posts an accessibility announcement, so VoiceOver users don't hear them.
-- Suggested change: in `toast`, post `AccessibilityNotification.Announcement(message)`, high priority for errors and security toasts.
-- Check after: `npm run test:ios:ui -- --only AccessibilityTests`. Check the web's toast region has `aria-live`.
-
 ### Let message times and code scale with Dynamic Type
 - Where: apps/ios/Zuna/Chat/MessageRow.swift:268-277, 476-512 (491, 504); apps/ios/Zuna/Channels/ChannelMessages.swift:181-184, 197; apps/ios/Zuna/Chat/MessageParts.swift:459
 - Category: ux
