@@ -9,27 +9,11 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::open_menu_with_reactions;
 use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, emote_placeholder, emote_width, jumbo_body, menu_entries, name_of, system_text, text_body, with_emote_card};
-use crate::format::{format_full, format_time, name_color};
+use crate::format::{format_day, format_full, format_stamp, format_time, name_color};
 use crate::markup;
 use crate::models::{MessageView, ReactionView};
 use crate::state::Overlay;
 use crate::theme::{self, Theme};
-
-/// "Today at 14:32", "Yesterday at 9:05", or the date and time (`formatStamp`).
-pub fn format_stamp(at_ms: f64) -> String {
-    let local = |ms: f64| chrono::DateTime::from_timestamp_millis(ms as i64).map(|time| time.with_timezone(&chrono::Local)).unwrap_or_default();
-    let days = (local(crate::format::now_ms()).date_naive() - local(at_ms).date_naive()).num_days();
-    match days {
-        0 => format!("Today at {}", format_time(at_ms)),
-        1 => format!("Yesterday at {}", format_time(at_ms)),
-        _ => format!("{} {}", local(at_ms).format("%m/%d/%Y"), format_time(at_ms)),
-    }
-}
-
-/// "November 6, 2026", as on the line between days in a channel.
-fn format_day(at_ms: f64) -> String {
-    chrono::DateTime::from_timestamp_millis(at_ms as i64).map(|time| time.with_timezone(&chrono::Local).format("%B %-d, %Y").to_string()).unwrap_or_default()
-}
 
 /// One row of a channel: the welcome at the start, the line for a new day or what's new, then the message.
 pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {

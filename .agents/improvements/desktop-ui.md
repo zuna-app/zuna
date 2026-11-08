@@ -130,14 +130,6 @@ Ordered roughly by value.
 - Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
 - Check after: `npm run dev:windows`.
 
-### Reuse format.rs for a channel message's stamp and day line
-- Where: ui/channel_message.rs:27-41 vs format.rs:58-70
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `format_stamp` and `format_day` re-implement the local-time conversion and day difference format.rs already has.
-- Suggested change: move both into format.rs, built on `local()` and `days_ago()`.
-- Check after: `npm run dev:windows`.
-
 ### Prune a call stage's frames for tiles that went away
 - Where: ui/voice_stage.rs:101-140, 780-785
 - Category: robustness

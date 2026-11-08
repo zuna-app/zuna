@@ -79,6 +79,21 @@ pub fn format_time(at_ms: f64) -> String {
 }
 
 /// "Nov 5, 2026, 14:32", as Intl's medium date and short time.
+/// "Today at 14:32", "Yesterday at 9:05", or the date and time, as a channel's messages say
+/// when they were sent (`formatStamp`).
+pub fn format_stamp(at_ms: f64) -> String {
+    match days_ago(at_ms) {
+        0 => format!("Today at {}", format_time(at_ms)),
+        1 => format!("Yesterday at {}", format_time(at_ms)),
+        _ => format!("{} {}", local(at_ms).format("%m/%d/%Y"), format_time(at_ms)),
+    }
+}
+
+/// "November 6, 2026", as on the line between days in a channel.
+pub fn format_day(at_ms: f64) -> String {
+    local(at_ms).format("%B %-d, %Y").to_string()
+}
+
 pub fn format_full(at_ms: f64) -> String {
     let time = local(at_ms);
     format!("{}, {}", time.format("%b %-d, %Y"), format_time(at_ms))
