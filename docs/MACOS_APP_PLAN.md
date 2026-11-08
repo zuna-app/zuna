@@ -170,6 +170,7 @@ Once there's a Developer ID Application certificate: `npm run dist:macos` signs 
 | An animation's next frame when it's due | Works as it is, to be seen against macOS's display link |
 | Letting go of images out of every frame | Works as it is |
 | A mouse wheel's notches gliding | A mouse's wheel comes as lines and glides; a trackpad's comes as pixels, with macOS's own momentum, and moves at once |
+| A surface's corners rounded, as an image's are | macOS's own: video drawn from VideoToolbox's buffers rounds its corners in the Metal shader, as every other tile does |
 | Frames only when a window wants one | Windows only. On macOS the main thread wakes about 19 times a second at rest with a chat open, not ProMotion's 120, and drawing runs a few times a second, so the fork needs no change for macOS |
 
 ## Phases
@@ -224,7 +225,6 @@ Decided 2026-11-07:
 ## Risks
 
 - **Permissions in development.** Each rebuild with an ad hoc signature is a new app to macOS, which asks again for the microphone, the camera and the Keychain. The script signs with the Apple Development identity it finds, and says so when there's none.
-- **A tile drawn from the GPU has square corners,** as GPUI's `surface` takes no corner radius. The fork would need one in `PaintSurface` and its Metal shader.
 - **Core Audio can hold a call forever.** Listing the devices once froze the window until they were read off its thread, and `zuna-screenshare --sound`, left with macOS's question about recording the computer's sound unanswered, never quit, stuck in `AudioDeviceDestroyIOProcID` as its tap closed. Both were seen with nobody at the Mac. Since the question was answered, the share's sound has started and stopped cleanly.
 - **The picture viewer** over the menu bar and the Dock, transparent: GPUI's macOS windows may need a level set on the `NSWindow`.
 - **Text looks heavier** through Core Text than through DirectWrite, so screenshots are compared with the Electron app on macOS, not with Windows.
