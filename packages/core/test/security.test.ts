@@ -28,7 +28,7 @@ import { allowLocalLinks, checkPreview, findLink, linkHost, previewable, private
 import { plainText } from "../src/plain-text";
 import { SEARCH_INDEX_VERSION } from "../src/search";
 import { previewText } from "../src/notify";
-import { MAX_TEXT_LENGTH, parseGroupDetails, parseMessageBody, parseProfile } from "../src/validate";
+import { MAX_TEXT_LENGTH, parseGroupDetails, parseMessageBody, parseProfile, parseReaction } from "../src/validate";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -824,6 +824,16 @@ describe("what a link preview can reach and claim (Z-19, Z-22)", () => {
     expect(checkPreview(preview, "https://bank.example.evil.test/login")).toBeNull();
     expect(checkPreview(preview, "see https://bank.example")?.title).toBe("Your Bank: Sign in");
     expect(checkPreview(preview, "nothing here")).toBeNull();
+    // What would turn the text around or hide in it goes, as from a name, and a picture past a thumbnail's size or with a side that makes no sense.
+    expect(checkPreview({ url: "https://bank.example", siteName: "bank‮elpmaxe" }, "https://bank.example")?.siteName).toBe("bankelpmaxe");
+    const image = (data: string, width = 10) => checkPreview({ url: "https://bank.example", title: "t", image: { data, width, height: 10 } }, "https://bank.example")?.image;
+    expect(image("data:image/png;base64,AAAA")).toBeDefined();
+    expect(image("data:image/png;base64," + "A".repeat(300 << 10))).toBeUndefined();
+    expect(image("data:image/png;base64,AAAA", 1e12)).toBeUndefined();
+    // A reaction is held to what a name is, and to the length of one.
+    expect(parseReaction({ key: "👍‮" })).toEqual({ key: "👍" });
+    expect(parseReaction({ key: "​" })).toBeNull();
+    expect(parseReaction({ key: "x".repeat(101) })).toBeNull();
     expect(linkHost("https://www.bank.example.evil.test/login")).toBe("bank.example.evil.test");
   });
 });

@@ -2,6 +2,7 @@
 // says nothing about its shape. Everything is checked here, once, before the rest
 // of the app sees it. A malformed message must never be able to break the app.
 
+import { plainName } from "./hidden";
 import { checkPreview } from "./links";
 import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
 
@@ -57,12 +58,6 @@ const isString = (value: unknown, max: number): value is string => typeof value 
 
 const absent = (value: unknown): value is null | undefined => value === undefined || value === null;
 
-// What changes how the text around it reads, or hides in it. With these, "photo‮gnp.exe"
-// reads as if it ended in ".png". Joiners stay: some scripts and emoji need them.
-const HIDDEN_CHARACTERS = /[؜​‎‏‪-‮⁠⁦-⁩﻿]/g;
-
-/** A name to show, as what it really says. */
-const plainName = (name: string): string => name.replace(HIDDEN_CHARACTERS, "");
 
 /** A picture's side, kept only if it makes sense: nothing depends on it but the layout. */
 const side = (value: unknown): number | undefined => (typeof value === "number" && value > 0 && value <= MAX_PICTURE_SIDE ? value : undefined);
@@ -331,11 +326,17 @@ export function parseChannelDetails(value: unknown): ChannelDetails | null {
 }
 
 /** What a reaction says: which emoji or emote it is. */
+/** Longer than any emoji or emote's name: a reaction shows as a pill, and a key past this is no reaction. */
+const MAX_REACTION_KEY = 100;
+
 export function parseReaction(value: unknown): { key: string; emote?: EmoteRef } | null {
-  if (!isObject(value) || !isString(value.key, MAX_NAME_LENGTH) || value.key === "") return null;
-  if (absent(value.emote)) return { key: value.key };
+  if (!isObject(value) || !isString(value.key, MAX_REACTION_KEY)) return null;
+  // As a name is shown, without what would turn the text around it or hide in it.
+  const key = plainName(value.key);
+  if (key === "") return null;
+  if (absent(value.emote)) return { key };
   const emote = parseEmoteRef(value.emote);
-  return emote ? { key: value.key, emote } : null;
+  return emote ? { key, emote } : null;
 }
 
 /** How far someone has read. */

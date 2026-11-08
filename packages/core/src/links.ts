@@ -3,6 +3,7 @@
 // site, and the server never sees the link. The site sees the sender's
 // address, as it would if they opened the link.
 
+import { plainName } from "./hidden";
 import type { LinkPreview } from "./types";
 
 /** How the device fetches pages and pictures for previews, and shrinks pictures. */
@@ -194,7 +195,8 @@ function decodeEntities(text: string): string {
 }
 
 function clean(value: string | undefined, max: number): string | undefined {
-  const text = value?.replace(/\s+/g, " ").trim();
+  // Without what would turn the text around it, or hide in it, as a name is shown.
+  const text = (value === undefined ? undefined : plainName(value))?.replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
@@ -309,20 +311,24 @@ export async function makeLinkPreview(web: WebAdapter, url: string): Promise<Lin
  * picture is dropped. What it says about the page is the sender's claim, so the
  * apps show the link's real site beside it.
  */
+const MAX_IMAGE_DATA = 256 << 10;
+/** A picture's side, as validate.ts holds an attachment's: nothing depends on it but the layout. */
+const sensibleSide = (value: unknown): boolean => typeof value === "number" && value > 0 && value <= 1 << 20;
+
 export function checkPreview(preview: unknown, text: string): LinkPreview | null {
   if (!preview || typeof preview !== "object") return null;
   const { url, title, description, siteName, image } = preview as Record<string, unknown>;
   if (typeof url !== "string" || !/^https?:\/\//i.test(url) || !linkInText(url, text)) return null;
   const textOf = (value: unknown, max: number) => (typeof value === "string" ? clean(value, max) : undefined);
   const picture = image as Record<string, unknown> | undefined;
+  // A small picture, as a thumbnail is: what the sender's device makes is far less than this.
   const validImage =
     picture &&
     typeof picture.data === "string" &&
+    picture.data.length <= MAX_IMAGE_DATA &&
     IMAGE_DATA.test(picture.data) &&
-    typeof picture.width === "number" &&
-    typeof picture.height === "number" &&
-    picture.width > 0 &&
-    picture.height > 0;
+    sensibleSide(picture.width) &&
+    sensibleSide(picture.height);
   return {
     url,
     title: textOf(title, TITLE_LENGTH),

@@ -28,14 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Hold reaction keys and preview text to the rules names already follow
-- Where: packages/core/src/validate.ts:334-339 (`parseReaction`: any key up to 1024 characters, hidden characters kept) vs 60-65 (`plainName`); links.ts:311-332 (`checkPreview`: `title`/`siteName` keep bidi controls; image `width`/`height` and `data` length have no limit, unlike `side()` and `MAX_THUMB_LENGTH` for attachments)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: a member can react with a 1,000-character string or one carrying RTL overrides, which every app draws as a pill. A preview's site name can carry the overrides `plainName` strips from file names. Preview images have no size limit, while thumbnails are held to 22 KiB.
-- Suggested change: limit reaction keys to ~64 characters and run `plainName` over them; strip `HIDDEN_CHARACTERS` from preview `title`/`description`/`siteName`; give image dimensions the same `side()` limits; cap `data` at ~256 KiB. Export `plainName` for links.ts.
-- Check after: `npx vitest run test/security.test.ts`. Any validation change is a security-relevant change: check SECURITY_DETAILS for what it claims about `validate.ts`.
-
 ### Have `previewPush` and the session share one rule for whether a message could have been sent
 - Where: packages/core/src/push.ts:108-122 (a hand copy of `couldBeSent`, session.ts:4396-4407, including the sealed-row labels); push.ts:65-79 and 189-200 (`previewPush` and `previewCall` repeat the same setup)
 - Category: cleanup
