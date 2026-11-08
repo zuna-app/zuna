@@ -48,6 +48,7 @@ export function session({ shots } = {}) {
   const shotsDir = shots ?? join(work, "shots");
   mkdirSync(shotsDir, { recursive: true });
   const started = [];
+  const sockets = [];
   const failures = [];
 
   function check(name, ok, detail = "") {
@@ -83,6 +84,7 @@ export function session({ shots } = {}) {
     // A socket's address has to fit in 104 bytes, which the run's folder may not.
     const socket = join("/tmp", `zuna-mac-check-${process.pid}-${name}.sock`);
     rmSync(socket, { force: true });
+    sockets.push(socket);
     const log = join(work, `${name}.log`);
     const pairs = { ZUNA_DATA_DIR: data, ZUNA_TEST_CONTROL: socket, RUST_LOG: process.env.RUST_LOG ?? "info", ...env };
     spawnSync("open", ["-n", "--stdout", log, "--stderr", log, ...Object.entries(pairs).flatMap(([key, value]) => ["--env", `${key}=${value}`]), app]);
@@ -141,6 +143,7 @@ export function session({ shots } = {}) {
 
   function finish() {
     for (const child of started) child.kill();
+    for (const socket of sockets) rmSync(socket, { force: true });
     // The run's folder goes, unless the screenshots are in it or something failed, when its
     // logs are worth reading.
     if (shots && !failures.length) rmSync(work, { recursive: true, force: true });

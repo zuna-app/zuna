@@ -43,8 +43,18 @@ async function owner(app, setupLink) {
   await app.type("mac-voice-check-owner");
   await app.click(614, 552);
   await app.type("mac-voice-check-owner");
-  await sleep(800);
-  await app.click(640, 698);
+  await createAccount(app);
+}
+
+/** Presses "Agree and create account" until the account exists: it comes on once the password's strength is worked out. */
+async function createAccount(app) {
+  return until(async () => {
+    const servers = (await app.core("listServers")).ok ?? [];
+    if (servers.length) return servers;
+    await app.click(640, 698);
+    await sleep(1500);
+    return null;
+  }, "the account to be made", 90_000);
 }
 
 let apps = [];
@@ -96,9 +106,7 @@ try {
   await second.type("mac-voice-check-guest");
   await second.click(614, 552);
   await second.type("mac-voice-check-guest");
-  await sleep(800);
-  await second.click(640, 698);
-  await until(async () => ((await second.core("listServers")).ok ?? []).length > 0, "the guest's account", 60_000);
+  await createAccount(second);
   await sleep(1000);
   await second.click(480, 548);
   await second.click(640, 594);
