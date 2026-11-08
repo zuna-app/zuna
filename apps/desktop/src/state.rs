@@ -286,6 +286,10 @@ pub fn is_unread(message: &MessageView, own_read: f64, self_id: &str, blocked: &
 /// How many pages a chat loads to open at its first unread message.
 const UNREAD_PAGES: usize = 20;
 
+/// How many of a chat's newest messages stay loaded once it's closed, as on the web. Opening
+/// it again loads older ones as it's scrolled.
+const KEPT_WHEN_CLOSED: usize = 150;
+
 impl AppState {
     pub fn new(core: Core, events: futures::channel::mpsc::UnboundedReceiver<Value>, cx: &mut Context<Self>) -> Self {
         let settings = Settings::load();
@@ -449,6 +453,16 @@ impl AppState {
     pub fn remove_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
         self.notified.remove(server_id);
         self.clear_notifications(Some(server_id), None, None, cx);
+        // Its chats' messages, and what was being written in them, go with it.
+        if let Some(server) = self.servers.get(server_id) {
+            let conversations: Vec<&ConversationView> = server.conversations.iter().chain(server.channels.iter().filter_map(|channel| channel.conversation.as_ref())).collect();
+            let lists: HashSet<String> = conversations.iter().map(|conversation| conversation.list_id()).collect();
+            let keys: HashSet<String> = conversations.iter().map(|conversation| conversation.key.clone()).collect();
+            self.lists.retain(|id, _| !lists.contains(id));
+            self.reply_to.retain(|id, _| !lists.contains(id));
+            self.editing.retain(|id, _| !lists.contains(id));
+            self.drafts.retain(|key, _| !keys.contains(key));
+        }
         self.servers.remove(server_id);
         self.order.retain(|id| id != server_id);
         if self.active_server.as_deref() == Some(server_id) {
@@ -460,16 +474,41 @@ impl AppState {
     }
 
     pub fn select_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
+        let leaving = self.active_server.clone().filter(|id| id != server_id).and_then(|id| Some((id.clone(), self.servers.get(&id)?.active_key.clone()?)));
         self.active_server = Some(server_id.to_string());
         self.panel = None;
+        if let Some((id, key)) = leaving {
+            self.close_list(&id, &key);
+        }
         cx.notify();
     }
 
+    /// Cuts a chat back to its newest messages once it isn't shown, so a long run doesn't keep
+    /// every page it ever loaded, and drops a window opened around an old message.
+    fn close_list(&mut self, server_id: &str, key: &str) {
+        let Some(list_id) = self.servers.get(server_id).and_then(|server| server.find_conversation(key)).map(|conversation| conversation.list_id()) else { return };
+        let Some(list) = self.lists.get_mut(&list_id) else { return };
+        if list.loading {
+            return;
+        }
+        if list.detached {
+            self.lists.remove(&list_id);
+        } else if list.items.len() > KEPT_WHEN_CLOSED {
+            let cut = list.items.len() - KEPT_WHEN_CLOSED;
+            list.items.drain(..cut);
+            list.has_more = true;
+        }
+    }
+
     pub fn select_conversation(&mut self, key: Option<String>, cx: &mut Context<Self>) {
+        let server_id = self.active_server.clone();
         let Some(server) = self.active_mut() else { return };
-        server.active_key = key.clone();
+        let previous = std::mem::replace(&mut server.active_key, key.clone());
         let marked = key.as_ref().and_then(|key| server.conversations.iter().find(|item| &item.key == key)).is_some_and(|item| item.marked_unread);
         self.panel = None;
+        if let (Some(server_id), Some(previous)) = (server_id, previous.filter(|previous| Some(previous) != key.as_ref())) {
+            self.close_list(&server_id, &previous);
+        }
         if let (Some(key), true) = (key, marked) {
             self.act("setMarkedUnread", vec![json!(key), json!(false)], cx);
         }
