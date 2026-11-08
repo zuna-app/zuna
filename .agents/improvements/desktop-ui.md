@@ -44,14 +44,6 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Keep the emoji/emote picker from rebuilding on every frame and hover
-- Where: ui/picker.rs:154-158, 213-218, 234-260; ui/mod.rs:121-122, 879
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: while open, the picker renders on every Root frame, rebuilding ~430 emoji or the whole emote grid and cloning the emote set. Each hover over a cell notifies it, and Root observes it, so Root re-renders too.
-- Suggested change: render it as a cached `AnyView`, borrow the emotes instead of cloning, drop Root's observe (`composer_may_focus` can check `picker::is_open` at event time), and make the hover footer its own small view.
-- Check after: `npm run dev:windows` with a large emote set.
-
 ### Make the inline markup parser linear instead of re-scanning with every rule
 - Where: apps/desktop/src/markup.rs:168-197
 - Category: perf

@@ -130,7 +130,6 @@ impl Root {
         })
         .detach();
         let picker = picker::picker_layer(window, cx);
-        cx.observe(&picker, |_, _, cx| cx.notify()).detach();
         // The compositor says whether it draws the title bar as it shows the window, and may
         // change its mind.
         cx.observe_window_appearance(window, |_, _, cx| cx.notify()).detach();

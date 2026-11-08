@@ -52,8 +52,61 @@ pub struct PickerLayer {
     opened: u64,
     emotes_tab: bool,
     search: Entity<TextInput>,
-    hovered: Option<Hovered>,
+    /// The line under the grid that names what's hovered: a view of its own, so that moving
+    /// over hundreds of cells draws it again and not the grid.
+    footer: Entity<PickerFooter>,
     _subscriptions: Vec<Subscription>,
+}
+
+struct PickerFooter {
+    hovered: Option<Hovered>,
+}
+
+impl PickerFooter {
+    fn show(footer: &Entity<PickerFooter>, hovered: Option<Hovered>, cx: &mut App) {
+        footer.update(cx, |footer, cx| {
+            footer.hovered = hovered;
+            cx.notify();
+        });
+    }
+}
+
+impl Render for PickerFooter {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = theme(cx);
+        let state = store(cx);
+        match &self.hovered {
+            Some(Hovered::Emote(emote)) => {
+                let server_url = state.read(cx).active().map(|server| server.entry.url.clone()).unwrap_or_default();
+                let url = crate::models::emote_url(&server_url, &emote.id);
+                let image = state.update(cx, |state, cx| state.remote_picture(&url, cx));
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .min_w_0()
+                    .when_some(image, |el, image| el.child(img(image).size(px(28.)).flex_none().object_fit(gpui::ObjectFit::Contain).id("hovered-emote")))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .one_line()
+                            .child(div().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(emote.name.clone())).when(!emote.owner.is_empty(), |el| {
+                                el.child(div().text_size(px(12.)).text_color(theme.text3).child(format!("by {}", emote.owner)))
+                            })),
+                    )
+                    .into_any_element()
+            }
+            Some(Hovered::Emoji(value, name)) => div()
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .child(div().text_size(px(22.)).child(*value))
+                .child(div().font_weight(FontWeight::MEDIUM).child(*name))
+                .into_any_element(),
+            None => div().text_size(px(12.)).text_color(theme.text3).child("Hover over one to see its name").into_any_element(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -74,7 +127,8 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
             }
             _ => cx.notify(),
         })];
-        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, search, hovered: None, _subscriptions: subscriptions }
+        let footer = cx.new(|_| PickerFooter { hovered: None });
+        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, search, footer, _subscriptions: subscriptions }
     });
     cx.set_global(PickerGlobal(layer.clone()));
     layer
@@ -93,7 +147,7 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
         layer.closing = None;
         layer.open = Some(Open { id: layer.opened, position, on_pick: Rc::new(on_pick), stays_for_emoji });
         layer.emotes_tab = has_emotes;
-        layer.hovered = None;
+        PickerFooter::show(&layer.footer, None, cx);
         layer.search.update(cx, |input, cx| input.set_text("", cx));
         layer.search.focus_handle(cx).focus(window, cx);
         cx.notify();
@@ -152,12 +206,14 @@ impl PickerLayer {
                             .line_height(px(20.))
                             .cursor_pointer()
                             .hover(move |style| style.bg(theme.hover_strong))
-                            .on_hover(cx.listener(move |layer, hovered: &bool, _, cx| {
-                                if *hovered {
-                                    layer.hovered = Some(Hovered::Emoji(value, name));
-                                    cx.notify();
+                            .on_hover({
+                                let footer = self.footer.clone();
+                                move |hovered: &bool, _, cx| {
+                                    if *hovered {
+                                        PickerFooter::show(&footer, Some(Hovered::Emoji(value, name)), cx);
+                                    }
                                 }
-                            }))
+                            })
                             .on_click(cx.listener(move |layer, _, window, cx| layer.pick(Pick::Emoji(value.to_string()), window, cx)))
                             .child(value),
                     );
@@ -211,12 +267,14 @@ impl PickerLayer {
                         .rounded(RADIUS_M)
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
-                        .on_hover(cx.listener(move |layer, is_hovered: &bool, _, cx| {
-                            if *is_hovered {
-                                layer.hovered = Some(Hovered::Emote(hovered.clone()));
-                                cx.notify();
+                        .on_hover({
+                            let footer = self.footer.clone();
+                            move |is_hovered: &bool, _, cx| {
+                                if *is_hovered {
+                                    PickerFooter::show(&footer, Some(Hovered::Emote(hovered.clone())), cx);
+                                }
                             }
-                        }))
+                        })
                         .on_click(cx.listener(move |layer, _, window, cx| layer.pick(Pick::Emote(emote.clone()), window, cx)))
                         .when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain).id("picture"))),
                 );
@@ -292,36 +350,7 @@ impl Render for PickerLayer {
             (from / px(EMOTE_ROW)).floor() as usize..(to / px(EMOTE_ROW)).ceil() as usize
         };
         let body = if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
-        let footer: AnyElement = match &self.hovered {
-            Some(Hovered::Emote(emote)) => {
-                let url = crate::models::emote_url(&server_url, &emote.id);
-                let image = state.update(cx, |state, cx| state.remote_picture(&url, cx));
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .min_w_0()
-                    .when_some(image, |el, image| el.child(img(image).size(px(28.)).flex_none().object_fit(gpui::ObjectFit::Contain).id("hovered-emote")))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .one_line()
-                            .child(div().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(emote.name.clone())).when(!emote.owner.is_empty(), |el| {
-                                el.child(div().text_size(px(12.)).text_color(theme.text3).child(format!("by {}", emote.owner)))
-                            })),
-                    )
-                    .into_any_element()
-            }
-            Some(Hovered::Emoji(value, name)) => div()
-                .flex()
-                .items_center()
-                .gap(px(9.))
-                .child(div().text_size(px(22.)).child(*value))
-                .child(div().font_weight(FontWeight::MEDIUM).child(*name))
-                .into_any_element(),
-            None => div().text_size(px(12.)).text_color(theme.text3).child("Hover over one to see its name").into_any_element(),
-        };
+        let footer = self.footer.clone();
         let panel = div()
             .id("picker")
             .w(px(WIDTH))
