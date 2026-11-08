@@ -1,4 +1,4 @@
-﻿package webhost
+package webhost
 
 import (
 	"context"

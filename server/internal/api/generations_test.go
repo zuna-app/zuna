@@ -47,17 +47,17 @@ func (h *harness) signUp(name, invite string) *keyed {
 		Token  string `json:"token"`
 	}
 	h.mustDo("POST", "/api/auth/register", "", map[string]any{
-		"invite_code":          invite,
-		"username":             name,
-		"kdf":                  map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
-		"auth_key":             bytesOf(32, name[0]),
-		"recovery_auth_key":    bytesOf(32, name[0]+1),
-		"slots":                newSlots(),
-		"identity_key":         publicOf(root),
-		"hpke_key":             bytesOf(32, 2),
-		"hpke_key_sig":         bytesOf(64, 3),
-		"vault_core":           []byte("vault"),
-		"profile":              []byte("encrypted-profile"),
+		"invite_code":       invite,
+		"username":          name,
+		"kdf":               map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
+		"auth_key":          bytesOf(32, name[0]),
+		"recovery_auth_key": bytesOf(32, name[0]+1),
+		"slots":             newSlots(),
+		"identity_key":      publicOf(root),
+		"hpke_key":          bytesOf(32, 2),
+		"hpke_key_sig":      bytesOf(64, 3),
+		"vault_core":        []byte("vault"),
+		"profile":           []byte("encrypted-profile"),
 	}, &out)
 	c := &client{h: h, token: out.Token, userID: out.UserID, device: store.NewID()}
 	h.mustDo("POST", "/api/devices", c.token, newDevice(c.device, publicOf(device)), nil)
@@ -101,7 +101,6 @@ func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[strin
 		"vault_core": []byte("core at the new generation"),
 	}, next
 }
-
 
 func (k *keyed) rotate() {
 	k.h.t.Helper()

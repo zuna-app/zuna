@@ -1,4 +1,4 @@
-﻿// Package webhost serves Zuna's web app: its files, with the headers that keep
+// Package webhost serves Zuna's web app: its files, with the headers that keep
 // it safe, and the link previews a page can't fetch for itself. It knows nothing
 // about chat servers and keeps nothing of anyone's.
 package webhost

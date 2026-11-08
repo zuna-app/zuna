@@ -10,13 +10,13 @@ import (
 
 // PublicUser is what every member of a server can see about a user.
 type PublicUser struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	Role        string `json:"role"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
 	// IdentityKey is the root of the account's identity chain, the key every client
 	// pins. KeyGeneration and IdentityHead say how far that chain has got, and
 	// ProfileSig signs the profile with the head's key.
-	IdentityKey []byte `json:"identity_key"`
+	IdentityKey   []byte   `json:"identity_key"`
 	KeyGeneration int64    `json:"key_generation"`
 	IdentityHead  []byte   `json:"identity_head"`
 	HpkeKey       []byte   `json:"hpke_key"`

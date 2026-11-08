@@ -58,11 +58,11 @@ type Service struct {
 
 func New(db *store.DB, dir string) *Service {
 	return &Service{
-		db:       db,
-		dir:      dir,
-		client:   &http.Client{Timeout: 30 * time.Second},
-		APIBase:  "https://7tv.io/v3",
-		CDNBase:  "https://cdn.7tv.app",
+		db:      db,
+		dir:     dir,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		APIBase: "https://7tv.io/v3",
+		CDNBase: "https://cdn.7tv.app",
 	}
 }
 
@@ -202,7 +202,6 @@ func (s *Service) RefreshCurrent(ctx context.Context) (bool, error) {
 	_, _, changed, err := s.Sync(ctx, setID)
 	return changed, err
 }
-
 
 // ServeImage serves one emote image, downloading it on first use.
 func (s *Service) ServeImage(w http.ResponseWriter, r *http.Request, id, file string) {

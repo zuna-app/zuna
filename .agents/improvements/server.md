@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Strip BOMs and gofmt the server
-- Where: a UTF-8 BOM at the top of api/hub.go, api/generations.go, webhost/webhost.go and webhost/preview.go (and three test files); gofmt misalignment in cmd/zuna-web/main.go:150-158 and api/groups.go:404-411
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `gofmt -l` flags these files, checked on LF copies since the Windows checkout is CRLF.
-- Suggested change: remove the BOMs and run `gofmt -w` on these files.
-- Check after: `go vet ./...` and `go build ./...`.
-
 ### Don't write a second response after a failed render or panic
 - Where: server/internal/api/pages.go:85-88, and server.go:560-568
 - Category: cleanup

@@ -1,4 +1,4 @@
-﻿package api_test
+package api_test
 
 // Each attack from the security audit that the server can stop, kept as a test
 // so it can't come back. The findings' numbers are in the audit's report.

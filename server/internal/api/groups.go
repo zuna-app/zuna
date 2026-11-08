@@ -404,7 +404,7 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 const (
 	maxEnvelopeBytes = 256 << 10
 	// The longest a disappearing message may last, in seconds: a year.
-	maxExpiresIn = 366 * 24 * 60 * 60
+	maxExpiresIn     = 366 * 24 * 60 * 60
 	maxReactionBytes = 2 << 10
 	maxProofBytes    = 2 << 10
 	maxProofBody     = 8 << 10

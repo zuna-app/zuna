@@ -148,13 +148,13 @@ func run(cfg config) error {
 	}
 	servers := splitList(cfg.servers)
 	handler, err := webhost.New(webhost.Config{
-		Files:      files,
-		Previews:   cfg.previews == "on",
-		Server:     strings.TrimRight(cfg.server, "/"),
-		Servers:    servers,
+		Files:        files,
+		Previews:     cfg.previews == "on",
+		Server:       strings.TrimRight(cfg.server, "/"),
+		Servers:      servers,
 		MediaServers: splitList(cfg.mediaServers),
-		AllowLocal: cfg.dev,
-		ClientIP:   resolver,
+		AllowLocal:   cfg.dev,
+		ClientIP:     resolver,
 	})
 	if err != nil {
 		return err
