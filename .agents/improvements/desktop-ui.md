@@ -28,14 +28,6 @@ Ordered roughly by value.
 - Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
 - Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
 
-### Report a save that wrote nothing as a failure, and read downloaded files through one helper
-- Where: ui/message.rs:1410-1436 (line 1423); state.rs:1304-1312, 1328-1336; host/mod.rs:248-262 (`value_bytes`)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `save_attachment` ends with `read_bytes(&value).map(|b| fs::write(&path, b)).unwrap_or(Ok(()))`. When the core's answer has no bytes, nothing is written and the toast still says "Saved". The same `$file`-or-bytes branching is written out three times, although `host::value_bytes` already does it.
-- Suggested change: turn the `None` case into an error, as `media_file` does. Add `host::save_value(&value, &path) -> Result<(), String>` and use it plus `value_bytes` at all three sites.
-- Check after: `npm run dev:windows` (save a file from a chat); Linux and macOS builds.
-
 ### Bound the media, picture and message caches in `AppState`
 - Where: state.rs:207, 218-230 (`lists`, `media_files`, `clips`, `videos`, `paused_at`, `pictures`), 1347-1432; ui/media_views.rs:370-378, 446-469
 - Category: robustness

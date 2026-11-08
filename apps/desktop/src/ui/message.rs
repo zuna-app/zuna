@@ -1417,16 +1417,10 @@ pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: se
             let result = call.await;
             state
                 .update(cx, |state, cx| match result {
-                    Ok(value) => {
-                        let copied = match value.get("$file").and_then(|file| file.get("path")).and_then(|p| p.as_str()) {
-                            Some(source) => std::fs::copy(source, &path).map(|_| ()),
-                            None => crate::host::read_bytes(&value).map(|bytes| std::fs::write(&path, bytes)).unwrap_or(Ok(())),
-                        };
-                        match copied {
-                            Ok(()) => state.toast("Saved", ToastKind::Info, cx),
-                            Err(error) => state.toast(format!("Couldn't save the file: {error}"), ToastKind::Error, cx),
-                        }
-                    }
+                    Ok(value) => match crate::host::save_value(&value, &path, false) {
+                        Ok(()) => state.toast("Saved", ToastKind::Info, cx),
+                        Err(error) => state.toast(format!("Couldn't save the file: {error}"), ToastKind::Error, cx),
+                    },
                     Err(error) => state.toast(error.message, ToastKind::Error, cx),
                 })
                 .ok();

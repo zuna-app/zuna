@@ -269,6 +269,20 @@ pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
     read_bytes(value)
 }
 
+/// Writes a `$bytes`, `$blob` or `$file` value from the wire to `target`, moving a file there
+/// when `moving` and copying it otherwise. A value with nothing in it is an error, never a
+/// file left unwritten and said to be saved.
+pub fn save_value(value: &Value, target: &std::path::Path, moving: bool) -> Result<(), String> {
+    if let Some(source) = value.get("$file").and_then(|file| file.get("path")).and_then(Value::as_str) {
+        if moving && std::fs::rename(source, target).is_ok() {
+            return Ok(());
+        }
+        return std::fs::copy(source, target).map(|_| ()).map_err(|error| error.to_string());
+    }
+    let bytes = read_bytes(value).ok_or_else(|| "nothing came to save".to_string())?;
+    std::fs::write(target, bytes).map_err(|error| error.to_string())
+}
+
 /// The bytes of a `$bytes` or `$blob` value from the wire.
 pub fn read_bytes(value: &Value) -> Option<Vec<u8>> {
     use base64::Engine;
