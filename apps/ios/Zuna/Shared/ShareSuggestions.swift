@@ -34,13 +34,20 @@ enum ShareSuggestions {
         try? await interaction.donate()
     }
 
+    /// Each picture made small, by its file, so that sending to a chat again doesn't
+    /// download, decode and shrink its picture again.
+    @MainActor private static var pictures: [String: Data] = [:]
+
     /// The chat's picture, small, as the share sheet shows it.
-    private static func picture(_ avatar: AvatarRef?, serverId: String, through core: CoreConnection) async -> INImage? {
-        guard let avatar,
-              let file = try? await core.session(serverId).downloadFile(avatar),
+    @MainActor private static func picture(_ avatar: AvatarRef?, serverId: String, through core: CoreConnection) async -> INImage? {
+        guard let avatar else { return nil }
+        if let data = pictures[avatar.fileId] { return INImage(imageData: data) }
+        guard let file = try? await core.session(serverId).downloadFile(avatar),
               let image = UIImage(contentsOfFile: file.path),
               let small = await image.byPreparingThumbnail(ofSize: CGSize(width: 180, height: 180)),
               let data = small.jpegData(compressionQuality: 0.8) else { return nil }
+        if pictures.count >= 64 { pictures.removeAll() }
+        pictures[avatar.fileId] = data
         return INImage(imageData: data)
     }
 }
