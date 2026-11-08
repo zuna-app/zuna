@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: split the manifest across numbered items (`manifest:0..n`) written under one version, or shrink entries (binary ids and keys), and size-check the rotation path the same way. Until then, `warnOnce` and stop retrying while the pin set hasn't changed. Fix the comment. Read docs/ACCOUNT_KEY_ROTATION.md and SECURITY_DETAILS first.
 - Check after: `npx vitest run test/rotation.test.ts test/security.test.ts`.
 
-### Stop the other upload and download workers once one chunk fails
-- Where: packages/core/src/session.ts:5729-5740 (`uploadBlob`), 5752-5763 (`downloadFile`)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: when one worker throws, `Promise.all` rejects and the message is marked failed, but the other workers keep looping until the end of the file, uploading/downloading (and holding) the rest of a file already given up on.
-- Suggested change: share a `failed` flag (or `AbortController`) between workers; set it in a catch, check it at the top of each loop, rethrow.
-- Check after: `npx vitest run test/media.test.ts`.
-
 ### Keep the mute timer from overflowing `setTimeout`
 - Where: packages/core/src/session.ts:5019-5028 (`watchMutes`: `next - now + 50`); compare 207 (`LONGEST_WAIT_MS`) and 4524, where `expireMessages` already clamps
 - Category: robustness

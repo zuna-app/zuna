@@ -5846,20 +5846,16 @@ export class ServerSession {
     const size = source.size;
     const chunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
     const created = await this.api.createFile(chunks, size + chunks * 16);
-    let next = 0;
     let loaded = 0;
-    const worker = async () => {
-      while (next < chunks) {
-        const index = next++;
-        const start = index * CHUNK_SIZE;
-        const plain = await source.read(start, Math.min(start + CHUNK_SIZE, size));
-        const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
-        await this.api.uploadChunk(created.id, index, sealed);
-        loaded += plain.length;
-        onProgress?.(loaded, size);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, chunks) }, worker));
+    // A few chunks go at once, and once one fails the rest of a file given up on don't.
+    await eachLimited(Array.from({ length: chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
+      const start = index * CHUNK_SIZE;
+      const plain = await source.read(start, Math.min(start + CHUNK_SIZE, size));
+      const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
+      await this.api.uploadChunk(created.id, index, sealed);
+      loaded += plain.length;
+      onProgress?.(loaded, size);
+    });
     await this.api.completeFile(created.id, attach);
     return { fileId: created.id, key: toBase64(key), prefix: toBase64(prefix), chunks };
   }
@@ -5869,20 +5865,15 @@ export class ServerSession {
     const key = fromBase64(ref.key);
     const prefix = fromBase64(ref.prefix);
     const parts: Uint8Array[] = new Array(ref.chunks);
-    let next = 0;
     let done = 0;
-    const worker = async () => {
-      while (next < ref.chunks) {
-        const index = next++;
-        const sealed = await this.api.downloadChunk(ref.fileId, index);
-        // The server's limit plus a little: this is all held in memory.
-        if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
-        parts[index] = wasm.streamOpen(key, prefix, index, index === ref.chunks - 1, sealed);
-        done++;
-        onProgress?.(done, ref.chunks);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, ref.chunks) }, worker));
+    await eachLimited(Array.from({ length: ref.chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
+      const sealed = await this.api.downloadChunk(ref.fileId, index);
+      // The server's limit plus a little: this is all held in memory.
+      if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
+      parts[index] = wasm.streamOpen(key, prefix, index, index === ref.chunks - 1, sealed);
+      done++;
+      onProgress?.(done, ref.chunks);
+    });
     return this.files.assemble(parts, ref.mime ?? "application/octet-stream");
   }
 
