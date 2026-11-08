@@ -19,6 +19,8 @@ struct ChatScreen: View {
     /// Messages picked to act on together, in the order picked, or nil when not picking.
     @State private var selection: [String]?
     @State private var confirmingDelete = false
+    /// One message to delete for everyone, from its menu, which can't be undone, so it's asked first.
+    @State private var deletingOne: MessageView?
     /// How wide the chat is, for whether a channel's member list fits beside it.
     @State private var width: CGFloat = 0
     @AppStorage(AppSettings.memberListHiddenKey) private var memberListHidden = false
@@ -177,6 +179,16 @@ struct ChatScreen: View {
                     run { try await model.core.session(serverId).toggleReaction(groupId, messageId: messageId, key: key, emote: emote) }
                 }
                 .presentationDetents([.medium, .large])
+            }
+        }
+        .confirmationDialog(
+            "Delete this message for everyone?",
+            isPresented: Binding(get: { deletingOne != nil }, set: { if !$0 { deletingOne = nil } }),
+            titleVisibility: .visible,
+            presenting: deletingOne
+        ) { message in
+            Button("Delete for everyone", role: .destructive) {
+                run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) }
             }
         }
         .onChange(of: conversation.ownRead) {
@@ -377,7 +389,7 @@ struct ChatScreen: View {
                 }
             },
             pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
-            delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },
+            delete: { deletingOne = $0 },
             discard: { id in run { try await model.core.session(serverId).discardMessage(listId, id: id) } },
             pickReaction: { sheet = .react(messageId: $0) },
             readers: { message in

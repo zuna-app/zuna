@@ -139,7 +139,10 @@ final class ComposerTests: XCTestCase {
         }
         XCTAssertEqual(zuna.element(A11y.Composer.input).value as? String, "Draft \(tag)")
 
+        // It asks first, as it can't be undone.
         menu(answerId, "Delete for everyone")
+        XCTAssertTrue(zuna.app.staticTexts["Delete this message for everyone?"].waitForExistence(timeout: 5))
+        zuna.app.buttons["Delete for everyone"].tap()
         try waitFor("alice to see it deleted") {
             try self.aliceMessages(alice).first { $0["id"] as? String == answerId }?["deletedAt"] is Int
         }
