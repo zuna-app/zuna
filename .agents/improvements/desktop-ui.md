@@ -52,14 +52,6 @@ Ordered roughly by value.
 - Suggested change: keep `None` while loading, and reload when the ids of pinned messages in the loaded list change. Consider the web's empty text: "Nothing is pinned yet. Right-click a message to pin it."
 - Check after: `npm run dev:windows`; check iOS behaves the same.
 
-### Cancel an in-flight chat search when the query is cleared
-- Where: ui/side_panel.rs:92-113 (contrast conversations.rs:144-151)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: clearing the query clears the results but leaves the earlier search running, and it refills the list when it lands.
-- Suggested change: set `self.searching = None;` there too.
-- Check after: `npm run dev:windows`.
-
 ### Show senders' pictures in search results and pinned messages
 - Where: ui/conversations.rs:583-594 and ui/side_panel.rs:1007 (`image: None`); web: ConversationList.tsx:404 and SidePanel.tsx:566 pass `avatar={sender?.avatar}`
 - Category: ux
