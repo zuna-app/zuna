@@ -98,13 +98,19 @@ fn path(name: &str) -> std::path::PathBuf {
 }
 
 fn load<T: for<'de> Deserialize<'de> + Default>(name: &str) -> T {
-    std::fs::read(path(name)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    let Ok(bytes) = std::fs::read(path(name)) else { return T::default() };
+    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        log::warn!("{name} couldn't be read, so it's back to its defaults: {error}");
+        T::default()
+    })
 }
 
 fn save<T: Serialize>(name: &str, value: &T) {
     if let Ok(json) = serde_json::to_vec_pretty(value) {
         std::fs::create_dir_all(crate::host::data_dir()).ok();
-        std::fs::write(path(name), json).ok();
+        if let Err(error) = crate::host::write_whole(&path(name), &json) {
+            log::warn!("couldn't save {name}: {error}");
+        }
     }
 }
 

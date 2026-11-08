@@ -18,8 +18,8 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 2 |
-| `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 23 |
-| `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 30 |
+| `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 22 |
+| `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 29 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 15 |
 | `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 3 |
 | `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 27 |

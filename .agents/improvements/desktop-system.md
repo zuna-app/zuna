@@ -126,14 +126,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: clone `cx.background_executor()` and await `executor.timer(...)` inside the task; delete `smol_timer`.
 - Check after: linux-voice-check.mjs (ringing).
 
-### Save voice settings atomically, and not on every slider step
-- Where: voice/settings.rs:100-109 (writes directly over the old file); voice/mod.rs:915-927, 942-946 (saves on every change, slider drags included, on the window's thread)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a crash mid-write leaves truncated JSON, which loads as all defaults, silently losing every voice setting and per-person volume; slider drags do disk IO many times a second. (apps/desktop/src/settings.rs has the same non-atomic write; see desktop-ui.md.)
-- Suggested change: write a `.partial` file and rename it, as device_key.rs:41-48 already does; debounce saves by ~300 ms and write on the background executor.
-- Check after: `npm run dev:windows`.
-
 ### Remove the browser-share settings and the "native" flag the native app never reads
 - Where: voice/settings.rs:40-49 (`screen_content`, `screen_priority`, `screen_native`, `screen_codec`, `screen_layers` never read); voice/mod.rs:48 (`ShareInfo::native`, always `true`, set at screen.rs:446, read at screen.rs:547 and ui/voice_stage.rs:817)
 - Category: cleanup

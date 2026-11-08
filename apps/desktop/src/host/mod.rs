@@ -87,6 +87,14 @@ pub fn clear_cache(dir: &Path) {
     std::fs::remove_dir_all(cache_in(dir)).ok();
 }
 
+/// Writes a file whole or not at all: beside it first, then moved over it, so that a write cut
+/// short, as by a crash or a full disk, leaves the old one rather than half of the new.
+pub fn write_whole(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let partial = path.with_extension("partial");
+    std::fs::write(&partial, bytes)?;
+    std::fs::rename(&partial, path)
+}
+
 /// Where this app keeps its data: `ZUNA_DATA_DIR` where it's set, and otherwise in the system's
 /// folder for app data. On Windows and macOS only the installed copy keeps it in `Zuna Native`:
 /// a copy started from anywhere else, as a build is, keeps its own in `Zuna Native Dev`, so

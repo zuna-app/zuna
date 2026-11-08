@@ -136,6 +136,8 @@ pub struct Voice {
     sounding_tasks: HashMap<String, Task<()>>,
     events_task: Option<Task<()>>,
     tick_task: Option<Task<()>>,
+    /// The settings and volumes waiting to be saved, a moment after the last change.
+    save_task: Option<Task<()>>,
     pub(crate) share: screen::ShareHandles,
     /// The push to talk key being watched for, and what hears it.
     ptt_watching: Option<String>,
@@ -195,6 +197,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         sounding_tasks: HashMap::new(),
         events_task: None,
         tick_task: None,
+        save_task: None,
         share: screen::ShareHandles::default(),
         ptt_watching: None,
         ptt_task: None,
@@ -917,16 +920,32 @@ impl Voice {
 
     pub fn set_volume(&mut self, user_id: &str, volume: f32, cx: &mut Context<Self>) {
         self.volumes.insert(user_id.to_string(), volume);
-        settings::save_volumes(&self.volumes, false);
+        self.save_soon(cx);
         self.apply_volumes();
         cx.notify();
     }
 
     pub fn set_stream_volume(&mut self, user_id: &str, volume: f32, cx: &mut Context<Self>) {
         self.stream_volumes.insert(user_id.to_string(), volume);
-        settings::save_volumes(&self.stream_volumes, true);
+        self.save_soon(cx);
         self.apply_volumes();
         cx.notify();
+    }
+
+    /// Saves the settings and everyone's volumes once changes stop for a moment, off the
+    /// window's thread, as a slider being dragged changes them many times a second.
+    fn save_soon(&mut self, cx: &mut Context<Self>) {
+        self.save_task = Some(cx.spawn(async move |voice, cx| {
+            cx.background_executor().timer(Duration::from_millis(300)).await;
+            let Ok((settings, volumes, stream_volumes)) = voice.read_with(cx, |voice, _| (voice.settings.clone(), voice.volumes.clone(), voice.stream_volumes.clone())) else { return };
+            cx.background_executor()
+                .spawn(async move {
+                    settings.save();
+                    settings::save_volumes(&volumes, false);
+                    settings::save_volumes(&stream_volumes, true);
+                })
+                .await;
+        }));
     }
 
     pub fn toggle_local_mute(&mut self, user_id: &str, cx: &mut Context<Self>) {
@@ -945,7 +964,7 @@ impl Voice {
     pub fn update_settings(&mut self, change: impl FnOnce(&mut VoiceSettings), cx: &mut Context<Self>) {
         let before = self.settings.clone();
         change(&mut self.settings);
-        self.settings.save();
+        self.save_soon(cx);
         if before.output_device != self.settings.output_device && (self.status != VoiceStatus::Idle || self.ringing.is_some()) {
             self.mixer.open(&self.settings.output_device);
         }

@@ -52,13 +52,19 @@ fn path() -> std::path::PathBuf {
 
 impl Settings {
     pub fn load() -> Settings {
-        std::fs::read(path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+        let Ok(bytes) = std::fs::read(path()) else { return Settings::default() };
+        serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            log::warn!("settings.json couldn't be read, so every setting is back to its default: {error}");
+            Settings::default()
+        })
     }
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_vec_pretty(self) {
             std::fs::create_dir_all(crate::host::data_dir()).ok();
-            std::fs::write(path(), json).ok();
+            if let Err(error) = crate::host::write_whole(&path(), &json) {
+                log::warn!("couldn't save the settings: {error}");
+            }
         }
     }
 }

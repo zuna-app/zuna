@@ -168,14 +168,6 @@ Ordered roughly by value.
 - Suggested change: move both into format.rs, built on `local()` and `days_ago()`.
 - Check after: `npm run dev:windows`.
 
-### Save settings atomically
-- Where: apps/desktop/src/settings.rs:53-63
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `std::fs::write` overwrites `settings.json` in place. A torn write leaves a file that won't parse, and `load` then silently resets every setting to its default.
-- Suggested change: write a `.tmp` file and rename it over the original; log when an existing file fails to parse.
-- Check after: `npm run dev:windows`.
-
 ### Prune a call stage's frames for tiles that went away
 - Where: ui/voice_stage.rs:101-140, 780-785
 - Category: robustness
