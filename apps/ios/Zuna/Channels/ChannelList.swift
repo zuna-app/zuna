@@ -61,6 +61,8 @@ struct ChannelRows: View {
     let sidebar: Bool
     let actions: ChannelListActions
     @State private var collapsed = AppSettings.collapsedCategories
+    /// A voice channel tapped during a call, which coming into would end the call: asked first.
+    @State private var leavingCallFor: ChannelView?
 
     private struct Heading: Identifiable {
         let name: String
@@ -254,6 +256,13 @@ struct ChannelRows: View {
             }
         }
         .contextMenu { menu(channel) }
+        .confirmationDialog(
+            "Leave the call to come into \(channel.title)?",
+            isPresented: Binding(get: { leavingCallFor?.id == channel.id }, set: { if !$0 { leavingCallFor = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Leave the call") { join(channel) }
+        }
     }
 
     @ViewBuilder
@@ -338,10 +347,20 @@ struct ChannelRows: View {
                 model.toast("This server has no media server yet, so its voice channels can't be joined.")
                 return
             }
-            let serverId = server.entry.id
-            Task { await voice.join(serverId: serverId, channelId: channel.id) }
+            // A call with someone ends for good, unlike moving between voice channels, so that's asked.
+            let here = voice.serverId == server.entry.id && voice.channelId == channel.id
+            if voice.inCall, voice.isCall, !here {
+                leavingCallFor = channel
+                return
+            }
+            join(channel)
             return
         }
         model.openChat(channel.key)
+    }
+
+    private func join(_ channel: ChannelView) {
+        let serverId = server.entry.id
+        Task { await voice.join(serverId: serverId, channelId: channel.id) }
     }
 }
