@@ -43,6 +43,8 @@ pub struct ConversationList {
     /// The channel row under the pointer, whose edit button shows. It takes no room otherwise,
     /// as the web's is `display: none`, so a voice channel's limit sits at the row's end.
     hovered_channel: Option<String>,
+    /// The server the list shows, so that switching servers lets go of this one's search.
+    shown_server: Option<String>,
     /// The channel being dragged to another place, and the order the list shows meanwhile,
     /// which it keeps until the core has it.
     dragging: Option<String>,
@@ -104,7 +106,14 @@ impl ConversationList {
         let search = cx.new(|cx| TextInput::new(cx, "Search"));
         let menus = super::menu::menu_layer(cx);
         let mut subscriptions = vec![
-            cx.observe(&state, |_, _, cx| cx.notify()),
+            cx.observe(&state, |list, state, cx| {
+                let server = state.read(cx).active_server.clone();
+                if server != list.shown_server {
+                    list.shown_server = server;
+                    list.reset_search(cx);
+                }
+                cx.notify()
+            }),
             cx.observe(&menus, |list, _, cx| {
                 let open = super::menu::is_open_from("server-title", cx);
                 if open != list.server_menu_open {
@@ -135,11 +144,23 @@ impl ConversationList {
         if let Some(voice) = crate::voice::get(cx) {
             subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
         }
-        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_pending: false, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, server_menu_open: false, _subscriptions: subscriptions }
+        let shown_server = state.read(cx).active_server.clone();
+        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_pending: false, search_focused: false, hovered_channel: None, shown_server, dragging: None, drag_order: None, server_menu_open: false, _subscriptions: subscriptions }
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.search.focus_handle(cx).focus(window, cx);
+    }
+
+    /// Another server's list starts with no search, as its hits and their ids belong to the
+    /// server they came from.
+    fn reset_search(&mut self, cx: &mut Context<Self>) {
+        self.searching = None;
+        self.search_pending = false;
+        self.hits.clear();
+        self.drag_order = None;
+        self.hovered_channel = None;
+        self.search.update(cx, |input, cx| input.set_text("", cx));
     }
 
     /// Message search runs against the encrypted index on this device.
@@ -566,6 +587,10 @@ impl Render for ConversationList {
             for hit in self.hits.clone() {
                 let conversation = server.find_conversation(&hit.conversation_key).map(|c| c.title.clone()).unwrap_or_else(|| "Conversation".into());
                 let sender = server.users.get(&hit.message.sender_id).cloned();
+                let picture = sender.as_ref().and_then(|sender| sender.avatar.clone()).and_then(|avatar| {
+                    let server_id = server.entry.id.clone();
+                    self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
+                });
                 let state = self.state.clone();
                 let key = hit.conversation_key.clone();
                 let group = hit.message.group_id.clone();
@@ -591,7 +616,7 @@ impl Render for ConversationList {
                             AvatarProps {
                                 name: sender.as_ref().map(|s| s.display_name.clone()).unwrap_or("?".into()),
                                 seed: hit.message.sender_id.clone(),
-                                image: None,
+                                image: picture,
                                 size: 36.,
                                 online: false,
                                 rounded: false,

@@ -1010,6 +1010,10 @@ impl SidePanel {
         let theme = theme(cx);
         let sender = server.users.get(&message.sender_id).cloned();
         let name = sender.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+        let picture = sender.as_ref().and_then(|sender| sender.avatar.clone()).and_then(|avatar| {
+            let server_id = server.entry.id.clone();
+            self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
+        });
         let state = self.state.clone();
         let (group, id) = (message.group_id.clone(), message.id.clone());
         div()
@@ -1023,7 +1027,7 @@ impl SidePanel {
             .cursor_pointer()
             .hover(move |style| style.bg(theme.hover))
             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &id, cx)))
-            .child(avatar(AvatarProps { name: name.clone(), seed: message.sender_id.clone(), image: None, size: 32., online: false, rounded: false, dot_border: theme.bg1 }, cx))
+            .child(avatar(AvatarProps { name: name.clone(), seed: message.sender_id.clone(), image: picture, size: 32., online: false, rounded: false, dot_border: theme.bg1 }, cx))
             .child(
                 div()
                     .flex_1()

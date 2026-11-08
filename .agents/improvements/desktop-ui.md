@@ -52,22 +52,6 @@ Ordered roughly by value.
 - Suggested change: keep `None` while loading, and reload when the ids of pinned messages in the loaded list change. Consider the web's empty text: "Nothing is pinned yet. Right-click a message to pin it."
 - Check after: `npm run dev:windows`; check iOS behaves the same.
 
-### Show senders' pictures in search results and pinned messages
-- Where: ui/conversations.rs:583-594 and ui/side_panel.rs:1007 (`image: None`); web: ConversationList.tsx:404 and SidePanel.tsx:566 pass `avatar={sender?.avatar}`
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: these lists always draw initials, even for people with a profile picture.
-- Suggested change: use `decrypted_picture`, as the member list does (chat.rs:240).
-- Check after: `npm run dev:windows`; check iOS.
-
-### Reset the conversation search when switching servers
-- Where: ui/conversations.rs:33-51, 144-168, 557-615; web: Shell.tsx:200 remounts the list per server
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the query and message hits survive a server switch. Clicking an old hit selects a conversation on the new server using the old server's ids, and the toast says "That message isn't available."
-- Suggested change: when `active_server` changes, clear the query, `hits`, `searching`, `drag_order` and `hovered_channel`.
-- Check after: `npm run dev:windows` with two servers.
-
 ### Scope named scroll handles to their owner instead of one global per name
 - Where: ui/scrollbar.rs:53-65; used by "conv-list", "member-list", "modal-body"/"modal-flow", "new-group-people", "picker-body", "composer-scroll"
 - Category: ux
