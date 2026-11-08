@@ -254,10 +254,10 @@ func (s *Server) handleGroupMeta(w http.ResponseWriter, r *http.Request, _ *stor
 	}
 	// A direct message's two people are both its admins, and its details only say
 	// how long its messages last. Whether history is shared means nothing there.
-	if group, err := s.db.Group(r.Context(), groupID); err != nil {
+	if kind, err := s.db.GroupKind(r.Context(), groupID); err != nil {
 		writeFailure(w, err)
 		return
-	} else if group.Kind == "dm" {
+	} else if kind == "dm" {
 		body.HistoryVisible = nil
 	}
 	if err := s.db.SetGroupMeta(r.Context(), groupID, body.Meta, body.Epoch, body.HistoryVisible); err != nil {
@@ -356,7 +356,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 		return
 	}
 	// Nobody has read ticks in a channel, so where someone is goes only to their own devices.
-	if group, err := s.db.Group(r.Context(), groupID); err == nil && group.Kind == "channel" {
+	if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil && kind == "channel" {
 		members = []string{sess.UserID}
 	}
 	s.hub.ToUsersExcept(members, sess.DeviceID, Event{Type: "read", Data: map[string]any{
@@ -507,8 +507,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	if group, err := s.db.Group(r.Context(), groupID); created && err == nil {
-		s.pushMessage(groupID, group.Kind == "channel", message)
+	// A message sent again, or a server without push, has no phones to wake.
+	if created && len(s.cfg.PushRelays) > 0 {
+		if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil {
+			s.pushMessage(groupID, kind == "channel", message)
+		}
 	}
 	writeJSON(w, http.StatusCreated, message)
 }
@@ -542,13 +545,13 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 	if existing == nil {
 		return
 	}
-	group, err := s.db.Group(r.Context(), groupID)
+	kind, err := s.db.GroupKind(r.Context(), groupID)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	// In a DM only the sender can delete; in a group or channel, its admins can moderate.
-	canModerate := group.Kind != "dm" && member.Role == "admin"
+	canModerate := kind != "dm" && member.Role == "admin"
 	if existing.SenderUser != sess.UserID && !canModerate {
 		writeError(w, http.StatusForbidden, "forbidden", "You can only delete your own messages.")
 		return
@@ -572,8 +575,9 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	s.removeFiles(r.Context(), files)
-	s.broadcastMessage(r, groupID, message)
+	// One list of members, for the devices connected and the phones to wake.
 	if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
+		s.hub.ToUsers(members, Event{Type: "message", Data: message})
 		s.pushDeletion(members, groupID, messageID)
 	}
 	writeJSON(w, http.StatusOK, message)

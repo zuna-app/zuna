@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Read a group's kind without loading its roster in hot handlers
-- Where: server/internal/api/groups.go:510 (handleSendMessage), :359 (handleRead), :545 (handleDeleteMessage), :257 (handleGroupMeta), and voice.go:288 (roomFor)
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: these call `s.db.Group()`, which loads the group row and every member with their blobs, only to read `Kind`. handleSendMessage does it on every message, even when `created` is false or push relays are off. handleDeleteMessage also calls `GroupMemberIDs` twice (once through broadcastMessage and again at :576).
-- Suggested change: add `store.GroupKind(ctx, id) (string, error)` and use it in these handlers. In handleSendMessage, only look the kind up when `created && len(s.cfg.PushRelays) > 0`. In handleDeleteMessage, use one member list for both the broadcast and the push.
-- Check after: Go tests (api_test, push_test, channels_test).
-
 ### Compute server info once, from one settings query
 - Where: server/internal/api/admin.go:48-132, and pages.go:92, :106
 - Category: perf

@@ -196,6 +196,16 @@ func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
 	return g, nil
 }
 
+// GroupKind returns a group's kind, "dm", "group" or "channel", without loading its members.
+func (d *DB) GroupKind(ctx context.Context, id string) (string, error) {
+	var kind string
+	err := d.sql.QueryRowContext(ctx, `SELECT kind FROM groups WHERE id = ?`, id).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return kind, err
+}
+
 const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at`
 
 // scanGroup reads a group's row, as groupColumns lists it, without its members.

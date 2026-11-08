@@ -285,16 +285,17 @@ func (s *Server) roomFor(w http.ResponseWriter, r *http.Request, call bool) *voi
 		}
 		return &voiceRoom{ID: channel.ID, UserLimit: channel.UserLimit, ScreenLimit: channel.ScreenLimit, Sounds: channel.Sounds}
 	}
-	group, err := s.db.Group(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	kind, err := s.db.GroupKind(r.Context(), id)
 	if err != nil {
 		writeFailure(w, err)
 		return nil
 	}
-	if group.Kind != "dm" && group.Kind != "group" {
+	if kind != "dm" && kind != "group" {
 		writeError(w, http.StatusBadRequest, "bad_request", "Calls are for direct messages and groups.")
 		return nil
 	}
-	return &voiceRoom{ID: group.ID, Call: true, Sounds: true}
+	return &voiceRoom{ID: id, Call: true, Sounds: true}
 }
 
 // voiceChannel is the voice channel a request is about, or nothing after saying what's wrong.
