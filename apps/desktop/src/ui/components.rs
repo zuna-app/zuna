@@ -624,7 +624,9 @@ pub fn select_box(id: impl Into<ElementId>, label: impl Into<SharedString>, choi
             let at = bounds.get();
             super::menu::open_menu(point(at.left(), at.bottom() + px(4.)), entries, false, cx);
         })
-        .child(div().min_w_0().one_line().child(label.into()))
+        // The label takes the room beside the chevron, so a label as wide as its own text, a
+        // fraction of a pixel narrower once laid out, isn't cut short.
+        .child(div().flex_1().min_w_0().one_line().child(label.into()))
         .child(icon("chevron-down", 15., theme.text2))
 }
 
