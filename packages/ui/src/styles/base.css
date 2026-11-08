@@ -52,22 +52,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .row { display: flex; align-items: center; gap: 10px; }
 .col { display: flex; flex-direction: column; gap: 10px; }
 
-/* Window title bar */
-.titlebar {
-  height: var(--titlebar-height);
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  gap: 8px;
-  -webkit-app-region: drag;
-  background: var(--bg-0);
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--text-3);
-}
-.titlebar.is-mac { padding-left: 80px; }
-.titlebar-brand { display: flex; align-items: center; gap: 7px; font-weight: 500; color: var(--text-2); }
+/* The connection's state, beside the server's name */
 .titlebar-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
 .titlebar-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
 

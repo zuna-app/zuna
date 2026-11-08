@@ -408,7 +408,6 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
   const videos = useVoice((state) => state.videos);
   const focus = useVoice((state) => state.focus);
   const setFocus = useVoice((state) => state.setFocus);
-  const screenShare = useVoice((state) => state.screen);
   const ringAgain = useVoice((state) => state.ringAgain);
   const [chatOpen, setChatOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -425,12 +424,11 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
   const cameras = new Map(videos.filter((video) => video.source === "camera").map((video) => [video.userId, video]));
   const screens = videos.filter((video) => video.source === "screen");
   const focused = focus ? videos.find((video) => video.key === focus) : undefined;
-  const nativeSelfShare = screenShare?.native;
-  const people = members.length + ringing.length + screens.length + (nativeSelfShare ? 1 : 0);
+  const people = members.length + ringing.length + screens.length;
   const columns = Math.min(4, Math.ceil(Math.sqrt(Math.max(1, people))));
   const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, room.screenLimit);
   // A camera or a shared screen is watched rather than listened to, so the screen stays on while one is here.
-  useScreenAwake(status !== "connecting" && (videos.length > 0 || !!nativeSelfShare));
+  useScreenAwake(status !== "connecting" && videos.length > 0);
 
   return (
     <div className={`voice-stage-wrap${room.call ? " is-call" : ""}${expanded ? " is-expanded" : ""}`}>
@@ -512,14 +510,6 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
                       <ScreenTile tile={tile} focused={false} onFocus={() => setFocus(tile.key)} onMenu={menu.openFor} />
                     </div>
                   ))}
-                {nativeSelfShare && (
-                  <div className="voice-person">
-                    <div className="voice-tile is-self-share">
-                      <MonitorUp size={30} />
-                      <span>You're sharing {screenShare.name}</span>
-                    </div>
-                  </div>
-                )}
                 {members.map((member) => {
                   const camera = cameras.get(member.userId);
                   return (

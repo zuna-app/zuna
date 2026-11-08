@@ -10,9 +10,6 @@ export type ScreenContent = "detail" | "text" | "motion";
 export type ScreenPriority = "sharp" | "smooth" | "balanced";
 // LiveKit has no end-to-end encryption for AV1, so a share in it would show nothing.
 export type ScreenCodec = "auto" | "h264" | "vp8" | "vp9";
-export type ScreenEncoder = "auto" | "h264_nvenc" | "h264_amf" | "h264_mf" | "h264_vaapi";
-/** How much work a native share's encoder puts into each frame. */
-export type ScreenEffort = "speed" | "balanced" | "best";
 
 export interface VoiceSettings {
   inputDevice: string;
@@ -47,21 +44,13 @@ export interface VoiceSettings {
   screenHeight: number | null;
   screenContent: ScreenContent;
   screenPriority: ScreenPriority;
-  /** The pointer shows in a native share. A browser always shows it. */
-  screenCursor: boolean;
-  /** A share starts with sound: a screen's the whole computer's, apart from this call, and a window's its app's. */
+  /** A share starts with the sound the browser offers with it. */
   screenSoundByDefault: boolean;
   /** Most a share's sound may send, in kbit/s. */
   screenSoundKbps: number;
-  /** A whole screen is captured and encoded natively, where this build can. */
-  screenNative: boolean;
-  screenEncoder: ScreenEncoder;
-  screenEffort: ScreenEffort;
-  /** Seconds between a native share's regular keyframes. */
-  screenKeyframes: number;
-  /** What a share through the browser is encoded with. */
+  /** What a share is encoded with. */
   screenCodec: ScreenCodec;
-  /** A share through the browser also sends a smaller copy, for those on a slow connection. */
+  /** A share also sends a smaller copy, for those on a slow connection. */
   screenLayers: boolean;
   /** How loud others' shares are, from 0 to 2. */
   screenVolume: number;
@@ -96,13 +85,8 @@ export const VOICE_DEFAULTS: VoiceSettings = {
   screenHeight: null,
   screenContent: "detail",
   screenPriority: "sharp",
-  screenCursor: true,
   screenSoundByDefault: true,
   screenSoundKbps: 128,
-  screenNative: true,
-  screenEncoder: "auto",
-  screenEffort: "balanced",
-  screenKeyframes: 10,
   screenCodec: "auto",
   screenLayers: false,
   screenVolume: 1,

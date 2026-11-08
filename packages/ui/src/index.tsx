@@ -13,23 +13,7 @@ import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { setPlatform, type Platform } from "./platform";
 
-export type {
-  BootResult,
-  DisplaySource,
-  NativeScreenInfo,
-  NativeScreenOptions,
-  NativeScreenShare,
-  NativeScreenStats,
-  NotificationReply,
-  NotificationRoute,
-  NotificationsToClear,
-  NotificationState,
-  NotifyPayload,
-  Platform,
-  ShareSound,
-  SoundApp,
-  WindowSoundApp,
-} from "./platform";
+export type { BootResult, NotificationRoute, NotificationsToClear, NotifyPayload, Platform } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 
 /** Shows the app in the page's #root, on whatever the host provides, until the returned function removes it. */

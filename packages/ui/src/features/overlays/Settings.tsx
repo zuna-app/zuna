@@ -320,11 +320,6 @@ function NotificationsSection() {
           </select>
         </SettingRow>
       )}
-      {platform.setCloseToTray && (
-        <SettingRow title="Keep running when closed" hint="Zuna stays in the system tray so messages still arrive.">
-          <Switch on={settings.closeToTray} onChange={(value) => update({ closeToTray: value })} label="Keep running when closed" />
-        </SettingRow>
-      )}
     </>
   );
 }

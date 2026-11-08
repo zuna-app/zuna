@@ -1,8 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
-import { ConnectionStatus, Logo, Toasts } from "@/components/ui";
-import { sendNotificationReply } from "@/features/chat/Composer";
+import { Logo, Toasts } from "@/components/ui";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { Shell } from "@/features/shell/Shell";
 import { Overlays } from "@/features/overlays/Overlays";
@@ -10,23 +9,6 @@ import { applySettings, saveSettings } from "@/state/settings";
 import { useApp } from "@/state/store";
 import { watchActivity } from "@/state/activity";
 import { platform } from "@/platform";
-
-function TitleBar() {
-  const [os, setOs] = useState<string | null>(null);
-  useEffect(() => {
-    void platform.os?.().then(setOs);
-  }, []);
-  if (!platform.titleBar) return null;
-  return (
-    <div className={`titlebar${os === "darwin" ? " is-mac" : ""}`}>
-      <span className="titlebar-brand">
-        <Logo size={14} />
-        Zuna
-      </span>
-      <ConnectionStatus />
-    </div>
-  );
-}
 
 /** The web app's files changed on its host. Reloading picks up the new version. */
 function UpdateNotice() {
@@ -79,18 +61,16 @@ export function App() {
   const setOverlay = useApp((state) => state.setOverlay);
 
   useEffect(() => {
-    document.body.classList.toggle("has-titlebar", platform.titleBar);
     void boot();
   }, [boot]);
 
   useEffect(() => {
     applySettings(settings);
     saveSettings(settings);
-    platform.setCloseToTray?.(settings.closeToTray);
     if (!settings.notifications) platform.clearNotifications?.({});
   }, [settings]);
 
-  // OS integration: invite links and clicks on notifications.
+  // Invite links and clicks on notifications.
   useEffect(() => {
     if (phase !== "ready") return;
     const openLink = (link: string) => setOverlay({ type: "add-server", link });
@@ -103,7 +83,6 @@ export function App() {
         useApp.getState().selectServer(serverId);
         useApp.getState().selectConversation(key);
       }),
-      platform.onNotificationReply?.(sendNotificationReply),
     ];
     return () => {
       for (const remove of removers) remove?.();
@@ -115,13 +94,11 @@ export function App() {
   useEffect(() => {
     const setFocused = (focused: boolean) => useApp.setState({ windowFocused: focused });
     setFocused(document.hasFocus());
-    const removeHost = platform.onFocus?.(setFocused);
     const onFocus = () => setFocused(true);
     const onBlur = () => setFocused(false);
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
     return () => {
-      removeHost?.();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
@@ -147,7 +124,7 @@ export function App() {
     };
   }, [phase]);
 
-  // A tab can be closed in the middle of a send. The desktop keeps running in its tray instead.
+  // A tab can be closed in the middle of a send.
   useEffect(() => {
     if (!platform.warnBeforeLeaving) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -167,7 +144,6 @@ export function App() {
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? "always" : "user"}>
       <div className="app-root">
-        <TitleBar />
         <div className="app-body">
           {phase === "booting" && <BootScreen />}
           {phase === "failed" && <BootFailure message={bootError ?? ""} />}

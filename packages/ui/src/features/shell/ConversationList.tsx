@@ -36,7 +36,6 @@ import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
 import { ReadTicks, readUpToOf } from "@/features/chat/MessageItem";
 import { ChannelSections } from "@/features/voice/ChannelList";
-import { platform } from "@/platform";
 import { useActiveServer, useApp } from "@/state/store";
 
 type Filter = "all" | "channels" | "people" | "groups" | "unread";
@@ -341,8 +340,8 @@ export function ConversationList() {
           <span className="truncate">{server.entry.name}</span>
           <ChevronDown size={15} />
         </button>
-        {/* Without a title bar, the connection shows here, as in Telegram's web app. */}
-        {!platform.titleBar && <ConnectionStatus />}
+        {/* The connection shows here, as in Telegram's web app. */}
+        <ConnectionStatus />
         <Tooltip text="New group">
           <button className="icon-btn" onClick={() => setOverlay({ type: "new-group" })} aria-label="New group">
             <SquarePen size={17} />

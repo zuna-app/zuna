@@ -14,15 +14,6 @@ interface BootMessage {
   deviceName: string;
   /** A development build's previews may reach this machine, for its test pages. */
   localLinks: boolean;
-  /** The host can trust a server's own certificate by its pin, as only the desktop app can. */
-  pinning: boolean;
-}
-
-/** The host's answer to trusting a pin, which `connectWorker` sends back. */
-interface PinnedMessage {
-  kind: "pinned";
-  id: number;
-  error?: string;
 }
 
 function base64(bytes: Uint8Array): string {
@@ -63,26 +54,8 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
   const port = self as unknown as { postMessage(message: unknown): void; onmessage: ((event: MessageEvent) => void) | null };
   const emit: (event: CoreEvent) => void = serveCore(port, () => clientReady);
   const serve = port.onmessage!;
-  // Certificates are checked outside the page, so a pin goes to the host through it.
-  const pinning = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
-  let nextPin = 0;
-  const pinServer = (url: string, pin: string) =>
-    new Promise<void>((resolve, reject) => {
-      const id = nextPin++;
-      pinning.set(id, { resolve, reject });
-      port.postMessage({ kind: "pin", id, url, pin });
-    });
-
   port.onmessage = async (event: MessageEvent) => {
-    const data = event.data as BootMessage | PinnedMessage | { kind: string };
-    if (data.kind === "pinned") {
-      const { id, error } = data as PinnedMessage;
-      const waiting = pinning.get(id);
-      pinning.delete(id);
-      if (error === undefined) waiting?.resolve();
-      else waiting?.reject(new Error(error));
-      return;
-    }
+    const data = event.data as BootMessage | { kind: string };
     if (data.kind !== "boot") {
       void serve.call(port as never, event);
       return;
@@ -100,7 +73,6 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
         deviceName: boot.deviceName,
         onEvent: (coreEvent) => emit(coreEvent),
         web,
-        pinServer: boot.pinning ? pinServer : undefined,
       });
       await client.open();
       resolveClient!(client);

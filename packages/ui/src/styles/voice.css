@@ -109,7 +109,6 @@
 }
 .voice-tile.is-speaking { outline-color: var(--green); }
 .voice-tile.is-screen { background: #000; cursor: pointer; }
-.voice-tile.is-self-share { flex-direction: column; gap: 8px; color: var(--text-2); font-size: 13px; padding: 12px; text-align: center; }
 .voice-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .voice-video.is-contained { object-fit: contain; }
 .voice-video.is-mirrored { transform: scaleX(-1); }
@@ -183,16 +182,6 @@
 .btn.is-listening { border-color: var(--accent); color: var(--text-1); }
 
 /* Choosing what to share. */
-.screen-loading { display: flex; justify-content: center; padding: 40px; }
-.screen-tabs { align-self: flex-start; margin-bottom: 8px; }
-.screen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; max-height: 320px; overflow-y: auto; padding: 2px; }
-.screen-source { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: var(--radius-m); text-align: left; border: 1px solid transparent; min-width: 0; }
-.screen-source:hover { background: var(--hover); }
-.screen-source.is-chosen { border-color: var(--accent); background: var(--accent-soft); }
-.screen-thumb { display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; border-radius: var(--radius-s); background: var(--bg-3); overflow: hidden; color: var(--text-3); }
-.screen-thumb img { width: 100%; height: 100%; object-fit: contain; }
-.screen-name { font-size: 12.5px; color: var(--text-2); }
-.screen-native { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); margin: 2px 0 0; }
 .screen-held { font-size: 12.5px; color: var(--text-2); margin: 0; }
 .screen-sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .screen-more { align-self: flex-start; padding: 0; font-size: 12.5px; color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
@@ -252,7 +241,7 @@
 .call-join { color: var(--green); gap: 5px; }
 
 /* A call ringing, over everything, wherever the person is. */
-.incoming-calls { position: fixed; top: calc(var(--titlebar-height, 0px) + 12px); left: 50%; transform: translateX(-50%); z-index: 95; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); }
+.incoming-calls { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 95; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); }
 .incoming-call {
   display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius-l);
   background: var(--bg-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow-l); animation: rise-in 0.14s var(--ease-out);

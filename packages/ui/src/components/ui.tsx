@@ -32,7 +32,7 @@ export function TypingDots() {
   );
 }
 
-/** The app's icon, as in apps/desktop-electron-legacy/resources/icon.svg: a white Z on black. */
+/** The app's icon, as in apps/desktop/resources/icon.svg: a white Z on black. */
 export function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 1024 1024" aria-hidden="true">

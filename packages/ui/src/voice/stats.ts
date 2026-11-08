@@ -3,7 +3,6 @@
 // unless that window is open.
 
 import { Track, type LocalTrack, type RemoteTrack, type RemoteTrackPublication, type TrackPublication } from "livekit-client";
-import type { NativeScreenInfo, NativeScreenStats } from "@/platform";
 
 export interface StatRow {
   label: string;
@@ -26,7 +25,7 @@ export interface StatsStream {
   userId: string;
   local: boolean;
   source: Track.Source;
-  /** It comes from a native screen share rather than from a browser. */
+  /** Someone else's screen share that comes from their native app rather than from a browser. */
   native: boolean;
   track: LocalTrack | RemoteTrack;
   publication: TrackPublication;
@@ -47,7 +46,6 @@ export interface StatsRoom {
 
 /** This device's own share, as it was asked for. */
 export interface StatsShare {
-  native: boolean;
   name: string;
   fps: number;
   bitrateKbps: number;
@@ -55,38 +53,11 @@ export interface StatsShare {
   height: number;
   /** What the server's limits brought down from what this device had chosen, in words. */
   held: string[];
-  info?: NativeScreenInfo;
-  whyNotNative?: string | null;
-}
-
-/** What a native share has reported, which only says what happened in the last second. */
-export interface NativeReadings {
-  latest: NativeScreenStats | null;
-  /** Windows counts CPU time in steps of 15.6 ms, which is too coarse to go by for one second. */
-  cpuCores: number;
-  keys: number;
-  keyRequests: number;
-  bitrateChanges: number;
-  rejected: number;
-}
-
-export const NO_NATIVE_READINGS: NativeReadings = { latest: null, cpuCores: 0, keys: 0, keyRequests: 0, bitrateChanges: 0, rejected: 0 };
-
-export function addNativeReading(readings: NativeReadings, stats: NativeScreenStats): NativeReadings {
-  return {
-    latest: stats,
-    cpuCores: readings.latest ? readings.cpuCores * 0.8 + stats.cpuCores * 0.2 : stats.cpuCores,
-    keys: readings.keys + stats.keys,
-    keyRequests: readings.keyRequests + stats.keyRequests,
-    bitrateChanges: readings.bitrateChanges + stats.bitrateChanges,
-    rejected: readings.rejected + stats.rejected,
-  };
 }
 
 export interface StatsInput {
   room: StatsRoom;
   share: StatsShare | null;
-  native: NativeReadings;
   /** How the microphone's sound is cleaned up before it goes out. */
   micFilters: string;
   nameOf(userId: string): string;
@@ -193,7 +164,7 @@ export class StreamStats {
   }
 
   async read(input: StatsInput): Promise<StatSection[]> {
-    const { room, share, native } = input;
+    const { room, share } = input;
     const reports = await Promise.all(room.streams.map(async (stream) => ({ stream, report: await stream.track.getRTCStatsReport().catch(() => undefined) })));
     const sending = reports.find(({ stream, report }) => stream.local && report)?.report;
     const receiving = reports.find(({ stream, report }) => !stream.local && report)?.report;
@@ -203,7 +174,6 @@ export class StreamStats {
     const isVideo = ({ source }: StatsStream) => source === Track.Source.Camera || source === Track.Source.ScreenShare;
     const readable = reports.flatMap(({ stream, report }) => (report ? [{ stream, report }] : [])).sort((a, b) => Number(a.stream.local ? 0 : 1) - Number(b.stream.local ? 0 : 1));
     const sections: StatSection[] = [
-      ...(share?.native ? [this.nativeShare(share, native)] : []),
       ...readable
         .filter(({ stream }) => isVideo(stream) && !stream.publication.isMuted)
         .map(({ stream, report }) => {
@@ -224,7 +194,7 @@ export class StreamStats {
 
   private forgetGone(here: Set<string>): void {
     for (const key of this.before.keys()) if (!here.has(key)) this.before.delete(key);
-    for (const key of this.histories.keys()) if (!here.has(key) && key !== "native") this.histories.delete(key);
+    for (const key of this.histories.keys()) if (!here.has(key)) this.histories.delete(key);
     for (const element of this.painted.keys()) if (!element.isConnected) this.painted.delete(element);
   }
 
@@ -292,45 +262,6 @@ export class StreamStats {
     };
   }
 
-  // --- A native share ---
-
-  private nativeShare(share: StatsShare, native: NativeReadings): StatSection {
-    const { latest } = native;
-    const sent = latest ? latest.fps + latest.repeatFps : null;
-    return {
-      id: "native",
-      title: "Your screen",
-      kind: "video",
-      headline: { fps: sent, label: "sent", wanted: share.fps, history: this.history("native", sent) },
-      rows: rows([
-        row("Sent through", "Native program, on the graphics card"),
-        row("Sharing", share.name),
-        row("Capture and encoder", share.info?.description),
-        row("Picture", size(latest?.width ?? share.info?.width, latest?.height ?? share.info?.height)),
-        row("Tallest asked for", share.height ? `${share.height} lines` : null),
-        row("Held to the server's limits", share.held.length ? share.held.join(", ") : null),
-        row("New frames", fps(latest?.fps)),
-        row("Repeated frames", fps(latest?.repeatFps)),
-        // The compositor sends frames, and whether they come evenly is where a stutter starts. Only
-        // Linux leaves out those that come early: Windows waits for their turn, and takes the newest.
-        row("From the compositor", latest?.arrivalMs ? `${(1000 / latest.arrivalMs).toFixed(1)} fps, ${latest.arrivalMs.toFixed(1)} ms apart, ±${(latest.arrivalJitterMs ?? 0).toFixed(1)} ms` : null),
-        row("Left out for coming early", latest?.arrivalMs ? fps(latest.earlyFps) : null, (latest?.earlyFps ?? 0) > 0),
-        row("Frame spacing", latest?.spacingMs ? `${latest.spacingMs.toFixed(1)} ms, ±${(latest.spacingJitterMs ?? 0).toFixed(1)} ms` : null),
-        row("Bitrate", bits(latest && latest.kbps * 1000)),
-        row("Most asked for", bits(share.bitrateKbps * 1000)),
-        row("Network allows", bits(latest && latest.targetKbps * 1000)),
-        row("Encoder set to", bits(latest && latest.encoderKbps * 1000)),
-        row("Encode time", latest && `${latest.encodeMsAvg.toFixed(1)} ms, at most ${latest.encodeMsMax.toFixed(1)} ms`),
-        row("CPU", latest && `${(native.cpuCores * 100).toFixed(1)}% of a core`),
-        row("Keyframes", latest && `${count(native.keys)}, ${count(native.keyRequests)} asked for`),
-        row("Bitrate changes", latest && count(native.bitrateChanges)),
-        row("Frames refused", latest && count(native.rejected), native.rejected > 0),
-        row("Keyframes rewritten", latest && `${count(latest.idrRewritten)}, ${count(latest.idrLeftAlone)} left alone`),
-        row("Encryption", share.info ? (share.info.e2ee ? "End to end" : "Off") : null, share.info ? !share.info.e2ee : false),
-      ]),
-    };
-  }
-
   // --- Video going out ---
 
   private sentVideo(stream: StatsStream, report: RTCStatsReport, title: string, share: StatsShare | null): StatSection {
@@ -358,7 +289,6 @@ export class StreamStats {
       headline: { fps: sentFps, label: "sent", wanted: isShare ? (share?.fps ?? null) : null, history: this.history(stream.key, sentFps) },
       rows: rows([
         row("Sent through", isShare ? "The browser" : null),
-        row("Why not natively", isShare ? share?.whyNotNative : null, true),
         row("Sharing", isShare ? share?.name : null),
         row("Asked capture for", isShare && share ? `${share.fps} fps${share.height ? `, up to ${share.height} lines` : ""}` : null),
         row("Held to the server's limits", isShare && share?.held.length ? share.held.join(", ") : null),

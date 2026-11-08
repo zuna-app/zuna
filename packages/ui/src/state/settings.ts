@@ -6,7 +6,6 @@ export interface AppSettings {
   notifications: boolean;
   notificationSound: boolean;
   notificationPreview: "full" | "sender" | "none";
-  closeToTray: boolean;
   reduceMotion: boolean;
   enterToSend: boolean;
   /** This device fetches a page to preview the first link in a message being written. */
@@ -23,7 +22,6 @@ const DEFAULTS: AppSettings = {
   notifications: true,
   notificationSound: true,
   notificationPreview: "full",
-  closeToTray: true,
   reduceMotion: false,
   enterToSend: true,
   linkPreviews: true,

@@ -3,9 +3,8 @@ import { DEFAULT_SCREEN_RULES, screenTerms } from "@zuna/core/voice";
 import { useEffect, useState } from "react";
 import { Field, Spinner, Switch, useAction } from "@/components/ui";
 import { SettingRow } from "@/features/overlays/Settings";
-import { platform } from "@/platform";
 import { useActiveServer, useApp } from "@/state/store";
-import { bitrateName, heightName, rateName, SCREEN_BITRATES, SCREEN_HEIGHTS, SCREEN_RATES, SCREEN_SOUND_BITRATES, screenLimitsText, type ScreenCodec, type ScreenContent, type ScreenEffort, type ScreenEncoder, type ScreenPriority } from "@/voice/settings";
+import { bitrateName, heightName, rateName, SCREEN_BITRATES, SCREEN_HEIGHTS, SCREEN_RATES, SCREEN_SOUND_BITRATES, screenLimitsText, type ScreenCodec, type ScreenContent, type ScreenPriority } from "@/voice/settings";
 import { useVoice } from "@/voice/store";
 
 /**
@@ -76,11 +75,6 @@ const PRIORITIES: { id: ScreenPriority; label: string }[] = [
   { id: "balanced", label: "Balance" },
   { id: "smooth", label: "Keep it smooth" },
 ];
-const EFFORTS: { id: ScreenEffort; label: string }[] = [
-  { id: "speed", label: "Fastest" },
-  { id: "balanced", label: "Balanced" },
-  { id: "best", label: "Best picture" },
-];
 const CODECS: { id: ScreenCodec; label: string }[] = [
   { id: "auto", label: "Automatic" },
   { id: "h264", label: "H.264" },
@@ -104,7 +98,6 @@ export function ScreenSettingsSection() {
   const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate, soundKbps: settings.screenSoundKbps }, rules, role);
   const suggested = screenTerms({ height: null, fps: null, kbps: null, soundKbps: settings.screenSoundKbps }, rules, role);
   const limits = screenLimitsText(rules, role);
-  const native = platform.nativeScreen;
 
   return (
     <>
@@ -144,69 +137,27 @@ export function ScreenSettingsSection() {
         onChange={(value) => update({ screenBitrate: value })}
       />
 
-      {platform.systemAudio && (
+      <h3 className="settings-subhead">Sound</h3>
+      {shown.sound ? (
         <>
-          <h3 className="settings-subhead">Sound</h3>
-          {shown.sound ? (
-            <>
-              <SettingRow title="Start with sound on" hint="A screen starts with everything your computer plays, apart from this call, and a window with its app's sound where Zuna can tell which that is. You can still change it each time.">
-                <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label="Start with sound on" />
-              </SettingRow>
-              <NumberSelect
-                label="Sound quality"
-                value={settings.screenSoundKbps}
-                options={SCREEN_SOUND_BITRATES}
-                name={bitrateName}
-                limit={limit(shown.max_sound_kbps)}
-                onChange={(value) => update({ screenSoundKbps: value ?? 128 })}
-              />
-            </>
-          ) : (
-            <p className="screen-held">This server doesn't let sound go with a share.</p>
-          )}
-        </>
-      )}
-
-      {native && (
-        <>
-          <h3 className="settings-subhead">On your graphics card</h3>
-          <SettingRow title="Capture on your graphics card" hint={`Much lighter on your computer, and it stays smooth at high frame rates.${native.windows ? "" : " Windows always go through the browser."}`}>
-            <Switch on={settings.screenNative} onChange={(value) => update({ screenNative: value })} label="Capture on your graphics card" />
+          <SettingRow title="Start with sound on" hint="A screen starts with everything your computer plays, apart from this call, and a window with its app's sound where Zuna can tell which that is. You can still change it each time.">
+            <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label="Start with sound on" />
           </SettingRow>
-          {settings.screenNative && (
-            <>
-              <SettingRow title="Show your pointer" hint="Whatever goes through the browser always shows it.">
-                <Switch on={settings.screenCursor} onChange={(value) => update({ screenCursor: value })} label="Show your pointer" />
-              </SettingRow>
-              <label className="field">
-                <span className="field-label">Encoder</span>
-                <select className="select" value={settings.screenEncoder} onChange={(event) => update({ screenEncoder: event.target.value as ScreenEncoder })}>
-                  <option value="auto">Automatic: the card driving the screen</option>
-                  {native.encoders.map((encoder) => (
-                    <option key={encoder.id} value={encoder.id}>
-                      {encoder.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="setting-hint">If this one can't be used, your share goes through the browser instead, and Stream stats says why.</span>
-              </label>
-              <SettingRow title="Effort per frame" hint="More effort looks better at the same bitrate, and can drop frames at large sizes.">
-                <Segmented value={settings.screenEffort} options={EFFORTS} onChange={(value) => update({ screenEffort: value })} label="Effort per frame" />
-              </SettingRow>
-              <label className="field">
-                <span className="field-label">
-                  A full picture every <b style={{ fontWeight: 500 }}>{settings.screenKeyframes} s</b>
-                </span>
-                <input className="voice-slider" type="range" min={1} max={30} step={1} value={settings.screenKeyframes} onChange={(event) => update({ screenKeyframes: Number(event.target.value) })} />
-                <span className="setting-hint">Sooner helps anyone who joins or loses packets, and costs some sharpness.</span>
-              </label>
-            </>
-          )}
+          <NumberSelect
+            label="Sound quality"
+            value={settings.screenSoundKbps}
+            options={SCREEN_SOUND_BITRATES}
+            name={bitrateName}
+            limit={limit(shown.max_sound_kbps)}
+            onChange={(value) => update({ screenSoundKbps: value ?? 128 })}
+          />
         </>
+      ) : (
+        <p className="screen-held">This server doesn't let sound go with a share.</p>
       )}
 
-      <h3 className="settings-subhead">{native ? "Through the browser" : "Encoding"}</h3>
-      <p className="screen-held">{native ? "For windows, or whenever a screen can't be captured on your graphics card." : "Your browser captures and encodes what you share."}</p>
+      <h3 className="settings-subhead">Encoding</h3>
+      <p className="screen-held">Your browser captures and encodes what you share.</p>
       <SettingRow title="Mostly showing" hint="Text and detail stay crisp, and motion stays fluid.">
         <Segmented value={settings.screenContent} options={CONTENTS} onChange={(value) => update({ screenContent: value })} label="Mostly showing" />
       </SettingRow>

@@ -1,7 +1,6 @@
 // Voice messages: recording from the microphone with a waveform, as in
 // Telegram, and playing one at a time.
 
-import { platform } from "@/platform";
 import { opusTrack, writeMp4 } from "./mp4";
 import { opusFromWebm } from "./webm";
 
@@ -69,9 +68,6 @@ export class VoiceRecorder {
 
   /** Starts recording, or throws with a message to show when the microphone isn't available. */
   static async start(onLevel: (level: number) => void = () => undefined): Promise<VoiceRecorder> {
-    if (platform.microphone && !(await platform.microphone())) {
-      throw new Error("Zuna can't use the microphone. Allow it in your system's privacy settings.");
-    }
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });

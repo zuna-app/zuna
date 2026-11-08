@@ -73,7 +73,6 @@
 
 /* Settings */
 .settings-layer { position: fixed; inset: 0; z-index: 55; background: var(--bg-chat); display: flex; animation: fade-in 0.08s; }
-.has-titlebar .settings-layer { top: var(--titlebar-height); }
 .settings { flex: 1; display: flex; min-width: 0; }
 .settings-nav { width: 228px; flex: none; padding: 24px 10px 20px; background: var(--bg-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; overflow-y: auto; }
 .settings-nav h2 { font-size: 12px; font-weight: 500; color: var(--text-3); padding: 0 10px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

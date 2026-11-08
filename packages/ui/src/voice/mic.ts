@@ -1,7 +1,6 @@
 // The microphone, from the device to the track that gets published. The track stays
 // the same when the device changes, so nothing has to be published again.
 
-import { platform } from "@/platform";
 import workletUrl from "./mic.worklet.ts?worker&url";
 import type { VoiceSettings } from "./settings";
 
@@ -68,9 +67,6 @@ export class Microphone {
   }
 
   private async capture(settings: VoiceSettings): Promise<void> {
-    if (platform.microphone && !(await platform.microphone())) {
-      throw new MicError("Zuna can't use the microphone. Allow it in your system's privacy settings.");
-    }
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: Microphone.constraints(settings) });

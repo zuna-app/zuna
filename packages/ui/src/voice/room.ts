@@ -28,7 +28,6 @@ import {
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
 import type { ScreenCodec, ScreenContent, ScreenPriority, VoiceSettings } from "./settings";
-import { ShareSoundTrack } from "./share-sound";
 import type { StatsRoom, StatsStream } from "./stats";
 
 /**
@@ -107,8 +106,6 @@ export interface RoomEvents {
   micLost(): void;
   /** Someone new came in or left the room. */
   participants(joined: string | null, left: string | null): void;
-  /** A new key is in use for sending, for telling a native screen share. */
-  sendKey(key: Uint8Array, index: number): void;
 }
 
 const QUALITY: Record<ConnectionQuality, RoomQuality> = {
@@ -299,11 +296,6 @@ export class VoiceRoom {
   }
 
   private onSubscribed(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant): void {
-    // A share from this device's native process, which there's no need to send back to it.
-    if (participant.identity === `${this.identity}.screen`) {
-      publication.setSubscribed(false);
-      return;
-    }
     if (track.kind === Track.Kind.Audio) {
       const audio = track as RemoteAudioTrack;
       this.audioHolder.append(audio.attach());
@@ -325,13 +317,9 @@ export class VoiceRoom {
     clearTimeout(this.sendTimer);
     if (first) {
       await this.keys.install(key, this.identity, index);
-      this.on.sendKey(key, index);
       return;
     }
-    this.sendTimer = setTimeout(() => {
-      void this.keys.install(key, this.identity, index);
-      this.on.sendKey(key, index);
-    }, NEW_KEY_SEND_DELAY_MS);
+    this.sendTimer = setTimeout(() => void this.keys.install(key, this.identity, index), NEW_KEY_SEND_DELAY_MS);
   }
 
   /** The keys a participant may be sending under: the older first, so the newer ends up current. */
@@ -340,16 +328,9 @@ export class VoiceRoom {
     for (const { key, index } of [...this.roomKeys].reverse()) await this.keys.install(key, identity, index);
   }
 
-  /** The room's key now, for a native screen share. */
-  get currentKey(): { key: Uint8Array; index: number } | null {
-    return this.roomKeys[0] ?? null;
-  }
-
   // --- Microphone ---
 
   private muted = false;
-  private systemAudio: MediaStreamTrack | null = null;
-  private shareSound: ShareSoundTrack | null = null;
 
   /** Whether sound goes out from here. */
   async setMuted(muted: boolean): Promise<void> {
@@ -436,7 +417,7 @@ export class VoiceRoom {
   /** Everything being sent that can be watched, and from here. */
   videos(): VideoTile[] {
     const tiles: VideoTile[] = [];
-    // A native share's sound goes out from the person's own connection, beside the picture from another.
+    // A share from someone's native app goes out from a connection of its own, and its sound from theirs.
     const sound = new Set<string>();
     for (const participant of this.room.remoteParticipants.values()) {
       const user = userOf(participant.identity);
@@ -444,8 +425,7 @@ export class VoiceRoom {
     }
     const add = (participant: Participant, local: boolean) => {
       const parsed = parseVoiceIdentity(participant.identity);
-      // This device's own native share isn't sent back to it.
-      if (!parsed || participant.identity === `${this.identity}.screen`) return;
+      if (!parsed) return;
       for (const publication of participant.trackPublications.values()) {
         const { track } = publication;
         if (publication.kind !== Track.Kind.Video || !track || publication.isMuted) continue;
@@ -489,7 +469,7 @@ export class VoiceRoom {
     });
   }
 
-  /** Shares through the browser's own capture, which the web app and windows use. */
+  /** Shares through the browser's own capture. */
   async startBrowserScreen(share: BrowserShare): Promise<void> {
     const canSend = (name: string) => RTCRtpSender.getCapabilities("video")?.codecs.some((codec) => codec.mimeType.toLowerCase() === `video/${name}`);
     // Hardware encoders are mostly for H.264, which is what keeps a share from taking up the CPU.
@@ -518,44 +498,6 @@ export class VoiceRoom {
       },
     );
     this.on.media();
-  }
-
-  /**
-   * Sends the computer's sound along with a share that has none of its own. A native share
-   * only captures pictures, so the sound comes from the browser, whose picture isn't used,
-   * or from the platform, whose samples come over a port.
-   */
-  async startSystemAudio(kbps: number, samples?: MessagePort): Promise<void> {
-    let track: MediaStreamTrack | undefined;
-    if (samples) {
-      this.shareSound = await ShareSoundTrack.open(this.audio, samples);
-      track = this.shareSound.track;
-    } else {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: SYSTEM_AUDIO });
-      for (const video of stream.getVideoTracks()) video.stop();
-      track = stream.getAudioTracks()[0];
-    }
-    if (!track) return;
-    this.systemAudio = track;
-    await this.room.localParticipant.publishTrack(track, {
-      source: Track.Source.ScreenShareAudio,
-      name: "screen-audio",
-      dtx: false,
-      red: false,
-      // LiveKit can't tell a track made in Web Audio has two channels.
-      ...(samples ? { forceStereo: true } : {}),
-      audioPreset: { maxBitrate: kbps * 1000 },
-    });
-  }
-
-  async stopSystemAudio(): Promise<void> {
-    const track = this.systemAudio;
-    this.systemAudio = null;
-    this.shareSound?.stop();
-    this.shareSound = null;
-    if (!track) return;
-    await this.room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
-    track.stop();
   }
 
   async stopBrowserScreen(): Promise<void> {

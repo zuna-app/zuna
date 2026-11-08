@@ -1,21 +1,14 @@
-import { platform } from "@/platform";
-
-// Times follow the system's clock, 12 or 24 hours, rather than the interface's language.
-// The host says which when the app starts, so the two formats that care are made on first use.
-let clockFormats: { time: Intl.DateTimeFormat; full: Intl.DateTimeFormat } | undefined;
-const clock = () =>
-  (clockFormats ??= {
-    time: new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: platform?.hour12 }),
-    full: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12: platform?.hour12 }),
-  });
+// Times follow the browser's language, 12 or 24 hours, as it can't see the system's clock.
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
 const fullDayYearFormat = new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" });
 
-export const formatTime = (at: number) => clock().time.format(at);
-export const formatFull = (at: number) => clock().full.format(at);
+export const formatTime = (at: number) => timeFormat.format(at);
+export const formatFull = (at: number) => fullFormat.format(at);
 
 const startOfDay = (at: number) => {
   const date = new Date(at);

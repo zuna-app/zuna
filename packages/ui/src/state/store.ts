@@ -18,9 +18,7 @@ import type {
   VoiceMember,
 } from "@zuna/core";
 import { create } from "zustand";
-import { platform, type NotificationCard } from "@/platform";
-import { avatarColor, initialsOf } from "@/lib/format";
-import { smallPicture } from "@/lib/media";
+import { platform } from "@/platform";
 import { playNotificationSound } from "@/lib/sound";
 import { voiceHooks } from "@/voice/events";
 import { loadSettings, type AppSettings } from "./settings";
@@ -198,18 +196,6 @@ export function findConversation(server: ServerState | undefined, key: string): 
   return server?.conversations.find((item) => item.key === key) ?? server?.channels.find((item) => item.conversation?.key === key)?.conversation ?? undefined;
 }
 
-/** How long a notification waits for a picture it doesn't have yet. It shows initials after that. */
-const NOTIFICATION_PICTURE_MS = 400;
-
-async function notificationPicture(serverId: string, title: string, key: string, conversation: ConversationView | undefined): Promise<NotificationCard["picture"]> {
-  // The same as beside the chat in the list.
-  const picture = { image: null as string | null, initials: initialsOf(conversation?.title ?? title), color: avatarColor(conversation?.peerId ?? conversation?.groupId ?? key) };
-  if (!conversation?.avatar) return picture;
-  const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), NOTIFICATION_PICTURE_MS));
-  picture.image = await Promise.race([smallPicture(serverId, conversation.avatar).catch(() => null), late]);
-  return picture;
-}
-
 export const useApp = create<AppState>((set, get) => {
   const patchServer = (serverId: string, patch: Partial<ServerState> | ((server: ServerState) => Partial<ServerState>)) =>
     set((state) => {
@@ -298,31 +284,14 @@ export const useApp = create<AppState>((set, get) => {
       return;
     }
     if (!platform.notify || !settings.notifications) return;
-    notifying = notifying
-      .then(async () => {
-        const system = (await platform.notificationState?.()) ?? { show: true, sound: true, waitForInput: true };
-        if (!system.show) return;
-        const preview = settings.notificationPreview;
-        // A call's ringing has its own sound, so the notification makes none.
-        platform.notify?.({
-          title: preview === "none" ? "Zuna" : conversation.title,
-          body: preview === "none" ? (ringing ? "Incoming call" : "Missed call") : body,
-          route: { serverId, key: conversation.key },
-          messageId,
-          card: platform.drawsNotifications
-            ? {
-                messageId,
-                kind: conversation.kind,
-                picture: preview === "none" ? null : await notificationPicture(serverId, conversation.title, conversation.key, conversation),
-                canReply: false,
-                waitForInput: system.waitForInput,
-                accent: settings.accent,
-                reduceMotion: settings.reduceMotion,
-              }
-            : undefined,
-        });
-      })
-      .catch(() => undefined);
+    const preview = settings.notificationPreview;
+    // A call's ringing has its own sound, so the notification makes none.
+    platform.notify({
+      title: preview === "none" ? "Zuna" : conversation.title,
+      body: preview === "none" ? (ringing ? "Incoming call" : "Missed call") : body,
+      route: { serverId, key: conversation.key },
+      messageId,
+    });
   };
 
   /** When each chat was last notified about, by server: what may still be up. */
@@ -563,39 +532,13 @@ export const useApp = create<AppState>((set, get) => {
     if (!platform.notify || !settings.notifications) return;
     if (!notified.has(event.serverId)) notified.set(event.serverId, new Map());
     notified.get(event.serverId)!.set(event.conversationKey, Date.now());
-    // One at a time, so a picture that takes a moment can't reorder them.
-    notifying = notifying.then(() => showNotification(event)).catch(() => undefined);
-  };
-
-  let notifying: Promise<void> = Promise.resolve();
-
-  const showNotification = async (event: Extract<CoreEvent, { type: "notify" }>) => {
-    const system = (await platform.notificationState?.()) ?? { show: true, sound: true, waitForInput: true };
-    const { settings, servers } = get();
-    if (settings.notificationSound && system.sound) playNotificationSound();
-    if (!system.show) return;
+    if (settings.notificationSound) playNotificationSound();
     const preview = settings.notificationPreview;
-    const body = preview === "full" ? event.body : "New message";
-    const title = preview === "none" ? "Zuna" : event.title;
-    const route = { serverId: event.serverId, key: event.conversationKey };
-    const conversation = findConversation(servers[event.serverId], event.conversationKey);
-    platform.notify?.({
-      title,
-      body,
-      route,
+    platform.notify({
+      title: preview === "none" ? "Zuna" : event.title,
+      body: preview === "full" ? event.body : "New message",
+      route: { serverId: event.serverId, key: event.conversationKey },
       messageId: event.messageId,
-      card: platform.drawsNotifications
-        ? {
-            messageId: event.messageId,
-            kind: conversation?.kind ?? "dm",
-            picture: preview === "none" ? null : await notificationPicture(event.serverId, event.title, event.conversationKey, conversation),
-            // As in Telegram: writing back needs to show what's being answered, and somewhere to write it.
-            canReply: preview === "full" && !conversation?.removed,
-            waitForInput: system.waitForInput,
-            accent: settings.accent,
-            reduceMotion: settings.reduceMotion,
-          }
-        : undefined,
     });
   };
 

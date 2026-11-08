@@ -49,7 +49,6 @@
 
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
 
-  --titlebar-height: 32px;
   --rail-width: 64px;
   --font-ui: "Inter Variable", -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;

@@ -2,7 +2,6 @@
 // circle. The recording is H.264 and AAC in MP4 wherever the browser can make that,
 // which the iPhone app plays and records too.
 
-import { platform } from "@/platform";
 import { opusTrack, writeMp4, type Sample, type Track } from "./mp4";
 import { opusFromWebm } from "./webm";
 
@@ -56,8 +55,6 @@ export class RoundRecorder {
 
   /** Starts recording, or throws with a message to show when the camera or the microphone isn't available. */
   static async start(): Promise<RoundRecorder> {
-    if (platform.camera && !(await platform.camera())) throw new Error("Zuna can't use the camera. Allow it in your system's privacy settings.");
-    if (platform.microphone && !(await platform.microphone())) throw new Error("Zuna can't use the microphone. Allow it in your system's privacy settings.");
     let camera: MediaStream;
     try {
       camera = await navigator.mediaDevices.getUserMedia({
