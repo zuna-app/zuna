@@ -35,10 +35,15 @@ enum Request {
 /// What the notification server said.
 enum Heard {
     Shown { local: u64, id: u32 },
+    /// The server wouldn't show it.
+    Failed(u64),
     Clicked(u32),
     Token(u32, String),
     Closed(u32),
 }
+
+/// How many shown notifications are followed, for their clicks and for taking them back.
+const SHOWN_KEPT: usize = 100;
 
 pub struct NotificationCenter {
     state: WeakEntity<AppState>,
@@ -73,7 +78,10 @@ pub fn install(state: WeakEntity<AppState>, cx: &mut App) {
                             Ok(id) => {
                                 heard.unbounded_send(Heard::Shown { local, id }).ok();
                             }
-                            Err(error) => log::warn!("the notification wasn't shown: {error}"),
+                            Err(error) => {
+                                log::warn!("the notification wasn't shown: {error}");
+                                heard.unbounded_send(Heard::Failed(local)).ok();
+                            }
                         },
                         Request::Close(id) => {
                             bus.call_method(Some("org.freedesktop.Notifications"), "/org/freedesktop/Notifications", Some("org.freedesktop.Notifications"), "CloseNotification", &(id,)).ok();
@@ -220,7 +228,15 @@ impl NotificationCenter {
                     }
                 } else {
                     self.shown.push((id, payload));
+                    // A server that keeps notifications in its history may never say one closed,
+                    // so only the newest are followed.
+                    if self.shown.len() > SHOWN_KEPT {
+                        self.shown.remove(0);
+                    }
                 }
+            }
+            Heard::Failed(local) => {
+                self.waiting.remove(&local);
             }
             Heard::Token(id, token) => {
                 if self.shown.iter().any(|(shown, _)| *shown == id) {

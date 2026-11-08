@@ -104,13 +104,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move them into src/media/common.rs and include it in media-ffmpeg with `#[path]`, as it already does for mf.rs and encode.rs.
 - Check after: `cargo test` in media-ffmpeg.
 
-### Stop leaking entries in the Linux notification center
-- Where: platform/linux/notifications.rs:186-192, 72-77 (a failed `Notify` leaves its `waiting` entry, which can hold an `Arc<Image>`); `shown` (line 46) only shrinks on close, click or clear
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: send `Heard::Failed { local }` on error and remove the entry; cap `shown` (e.g. newest 200).
-- Check after: linux-check.mjs.
-
 ### Check the update's signer more strictly, and off the window's thread
 - Where: platform/windows/updates.rs:30-48 (`WinVerifyTrust` over the whole exe at start, on the window's thread, from main.rs:205), 131-187 (compares only the certificate's simple display name), 117 (`WTD_REVOKE_NONE`)
 - Category: robustness (security-adjacent)
