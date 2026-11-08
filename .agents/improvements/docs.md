@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Fix the security docs' account of the desktop's pin check and push to talk
-- Where: docs/SECURITY_DETAILS.md:82, :113
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high (medium on LiveKit)
-- What's wrong: :82 says "the desktop's main process through Chromium's certificate check"; the native app checks pins with rustls in apps/desktop/src/host/tls.rs. :113 says push to talk "uses a system-wide key hook in the desktop's main process", and leaves out macOS. The native app uses Windows's low-level hooks (platform/windows/ptt.rs:1-4), a listen-only event tap on macOS that needs Input Monitoring (platform/macos/ptt.rs:1-5), and the portal under Wayland.
-- Suggested change: :82 → "the desktop app's host through rustls (`apps/desktop/src/host/tls.rs`), and iOS through …"; also say whether the native app's LiveKit connection is pinned (not verified by this review; check before writing). :113 → "Push to talk from another window listens only while someone is in a call with it on, or while choosing its key, and only the one key asked for is passed on: through Windows's low-level keyboard and mouse hooks, a listen-only event tap on macOS, which needs Input Monitoring, and under Wayland the global shortcuts portal, where the compositor binds that one key and only says when it goes down and up."
-- Check after: SECURITY.md says the same in plain words; update it if it mentions either.
-
 ### Update MACOS_APP_PLAN's Checks to the check that was built
 - Where: docs/MACOS_APP_PLAN.md:193-206, :211
 - Category: docs

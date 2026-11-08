@@ -23,7 +23,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 25 |
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 31 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 25 |
-| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 13 |
+| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 12 |
 | `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 32 |
 
 A few entries in `docs.md` and `deps-build.md` are only pointers to the same issue in another file.
