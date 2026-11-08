@@ -60,15 +60,14 @@ flowchart LR
 
 ### Shared interface: `@zuna/ui`
 
-`apps/desktop-electron-legacy/src/renderer/src` moved to `packages/ui/src` (done in W1). Everything it asks of Electron goes through one `Platform` object that each host passes to `startApp` (`packages/ui/src/platform.ts`):
+`apps/desktop-electron-legacy/src/renderer/src` moved to `packages/ui/src` (done in W1). Everything outside the page goes through one `Platform` object that the web app passes to `startApp` (`packages/ui/src/platform.ts`, given by `apps/web/src/platform.ts`). Since the Electron app was removed on 2026-11-08, the web is its only host, and gives every member:
 
-- `bootCore` starts the host's worker. The shared worker code is `packages/ui/src/core/serve.ts`, so each host's worker only says how it fetches pages for previews.
-- `setUnreadCount` is the dock, taskbar or tray on the desktop, and the tab's title on the web.
-- `notify` is missing on the web, and the notification settings go with it.
-- `microphone`, `idleState`, `onPresence`, `onFocus`, the deep-link calls and `setCloseToTray` are optional. Whatever a host leaves out, the interface does without.
-- `keyWarning` is what Security says when the device key isn't protected.
+- `bootCore` starts the worker. Its code is `packages/ui/src/core/serve.ts`, so the web's worker only says how it fetches pages for previews.
+- `setUnreadCount` is the tab's title.
+- `notify` and the calls beside it are the browser's notifications.
+- `keyWarning` is what Security always says, since a browser can't lock the device key to the person's login.
 
-The desktop keeps `index.html`, and its `main.tsx`, `platform.ts` and `worker.ts` in `apps/desktop-electron-legacy/src/renderer/src` make its `Platform`. `apps/web` has its own versions.
+The Electron app's `main.tsx`, `platform.ts` and `worker.ts`, which made its own `Platform`, are in git history.
 
 ### Web host: `zuna-web`
 
