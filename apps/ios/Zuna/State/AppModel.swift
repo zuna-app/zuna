@@ -20,9 +20,9 @@ final class AppModel {
         var voice: [String: VoiceMember] = [:]
         /// The calls going on in this person's conversations, by group.
         var calls: [String: CallView] = [:]
-        var users: [String: UserView] {
-            didSet { mentionable = Self.mentionable(users) }
-        }
+        /// Changed through setUsers and setPresence, so that presence, which comes far more often,
+        /// doesn't rebuild who can be mentioned.
+        private(set) var users: [String: UserView]
         /// Lowercased username to user ID, for highlighting mentions. Changes only with the people, not with presence.
         private(set) var mentionable: [String: String]
         var emotes: EmoteSet
@@ -46,6 +46,20 @@ final class AppModel {
             self.emotes = emotes
             self.sounds = sounds
             self.prefs = prefs
+        }
+
+        /// The people, as the core gives them, and who of them can be mentioned.
+        mutating func setUsers(_ users: [String: UserView]) {
+            self.users = users
+            mentionable = Self.mentionable(users)
+        }
+
+        /// Someone coming online or going, in one write of their row.
+        mutating func setPresence(_ userId: String, online: Bool, lastSeenAt: Int?) {
+            guard var user = users[userId] else { return }
+            user.online = online
+            user.lastSeenAt = lastSeenAt
+            users[userId] = user
         }
 
         private static func mentionable(_ users: [String: UserView]) -> [String: String] {
@@ -437,8 +451,7 @@ final class AppModel {
         case let .messageMoved(serverId, fromGroupId, message):
             move(serverId, from: fromGroupId, message)
         case let .presence(serverId, userId, online, lastSeenAt):
-            servers[serverId]?.users[userId]?.online = online
-            servers[serverId]?.users[userId]?.lastSeenAt = lastSeenAt
+            servers[serverId]?.setPresence(userId, online: online, lastSeenAt: lastSeenAt)
         case let .typing(serverId, groupId, userId):
             servers[serverId]?.typing[groupId, default: [:]][userId] = Date().addingTimeInterval(5)
             Task { [weak self] in
@@ -539,7 +552,7 @@ final class AppModel {
                 case "users":
                     let users = try await session.getUsers()
                     let me = try await session.getSelf()
-                    servers[serverId]?.users = Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) })
+                    servers[serverId]?.setUsers(Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) }))
                     servers[serverId]?.me = me
                 case "emotes":
                     let emotes = try await session.getEmotes()

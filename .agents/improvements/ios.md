@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Rebuild `mentionable` only when the people change, not on presence
-- Where: apps/ios/Zuna/State/AppModel.swift:23-27, 438-440
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the `didSet` on `users` fires for any element change, so every presence event rebuilds the whole username map (lowercasing every username); `.presence` writes twice (`online`, then `lastSeenAt`), so twice per event. The comment "Changes only with the people, not with presence" is wrong as the code stands.
-- Suggested change: drop the `didSet`; recompute `mentionable` in `init` and `refresh("users")`; apply presence through one mutating method that sets both fields in a single write.
-- Check after: `npm run test:ios:ui -- --only PresenceTests,ComposerTests`.
-
 ### Make the avatar cache aware of size
 - Where: apps/ios/Zuna/Shared/AvatarView.swift:27-32, 100-117, 177-188
 - Category: ux
