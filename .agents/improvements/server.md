@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: memoize the results in a `sync.Map`.
 - Check after: store tests with `ZUNA_TEST_POSTGRES`.
 
-### Hand a channel's history in one transaction
-- Where: server/internal/api/channels.go:197-211, and store/channels.go:186-201
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `TakeHistoryRequest` commits, then `AddHistoryGrant` inserts separately. If the insert fails, the joiner's request is used up, no grant is stored, and nobody else will answer.
-- Suggested change: one store method that does the conditional update and the insert in `d.tx`.
-- Check after: Go tests (channels_test) and the PostgreSQL run.
-
 ### Give large request bodies the time they need
 - Where: cmd/zuna-server/main.go:222 (1-minute ReadTimeout); api/groups.go:121, :199 (16 MiB); generations.go:112, :365, :410 (4 MiB); channels.go:186 (6 MiB). Compare files.go:165, where a 1 MiB chunk gets 10 minutes.
 - Category: robustness

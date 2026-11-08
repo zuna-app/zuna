@@ -183,21 +183,28 @@ func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []b
 	})
 }
 
-// TakeHistoryRequest reports whether someone in a channel is still waiting for its
-// keys, and stops them waiting, so that only the first member to answer does.
-func (d *DB) TakeHistoryRequest(ctx context.Context, groupID, userID string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE group_members SET history_wanted = 0 WHERE group_id = ? AND user_id = ? AND history_wanted = 1`, groupID, userID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
-// AddHistoryGrant keeps a channel's older keys, sealed to the person they're for.
-func (d *DB) AddHistoryGrant(ctx context.Context, userID, groupID string, data []byte) error {
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO history_grants(user_id, group_id, data, created_at) VALUES(?,?,?,?)`, userID, groupID, data, Now())
-	return err
+// AnswerHistoryRequest takes someone's request for a channel's older keys and keeps
+// the keys sealed to them, together: false, with nothing kept, when someone else
+// answered first. Either both happen or neither, so a request is never used up
+// without its keys being there.
+func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID string, data []byte) (bool, error) {
+	var answered bool
+	err := d.tx(ctx, func(tx handle) error {
+		answered = false
+		res, err := tx.ExecContext(ctx, `UPDATE group_members SET history_wanted = 0 WHERE group_id = ? AND user_id = ? AND history_wanted = 1`, groupID, userID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO history_grants(user_id, group_id, data, created_at) VALUES(?,?,?,?)`, userID, groupID, data, Now()); err != nil {
+			return err
+		}
+		answered = true
+		return nil
+	})
+	return answered, err
 }
 
 // SetChannelRoles makes someone's role in every channel follow their role on the server.

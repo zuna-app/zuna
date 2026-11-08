@@ -194,18 +194,14 @@ func (s *Server) handleChannelHistoryGrant(w http.ResponseWriter, r *http.Reques
 		writeFailure(w, err)
 		return
 	}
-	waiting, err := s.db.TakeHistoryRequest(r.Context(), id, body.UserID)
+	answered, err := s.db.AnswerHistoryRequest(r.Context(), id, body.UserID, body.Data)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	// Someone else got there first, which is no failure.
-	if !waiting {
+	if !answered {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "taken": true})
-		return
-	}
-	if err := s.db.AddHistoryGrant(r.Context(), body.UserID, id, body.Data); err != nil {
-		writeFailure(w, err)
 		return
 	}
 	s.hub.ToUsers([]string{body.UserID}, Event{Type: "welcome", Data: map[string]string{"group_id": id}})
