@@ -426,7 +426,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	s.signInSucceeded(r, sess.Username)
-	groups, err := s.db.UserGroups(r.Context(), sess.UserID)
+	groups, err := s.db.UserGroupIDs(r.Context(), sess.UserID)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -434,8 +434,8 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request, ses
 	// Said before taking them out of their groups, as a ban does. The device that
 	// asked has its answer already.
 	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "force_logout", Data: map[string]string{"reason": "account_deleted"}})
-	for _, group := range groups {
-		if err := s.removeFromRoster(r, group.ID, sess.UserID, sess.UserID); err != nil && !errors.Is(err, store.ErrNotFound) {
+	for _, groupID := range groups {
+		if err := s.removeFromRoster(r, groupID, sess.UserID, sess.UserID); err != nil && !errors.Is(err, store.ErrNotFound) {
 			writeFailure(w, err)
 			return
 		}

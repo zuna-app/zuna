@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Stop loading every group with two queries each in GET /api/groups
-- Where: server/internal/store/groups.go:246-273 (`UserGroups` calls `d.Group` once per ID, which runs the group-row query plus `groupMembers`). Callers: api/groups.go:10-17, accounts.go:429, admin.go:426.
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: this is N+1: someone in G conversations costs 2G+1 queries. Every client calls it on every reconnect (`syncAll`, packages/core/src/session.ts:796), so a server restart makes all of them do it at once. Every server member is on each channel's roster, and each roster row carries `read_state` and `proof` blobs. `handleBan` and `handleDeleteAccount` load all of this only to get the group IDs.
-- Suggested change: in `UserGroups`, run one query for the groups (`... FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = ?`) and one for all their members (`... FROM group_members gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?) ORDER BY gm.group_id, gm.joined_at`), then stitch them together in Go. Add a `UserGroupIDs(ctx, userID)` for handleBan and handleDeleteAccount. Optionally, after checking the clients, leave out other members' `read_state` for `kind = 'channel'`, since channels have no read ticks (api/groups.go:358-361).
-- Check after: Go tests, the PostgreSQL run, and the core tests (`npm test`).
-
 ### Read a group's kind without loading its roster in hot handlers
 - Where: server/internal/api/groups.go:510 (handleSendMessage), :359 (handleRead), :545 (handleDeleteMessage), :257 (handleGroupMeta), and voice.go:288 (roomFor)
 - Category: perf

@@ -423,7 +423,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		writeError(w, http.StatusForbidden, "forbidden", "You can't ban this user.")
 		return
 	}
-	groups, err := s.db.UserGroups(r.Context(), targetID)
+	groups, err := s.db.UserGroupIDs(r.Context(), targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -431,8 +431,8 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 	// Said before what taking them out of their groups sends them, which a device
 	// still busy with those might not get to the end of before the close.
 	s.hub.ToUsers([]string{targetID}, Event{Type: "force_logout", Data: map[string]string{"reason": "banned"}})
-	for _, group := range groups {
-		if err := s.removeFromRoster(r, group.ID, sess.UserID, targetID); err != nil && !errors.Is(err, store.ErrNotFound) {
+	for _, groupID := range groups {
+		if err := s.removeFromRoster(r, groupID, sess.UserID, targetID); err != nil && !errors.Is(err, store.ErrNotFound) {
 			writeFailure(w, err)
 			return
 		}

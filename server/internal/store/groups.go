@@ -181,16 +181,30 @@ func (d *DB) CreateGroup(ctx context.Context, creator string, historyVisible boo
 }
 
 func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
-	var g Group
-	var metaEpoch sql.NullInt64
-	var history int
-	var dmKey sql.NullString
-	err := d.sql.QueryRowContext(ctx, `SELECT id, kind, dm_key, epoch, seq, meta, meta_epoch, history_visible, created_by, created_at
-		FROM groups WHERE id = ?`, id).Scan(&g.ID, &g.Kind, &dmKey, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt)
+	g, err := scanGroup(d.sql.QueryRowContext(ctx, `SELECT `+groupColumns+` FROM groups g WHERE g.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	members, err := d.groupMembers(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	g.Members = members
+	return g, nil
+}
+
+const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at`
+
+// scanGroup reads a group's row, as groupColumns lists it, without its members.
+func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
+	var g Group
+	var metaEpoch sql.NullInt64
+	var history int
+	var dmKey sql.NullString
+	if err := row.Scan(&g.ID, &g.Kind, &dmKey, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt); err != nil {
 		return nil, err
 	}
 	g.MetaEpoch = nullableInt(metaEpoch)
@@ -198,11 +212,6 @@ func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
 	if dmKey.Valid {
 		g.DMUsers = strings.Split(dmKey.String, ":")
 	}
-	members, err := d.groupMembers(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	g.Members = members
 	return &g, nil
 }
 
@@ -242,34 +251,67 @@ func (d *DB) GroupMemberIDs(ctx context.Context, groupID string) ([]string, erro
 	return ids, rows.Err()
 }
 
-// UserGroups returns every group the user belongs to.
-func (d *DB) UserGroups(ctx context.Context, userID string) ([]*Group, error) {
+// UserGroupIDs returns the IDs of every group the user belongs to.
+func (d *DB) UserGroupIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT group_id FROM group_members WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, err
 	}
-	var ids []string
+	defer rows.Close()
+	ids := []string{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	return ids, rows.Err()
+}
+
+// UserGroups returns every group the user belongs to, with their members, in two queries
+// however many groups that is, as every app asks for it each time it connects.
+func (d *DB) UserGroups(ctx context.Context, userID string) ([]*Group, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT `+groupColumns+` FROM groups g JOIN group_members m ON m.group_id = g.id
+		WHERE m.user_id = ? ORDER BY g.id`, userID)
+	if err != nil {
 		return nil, err
 	}
-	groups := make([]*Group, 0, len(ids))
-	for _, id := range ids {
-		group, err := d.Group(ctx, id)
+	groups := []*Group{}
+	byID := map[string]*Group{}
+	for rows.Next() {
+		group, err := scanGroup(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
+		group.Members = []GroupMember{}
 		groups = append(groups, group)
+		byID[group.ID] = group
 	}
-	return groups, nil
+	rows.Close()
+	if err := rows.Err(); err != nil || len(groups) == 0 {
+		return groups, err
+	}
+	rows, err = d.sql.QueryContext(ctx, `SELECT gm.group_id, gm.user_id, gm.role, gm.joined_at, gm.visible_from_seq, gm.read_state, gm.proof, gm.history_wanted
+		FROM group_members gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
+		ORDER BY gm.group_id, gm.joined_at`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var groupID string
+		var m GroupMember
+		if err := rows.Scan(&groupID, &m.UserID, &m.Role, &m.JoinedAt, &m.VisibleFromSeq, &m.ReadState, &m.Proof, &m.HistoryWanted); err != nil {
+			return nil, err
+		}
+		// A group this user joined between the two queries comes next time.
+		if group := byID[groupID]; group != nil {
+			group.Members = append(group.Members, m)
+		}
+	}
+	return groups, rows.Err()
 }
 
 // Membership returns the user's role in the group, or ErrForbidden.
