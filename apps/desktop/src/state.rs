@@ -970,6 +970,21 @@ impl AppState {
         crate::platform::later(cx, move || crate::platform::icons::set_unread(total));
     }
 
+    /// Chats an earlier run notified about, which the system still shows, to be taken back as
+    /// this run's are once they're read.
+    #[cfg(target_os = "macos")]
+    pub fn notified_earlier(&mut self, chats: Vec<(String, String)>, cx: &mut Context<Self>) {
+        let mut servers = HashSet::new();
+        for (server_id, key) in chats {
+            self.notified.entry(server_id.clone()).or_default().entry(key).or_insert(0.);
+            servers.insert(server_id);
+        }
+        servers.retain(|id| self.servers.contains_key(id));
+        for server_id in servers {
+            self.refresh_conversations(&server_id, cx);
+        }
+    }
+
     /// A chat with nothing unread has nothing to notify about any more, however it came to be read.
     fn clear_read(&mut self, server_id: &str, asked: f64, cx: &mut Context<Self>) {
         let Some(server) = self.servers.get(server_id) else { return };

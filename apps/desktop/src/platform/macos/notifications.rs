@@ -4,10 +4,12 @@
 //! or its message deleted. Focus and the person's own settings for Zuna are macOS's to apply,
 //! to the banner and to its sound, which goes with it for that reason.
 //!
+//! Notification Center keeps them after the app quits, so each carries its server, chat and
+//! message, and a click on one from before, or a chat read since, finds it by those.
+//!
 //! GPUI has notifications of its own (`system_notifications.rs`), with only a title, a body
 //! and buttons, which are left unused, so that this is the center's delegate.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -20,8 +22,8 @@ use objc2::runtime::{Bool, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{NSArray, NSBundle, NSDictionary, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
 use objc2_user_notifications::{
-    UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAttachment, UNNotificationPresentationOptions, UNNotificationRequest,
-    UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAttachment, UNNotificationContent, UNNotificationPresentationOptions,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
 
 use crate::state::AppState;
@@ -40,9 +42,31 @@ pub fn sound_next() {
 
 pub struct NotificationCenter {
     state: WeakEntity<AppState>,
-    /// Shown, by the identifier each was asked for with.
-    shown: HashMap<String, Payload>,
     center: Option<Center>,
+}
+
+/// What a notification says it's about, from what it carries.
+#[derive(Clone, Debug)]
+struct About {
+    server_id: String,
+    key: String,
+    message_id: String,
+}
+
+impl About {
+    fn carried(content: &UNNotificationContent) -> Option<About> {
+        let info = content.userInfo();
+        let read = |name: &str| info.objectForKey(&NSString::from_str(name))?.downcast::<NSString>().ok().map(|text| text.to_string());
+        Some(About { server_id: read("server")?, key: read("key")?, message_id: read("message")? })
+    }
+
+    fn info(payload: &Payload) -> Retained<NSDictionary> {
+        let keys = [NSString::from_str("server"), NSString::from_str("key"), NSString::from_str("message")];
+        let values = [NSString::from_str(&payload.server_id), NSString::from_str(&payload.key), NSString::from_str(&payload.message_id)];
+        let info: Retained<NSDictionary<NSString, NSString>> = NSDictionary::from_retained_objects(&keys.each_ref().map(|key| &**key), &values);
+        // SAFETY: a dictionary of strings is a dictionary of objects, which is all userInfo asks.
+        unsafe { Retained::cast_unchecked(info) }
+    }
 }
 
 /// The system's center, and its delegate, which it only holds weakly.
@@ -61,13 +85,32 @@ pub fn center(cx: &App) -> Option<Entity<NotificationCenter>> {
 }
 
 pub fn install(state: WeakEntity<AppState>, cx: &mut App) {
-    let (clicked, mut clicks) = unbounded::<String>();
+    let (clicked, mut clicks) = unbounded::<About>();
     let center = system_center(clicked);
-    let entity = cx.new(|_| NotificationCenter { state, shown: HashMap::new(), center });
+    // What an earlier run left shown is taken back as this run's is, once its chat is read.
+    if let Some(center) = &center {
+        let (found, earlier) = futures::channel::oneshot::channel::<Vec<(String, String)>>();
+        list_delivered(&center.center, move |requests| {
+            let chats = requests.iter().filter_map(|request| About::carried(&request.content())).map(|about| (about.server_id, about.key)).collect();
+            found.send(chats).ok();
+        });
+        let state = state.clone();
+        cx.spawn(async move |cx| {
+            if let Ok(chats) = earlier.await {
+                state.update(cx, |state, cx| state.notified_earlier(chats, cx)).ok();
+            }
+        })
+        .detach();
+    }
+    let entity = cx.new(|_| NotificationCenter { state, center });
     cx.set_global(CenterGlobal(entity.clone()));
     cx.spawn(async move |cx| {
-        while let Some(id) = clicks.next().await {
-            entity.update(cx, |center, cx| center.clicked(&id, cx));
+        while let Some(about) = clicks.next().await {
+            // A click may be what started the app, when its chats aren't there yet.
+            while entity.read_with(cx, |center, cx| center.state.upgrade().is_some_and(|state| !matches!(state.read(cx).phase, crate::state::Phase::Ready))) {
+                cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
+            }
+            entity.update(cx, |center, cx| center.clicked(about, cx));
         }
     })
     .detach();
@@ -75,7 +118,7 @@ pub fn install(state: WeakEntity<AppState>, cx: &mut App) {
 
 /// The center, asked once whether Zuna may show notifications. The center stops a program
 /// that isn't in a bundle, as a start from a terminal isn't, so there there's none.
-fn system_center(clicked: UnboundedSender<String>) -> Option<Center> {
+fn system_center(clicked: UnboundedSender<About>) -> Option<Center> {
     if NSBundle::mainBundle().bundleIdentifier().is_none() {
         log::info!("no notifications outside an app bundle");
         return None;
@@ -113,6 +156,8 @@ impl NotificationCenter {
         if let Some(attachment) = picture_attachment(&id, payload.picture.as_ref()) {
             content.setAttachments(&NSArray::from_retained_slice(&[attachment]));
         }
+        // SAFETY: the dictionary holds only strings, which a notification can keep.
+        unsafe { content.setUserInfo(&About::info(&payload)) };
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id), &content, None);
         let done = RcBlock::new(|error: *mut NSError| {
             // SAFETY: when it isn't null, the error is valid for the call.
@@ -121,44 +166,75 @@ impl NotificationCenter {
             }
         });
         center.center.addNotificationRequest_withCompletionHandler(&request, Some(&done));
-        self.shown.insert(id, payload);
     }
 
-    /// Takes back notifications matching everything given: a server's, read chats', or one message's.
+    /// Takes back notifications matching everything given: a server's, read chats', or one
+    /// message's, from among all Notification Center shows, this run's or an earlier one's.
     pub fn clear(&mut self, server_id: Option<&str>, keys: Option<&[String]>, message_id: Option<&str>, _cx: &mut Context<Self>) {
-        let matches = |payload: &Payload| {
-            server_id.is_none_or(|id| payload.server_id == id) && keys.is_none_or(|keys| keys.contains(&payload.key)) && message_id.is_none_or(|id| payload.message_id == id)
+        let Some(center) = &self.center else { return };
+        let (server_id, keys, message_id) = (server_id.map(str::to_string), keys.map(<[String]>::to_vec), message_id.map(str::to_string));
+        let matches = move |about: &About| {
+            server_id.as_ref().is_none_or(|id| &about.server_id == id) && keys.as_ref().is_none_or(|keys| keys.contains(&about.key)) && message_id.as_ref().is_none_or(|id| &about.message_id == id)
         };
-        let gone: Vec<String> = self.shown.iter().filter(|(_, payload)| matches(payload)).map(|(id, _)| id.clone()).collect();
-        if gone.is_empty() {
-            return;
-        }
-        for id in &gone {
-            self.shown.remove(id);
-        }
-        if let Some(center) = &self.center {
-            let ids: Vec<Retained<NSString>> = gone.iter().map(|id| NSString::from_str(id)).collect();
-            center.center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&ids));
-        }
+        let system = center.center.clone();
+        list_delivered(&center.center, move |requests| {
+            let gone: Vec<Retained<NSString>> =
+                requests.iter().filter(|request| About::carried(&request.content()).is_some_and(|about| matches(&about))).map(|request| request.identifier()).collect();
+            if !gone.is_empty() {
+                system.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&gone));
+            }
+        });
     }
 
-    /// What a click opens: the chat, in front, as a click on Windows's card does.
-    fn clicked(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(payload) = self.shown.remove(id) else { return };
+    /// What a click opens: the chat, in front, as a click on Windows's card does, if its
+    /// server is still there.
+    fn clicked(&mut self, about: About, cx: &mut Context<Self>) {
         crate::platform::later(cx, crate::platform::show_main);
         if let Some(state) = self.state.upgrade() {
             state.update(cx, |state, cx| {
-                state.select_server(&payload.server_id, cx);
-                state.select_conversation(Some(payload.key.clone()), cx);
+                if !state.servers.contains_key(&about.server_id) {
+                    return;
+                }
+                state.select_server(&about.server_id, cx);
+                state.select_conversation(Some(about.key.clone()), cx);
             });
         }
     }
 
-    /// How many are shown, for the checks.
+    /// What macOS says it shows, by title and body, for the checks: an empty list where there's
+    /// no center, as outside a bundle.
     #[cfg(feature = "test-control")]
-    pub fn shown_count(&self) -> usize {
-        self.shown.len()
+    pub fn delivered(&self) -> futures::channel::oneshot::Receiver<Vec<(String, String)>> {
+        let (answer, answered) = futures::channel::oneshot::channel();
+        let Some(center) = &self.center else {
+            answer.send(Vec::new()).ok();
+            return answered;
+        };
+        list_delivered(&center.center, move |requests| {
+            let found = requests
+                .iter()
+                .map(|request| {
+                    let content = request.content();
+                    (content.title().to_string(), content.body().to_string())
+                })
+                .collect();
+            answer.send(found).ok();
+        });
+        answered
     }
+}
+
+/// What Notification Center shows of Zuna's, told to `then` on a thread of the center's.
+fn list_delivered(center: &UNUserNotificationCenter, then: impl FnOnce(Vec<Retained<UNNotificationRequest>>) + 'static) {
+    let then = std::cell::Cell::new(Some(then));
+    let listed = RcBlock::new(move |notifications: std::ptr::NonNull<NSArray<UNNotification>>| {
+        // SAFETY: the list is valid for the call.
+        let notifications = unsafe { notifications.as_ref() };
+        if let Some(then) = then.take() {
+            then(notifications.iter().map(|notification| notification.request()).collect());
+        }
+    });
+    center.getDeliveredNotificationsWithCompletionHandler(&listed);
 }
 
 /// The chat's picture, written where the center can take it from, which it moves into its own store.
@@ -177,7 +253,7 @@ fn picture_attachment(id: &str, picture: Option<&Picture>) -> Option<Retained<UN
 }
 
 struct DelegateIvars {
-    clicked: UnboundedSender<String>,
+    clicked: UnboundedSender<About>,
 }
 
 define_class!(
@@ -192,8 +268,10 @@ define_class!(
         // A click on a notification, perhaps on another thread, handed on to the app's.
         #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
         fn did_receive(&self, _center: &UNUserNotificationCenter, response: &UNNotificationResponse, completion: &block2::DynBlock<dyn Fn()>) {
-            let id = response.notification().request().identifier().to_string();
-            self.ivars().clicked.unbounded_send(id).ok();
+            match About::carried(&response.notification().request().content()) {
+                Some(about) => drop(self.ivars().clicked.unbounded_send(about)),
+                None => log::debug!("a notification without a chat was clicked"),
+            }
             completion.call(());
         }
 
@@ -207,7 +285,7 @@ define_class!(
 );
 
 impl Delegate {
-    fn new(clicked: UnboundedSender<String>) -> Retained<Self> {
+    fn new(clicked: UnboundedSender<About>) -> Retained<Self> {
         let this = Self::alloc().set_ivars(DelegateIvars { clicked });
         // SAFETY: NSObject's init is its designated initializer.
         unsafe { msg_send![super(this), init] }

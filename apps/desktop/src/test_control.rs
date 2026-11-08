@@ -9,7 +9,8 @@
 //! `{"click": [x, y], "button": "left" | "right", "count": 1}` in the window's points,
 //! `{"move": [x, y]}`, `{"key": "cmd-v"}`, `{"type": "text"}`, `{"shot": "/path.png"}`,
 //! `{"core": "method", "args": [...], "server": "id"}` for the core, `{"state": true}` for
-//! what the platform says about the window, the badge and notifications, and `{"quit": true}`.
+//! what the platform says about the window and the badge, `{"delivered": true}` for the
+//! notifications macOS shows, and `{"quit": true}`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -84,6 +85,12 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
             Err(failed) => error(failed.message),
         };
     }
+    #[cfg(target_os = "macos")]
+    if request.get("delivered").is_some() {
+        let Some(asked) = cx.update(|cx| crate::ui::notifications::center(cx).map(|center| center.read(cx).delivered())) else { return error("no notifications") };
+        let found = asked.await.unwrap_or_default();
+        return json!({ "ok": found.into_iter().map(|(title, body)| json!({ "title": title, "body": body })).collect::<Vec<_>>() });
+    }
     if request.get("quit").is_some() {
         cx.update(|cx| cx.dispatch_action(&crate::Quit));
         return json!({ "ok": true });
@@ -153,7 +160,6 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
                 "height": f32::from(size.height),
                 "scale": window.scale_factor(),
                 "badge": badge(),
-                "notifications": notifications(cx),
             } });
         }
         error("nothing asked")
@@ -168,16 +174,5 @@ fn badge() -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn badge() -> Option<String> {
-    None
-}
-
-/// How many system notifications are shown.
-#[cfg(target_os = "macos")]
-fn notifications(cx: &App) -> Option<usize> {
-    crate::ui::notifications::center(cx).map(|center| center.read(cx).shown_count())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn notifications(_cx: &App) -> Option<usize> {
     None
 }

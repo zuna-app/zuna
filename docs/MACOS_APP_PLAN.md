@@ -1,6 +1,6 @@
 # The native app on macOS: plan
 
-Status: M0 to M4 built (2026-11-08). Checked on this Mac by `apps/desktop/test/mac-voice-check.mjs` and the test control: signing in and chatting, the badge, the keychain, macOS's keys, closing to the Dock and `zuna://`; between two copies, a voice channel and a call each way, a screen share encoded and decoded on the GPU past the picker, and voice and video messages read and played through FFmpeg. What needs the person's answer in a dialog of macOS's is built and unchecked: notifications shown, the camera, location, push to talk from another app, macOS's picker on a real screen, a share's sound and a real microphone. Packages and updates wait for a Developer ID.
+Status: M0 to M4 built (2026-11-08). Checked on this Mac by `apps/desktop/test/mac-voice-check.mjs` and the test control: signing in and chatting, the badge, the keychain, macOS's keys, closing to the Dock and `zuna://`; between two copies, a voice channel and a call each way, a screen share encoded and decoded on the GPU past the picker, and voice and video messages read and played through FFmpeg. Then, once allowed in macOS's dialogs (2026-11-08): notifications shown and clicked, also ones from before the app started again, the Mac's own camera, location, push to talk held in another app, macOS's picker on a real screen with the entire system's sound, and a real microphone. Packages and updates wait for a Developer ID.
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on macOS from the same crate as on Windows and Linux. There's no second codebase: what differs is behind `#[cfg(target_os = "macos")]`, in `src/platform/macos/` and a few lines beside it, and everything else is shared. Four rules hold throughout:
 
@@ -95,9 +95,10 @@ The unread count on the Dock's icon through `NSApp.dockTile.badgeLabel`, as `app
 ### Notifications and their sound
 
 - **The system's,** as the Electron app's on macOS: `UNUserNotificationCenter` through `objc2-user-notifications`, which asks the person the first time one is shown. The chat's picture goes with it as an attachment, drawn as on Linux (its photo made round, or its initials on its color through the resvg GPUI already has), which macOS shows on the notification's right. The app's icon stays on its left: a sender's picture there needs Communication Notifications, an entitlement only a provisioning profile gives. A click opens the chat, and a notification is taken back with `removeDeliveredNotificationsWithIdentifiers` when its chat is read or its message deleted.
+- **Notification Center keeps them after the app quits,** so each carries its server, chat and message in `userInfo`. A click opens the chat from those, once the app is ready, and at start the app asks what's still shown (`notified_earlier` in `state.rs`), to take those back as its own once their chats are read. With two copies of one bundle running, as in the checks, macOS hands a click to only one of them.
 - **GPUI's own** (`system_notifications.rs`) has only a title, a body and buttons, so it's left unused. The app sets the center's delegate itself, and GPUI only touches the center once its own are used.
 - **Only from a bundle:** the center stops a program that isn't in one, so a start with `--core-check`, or from a terminal, never shows one.
-- **The sound goes with the notification,** so Focus and the person's own settings for Zuna in System Settings quiet both: `UNNotificationSound` names `notification.caf` in the bundle's `Resources`, which the script writes from `notification_tones()`. `play_notification_sound` only marks the next notification to carry it, and `notification_state` says to show and sound, as Electron's does on macOS, since only macOS knows about Focus.
+- **The sound goes with the notification,** so Focus and the person's own settings for Zuna in System Settings quiet both: `UNNotificationSound` names `notification.wav` in the bundle's `Resources`, which the script writes from `notification_tones()`. `play_notification_sound` only marks the next notification to carry it, and `notification_state` says to show and sound, as Electron's does on macOS, since only macOS knows about Focus.
 - **No replying from one,** as on Linux: Windows's cards can, and macOS could with a text field in the notification, which can come later for both.
 
 ### Whether the person is here
@@ -190,7 +191,7 @@ There's no compositor to nest on macOS, so `apps/desktop/test/mac-check.mjs` run
 
 - **The other side** as on Linux: the test server and `test/peer.ts`, and for voice, LiveKit and the Electron app driven by Playwright, as `linux-voice-check.mjs` starts them.
 - **Input** goes to the app's process alone with `CGEventPostToPid`, so the person's own pointer and keyboard aren't taken over, and **screenshots** come from `screencapture -l` with the window's number. Both need permissions for the program running the check, Accessibility and Screen Recording, which the person grants once in System Settings.
-- **Sound:** the app plays a test tone in place of a microphone (`ZUNA_FAKE_MIC`), and `RUST_LOG=zuna=debug` logs how loud each voice it decodes is, so each side's hearing the other needs no device.
+- **Sound:** the app plays a test tone in place of a microphone (`ZUNA_FAKE_MIC`), and `RUST_LOG=zuna=debug` logs how loud each voice it decodes is, so each side's hearing the other needs no device. A share's sound between two copies on one Mac needs the watching one deafened, or what it plays is taken again and grows until it clips.
 - **By hand,** for what only a person can answer or see: each permission's dialog the first time, notifications as macOS draws them and quieted by Focus, the Dock's badge and bounce, macOS's picker for a share, push to talk from another app, a camera, location, and the Keychain asking nothing after a rebuild.
 
 | | Automatically | By hand |
@@ -224,8 +225,7 @@ Decided 2026-11-07:
 
 - **Permissions in development.** Each rebuild with an ad hoc signature is a new app to macOS, which asks again for the microphone, the camera and the Keychain. The script signs with the Apple Development identity it finds, and says so when there's none.
 - **A tile drawn from the GPU has square corners,** as GPUI's `surface` takes no corner radius. The fork would need one in `PaintSurface` and its Metal shader.
-- **Core Audio can hold a call forever.** Listing the devices once froze the window until they were read off its thread, and `zuna-screenshare --sound`, left with macOS's question about recording the computer's sound unanswered, never quit, stuck in `AudioDeviceDestroyIOProcID` as its tap closed. Both were seen with nobody at the Mac, and the second needs looking at again once the question has been answered.
-- **macOS's picker from Rust,** through `objc2-screen-capture-kit`: its observer and the filter it hands back are unchecked until M3.
+- **Core Audio can hold a call forever.** Listing the devices once froze the window until they were read off its thread, and `zuna-screenshare --sound`, left with macOS's question about recording the computer's sound unanswered, never quit, stuck in `AudioDeviceDestroyIOProcID` as its tap closed. Both were seen with nobody at the Mac. Since the question was answered, the share's sound has started and stopped cleanly.
 - **The picture viewer** over the menu bar and the Dock, transparent: GPUI's macOS windows may need a level set on the `NSWindow`.
 - **Text looks heavier** through Core Text than through DirectWrite, so screenshots are compared with the Electron app on macOS, not with Windows.
 - **Building FFmpeg** on each Mac takes a few minutes the first time, and its configuration is one more thing to keep with the version.
