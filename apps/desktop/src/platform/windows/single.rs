@@ -86,25 +86,3 @@ pub fn forward(data_dir: &Path, message: &str) {
     }
 }
 
-/// Makes `zuna://` links open this app, for this person only, as the Electron app's installer did.
-pub fn register_scheme() {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let command = format!("\"{}\" \"%1\"", exe.display());
-    let script = [
-        ("Software\\Classes\\zuna", "", "URL:Zuna"),
-        ("Software\\Classes\\zuna", "URL Protocol", ""),
-        ("Software\\Classes\\zuna\\shell\\open\\command", "", command.as_str()),
-    ];
-    for (key, name, value) in script {
-        unsafe {
-            use windows::Win32::System::Registry::*;
-            let mut handle = HKEY::default();
-            if RegCreateKeyExW(HKEY_CURRENT_USER, &HSTRING::from(key), None, None, REG_OPTION_NON_VOLATILE, KEY_WRITE, None, &mut handle, None).is_ok() {
-                let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-                let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
-                let _ = RegSetValueExW(handle, &HSTRING::from(name), None, REG_SZ, Some(bytes));
-                let _ = RegCloseKey(handle);
-            }
-        }
-    }
-}

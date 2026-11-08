@@ -173,10 +173,3 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: race `send` and `drive` against a 30 s timeout; record each app's PID and kill it in `finish`; register an idempotent `finish` on SIGINT, SIGTERM and uncaughtException.
 - Check after: Ctrl+C mid-run; `pactl list short modules` should be clean.
 
-### Register zuna:// in one place on Windows
-- Where: platform/windows/single.rs:90-107 (rewrites the registry with "URL:Zuna" on every start of the installed copy, main.rs:73-75); installer/zuna.nsi:100-103 (writes the same keys with "URL:Zuna invite link")
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: keep one, or make the strings match and comment why the app re-registers.
-- Check after: `npm run install:windows`.
-

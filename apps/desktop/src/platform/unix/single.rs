@@ -86,6 +86,3 @@ pub fn forward(data_dir: &Path, message: &str) {
     }
 }
 
-/// `zuna://` belongs to the app through its `.desktop` file, which a package installs, or on
-/// macOS through its bundle's `Info.plist`.
-pub fn register_scheme() {}

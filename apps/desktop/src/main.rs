@@ -69,12 +69,6 @@ fn main() {
             return;
         }
     };
-    // As a packaged desktop app registers it, once installed. A development build, or a copy run
-    // from where it was built, leaves the registry alone.
-    if !cfg!(debug_assertions) && std::env::current_exe().is_ok_and(|exe| platform::updates::installed(&exe)) {
-        platform::single::register_scheme();
-    }
-
     // The core starts and boots before GPUI does, as GPUI spends most of its start loading the
     // graphics driver, and the core is ready by the time the window is.
     let dir = host::data_dir();
