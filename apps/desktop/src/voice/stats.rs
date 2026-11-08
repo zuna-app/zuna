@@ -296,39 +296,37 @@ impl Reader {
             .collect(),
         }];
         if let (Some(share), Some(native)) = (extra.share, extra.native) {
-            if share.native {
-                let number = |name: &str| native.get(name).and_then(serde_json::Value::as_f64);
-                let sent = number("fps");
-                let history = self.history("native", sent);
-                sections.push(Section {
-                    id: "native".into(),
-                    title: "Your screen".into(),
-                    audio: false,
-                    headline: Some(Headline { fps: sent, label: "sent", wanted: Some(share.fps), history }),
-                    rows: [
-                        row("Sent through", Some("Native program, on the graphics card".into()), false),
-                        row("Sharing", Some(share.name.clone()), false),
-                        row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
-                        row("Picture", size(number("width"), number("height")), false),
-                        row("Tallest asked for", (share.height > 0).then(|| format!("{} lines", share.height)), false),
-                        row("Held to the server's limits", (!share.held.is_empty()).then(|| share.held.join(", ")), false),
-                        row("New frames", fps(number("fps")), false),
-                        row("Repeated frames", fps(number("repeatFps")), false),
-                        row("Bitrate", bits(number("kbps").map(|value| value * 1000.)), false),
-                        row("Most asked for", bits(Some(share.kbps as f64 * 1000.)), false),
-                        row("Network allows", bits(number("targetKbps").map(|value| value * 1000.)), false),
-                        row("Encoder set to", bits(number("encoderKbps").map(|value| value * 1000.)), false),
-                        row("Encode time", number("encodeMsAvg").map(|average| format!("{average:.1} ms, at most {:.1} ms", number("encodeMsMax").unwrap_or(0.))), false),
-                        row("CPU", number("cpuCores").map(|cores| format!("{:.1}% of a core", cores * 100.)), false),
-                        row("Keyframes", number("allKeys").map(|keys| format!("{}, {} asked for, {} for a new bitrate", count(Some(keys)).unwrap_or_default(), count(number("allKeyRequests")).unwrap_or_default(), count(number("allBitrateChanges")).unwrap_or_default())), false),
-                        row("Frames refused", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
-                        row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End to end".to_string() } else { "Off".to_string() }), false),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-                });
-            }
+            let number = |name: &str| native.get(name).and_then(serde_json::Value::as_f64);
+            let sent = number("fps");
+            let history = self.history("native", sent);
+            sections.push(Section {
+                id: "native".into(),
+                title: "Your screen".into(),
+                audio: false,
+                headline: Some(Headline { fps: sent, label: "sent", wanted: Some(share.fps), history }),
+                rows: [
+                    row("Sent through", Some("Native program, on the graphics card".into()), false),
+                    row("Sharing", Some(share.name.clone()), false),
+                    row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
+                    row("Picture", size(number("width"), number("height")), false),
+                    row("Tallest asked for", (share.height > 0).then(|| format!("{} lines", share.height)), false),
+                    row("Held to the server's limits", (!share.held.is_empty()).then(|| share.held.join(", ")), false),
+                    row("New frames", fps(number("fps")), false),
+                    row("Repeated frames", fps(number("repeatFps")), false),
+                    row("Bitrate", bits(number("kbps").map(|value| value * 1000.)), false),
+                    row("Most asked for", bits(Some(share.kbps as f64 * 1000.)), false),
+                    row("Network allows", bits(number("targetKbps").map(|value| value * 1000.)), false),
+                    row("Encoder set to", bits(number("encoderKbps").map(|value| value * 1000.)), false),
+                    row("Encode time", number("encodeMsAvg").map(|average| format!("{average:.1} ms, at most {:.1} ms", number("encodeMsMax").unwrap_or(0.))), false),
+                    row("CPU", number("cpuCores").map(|cores| format!("{:.1}% of a core", cores * 100.)), false),
+                    row("Keyframes", number("allKeys").map(|keys| format!("{}, {} asked for, {} for a new bitrate", count(Some(keys)).unwrap_or_default(), count(number("allKeyRequests")).unwrap_or_default(), count(number("allBitrateChanges")).unwrap_or_default())), false),
+                    row("Frames refused", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
+                    row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End to end".to_string() } else { "Off".to_string() }), false),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
+            });
         }
         let now = Instant::now();
         for sample in samples {

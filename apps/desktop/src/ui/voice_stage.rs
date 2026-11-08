@@ -825,7 +825,7 @@ impl Render for VoiceStage {
             self.window_bounds = Some(cx.observe_window_bounds(window, |_, _, cx| cx.notify()));
         }
         let full_screen = self.full_screen.as_ref().and_then(|(key, _)| videos.iter().find(|video| &video.key == key).cloned());
-        let native_self_share = screen_share.as_ref().filter(|share| share.native).cloned();
+        let native_self_share = screen_share.clone();
         let sounds = self.room.call || channel.as_ref().is_some_and(|channel| channel.sounds);
         let chat_unread = conversation.as_ref().is_some_and(|conversation| conversation.unread > 0.);
         let header = self.header(&title, &topic, call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at), not_here, cx);

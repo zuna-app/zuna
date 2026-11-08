@@ -51,14 +51,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: on either disabled event, `CGEvent::tap_enable(&port, true)` (port via `user_info` or a static); also reset `down` and tell the listener `false`.
 - Check after: mac-voice-check.mjs (push to talk).
 
-### Give up the screen-share slot and say why when there's no room key yet
-- Where: voice/screen.rs:455-467 (`let Some(..) = room.current_key() else { return };` after `voiceScreenAccess` succeeded)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the click does nothing visible, `voiceScreenStop` is never called, and the server keeps counting a share slot that isn't in use.
-- Suggested change: `share_failed(&server_id, &channel_id, "The voice key isn't ready yet.", cx)` instead of returning.
-- Check after: linux-voice-check.mjs.
-
 ### Put a time limit on the share's sound start, and let it be cancelled
 - Where: voice/screen.rs:243-255 (reads the program's first line a byte at a time, no timeout), 316-322 (`ask` uses `.output()`, no timeout)
 - Category: robustness
@@ -118,21 +110,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Severity: low ; Effort: M ; Confidence: medium
 - Suggested change: move to windows 0.62 (screenshare already uses it). For tungstenite and reqwest, match LiveKit's versions or note in Cargo.toml that the duplication is deliberate until LiveKit moves.
 - Check after: `npm run dev:windows`, linux-check.mjs.
-
-### Ring with GPUI's timer, not a new OS thread per ring
-- Where: voice/mod.rs:1099-1107, 1281-1288 (`smol_timer` spawns a sleeping thread every 2.6–3 s)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: clone `cx.background_executor()` and await `executor.timer(...)` inside the task; delete `smol_timer`.
-- Check after: linux-voice-check.mjs (ringing).
-
-### Remove the browser-share settings and the "native" flag the native app never reads
-- Where: voice/settings.rs:40-49 (`screen_content`, `screen_priority`, `screen_native`, `screen_codec`, `screen_layers` never read); voice/mod.rs:48 (`ShareInfo::native`, always `true`, set at screen.rs:446, read at screen.rs:547 and ui/voice_stage.rs:817)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: these were for the Electron browser path; `native` is also true for macOS's in-app capture, which isn't the native program, so its meaning is muddled.
-- Suggested change: delete the five fields and `native`, simplify the readers.
-- Check after: `npm run dev:windows`, mac-voice-check.mjs.
 
 ### Cache the Linux tray's icons rather than decoding PNGs on every unread change
 - Where: platform/linux/tray.rs:42-52 (`icon_pixmap` decodes and resizes six sizes per call); platform/mod.rs:220-229 (`app_icon` decodes per call); ksni 0.3.7 (service.rs:598-619) hashes `icon_pixmap()` on every update, and `set_unread` (tray.rs:95-99) triggers one

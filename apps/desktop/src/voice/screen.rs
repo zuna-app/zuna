@@ -443,7 +443,7 @@ impl Voice {
                 Held::SoundKbps => format!("{} of sound", bitrate_name(terms.sound_kbps)),
             })
             .collect::<Vec<_>>();
-        let share = ShareInfo { name: choice.source.name.clone(), native: true, fps: terms.fps, kbps: terms.kbps, height: terms.height, held, info: None };
+        let share = ShareInfo { name: choice.source.name.clone(), fps: terms.fps, kbps: terms.kbps, height: terms.height, held, info: None };
         let core = self.core(cx);
         #[cfg(target_os = "macos")]
         {
@@ -464,7 +464,11 @@ impl Voice {
             let text = |name: &str| native.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
             let (url, token, identity) = (text("url"), text("token"), text("identity"));
             let sound_allowed = access.get("sound").and_then(Value::as_bool).unwrap_or(false);
-            let Some((key_index, room_key)) = room.current_key() else { return };
+            let Some((key_index, room_key)) = room.current_key() else {
+                // The slot the server just gave goes back, and the person hears why.
+                this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, "The voice channel's key isn't ready yet. Try again in a moment.".into(), cx)).ok();
+                return;
+            };
             let options = StartOptions {
                 url,
                 token,
@@ -544,7 +548,7 @@ impl Voice {
                                         true
                                     }
                                     Said::Ended(problem) => {
-                                        if voice.screen.as_ref().is_some_and(|share| share.native) {
+                                        if voice.screen.is_some() {
                                             voice.share.native = None;
                                             voice.end_share(true, cx);
                                             if let Some(problem) = problem {

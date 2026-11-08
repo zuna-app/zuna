@@ -45,7 +45,6 @@ pub enum VoiceStatus {
 pub struct ShareInfo {
     /// What it's called, to say what's being shared.
     pub name: String,
-    pub native: bool,
     pub fps: u32,
     pub kbps: u32,
     pub height: u32,
@@ -1121,10 +1120,11 @@ impl Voice {
         self.mixer.open(&self.settings.output_device);
         let (every, samples) = sounds::ring(kind, self.settings.output_volume.min(1.));
         let mixer = self.mixer.clone();
+        let executor = cx.background_executor().clone();
         self.ring_task = Some(cx.background_executor().spawn(async move {
             loop {
                 mixer.once(samples.clone(), 1.);
-                smol_timer(Duration::from_millis(every)).await;
+                executor.timer(Duration::from_millis(every)).await;
             }
         }));
     }
@@ -1298,15 +1298,6 @@ pub fn on_event(event: &Value, cx: &mut App) {
         "signed_out" => voice.update(cx, |voice, cx| voice.on_server_gone(&server_id, cx)),
         _ => {}
     }
-}
-
-async fn smol_timer(duration: Duration) {
-    let (sender, receiver) = futures::channel::oneshot::channel::<()>();
-    std::thread::spawn(move || {
-        std::thread::sleep(duration);
-        sender.send(()).ok();
-    });
-    receiver.await.ok();
 }
 
 /// A sound's WAV, as the core checked it, as interleaved stereo at 48 kHz.
