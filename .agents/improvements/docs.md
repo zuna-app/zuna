@@ -13,14 +13,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 ### Match dev/setup.sh's Go version to go.mod
 - (Folded into the dev/setup.sh entry in deps-build.md.) dev/setup.sh:55-58 asks for "Go 1.25 or newer"; go.mod:3 says 1.26.0, as do CLAUDE.md, README:96 and CONTRIBUTING:6.
 
-### Fix the local .claude/launch.json's web entry
-- Where: .claude/launch.json (gitignored, .gitignore:44; this machine only)
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: "zuna-web" runs `npm run dev:web -w @zuna/desktop` on port 5173. No `@zuna/desktop` workspace exists, and `dev:web` is a root script serving 5174.
-- Suggested change: `"runtimeArgs": ["run", "dev:web"], "port": 5174`. It's untracked, so this is a local edit, not a commit.
-- Check after: none.
-
 ### Give WINDOWS_APP.md a Linux section and a full "What's missing"
 - Where: docs/WINDOWS_APP.md:18, :34, :38-50
 - Category: docs
