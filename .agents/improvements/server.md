@@ -12,14 +12,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `UserGroups`, run one query for the groups (`... FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = ?`) and one for all their members (`... FROM group_members gm WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?) ORDER BY gm.group_id, gm.joined_at`), then stitch them together in Go. Add a `UserGroupIDs(ctx, userID)` for handleBan and handleDeleteAccount. Optionally, after checking the clients, leave out other members' `read_state` for `kind = 'channel'`, since channels have no read ticks (api/groups.go:358-361).
 - Check after: Go tests, the PostgreSQL run, and the core tests (`npm test`).
 
-### Only load the devices of the users a /api/users page returns
-- Where: server/internal/store/users.go:196-232
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `Users(since)` filters users by `updated_at > ?`, but then runs an unfiltered `SELECT ... FROM devices` and throws away the rows for users not on the page. So every incremental sync (every reconnect, session.ts:947) reads every device on the server, certificates included (up to 16 KiB each).
-- Suggested change: `SELECT deviceColumns FROM devices WHERE user_id IN (SELECT id FROM users WHERE updated_at > ?)`.
-- Check after: Go tests and the PostgreSQL run.
-
 ### Read a group's kind without loading its roster in hot handlers
 - Where: server/internal/api/groups.go:510 (handleSendMessage), :359 (handleRead), :545 (handleDeleteMessage), :257 (handleGroupMeta), and voice.go:288 (roomFor)
 - Category: perf

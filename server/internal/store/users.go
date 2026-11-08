@@ -211,10 +211,12 @@ func (d *DB) Users(ctx context.Context, since int64) ([]*PublicUser, error) {
 		users = append(users, u)
 		byID[u.ID] = u
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if err := rows.Err(); err != nil || len(users) == 0 {
+		return users, err
 	}
-	deviceRows, err := d.sql.QueryContext(ctx, `SELECT `+deviceColumns+` FROM devices`)
+	// Only the devices of those users: every app asks for this each time it connects, and
+	// each device carries its certificate.
+	deviceRows, err := d.sql.QueryContext(ctx, `SELECT `+deviceColumns+` FROM devices WHERE user_id IN (SELECT id FROM users WHERE updated_at > ?)`, since)
 	if err != nil {
 		return nil, err
 	}
