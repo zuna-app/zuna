@@ -186,6 +186,25 @@ final class VoicePlayer {
     private(set) var current: String?
     private(set) var isPlaying = false
     private(set) var position: TimeInterval = 0
+    /// How fast voice messages play, the same for all of them, as in Telegram. Video messages play as they are.
+    private(set) var speed = VoicePlayer.savedSpeed
+    @ObservationIgnored private var playingVoice = false
+
+    static let speeds: [Double] = [1, 1.5, 2]
+    private static let speedKey = "voiceSpeed"
+    private static var savedSpeed: Double {
+        let saved = UserDefaults.standard.double(forKey: speedKey)
+        return speeds.contains(saved) ? saved : 1
+    }
+
+    /// The next speed, kept for every voice message from now on, and for the one playing at once.
+    func nextSpeed() {
+        speed = Self.speeds[((Self.speeds.firstIndex(of: speed) ?? 0) + 1) % Self.speeds.count]
+        UserDefaults.standard.set(speed, forKey: Self.speedKey)
+        guard playingVoice, let player else { return }
+        player.defaultRate = Float(speed)
+        if isPlaying { player.rate = Float(speed) }
+    }
 
     @ObservationIgnored private var player: AVPlayer?
     /// The player of a video message playing with its sound, for its circle to show.
@@ -210,7 +229,11 @@ final class VoicePlayer {
             // Another one was asked for meanwhile.
             guard player == nil else { return }
             let item = AVPlayerItem(url: playable)
+            // Faster, it keeps the voice's pitch, in the way that suits speech.
+            item.audioTimePitchAlgorithm = .timeDomain
             let player = AVPlayer(playerItem: item)
+            player.defaultRate = video ? 1 : Float(speed)
+            playingVoice = !video
             self.player = player
             videoPlayer = video ? player : nil
             current = id
@@ -360,14 +383,39 @@ struct VoiceCard: View {
                 }
                 .frame(minWidth: 120, idealWidth: CGFloat(bars.count) * 4.5, maxWidth: CGFloat(bars.count) * 4.5)
                 .frame(height: 24)
-                Text(Format.duration(mine && (player.isPlaying || position > 0) ? position : duration))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text3)
+                HStack(spacing: 6) {
+                    Text(Format.duration(mine && (player.isPlaying || position > 0) ? position : duration))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text3)
+                    // Once it's started, how fast it plays, as Telegram's: a tap goes to the next speed.
+                    if mine, player.isPlaying || position > 0 {
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) { player.nextSpeed() }
+                        } label: {
+                            Text(Self.label(player.speed))
+                                .font(.caption2.weight(.semibold))
+                                .contentTransition(.numericText(value: player.speed))
+                                .foregroundStyle(own ? Color.white.opacity(0.75) : Theme.text2)
+                                .padding(.horizontal, 5)
+                                .frame(height: 16)
+                                .background((own ? Color.white : Theme.text3).opacity(0.18), in: .capsule)
+                                .contentShape(.rect.inset(by: -8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Playback speed, \(Self.label(player.speed))")
+                        .accessibilityIdentifier(A11y.Chat.voiceSpeed(messageId))
+                    }
+                }
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.voice(messageId))
+    }
+
+    /// "1×", "1.5×" or "2×".
+    static func label(_ speed: Double) -> String {
+        "\(speed.formatted(.number.precision(.fractionLength(0...1))))×"
     }
 
     private func toggle(from time: TimeInterval, seeking: Bool = false) {

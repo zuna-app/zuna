@@ -10,6 +10,8 @@ pub use crate::media::Clip;
 struct Playing {
     key: String,
     clip: Clip,
+    /// How much faster than the clip it plays, which `clip` is already.
+    speed: f64,
     wave: HWAVEOUT,
     /// Where in the clip the written buffer starts, in samples.
     offset: usize,
@@ -44,13 +46,15 @@ impl Playing {
     }
 }
 
-/// Plays a clip from a moment, in seconds, stopping whatever else was playing.
-pub fn play(key: &str, clip: &Clip, from: f64) {
+/// Plays a clip from a moment, in seconds, `speed` times as fast at the same pitch, stopping
+/// whatever else was playing.
+pub fn play(key: &str, clip: &Clip, from: f64, speed: f64) {
     let mut playing = PLAYING.lock();
     if let Some(mut current) = playing.take() {
         current.close();
     }
-    let offset = ((from.max(0.) * clip.rate as f64) as usize).min(clip.samples.len());
+    let clip = &crate::media::at_speed(key, clip, speed);
+    let offset = ((from.max(0.) / speed * clip.rate as f64) as usize).min(clip.samples.len());
     let format = WAVEFORMATEX {
         wFormatTag: WAVE_FORMAT_PCM as u16,
         nChannels: 1,
@@ -70,7 +74,7 @@ pub fn play(key: &str, clip: &Clip, from: f64) {
         let mut header = Box::new(WAVEHDR { lpData: windows::core::PSTR(rest.as_ptr() as *mut u8), dwBufferLength: (rest.len() * 2) as u32, ..Default::default() });
         waveOutPrepareHeader(wave, &mut *header, std::mem::size_of::<WAVEHDR>() as u32);
         waveOutWrite(wave, &mut *header, std::mem::size_of::<WAVEHDR>() as u32);
-        *playing = Some(Playing { key: key.to_string(), clip: clip.clone(), wave, offset, header, paused: false });
+        *playing = Some(Playing { key: key.to_string(), clip: clip.clone(), speed, wave, offset, header, paused: false });
     }
 }
 
@@ -108,7 +112,7 @@ pub fn position(key: &str) -> Option<(f64, bool)> {
         }
         return None;
     }
-    Some((current.played() as f64 / current.clip.rate as f64, !current.paused))
+    Some((current.played() as f64 / current.clip.rate as f64 * current.speed, !current.paused))
 }
 
 /// Which clip is playing, if one is.

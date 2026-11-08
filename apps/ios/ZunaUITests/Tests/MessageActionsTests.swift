@@ -162,6 +162,50 @@ final class MessageActionsTests: XCTestCase {
         XCTAssertGreaterThan(Date().timeIntervalSince(heard), 3.8)
     }
 
+    /// A voice message plays faster from the speed beside its time, as in Telegram, and so does
+    /// every one after it, until the speed's changed back.
+    func testPlaysVoiceMessagesFaster() throws {
+        try openAlice()
+        let alice = try Peer("alice")
+        let before = try voiceMessages(alice).count
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [[
+                "blob": ["$blob": ["bytes": try toneFile().base64EncodedString(), "type": "audio/mp4"]],
+                "name": "Voice message.m4a", "mime": "audio/mp4", "duration": 5.0, "voice": true,
+                "waveform": Data((0..<48).map { UInt8(($0 * 29) % 256) }).base64EncodedString(),
+            ]],
+            [:],
+        ])
+        try waitFor("bob's phone to show it", timeout: 20) { try self.voiceMessages(alice).count == before + 1 }
+        let id = try XCTUnwrap(try voiceMessages(alice).last?["id"] as? String)
+        let card = zuna.element(A11y.Chat.voice(id))
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        let speed = zuna.element(A11y.Chat.voiceSpeed(id))
+        XCTAssertFalse(speed.exists)
+
+        // It shows once it plays, at 1×, and two taps make it 2×.
+        card.buttons["Play voice message"].tap()
+        XCTAssertTrue(speed.waitForExistence(timeout: 10))
+        XCTAssertEqual(speed.label, "Playback speed, 1×")
+        let started = Date()
+        speed.tap()
+        speed.tap()
+        try waitFor("2×") { speed.label == "Playback speed, 2×" }
+        zuna.screenshot("121-voice-speed")
+        XCTAssertTrue(card.buttons["Play voice message"].waitForExistence(timeout: 10))
+        // Its five seconds ended sooner than five seconds.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4.5)
+
+        // Played again, it's still 2×; back to 1× for the tests after.
+        card.buttons["Play voice message"].tap()
+        XCTAssertTrue(speed.waitForExistence(timeout: 10))
+        XCTAssertEqual(speed.label, "Playback speed, 2×")
+        speed.tap()
+        try waitFor("1×") { speed.label == "Playback speed, 1×" }
+        card.buttons["Pause"].tap()
+    }
+
     func testRecordsVideoMessagesAndPlaysThem() throws {
         try openAlice()
         let alice = try Peer("alice")

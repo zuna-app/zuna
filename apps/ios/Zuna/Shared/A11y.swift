@@ -147,6 +147,7 @@ enum A11y {
         static let selectionCount = "chat.selectionCount"
         static func selectToggle(_ id: String) -> String { "chat.select.\(id)" }
         static func voice(_ id: String) -> String { "chat.voice.\(id)" }
+        static func voiceSpeed(_ id: String) -> String { "chat.voiceSpeed.\(id)" }
         static func round(_ id: String) -> String { "chat.round.\(id)" }
         static func linkPreview(_ id: String) -> String { "chat.linkPreview.\(id)" }
         static func quickReaction(_ emoji: String) -> String { "chat.quickReaction.\(emoji)" }

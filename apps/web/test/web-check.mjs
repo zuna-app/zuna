@@ -403,6 +403,18 @@ async function runIn(name) {
         // Playwright's WebKit starts its microphone late: 0.86 s of a 1.5 s recording on 2026-11-04.
         check("an iPhone could play the voice messages this browser sends", !!read && /^(aac|opus)$/.test(read.sound) && read.heard > 0.5 && !read.failed, read?.text ?? "unreadable to AVFoundation");
       }
+      // How fast it plays, from the speed beside its time once it's started, as Telegram's.
+      const speed = voice.locator(".voice-speed");
+      if (!(await speed.count())) await voice.locator(".voice-play").click();
+      await speed.waitFor({ timeout: 10_000 });
+      const first = await speed.innerText();
+      await speed.click();
+      await speed.click();
+      const rate = await page.evaluate(() => window.__player?.playbackRate);
+      const now = await speed.innerText();
+      check("a voice message plays at 1×, 1.5× and 2× from the speed beside its time", first === "1×" && now === "2×" && rate === 2, `${first}, then ${now}, playing at ${rate}`);
+      await speed.click();
+      await page.evaluate(() => window.__player?.pause());
     } catch (error) {
       check("a voice message is recorded and sent", false, error.message.split("\n")[0]);
     }

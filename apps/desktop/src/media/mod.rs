@@ -67,6 +67,69 @@ impl Clip {
     }
 }
 
+/// The speeds a voice message plays at, as Telegram's: a tap on the speed goes to the next.
+pub const VOICE_SPEEDS: [f64; 3] = [1., 1.5, 2.];
+
+/// The clip `speed` times as fast at the same pitch, as a browser's `playbackRate` plays it,
+/// by overlapping windows of it, each placed where it carries on best from the one before
+/// (WSOLA), which keeps speech clear.
+pub fn faster(clip: &Clip, speed: f64) -> Clip {
+    let input = &clip.samples;
+    let rate = clip.rate.max(1) as usize;
+    // 30 ms windows, written every 15 ms, each placed within 8 ms of where the speed puts it.
+    let window = (rate * 30 / 1000).max(64);
+    let hop = window / 2;
+    let search = (rate * 8 / 1000).max(8);
+    if (speed - 1.).abs() < 0.01 || input.len() < window + 2 * search {
+        return clip.clone();
+    }
+    let shape: Vec<f32> = (0..window).map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / window as f32).cos()).collect();
+    let length = (input.len() as f64 / speed) as usize;
+    let mut out = vec![0f32; length + window];
+    let mut weight = vec![0f32; length + window];
+    let mut taken: Option<usize> = None;
+    let mut at = 0;
+    while at < length {
+        let wanted = (at as f64 * speed) as usize;
+        let last = input.len() - window;
+        let from = match taken {
+            None => wanted.min(last),
+            Some(before) => {
+                // What naturally follows the window before, which this one overlaps.
+                let follows = &input[before + hop..before + window];
+                let (low, high) = (wanted.saturating_sub(search).min(last), (wanted + search).min(last));
+                let fit = |start: usize| follows.iter().zip(&input[start..start + hop]).step_by(4).map(|(a, b)| *a as f32 * *b as f32).sum::<f32>();
+                (low..=high).step_by(2).max_by(|a, b| fit(*a).total_cmp(&fit(*b))).unwrap_or(wanted.min(last))
+            }
+        };
+        for (index, scale) in shape.iter().enumerate() {
+            out[at + index] += input[from + index] as f32 * scale;
+            weight[at + index] += scale;
+        }
+        taken = Some(from);
+        at += hop;
+    }
+    let samples = out[..length].iter().zip(&weight[..length]).map(|(sample, weight)| if *weight > 0.001 { (sample / weight).clamp(-32768., 32767.) as i16 } else { 0 }).collect();
+    Clip { samples: Arc::new(samples), rate: clip.rate }
+}
+
+/// The last clip made faster, by its key and speed, so pausing and playing again doesn't make it again.
+static FASTER: parking_lot::Mutex<Option<(String, u64, Clip)>> = parking_lot::Mutex::new(None);
+
+/// A clip at a speed, kept for the next time it's asked for.
+pub fn at_speed(key: &str, clip: &Clip, speed: f64) -> Clip {
+    if (speed - 1.).abs() < 0.01 {
+        return clip.clone();
+    }
+    let mut kept = FASTER.lock();
+    if let Some((_, _, faster)) = kept.as_ref().filter(|(at, bits, _)| at == key && *bits == speed.to_bits()) {
+        return faster.clone();
+    }
+    let made = faster(clip, speed);
+    *kept = Some((key.to_string(), speed.to_bits(), made.clone()));
+    made
+}
+
 /// A camera the person can choose, by the name the system gives it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CameraDevice {
@@ -107,6 +170,23 @@ pub fn encode_waveform(levels: &[f32]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{Clip, faster};
+
+    #[test]
+    fn a_faster_voice_is_shorter_at_the_same_pitch() {
+        let rate = 48_000;
+        let tone = |seconds: f64| Clip::from_floats(&(0..(seconds * rate as f64) as usize).map(|i| (i as f32 / rate as f32 * std::f32::consts::TAU * 220.).sin() * 0.5).collect::<Vec<_>>(), rate);
+        // How often it crosses zero going up, in a second: its pitch.
+        let pitch = |clip: &Clip| clip.samples.windows(2).filter(|pair| pair[0] < 0 && pair[1] >= 0).count() as f64 / clip.duration();
+        let clip = tone(2.);
+        for speed in [1.5, 2.] {
+            let fast = faster(&clip, speed);
+            assert!((fast.duration() - 2. / speed).abs() < 0.01, "{speed}x lasts {}", fast.duration());
+            assert!((pitch(&fast) - 220.).abs() < 5., "{speed}x is at {} Hz", pitch(&fast));
+        }
+        assert_eq!(faster(&clip, 1.).samples.len(), clip.samples.len());
+    }
+
     #[test]
     fn mirrors_each_row_in_place() {
         // Two rows of three pixels, each pixel's bytes its column and row.

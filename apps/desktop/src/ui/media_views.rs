@@ -122,7 +122,7 @@ fn decode_waveform(waveform: Option<&str>) -> Vec<f32> {
 }
 
 /// A voice message, as in Telegram: play, a waveform that fills as it plays and seeks on a
-/// click, and the time.
+/// click, the time, and once it's started, how fast it plays, which a click changes for all of them.
 pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let key = attachment.file_id.clone();
@@ -155,14 +155,15 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
             }
             state.update(cx, |state, cx| {
                 let from = at.unwrap_or_else(|| state.paused_at.get(&key).copied().unwrap_or(0.));
+                let speed = state.settings.voice_speed;
                 match state.clip(&server_id, &attachment, cx) {
                     ClipState::Ready(clip) => {
-                        player::play(&key, &clip, from);
+                        player::play(&key, &clip, from, speed);
                         state.tick_media(cx);
                     }
                     // Starts once it's decoded.
                     _ => {
-                        state.play_when_ready = Some((key.clone(), from));
+                        state.play_when_ready = Some((key.clone(), from, speed));
                     }
                 }
                 cx.notify();
@@ -186,6 +187,39 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
         }
     });
     let shown = if is_playing || position > 0. { position } else { duration };
+    let started = is_playing || position > 0.;
+    let speed = context.state.read(cx).settings.voice_speed;
+    let next_speed = {
+        let (state, key) = (context.state.clone(), key.clone());
+        move |_: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut App| {
+            let next = crate::media::VOICE_SPEEDS.iter().copied().find(|step| *step > speed + 0.01).unwrap_or(crate::media::VOICE_SPEEDS[0]);
+            state.update(cx, |state, cx| {
+                state.update_settings(|settings| settings.voice_speed = next, cx);
+                // One playing goes on from where it is at the new speed.
+                if let (Some((now, true)), Some(ClipState::Ready(clip))) = (player::position(&key), state.clips.get(&key).cloned()) {
+                    player::play(&key, &clip, now, next);
+                }
+            });
+        }
+    };
+    let time = div().flex().items_center().gap(px(6.)).text_size(px(11.5)).text_color(theme.bubble_meta).child(format_duration(shown)).when(started, |el| {
+        el.child(
+            div()
+                .id(SharedString::from(format!("voice-speed-{key}")))
+                .h(px(16.))
+                .px(px(5.))
+                .flex()
+                .items_center()
+                .rounded(px(8.))
+                .bg(theme.bubble_meta.opacity(0.18))
+                .text_size(px(11.))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .tooltip(tooltip("Playback speed"))
+                .on_click(next_speed)
+                .child(speed_label(speed)),
+        )
+    });
     div()
         .flex()
         .items_center()
@@ -216,8 +250,13 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
                     icon("play", 18., button_fg).into_any_element()
                 }),
         )
-        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(wave).child(div().text_size(px(11.5)).text_color(theme.bubble_meta).child(format_duration(shown))))
+        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(3.)).child(wave).child(time))
         .into_any_element()
+}
+
+/// A speed as Telegram writes it: "1×", "1.5×", "2×".
+fn speed_label(speed: f64) -> String {
+    format!("{}×", if speed.fract() == 0. { format!("{speed:.0}") } else { format!("{speed:.1}") })
 }
 
 /// A sound file, which plays once it's pressed, with its time and a bar to move along.
@@ -245,10 +284,10 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
             let from = state.paused_at.get(&key).copied().unwrap_or(0.);
             match state.clip(&server_id, &a, cx) {
                 ClipState::Ready(clip) => {
-                    player::play(&key, &clip, from);
+                    player::play(&key, &clip, from, 1.);
                     state.tick_media(cx);
                 }
-                _ => state.play_when_ready = Some((key.clone(), from)),
+                _ => state.play_when_ready = Some((key.clone(), from, 1.)),
             }
             cx.notify();
         });
@@ -282,7 +321,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
             let key = seek_attachment.file_id.clone();
             seek_state.update(cx, |state, cx| {
                 if let ClipState::Ready(clip) = state.clip(&seek_server, &seek_attachment, cx) {
-                    player::play(&key, &clip, at);
+                    player::play(&key, &clip, at, 1.);
                     state.tick_media(cx);
                 }
                 cx.notify();
@@ -534,7 +573,7 @@ impl VideoPlayer {
         self.playing = true;
         if self.heard {
             if let Some(clip) = &self.clip {
-                player::play(&self.key, clip, from);
+                player::play(&self.key, clip, from, 1.);
             }
         }
         // Wakes when the next frame is due rather than every few milliseconds, and draws only

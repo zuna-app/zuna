@@ -44,6 +44,7 @@ import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
 import { downloadAttachment, loadsByItself, picturesAmong, useDecryptedUrl } from "@/lib/media";
 import { RoundAttachment } from "./Round";
 import { decodeWaveform, playOnly } from "@/lib/voice";
+import { VOICE_SPEEDS } from "@/state/settings";
 import { useApp } from "@/state/store";
 import { emotesIn, mentionsIn } from "./Composer";
 import { canActOn } from "./use-drag-pick";
@@ -284,6 +285,12 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
   const bars = useMemo(() => decodeWaveform(attachment.waveform), [attachment.waveform]);
   const duration = attachment.duration ?? 0;
   const uploading = !attachment.fileId;
+  // How fast it plays, the same for all of them, as in Telegram. A browser keeps the pitch.
+  const speed = useApp((state) => state.settings.voiceSpeed);
+  const updateSettings = useApp((state) => state.updateSettings);
+  useEffect(() => {
+    if (audio.current) audio.current.playbackRate = speed;
+  }, [speed]);
 
   const start = (source: string, at: number) => {
     let element = audio.current;
@@ -299,6 +306,7 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
       audio.current = element;
     }
     element.currentTime = at;
+    element.playbackRate = speed;
     playOnly(element);
     element.play().catch(() => setPlaying(false));
   };
@@ -355,7 +363,19 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
             <i key={index} className={index / bars.length < progress ? "is-played" : ""} style={{ height: `${Math.max(12, height * 100)}%` }} />
           ))}
         </span>
-        <span className="voice-time">{formatDuration(playing || position ? position : duration)}</span>
+        <span className="voice-meta">
+          <span className="voice-time">{formatDuration(playing || position ? position : duration)}</span>
+          {(playing || position > 0) && (
+            <button
+              className="voice-speed"
+              onClick={() => updateSettings({ voiceSpeed: VOICE_SPEEDS[(VOICE_SPEEDS.indexOf(speed) + 1) % VOICE_SPEEDS.length] })}
+              aria-label={`Playback speed, ${speed} times`}
+              title="Playback speed"
+            >
+              {speed}×
+            </button>
+          )}
+        </span>
       </span>
     </div>
   );

@@ -227,7 +227,7 @@ pub struct AppState {
     /// Players to make once their files are here: whether each is a video message, and its length.
     videos_wanted: HashMap<String, (bool, f64)>,
     pub paused_at: HashMap<String, f64>,
-    pub play_when_ready: Option<(String, f64)>,
+    pub play_when_ready: Option<(String, f64, f64)>,
     media_tick: Option<Task<()>>,
     /// Notified while something plays, in place of the whole state, so only the chat draws again.
     pub media_clock: Entity<MediaClock>,
@@ -1512,9 +1512,9 @@ impl AppState {
                             state.clips.insert(id.clone(), ClipState::Ready(clip.clone()));
                             state.trim_media();
                             // Pressed before it was ready: it starts now.
-                            if let Some((key, from)) = state.play_when_ready.clone().filter(|(key, _)| *key == id) {
+                            if let Some((key, from, speed)) = state.play_when_ready.clone().filter(|(key, _, _)| *key == id) {
                                 state.play_when_ready = None;
-                                crate::media::player::play(&key, &clip, from);
+                                crate::media::player::play(&key, &clip, from, speed);
                                 state.tick_media(cx);
                             }
                             if let Some(player) = state.videos.get(&id).cloned() {

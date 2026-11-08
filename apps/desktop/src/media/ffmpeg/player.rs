@@ -13,6 +13,8 @@ pub use crate::media::Clip;
 struct Playing {
     key: String,
     rate: u32,
+    /// How much faster than the clip it plays, which the samples played already are.
+    speed: f64,
     /// Where it's got to in the clip, in samples.
     at: Arc<AtomicUsize>,
     paused: Arc<AtomicBool>,
@@ -22,13 +24,15 @@ struct Playing {
 
 static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
 
-/// Plays a clip from a moment, in seconds, stopping whatever else was playing.
-pub fn play(key: &str, clip: &Clip, from: f64) {
+/// Plays a clip from a moment, in seconds, `speed` times as fast at the same pitch, stopping
+/// whatever else was playing.
+pub fn play(key: &str, clip: &Clip, from: f64, speed: f64) {
     // The last one's stream goes first, outside the lock its own sound never takes.
     let last = PLAYING.lock().take();
     drop(last);
+    let clip = crate::media::at_speed(key, clip, speed);
     let samples = clip.samples.clone();
-    let at = Arc::new(AtomicUsize::new(((from.max(0.) * clip.rate as f64) as usize).min(samples.len())));
+    let at = Arc::new(AtomicUsize::new(((from.max(0.) / speed * clip.rate as f64) as usize).min(samples.len())));
     let (paused, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
     let fill = {
         let (at, paused, done) = (at.clone(), paused.clone(), done.clone());
@@ -53,7 +57,7 @@ pub fn play(key: &str, clip: &Clip, from: f64) {
         log::warn!("no sound out");
         return;
     };
-    *PLAYING.lock() = Some(Playing { key: key.to_string(), rate: clip.rate, at, paused, done, _stream: stream });
+    *PLAYING.lock() = Some(Playing { key: key.to_string(), rate: clip.rate, speed, at, paused, done, _stream: stream });
 }
 
 pub fn pause(key: &str) {
@@ -88,7 +92,7 @@ pub fn position(key: &str) -> Option<(f64, bool)> {
         drop(done);
         return None;
     }
-    Some((current.at.load(Ordering::Relaxed) as f64 / current.rate.max(1) as f64, !current.paused.load(Ordering::Relaxed)))
+    Some((current.at.load(Ordering::Relaxed) as f64 / current.rate.max(1) as f64 * current.speed, !current.paused.load(Ordering::Relaxed)))
 }
 
 /// Which clip is playing, if one is.

@@ -24,6 +24,8 @@ pub struct Settings {
     pub collapsed_categories: Vec<String>,
     /// A channel's member list stays open or closed across channels, as in Discord.
     pub hide_member_list: bool,
+    /// How fast voice messages play, one of `media::VOICE_SPEEDS`, the same for all of them as in Telegram.
+    pub voice_speed: f64,
 }
 
 impl Default for Settings {
@@ -42,6 +44,7 @@ impl Default for Settings {
             list_width: 320.,
             collapsed_categories: Vec::new(),
             hide_member_list: false,
+            voice_speed: 1.,
         }
     }
 }
