@@ -12,22 +12,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: smallest step: pin it exactly (`"app-builder-lib": "26.18.0"`). Better: drop it. Add `scripts/nsis.mjs` that downloads NSIS from electron-builder-binaries' GitHub release, pinned by URL and SHA-256 as scripts/ffmpeg.mjs pins FFmpeg, and find `signtool.exe` in the Windows SDK that VS's C++ build tools already install (`%ProgramFiles(x86)%\Windows Kits\10\bin\<version>\x64\signtool.exe`). Then remove app-builder-lib and update docs/WINDOWS_APP.md:30.
 - Check after: `npm run dist:windows` and `npm run install:windows` on Windows, also with CSC_LINK set; `npm audit` shows 0.
 
-### Run the server and core tests against PostgreSQL in CI
-- Where: .github/workflows/ci.yml:13-42; CLAUDE.md (PostgreSQL paragraph and SQL gotcha)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: CLAUDE.md says all SQL must work in SQLite and PostgreSQL and lists the traps, but CI only runs test:server and test:core in SQLite.
-- Suggested change: a `postgres` job (or second pass) with `services: postgres: { image: postgres:17 (pinned by digest), env: { POSTGRES_USER: zuna, POSTGRES_PASSWORD: zuna, POSTGRES_DB: zuna_test }, ports: ["5432:5432"], options: "--health-cmd pg_isready --health-interval 5s --health-retries 10" }`, running `npm run test:server` and `npm run test:core` with `ZUNA_TEST_POSTGRES: postgres://zuna:zuna@localhost:5432/zuna_test?sslmode=disable`. Same setup steps as `test` (Go, Node, Rust, wasm-bindgen, `npm ci`, `build:crypto`).
-- Check after: CI only runs on PRs and tags (and the repo never makes PRs), so this runs on the next `v*` tag; check locally with `ZUNA_TEST_POSTGRES=... npm run test:server`.
-
-### Build the native desktop app somewhere in CI
-- Where: .github/workflows/ci.yml and release.yml (no desktop job); e55fd3c's message
-- Category: robustness
-- Severity: medium ; Effort: L ; Confidence: high
-- What's wrong: since the Electron build left CI, nothing compiles apps/desktop or bundles its core. Known gap ("to be made again"), recorded so it isn't lost. Pairs with the release-job entry in docs.md.
-- Suggested change: start with a `desktop` job on `windows-latest`: `npm ci`, `node apps/desktop/core-bundle/build.mjs`, `cargo +stable-x86_64-pc-windows-msvc check --manifest-path apps/desktop/Cargo.toml` with `CARGO_TARGET_DIR` on a short path (windows-app.mjs:35). Cache `~/.cargo/git` for the large SocketByte/zed fetch. Add Linux later with the FFmpeg fetch (scripts/ffmpeg.mjs) and its apt packages.
-- Check after: the job passes on a test tag.
-
 ### Delete the leftover Electron folder here, then drop its .gitignore patterns
 - Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
 - Category: cleanup
