@@ -78,7 +78,7 @@ The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the th
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
-**`packages/core/src/session.ts` is the heart of it,** at about 3,600 lines. It's divided by `// --- Name ---` markers, so search for those instead of reading it through: Lifecycle, Users, Vault, Account generations, Epoch keys, Key packages, Groups (state, joining, applying changes), Reconciling MLS with the roster, Realtime frames, Ingesting messages, Conversations, Reading messages, Sending, Files, Group management, Administration, Search index.
+**`packages/core/src/session.ts` is the heart of it,** at about 7,000 lines. It's divided by `// --- Name ---` markers, so search for those instead of reading it through: Lifecycle, Sealing data at rest, Locks, Users, Vault, Vault manifest, Account generations, Epoch keys, Key packages, Groups: state, Groups: joining, Groups: applying changes, Reconciling MLS with the roster, Realtime frames, Ingesting messages, Disappearing messages, Conversations, Notifications, Reading messages, Sending, Files, Profile and account, Identity verification, Group management, Channels, Voice, Calls, Soundboard, Emotes, Administration, Search index. `grep -n "^  // --- " packages/core/src/session.ts` lists them with their lines.
 
 Rules the core depends on:
 
@@ -104,8 +104,9 @@ Rules the core depends on:
 | A crypto function | `mls.rs`, `wasm.rs`, `native.rs`, `apps/ios/core-bundle/src/crypto.ts`, `ZunaHost/CryptoBridge.swift` and `apps/desktop/src/host/crypto.rs` |
 | `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` and `apps/desktop/src/models.rs` |
 | What the iOS core bundle asks of its host (`apps/ios/core-bundle/src/natives.d.ts`) | `ZunaHost` and `apps/desktop/src/host`, which give the same functions |
-| A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
-| The web's markup (`lib/markup.tsx` in `packages/ui`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
+| A public `ZunaClient` or `ServerSession` method the UI uses | Its callers in `apps/desktop/src`, which name it in a string (`call("…")`, so a rename isn't a type error there), in `packages/ui`, and `ZunaModels/CoreAPI.swift` |
+| The web's markup (`lib/markup.tsx` in `packages/ui`) | `apps/desktop/src/markup.rs` and its tests, `ZunaModels/Markup.swift`, and the golden file, which checks Swift against the web but not Rust: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
+| The emoji list (`packages/ui/src/lib/emoji-data.ts`) | `apps/desktop/src/emoji_data.rs`, written by `node apps/desktop/scripts/emoji.mjs` |
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |

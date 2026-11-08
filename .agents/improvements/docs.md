@@ -20,22 +20,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 - Suggested change: add to ROADMAP: "**Releasing the native app.** The release workflow's desktop job went with the Electron app on 2026-11-08. It needs one that builds and signs the Windows installer (`npm run dist:windows`, with `CSC_LINK` and `CSC_KEY_PASSWORD`), the Linux packages (`npm run dist:linux`, in a container old enough for glibc), and later the macOS DMG." ROADMAP:48 → "...which the native app's release job, still to be written, would take." SECURITY.md:173 → "Signed Windows builds update themselves, and only ever to an update signed by the same publisher. macOS and Linux builds don't update themselves yet." WINDOWS_APP.md:34: add "No release carries the installer yet." README:90: add "Until releases carry the desktop app, build it from source (CONTRIBUTING.md)." LINUX_APP_PLAN:178 → "the release workflow has no job for the native app yet." Fix release.yml's comment.
 - Check after: apps/site (Platforms.tsx, Privacy.tsx:26, downloads.ts) and SITE_PLAN:44 (separate entry below): the landing page may not claim downloads that don't exist.
 
-### Add the native app's markup, core calls and emoji list to "What has to change together"
-- Where: CLAUDE.md "What has to change together" table (the markup row and the public ServerSession method row)
-- Category: docs
-- Severity: high ; Effort: S ; Confidence: high
-- What's wrong: the markup row leaves out apps/desktop/src/markup.rs, which reimplements the same rules (markup.rs:1) and isn't checked by the golden test (that compares Swift with the web only). The "public `ServerSession` method → `CoreAPI.swift`" row leaves out the native app, which calls core methods by name strings (`call` at state.rs:341, e.g. `call("addSound", …)`), so a rename breaks it with no type error; packages/ui is left out too. packages/ui/src/lib/emoji-data.ts feeds apps/desktop/src/emoji_data.rs through `node apps/desktop/scripts/emoji.mjs`, and isn't listed.
-- Suggested change: markup row → "| The web's markup (`lib/markup.tsx` in `packages/ui`) | `apps/desktop/src/markup.rs` and its tests, `ZunaModels/Markup.swift`, and the golden file … (which checks Swift against the web, not Rust) |". Method row → "| A public `ZunaClient` or `ServerSession` method the UI uses | Its callers by name in `apps/desktop/src` (`call("…")`), `packages/ui`, and `ZunaModels/CoreAPI.swift` |". New row: "| The emoji list (`packages/ui/src/lib/emoji-data.ts`) | `apps/desktop/src/emoji_data.rs`, written by `node apps/desktop/scripts/emoji.mjs` |".
-- Check after: none.
-
-### Correct session.ts's size and its list of section markers
-- Where: CLAUDE.md (Architecture: "`packages/core/src/session.ts` is the heart of it")
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high (spot-checked during the review: 6,935 lines)
-- What's wrong: it says "about 3,600 lines". The list leaves out 12 of the 31 markers: Sealing data at rest (:824), Locks (:931), Vault manifest (:1267), Disappearing messages (:4490), Notifications (:5030), Profile and account (:5866), Identity verification (:5953), Channels (:6183), Voice (:6406), Calls (:6577), Soundboard (:6659), Emotes (:6804). CLAUDE.md's Quick reference itself points to `// --- Channels ---`. The markers are written "Groups: state" etc., not "Groups (state, …)".
-- Suggested change: "at about 7,000 lines … : Lifecycle, Sealing data at rest, Locks, Users, Vault, Vault manifest, Account generations, Epoch keys, Key packages, Groups: state, Groups: joining, Groups: applying changes, Reconciling MLS with the roster, Realtime frames, Ingesting messages, Disappearing messages, Conversations, Notifications, Reading messages, Sending, Files, Profile and account, Identity verification, Group management, Channels, Voice, Calls, Soundboard, Emotes, Administration, Search index." Regenerate with `grep -n "^  // --- " packages/core/src/session.ts`. If the session.ts split (core.md) lands, update again.
-- Check after: none.
-
 ### Say how to check a change to the native app, and which systems weren't built
 - Where: CLAUDE.md ("There's no linter or formatter. The strict check is the type checks…"; the Swift rule in the iOS paragraph)
 - Category: docs
