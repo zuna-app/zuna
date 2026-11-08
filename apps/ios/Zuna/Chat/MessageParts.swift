@@ -457,7 +457,10 @@ struct CodeBlockView: View {
     let code: String
     let language: String?
     @State private var copied = false
-    @State private var lines: [Highlighter.Line]?
+    /// The colored lines, with the code and language they're of: after an edit, the old ones mustn't stand in for the new.
+    @State private var colored: (source: String, lines: [Highlighter.Line])?
+
+    private var source: String { "\(language ?? "")\n\(code)" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -495,14 +498,17 @@ struct CodeBlockView: View {
         .background(Theme.bg0, in: .rect(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
         .padding(.vertical, 2)
-        .task(id: code) {
-            guard let language else { return }
-            lines = await Highlighter.shared.tokens(code, language: language)
+        .task(id: source) {
+            guard let language, colored?.source != source else { return }
+            let source = source
+            let lines = await Highlighter.shared.tokens(code, language: language)
+            if let lines, !Task.isCancelled { colored = (source, lines) }
         }
     }
 
     private var highlighted: AttributedString {
-        guard let lines else { return AttributedString(code, attributes: AttributeContainer().foregroundColor(Color(hex: 0xE6EDF3))) }
+        guard let colored, colored.source == source else { return AttributedString(code, attributes: AttributeContainer().foregroundColor(Color(hex: 0xE6EDF3))) }
+        let lines = colored.lines
         var out = AttributedString()
         for (index, line) in lines.enumerated() {
             for token in line {
