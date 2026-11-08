@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Pin the session and list across awaits
-- Where: packages/ui/src/state/store.ts:734,743,736-738 (`loadList`), 764-792 (`loadOlder`), 802,809 (`jumpToMessage`), 823-830 (`returnToLatest`)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `get().session()` after an `await` refers to whichever server is active by then, so switching server mid-load sends the request to the wrong session (error toast). `loadOlder` can land after `returnToLatest` replaced the list, leaving a hole in history and clearing `loading` early. Its `catch` spreads `state.lists[listId]!`, which may be undefined.
-- Suggested change: capture the session and server ID at the start. In `loadOlder`, bail out when `state.lists[listId] !== list`.
-- Check after: typecheck, web check.
-
 ### Drop the Platform's Electron-era options
 - Where: packages/ui/src/platform.ts:6-9,37-56 (`keyProtected`, the optional members, `takeDeepLink` returning a Promise, `keyWarning: string | null`); core/boot.ts:15,28 (`DeviceInfo.protected`); apps/web/src/platform.ts:39 (`protected: false` hard-coded); state/store.ts:90,549,567-568; features/overlays/Settings.tsx:283-323,405,420; App.tsx:77,113,117,129
 - Category: cleanup

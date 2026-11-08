@@ -191,6 +191,14 @@ function listIdsOf(server: ServerState | undefined): Set<string> {
 
 const without = <T,>(record: Record<string, T>, ids: Set<string>): Record<string, T> => Object.fromEntries(Object.entries(record).filter(([id]) => !ids.has(id)));
 
+/**
+ * Each list's page of older messages on its way, by a number of its own. Going back to the
+ * newest messages, or jumping to one, puts another list in its place, and forgets the
+ * number, so the page that comes after doesn't land on the new list.
+ */
+const olderLoads = new Map<string, number>();
+let olderLoadCount = 0;
+
 const debouncers = new Map<string, ReturnType<typeof setTimeout>>();
 function debounced(key: string, fn: () => void, ms = 60): void {
   if (debouncers.has(key)) return;
@@ -767,6 +775,8 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async loadList(listId, groupId, toUnread = true) {
+      // The server it's on, held across the awaits, since the person may switch to another meanwhile.
+      const serverId = get().activeServerId ?? undefined;
       const existing = get().lists[listId];
       if (existing?.loaded || existing?.loading) return;
       set((state) => ({ lists: { ...state.lists, [listId]: { ...(existing ?? emptyList()), loading: true } } }));
@@ -778,16 +788,16 @@ export const useApp = create<AppState>((set, get) => {
         return;
       }
       try {
-        const page = await get().session().loadMessages(groupId);
+        const session = get().session(serverId);
+        const page = await session.loadMessages(groupId);
         // A chat opens at its first unread message, so the pages back to it come first, all at once.
-        const { activeServerId, servers } = get();
-        const server = activeServerId ? servers[activeServerId] : undefined;
+        const server = serverId ? get().servers[serverId] : undefined;
         const { ownRead = 0, unread = 0 } = server?.conversations.find((item) => item.groupId === groupId) ?? server?.channels.find((item) => item.id === groupId)?.conversation ?? {};
         const unreadIn = (messages: MessageView[]) => messages.filter((message) => isUnread(message, ownRead, server?.self?.userId, server?.prefs.blocked)).length;
         for (let pages = 1; toUnread && page.hasMore && pages < UNREAD_PAGES && unreadIn(page.messages) < unread; pages++) {
           const oldest = page.messages.find((message) => message.seq !== null)?.seq;
           if (oldest == null || oldest <= ownRead + 1) break;
-          const older = await get().session().loadMessages(groupId, oldest);
+          const older = await session.loadMessages(groupId, oldest);
           page.messages = [...older.messages, ...page.messages];
           page.hasMore = older.hasMore;
         }
@@ -813,12 +823,22 @@ export const useApp = create<AppState>((set, get) => {
       if (!list || list.loading || !list.hasMore) return;
       const oldest = list.items.find((item) => item.seq !== null);
       if (!oldest) return;
+      const load = ++olderLoadCount;
+      olderLoads.set(listId, load);
+      const same = (current: MessageList | undefined): current is MessageList => !!current && olderLoads.get(listId) === load;
+      let session: RemoteSession;
+      try {
+        session = get().session();
+      } catch {
+        return;
+      }
       set((state) => ({ lists: { ...state.lists, [listId]: { ...list, loading: true } } }));
       try {
-        const page = await get().session().loadMessages(listId, oldest.seq!);
+        const page = await session.loadMessages(listId, oldest.seq!);
         set((state) => {
           const current = state.lists[listId];
-          if (!current) return state;
+          if (!same(current)) return state;
+          olderLoads.delete(listId);
           const known = new Set(current.items.map((item) => item.id));
           const older = page.messages.filter((message) => !known.has(message.id));
           return {
@@ -835,26 +855,33 @@ export const useApp = create<AppState>((set, get) => {
           };
         });
       } catch {
-        set((state) => ({ lists: { ...state.lists, [listId]: { ...state.lists[listId]!, loading: false } } }));
+        set((state) => {
+          const current = state.lists[listId];
+          if (!same(current)) return state;
+          olderLoads.delete(listId);
+          return { lists: { ...state.lists, [listId]: { ...current, loading: false } } };
+        });
       }
     },
 
     async jumpToMessage(groupId, messageId, seq) {
+      const session = get().session();
       const list = get().lists[groupId];
       const present = list?.items.some((item) => item.id === messageId);
       const jumpTarget = { groupId, messageId, nonce: Date.now() };
       if (!present) {
         let target = seq ?? null;
         if (target === null) {
-          const message = await get().session().messageById(groupId, messageId);
+          const message = await session.messageById(groupId, messageId);
           target = message?.seq ?? null;
         }
         if (target === null) {
           get().toast("That message isn't available.", "info");
           return;
         }
-        const window = await get().session().loadAround(groupId, target);
+        const window = await session.loadAround(groupId, target);
         // Together, so the window's list knows from its first frame which message it opens on.
+        olderLoads.delete(groupId);
         set((state) => ({
           lists: {
             ...state.lists,
@@ -868,6 +895,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async returnToLatest(listId) {
+      olderLoads.delete(listId);
       set((state) => {
         const lists = { ...state.lists };
         delete lists[listId];
