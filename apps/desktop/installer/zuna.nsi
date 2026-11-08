@@ -13,8 +13,11 @@
 ;   VERSION      the version it installs
 ;   ICON         the app's icon
 ;   UNINSTALLER  where the uninstaller is written, and taken from
+;   PLUGINS      electron-builder's NSIS plugins, for WinShell
 
 Unicode true
+; WinShell, for the shortcuts' AppUserModelID, from electron-builder's NSIS plugins.
+!addplugindir /x86-unicode "${PLUGINS}\x86-unicode"
 SetCompressor /SOLID lzma
 RequestExecutionLevel user
 Name "Zuna"
@@ -83,9 +86,13 @@ Section "Zuna"
   File /r "${SOURCE}\*.*"
   File "/oname=Uninstall Zuna.exe" "${UNINSTALLER}"
 
+  ; The shortcuts carry the ID the app gives itself (AUMID in platform/windows/mod.rs), so
+  ; Windows takes them for the same app, as Focus Assist's priority list does.
   CreateShortCut "$SMPROGRAMS\Zuna.lnk" "$INSTDIR\Zuna.exe"
-  IfSilent +2
+  WinShell::SetLnkAUMI "$SMPROGRAMS\Zuna.lnk" "chat.zuna.desktop"
+  IfSilent +3
   CreateShortCut "$DESKTOP\Zuna.lnk" "$INSTDIR\Zuna.exe"
+  WinShell::SetLnkAUMI "$DESKTOP\Zuna.lnk" "chat.zuna.desktop"
 
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Zuna"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"

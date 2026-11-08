@@ -11,14 +11,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: build `AudioProcessingModule` and `Microphone` inside `background_executor().spawn` and hand back with `this.update`; keep creating `mic_source` synchronously so the join proceeds and the mic publishes when ready. Same for `reopen_mic`, `toggle_mic_test`, the camera test and the recorders. Drop `Camera` on a background thread, or make its `Drop` signal the reader and detach.
 - Check after: linux-voice-check.mjs, mac-voice-check.mjs, `npm run dev:windows` (join with a non-default mic).
 
-### Match Focus Assist's priority list against an ID the native app actually has
-- Where: platform/windows/quiet.rs:15 (`APP_ID = "chat.zuna.app"`), 126; no code calls `SetCurrentProcessExplicitAppUserModelID` or the fork's `set_app_identity`; installer/zuna.nsi:86-88 creates shortcuts without an AppUserModelID
-- Category: ux
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: "chat.zuna.app" was the Electron app's AppUserModelID. The native process gets one derived by Windows, so `on_priority_list` can never match: under "Priority only", Zuna's cards are always held back, even after the person adds Zuna to the list.
-- Suggested change: pick one ID (e.g. `chat.zuna.desktop`, the macOS bundle ID); set it at startup with `cx.set_app_identity` (gpui_windows/src/platform.rs:939); stamp it on the Start-menu shortcut in NSIS; use the same constant in quiet.rs.
-- Check after: `npm run install:windows`, then Focus Assist "Priority only" with Zuna added. Note it in FEATURE_PARITY.
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps

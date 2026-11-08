@@ -159,6 +159,11 @@ pub fn play_notification_sound() {
     }
 }
 
+/// The app's AppUserModelID: what Windows knows it by, for Focus Assist's priority list, the
+/// taskbar and the Start menu's shortcut, which the installer stamps with it. The macOS
+/// bundle's identifier, so the app has one name for itself.
+pub const AUMID: &str = "chat.zuna.desktop";
+
 /// Whether Windows's Animation effects are turned off.
 pub fn animations_off() -> bool {
     let mut on = windows::core::BOOL(1);

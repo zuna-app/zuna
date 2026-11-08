@@ -12,7 +12,7 @@ use windows::Win32::UI::Shell::SHQueryUserNotificationState;
 use windows::core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, PWSTR, interface};
 
 /// The name the app gives itself to Windows, which a profile's priority list goes by.
-const APP_ID: &str = "chat.zuna.app";
+use super::AUMID as APP_ID;
 const QUIET_HOURS_SETTINGS: GUID = GUID::from_u128(0xf53321fa_34f8_4b7f_b9a3_361877cb94cf);
 
 // Only the methods used here have their real signatures. The others hold their place in the table.

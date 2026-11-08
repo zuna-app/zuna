@@ -93,6 +93,10 @@ fn main() {
         application.on_reopen(|_| platform::show_main());
     }
     application.run(move |cx: &mut App| {
+        // Windows knows the app by this, as the Start menu's shortcut has it, rather than a name
+        // it would work out from the program's path, which Focus Assist's list never matched.
+        #[cfg(windows)]
+        cx.set_app_identity(platform::AUMID, "Zuna");
         assets::load_fonts(cx);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         platform::install(cx);

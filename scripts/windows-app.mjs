@@ -88,11 +88,13 @@ if (packaging) {
   const icon = join(dist, "zuna.ico");
   writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));
   // electron-builder's own NSIS, through app-builder-lib, fetched once if it isn't here.
-  const { getMakeNsisPath } = require("app-builder-lib/out/toolsets/windows");
+  const { getMakeNsisPath, getNsisPluginsPath } = require("app-builder-lib/out/toolsets/windows");
   const makensis = await getMakeNsisPath(undefined, undefined);
+  // Its plugins too, for WinShell, which gives the shortcuts the app's AppUserModelID.
+  const plugins = await getNsisPluginsPath(undefined, undefined);
   const out = join(dist, `Zuna-Native-Setup-${version}.exe`);
   const nsis = (defines) => {
-    const made = spawnSync(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, ...defines, join(crate, "installer", "zuna.nsi")], {
+    const made = spawnSync(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
       stdio: "inherit",
       env: { ...process.env, ...(makensis.env ?? {}) },
     });
