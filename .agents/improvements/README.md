@@ -18,12 +18,12 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 2 |
-| `server.md` | `server/` and `deploy/`: queries, indexes, limits, shutdown, push | 5 |
+| `server.md` | `server/` and `deploy/`: queries, indexes, limits, shutdown, push | 4 |
 | `web.md` | `packages/ui` and `apps/web`: re-renders, Escape, caches, Platform leftovers | 22 |
 | `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 25 |
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 30 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 15 |
-| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 10 |
+| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 9 |
 | `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 28 |
 
 A few entries in `docs.md` and `deps-build.md` are only pointers to the same issue in another file.

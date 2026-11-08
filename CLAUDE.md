@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`, and to macOS on Apple silicon, `docs/MACOS_APP_PLAN.md`), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from was removed on 2026-11-08, and is in git history.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, Linux under Wayland, `docs/LINUX_APP_PLAN.md`, and macOS on Apple silicon, `docs/MACOS_APP_PLAN.md`, with no packages released yet), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from was removed on 2026-11-08, and is in git history.
 
 ## Working rules
 
@@ -30,8 +30,8 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run build:server`, `npm run build:web` |
-| Native screen capture, and on macOS a share's sound, which go into the native app's packages (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
-| The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, or install it on this computer with its installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run install:windows` |
+| Native screen capture, and on macOS a share's sound, which go into the native app's installers and packages, and its bundle on macOS (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
+| The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, add its installer beside it, or install it on this computer with that installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run dist:windows`, `npm run install:windows` |
 | The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
 | The same app on macOS, on Apple silicon, always as a bundle signed with this Mac's Apple Development identity and started with `open`: a debug build as "Zuna Dev", or a release one in `dist/macos/Zuna.app` | `npm run dev:macos`, `npm run build:macos` |
 
@@ -50,7 +50,7 @@ cd crypto && cargo test --target wasm32-unknown-unknown --lib part_of_the_test_n
 npm run test -w @zuna/e2e -- test/golden.test.ts   # macOS only, see Gotchas
 ```
 
-Core tests drive real clients against a real Go server, which they build themselves. The whole suite takes over a minute. `scripts/lib.mjs` adds `%LOCALAPPDATA%\Programs\go\bin` and `~/.cargo/bin` to `PATH` for the npm scripts, so a direct `go` or `cargo` may need them too. Native `cargo test` needs a C toolchain on Windows, which is why `npm run test:crypto` runs as WebAssembly.
+Core tests drive real clients against a real Go server, which they build themselves. The whole suite takes over a minute. `scripts/lib.mjs` adds `%LOCALAPPDATA%\Programs\go\bin`, `~/.cargo/bin` and Homebrew's `/opt/homebrew/opt/rustup/bin` to `PATH` for the npm scripts, so a direct `go` or `cargo` may need them too. Native `cargo test` needs a C toolchain on Windows, which is why `npm run test:crypto` runs as WebAssembly.
 
 The server's tests and the core's run in SQLite. With `ZUNA_TEST_POSTGRES` set to a PostgreSQL database's address, such as `postgres://zuna@localhost/zuna_test?sslmode=disable`, they run in PostgreSQL instead, each test or test server in a schema of its own there. Run them that way after changing any SQL. The Go tests drop their schemas, and the core's leave theirs, so give them a database to throw away.
 
@@ -93,7 +93,7 @@ Rules the core depends on:
 - A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out.
 - A voice channel's media key comes straight from the MLS exporter for the current epoch, and is never stored or handed on (`voiceKey`).
 
-**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
+**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, and `limited`, `publicLimited` and `pageLimited` for rate limits, with `proven` or `provenMember` inside them for what needs the device's signature (`proof.go`). `/healthz`, the emote images, `/livekit/` and `/api/ws`, whose token comes in its first frame, have no wrapper and check access themselves. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
 
 **Voice runs in the interface, not the core.** `apps/desktop/src/voice` holds the native app's LiveKit room, through LiveKit's Rust SDK, with the microphone's processing and the sound devices, `packages/ui/src/voice` the web's, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
@@ -146,7 +146,7 @@ Rules the core depends on:
 | Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen.rs`, which starts it, or on macOS captures in the app through `apps/desktop/src/platform/macos/screen_capture.rs` |
 | The native app's host: the core in QuickJS, storage, network, device key | `apps/desktop/src/host` |
 | The native app's state and screens | `apps/desktop/src/state.rs`, `apps/desktop/src/ui` |
-| Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications.rs`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs` |
+| Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications.rs`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs`, `apps/desktop/src/platform/macos/notifications.rs`, `apps/desktop/src/platform/macos/icons.rs` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Web UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
@@ -178,7 +178,7 @@ Rules the core depends on:
 - **The native app on Linux links the FFmpeg `scripts/ffmpeg.mjs` pins,** in `apps/screenshare/.deps`, through `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`. `npm run dev:linux`, `build:linux` and the Linux checks fetch it first; a plain `cargo build` there needs it fetched already. On macOS that FFmpeg is built from its pinned source, and the app never links it: libwebrtc carries Chromium's own FFmpeg, whose symbols the linker would take for the app's calls, so the same `media/ffmpeg` code is built into a library of its own, `apps/desktop/media-ffmpeg`, which the app loads (`media/apple/ffmpeg.rs`). Its tests run there, with `cargo test` in that folder.
 - **On macOS, anything the app reads in Desktop or Documents waits for the person to allow it.** The checkout is often there, so the checks copy what the app should read into their own folder, and `npm run dev:macos`'s data in `.dev-data` makes macOS ask once.
 - **GPUI compiles Metal shaders as it builds,** which Xcode 26 and later can only once the Metal Toolchain is downloaded: `xcodebuild -downloadComponent MetalToolchain`. `scripts/macos-app.mjs` says so when it's missing.
-- **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`. The `dev:*` scripts and `build:web` rebuild it when `crypto` changed, but tests and `npm run dist` don't.
+- **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`. The `dev:server` and `dev:web` scripts and `build:web` rebuild it when `crypto` changed, but tests and `npm run typecheck` don't.
 - **`@zuna/e2e` needs Swift,** because its global setup builds the iOS host. To regenerate the golden files on Windows, run `UPDATE_GOLDEN=1 npx vitest run test/golden.test.ts --config <file>` in `tests/e2e`, with a throwaway config that spreads `vitest.config` and sets `globalSetup: []`. Without `UPDATE_GOLDEN` the test fails there on line endings alone. Afterwards `git status` lists the fixtures and `emoji.json` as changed with an empty diff, which `git checkout --` clears.
 - **When `crypto/Cargo.lock` moves to a new wasm-bindgen,** update the hashes pinned in `.github/workflows/ci.yml`.
 - **Build test servers with `-trimpath -ldflags "-s -w"`.** Windows Defender quarantines Go binaries with debug symbols as a trojan, which is a false positive. Don't change Defender's settings.

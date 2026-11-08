@@ -36,14 +36,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 - Suggested change: README → "…host the web app: the same chats, channels and calls in a browser, with the limits WEB.md lists." WEB.md:3 → "Zuna in a browser: the same chats, channels and calls as the desktop app, with the differences below." Add rows for servers without a domain, screen sharing and push to talk; fix Updates and Background per system. packages/ui → "The web app's interface. The web app gives it a Platform."; apps/web → "Zuna in a browser, served by its own host, zuna-web."
 - Check after: none (the site doesn't repeat it).
 
-### Fix CLAUDE.md's smaller inaccuracies
-- Where: CLAUDE.md (intro paragraph; the Commands table; the PATH note; the server paragraph; the Quick reference notifications row; the `packages/crypto/pkg` gotcha at :178)
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: (a) the server paragraph leaves out `pageLimited` (server.go:383, :386, :387) and `proven`/`provenMember` (proof.go:71, :79, on 13 routes), and doesn't say `/healthz`, emote images, `/livekit/` and `/api/ws` check access themselves (server.go:385-395) (also in server.md). (b) :178 says "tests and `npm run dist` don't", but `npm run dist` is gone (verified); only dev:server, dev:web and build:web call `ensureBuilt`. (c) the PATH note leaves out `/opt/homebrew/opt/rustup/bin`, which lib.mjs:13-14 adds. (d) the Commands table leaves out `npm run dist:windows`. (e) the notifications Quick reference row has no macOS files. (f) the intro says "being ported", but both ports' phases are built. (g) the screenshare row says "native app's packages", but macOS has none; it goes into the bundle (macos-app.mjs:106-107).
-- Suggested change: (a) "…then `member`, `admin`, and `limited`, `publicLimited` and `pageLimited` for rate limits, with `proven` or `provenMember` inside them for what needs the device's signature (`proof.go`). `/healthz`, emote images, `/livekit/` and `/api/ws` have no wrapper and check access themselves." (b) "The `dev:server` and `dev:web` scripts and `build:web` rebuild it…, but tests, `npm run typecheck` and the native app's scripts don't." (c) add Homebrew's rustup. (d) add `dist:windows`. (e) add platform/macos/notifications.rs and platform/macos/icons.rs. (f) "…on Windows, Linux under Wayland and macOS on Apple silicon, with no packages released yet…". (g) "…its installers and packages, and its bundle on macOS".
-- Check after: none.
-
 ### Drop source comments that point at deleted Electron files and APIs
 - (Covered in detail by the last entries of desktop-ui.md and desktop-system.md; do those once.) Extra here: deploy/update.sh:340-342 still sets `ELECTRON_SKIP_BINARY_DOWNLOAD`, which can go (run deploy/test/install-check.sh after).
 

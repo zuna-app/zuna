@@ -12,14 +12,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: `go get` both, run `go mod tidy`, and check the changelog against the `_pragma` and `_txlock` DSN options used in store.go:89-105.
 - Check after: `npm test`, the PostgreSQL run, and a Docker image build.
 
-### List every access wrapper in CLAUDE.md
-- Where: CLAUDE.md (the server paragraph under Architecture); server/internal/api/server.go:383-396, :478-480, :646-683; proof.go:71-85
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: CLAUDE.md's list leaves out `pageLimited`; `proven` and `provenMember`, which add a device signature for actions that can't be undone; and the routes that check access themselves: `/api/ws` (token in the first frame), the emote images, `/livekit/` and `/healthz`. An agent might treat an unwrapped route as an oversight, or miss the proof requirement.
-- Suggested change: add these to that sentence.
-- Check after: none.
-
 ### Write the server's env file atomically in update.sh
 - Where: deploy/update.sh:588-623, :636-647, :658-668
 - Category: robustness
