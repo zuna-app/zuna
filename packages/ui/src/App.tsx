@@ -44,9 +44,9 @@ function BootFailure({ message }: { message: string }) {
       <div className="empty-state" style={{ maxWidth: 440 }}>
         <AlertTriangle size={26} className="empty-icon" style={{ color: "var(--red)" }} />
         <h3>Zuna couldn't start</h3>
-        <p>Its encrypted storage didn't open. Your messages are safe on your servers. Try restarting the app.</p>
+        <p>This browser's encrypted storage, or the encryption engine, didn't open. Your messages are safe on your servers. Reload the page to try again.</p>
         <p className="mono faint" style={{ fontSize: 12 }}>{message}</p>
-        <button className="btn btn-primary" onClick={() => location.reload()}>Try again</button>
+        <button className="btn btn-primary" onClick={() => location.reload()}>Reload</button>
       </div>
     </div>
   );

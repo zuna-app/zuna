@@ -424,13 +424,14 @@ impl AppState {
                     return;
                 }
             };
-            for entry in &entries {
-                let loaded = load_server(&core, entry.clone()).await;
-                this.update(cx, |state, _| {
-                    state.servers.insert(entry.id.clone(), loaded);
-                })
-                .ok();
-            }
+            // All at once, not one after another, so each server joined adds nothing to the wait.
+            let loaded = futures::future::join_all(entries.iter().map(|entry| load_server(&core, entry.clone()))).await;
+            this.update(cx, |state, _| {
+                for (entry, server) in entries.iter().zip(loaded) {
+                    state.servers.insert(entry.id.clone(), server);
+                }
+            })
+            .ok();
             this.update(cx, |state, cx| {
                 state.order = entries.iter().map(|entry| entry.id.clone()).collect();
                 state.active_server = entries.first().map(|entry| entry.id.clone());

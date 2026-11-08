@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Share one server loader between boot and addServer
-- Where: packages/ui/src/state/store.ts:582-620 and 636-673 (same 11-call `Promise.all` and `ServerState` literal, already drifted); 570 (servers load one after another); 578-579 (any throw sets `phase: "failed"`); App.tsx:41-53 (failure screen says "encrypted storage didn't open… restarting the app"); 208-217 (`refreshUsers` makes two calls in sequence)
-- Category: cleanup / robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: one server's error takes down the whole app with a misleading message about storage, and the web has nothing to restart.
-- Suggested change: add a shared `fetchServerState`; load servers with `Promise.allSettled`, keep the ones that loaded and toast for the rest; word the failure screen for the web; run `refreshUsers`' two calls with `Promise.all`.
-- Check after: web check.
-
 ### Rename the Electron-era leftovers in names, descriptions and comments
 - Where: packages/ui/package.json:6 ("The interface the desktop and web apps share…"); apps/web/package.json:6 ("the desktop's interface"); apps/web/vite.config.ts:26-27 (`envPrefix: "RENDERER_VITE_"` and its comment "the desktop's development build reads", which is false: nothing in apps/desktop reads these variables; the same names appear in scripts/dev-web.mjs:18-20 and Onboarding.tsx:481-484); apps/web/index.html:13; core/serve.ts:1-2 ("Each host's worker"); the `.titlebar-status` class in components/ui.tsx:430, base.css:56-57 and shell.css:61
 - Category: docs / cleanup

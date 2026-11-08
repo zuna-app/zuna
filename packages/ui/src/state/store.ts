@@ -182,6 +182,40 @@ function closedList(list: MessageList | undefined): MessageList | null | undefin
   return { ...list, items: list.items.slice(-KEPT_WHEN_CLOSED), firstIndex: BASE_INDEX, hasMore: true };
 }
 
+/** Everything the interface keeps about a server, read from its session. Boot and adding a server both start from it. */
+async function fetchServerState(session: RemoteSession, entry: ServerEntry): Promise<ServerState> {
+  const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls, sounds] = await Promise.all([
+    session.getConversations(),
+    session.getUsers(),
+    session.getEmotes(),
+    session.getPreferences(),
+    session.getSelf(),
+    session.getConnectionState(),
+    session.getInfo(),
+    session.getChannels(),
+    session.getVoiceMembers(),
+    session.getCalls(),
+    session.getSounds(),
+  ]);
+  return {
+    entry,
+    info,
+    connection,
+    self,
+    conversations,
+    channels,
+    voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
+    calls: Object.fromEntries(calls.map((call) => [call.groupId, call])),
+    users: Object.fromEntries(users.map((user) => [user.id, user])),
+    mentionable: mentionMap(users),
+    emotes,
+    sounds,
+    prefs,
+    activeKey: null,
+    typing: {},
+  };
+}
+
 /** The lists a server's chats and channels are kept under. */
 function listIdsOf(server: ServerState | undefined): Set<string> {
   if (!server) return new Set();
@@ -252,8 +286,8 @@ export const useApp = create<AppState>((set, get) => {
   const refreshUsers = (serverId: string) =>
     debounced(`users:${serverId}`, async () => {
       try {
-        const users = await get().session(serverId).getUsers();
-        const self = await get().session(serverId).getSelf();
+        const session = get().session(serverId);
+        const [users, self] = await Promise.all([session.getUsers(), session.getSelf()]);
         patchServer(serverId, { users: Object.fromEntries(users.map((user) => [user.id, user])), mentionable: mentionMap(users), self });
       } catch {
         // The server may have just been removed.
@@ -610,56 +644,21 @@ export const useApp = create<AppState>((set, get) => {
         const { core } = await platform.bootCore(handleEvent);
         set({ core });
         const entries = await core.client.listServers();
-        for (const entry of entries) await loadServerState(entry);
-        set({
-          phase: "ready",
-          order: entries.map((entry) => entry.id),
-          activeServerId: entries[0]?.id ?? null,
+        // All at once, and one that doesn't load leaves the others, saying so, rather than the whole app.
+        const loaded = await Promise.allSettled(entries.map(async (entry) => fetchServerState(core.session(entry.id), entry)));
+        const servers: Record<string, ServerState> = {};
+        const failed: ServerEntry[] = [];
+        loaded.forEach((result, index) => {
+          if (result.status === "fulfilled") servers[entries[index]!.id] = result.value;
+          else failed.push(entries[index]!);
         });
+        const order = entries.filter((entry) => servers[entry.id]).map((entry) => entry.id);
+        set((state) => ({ servers: { ...state.servers, ...servers }, phase: "ready", order, activeServerId: order[0] ?? null }));
+        for (const entry of failed) get().toast(`${entry.name} didn't open. Reload the page to try it again.`, "error");
         // What came in while the app was closed counts from the start, not from the next message.
         updateBadge();
       } catch (error) {
         set({ phase: "failed", bootError: (error as Error).message });
-      }
-
-      async function loadServerState(entry: ServerEntry) {
-        const { core } = get();
-        const session = core!.session(entry.id);
-        const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls, sounds] = await Promise.all([
-          session.getConversations(),
-          session.getUsers(),
-          session.getEmotes(),
-          session.getPreferences(),
-          session.getSelf(),
-          session.getConnectionState(),
-          session.getInfo(),
-          session.getChannels(),
-          session.getVoiceMembers(),
-          session.getCalls(),
-          session.getSounds(),
-        ]);
-        set((state) => ({
-          servers: {
-            ...state.servers,
-            [entry.id]: {
-              entry,
-              info,
-              connection,
-              self,
-              conversations,
-              channels,
-              voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
-              calls: Object.fromEntries(calls.map((call) => [call.groupId, call])),
-              users: Object.fromEntries(users.map((user) => [user.id, user])),
-              mentionable: mentionMap(users),
-              emotes,
-              sounds,
-              prefs,
-              activeKey: null,
-              typing: {},
-            },
-          },
-        }));
       }
     },
 
@@ -677,41 +676,13 @@ export const useApp = create<AppState>((set, get) => {
       const entry = entries.find((item) => item.id === serverId);
       if (!entry) return;
       const session = core.session(serverId);
-      const [conversations, users, emotes, prefs, self, info, connection, channels, voice, calls, sounds] = await Promise.all([
-        session.getConversations(),
-        session.getUsers(),
-        session.getEmotes(),
-        session.getPreferences(),
-        session.getSelf(),
-        session.getInfo(),
-        session.getConnectionState(),
-        session.getChannels(),
-        session.getVoiceMembers(),
-        session.getCalls(),
-        session.getSounds(),
-      ]);
+      const loaded = await fetchServerState(session, entry);
       // A sign-in replaces any earlier account on the same server.
       const staleIds = get().order.filter((id) => !entries.some((item) => item.id === id));
       set((state) => {
         const servers = { ...state.servers };
         for (const id of staleIds) delete servers[id];
-        servers[serverId] = {
-          entry,
-          info,
-          connection,
-          self,
-          conversations,
-          channels,
-          voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
-          calls: Object.fromEntries(calls.map((call) => [call.groupId, call])),
-          users: Object.fromEntries(users.map((user) => [user.id, user])),
-          mentionable: mentionMap(users),
-          emotes,
-          sounds,
-          prefs,
-          activeKey: null,
-          typing: {},
-        };
+        servers[serverId] = loaded;
         return { servers, order: entries.map((item) => item.id), activeServerId: serverId };
       });
       // Anything that happened while this state was loading had nowhere to go.
