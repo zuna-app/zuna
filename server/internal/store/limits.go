@@ -63,7 +63,7 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 		return err
 	}
 	defer snapshot.Rollback()
-	read := handle{snapshot, d.postgres}
+	read := handle{snapshot, d.postgres, nil}
 	stored := map[string]int64{}
 	commits := map[string]int64{}
 	add := func(totals map[string]int64, query string) error {

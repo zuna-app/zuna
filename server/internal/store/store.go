@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -51,6 +52,12 @@ type DB struct {
 	conn     *sql.DB
 	sql      handle
 	postgres bool
+	// writing lets one write at a time at SQLite, which only ever takes one. Writers
+	// that met in SQLite itself would wait in its busy handler, which sleeps for
+	// longer each time it finds the lock still taken, so one could wait half a
+	// second behind writes that took a few milliseconds all told. It's nil for
+	// PostgreSQL, which writes side by side.
+	writing *sync.Mutex
 }
 
 // handle runs statements on the whole database or in one transaction, turning
@@ -62,11 +69,19 @@ type handle struct {
 		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	}
 	postgres bool
+	// writing is the DB's, on SQLite's handle for the whole database, where each
+	// statement run by ExecContext is a write of its own. A transaction's handle has
+	// none, as the transaction holds it already.
+	writing *sync.Mutex
 }
 
 func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if h.postgres {
 		query, args = rebind(query), postgresArgs(args)
+	}
+	if h.writing != nil {
+		h.writing.Lock()
+		defer h.writing.Unlock()
 	}
 	return h.q.ExecContext(ctx, query, args...)
 }
@@ -106,7 +121,11 @@ func Open(path string) (*DB, error) {
 }
 
 func open(conn *sql.DB, postgres bool) (*DB, error) {
-	db := &DB{conn: conn, sql: handle{conn, postgres}, postgres: postgres}
+	db := &DB{conn: conn, sql: handle{conn, postgres, nil}, postgres: postgres}
+	if !postgres {
+		db.writing = &sync.Mutex{}
+		db.sql.writing = db.writing
+	}
 	if err := db.migrate(context.Background()); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
@@ -121,6 +140,8 @@ func (d *DB) Close() error { return d.conn.Close() }
 // beginning when it couldn't be, so fn must only leave behind what it sets.
 func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 	if !d.postgres {
+		d.writing.Lock()
+		defer d.writing.Unlock()
 		return d.attempt(ctx, nil, fn)
 	}
 	for attempt := 1; ; attempt++ {
@@ -142,7 +163,7 @@ func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle
 		return err
 	}
 	defer tx.Rollback()
-	if err := fn(handle{tx, d.postgres}); err != nil {
+	if err := fn(handle{tx, d.postgres, nil}); err != nil {
 		return err
 	}
 	return tx.Commit()
