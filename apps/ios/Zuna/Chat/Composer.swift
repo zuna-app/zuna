@@ -627,14 +627,16 @@ struct Composer: View {
         return current.utf16.distance(from: current.startIndex, to: range.upperBound)
     }
 
+    /// Compiled once: `trigger` is read several times for each key typed.
+    private static let triggerPattern = try! NSRegularExpression(pattern: #"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$"#)
+
     /// `:name` for emotes, from the `:` on, and `@name` for people, just before the caret.
     private var trigger: (kind: Character, query: String, start: Int, end: Int)? {
         let current = state.text
         let end = caretOffset ?? current.utf16.count
         let before = String(current.utf16.prefix(end)) ?? current
-        let pattern = try! NSRegularExpression(pattern: #"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$"#)
         let ns = before as NSString
-        guard let match = pattern.firstMatch(in: before, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        guard let match = Self.triggerPattern.firstMatch(in: before, range: NSRange(location: 0, length: ns.length)) else { return nil }
         let kind = Character(ns.substring(with: match.range(at: 1)))
         let query = ns.substring(with: match.range(at: 2))
         if kind == "@" && query.isEmpty { return nil }

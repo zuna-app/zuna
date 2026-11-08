@@ -308,8 +308,10 @@ public enum Markup {
         return parts.filter { !$0.isEmpty }
     }
 
+    private static let edgeSpace = regex("\\A[\(space)]+|[\(space)]+\\z")
+
     /// JavaScript's `trim()`.
     private static func trimmed(_ text: String) -> String {
-        replace(regex("\\A[\(space)]+|[\(space)]+\\z"), in: text, with: "")
+        replace(edgeSpace, in: text, with: "")
     }
 }

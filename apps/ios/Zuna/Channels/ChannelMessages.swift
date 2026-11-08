@@ -183,9 +183,7 @@ struct ChannelMessageRow: View {
         UIFontMetrics(forTextStyle: .body).scaledValue(for: model.settings.messageSize.points + 1)
     }
 
-    private var jumbo: Int {
-        message.attachments.isEmpty && !deleted ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
-    }
+    private var jumbo: Int { context.jumbo }
 
     private var style: TextStyle {
         TextStyle(size: textSize, own: false, color: UIColor(Theme.text1), faint: UIColor(Theme.channelMuted), jumbo: jumbo)

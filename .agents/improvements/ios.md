@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Stop compiling regexes on every bubble redraw
-- Where: apps/ios/ZunaKit/Sources/ZunaModels/Markup.swift:49-56, 312-314; apps/ios/Zuna/Chat/MessageRow.swift:268-282 (read at 372, 379-383, 436, 439, 446); apps/ios/Zuna/Channels/ChannelMessages.swift:186-192, 253; apps/ios/Zuna/Chat/Composer.swift:633; apps/ios/Zuna/State/ComposerState.swift:246
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `Markup.trimmed` compiles a new `NSRegularExpression` on every call, and `jumboSize` calls it; `MessageItem.jumbo` is a computed property read ~9 times per bubble body, so the regex compiles ~9 times per redraw. The Composer's `trigger` runs `try! NSRegularExpression` on every access, several times per keystroke. `mentions(in:)` compiles its regex on every send.
-- Suggested change: make the `trimmed` pattern a `static let`; compute `jumbo` once per body or in `MessageRowContext`; move the Composer and `mentions(in:)` patterns to `static let`.
-- Check after: `swift test` in apps/ios/ZunaKit (MarkupTests golden); `npm run test:ios:ui -- --only ComposerTests,ChatReadingTests`.
-
 ### Search inline markup without copying the rest of the text on every span
 - Where: apps/ios/ZunaKit/Sources/ZunaModels/Markup.swift:111-157 (119-123)
 - Category: robustness

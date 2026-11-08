@@ -240,13 +240,14 @@ extension AppModel {
         return out
     }
 
+    private static let mentionPattern = try! NSRegularExpression(pattern: #"(?:^|\s)@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})"#)
+
     /// The people mentioned with `@username`, as the desktop finds them.
     static func mentions(in text: String, _ users: [String: UserView]) -> [String] {
         let byName = Dictionary(users.values.map { ($0.username.lowercased(), $0.id) }, uniquingKeysWith: { first, _ in first })
-        let pattern = try! NSRegularExpression(pattern: #"(?:^|\s)@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})"#)
         let ns = text as NSString
         var ids: [String] = []
-        for match in pattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+        for match in mentionPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             if let id = byName[ns.substring(with: match.range(at: 1)).lowercased()], !ids.contains(id) { ids.append(id) }
         }
         return ids

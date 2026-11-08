@@ -217,7 +217,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 selected: input.selection?.contains(message.id) ?? false,
                 channel: channel,
                 startOfChat: index == 0 && !input.hasMore && !input.detached,
-                editing: input.editing == message.id
+                editing: input.editing == message.id,
+                jumbo: message.attachments.isEmpty && message.deletedAt == nil ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
             )
         }
         contexts = result

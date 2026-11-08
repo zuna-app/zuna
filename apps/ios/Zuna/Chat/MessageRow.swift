@@ -26,6 +26,9 @@ struct MessageRowContext {
     var startOfChat = false
     /// Being edited where it is, in a channel.
     var editing = false
+    /// Only emoji or emotes, without attachments, shown larger: `Markup.jumboSize`, worked out once
+    /// per update rather than each time the row reads it, which is many times a draw.
+    var jumbo = 0
 }
 
 /// The things a message can ask its chat to do.
@@ -277,9 +280,7 @@ private struct MessageItem: View {
     }
 
     /// Only emoji or emotes, without attachments: shown larger, without a bubble.
-    private var jumbo: Int {
-        message.attachments.isEmpty && !deleted ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
-    }
+    private var jumbo: Int { context.jumbo }
 
     /// The time goes at the end of the text, or below a link's preview.
     private var metaInText: Bool {
