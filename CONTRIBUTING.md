@@ -7,9 +7,13 @@
 - **Rust** (stable), with `rustup target add wasm32-unknown-unknown`
 - **wasm-bindgen CLI**, the same version as in `crypto/Cargo.lock`. The easiest way to get it is `cargo install wasm-bindgen-cli --version <version>`.
 
-Rust is only needed for building the encryption core. On Windows, the plain `x86_64-pc-windows-gnu` toolchain works for WebAssembly builds without Visual Studio.
+Rust builds the encryption core and the native desktop app. The encryption core alone is fine with any toolchain: on Windows, the plain `x86_64-pc-windows-gnu` one works for WebAssembly builds without Visual Studio. The desktop app needs more on each system:
 
-On Linux, `dev/setup.sh` checks all of this for you. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs the two commands below. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
+- **Windows:** the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`) and Visual Studio's C++ build tools.
+- **macOS:** Xcode, with its Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`), and an Apple Development identity to sign the app with.
+- **Linux:** clang, pkg-config, and the development files of libxkbcommon, wayland, fontconfig, freetype2, PipeWire, glib and libva.
+
+On Linux, `dev/setup.sh` checks Node, Go, Rust and wasm-bindgen for you, though not yet what the desktop app needs. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs the two commands below. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
 
 ## Getting started
 

@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Give CONTRIBUTING and README the native app's prerequisites
-- Where: CONTRIBUTING.md:5-14; README.md:96; dev/setup.sh
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: CONTRIBUTING:10 says "Rust is only needed for building the encryption core", and that the gnu toolchain works without Visual Studio, but `npm run dev:windows` (:29) needs MSVC and VS C++ build tools (windows-app.mjs:1-4, :41-44). macOS needs Xcode, the Metal Toolchain and an Apple Development identity. Linux needs libxkbcommon, wayland, fontconfig and freetype2 dev files (LINUX_APP_PLAN:70), plus clang, pkg-config, glib and libva for screenshare (build-screenshare.mjs:6-9). CONTRIBUTING:14 says dev/setup.sh "checks all of this", but it checks none of these, and dev/build.sh then runs `dist:linux`.
-- Suggested change: CONTRIBUTING:10 → "Rust builds the encryption core and the native desktop app. For the app: on Windows, the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`) and Visual Studio's C++ build tools; on macOS, Xcode with its Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) and an Apple Development identity; on Linux, clang, pkg-config and the development files of libxkbcommon, wayland, fontconfig, freetype2, glib and libva. The gnu toolchain is enough for the encryption core alone." README:96: add "The desktop app needs more on each system (CONTRIBUTING.md)." For setup.sh itself, see the dev/setup.sh entry in deps-build.md.
-- Check after: none.
-
 ### Fix the security docs' account of the desktop's pin check and push to talk
 - Where: docs/SECURITY_DETAILS.md:82, :113
 - Category: docs
