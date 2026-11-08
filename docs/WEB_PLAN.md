@@ -1,5 +1,7 @@
 # Web app: plan
 
+The Electron app this plan compares with was removed on 2026-11-08: its files, and what `packages/ui` did only for it, are in git history.
+
 Status: W0 to W5 done 2026-11-01, see "Results". W6 was decided against. It replaced the old "No browser client" decision in `CLAUDE.md` and "Why there's no web client" in `SECURITY.md`. How to run it is in [WEB.md](WEB.md).
 
 Scope: everything the desktop app does, in a browser, like web.telegram.org. **Notifications are left out on purpose:** no system notifications, no sound, no badge. The tab's title shows the unread count instead: `(3) Zuna`.

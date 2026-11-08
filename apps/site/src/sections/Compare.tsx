@@ -35,7 +35,7 @@ type Row = { what: string; zuna: Cell; matrix: Cell; fluxer: Cell };
  * Windows, Linux and macOS, as the Streaming section says. Files are sealed on the device, names and all; "No limits" is the maintainers' word, though a
  * server's max_upload_mb is 100 MB unless its admins raise it, to at most 100,000 MB (server/internal/api/admin.go); packages/core/src/metadata.ts takes location, camera and time out of photos and videos, on unless
  * someone turns it off in Privacy. Its native apps are claimed for the first release, on the maintainers' word: today the desktop's native app is
- * GPUI on Windows and Linux, macOS has only the Electron app, and the iPhone and iPad app isn't out (docs/SITE_PLAN.md says what's left).
+ * GPUI on Windows, Linux and macOS, without a package for macOS yet, and the iPhone and iPad app isn't out (docs/SITE_PLAN.md says what's left).
  */
 const GROUPS: { name: string; rows: Row[] }[] = [
   {

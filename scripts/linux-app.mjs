@@ -8,8 +8,7 @@
 //   node scripts/linux-app.mjs dist                             that, as a .deb, an .rpm, a pacman
 //                                                               package, an AppImage and a .tar.gz
 //
-// Its data is in ~/.local/share/zuna, or ZUNA_DATA_DIR, so it never touches the
-// Electron app's.
+// Its data is in ~/.local/share/zuna, or ZUNA_DATA_DIR.
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -34,7 +33,7 @@ const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the Windows build's is, and kept between checkouts.
 const target = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
 // The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "apps", "desktop-electron-legacy", "package.json"), "utf8")).version;
+const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (bundle.status !== 0) process.exit(bundle.status ?? 1);
@@ -66,7 +65,7 @@ async function packages(dist) {
   const out = join(dist, "packages");
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const icons = join(root, "apps", "desktop-electron-legacy", "resources", "icons");
+  const icons = join(root, "apps", "desktop", "resources", "icons");
   const sizes = readdirSync(icons).filter((name) => /^\d+x\d+\.png$/.test(name));
   const description = "Zuna: private, end-to-end encrypted chat on servers you run.";
   // As the app writes its own from an AppImage or a .tar.gz (platform/linux/desktop_entry.rs).

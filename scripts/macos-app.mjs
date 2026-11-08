@@ -13,8 +13,8 @@
 //                                   a development build's bundle, not started, for the checks
 //
 // A development build is "Zuna Dev", chat.zuna.desktop.dev, apart from a release's
-// permissions, and keeps its data in .dev-data/native-app, as the Electron app's development
-// build does, so that `npm run dev:clean` starts it over with the test server. ZUNA_DATA_DIR
+// permissions, and keeps its data in .dev-data/native-app, so that `npm run dev:clean` starts
+// it over with the test server. ZUNA_DATA_DIR
 // puts it elsewhere. --test-control builds in the checks' socket (src/test_control.rs).
 
 import { spawn, spawnSync } from "node:child_process";
@@ -40,7 +40,7 @@ const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the other systems' builds keep theirs, and kept between checkouts.
 const target = join(homedir(), "Library", "Caches", "zuna-desktop-target");
 // The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "apps", "desktop-electron-legacy", "package.json"), "utf8")).version;
+const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 /** GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once asked. */
 function checkMetal() {
@@ -59,7 +59,7 @@ function identity() {
 
 /** The app's icon, from the desktop's own sizes, as macOS takes it from a bundle. */
 function icns(resources) {
-  const icons = join(root, "apps", "desktop-electron-legacy", "resources", "icons");
+  const icons = join(root, "apps", "desktop", "resources", "icons");
   const set = join(resources, "zuna.iconset");
   rmSync(set, { recursive: true, force: true });
   mkdirSync(set, { recursive: true });
@@ -115,7 +115,7 @@ function bundle(program, media, out, { name, id }) {
   // The notification sound, which macOS plays with a notification, from the program's own tones.
   const sound = spawnSync(program, ["--write-notification-sound", join(resources, "notification.wav")], { stdio: "inherit" });
   if (sound.status !== 0) throw new Error("the program couldn't write the notification sound");
-  // The Electron app's words for each permission (electron-builder.yml).
+  // The words macOS shows when it asks for each permission.
   const info = {
     CFBundleDevelopmentRegion: "en",
     CFBundleDisplayName: name,

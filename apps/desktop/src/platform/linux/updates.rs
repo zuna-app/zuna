@@ -1,5 +1,5 @@
-//! Updates on Linux come from the system's packages, or a new AppImage, as for the
-//! Electron app (`updates.ts` returns on Linux), so the app never updates itself.
+//! Updates on Linux come from the system's packages, or a new AppImage, as they did for the
+//! Electron app, so the app never updates itself.
 
 use std::path::Path;
 

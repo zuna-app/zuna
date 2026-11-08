@@ -2,11 +2,11 @@
 
 ```mermaid
 flowchart LR
-  subgraph App["Desktop app (Electron)"]
-    UI["React UI<br/>main thread"]
-    Core["Client core<br/>Worker"]
-    Crypto["OpenMLS and primitives<br/>WebAssembly"]
-    DB[("SQLite<br/>OPFS")]
+  subgraph App["Desktop app (GPUI)"]
+    UI["Rust interface<br/>main thread"]
+    Core["Client core<br/>QuickJS"]
+    Crypto["OpenMLS and primitives<br/>native"]
+    DB[("SQLite")]
     UI <-->|RPC| Core
     Core --> Crypto
     Core --> DB
@@ -23,12 +23,12 @@ flowchart LR
 |---|---|---|---|
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
-| Interface | `packages/ui/` | React, Motion | The desktop's screens, shared with the web app. Each host gives it a `Platform` for what's outside the page |
-| Desktop app | `apps/desktop-electron-legacy/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for voice channels |
-| Web app | `apps/web/`, `server/cmd/zuna-web` | The same interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
+| Desktop app | `apps/desktop/` | Rust, GPUI, the core in QuickJS, LiveKit's Rust SDK | Drawn on the GPU on Windows, Linux and macOS, with the system's own capture and codecs, and a fraction of a browser's memory (`docs/WINDOWS_APP.md`) |
+| Web interface | `packages/ui/` | React, Motion | The web app's screens, which follow the same design. The web app gives it a `Platform` for what's outside the page |
+| Web app | `apps/web/`, `server/cmd/zuna-web` | The web interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite, or PostgreSQL for a large server | A single static binary for every platform, with no dependencies to install |
 
-The core runs in a Worker so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
+The core runs off the interface's thread, in QuickJS in the desktop app and in a Worker in the web app, so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
 
 ## Data model
 
@@ -66,9 +66,9 @@ A **voice channel** is a channel with a room on [LiveKit](https://livekit.io), w
 ```mermaid
 flowchart LR
   subgraph App["Desktop or web app"]
-    Core["Client core<br/>Worker"]
-    Room["LiveKit room<br/>and its E2EE worker"]
-    Mic["Microphone<br/>RNNoise, gate<br/>AudioWorklet"]
+    Core["Client core"]
+    Room["LiveKit room<br/>and its frame cryptor"]
+    Mic["Microphone<br/>RNNoise, gate"]
     Mic --> Room
     Core -->|"token and media key"| Room
   end
@@ -148,7 +148,7 @@ History reaches new members with an **HPKE-sealed grant**: an admin seals the gr
 
 ## Local storage
 
-SQLite runs as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key in the OS keychain, or in IndexedDB in the web app, which has no keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
+The desktop app keeps SQLite in its data folder, and the web app runs it as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key, in the OS keychain on the desktop, or in IndexedDB in the web app, which has no keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
 
 On the iPhone and iPad the databases are in the App Group, where the notification extension reads them and the share extension uses them too. Only one process runs a core on them at a time, through a file lock there (`CoreLock.swift`): the app while it's awake, and the share extension while the app sleeps. A core holds its MLS groups in memory, so a sleeping one writes nothing, and once another process has had the data it reads everything again before going on (`reload` in `client.ts`). While the app is awake, as in a call, the share extension asks it for the chats and hands it what to send instead.
 
@@ -167,11 +167,8 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Crypto | `npm run test:crypto` | MLS flows and primitives, as WebAssembly under Node |
 | Server | `npm run test:server` | HTTP and WebSocket behavior, permissions, epoch ordering |
 | Client core | `npm run test:core` | Real clients against a real server: DMs, groups, new devices, recovery, self-repair, attacks |
-| Desktop | `node apps/desktop-electron-legacy/test/smoke.mjs` | The production build in real Electron |
-| Interface | `node apps/desktop-electron-legacy/test/ui-check.mjs` | Every screen in real Electron with live bots: chat-open speed, spacing, keyboard focus, plus screenshots for review |
-| Sending | `node apps/desktop-electron-legacy/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
-| Attacks | `node apps/desktop-electron-legacy/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
-| Voice | `node apps/desktop-electron-legacy/test/voice-check.mjs` | Real apps against a real LiveKit: audio that decrypts on every side, noise kept out, a new key mid-call, cameras, screens both ways, push to talk |
-| A share's sound, on Linux | `node apps/desktop-electron-legacy/test/sound-check.mjs` | Real apps, a real LiveKit and PipeWire: the entire system's sound without Zuna's, or one app's, reaching someone watching |
+| Web app | `node apps/web/test/web-check.mjs` | The built web app in Chromium, Firefox and WebKit, served by a real `zuna-web`, against a real server and live bots |
+| Desktop app on Linux | `node apps/desktop/test/linux-check.mjs`, `linux-voice-check.mjs` | The native app in a KWin of its own: the window, tray, notifications, device key and a chat, then voice, calls, cameras, push to talk, screen sharing and voice and video messages with the web app |
+| Desktop app on macOS | `node apps/desktop/test/mac-voice-check.mjs` | Two copies of the native app on a test server and a LiveKit of their own: voice channels and calls each way, a screen share encoded and decoded on the GPU, voice and video messages |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

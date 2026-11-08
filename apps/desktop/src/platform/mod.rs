@@ -46,7 +46,7 @@ pub const SYSTEM_NAME: &str = "Linux";
 pub const SYSTEM_NAME: &str = "macOS";
 
 /// The app's data folder, in the system's folder for app data, apart from the Electron app's,
-/// which keeps its own in the configuration folder, or on macOS in `Zuna`.
+/// which kept its own in the configuration folder, or on macOS in `Zuna`.
 #[cfg(windows)]
 pub const DATA_FOLDER: &str = "Zuna Native";
 #[cfg(target_os = "linux")]
@@ -56,7 +56,7 @@ pub const DATA_FOLDER: &str = "Zuna Native";
 
 /// The app's ID for its windows. On Linux it's the `.desktop` file's name, by which the
 /// desktop finds the app's icon, and the portals and notifications find the app. On macOS
-/// it's the bundle's identifier, apart from the Electron app's `chat.zuna.app`.
+/// it's the bundle's identifier, apart from the Electron app's, `chat.zuna.app`.
 #[cfg(windows)]
 pub const APP_ID: &str = "Zuna";
 #[cfg(target_os = "linux")]
@@ -212,10 +212,10 @@ impl Source {
 }
 
 // The desktop app's own pictures of its icon.
-const ICON_16: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/16x16.png");
-const ICON_32: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/32x32.png");
-const ICON_48: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/48x48.png");
-pub(crate) const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
+const ICON_16: &[u8] = include_bytes!("../../resources/icons/16x16.png");
+const ICON_32: &[u8] = include_bytes!("../../resources/icons/32x32.png");
+const ICON_48: &[u8] = include_bytes!("../../resources/icons/48x48.png");
+pub(crate) const ICON_256: &[u8] = include_bytes!("../../resources/icons/256x256.png");
 /// The app's icon at a size, from the nearest larger picture.
 pub fn app_icon(size: u32) -> RgbaImage {
     let source = match size {

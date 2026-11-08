@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Updates, rebuilds whatever changed, and opens a development version of the app, with live reload.
+# Builds and opens a development build of the native app: under Wayland on Linux, or as
+# "Zuna Dev" on macOS.
 cd "$(dirname "$0")/.." || exit 1
 . scripts/lib.sh
-exec node scripts/dev-app.mjs "$@"
+if [ "$(uname)" = Darwin ]; then
+  exec npm run dev:macos -- "$@"
+fi
+exec npm run dev:linux -- "$@"

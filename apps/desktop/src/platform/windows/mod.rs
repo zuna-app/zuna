@@ -1,6 +1,6 @@
 //! What the app asks of Windows itself: its windows' handles, hiding to the tray, the
 //! unread count on the taskbar, idle time, the notification sound, and whether
-//! Windows wants quiet right now. The desktop gets these from Electron.
+//! Windows wants quiet right now.
 
 mod clipboard;
 pub mod location;

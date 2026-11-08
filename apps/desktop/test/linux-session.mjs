@@ -38,6 +38,8 @@ export async function outside(script) {
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
   const server = join(tmpdir(), "zuna-linux-check-server");
   execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
+  const webHost = join(tmpdir(), "zuna-linux-check-web");
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", webHost, "./cmd/zuna-web"], { stdio: "inherit", cwd: join(root, "server") });
   // Each run is marked, as what the session bus starts for the portals outlives it.
   const run = `${process.pid}-${Date.now()}`;
   // Folders of its own, given to the session bus itself, so that everything it starts, the
@@ -50,7 +52,7 @@ export async function outside(script) {
   delete env.DISPLAY;
   const inner = spawnSync("dbus-run-session", ["--", process.execPath, fileURLToPath(script), ...process.argv.slice(2)], {
     stdio: "inherit",
-    env: { ...env, ZUNA_LINUX_CHECK_INNER: "1", ZUNA_LINUX_CHECK_RUN: run, ZUNA_LINUX_CHECK_WORK: work, ZUNA_CHECK_SERVER_BINARY: server, ZUNA_CHECK_TARGET: target },
+    env: { ...env, ZUNA_LINUX_CHECK_INNER: "1", ZUNA_LINUX_CHECK_RUN: run, ZUNA_LINUX_CHECK_WORK: work, ZUNA_CHECK_SERVER_BINARY: server, ZUNA_CHECK_WEB_BINARY: webHost, ZUNA_CHECK_TARGET: target },
   });
   for (const pid of readdirSync("/proc").filter((name) => /^\d+$/.test(name))) {
     try {
@@ -197,6 +199,14 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     return { port, url, setupLink, server };
   }
 
+  /** The built web app (npm run build -w @zuna/web), served by a zuna-web of its own, at an address a browser counts as secure. */
+  async function startWebHost() {
+    const port = 21000 + Math.floor(Math.random() * 20000);
+    const host = start(process.env.ZUNA_CHECK_WEB_BINARY, ["--listen", `127.0.0.1:${port}`, "--root", join(root, "apps", "web", "dist"), "--dev"], base, "zuna-web");
+    await until(() => host.output.includes("Listening on"), "zuna-web");
+    return { url: `http://localhost:${port}/` };
+  }
+
   /** The Secret Service, unlocked with a throwaway password, as a desktop's keyring is at login. */
   async function startKeyring() {
     const keyring = start("gnome-keyring-daemon", ["--foreground", "--unlock", "--components=secrets"], session, "keyring");
@@ -260,5 +270,5 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     process.exit(0);
   }
 
-  return { work, xdg, base, session, shots, check, failures, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish };
+  return { work, xdg, base, session, shots, check, failures, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startWebHost, startKeyring, startDriver, core, finish };
 }

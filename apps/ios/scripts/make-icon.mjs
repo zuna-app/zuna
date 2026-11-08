@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const svg = readFileSync(join(here, "..", "..", "desktop-electron-legacy", "resources", "icon.svg"), "utf8").replace(/ r[xy]="[^"]*"/g, "");
+const svg = readFileSync(join(here, "..", "..", "desktop", "resources", "icon.svg"), "utf8").replace(/ r[xy]="[^"]*"/g, "");
 const png = new Resvg(svg, { fitTo: { mode: "width", value: 1024 } }).render().asPng();
 const rgba = join(tmpdir(), "zuna-icon-rgba.png");
 const jpeg = join(tmpdir(), "zuna-icon.jpg");

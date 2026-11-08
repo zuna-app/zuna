@@ -1,5 +1,5 @@
-//! The tray's icon, a StatusNotifierItem, with a menu to open or quit, as the desktop's
-//! (createTray in apps/desktop-electron-legacy/src/main/index.ts). As there on Linux, the
+//! The tray's icon, a StatusNotifierItem, with a menu to open or quit, as the Electron app's
+//! was. As there on Linux, the
 //! unread count is in its tooltip, and on the taskbar's icon (`icons`), not drawn over it.
 //! KDE shows it, and GNOME with the AppIndicator extension.
 

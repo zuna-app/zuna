@@ -9,7 +9,7 @@ import ZunaModels
 /// What test builds put in place of the phone's microphone, camera and screen, and how they
 /// report what arrives, so a check can tell that media crosses to and from the
 /// desktop, encrypted, without a person to listen or a camera to point. Like the
-/// fake devices `apps/desktop-electron-legacy/test/voice-check.mjs` gives Chromium.
+/// fake devices `tests/e2e/src/web-app.ts` gives Chromium.
 @MainActor
 enum VoiceTesting {
     /// A moving picture stands in for the camera, which the simulator hasn't got.

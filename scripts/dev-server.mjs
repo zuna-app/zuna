@@ -124,6 +124,7 @@ console.log(`
 
   ${world.people.join(", ")} are online and reply to direct messages.
 
-  Open the app with:  npm run dev
+  Open the web app with:  npm run dev:web
+  Or the native app with:  npm run dev:windows, dev:linux or dev:macos
   Keep this window open. Press Ctrl+C to stop the server.
 `);

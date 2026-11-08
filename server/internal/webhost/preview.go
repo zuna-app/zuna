@@ -18,8 +18,8 @@ import (
 )
 
 // Link previews for the web app. A page can't read other sites, so the core in
-// the browser asks its host to fetch them, as the desktop asks its main process
-// (apps/desktop-electron-legacy/src/main/index.ts). Requests go out without cookies, only to
+// the browser asks its host to fetch them, as the native apps fetch them themselves.
+// Requests go out without cookies, only to
 // public HTTPS addresses, with every redirect checked, and the address a name
 // leads to is checked as the connection is made, so it can't change in between.
 

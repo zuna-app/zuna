@@ -8,10 +8,9 @@
 //   node scripts/windows-app.mjs dist                             and its installer beside it
 //   node scripts/windows-app.mjs install                          and installs it, or updates the installed app
 //
-// The installed app keeps its data in %APPDATA%\Zuna Native, apart from the Electron app's.
-// A copy run from anywhere else keeps its own in %APPDATA%\Zuna Native Dev, and one started
-// here in .dev-data, as the Electron app's development build does, so that `npm run dev:clean`
-// starts it over with the test server. ZUNA_DATA_DIR puts any of them elsewhere.
+// The installed app keeps its data in %APPDATA%\Zuna Native. A copy run from anywhere else
+// keeps its own in %APPDATA%\Zuna Native Dev, and one started here in .dev-data, so that
+// `npm run dev:clean` starts it over with the test server. ZUNA_DATA_DIR puts any of them elsewhere.
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -35,7 +34,7 @@ const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
 const target = join(process.env.LOCALAPPDATA ?? root, "zuna-windows-target");
 // The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "apps", "desktop-electron-legacy", "package.json"), "utf8")).version;
+const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 function toolchain() {
   const list = spawnSync("rustup", ["toolchain", "list"], { encoding: "utf8", env }).stdout ?? "";
@@ -76,17 +75,17 @@ if (packaging) {
   } else {
     console.warn("> no native screen capture to put in: npm run build:screenshare first, or this installer can't share a screen");
   }
-  // Signed with the desktop's certificate where it's given, as electron-builder signs the desktop's:
-  // only a signed build updates itself, and only from an update signed the same.
-  const require = createRequire(join(root, "apps", "desktop-electron-legacy", "package.json"));
+  // Signed with the release's certificate where it's given: only a signed build updates itself,
+  // and only from an update signed the same.
+  const require = createRequire(join(root, "package.json"));
   const signer = await signing(require);
   if (signer) {
     signer(join(staged, "Zuna.exe"));
     if (existsSync(join(staged, "screenshare", "zuna-screenshare.exe"))) signer(join(staged, "screenshare", "zuna-screenshare.exe"));
   }
   const icon = join(dist, "zuna.ico");
-  writeFileSync(icon, ico(join(root, "apps", "desktop-electron-legacy", "resources", "icons")));
-  // electron-builder's own NSIS, which the desktop's installer is made with, fetched once if it isn't here.
+  writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));
+  // electron-builder's own NSIS, through app-builder-lib, fetched once if it isn't here.
   const { getMakeNsisPath } = require("app-builder-lib/out/toolsets/windows");
   const makensis = await getMakeNsisPath(undefined, undefined);
   const out = join(dist, `Zuna-Native-Setup-${version}.exe`);
@@ -97,7 +96,7 @@ if (packaging) {
     });
     if (made.status !== 0) process.exit(made.status ?? 1);
   };
-  // Built twice, as electron-builder builds the desktop's: first a program that only writes the
+  // Built twice, as electron-builder builds installers: first a program that only writes the
   // uninstaller, which is run and the uninstaller signed, then the installer that carries it.
   const uninstaller = join(dist, "Uninstall Zuna.exe");
   const writer = join(dist, "write-uninstaller.exe");
@@ -153,7 +152,7 @@ function install(installer) {
   console.log(`> installed ${exe}, version ${version}${running ? ", and started it again" : ""}`);
 }
 
-/** Whether the installed copy is running. Others named Zuna.exe, such as the Electron app's, don't count. */
+/** Whether the installed copy is running. Others named Zuna.exe, such as a development build, don't count. */
 function runningCopy(exe) {
   const path = exe.replaceAll("'", "''");
   const found = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `@(Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${path}' }).Count`], { encoding: "utf8" });

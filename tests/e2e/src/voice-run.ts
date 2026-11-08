@@ -1,21 +1,18 @@
-// The iPhone app in a voice channel with the desktop app, through a real server and
+// The iPhone app in a voice channel with the web app, through a real server and
 // a real LiveKit, checking what actually reaches each of them: the phone hears the
-// desktop and is heard, sees its camera and its shared screen, and sends its own
+// web app and is heard, sees its camera and its shared screen, and sends its own
 // camera and screen, all under keys from the channel's MLS group, also once someone
 // new has changed them; and an admin's mute holds. Then a call in a direct message,
-// from the desktop, rings the phone, which answers it.
+// from the web app, rings the phone, which answers it. The web app is "the desktop"
+// here, in Chromium beside the simulator.
 //
-//   npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:voice [-- screenshot-dir]
+//   npm run build -w @zuna/web && npm run test:ios:voice [-- screenshot-dir]
 //
 // The phone's microphone is a tone, and its camera and its screen moving bars
 // (VoiceTesting.swift), since the simulator has no camera, and nothing can answer
 // the system's picker for a screen. The desktop's are Chromium's fake devices,
 // with speech from `say` for its gate to let through, and its shared screen is
 // drawn on a canvas, since macOS's own picker can't be driven.
-//
-// With ZUNA_VOICE_OWN_CERTIFICATE=1, the server goes by its address with a
-// certificate of its own, which both apps trust by the pin in its links, and
-// they reach LiveKit through it, as a server without a domain has them.
 //
 // With ZUNA_VOICE_SETUP_LINK, everyone uses a server already running with a
 // LiveKit of its own, such as the Docker setup on another machine, by the setup
@@ -25,11 +22,11 @@ import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
 import { HostApp } from "./host";
 import { root } from "./paths";
 import { BUNDLE_ID, boot, buildApp, installFresh, simulatorId } from "./simulator";
+import { startWebApp, type WebApp } from "./web-app";
 
 const shots = process.argv.find((arg, index) => index > 1 && !arg.startsWith("-")) ?? mkdtempSync(join(tmpdir(), "zuna-ios-voice-"));
 mkdirSync(shots, { recursive: true });
@@ -83,12 +80,12 @@ let server: { setupLink: string; stop(): Promise<void> };
 if (elsewhere) {
   server = { setupLink: elsewhere, stop: async () => undefined };
 } else {
-  const started = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}`, ownCertificate: process.env.ZUNA_VOICE_OWN_CERTIFICATE === "1" });
+  const started = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}` });
   await started.start();
   server = started;
 }
 
-let desktop: { app: ElectronApplication; page: Page } | null = null;
+let desktop: WebApp | null = null;
 let phone: HostApp | null = null;
 const others: TestApp[] = [];
 
@@ -113,16 +110,10 @@ try {
   const lounge = await alice.session.createChannel({ type: "voice", name: "Lounge" });
   const invite = await alice.session.createInvite(0, 0);
 
-  // --- The desktop app ---
-  log("starting the desktop app");
-  const userData = mkdtempSync(join(tmpdir(), "zuna-ios-voice-desktop-"));
-  // Without the sandbox, as macOS's keeps the audio service from opening the speech, and the fake device sends silence.
-  const app = await electron.launch({
-    args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${speech}`, "--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
-    env: { ...process.env, ELECTRON_RENDERER_URL: "" },
-  });
-  const page = await app.firstWindow();
-  desktop = { app, page };
+  // --- The web app ---
+  log("starting the web app");
+  desktop = await startWebApp({ name: "voice-desktop", speech });
+  const { page } = desktop;
   page.on("console", (message) => {
     if (message.text().includes("[zuna]") || message.type() === "error" || process.env.VOICE_DEBUG) console.log(`  [desktop] ${message.type()}: ${message.text()}`);
   });
@@ -156,8 +147,7 @@ try {
       return canvas.captureStream(30);
     };
   });
-  await page.reload();
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 832));
+  await page.goto(desktop.url);
   await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
   await page.getByLabel("Invite link").fill(invite);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -321,8 +311,6 @@ try {
 
   // --- The desktop's screen on the phone ---
   await page.getByRole("button", { name: "Share your screen" }).first().click();
-  const source = page.locator(".screen-source").first();
-  if (await source.isVisible({ timeout: 5000 }).catch(() => false)) await source.click();
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await sleep(5000);
   const screen = await fromDana("screenShareVideo");
@@ -448,7 +436,7 @@ try {
   }
 } finally {
   await phone?.close();
-  await desktop?.app.close().catch(() => undefined);
+  await desktop?.close();
   for (const app of others) app.client.stop();
   await server.stop();
   liveKit?.kill();

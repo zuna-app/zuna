@@ -39,7 +39,6 @@ jobs:
       - run: npm run build:crypto
       - run: npm run typecheck
       - run: npm run test:core
-      - run: npm run build -w @zuna/desktop-electron-legacy
       - run: npm run build -w @zuna/web
 
   # Known advisories in what's shipped.
@@ -57,7 +56,7 @@ jobs:
       - name: The server's Go modules
         working-directory: server
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-      - name: The desktop app's npm packages
+      - name: The npm packages the web app ships
         run: npm audit --omit=dev
       - name: The encryption core's crates
         working-directory: crypto

@@ -1,6 +1,6 @@
 //! The app's icon, and the unread count over it: on the taskbar's button and on the
-//! tray's icon, drawn as Telegram draws them, as the desktop does in
-//! apps/desktop-electron-legacy/src/renderer/src/counter.ts. Sizes are for 100%, scaled to the screen.
+//! tray's icon, drawn as Telegram draws them, as the Electron app did. Sizes are for 100%,
+//! scaled to the screen.
 
 use std::sync::Mutex;
 

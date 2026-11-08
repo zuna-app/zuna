@@ -64,8 +64,8 @@ export function Streaming() {
         </ul>
         <p className="note center reveal">
           Each number is the most that setting goes to, not one share doing all three at once: how much a share carries depends on the screen, the graphics card
-          and the connection. The latency is as measured from one screen to another. Screens are captured natively on Windows and Linux, and through the
-          browser's own capture on macOS and the web.
+          and the connection. The latency is as measured from one screen to another. Screens are captured natively on Windows, Linux and macOS, and through
+          the browser's own capture on the web.
         </p>
       </div>
     </section>

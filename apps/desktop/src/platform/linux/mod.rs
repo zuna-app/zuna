@@ -1,6 +1,6 @@
 //! What the app asks of Linux itself, under Wayland, with the same functions as Windows's:
 //! the main window, the tray, the unread count, idle time, the notification sound, and
-//! whether the system wants quiet. The Electron app gets these from Electron.
+//! whether the system wants quiet.
 
 mod bus;
 mod desktop_entry;

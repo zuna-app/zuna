@@ -1,5 +1,5 @@
-//! Notifications, drawn by the app as Telegram draws its own, as the desktop does on
-//! Windows (apps/desktop-electron-legacy/src/main/notifications.ts and renderer/src/notifications): one
+//! Notifications, drawn by the app as Telegram draws its own, as the Electron app did on
+//! Windows: one
 //! window in the corner of the screen, above everything and never taking focus unless a
 //! reply is typed. The newest goes at the bottom, three at a time with the rest waiting,
 //! each staying until the person next touches the computer, then 3 s more and a 4 s fade

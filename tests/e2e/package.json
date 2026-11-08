@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Cross-client end-to-end tests: the desktop's client core against the iOS app's host, through a real server.",
+  "description": "Cross-client end-to-end tests: the client core and the web app against the iOS app's host, through a real server.",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -13,6 +13,7 @@
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.2",
     "@zuna/core": "*",
+    "playwright-core": "^1.64.1",
     "typescript": "^5.9.0",
     "vitest": "^5.0.5",
     "ws": "^8.22.0"

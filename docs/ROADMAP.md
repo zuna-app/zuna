@@ -44,7 +44,7 @@ The iPhone app's approach carries over:
 
 ## Other ideas
 
-- **Automatic updates** with `electron-updater`, which needs a signed release pipeline first.
+- **Automatic updates** for the native app on macOS, as it has on Windows, which needs a signed release pipeline first.
 - **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases. `release.yml` already accepts them.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealed sender**, to hide from the server who sent a message.

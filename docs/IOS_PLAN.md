@@ -20,7 +20,7 @@ Status: agreed direction, not started. Scope: feature parity with the 0.1 deskto
 |---|---|---|
 | Crypto | `crypto/` (Rust, OpenMLS) | MLS (RFC 9420), Argon2id, HKDF, XChaCha20-Poly1305, STREAM for files, Ed25519, HPKE, the digest for emoji verification. `mls.rs` and `primitives.rs` don't depend on the WASM bindings in `lib.rs`. |
 | Client core | `packages/core` (TypeScript) | The whole protocol: accounts, REST, the socket, one `ServerSession` per server, the encrypted search index, and the RPC boundary to the UI (`rpc.ts`). |
-| Desktop | `apps/desktop-electron-legacy` | Electron shell (window, tray, Keychain via `safeStorage`, `zuna://` links, notifications). React UI. The core runs in a Worker with SQLite WASM on OPFS. |
+| Desktop | `apps/desktop` | The native app in GPUI on Windows, Linux and macOS: the core in QuickJS with the iOS bundle's shims, native SQLite, the device key in the system's keychain, `zuna://` links, notifications. |
 | Server | `server/` (Go) | Orders commits per group, stores and relays ciphertext, files, 7TV emotes, invites, administration. |
 
 What matters for a new platform:

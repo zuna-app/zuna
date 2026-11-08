@@ -1,8 +1,7 @@
 //! What the app asks of macOS itself, with the same functions as Windows's and Linux's: the
 //! main window, the Dock's badge and its click, idle time, the notification sound, and the
-//! settings the app follows. The Electron app gets these from Electron. There's no tray on
-//! macOS, as the Electron app has none there: closing the window hides the app, and the Dock
-//! brings it back.
+//! settings the app follows. There's no tray on macOS, as the Electron app had none there:
+//! closing the window hides the app, and the Dock brings it back.
 
 pub mod icons;
 pub mod location;

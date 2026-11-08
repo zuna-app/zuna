@@ -450,7 +450,7 @@ This document, and answers to section 13. The owner chose to build ahead of this
 - An attacker's sign-out on a stolen device still causes a rotation.
 - A large vault: sealing again without hitting the write limit. The test uses a few thousand items rather than 500,000, which is a matter of arithmetic from there: 2,500 requests.
 - Grants sealed to an older HPKE key still open.
-- `node apps/desktop-electron-legacy/test/smoke.mjs`, because how the app starts changes.
+- The web app's check (`apps/web/test/web-check.mjs`) and the native app's on its system (`linux-check.mjs`, `mac-voice-check.mjs`), because how the app starts changes.
 
 ### Stage 3: the identity chain
 
@@ -475,7 +475,7 @@ This document, and answers to section 13. The owner chose to build ahead of this
 - A rotation by a new device: unverified, with no warning.
 - Comparing emoji after a rotation: they match for both people on updated clients.
 - The forged case: emoji differ, and adopting the chain that matches works.
-- `node apps/desktop-electron-legacy/test/ui-check.mjs`, and `npm run test:ios:ui`.
+- `node apps/web/test/web-check.mjs`, and `npm run test:ios:ui`.
 
 ### Stage 5: refreshing leaves
 

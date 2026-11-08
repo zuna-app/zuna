@@ -1,9 +1,9 @@
 ; Zuna's native Windows app, installed for one person without asking for an
-; administrator, in one click, as the desktop's NSIS installer is (electron-builder.yml:
-; oneClick, perMachine false, deleteAppDataOnUninstall false). Built by
+; administrator, in one click, keeping its data on uninstalling, as the Electron app's NSIS
+; installer was. Built by
 ; `npm run dist:windows`, which passes the defines below.
 ;
-; It's built twice, as electron-builder builds the desktop's, so that the uninstaller can be
+; It's built twice, as electron-builder built the Electron app's, so that the uninstaller can be
 ; signed: first with BUILD_UNINSTALLER, as a program that only writes the uninstaller to
 ; UNINSTALLER and quits, which the build runs and signs, then as the installer, which carries
 ; that signed file.
@@ -75,9 +75,8 @@ SectionEnd
 
 !else
 
-; Called Zuna in the Start menu, on the desktop and in Apps. The desktop app is Zuna Legacy there
-; (electron-builder.yml), so neither takes the other's shortcuts or entry when both are installed.
-; The folders keep Zuna Native, as the desktop app's are called Zuna.
+; Called Zuna in the Start menu, on the desktop and in Apps. The folders keep Zuna Native, as the
+; Electron app's were called Zuna.
 Section "Zuna"
   !insertmacro CloseRunning
   SetOutPath "$INSTDIR"

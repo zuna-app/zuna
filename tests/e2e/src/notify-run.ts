@@ -1,18 +1,14 @@
-// Notifications across one person's devices, as Telegram sends them: the desktop
-// app in Electron and the iPhone app in the simulator, signed in as the same
-// person, a second phone that's only a push registration, and a real server with
-// a stand-in for zuna-push that hands pushes to the simulator. It checks which of
-// them is told about each message, and when.
+// Notifications across one person's devices, as Telegram sends them: the web app
+// in Chromium, standing for a computer, and the iPhone app in the simulator, signed
+// in as the same person, a second phone that's only a push registration, and a real
+// server with a stand-in for zuna-push that hands pushes to the simulator. It checks
+// which of them is told about each message, and when.
 //
-//   npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:notify [-- screenshot-dir]
+//   npm run build -w @zuna/web && npm run test:ios:notify [-- screenshot-dir]
 //
-// The desktop is in use while its window has focus and there was input anywhere on
-// the computer in the last 5 s. Nothing here can make real input without the
-// Accessibility permission, so the desktop's real idle state is checked once, if
-// nobody has touched the Mac for a while, and after that input is the system saying
-// "active" or "idle" (powerMonitor.getSystemIdleState in the main process). Focus is
-// real: the window is brought to the front, and the app hidden to leave it. Locking
-// the screen is the system's event, sent by hand.
+// The web app is in use while its window has focus and there was input in it in the
+// last 5 s. Both are the page's own events here: input is a pointer moving every
+// second while someone's "at the desktop", and focus comes and goes as the window's.
 //
 // simctl can't allow notifications, so the app has to have been allowed them on the
 // E2E simulator before, as the UI tests' NotificationTests do, and it's installed
@@ -25,11 +21,11 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
 import { HostApp } from "./host";
 import { root } from "./paths";
 import { BUNDLE_ID, appPath, boot, buildApp, simulatorId } from "./simulator";
+import { startWebApp, type WebApp } from "./web-app";
 
 const shots = process.argv.find((arg, index) => index > 1 && !arg.startsWith("-")) ?? mkdtempSync(join(tmpdir(), "zuna-ios-notify-"));
 mkdirSync(shots, { recursive: true });
@@ -119,7 +115,7 @@ loadCrypto();
 const server = new TestServer({ pushRelays: [relayUrl] });
 await server.start();
 
-let desktop: ElectronApplication | null = null;
+let desktop: WebApp | null = null;
 let phone: HostApp | null = null;
 const others: TestApp[] = [];
 
@@ -129,24 +125,32 @@ try {
   await alice.register(server.setupLink, "alice");
   const invite = await alice.session.createInvite(0, 0);
 
-  // --- The desktop app, signed up as bob ---
-  log("starting the desktop app");
-  const userData = mkdtempSync(join(tmpdir(), "zuna-ios-notify-desktop-"));
-  desktop = await electron.launch({ args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${userData}`], env: { ...process.env, ELECTRON_RENDERER_URL: "" } });
-  const app = desktop;
-  const page: Page = await app.firstWindow();
+  // --- The web app, signed up as bob ---
+  log("starting the web app");
+  desktop = await startWebApp({ name: "notify-desktop" });
+  const { page } = desktop;
   page.on("console", (message) => {
     if (message.type() === "error" || process.env.NOTIFY_DEBUG) console.log(`  [desktop] ${message.type()}: ${message.text()}`);
   });
-  // What the desktop would show, kept rather than shown on this Mac.
-  await app.evaluate(({ Notification }) => {
-    const shown: { title: string; body: string; at: number }[] = [];
-    (globalThis as unknown as { __shown: typeof shown }).__shown = shown;
-    Notification.prototype.show = function (this: Electron.Notification) {
-      shown.push({ title: this.title, body: this.body, at: Date.now() });
+  await page.addInitScript(() => {
+    const w = window as unknown as { __shown: { title: string; body: string; at: number }[]; __input: (on: boolean) => void };
+    // What the web app would show, kept rather than shown on this Mac.
+    w.__shown = [];
+    const Real = window.Notification;
+    window.Notification = class extends Real {
+      constructor(title: string, options?: NotificationOptions) {
+        super(title, { ...options, silent: true });
+        w.__shown.push({ title, body: options?.body ?? "", at: Date.now() });
+      }
+    } as typeof Notification;
+    // Someone at the computer, moving the pointer every second, or not.
+    let timer: ReturnType<typeof setInterval> | undefined;
+    w.__input = (on) => {
+      clearInterval(timer);
+      if (on) timer = setInterval(() => window.dispatchEvent(new PointerEvent("pointermove")), 1000);
     };
   });
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 832));
+  await page.goto(desktop.url);
   await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
   await page.getByLabel("Invite link").fill(invite);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -162,23 +166,11 @@ try {
   await waitFor(() => alice.session.getUsers().some((user) => user.username === "bob"), "alice to see bob");
   const bobId = alice.session.getUsers().find((user) => user.username === "bob")!.id;
 
-  /** Whether the person is at the desktop: "real" leaves it to this Mac's own idle time. */
-  const input = (state: "real" | "active" | "idle") =>
-    app.evaluate(({ powerMonitor }, state) => {
-      const monitor = powerMonitor as unknown as { getSystemIdleState: (seconds: number) => string; __real?: (seconds: number) => string };
-      monitor.__real ??= monitor.getSystemIdleState.bind(powerMonitor);
-      monitor.getSystemIdleState = state === "real" ? monitor.__real : () => state;
-    }, state);
-  const focusDesktop = () =>
-    app.evaluate(({ app, BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0]!;
-      app.show();
-      app.focus({ steal: true });
-      window.show();
-      window.focus();
-    });
-  const leaveDesktop = () => app.evaluate(({ app }) => app.hide());
-  const shownOnDesktop = () => app.evaluate(() => (globalThis as unknown as { __shown: { title: string; body: string; at: number }[] }).__shown);
+  /** Whether the person is at the desktop, moving the pointer. */
+  const input = (state: "active" | "idle") => page.evaluate((on) => (window as unknown as { __input: (on: boolean) => void }).__input(on), state === "active");
+  const focusDesktop = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  const leaveDesktop = () => page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  const shownOnDesktop = () => page.evaluate(() => (window as unknown as { __shown: { title: string; body: string; at: number }[] }).__shown);
   await input("idle");
   await leaveDesktop();
 
@@ -256,16 +248,10 @@ try {
   judge("the other phone waits, as bob was on the first one more recently", pushedAt("ipad", a.id), a.sent, "waited");
   judge("so does the desktop", await onDesktop(a.text), a.sent, "waited");
 
-  // --- The desktop's own idle time, with nobody touching this Mac ---
-  await input("real");
+  // --- In front, with nobody touching it ---
   await focusDesktop();
-  const idleFor = await app.evaluate(({ powerMonitor }) => powerMonitor.getSystemIdleTime());
-  if (idleFor > 40) {
-    await sleep(8_000);
-    check("in front, but with no input for a while, the desktop isn't in use", !activeElsewhere(), `this Mac idle for ${idleFor} s`);
-  } else {
-    log(`this Mac had input ${idleFor} s ago, so its real idle time isn't checked`);
-  }
+  await sleep(8_000);
+  check("in front, but with no input for a while, the desktop isn't in use", !activeElsewhere());
 
   // --- B: at the desktop ---
   log("at the desktop");
@@ -300,20 +286,6 @@ try {
   judge("used last, the desktop shows it at once", await onDesktop(c.text), c.sent, "now");
   judge("the phone waits, as bob was at the desktop more recently", pushedAt("iphone", c.id), c.sent, "waited");
   judge("so does the other phone", pushedAt("ipad", c.id), c.sent, "waited");
-
-  // --- Locking the screen ---
-  await input("active");
-  await focusDesktop();
-  await waitFor(() => activeElsewhere(), "bob to be back at the desktop", 15_000);
-  await app.evaluate(({ powerMonitor }) => powerMonitor.emit("lock-screen"));
-  const locked = await waitFor(() => !activeElsewhere(), "the desktop to stop counting once locked", 5_000).then(
-    () => true,
-    () => false,
-  );
-  check("locking the screen ends being at the desktop at once", locked);
-  await app.evaluate(({ powerMonitor }) => powerMonitor.emit("unlock-screen"));
-  await waitFor(() => activeElsewhere(), "bob to be back at the desktop once unlocked", 15_000);
-  check("unlocking it brings it back", true);
 
   // --- The phone shows what it was pushed ---
   log("the phone open, and the desktop in use");
@@ -354,7 +326,7 @@ try {
   check("the run finished", false, error instanceof Error ? error.message.split("\n")[0] : String(error));
   console.error(error);
   // Where each app was when it stopped.
-  await desktop?.windows()[0]?.screenshot({ path: join(shots, "stopped-desktop.png") }).catch(() => undefined);
+  await desktop?.page.screenshot({ path: join(shots, "stopped-desktop.png") }).catch(() => undefined);
   try {
     execFileSync("xcrun", ["simctl", "io", udid, "screenshot", join(shots, "stopped-phone.png")], { stdio: "ignore" });
   } catch {
@@ -362,7 +334,7 @@ try {
   }
 } finally {
   await phone?.close();
-  await desktop?.close().catch(() => undefined);
+  await desktop?.close();
   for (const other of others) other.client.stop();
   await server.stop();
   relayServer.close();

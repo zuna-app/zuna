@@ -23,7 +23,7 @@ export function Privacy() {
             A site you link to, when you send the link, so your device can make its preview. In the web app, the page is fetched by the web app's host, which
             your server's admins run.
           </li>
-          <li>GitHub, from the signed Windows and macOS apps, to check for updates every six hours.</li>
+          <li>GitHub, from the signed Windows app, to check for updates every six hours.</li>
         </ul>
 
         <h2>Your server</h2>

@@ -1,12 +1,12 @@
 //! Automatic updates, so that a security fix reaches people without their having to
-//! notice it (apps/desktop-electron-legacy/src/main/updates.ts). An update is only ever installed if it
+//! notice it. An update is only ever installed if it
 //! carries the same publisher's signature as the app running now. A build that isn't
 //! signed has nothing to compare with, so it doesn't update itself, and neither does one
 //! that wasn't installed, or a development build.
 //!
 //! It looks at the newest release on GitHub every six hours, downloads its installer when
 //! it's newer, and runs it quietly as the app quits, as electron-updater's
-//! `autoInstallOnAppQuit` does for the desktop.
+//! `autoInstallOnAppQuit` did for the Electron app.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

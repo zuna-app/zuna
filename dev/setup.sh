@@ -61,9 +61,6 @@ fi
 # Rust links its build scripts with the system C compiler.
 command -v cc >/dev/null 2>&1 || missing gcc gcc build-essential "a C compiler, such as gcc"
 
-# electron-builder makes the .rpm with rpmbuild.
-command -v rpmbuild >/dev/null 2>&1 || missing rpm-tools rpm-build rpm "rpmbuild, from your system's rpm package"
-
 # With rustup the WebAssembly target is added below. Rust from the package
 # manager has it in a separate package.
 if ! command -v cargo >/dev/null 2>&1; then

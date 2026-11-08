@@ -19,15 +19,15 @@ export interface Download {
   size?: number;
 }
 
-/** What electron-builder.yml makes, by the names it gives them. */
+/** What the native app's scripts make (scripts/windows-app.mjs and linux-app.mjs), by the names they give them. macOS's has no package yet. */
 const FILES: Record<"windows" | "mac" | "linux", { label: string; match: RegExp }[]> = {
-  windows: [{ label: "Installer (.exe)", match: /^Zuna-Setup-.*\.exe$/ }],
+  windows: [{ label: "Installer (.exe)", match: /^Zuna-Native-Setup-.*\.exe$/ }],
   mac: [{ label: "Apple silicon (.dmg)", match: /\.dmg$/ }],
   linux: [
     { label: "AppImage", match: /\.AppImage$/ },
     { label: "Debian, Ubuntu (.deb)", match: /\.deb$/ },
     { label: "Fedora, openSUSE (.rpm)", match: /\.rpm$/ },
-    { label: "Arch (.pacman)", match: /\.pacman$/ },
+    { label: "Arch (.pkg.tar.zst)", match: /\.pkg\.tar\.zst$/ },
     { label: "Anywhere (.tar.gz)", match: /\.tar\.gz$/ },
   ],
 };

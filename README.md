@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="apps/desktop-electron-legacy/resources/icon.png" width="96" alt="">
+  <img src="apps/desktop/resources/icon.png" width="96" alt="">
   <h1>Zuna</h1>
   <p><b>Private, end-to-end encrypted chat on servers you and your friends run.</b></p>
   <p>Windows, Linux, macOS, and an iPhone and iPad app on its way. Free and open source under the AGPL-3.0.</p>
@@ -87,7 +87,7 @@ Update it later with `sudo zuna-update`. The [self-hosting guide](docs/SELF_HOST
 
 ## Join a server
 
-1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). On Linux, that's the `.deb` for Debian and Ubuntu, the `.rpm` for Fedora and openSUSE, the `.pacman` for Arch (`sudo pacman -U`), or the AppImage or the `.tar.gz` anywhere else. The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md), which is the desktop app without notifications.
+1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). On Linux, that's the `.deb` for Debian and Ubuntu, the `.rpm` for Fedora and openSUSE, the `.pkg.tar.zst` for Arch (`sudo pacman -U`), or the AppImage or the `.tar.gz` anywhere else. The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md), which is the desktop app without notifications.
 2. Paste the invite link someone sent you.
 3. Pick a name and password, and save your recovery key.
 
@@ -108,7 +108,7 @@ npm run dev:server
 ```
 
 ```bash
-npm run dev
+npm run dev:web
 ```
 
 ```bash

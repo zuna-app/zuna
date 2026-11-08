@@ -67,7 +67,7 @@ fn embed_icon(root: &str) {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
-    let icons = Path::new(root).join("../desktop-electron-legacy/resources/icons");
+    let icons = Path::new(root).join("resources/icons");
     println!("cargo:rerun-if-changed={}", icons.display());
     let images: Vec<(u32, Vec<u8>)> = [16u32, 24, 32, 48, 64, 128, 256].into_iter().filter_map(|size| std::fs::read(icons.join(format!("{size}x{size}.png"))).ok().map(|bytes| (size, bytes))).collect();
     if images.is_empty() {

@@ -323,6 +323,13 @@ impl Driver {
                 let window = self.state.windows.iter().find(|window| !window.unmapped && (app_id.is_empty() || window.app_id == app_id)).ok_or("no such window")?;
                 window.proxy.set_state(0x1 | 0x2, 0x1);
             }
+            // What a window's minimize button does.
+            "minimize" => {
+                self.sync()?;
+                let app_id = command.get("appId").and_then(Value::as_str).unwrap_or_default();
+                let window = self.state.windows.iter().find(|window| !window.unmapped && (app_id.is_empty() || window.app_id == app_id)).ok_or("no such window")?;
+                window.proxy.set_state(0x2, 0x2);
+            }
             "windows" => {
                 self.sync()?;
                 let windows: Vec<Value> = self

@@ -1,9 +1,8 @@
-//! Sharing a screen or a window from a voice channel or a call (startScreen and stopScreen
-//! in packages/ui/src/voice/store.ts). The desktop's native program, `zuna-screenshare`,
-//! captures and encodes on the graphics card and publishes as a participant of its own,
-//! started as apps/desktop-electron-legacy/src/main/native-screen.ts starts it: its token and key over its
-//! standard input, since a command line can be read by anything else on the computer. The
-//! computer's sound comes from the same program (native-sound.ts) and goes out from here.
+//! Sharing a screen or a window from a voice channel or a call. The native program,
+//! `zuna-screenshare`, captures and encodes on the graphics card and publishes as a
+//! participant of its own, given its token and key over its standard input, since a command
+//! line can be read by anything else on the computer. The computer's sound comes from the
+//! same program and goes out from here.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;

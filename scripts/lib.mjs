@@ -22,7 +22,6 @@ export const env = {
 
 /** Everything the test server and the development app store. Deleting it starts over. */
 export const devData = join(root, ".dev-data");
-export const devAppData = join(devData, "app");
 /** The native app's development data, as `npm run dev:windows` keeps it. */
 export const devNativeAppData = join(devData, "native-app");
 export const devWorld = join(devData, "world");
@@ -71,32 +70,6 @@ export function ensureNativeScreenCurrent() {
   console.log("Native screen capture changed, so it's being rebuilt...");
   const result = spawnSync(process.execPath, [join(root, "scripts", "build-screenshare.mjs")], { stdio: "inherit", env, cwd: root });
   if (result.status !== 0) console.warn("\nCouldn't rebuild native screen capture, so the app keeps using its last build.\n");
-}
-
-/** Long enough for a slow network, short enough not to keep anyone from the app. */
-const PULL_TIMEOUT_MS = 20_000;
-
-/**
- * Brings this checkout up to date when that can't get in anyone's way: only with
- * nothing uncommitted, and only as a fast-forward. Failing is no reason not to carry
- * on with what's here, such as being offline.
- */
-export function pullLatest() {
-  const git = (...args) => spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: PULL_TIMEOUT_MS, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
-  const changes = git("status", "--porcelain", "--untracked-files=no");
-  if (changes.status !== 0) return;
-  if (changes.stdout.trim()) {
-    console.log("Not pulling, since this checkout has uncommitted changes.");
-    return;
-  }
-  const before = git("rev-parse", "HEAD").stdout;
-  const pull = git("pull", "--ff-only", "--no-rebase", "--quiet");
-  if (pull.status !== 0) {
-    const reason = (pull.stderr ?? "").split(/\r?\n/).find((line) => line && !line.startsWith("hint:")) ?? "it took too long";
-    console.log(`Couldn't pull, so this uses what's here: ${reason}`);
-  } else if (git("rev-parse", "HEAD").stdout !== before) {
-    console.log(`Updated to ${git("log", "-1", "--format=%h %s").stdout.trim()}`);
-  }
 }
 
 /** The LiveKit server voice channels use. Update this, the image in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `LIVEKIT_VERSION` in `deploy/update.sh` together. */

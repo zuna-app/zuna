@@ -1,13 +1,15 @@
 // Checks voice in the native app on Linux: a voice channel, and calls each way in a direct
-// message, with the Electron app as the other person, on a real LiveKit behind TLS, in a KWin
-// of its own. The native app's microphone and
+// message, with the web app in Chromium as the other person, on a real LiveKit behind TLS, in
+// a KWin of its own. The native app's microphone and
 // speakers are PipeWire devices of the check's own, which nobody hears: spoken words go into
-// the microphone, and what it plays is recorded. The Electron app's microphone is Chromium's
-// fake device, and what reaches it is measured in its page, as voice-check.mjs does. The
-// native app's camera is a v4l2loopback device, fed FFmpeg's test pattern in YUYV, or in the
-// pixel format `ZUNA_CHECK_CAMERA_FORMAT` names.
+// the microphone, and what it plays is recorded. The web app's microphone is Chromium's fake
+// device, and what reaches it is measured in its page. The native app's camera is a
+// v4l2loopback device, fed FFmpeg's test pattern in YUYV, or in the pixel format
+// `ZUNA_CHECK_CAMERA_FORMAT` names.
 //
-//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop/test/linux-voice-check.mjs [screenshot-dir]
+//   npm run build -w @zuna/web && node apps/desktop/test/linux-voice-check.mjs [screenshot-dir]
+//
+// Needs Playwright's Chromium: npx playwright-core install chromium
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,13 +17,13 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer as createTlsServer } from "node:tls";
-import { _electron as electron } from "playwright-core";
+import { chromium } from "playwright-core";
 import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
-import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
+import { appBinary, inside, outside, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
 // KWin's own global shortcuts, which the portal's push to talk goes through.
-const { work, session, check, start, shot, clipboard, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
+const { work, session, check, start, shot, clipboard, quietSpeakers, loudestOn, startServer, startWebHost, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
 
 /** The first v4l2loopback device, which the person loads once, as it needs root. */
 function loopbackCamera() {
@@ -47,7 +49,7 @@ function changedIn(first, second, [x, y, width, height]) {
   return Number(compared.stdout.trim());
 }
 
-/** How many frames a second of others' video the Electron app decodes, and how much its pictures vary, from 0 for one color. */
+/** How many frames a second of others' video the web app decodes, and how much its pictures vary, from 0 for one color. */
 async function videoIn(page, seconds = 2) {
   return page.evaluate(async (seconds) => {
     const decoded = async () => {
@@ -84,7 +86,7 @@ async function videoIn(page, seconds = 2) {
   }, seconds);
 }
 
-/** How many frames a second of its own video the Electron app sends. */
+/** How many frames a second of its own video the web app sends. */
 async function videoOut(page, seconds = 2) {
   return page.evaluate(async (seconds) => {
     const sent = async () => {
@@ -103,7 +105,7 @@ async function videoOut(page, seconds = 2) {
   }, seconds);
 }
 
-/** The next thing the Electron app plays after `before` things: how loud it is, how long, how far it got, its picture's width and how much that varies. */
+/** The next thing the web app plays after `before` things: how loud it is, how long, how far it got, its picture's width and how much that varies. */
 async function playedIn(page, before, seconds = 2) {
   return page.evaluate(
     async ({ before, seconds }) => {
@@ -146,7 +148,7 @@ async function playedIn(page, before, seconds = 2) {
   );
 }
 
-/** How loud what's arriving at the Electron app really is, listening to its tracks. */
+/** How loud what's arriving at the web app really is, listening to its tracks. */
 async function loudness(page, seconds = 3) {
   return page.evaluate(async (seconds) => {
     const context = new AudioContext();
@@ -177,15 +179,15 @@ async function loudness(page, seconds = 3) {
   }, seconds);
 }
 
-let electronApp;
+let browser;
 let failed;
 try {
   // --- Sounds: spoken words for each side ---
   const sounds = mkdtempSync(join(tmpdir(), "zuna-linux-voice-sounds-"));
   const nativeSpeech = join(sounds, "native.wav");
-  const electronSpeech = join(sounds, "electron.wav");
+  const webSpeech = join(sounds, "web.wav");
   execFileSync("espeak-ng", ["-w", nativeSpeech, Array(6).fill("This is the native app on Linux, speaking into its own microphone. One two three four five.").join(" ")], { stdio: "ignore" });
-  execFileSync("espeak-ng", ["-w", electronSpeech, "This is the Electron app, talking to the native one. Can you hear me? Six seven eight nine ten."], { stdio: "ignore" });
+  execFileSync("espeak-ng", ["-w", webSpeech, "This is the web app, talking to the native one. Can you hear me? Six seven eight nine ten."], { stdio: "ignore" });
 
   // --- LiveKit, behind TLS as a real server's media server is ---
   const liveKitPort = 17880 + Math.floor(Math.random() * 1000);
@@ -242,12 +244,18 @@ try {
   await sleep(1700);
   await shot("01-native-ready");
 
-  // --- The Electron app, the other person ---
-  electronApp = await electron.launch({
-    args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${join(work, "electron")}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${electronSpeech}`, "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio", "--ozone-platform=wayland", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"],
-    env: { ...session, ELECTRON_RENDERER_URL: "", ...trust },
+  // --- The web app, the other person ---
+  const web = await startWebHost();
+  browser = await chromium.launchPersistentContext(join(work, "chromium"), {
+    headless: false,
+    viewport: { width: 1280, height: 800 },
+    args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${webSpeech}`, "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio", "--ozone-platform=wayland", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"],
+    env: { ...session, ...trust },
   });
-  const page = await electronApp.firstWindow();
+  await browser.grantPermissions(["microphone", "camera"], { origin: web.url.slice(0, -1) });
+  const page = browser.pages()[0] ?? (await browser.newPage());
+  /** The browser's window in KWin, which is whichever isn't the native app's. */
+  const browserAppId = async () => (await until(async () => (await drive({ do: "windows" })).windows?.find((window) => window.appId !== "zuna"), "the browser's window", 15_000)).appId;
   await page.addInitScript(() => {
     const Original = window.RTCPeerConnection;
     window.__connections = [];
@@ -265,7 +273,7 @@ try {
       return play.call(this);
     };
   });
-  await page.reload();
+  await page.goto(web.url);
   await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
   await page.getByLabel("Invite link").fill(invite);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -284,9 +292,9 @@ try {
   // --- Both in the voice channel ---
   await lounge.click();
   await page.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
-  // The Electron app's window out of the way, as the two share the KWin and activating one
+  // The browser's window out of the way, as the two share the KWin and activating one
   // doesn't raise it. Its page goes on as before.
-  await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await drive({ do: "minimize", appId: await browserAppId() });
   await drive({ do: "activate", appId: "zuna" });
   await sleep(800);
   await drive({ do: "click", x: 134, y: 221 });
@@ -299,18 +307,17 @@ try {
   start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking");
   await sleep(2000);
   const heard = await loudness(page);
-  check("what's said into the native app's microphone, through PipeWire, reaches the Electron app", heard.peak > 0.01, `peak ${heard.peak.toFixed(3)} from ${heard.receivers} tracks`);
+  check("what's said into the native app's microphone, through PipeWire, reaches the web app", heard.peak > 0.01, `peak ${heard.peak.toFixed(3)} from ${heard.receivers} tracks`);
 
   // What the native app plays, recorded from its speakers.
   const played = await loudestOn(speakers, 5);
-  check("what the Electron app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
+  check("what the web app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
   await shot("04-both-talking");
 
-  // --- The Electron app's share, filling the stage, and the channel come back to ---
-  // KDE's chooser for the Electron app: the KWin's one screen. The share fills the stage as it
+  // --- The web app's share, filling the stage, and the channel come back to ---
+  // KDE's chooser for the browser: the KWin's one screen. The share fills the stage as it
   // starts, and a stage made again on coming back from another chat drew it at the least size.
   await page.getByRole("button", { name: "Share your screen" }).first().click();
-  await page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await sleep(3000);
   await drive({ do: "click", x: 700, y: 290 });
@@ -338,7 +345,7 @@ try {
   await drive({ do: "key", key: "enter" });
   await page.getByRole("button", { name: "Show chat" }).first().click();
   const arrived = await page.getByText("Hello from beside the call").first().waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
-  check("and what's sent from it reaches the Electron app", arrived);
+  check("and what's sent from it reaches the web app", arrived);
   await page.getByRole("button", { name: "Hide chat" }).first().click();
   // Its ×, at the end of its header.
   await drive({ do: "click", x: 1374, y: 56 });
@@ -363,14 +370,14 @@ try {
   check("Copy all of it puts the stream stats on Wayland's clipboard, with a click after another app copied something", stats.startsWith("# Connection") && stats.includes("# Robin's microphone"), stats.split("\n")[0]);
   const theirs = stats.split("\n\n").find((section) => section.startsWith("# Robin's microphone")) ?? "";
   const madeUp = theirs.split("\n").find((line) => line.startsWith("Made up to hide gaps"));
-  check("the Electron app's muted microphone shows as muted in the native app, and what's made up over its silence isn't flagged", theirs.includes("Muted: Yes") && !madeUp?.endsWith("(!)"), `${madeUp}, ${theirs.split("\n").find((line) => line.startsWith("Bitrate"))}`);
-  // And the native app's, in the Electron app's own panel.
+  check("the web app's muted microphone shows as muted in the native app, and what's made up over its silence isn't flagged", theirs.includes("Muted: Yes") && !madeUp?.endsWith("(!)"), `${madeUp}, ${theirs.split("\n").find((line) => line.startsWith("Bitrate"))}`);
+  // And the native app's, in the web app's own panel.
   const desktop = await page.evaluate(() => {
     const section = [...document.querySelectorAll(".stream-stats-section")].find((element) => element.querySelector("summary")?.textContent === "Linux Owner's microphone");
     return [...(section?.querySelectorAll(".stream-stats-rows > div") ?? [])].map((row) => ({ label: row.querySelector("dt")?.textContent, value: row.querySelector("dd")?.textContent, warn: row.classList.contains("is-warn") }));
   });
   const desktopMadeUp = desktop.find((row) => row.label === "Made up to hide gaps");
-  check("and the native app's in the Electron app's", desktop.some((row) => row.label === "Muted" && row.value === "Yes") && !desktopMadeUp?.warn, JSON.stringify(desktopMadeUp));
+  check("and the native app's in the web app's", desktop.some((row) => row.label === "Muted" && row.value === "Yes") && !desktopMadeUp?.warn, JSON.stringify(desktopMadeUp));
   // Closed by their ×es.
   await drive({ do: "click", x: 1369, y: 111 });
   await page.getByRole("button", { name: "Close stream stats" }).click();
@@ -379,14 +386,14 @@ try {
   await sleep(1000);
 
   // --- Cameras both ways ---
-  // The tiles' insides, clear of their names and their speaking borders: the Electron app's, then the native app's.
-  const [electronTile, nativeTile] = [[401, 326, 482, 230], [930, 340, 420, 200]];
+  // The tiles' insides, clear of their names and their speaking borders: the web app's, then the native app's.
+  const [webTile, nativeTile] = [[401, 326, 482, 230], [930, 340, 420, 200]];
   if (!camera) check("a v4l2loopback device to stand in for a camera", false, "load v4l2loopback");
   else {
     await drive({ do: "click", x: 146, y: 843 });
     await sleep(4000);
     const seen = await videoIn(page);
-    check("the native app's camera, read through V4L2, reaches the Electron app", seen.fps > 5 && seen.spread > 0.1, `${seen.fps.toFixed(1)} frames/s decoded, spread ${seen.spread.toFixed(3)}`);
+    check("the native app's camera, read through V4L2, reaches the web app", seen.fps > 5 && seen.spread > 0.1, `${seen.fps.toFixed(1)} frames/s decoded, spread ${seen.spread.toFixed(3)}`);
     const own = await shot("04b-native-camera");
     // An avatar's tile spreads to about 0.08.
     check("and the native app shows it on its own tile", spreadIn(own, nativeTile) > 0.15, `spread ${spreadIn(own, nativeTile).toFixed(3)}`);
@@ -395,14 +402,14 @@ try {
   await sleep(4000);
   const earlier = await shot("04c-both-cameras");
   const sending = await videoOut(page, 1);
-  const moved = changedIn(earlier, await shot("04d-both-cameras-later"), electronTile);
+  const moved = changedIn(earlier, await shot("04d-both-cameras-later"), webTile);
   // Chromium's fake camera only turns a shape and counts, where an avatar's tile doesn't change at all.
-  check("the Electron app's camera plays in the native app", moved > 0.003, `${(moved * 100).toFixed(1)}% of it changed in a second, while it sent ${sending.toFixed(0)} frames/s`);
+  check("the web app's camera plays in the native app", moved > 0.003, `${(moved * 100).toFixed(1)}% of it changed in a second, while it sent ${sending.toFixed(0)} frames/s`);
   await page.getByRole("button", { name: "Turn off camera" }).first().click();
   if (camera) await drive({ do: "click", x: 146, y: 843 });
   await sleep(1500);
 
-  // --- A call in their direct message, from the Electron app ---
+  // --- A call in their direct message, from the web app ---
   await drive({ do: "click", x: 360, y: 802 });
   const left = await page.locator(".voice-occupant", { hasText: "Linux Owner" }).waitFor({ state: "detached", timeout: 15_000 }).then(() => true).catch(() => false);
   check("leaving the voice channel in the native app takes it out", left);
@@ -423,9 +430,9 @@ try {
   start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking in the call");
   await sleep(2000);
   const heardInCall = await loudness(page);
-  check("in the call, what's said into the native app reaches the Electron app", heardInCall.peak > 0.01, `peak ${heardInCall.peak.toFixed(3)} from ${heardInCall.receivers} tracks`);
+  check("in the call, what's said into the native app reaches the web app", heardInCall.peak > 0.01, `peak ${heardInCall.peak.toFixed(3)} from ${heardInCall.receivers} tracks`);
   const playedInCall = await loudestOn(speakers, 4);
-  check("and what the Electron app says plays out of the native app", playedInCall > 0.01, `peak ${playedInCall.toFixed(3)}`);
+  check("and what the web app says plays out of the native app", playedInCall > 0.01, `peak ${playedInCall.toFixed(3)}`);
   await drive({ do: "click", x: 360, y: 802 });
   const hungUp = await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 }).then(() => true).catch(() => false);
   check("hanging up in the native app ends the call for both", hungUp);
@@ -433,20 +440,20 @@ try {
   await shot("07-after-call");
 
   // --- A call from the native app, from the call button in its chat's header ---
-  const ringingElectron = page.locator(".incoming-call", { hasText: "Linux Owner" });
+  const ringingWeb = page.locator(".incoming-call", { hasText: "Linux Owner" });
   await drive({ do: "click", x: 1238, y: 58 });
-  check("a call from the native app rings the Electron app", await ringingElectron.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false));
+  check("a call from the native app rings the web app", await ringingWeb.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false));
   const ringingOut = await loudestOn(speakers, 3);
   check("and rings out of the native app's own speakers while it waits", ringingOut > 0.01, `peak ${ringingOut.toFixed(3)}`);
   await shot("08-calling");
-  await ringingElectron.getByRole("button", { name: "Answer", exact: true }).click();
+  await ringingWeb.getByRole("button", { name: "Answer", exact: true }).click();
   const connected = await page.locator(".voice-panel-status.is-connected", { hasText: "Call connected" }).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
-  check("the Electron app answers it", connected);
+  check("the web app answers it", connected);
   await sleep(3000);
   const toNative = await loudestOn(speakers, 3);
   check("and is heard in the native app", toNative > 0.01, `peak ${toNative.toFixed(3)}`);
   await page.locator(".voice-controls").getByRole("button", { name: "Disconnect" }).click();
-  // After the tones for the other leaving and for the call ending, the Electron app's speech,
+  // After the tones for the other leaving and for the call ending, the web app's speech,
   // which goes on, is no longer heard.
   await sleep(5000);
   await shot("09-other-hung-up");
@@ -455,15 +462,15 @@ try {
 
   // Declined: the native app stops ringing.
   await drive({ do: "click", x: 1238, y: 58 });
-  await ringingElectron.waitFor({ timeout: 20_000 });
+  await ringingWeb.waitFor({ timeout: 20_000 });
   await sleep(1000);
-  await ringingElectron.getByRole("button", { name: "Decline" }).click();
+  await ringingWeb.getByRole("button", { name: "Decline" }).click();
   await sleep(1500);
   await shot("10-declined");
   const afterDecline = await loudestOn(speakers, 3);
-  check("declining in the Electron app stops the native app ringing", afterDecline < 0.005, `peak ${afterDecline.toFixed(3)}`);
+  check("declining in the web app stops the native app ringing", afterDecline < 0.005, `peak ${afterDecline.toFixed(3)}`);
 
-  // --- Voice and video messages, recorded here and played in the Electron app ---
+  // --- Voice and video messages, recorded here and played in the web app ---
   // The message box's microphone, recording what's said into the check's own.
   await drive({ do: "click", x: 1373, y: 875 });
   start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking a voice message");
@@ -474,7 +481,7 @@ try {
   let before = await page.evaluate(() => window.__played.length);
   await page.locator("button.voice-play").last().click({ timeout: 30_000 });
   const voiceMessage = await playedIn(page, before);
-  check("a voice message recorded here, AAC in MP4, plays in the Electron app", !voiceMessage.error && voiceMessage.duration > 2 && voiceMessage.at > 0.5 && voiceMessage.peak > 0.05, JSON.stringify(voiceMessage));
+  check("a voice message recorded here, AAC in MP4, plays in the web app", !voiceMessage.error && voiceMessage.duration > 2 && voiceMessage.at > 0.5 && voiceMessage.peak > 0.05, JSON.stringify(voiceMessage));
   // The message box's camera, recording a video message from the check's camera and microphone.
   await drive({ do: "click", x: 1339, y: 875 });
   start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking a video message");
@@ -484,11 +491,11 @@ try {
   before = await page.evaluate(() => window.__played.length);
   await page.locator("button.round").last().click({ timeout: 30_000 });
   const round = await playedIn(page, before);
-  check("a video message recorded here, H.264 and AAC in MP4, plays in the Electron app", !round.error && round.width === 480 && round.at > 0.5 && round.spread > 0.1, JSON.stringify(round));
+  check("a video message recorded here, H.264 and AAC in MP4, plays in the web app", !round.error && round.width === 480 && round.at > 0.5 && round.spread > 0.1, JSON.stringify(round));
   await sleep(1000);
   await shot("10d-messages-sent");
 
-  // --- And the other way: what the Electron app records, Opus in MP4 as Chromium writes it, played here ---
+  // --- And the other way: what the web app records, Opus in MP4 as Chromium writes it, played here ---
   await page.getByRole("button", { name: "Record a voice message" }).click();
   await sleep(3500);
   await page.getByRole("button", { name: "Send voice message" }).click();
@@ -504,7 +511,7 @@ try {
   await sleep(3000);
   await shot("10f-voice-playing");
   const voiceHere = await listening;
-  check("a voice message the Electron app recorded plays here, through PipeWire", voiceHere > 0.05, `peak ${voiceHere.toFixed(3)}`);
+  check("a voice message the web app recorded plays here, through PipeWire", voiceHere > 0.05, `peak ${voiceHere.toFixed(3)}`);
   await page.getByRole("button", { name: "Record a video message" }).click();
   await sleep(3500);
   await page.getByRole("button", { name: "Send video message" }).click();
@@ -519,7 +526,7 @@ try {
   await sleep(3000);
   await shot("10h-round-playing");
   const roundHere = await listening;
-  check("a video message the Electron app recorded plays here with its sound", roundHere > 0.05, `peak ${roundHere.toFixed(3)}`);
+  check("a video message the web app recorded plays here with its sound", roundHere > 0.05, `peak ${roundHere.toFixed(3)}`);
 
   // --- Settings' Voice and video page, with the devices it lists ---
   await drive({ do: "click", x: 32, y: 834 });
@@ -564,12 +571,8 @@ try {
   await drive({ do: "click", x: 811, y: 708 });
   await sleep(1500);
   await shot("18-key-bound");
-  // The Electron app's window in front, so that the key is held in another window.
-  await electronApp.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.restore();
-    window.focus();
-  });
+  // The browser's window in front, so that the key is held in another window.
+  await drive({ do: "activate", appId: await browserAppId() });
   await sleep(1000);
   start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking with push to talk");
   await sleep(1500);
@@ -585,7 +588,7 @@ try {
   check("and letting it go stops it", released.peak < 0.01, `peak ${released.peak.toFixed(3)}`);
 
   // --- Sharing the screen, picked in the portal's own dialog ---
-  await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await drive({ do: "minimize", appId: await browserAppId() });
   await drive({ do: "activate", appId: "zuna" });
   await sleep(800);
   await drive({ do: "click", x: 302, y: 843 });
@@ -603,7 +606,7 @@ try {
     const seen = await videoIn(page, 1);
     return seen.fps > 0 ? seen : null;
   }, "the shared screen to arrive", 30_000).catch(() => null);
-  check("a screen picked in the portal's dialog reaches the Electron app", !!screenIn && screenIn.spread > 0.03, screenIn ? `${screenIn.fps.toFixed(1)} frames/s, spread ${screenIn.spread.toFixed(3)}` : "nothing decoded");
+  check("a screen picked in the portal's dialog reaches the web app", !!screenIn && screenIn.spread > 0.03, screenIn ? `${screenIn.fps.toFixed(1)} frames/s, spread ${screenIn.spread.toFixed(3)}` : "nothing decoded");
   start("pw-play", ["--target", speakers, tone], process.env, "playing a tone");
   await sleep(3000);
   const carried = await loudness(page, 2);
@@ -612,7 +615,7 @@ try {
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(3000);
   const afterStop = await videoIn(page, 2);
-  check("stopping the share ends it for the Electron app", afterStop.fps === 0, `${afterStop.fps.toFixed(1)} frames/s`);
+  check("stopping the share ends it for the web app", afterStop.fps === 0, `${afterStop.fps.toFixed(1)} frames/s`);
 
   // --- Sharing a window, picked in the portal's dialog too ---
   await drive({ do: "click", x: 302, y: 843 });
@@ -629,7 +632,7 @@ try {
     const seen = await videoIn(page, 1);
     return seen.fps > 0 ? seen : null;
   }, "the shared window to arrive", 30_000).catch(() => null);
-  check("a window picked in the portal's dialog reaches the Electron app", !!windowIn && windowIn.spread > 0.03, windowIn ? `${windowIn.fps.toFixed(1)} frames/s, spread ${windowIn.spread.toFixed(3)}` : "nothing decoded");
+  check("a window picked in the portal's dialog reaches the web app", !!windowIn && windowIn.spread > 0.03, windowIn ? `${windowIn.fps.toFixed(1)} frames/s, spread ${windowIn.spread.toFixed(3)}` : "nothing decoded");
   await shot("25-sharing-window");
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(3000);
@@ -637,5 +640,5 @@ try {
 } catch (caught) {
   failed = caught;
 }
-await electronApp?.close().catch(() => undefined);
+await browser?.close().catch(() => undefined);
 await finish(failed);

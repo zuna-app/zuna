@@ -26,18 +26,17 @@ Three commands cover day-to-day work. The `dev` folder has the same as files to 
 | Command | In `dev` | What it does |
 |---|---|---|
 | `npm run dev:server` | `server.cmd`, `server.sh` | Opens a test server that's ready to use, and prints how to sign in |
-| `npm run dev` | `app.cmd`, `app.sh` | Updates, rebuilds whatever changed, and opens a development version of the app, with live reload |
+| `npm run dev:windows`, `dev:linux`, `dev:macos` | `app.cmd`, `app.sh` | Builds and opens a development build of the native app |
+| `npm run dev:web` | | The web app with live reload, at `http://localhost:5174`, served by a local `zuna-web` |
 | `npm run dev:clean` | `clean.cmd`, `clean.sh` | Deletes all development data, for a fresh start |
 
 **The test server** sets itself up the first time, in a few seconds: an owner account, a server name, an emote set, a reusable invite link, and five people who are online and reply to direct messages. Everything is kept between runs, and a server set up before something new was added to this gets it the next time it starts. Press Ctrl+C or close its window to stop it.
 
-**The app** opens at the welcome screen on a fresh start. Click "I already have an account" and the sign-in form is already filled in for the test server, so you land in the owner's account with conversations going. To try sign-up instead, paste the invite link that the server printed. Closing the window quits a development build, while an installed Zuna keeps running in the tray.
-
-Each time, it first pulls the latest code, unless you have uncommitted changes or the pull isn't a fast-forward, and carries on regardless if it can't, as when you're offline. Then it installs packages if `package-lock.json` changed, rebuilds the encryption core if `crypto` changed, and rebuilds native screen capture if its code changed and you've built it before.
+**The app** opens at the welcome screen on a fresh start. Sign in with the details in `.dev-data/world/world.json` to land in the owner's account with conversations going, or paste the invite link that the server printed to try sign-up. A development build keeps its data in `.dev-data` too, apart from an installed Zuna's.
 
 **Cleaning** removes the `.dev-data` folder, which holds everything the test server and the development app store. It refuses to run while either is still open, and it can't affect an installed copy of Zuna, which keeps its data elsewhere.
 
-For quick UI work in a browser, `npm run dev:web -w @zuna/desktop-electron-legacy` serves the UI at `http://localhost:5173`. That's only a development convenience: Zuna doesn't ship a web client, and the browser keeps its own data, which cleaning doesn't touch.
+The web app keeps its data in the browser, which cleaning doesn't touch.
 
 To add the same people to a server of your own, without keeping anything afterwards, create an invite in the app and run:
 
@@ -59,51 +58,31 @@ npm test
 npm run typecheck
 ```
 
-To check a production build in real Electron:
+To check the built web app in Chromium, Firefox and WebKit, served by a real `zuna-web`, against a real server and live bots:
 
 ```bash
-npm run build -w @zuna/desktop-electron-legacy
+npm run build -w @zuna/web
 ```
 
 ```bash
-node apps/desktop-electron-legacy/test/smoke.mjs
+node apps/web/test/web-check.mjs
 ```
 
-To walk through the whole interface with a real server and live bots, which checks speed, spacing and keyboard focus and saves a screenshot of every screen for review:
-
-```bash
-node apps/desktop-electron-legacy/test/ui-check.mjs
-```
-
-To check what each painted frame shows while messages are sent, after changing the message list or the message box:
-
-```bash
-node apps/desktop-electron-legacy/test/send-check.mjs
-```
-
-To send the real app what a modified client could, and see that it stays up, contacts nobody and starts again afterwards:
-
-```bash
-node apps/desktop-electron-legacy/test/attack-check.mjs
-```
+The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs` and `linux-voice-check.mjs` on Linux, and `mac-voice-check.mjs` on macOS. Each says at its top what it needs.
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
-Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. `node apps/desktop-electron-legacy/test/voice-check.mjs` drives real apps against one: on Windows, each app's fake microphone speaks with the system's text to speech, and elsewhere it plays a tone, which the speech checks don't apply to.
+Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. The voice checks start one of their own.
 
 ## Packaging
-
-```bash
-npm run dist
-```
 
 ```bash
 npm run build:server
 ```
 
-Installers go to `apps/desktop-electron-legacy/release`, and server binaries for every platform to `dist/server`.
+Server binaries for every platform go to `dist/server`. The native app's are made on each system: `npm run dist:windows` makes its installer in `dist/windows`, `npm run dist:linux` its packages in `dist/linux/packages`, and `npm run build:macos` a release bundle in `dist/macos`.
 
-On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving a `.deb` for Debian and Ubuntu, an `.rpm` for Fedora and openSUSE, a `.pacman` for Arch, an AppImage and a `.tar.gz`. The `.rpm` needs `rpmbuild`, which `dev/setup.sh` installs. `dev/build.sh app` or `dev/build.sh server` builds just one.
+On Linux, `dev/build.sh` rebuilds the encryption core and then makes the native app's packages and the server, giving a `.deb` for Debian and Ubuntu, an `.rpm` for Fedora and openSUSE, a `.pkg.tar.zst` for Arch, an AppImage and a `.tar.gz`. `dev/build.sh app` or `dev/build.sh server` builds just one.
 
 ## Changes touching cryptography
 
