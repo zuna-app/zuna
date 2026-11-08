@@ -4,14 +4,6 @@ Covered by reading only (no Swift build on Windows): AppModel, MessageLists, Com
 Skimmed: Settings, Details (apart from SharedMedia), Onboarding, Channels (apart from ChannelMessages), the call screens, the ZunaShare views, ZunaBroadcast and the UI tests.
 Nothing was run. Severity is estimated user impact; Confidence says whether the problem is real as described. Any fix here needs a Mac to build, so an implementing agent on Windows must say so in the commit message.
 
-### Reconfigure only the message rows whose content changed
-- Where: apps/ios/Zuna/Chat/MessageListController.swift:120-171 (136, 142-143); apps/ios/Zuna/Chat/MessageRow.swift:6-29, 662, 693-697
-- Category: perf
-- Severity: high ; Effort: M ; Confidence: high
-- What's wrong: every `update` rebuilds every row's context (two Calendar same-day checks per message) and reconfigures every visible cell with `reconfigureItems(Array(kept))`; each reconfigured cell runs `Markup.parse` and `MessageTextBuilder.build` again. `update` runs on every `ChatScreen` redraw, and `ChatScreen` reads `model.activeServer` and `model.list(...)` (ChatScreen.swift:46, 66), so any presence or typing change on the server, or a message in any other loaded chat, re-parses every visible message.
-- Suggested change: make `MessageRowContext` Equatable, keep the previous contexts, and reconfigure only ids whose context changed. Reconfigure all visible ids only when a small row-environment value changes (self id, `mentionable`, emote set id, blocked list, accent, message size, the users shown). Pass rows that value rather than the whole `ServerState`, and skip `apply` when nothing changed. Precompute a day key per message.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests,MessageActionsTests,ChannelsTests`, and the 2,000-message scroll measure from IOS_TESTING.md's performance layer.
-
 ### Split the fast-changing server state out of ServerState
 - Where: apps/ios/Zuna/State/AppModel.swift:11-33, 138, 188, 405-447
 - Category: perf

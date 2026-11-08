@@ -55,6 +55,13 @@ enum Format {
         Calendar.current.isDate(Date(milliseconds: a), inSameDayAs: Date(milliseconds: b))
     }
 
+    /// The day a time falls on, as one number, the same for two times on the same day: to
+    /// compare many times by working out each one's day once.
+    static func day(_ milliseconds: Int) -> Int {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: Date(milliseconds: milliseconds))
+        return (parts.year ?? 0) * 10_000 + (parts.month ?? 0) * 100 + (parts.day ?? 0)
+    }
+
     /// As the desktop words it (lib/format.ts).
     static func lastSeen(_ milliseconds: Int?, hidden: Bool, now: Date = .now) -> String {
         guard !hidden, let milliseconds else { return "last seen recently" }

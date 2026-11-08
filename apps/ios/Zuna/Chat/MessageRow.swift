@@ -3,7 +3,7 @@ import ZunaModels
 
 /// What a row needs besides its message: where it sits among its neighbors,
 /// and what it should know about the server. Built by the list for each row.
-struct MessageRowContext {
+struct MessageRowContext: Equatable {
     let message: MessageView
     let showDay: Bool
     /// Follows a message from the same sender within five minutes.
@@ -12,7 +12,9 @@ struct MessageRowContext {
     let own: Bool
     /// A group or a channel, where messages say who sent them.
     let isGroup: Bool
-    /// The highest message anyone else has read, for the read ticks.
+    /// How far anyone else has read, for the read ticks, as `ReadTicks` takes it. The list
+    /// gives each row only what tells its ticks apart, so a read further on redraws only the
+    /// messages whose ticks change.
     let readUpTo: Int
     /// The first unread message when the chat opened, with a line above it.
     let unreadLine: Bool

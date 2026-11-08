@@ -52,6 +52,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var input: Input?
     private var contexts: [String: MessageRowContext] = [:]
+    /// What every row shows apart from its own message, when the rows were last drawn.
+    private var rowEnvironment: RowEnvironment?
     private var atBottom = true
     /// The message the list opened at, kept at the top of the screen as the list gets its
     /// size, which SwiftUI gives it only after the first update, until someone scrolls.
@@ -106,8 +108,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 cell.swipe.armed = false
             }
             let swipe = cell.swipe
+            let actions = rowActions(input.actions)
             cell.contentConfiguration = UIHostingConfiguration {
-                MessageRow(context: context, server: input.server, actions: input.actions)
+                MessageRow(context: context, server: input.server, actions: actions)
                     .environment(self.model)
                     .environment(self.images)
                     .environment(swipe)
@@ -136,14 +139,28 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 openAt = bridge.unreadLine
             }
         }
+        let oldContexts = contexts
         rebuildContexts()
         let ids = input.items.reversed().map(\.id)
         let oldIds = dataSource.snapshot().itemIdentifiers
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
         snapshot.appendItems(ids)
+        // Only rows whose message or place changed are drawn again, each of which parses its
+        // text again, unless what every row shows changed, as someone's name or the emotes.
+        // The chat's screen updates the list on anything about the server, as someone typing.
+        let environment = RowEnvironment(input)
+        let everything = environment != rowEnvironment
+        rowEnvironment = environment
         let kept = Set(oldIds).intersection(ids)
-        snapshot.reconfigureItems(Array(kept))
+        let changed = everything ? Array(kept) : kept.filter { oldContexts[$0] != contexts[$0] }
+        if !changed.isEmpty { snapshot.reconfigureItems(changed) }
+        if ids == oldIds, changed.isEmpty, !oldIds.isEmpty {
+            handleJump()
+            if input.editing != previous?.editing { revealEditing() }
+            noteSeen()
+            return
+        }
 
         // Messages that came in at the newest end fade in, as on the desktop, and the list
         // glides to them while it's there. Anything else, as older pages or going back to the
@@ -225,20 +242,25 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let selfId = input.server.me?.userId ?? ""
         let readUpTo = input.conversation.readUpTo(selfId: selfId)
         let channel = input.conversation.kind == .channel
+        // Each message's day, worked out once rather than for each pair it's compared in.
+        let days = items.map { Format.day($0.createdAt) }
         var result: [String: MessageRowContext] = [:]
         for (index, message) in items.enumerated() {
-            let previous = index > 0 ? items[index - 1] : nil
-            let next = index + 1 < items.count ? items[index + 1] : nil
-            let showDay = previous.map { !Format.sameDay($0.createdAt, message.createdAt) } ?? true
+            let showDay = index == 0 || days[index - 1] != days[index]
+            let continues = !showDay && Self.continues(items[index - 1], message)
+            let continued = index + 1 < items.count && days[index + 1] == days[index] && Self.continues(message, items[index + 1])
+            let own = message.senderId == selfId
             result[message.id] = MessageRowContext(
                 message: message,
                 showDay: showDay,
                 // In a channel a reply starts a run of its own, under its name, as in Discord.
-                grouped: !showDay && !(channel && message.reply != nil) && Self.continues(previous, message),
-                lastInGroup: !Self.continues(message, next),
-                own: message.senderId == selfId,
+                grouped: !(channel && message.reply != nil) && continues,
+                lastInGroup: !continued,
+                own: own,
                 isGroup: input.conversation.kind != .dm,
-                readUpTo: readUpTo,
+                // Only what tells this row's ticks apart: read or not once sent, and whether
+                // reading is known at all while sending.
+                readUpTo: own && readUpTo >= 0 ? message.seq.map { readUpTo >= $0 ? $0 : $0 - 1 } ?? 0 : -1,
                 unreadLine: message.id == bridge.unreadLine,
                 highlighted: input.highlighted == message.id,
                 selecting: input.selection != nil,
@@ -252,10 +274,77 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         contexts = result
     }
 
-    /// A message continues the one before it: same sender, within five minutes, the same day.
-    private static func continues(_ a: MessageView?, _ b: MessageView?) -> Bool {
-        guard let a, let b, a.system == nil, b.system == nil else { return false }
-        return a.senderId == b.senderId && b.createdAt - a.createdAt < groupWindow && Format.sameDay(a.createdAt, b.createdAt)
+    /// A message continues the one before it, on the same day: same sender, within five minutes.
+    private static func continues(_ a: MessageView, _ b: MessageView) -> Bool {
+        guard a.system == nil, b.system == nil else { return false }
+        return a.senderId == b.senderId && b.createdAt - a.createdAt < groupWindow
+    }
+
+    /// The chat's actions for a row, reaching whatever the chat gives when they're used: a row
+    /// is drawn again only when what it shows changes, and the chat's own actions hold what it
+    /// knew when they were made, as who has read what.
+    private func rowActions(_ given: ChatActions) -> ChatActions {
+        ChatActions(
+            jump: { [weak self] in self?.input?.actions.jump($0) },
+            open: { [weak self] in self?.input?.actions.open($0, $1) },
+            react: { [weak self] in self?.input?.actions.react($0, $1, $2) },
+            retry: { [weak self] in self?.input?.actions.retry($0) },
+            mention: { [weak self] in self?.input?.actions.mention($0) },
+            emoteCard: { [weak self] in self?.input?.actions.emoteCard($0, $1, $2) },
+            reply: { [weak self] in self?.input?.actions.reply($0) },
+            forward: { [weak self] in self?.input?.actions.forward($0) },
+            select: { [weak self] in self?.input?.actions.select($0) },
+            edit: { [weak self] in self?.input?.actions.edit($0) },
+            pin: { [weak self] in self?.input?.actions.pin($0, $1) },
+            delete: { [weak self] in self?.input?.actions.delete($0) },
+            discard: { [weak self] in self?.input?.actions.discard($0) },
+            pickReaction: { [weak self] in self?.input?.actions.pickReaction($0) },
+            readers: { [weak self] in self?.input?.actions.readers($0) ?? [] },
+            openChat: { [weak self] in self?.input?.actions.openChat($0) },
+            isGroupAdmin: given.isGroupAdmin,
+            editChannel: given.editChannel == nil ? nil : { [weak self] in self?.input?.actions.editChannel?() }
+        )
+    }
+
+    /// What of the server and the chat any row may show apart from its own message: when this
+    /// changes, every row is drawn again. People are compared by what rows show of them, their
+    /// names and pictures, so someone coming online redraws none.
+    private struct RowEnvironment: Equatable {
+        let entry: ServerEntry
+        let selfId: String?
+        let mentionable: [String: String]
+        let emotes: EmoteSet
+        let blocked: [String]?
+        let users: [String: UserView]
+        /// The channel, whose welcome shows above its oldest message.
+        let channel: ChannelView?
+        let isGroupAdmin: Bool
+        let canEditChannel: Bool
+
+        @MainActor init(_ input: Input) {
+            entry = input.server.entry
+            selfId = input.server.me?.userId
+            mentionable = input.server.mentionable
+            emotes = input.server.emotes
+            blocked = input.server.prefs.blocked
+            users = input.server.users
+            channel = input.server.channels.first { $0.id == input.conversation.groupId }
+            isGroupAdmin = input.actions.isGroupAdmin
+            canEditChannel = input.actions.editChannel != nil
+        }
+
+        static func == (a: Self, b: Self) -> Bool {
+            a.entry == b.entry && a.selfId == b.selfId && a.mentionable == b.mentionable && a.emotes == b.emotes
+                && a.blocked == b.blocked && a.channel == b.channel && a.isGroupAdmin == b.isGroupAdmin
+                && a.canEditChannel == b.canEditChannel && samePeople(a.users, b.users)
+        }
+
+        private static func samePeople(_ a: [String: UserView], _ b: [String: UserView]) -> Bool {
+            a.count == b.count && a.allSatisfy { id, user in
+                guard let other = b[id] else { return false }
+                return other.displayName == user.displayName && other.avatar == user.avatar
+            }
+        }
     }
 
     // MARK: Scrolling
