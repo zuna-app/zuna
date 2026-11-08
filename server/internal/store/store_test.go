@@ -758,8 +758,11 @@ func TestPlaceholdersBecomePostgresOnes(t *testing.T) {
 		"-- isn't it ?\nSELECT ?":                        "-- isn't it ?\nSELECT $1",
 		`SELECT "C" FROM t WHERE x IN (?,?,?) AND y = ?`: `SELECT "C" FROM t WHERE x IN ($1,$2,$3) AND y = $4`,
 	} {
-		if got := rebind(query); got != want {
-			t.Errorf("rebind(%q) = %q, want %q", query, got, want)
+		// The second time comes from what it remembers.
+		for range 2 {
+			if got := rebind(query); got != want {
+				t.Errorf("rebind(%q) = %q, want %q", query, got, want)
+			}
 		}
 	}
 	yes, no := true, false

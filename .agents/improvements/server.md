@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Cache PostgreSQL placeholder rewriting
-- Where: server/internal/store/postgres.go:105-148, called from store.go:67-86
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `rebind` rebuilds every query string on every statement, though the queries are constants.
-- Suggested change: memoize the results in a `sync.Map`.
-- Check after: store tests with `ZUNA_TEST_POSTGRES`.
-
 ### Update modernc.org/sqlite and pgx
 - Where: server/go.mod:6-12
 - Category: deps

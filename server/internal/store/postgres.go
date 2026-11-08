@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -102,9 +104,32 @@ func retryDelay(attempt int) time.Duration {
 	return mrand.N(time.Duration(min(attempt, 10)) * 5 * time.Millisecond)
 }
 
+// rebound remembers what rebind made of each query, as nearly all of them are
+// constants. Lists of placeholders make a few vary with their length, so it stops
+// taking new ones at reboundMost.
+var (
+	rebound      sync.Map
+	reboundCount atomic.Int64
+)
+
+const reboundMost = 4096
+
 // rebind turns SQLite's placeholders, ? and ?N, into PostgreSQL's $N. A plain ?
 // is one more than the highest number before it, as in SQLite.
 func rebind(query string) string {
+	if done, ok := rebound.Load(query); ok {
+		return done.(string)
+	}
+	done := rewritePlaceholders(query)
+	if reboundCount.Load() < reboundMost {
+		if _, loaded := rebound.LoadOrStore(query, done); !loaded {
+			reboundCount.Add(1)
+		}
+	}
+	return done
+}
+
+func rewritePlaceholders(query string) string {
 	var b strings.Builder
 	b.Grow(len(query) + 16)
 	highest := 0
