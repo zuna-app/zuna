@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Revoke the composer's preview URLs
-- Where: packages/ui/src/lib/media.ts:315,324 (`createObjectURL`); features/chat/Composer.tsx:164-167,263-266,581. Nothing revokes them.
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every picked, pasted or dropped file keeps its blob alive, including pasted screenshots.
-- Suggested change: revoke on chip removal, after send, and on unmount.
-- Check after: web check.
-
 ### Release the mic and camera when a recorder fails to start
 - Where: packages/ui/src/lib/voice.ts:70-86 (`new MediaRecorder` and `new AudioContext` can throw after `getUserMedia`); lib/round.ts:57-93 (`H264Frames.possible()` and `new MediaRecorder` with a `mimeType` can throw)
 - Category: robustness

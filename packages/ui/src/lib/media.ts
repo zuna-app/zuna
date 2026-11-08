@@ -325,7 +325,13 @@ export interface PreparedFile {
   height?: number;
   thumb?: string;
   duration?: number;
+  /** A picture's preview in the message box, until releaseFiles lets go of it. */
   previewUrl?: string;
+}
+
+/** Lets go of staged files' previews, once they're sent or taken out, so their blobs can go. */
+export function releaseFiles(files: PreparedFile[]): void {
+  for (const file of files) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
 }
 
 /** Reads the details a message needs: dimensions and a tiny blurred preview. */
@@ -347,9 +353,7 @@ export async function prepareFile(file: File): Promise<PreparedFile> {
       // Not decodable here; it'll be sent as a plain file.
     }
   } else if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
-    const details = await readMediaDetails(file);
-    Object.assign(prepared, details);
-    prepared.previewUrl = URL.createObjectURL(file);
+    Object.assign(prepared, await readMediaDetails(file));
   }
   return prepared;
 }

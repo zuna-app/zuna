@@ -12,7 +12,7 @@ import { formatBytes, formatDuration } from "@/lib/format";
 import { MAX_ROUND_SECONDS, ROUND_SIZE, RoundRecorder } from "@/lib/round";
 import { useSlowWait, waitText } from "@/lib/slow-mode";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
-import { prepareFile, type PreparedFile } from "@/lib/media";
+import { prepareFile, releaseFiles, type PreparedFile } from "@/lib/media";
 import { activeServerNow, useActiveField, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
 import { RoundPreview } from "./Round";
@@ -101,6 +101,10 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
 
   const [text, setText] = useState(drafts.get(conversation.key) ?? "");
   const [files, setFiles] = useState<PreparedFile[]>([]);
+  // What's staged when the message box goes lets go of its pictures' previews.
+  const stagedFiles = useRef(files);
+  stagedFiles.current = files;
+  useEffect(() => () => releaseFiles(stagedFiles.current), []);
   const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
   const [attachAt, setAttachAt] = useState<{ x: number; y: number } | null>(null);
   const [caret, setCaret] = useState(0);
@@ -167,7 +171,11 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
 
   const addFiles = useCallback(async (incoming: File[]) => {
     const prepared = await Promise.all(incoming.map(prepareFile));
-    setFiles((current) => [...current, ...prepared].slice(0, 10));
+    setFiles((current) => {
+      const all = [...current, ...prepared];
+      releaseFiles(all.slice(10));
+      return all.slice(0, 10);
+    });
   }, []);
 
   useImperativeHandle(ref, () => ({ addFiles: (incoming) => void addFiles(incoming) }), [addFiles]);
@@ -270,6 +278,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     if (files.length > 0) {
       const sending = files;
       setFiles([]);
+      releaseFiles(sending);
       void session()
         .sendWithAttachments(
           conversation.key,
@@ -581,7 +590,14 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                   <span className="truncate">{file.name}</span>
                   <span className="faint">{formatBytes(file.blob.size)}</span>
                 </span>
-                <button className="file-chip-remove" aria-label={`Remove ${file.name}`} onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}>
+                <button
+                  className="file-chip-remove"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => {
+                    releaseFiles([file]);
+                    setFiles((current) => current.filter((_, i) => i !== index));
+                  }}
+                >
                   <X size={11} />
                 </button>
               </div>
