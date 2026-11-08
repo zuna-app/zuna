@@ -27,14 +27,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move `picture_attachment` and `addNotificationRequest` to a background thread (`UNUserNotificationCenter` is thread-safe); warm the font options once on a worker, or load only Inter plus a small fallback set.
 - Check after: mac-voice-check.mjs (`delivered`).
 
-### Report a ScreenCaptureKit start failure instead of showing a share that sends nothing
-- Where: platform/macos/screen_capture.rs:241-249 (the error from `startCaptureWithCompletionHandler` is only logged); voice/screen.rs:648-693 treats `Ok(Capture)` as sharing
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: if capture fails to start, the share is announced, the join sound plays and "sharing" shows, but no frames go out; viewers see a frozen or blank tile.
-- Suggested change: share `on_stopped` through an `Arc` between `Output` and the `started` block and call it with the error; the watcher at screen.rs:675-687 then ends the share with a toast.
-- Check after: mac-voice-check.mjs; by hand, close the picked window before capture starts.
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps

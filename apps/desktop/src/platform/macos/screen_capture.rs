@@ -149,7 +149,8 @@ fn fitted(width: u32, height: u32, max_height: u32) -> (u32, u32) {
 // --- Capturing ---
 
 type OnPicture = Box<dyn Fn(Picture) + Send + Sync>;
-type OnStopped = Box<dyn Fn(Option<String>) + Send + Sync>;
+/// Shared with the block that hears whether the capture started, which ends the share too.
+type OnStopped = Arc<dyn Fn(Option<String>) + Send + Sync>;
 
 struct OutputIvars {
     on_picture: OnPicture,
@@ -223,7 +224,8 @@ impl Drop for Capture {
 /// each picture to `on_picture`, until it's dropped or macOS stops it (`on_stopped`).
 pub fn capture(picked: Picked, max_height: u32, fps: u32, cursor: bool, on_picture: impl Fn(Picture) + Send + Sync + 'static, on_stopped: impl Fn(Option<String>) + Send + Sync + 'static) -> Result<Capture, String> {
     let (width, height) = size(&picked, max_height);
-    let output = Output::new(Box::new(on_picture), Box::new(on_stopped));
+    let on_stopped: OnStopped = Arc::new(on_stopped);
+    let output = Output::new(Box::new(on_picture), on_stopped.clone());
     // SAFETY: what's made here is set up before the stream starts, and the output and its
     // queue live as long as the capture.
     unsafe {
@@ -238,10 +240,15 @@ pub fn capture(picked: Picked, max_height: u32, fps: u32, cursor: bool, on_pictu
         let stream = SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &picked.0, &configuration, Some(ProtocolObject::from_ref(&*output)));
         let queue = dispatch2::DispatchQueue::new("chat.zuna.screen", None);
         stream.addStreamOutput_type_sampleHandlerQueue_error(ProtocolObject::from_ref(&*output), SCStreamOutputType::Screen, Some(&queue)).map_err(|error| error.localizedDescription().to_string())?;
-        let started = RcBlock::new(|error: *mut NSError| {
+        // A capture that doesn't start ends the share, saying why, rather than showing a share
+        // that sends nothing.
+        let failed = on_stopped.clone();
+        let started = RcBlock::new(move |error: *mut NSError| {
             // SAFETY: when it isn't null, the error is valid for the call.
             if let Some(error) = error.as_ref() {
-                log::warn!("the screen capture didn't start: {}", error.localizedDescription());
+                let problem = error.localizedDescription().to_string();
+                log::warn!("the screen capture didn't start: {problem}");
+                failed(Some(format!("The screen capture didn't start: {problem}")));
             }
         });
         stream.startCaptureWithCompletionHandler(Some(&started));
