@@ -64,7 +64,8 @@ struct Composer: View {
             if let link = state.link, link.loading || link.preview != nil {
                 linkBar(link)
             }
-            if !state.files.isEmpty {
+            // Files wait out an edit, which can't take them, and come back after it.
+            if !state.files.isEmpty, state.editing == nil {
                 filesBar
             }
             HStack(alignment: .bottom, spacing: 8) {
@@ -223,6 +224,10 @@ struct Composer: View {
             await model.updateLinkPreview(serverId, conversation.key, text: state.text)
         }
         .onChange(of: state.editing?.id) { _, id in
+            // The caret at the end of what's now in the box, the message or the draft back from before,
+            // rather than where it was in the text this replaced.
+            let text = model.composer(serverId, conversation.key).text
+            selection = TextSelection(insertionPoint: text.endIndex)
             if id != nil { focused = true }
         }
         .onChange(of: state.replyTo?.id) { _, id in
@@ -272,7 +277,6 @@ struct Composer: View {
         case .escape:
             if state.editing != nil {
                 model.edit(serverId, conversation.key, nil)
-                model.updateComposer(serverId, conversation.key) { $0.text = "" }
             } else if state.replyTo != nil {
                 model.reply(serverId, conversation.key, to: nil)
             } else {

@@ -12,10 +12,30 @@ struct ComposerState: Equatable {
     var link: LinkDraft?
     /// A link whose preview was removed, so it isn't made again for this draft.
     var dismissedLink: String?
+    /// What was being written when an edit started, back in the box once the edit is saved or let go.
+    var beforeEdit: SavedDraft?
 
     var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty
     }
+}
+
+extension ComposerState {
+    /// Out of editing, with what was being written before back in the box.
+    mutating func finishEditing() {
+        editing = nil
+        link = nil
+        text = beforeEdit?.text ?? ""
+        replyTo = beforeEdit?.replyTo
+        dismissedLink = beforeEdit?.dismissedLink
+        beforeEdit = nil
+    }
+}
+
+struct SavedDraft: Equatable {
+    var text: String
+    var replyTo: MessageView?
+    var dismissedLink: String?
 }
 
 struct LinkDraft: Equatable {
@@ -40,20 +60,27 @@ extension AppModel {
         composers[key] = state
     }
 
-    /// Answers a message; editing stops.
+    /// Answers a message; editing stops, and what was written before it comes back.
     func reply(_ serverId: String, _ conversationKey: String, to message: MessageView?) {
-        updateComposer(serverId, conversationKey) {
-            $0.replyTo = message
-            if message != nil { $0.editing = nil }
+        updateComposer(serverId, conversationKey) { state in
+            if message != nil, state.editing != nil { state.finishEditing() }
+            state.replyTo = message
         }
     }
 
-    /// Edits one of your messages in the composer; a reply in progress stops.
+    /// Edits one of your messages in the composer, or (nil) stops. What was being written, and the
+    /// message it answered, wait meanwhile and come back once the edit is saved or let go.
     func edit(_ serverId: String, _ conversationKey: String, _ message: MessageView?) {
-        updateComposer(serverId, conversationKey) {
-            $0.editing = message
-            $0.text = message?.text ?? ""
-            if message != nil { $0.replyTo = nil }
+        updateComposer(serverId, conversationKey) { state in
+            if let message {
+                if state.editing == nil { state.beforeEdit = SavedDraft(text: state.text, replyTo: state.replyTo, dismissedLink: state.dismissedLink) }
+                state.editing = message
+                state.text = message.text
+                state.replyTo = nil
+                state.link = nil
+            } else if state.editing != nil {
+                state.finishEditing()
+            }
         }
     }
 
@@ -97,7 +124,8 @@ extension AppModel {
 
         if let editing = state.editing {
             saveEdit(serverId, editing, value)
-            updateComposer(serverId, conversation.key) { $0 = ComposerState() }
+            // The draft from before comes back, with any files that were waiting.
+            updateComposer(serverId, conversation.key) { $0.finishEditing() }
             return
         }
 

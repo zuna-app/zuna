@@ -126,7 +126,9 @@ final class ComposerTests: XCTestCase {
         let answerId = try XCTUnwrap(answer?["id"] as? String)
 
         // Edited from the menu: the composer holds the text, and saving updates alice's copy.
+        // What was being written meanwhile waits, and comes back after.
         XCTAssertTrue(message(answerId).waitForExistence(timeout: 10))
+        type("Draft \(tag)")
         menu(answerId, "Edit")
         XCTAssertEqual(zuna.element(A11y.Composer.input).value as? String, "Answer \(tag)")
         type(" (edited)")
@@ -135,6 +137,7 @@ final class ComposerTests: XCTestCase {
             let edited = try self.aliceMessage(alice, containing: "Answer \(tag)")
             return edited?["text"] as? String == "Answer \(tag) (edited)" && edited?["editedAt"] is Int
         }
+        XCTAssertEqual(zuna.element(A11y.Composer.input).value as? String, "Draft \(tag)")
 
         menu(answerId, "Delete for everyone")
         try waitFor("alice to see it deleted") {
