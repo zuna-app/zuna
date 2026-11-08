@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { Emote } from "@/components/Emote";
 import { quick, useReturnFocus } from "@/components/ui";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
+import { useEscape } from "@/lib/escape";
 import { useRemoteImage } from "@/lib/media";
 import { useActiveField } from "@/state/store";
 
@@ -52,19 +53,15 @@ export const EmotePicker = memo(function EmotePicker({
 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
+  useEscape(onClose);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (!panel.current?.contains(event.target as Node)) latestClose.current();
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") latestClose.current();
-    };
     const timer = setTimeout(() => window.addEventListener("mousedown", close));
-    window.addEventListener("keydown", onKey);
     return () => {
       clearTimeout(timer);
       window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", onKey);
     };
   }, []);
 

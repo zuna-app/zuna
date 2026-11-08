@@ -3,6 +3,7 @@ import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, Pa
 import { useEffect, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { useEscape } from "@/lib/escape";
 import { timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
@@ -272,14 +273,7 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
   const canDelete = picked.length > 0 && picked.every((item) => item.senderId === selfId || (conversation.kind !== "dm" && isAdmin));
   const stop = () => toggleSelected(listId, null);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") stop();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  useEscape(stop);
 
   const copy = async () => {
     const users = activeServerNow()?.users ?? {};

@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import { platform } from "@/platform";
 import { Avatar, ConfirmPasswordField, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { useEscape } from "@/lib/escape";
 import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
@@ -66,13 +67,7 @@ export function SettingsFrame({
   children: React.ReactNode;
 }) {
   useReturnFocus();
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscape(onClose);
   return createPortal(
     <div className="settings-layer">
       <div className="settings">
@@ -247,16 +242,6 @@ function PrivacySection() {
 
 /** Turning metadata removal off says what it shows, and waits to be sure. */
 function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
-  // Escape closes this, not the settings behind it.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      onCancel();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onCancel]);
   return (
     <Modal
       title="Send files with their metadata?"

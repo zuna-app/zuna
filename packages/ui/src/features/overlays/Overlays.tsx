@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Avatar, Field, Modal, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { useEscape } from "@/lib/escape";
 import { formatUpcoming } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import { JoinFlow } from "@/features/onboarding/Onboarding";
@@ -77,6 +78,7 @@ const isMouseWheel = (event: WheelEvent) => event.deltaX === 0 && event.deltaY !
  * bigger than the window it can be dragged and scrolled around.
  */
 function ImageViewer({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+  useEscape(onClose);
   useReturnFocus();
   const [view, setView] = useState<View>(FITTED);
   const [dragging, setDragging] = useState(false);
@@ -131,8 +133,7 @@ function ImageViewer({ url, name, onClose }: { url: string; name: string; onClos
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-      else if (event.key === "+" || event.key === "=") zoomTo(latest.current.scale * 1.5);
+      if (event.key === "+" || event.key === "=") zoomTo(latest.current.scale * 1.5);
       else if (event.key === "-") zoomTo(latest.current.scale / 1.5);
       else if (event.key === "0") show(FITTED);
     };

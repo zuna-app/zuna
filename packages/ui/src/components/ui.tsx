@@ -16,6 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { avatarColor, initialsOf } from "@/lib/format";
+import { useEscape } from "@/lib/escape";
 import { refocusComposer } from "@/lib/focus";
 import { useDecryptedUrl, useRemoteImage } from "@/lib/media";
 import { useApp } from "@/state/store";
@@ -172,13 +173,7 @@ export function Modal({
   bare?: boolean;
 }) {
   useReturnFocus();
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscape(onClose);
   return createPortal(
     <motion.div
       className="modal-layer"
@@ -220,10 +215,7 @@ export function Modal({
   );
 }
 
-/**
- * Asks before something that can't be taken back, such as a ban. Cancel, Escape or a
- * click outside say no, and Escape closes only this, not what's behind it.
- */
+/** Asks before something that can't be taken back, such as a ban. Cancel, Escape or a click outside say no. */
 export function Confirm({
   title,
   action,
@@ -237,15 +229,6 @@ export function Confirm({
   onConfirm: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      onCancel();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onCancel]);
   return (
     <Modal
       title={title}
@@ -306,25 +289,21 @@ export function PopupMenu({
 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
+  useEscape(onClose);
   useEffect(() => {
     const dismiss = () => latestClose.current();
     const close = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) dismiss();
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismiss();
-    };
     const timer = setTimeout(() => {
       window.addEventListener("mousedown", close);
       window.addEventListener("contextmenu", close);
     });
-    window.addEventListener("keydown", onKey);
     window.addEventListener("blur", dismiss);
     return () => {
       clearTimeout(timer);
       window.removeEventListener("mousedown", close);
       window.removeEventListener("contextmenu", close);
-      window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", dismiss);
     };
   }, []);

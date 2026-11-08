@@ -1,6 +1,7 @@
 import { Camera, Mic, MicOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Switch } from "@/components/ui";
+import { useEscape } from "@/lib/escape";
 import { SettingRow } from "@/features/overlays/Settings";
 import { useApp } from "@/state/store";
 import { MicError, Microphone, type MicReading } from "@/voice/mic";
@@ -118,12 +119,14 @@ function KeyBinder() {
   const settings = useVoice((state) => state.settings);
   const updateSettings = useVoice((state) => state.updateSettings);
   const [listening, setListening] = useState(false);
+  // Escape stops listening for a key, and leaves the settings open.
+  useEscape(listening ? () => setListening(false) : null);
   useEffect(() => {
     if (!listening) return;
     const onKey = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      if (event.code !== "Escape") updateSettings({ pttKey: event.code });
+      updateSettings({ pttKey: event.code });
       setListening(false);
     };
     const onMouse = (event: MouseEvent) => {

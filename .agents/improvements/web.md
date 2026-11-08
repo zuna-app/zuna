@@ -28,14 +28,6 @@ Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/ind
 - Suggested change: `useMemo` the elements, or read `startOfChat` through a ref inside `itemContent`.
 - Check after: web check.
 
-### Let Escape close only the top layer
-- Where: packages/ui/src/components/ui.tsx:174-180 (Modal), 308-329 (PopupMenu); features/overlays/Settings.tsx:68-74 (SettingsFrame); features/chat/ChatView.tsx:271-277 (SelectionBar); features/overlays/ServerSettings.tsx:227 (a PopupMenu inside SettingsFrame). Ad-hoc workarounds already written: ui.tsx:239-247, Settings.tsx:251-258, VoiceSettings.tsx:122-126.
-- Category: ux
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: every layer listens on `window` in the bubble phase and nothing stops the event. Escape on a member's menu closes Server settings too; Escape in Forward also drops the message selection.
-- Suggested change: add `lib/escape.ts`: a stack with `useEscape(handler)` and one capture-phase listener that calls only the top handler. Use it in every layer and delete the ad-hoc listeners.
-- Check after: web check, plus a step with a menu inside Server settings. Parity: the native app routes keys by focus (ui/menu.rs:264, ui/server_settings.rs:801), so it needs no change.
-
 ### Bound the decrypted-file cache by bytes, not by count
 - Where: packages/ui/src/lib/media.ts:7-38 (`MAX_CACHED = 300`), 227-232 (pictures and videos up to 20 MB load on their own), 234-240 (`downloadAttachment` goes through the same cache)
 - Category: robustness

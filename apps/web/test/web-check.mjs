@@ -657,6 +657,14 @@ async function runIn(name) {
     await report.getByRole("button", { name: "Dismiss" }).click();
     await again.getByText("Nobody has been reported.").waitFor({ timeout: 10_000 });
     check("dismissing a report takes it off the list", true);
+    // Escape on a member's menu closes the menu alone, and leaves the settings open.
+    await again.locator(".settings-nav-item", { hasText: "Members" }).click();
+    await again.locator(".device-row.is-button", { hasText: "Priya Nair" }).click();
+    const memberMenu = again.locator(".menu").first();
+    await memberMenu.waitFor({ timeout: 5_000 });
+    await again.keyboard.press("Escape");
+    await memberMenu.waitFor({ state: "detached", timeout: 5_000 });
+    check("Escape on a member's menu closes only the menu", (await again.locator(".settings-layer").count()) === 1);
     await again.keyboard.press("Escape");
 
     await gone.getByLabel("Settings", { exact: true }).click();

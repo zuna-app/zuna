@@ -8,6 +8,7 @@ import { AudioLines, Pencil, Play, Plus, Settings, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Field, Spinner, Tooltip, useAction, useReturnFocus } from "@/components/ui";
+import { useEscape } from "@/lib/escape";
 import { useActiveServer, useApp } from "@/state/store";
 import { playClip } from "@/voice/sounds";
 import { useVoice } from "@/voice/store";
@@ -74,20 +75,16 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
+  useEscape(onClose);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) latestClose.current();
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") latestClose.current();
-    };
     const timer = setTimeout(() => window.addEventListener("mousedown", close));
-    window.addEventListener("keydown", onKey);
     ref.current?.querySelector<HTMLButtonElement>(".soundboard-sound:not(:disabled)")?.focus();
     return () => {
       clearTimeout(timer);
       window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", onKey);
     };
   }, []);
 
@@ -168,6 +165,8 @@ function SoundRow({ sound }: { sound: SoundView }) {
   const session = useApp((state) => state.session);
   const volume = useVoice((state) => state.settings.outputVolume * state.settings.soundboardVolume);
   const [editing, setEditing] = useState(false);
+  // While a sound's being renamed, Escape leaves the name as it was, and the soundboard open.
+  useEscape(editing ? () => setEditing(false) : null);
   const [name, setName] = useState(sound.name);
   const [emoji, setEmoji] = useState(sound.emoji);
   const { busy, run } = useAction();
@@ -195,7 +194,6 @@ function SoundRow({ sound }: { sound: SoundView }) {
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && name.trim()) void save();
-            if (event.key === "Escape") setEditing(false);
           }}
           aria-label="Name"
         />
