@@ -9,6 +9,8 @@ struct MessageList: Equatable {
     var loaded = false
     /// Showing a window around a jump target, not the newest messages.
     var detached = false
+    /// Why the first page couldn't be loaded, for the chat to say, with a way to try again.
+    var failed: String?
 }
 
 /// A request to show a message: a reply's original, a pin or a search hit.
@@ -67,6 +69,7 @@ extension AppModel {
         keepRecentLists(opening: key)
         if let existing = lists[key], existing.loaded || existing.loading { return }
         lists[key, default: MessageList()].loading = true
+        lists[key]?.failed = nil
         guard let groupId else {
             // A conversation that hasn't started yet has nothing to load.
             lists[key]?.loading = false
@@ -100,7 +103,7 @@ extension AppModel {
             lists[key] = current
         } catch {
             lists[key]?.loading = false
-            toast(ErrorText.describe(error), .error)
+            lists[key]?.failed = ErrorText.describe(error)
         }
     }
 

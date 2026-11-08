@@ -239,6 +239,24 @@ struct ChatScreen: View {
                     } else {
                         messages(server, conversation, list, listId: listId)
                     }
+                } else if let failed = list?.failed {
+                    // Opening it again would be the only way otherwise.
+                    VStack(spacing: 10) {
+                        Text("Couldn't load this chat")
+                            .font(.headline)
+                            .foregroundStyle(Theme.text1)
+                        Text(failed)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.text2)
+                            .multilineTextAlignment(.center)
+                        Button("Try again") {
+                            Task { await model.loadList(serverId, listId, groupId: conversation.groupId) }
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier(A11y.Chat.retryLoad)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
