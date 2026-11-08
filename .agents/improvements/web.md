@@ -4,12 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Remove the unused `@types/node` from `@zuna/ui`
-- Where: packages/ui/package.json:30 (tsconfig `types` is only `vite/client`; no `node:` imports or `process.` uses)
-- Category: deps
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: delete it, run `npm install`, then typecheck and `npm run build -w @zuna/web`.
-
 ### Small store and list cleanups
 - Where: packages/ui/src/state/store.ts:339 (`{...message, uploadProgress: message.uploadProgress}` is a plain copy); ChatView.tsx:261-262 (selectors fall back to a new `?? []`, which loops under zustand 5 if ever reached; use-markup-context.ts:13 already uses a module-level `EMPTY`); ChatView.tsx:271-277 (a `useEffect` without deps re-adds its listener every render); MessageList.tsx:550 (`isUnread` called without the blocked list); MessageList.tsx:180-192 (side effects inside `useMemo`)
 - Category: cleanup
