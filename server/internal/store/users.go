@@ -630,8 +630,18 @@ func revokeDevice(ctx context.Context, tx handle, userID, deviceID string, now i
 
 // --- Key packages ---
 
-func (d *DB) AddKeyPackages(ctx context.Context, deviceID string, packages [][]byte, lastResort []byte) error {
+// AddKeyPackages keeps a device's new key packages, unless that would leave it more
+// than `most` one-time ones, which ErrLimit says. The count is taken in the same
+// transaction, so requests sent together can't get past it.
+func (d *DB) AddKeyPackages(ctx context.Context, deviceID string, packages [][]byte, lastResort []byte, most int) error {
 	return d.tx(ctx, func(tx handle) error {
+		var held int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM key_packages WHERE device_id = ? AND last_resort = 0`, deviceID).Scan(&held); err != nil {
+			return err
+		}
+		if held+len(packages) > most {
+			return ErrLimit
+		}
 		now := Now()
 		for _, data := range packages {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO key_packages(device_id, data, last_resort, created_at) VALUES(?,?,0,?)`,
@@ -759,13 +769,6 @@ func putItems(ctx context.Context, tx handle, userID string, items []VaultItem) 
 		}
 	}
 	return nil
-}
-
-// VaultItemCount is how many items someone keeps in their vault.
-func (d *DB) VaultItemCount(ctx context.Context, userID string) (int, error) {
-	var n int
-	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM vault_items WHERE user_id = ?`, userID).Scan(&n)
-	return n, err
 }
 
 // KeyGeneration is which generation of its keys an account is at.

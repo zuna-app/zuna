@@ -635,16 +635,12 @@ func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, se
 			return
 		}
 	}
-	count, _, err := s.db.KeyPackageStatus(r.Context(), sess.DeviceID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	if count+len(body.KeyPackages) > maxKeyPackagesKept {
+	err := s.db.AddKeyPackages(r.Context(), sess.DeviceID, body.KeyPackages, body.LastResort, maxKeyPackagesKept)
+	if errors.Is(err, store.ErrLimit) {
 		writeError(w, http.StatusBadRequest, "bad_request", "This device already has plenty of key packages.")
 		return
 	}
-	if err := s.db.AddKeyPackages(r.Context(), sess.DeviceID, body.KeyPackages, body.LastResort); err != nil {
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}

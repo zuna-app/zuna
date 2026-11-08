@@ -402,9 +402,18 @@ func (d *DB) vaultItems(ctx context.Context, query string, args ...any) ([]Vault
 
 // PutVaultItemsAt stores items sealed under the given generation, which has to be
 // the current one: a device behind it would be sealing to a key it should stop using.
-func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int64, items []VaultItem, quota int64) (int64, error) {
+// It holds the account to `most` items, which ErrLimit says, counted in the same
+// transaction, so requests sent together can't get past it.
+func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int64, items []VaultItem, quota int64, most int) (int64, error) {
 	var seq int64
 	err := d.tx(ctx, func(tx handle) error {
+		var held int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM vault_items WHERE user_id = ?`, userID).Scan(&held); err != nil {
+			return err
+		}
+		if held+len(items) > most {
+			return ErrLimit
+		}
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
 			return err

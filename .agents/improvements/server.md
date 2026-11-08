@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Enforce key package and vault item counts inside the write transaction
-- Where: server/internal/api/accounts.go:636-645, and generations.go:372-381
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the count is checked against the cap before the insert, in a separate transaction, so requests sent together can push past the cap.
-- Suggested change: pass the cap into `AddKeyPackages` and `PutVaultItemsAt`, count inside their transaction, and return ErrLimit.
-- Check after: Go tests and the PostgreSQL run.
-
 ### Reword the stale upload-limit comment and use chunkOverhead
 - Where: server/internal/api/files.go:156-160, :233
 - Category: cleanup

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"zuna/server/internal/store"
@@ -370,16 +371,11 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 		writeError(w, http.StatusBadRequest, "bad_request", "A vault item isn't valid.")
 		return
 	}
-	count, err := s.db.VaultItemCount(r.Context(), sess.UserID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	if count+len(body.Items) > maxVaultItems {
+	seq, err := s.db.PutVaultItemsAt(r.Context(), sess.UserID, body.Generation, body.Items, s.vaultQuotaBytes(), maxVaultItems)
+	if errors.Is(err, store.ErrLimit) {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Your account's encrypted storage is full.")
 		return
 	}
-	seq, err := s.db.PutVaultItemsAt(r.Context(), sess.UserID, body.Generation, body.Items, s.vaultQuotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return

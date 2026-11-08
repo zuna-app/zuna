@@ -702,7 +702,7 @@ func TestAOneTimeKeyPackageIsHandedOutOnce(t *testing.T) {
 	for i := range 8 {
 		packages = append(packages, []byte(fmt.Sprintf("one-time %d", i)))
 	}
-	if err := db.AddKeyPackages(ctx, "d", packages, []byte("last resort")); err != nil {
+	if err := db.AddKeyPackages(ctx, "d", packages, []byte("last resort"), 1000); err != nil {
 		t.Fatal(err)
 	}
 	const claims = 24
