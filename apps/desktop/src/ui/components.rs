@@ -400,10 +400,6 @@ pub fn typing_dots(color: Hsla) -> impl IntoElement {
     }))
 }
 
-pub fn px_f(value: Pixels) -> f32 {
-    f32::from(value)
-}
-
 /// One line that ends in an ellipsis when it doesn't fit, as CSS's text-overflow does.
 /// GPUI's `truncate()` measures nowrap text once, before its width is known, and keeps
 /// that, so this clamps a wrapping line instead, which it measures again at each width.

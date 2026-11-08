@@ -263,11 +263,6 @@ impl TextInput {
         self.newline_on_enter = newline;
     }
 
-    pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {
-        self.disabled = disabled;
-        cx.notify();
-    }
-
     pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.placeholder = placeholder.into();
         cx.notify();

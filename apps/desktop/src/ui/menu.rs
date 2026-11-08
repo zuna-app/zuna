@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, Anchor, App, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Styled, Window, anchored,
+    AnyElement, Anchor, App, Context, Entity, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Styled, Window, anchored,
     deferred, div, prelude::*, px,
 };
 
@@ -368,12 +368,3 @@ impl MenuLayer {
     }
 }
 
-#[allow(dead_code)]
-pub fn label(text: &str) -> AnyElement {
-    div().font_weight(FontWeight::MEDIUM).child(text.to_string()).into_any_element()
-}
-
-#[allow(dead_code)]
-pub fn right_click() -> MouseButton {
-    MouseButton::Right
-}

@@ -14,7 +14,7 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu_with_reactions};
 use super::selection;
-use crate::format::{format_bytes, format_day_separator, format_full, format_time, name_color, timer_change_text};
+use crate::format::{format_bytes, format_day_separator, format_time, name_color, timer_change_text};
 use crate::markup::{self, Block, Rich};
 use crate::models::{Attachment, EmoteRef, MessageView, ReactionView, UserView};
 use crate::state::{AppState, Overlay, Picture, ToastKind};
@@ -375,7 +375,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         }
         if !message.text.is_empty() {
             if jumbo > 0 {
-                bubble = bubble.child(jumbo_body(message, jumbo, context, cx));
+                bubble = bubble.child(jumbo_body(message, context, cx));
             } else {
                 bubble = bubble.child(text_body(message, own, meta_in_text, context, &theme, window, cx));
             }
@@ -797,7 +797,7 @@ fn flow_text(
             single.spans.retain(|(range, _)| !range.is_empty());
             let runs = runs_for(&single, own, revealed, theme, color);
             let len = single.text.len();
-            row = row.child(interactive_text(&message.id, index * 10_000 + piece, index, single, runs, len, context, cx));
+            row = row.child(interactive_text(&message.id, index * 10_000 + piece, index, single, runs, len, context));
             piece += 1;
         }
     }
@@ -855,7 +855,7 @@ pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, co
                         last.background_color = None;
                     }
                 }
-                let element = interactive_text(&message.id, index * 10_000, index, rich, runs, len, context, cx);
+                let element = interactive_text(&message.id, index * 10_000, index, rich, runs, len, context);
                 column = column.child(if quote {
                     div().pl(px(9.)).my(px(2.)).border_l_2().border_color(if own { theme.bubble_own_faint } else { theme.text3 }).child(element).into_any_element()
                 } else {
@@ -876,7 +876,7 @@ pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, co
 /// A run of a message's text, which can be selected: `order` places it among the message's
 /// pieces, in its `block`, and the first `len` bytes of it are the message's own.
 #[allow(clippy::too_many_arguments)]
-fn interactive_text(message_id: &str, order: usize, block: usize, rich: Rich, runs: Vec<TextRun>, len: usize, context: &ChatContext, _cx: &mut App) -> AnyElement {
+fn interactive_text(message_id: &str, order: usize, block: usize, rich: Rich, runs: Vec<TextRun>, len: usize, context: &ChatContext) -> AnyElement {
     let targets: Vec<(std::ops::Range<usize>, Target)> = rich
         .spans
         .iter()
@@ -981,7 +981,7 @@ fn code_block(text: &str, language: Option<&str>, message_id: &str, index: usize
         .into_any_element()
 }
 
-pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext, cx: &mut App) -> AnyElement {
+pub(super) fn jumbo_body(message: &MessageView, context: &ChatContext, cx: &mut App) -> AnyElement {
     let mut row = div().flex().flex_wrap().items_end().gap(px(2.));
     for (position, word) in message.text.split_whitespace().enumerate() {
         if let Some(emote) = message.emotes.get(word) {
@@ -1553,7 +1553,6 @@ pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, cont
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
         entries.push(MenuEntry::new("Delete for everyone", "trash", move |_, cx| state.update(cx, |state, cx| state.act("deleteMessage", vec![json!(group), json!(id)], cx))).danger());
     }
-    let _ = format_full;
     entries
 }
 

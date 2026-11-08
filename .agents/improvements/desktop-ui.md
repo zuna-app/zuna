@@ -130,14 +130,6 @@ Ordered roughly by value.
 - Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
 - Check after: `npm run dev:windows`.
 
-### Remove dead code and unused-warning shims
-- Where: chat.rs:3094-3095 (`fn unused`); menu.rs:371-379 (`label`, `right_click`); onboarding.rs:818-821; settings.rs:924-927 (`radius`); components.rs:403-405 (`px_f`); message.rs:1559 (`let _ = format_full;`), 984 (`_size`), 879 (`_cx`); chat.rs:746, 2257 (`let _ = window;`); scrollbar.rs:183 (`let _ = which;`); notifications.rs:271, 277 (`keys`); text_input.rs:264-267 (`set_disabled`, never called); models.rs:221-225 (`seq_or`, never called)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: these exist only to keep imports or parameters from warning, or are leftovers nobody calls.
-- Suggested change: delete them and fix the imports and parameters they were covering.
-- Check after: `npm run dev:windows`, `npm run dev:linux`, `npm run dev:macos` (warnings can be per-platform).
-
 ### Fix doc comments that are wrong or attached to the wrong item
 - Where: state.rs:1481 (`load_server`'s doc is "Takes notifications back…"); chat.rs:2100-2101 (`channel_typing` carries the member list's old first line); main.rs:209-211 (`quit`'s doc is attached to `const QUIT`); components.rs:418 (the corners line sits above `AspectFill` and belongs on `round_corners` at 475); chat.rs:2740-2741 and message.rs:62-63 (overstate the caching)
 - Category: docs

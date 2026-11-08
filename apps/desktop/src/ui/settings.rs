@@ -10,7 +10,7 @@ use super::text_input::{InputEvent, TextInput};
 use crate::format::{MIN_PASSWORD, format_full};
 use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
-use crate::theme::{self, Accent, RADIUS_L, RADIUS_M, RADIUS_S, TextSize, Theme};
+use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
 const SECTIONS: [(&str, &str, &str); 8] = [
     ("profile", "Profile", "user-round"),
@@ -921,7 +921,3 @@ impl Render for SettingsView {
     }
 }
 
-#[allow(dead_code)]
-fn radius() -> gpui::Pixels {
-    RADIUS_L
-}

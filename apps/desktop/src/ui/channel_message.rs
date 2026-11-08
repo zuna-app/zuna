@@ -418,7 +418,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
         }
         if !message.text.is_empty() {
             let jumbo = if message.attachments.is_empty() { markup::jumbo_size(&message.text, &message.emotes) } else { 0 };
-            let text = if jumbo > 0 { jumbo_body(message, jumbo, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
+            let text = if jumbo > 0 { jumbo_body(message, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
             let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(text);
             if message.edited_at.is_some() {
                 line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(muted()).child("(edited)"));

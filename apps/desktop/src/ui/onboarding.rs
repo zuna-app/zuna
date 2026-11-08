@@ -14,7 +14,7 @@ use super::text_input::{InputEvent, TextInput};
 use crate::format::MIN_PASSWORD;
 use crate::models::{InvitePreview, Registered, from_value};
 use crate::state::AppState;
-use crate::theme::{self, FONT_MONO, RADIUS_M};
+use crate::theme::{FONT_MONO, RADIUS_M};
 
 #[derive(Clone)]
 enum Step {
@@ -815,7 +815,3 @@ impl Render for Onboarding {
     }
 }
 
-#[allow(dead_code)]
-fn unused() -> gpui::Hsla {
-    theme::color(theme::hex(0))
-}

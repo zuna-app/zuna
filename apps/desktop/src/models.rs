@@ -218,12 +218,6 @@ pub struct MessageView {
     pub expires_at: Option<f64>,
 }
 
-impl MessageView {
-    pub fn seq_or(&self, fallback: f64) -> f64 {
-        self.seq.unwrap_or(fallback)
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GroupMemberView {

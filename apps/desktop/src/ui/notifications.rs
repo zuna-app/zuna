@@ -268,13 +268,11 @@ impl NotificationCenter {
 
     /// Opening a chat or replying to it reads it, so the rest of its notifications go too.
     fn read_chat(&mut self, server_id: &str, key: &str, cx: &mut Context<Self>) {
-        let keys = [key.to_string()];
         self.waiting.retain(|payload| !(payload.server_id == server_id && payload.key == key));
         let ids: Vec<u64> = self.shown.iter().filter(|card| card.payload.server_id == server_id && card.payload.key == key).map(|card| card.id).collect();
         for id in ids {
             self.hide_fast(id, cx);
         }
-        let _ = keys;
         self.show_next(cx);
     }
 

@@ -179,8 +179,7 @@ impl gpui::Element for Scrollbar {
         let move_hitbox = hitbox.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, _, window, _| {
             let drag = DRAG.with(|drag| *drag.borrow());
-            if let Some((which, from, start)) = drag.filter(|(which, _, _)| *which == name) {
-                let _ = which;
+            if let Some((_, from, start)) = drag.filter(|(which, _, _)| *which == name) {
                 if event.pressed_button == Some(MouseButton::Left) && room > px(0.) {
                     scrolls.scroll_to(start + (event.position.y - from) * (most / room));
                     window.refresh();

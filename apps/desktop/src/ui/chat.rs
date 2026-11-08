@@ -329,7 +329,7 @@ impl ChatView {
             // Something playing moves its own time and waveform, and nothing else here.
             cx.observe(&media_clock, |view, _, cx| view.refresh_messages(cx)),
             cx.subscribe_in(&composer, window, |view, _, event, window, cx| view.on_composer(event, window, cx)),
-            cx.subscribe_in(&inline_editor, window, |view, _, event, window, cx| view.on_inline_editor(event, window, cx)),
+            cx.subscribe_in(&inline_editor, window, |view, _, event, _, cx| view.on_inline_editor(event, cx)),
         ];
         let mut view = ChatView {
             state,
@@ -763,7 +763,6 @@ impl ChatView {
             }
             _ => {}
         }
-        let _ = window;
     }
 
     // --- Voice and video messages ---
@@ -2263,7 +2262,7 @@ impl ChatView {
         }
     }
 
-    fn on_inline_editor(&mut self, event: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_inline_editor(&mut self, event: &InputEvent, cx: &mut Context<Self>) {
         let list_id = self.last_list_id.clone();
         match event {
             InputEvent::Submit => {
@@ -2285,7 +2284,6 @@ impl ChatView {
             InputEvent::Escape => self.state.update(cx, |state, cx| state.set_editing(&list_id, None, cx)),
             _ => {}
         }
-        let _ = window;
     }
 
     /// Asks the core which unread messages mention you, whenever how far you've read changes.
@@ -3122,5 +3120,3 @@ impl Render for ChatView {
     }
 }
 
-#[allow(dead_code)]
-fn unused(_: SharedString) {}
