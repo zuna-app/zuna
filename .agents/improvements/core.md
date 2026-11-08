@@ -132,14 +132,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: start `readSent` at `previous?.readSent ?? previous?.ownRead ?? 0` in `applyGroup`, make it required, remove the `!== undefined` checks and `??=`. Check `sendUnsentReads` still sends nothing for a never-read group.
 - Check after: `npx vitest run test/e2e.test.ts` (read position cases).
 
-### Don't keep a failed link preview as the answer
-- Where: packages/core/src/client.ts:369-379 (`makeLinkPreview(web, url).catch(() => null)` is cached); reused by session.ts:5338-5347 when sending
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a timeout or a moment offline is cached as "no preview" for that URL until 50 other URLs push it out.
-- Suggested change: cache only successes and real "nothing to show" results; delete the entry when the fetch rejects.
-- Check after: the link-preview tests (`npx vitest run test/e2e.test.ts -t preview`).
-
 ### Fetch a direct image link once for its preview
 - Where: packages/core/src/links.ts:289-297 (`makeLinkPreview` fetches the URL as a page, up to 2 MiB, then `shrink(web, url)` fetches it again, up to 5 MiB)
 - Category: perf

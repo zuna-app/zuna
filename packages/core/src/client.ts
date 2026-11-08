@@ -371,7 +371,12 @@ export class ZunaClient {
     if (!web) return Promise.resolve(null);
     let preview = this.previews.get(url);
     if (!preview) {
-      preview = makeLinkPreview(web, url).catch(() => null);
+      const made: Promise<LinkPreview | null> = makeLinkPreview(web, url).catch(() => {
+        // A timeout or a moment offline isn't the page's answer, so the next ask tries again.
+        if (this.previews.get(url) === made) this.previews.delete(url);
+        return null;
+      });
+      preview = made;
       this.previews.set(url, preview);
       if (this.previews.size > PREVIEWS_KEPT) this.previews.delete(this.previews.keys().next().value!);
     }
