@@ -74,15 +74,24 @@ export class VoiceRecorder {
     } catch {
       throw new Error("There's no microphone Zuna can use.");
     }
-    const mimeType = TYPES.find((type) => MediaRecorder.isTypeSupported(type));
-    const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 48_000 });
-    const audio = new AudioContext();
-    const analyser = audio.createAnalyser();
-    analyser.fftSize = 1024;
-    audio.createMediaStreamSource(stream).connect(analyser);
-    const voice = new VoiceRecorder(stream, recorder, audio, analyser, onLevel);
-    recorder.start(250);
-    return voice;
+    // Past here the microphone is open, so whatever fails closes it again, or the browser
+    // would go on showing it as recording.
+    let audio: AudioContext | undefined;
+    try {
+      const mimeType = TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 48_000 });
+      audio = new AudioContext();
+      const analyser = audio.createAnalyser();
+      analyser.fftSize = 1024;
+      audio.createMediaStreamSource(stream).connect(analyser);
+      const voice = new VoiceRecorder(stream, recorder, audio, analyser, onLevel);
+      recorder.start(250);
+      return voice;
+    } catch {
+      for (const track of stream.getTracks()) track.stop();
+      void audio?.close().catch(() => undefined);
+      throw new Error("This browser couldn't start recording a voice message.");
+    }
   }
 
   get elapsed(): number {

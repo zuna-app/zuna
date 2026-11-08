@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Release the mic and camera when a recorder fails to start
-- Where: packages/ui/src/lib/voice.ts:70-86 (`new MediaRecorder` and `new AudioContext` can throw after `getUserMedia`); lib/round.ts:57-93 (`H264Frames.possible()` and `new MediaRecorder` with a `mimeType` can throw)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: the tracks are never stopped, so the browser's recording indicator stays on, and the toast shows the raw error text.
-- Suggested change: wrap the code after `getUserMedia` in try/catch, stop the tracks and close the context there, and throw a plain message.
-- Check after: web check.
-
 ### Honour the system's reduced-motion setting
 - Where: packages/ui/src/styles/base.css:3-7 (only `data-motion="reduced"`); state/settings.ts:25,54; ConversationList.tsx:167 (checks only the dataset); MessageList.tsx:73 (checks both); App.tsx:145; voice.css:287
 - Category: ux

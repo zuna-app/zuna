@@ -64,30 +64,37 @@ export class RoundRecorder {
     } catch {
       throw new Error("There's no camera Zuna can use.");
     }
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = new MediaStream(camera.getVideoTracks());
-    await video.play().catch(() => undefined);
-    // The middle of the picture, square, drawn as it comes, which is what's recorded.
-    const canvas = document.createElement("canvas");
-    canvas.width = ROUND_SIZE;
-    canvas.height = ROUND_SIZE;
-    const mp4 = TYPES.find((type) => MediaRecorder.isTypeSupported(type));
-    const frames = !mp4 && (await H264Frames.possible()) ? new H264Frames() : null;
-    let recorder: MediaRecorder;
-    if (frames) {
-      recorder = new MediaRecorder(new MediaStream(camera.getAudioTracks()), { mimeType: SOUND, audioBitsPerSecond: 64_000 });
-    } else {
-      const recorded = canvas.captureStream(FPS);
-      for (const track of camera.getAudioTracks()) recorded.addTrack(track);
-      const mimeType = mp4 ?? (MediaRecorder.isTypeSupported(WEBM) ? WEBM : undefined);
-      recorder = new MediaRecorder(recorded, { mimeType, videoBitsPerSecond: 1_000_000, audioBitsPerSecond: 64_000 });
+    // Past here the camera and the microphone are open, so whatever fails closes them again,
+    // or the browser would go on showing them as recording.
+    try {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = new MediaStream(camera.getVideoTracks());
+      await video.play().catch(() => undefined);
+      // The middle of the picture, square, drawn as it comes, which is what's recorded.
+      const canvas = document.createElement("canvas");
+      canvas.width = ROUND_SIZE;
+      canvas.height = ROUND_SIZE;
+      const mp4 = TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+      const frames = !mp4 && (await H264Frames.possible()) ? new H264Frames() : null;
+      let recorder: MediaRecorder;
+      if (frames) {
+        recorder = new MediaRecorder(new MediaStream(camera.getAudioTracks()), { mimeType: SOUND, audioBitsPerSecond: 64_000 });
+      } else {
+        const recorded = canvas.captureStream(FPS);
+        for (const track of camera.getAudioTracks()) recorded.addTrack(track);
+        const mimeType = mp4 ?? (MediaRecorder.isTypeSupported(WEBM) ? WEBM : undefined);
+        recorder = new MediaRecorder(recorded, { mimeType, videoBitsPerSecond: 1_000_000, audioBitsPerSecond: 64_000 });
+      }
+      const round = new RoundRecorder(new MediaStream(camera.getVideoTracks()), camera, video, canvas, recorder, frames);
+      round.draw();
+      recorder.start(250);
+      return round;
+    } catch {
+      for (const track of camera.getTracks()) track.stop();
+      throw new Error("This browser couldn't start recording a video message.");
     }
-    const round = new RoundRecorder(new MediaStream(camera.getVideoTracks()), camera, video, canvas, recorder, frames);
-    round.draw();
-    recorder.start(250);
-    return round;
   }
 
   private draw(): void {
