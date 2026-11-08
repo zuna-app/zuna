@@ -221,6 +221,27 @@ func TestChannelMessagesArentPushedOrReadByOthers(t *testing.T) {
 			break
 		}
 	}
+	// Nor in the channel as it's listed, or fetched, though each sees their own.
+	h.mustDo("PUT", "/api/groups/"+channel.ID+"/read", owner.token, map[string]any{"data": []byte("mine")}, nil)
+	readStates := func(group store.Group) map[string]string {
+		states := map[string]string{}
+		for _, m := range group.Members {
+			states[m.UserID] = string(m.ReadState)
+		}
+		return states
+	}
+	var listed struct{ Groups []store.Group }
+	h.mustDo("GET", "/api/groups", owner.token, nil, &listed)
+	for _, group := range listed.Groups {
+		if states := readStates(group); group.ID == channel.ID && (states[member.userID] != "" || states[owner.userID] != "mine") {
+			t.Fatalf("the channel was listed with read positions %v", states)
+		}
+	}
+	var fetched store.Group
+	h.mustDo("GET", "/api/groups/"+channel.ID, member.token, nil, &fetched)
+	if states := readStates(fetched); states[owner.userID] != "" || states[member.userID] != "position" {
+		t.Fatalf("the channel was fetched with read positions %v", states)
+	}
 }
 
 func TestSlowModeHoldsBackEachPersonButNotAdmins(t *testing.T) {

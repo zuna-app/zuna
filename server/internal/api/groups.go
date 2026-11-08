@@ -13,6 +13,9 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request, sess *stor
 		writeFailure(w, err)
 		return
 	}
+	for i, group := range groups {
+		groups[i] = seenBy(group, sess.UserID)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
 }
 
@@ -49,6 +52,26 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request, sess 
 	}
 }
 
+// seenBy is a group as it goes to one person, or to all its members at once with
+// no one named. Nobody has read ticks in a channel, and each reader seals where
+// they are there to their own account, so only the person's own read position
+// goes, and none to everyone: theirs reach their devices in read frames. In a
+// channel of everyone on a server, the others' were a third of what was sent.
+func seenBy(group *store.Group, userID string) *store.Group {
+	if group.Kind != "channel" {
+		return group
+	}
+	seen := *group
+	seen.Members = make([]store.GroupMember, len(group.Members))
+	for i, member := range group.Members {
+		if member.UserID != userID {
+			member.ReadState = nil
+		}
+		seen.Members[i] = member
+	}
+	return &seen
+}
+
 func memberIDs(group *store.Group) []string {
 	ids := make([]string, len(group.Members))
 	for i, member := range group.Members {
@@ -57,13 +80,13 @@ func memberIDs(group *store.Group) []string {
 	return ids
 }
 
-func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request, _ *store.Session, _ *store.GroupMember) {
+func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 	group, err := s.db.Group(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, group)
+	writeJSON(w, http.StatusOK, seenBy(group, sess.UserID))
 }
 
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
@@ -167,7 +190,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	}
 	// Removed users are still told, so their clients learn from the commit.
 	s.hub.ToUsers(before, Event{Type: "event", Data: event})
-	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: group})
+	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: seenBy(group, "")})
 	for _, user := range body.RemoveUsers {
 		s.hub.ToUsers([]string{user}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
 	}
@@ -221,7 +244,7 @@ func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.hub.ToUsers(memberIDs(group), Event{Type: "event", Data: event})
-	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: group})
+	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: seenBy(group, "")})
 	writeOK(w)
 }
 
@@ -273,7 +296,7 @@ func (s *Server) broadcastGroup(r *http.Request, groupID string) {
 	if err != nil {
 		return
 	}
-	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: group})
+	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: seenBy(group, "")})
 }
 
 // handleLeave takes the caller out of the roster. Until a remaining member's

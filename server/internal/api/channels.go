@@ -69,7 +69,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	s.broadcastChannels()
-	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel, "group": group})
+	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel, "group": seenBy(group, sess.UserID)})
 }
 
 func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -170,8 +170,8 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 		writeFailure(w, err)
 		return
 	}
-	s.hub.ToUsersExcept(memberIDs(group), sess.DeviceID, Event{Type: "group", Data: group})
-	writeJSON(w, http.StatusOK, map[string]any{"group": group})
+	s.hub.ToUsersExcept(memberIDs(group), sess.DeviceID, Event{Type: "group", Data: seenBy(group, "")})
+	writeJSON(w, http.StatusOK, map[string]any{"group": seenBy(group, sess.UserID)})
 }
 
 // handleChannelHistoryGrant hands someone waiting for a channel's older keys what
