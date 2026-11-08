@@ -36,14 +36,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: start with a `desktop` job on `windows-latest`: `npm ci`, `node apps/desktop/core-bundle/build.mjs`, `cargo +stable-x86_64-pc-windows-msvc check --manifest-path apps/desktop/Cargo.toml` with `CARGO_TARGET_DIR` on a short path (windows-app.mjs:35). Cache `~/.cargo/git` for the large SocketByte/zed fetch. Add Linux later with the FFmpeg fetch (scripts/ffmpeg.mjs) and its apt packages.
 - Check after: the job passes on a test tag.
 
-### Get wasm-bindgen the same verified way in release.yml as in ci.yml, with its pin kept in one place
-- Where: release.yml:85-86, :115-116; ci.yml:28-35, :89-99; CLAUDE.md (wasm-bindgen gotcha)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: ci.yml downloads the prebuilt wasm-bindgen and checks its SHA-256; release.yml's `web` and `web-image` jobs `cargo install` it from source (minutes each). The hashes are pinned twice in ci.yml.
-- Suggested change: a composite action `.github/actions/wasm-bindgen/action.yml` with the Linux and macOS hashes in one file, used in ci.yml's `test` and `ios` jobs and release.yml's `web` and `web-image`; point CLAUDE.md's gotcha at it.
-- Check after: a release dry run on a test tag.
-
 ### Put the same web build in the zuna-web image as in the release's checksum list
 - Where: release.yml:71-94, :96-120; scripts/build-web.mjs:38-41
 - Category: robustness

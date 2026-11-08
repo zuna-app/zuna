@@ -27,14 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Install wasm-bindgen
-        run: |
-          version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
-          file="wasm-bindgen-$version-x86_64-unknown-linux-musl.tar.gz"
-          curl -fsSL -o "$file" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$file"
-          # Change this when crypto/Cargo.lock moves to a new wasm-bindgen.
-          echo "9687f3bb551b9f66f37ed32a40d7913a00f7962db653054e56857bc306c3227f  $file" | sha256sum -c -
-          tar xzf "$file" --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-bindgen' '*/wasm-bindgen-test-runner'
+      - uses: ./.github/actions/wasm-bindgen
       - run: npm ci
       - run: npm run test:crypto
       - run: npm run test:server
@@ -92,18 +85,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown, aarch64-apple-ios, aarch64-apple-ios-sim
-      - name: Install wasm-bindgen and XcodeGen
-        run: |
-          # rustup comes from Homebrew on macOS runners, so $CARGO_HOME/bin doesn't exist yet.
-          mkdir -p "$CARGO_HOME/bin"
-          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-          version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
-          file="wasm-bindgen-$version-aarch64-apple-darwin.tar.gz"
-          curl -fsSL -o "$file" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$file"
-          # Change this when crypto/Cargo.lock moves to a new wasm-bindgen.
-          echo "b90ddb9357f584b1af897d58ad77e4cce2b48fc17e2a967bc249a87f72809444  $file" | shasum -a 256 -c -
-          tar xzf "$file" --strip-components=1 -C "$CARGO_HOME/bin" '*/wasm-bindgen'
-          brew install xcodegen
+      - uses: ./.github/actions/wasm-bindgen
+      - name: Install XcodeGen
+        run: brew install xcodegen
       - run: npm ci
       - run: npm run build:crypto
       - run: npm run build:ios

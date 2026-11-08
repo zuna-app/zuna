@@ -1,0 +1,31 @@
+name: wasm-bindgen
+description: Installs the prebuilt wasm-bindgen of the version crypto/Cargo.lock pins, checked against its SHA-256.
+runs:
+  using: composite
+  steps:
+    - name: Install wasm-bindgen
+      shell: bash
+      run: |
+        # Change these when crypto/Cargo.lock moves to a new wasm-bindgen.
+        linux_x64=9687f3bb551b9f66f37ed32a40d7913a00f7962db653054e56857bc306c3227f
+        macos_arm64=b90ddb9357f584b1af897d58ad77e4cce2b48fc17e2a967bc249a87f72809444
+        version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-musl sha=$linux_x64 wildcards=--wildcards ;;
+          macOS-ARM64) target=aarch64-apple-darwin sha=$macos_arm64 wildcards= ;;
+          *)
+            echo "There's no wasm-bindgen pinned for $RUNNER_OS on $RUNNER_ARCH." >&2
+            exit 1
+            ;;
+        esac
+        # rustup comes from Homebrew on macOS runners, so its bin folder may not exist yet.
+        bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+        mkdir -p "$bin"
+        echo "$bin" >> "$GITHUB_PATH"
+        file="wasm-bindgen-$version-$target.tar.gz"
+        curl -fsSL -o "$RUNNER_TEMP/$file" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$file"
+        # sha256sum on Linux, shasum on macOS.
+        if command -v sha256sum >/dev/null 2>&1; then check="sha256sum -c -"; else check="shasum -a 256 -c -"; fi
+        (cd "$RUNNER_TEMP" && echo "$sha  $file" | $check)
+        tar xzf "$RUNNER_TEMP/$file" --strip-components=1 -C "$bin" $wildcards '*/wasm-bindgen' '*/wasm-bindgen-test-runner'
+        rm "$RUNNER_TEMP/$file"
