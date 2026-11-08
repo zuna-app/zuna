@@ -263,7 +263,7 @@ struct ChannelMessageRow: View {
                     .frame(maxWidth: 420, alignment: .leading)
             }
         }
-        .opacity(message.status == .sending ? 0.55 : 1)
+        .modifier(SendingDim(message: message, opacity: 0.55))
     }
 
     private func placeholder(_ text: String) -> some View {

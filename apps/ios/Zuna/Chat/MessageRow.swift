@@ -386,7 +386,7 @@ private struct MessageItem: View {
         .overlay {
             if message.status == .failed { shape.stroke(Theme.red) }
         }
-        .opacity(message.status == .sending ? 0.7 : 1)
+        .modifier(SendingDim(message: message, opacity: 0.7))
         .contentShape(.contextMenuPreview, shape)
         .contextMenu { MessageMenu(context: context, actions: actions) }
     }
@@ -550,6 +550,34 @@ struct ReadTicks: View {
                 }
             }
         }
+    }
+}
+
+/// A message still sending, dimmed only once it's taken half a second, so a quick send
+/// doesn't blink, as the desktop's `.bubble.is-sending`: over 200 ms with CSS's `ease`,
+/// and back over 150 once it's sent. Counted from its time, as `SendingMark`'s clock is,
+/// so the two come together.
+struct SendingDim: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let message: MessageView
+    let opacity: Double
+    /// The message dimmed, by id, as a cell is used again for another.
+    @State private var dimmed: String?
+
+    func body(content: Content) -> some View {
+        let sending = message.status == .sending
+        content
+            .opacity((model.reduceMotion ? sending : dimmed == message.id) ? opacity : 1)
+            .task(id: sending ? message.id : "") {
+                guard sending else {
+                    if dimmed != nil { withAnimation(.timingCurve(0.25, 0.1, 0.25, 1, duration: 0.15)) { dimmed = nil } }
+                    return
+                }
+                let waited = Date.now.timeIntervalSince1970 * 1000 - Double(message.createdAt)
+                if waited < 500 { try? await Task.sleep(for: .milliseconds(500 - waited)) }
+                guard !Task.isCancelled else { return }
+                withAnimation(.timingCurve(0.25, 0.1, 0.25, 1, duration: 0.2)) { dimmed = message.id }
+            }
     }
 }
 

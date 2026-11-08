@@ -60,6 +60,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     /// Gliding to the newest message, which keeping the list in place would cut short, as
     /// reading on the way updates the list.
     private var scrollingDown = false
+    /// Messages that came in at the newest end while the chat was open, and when, which fade
+    /// in as the desktop's `.msg.is-fresh` does.
+    private var fresh: [String: CFTimeInterval] = [:]
     private var seen = 0
     private var seenPending = false
     private var handledJump: Int?
@@ -142,10 +145,19 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let kept = Set(oldIds).intersection(ids)
         snapshot.reconfigureItems(Array(kept))
 
-        // A new message at the bottom slides in while you're there; anything else just appears,
-        // as several at once do when catching up, so the chat is at the newest straight away.
-        let newAtBottom = oldIds.first.flatMap { ids.firstIndex(of: $0) } == 1
-        let animate = newAtBottom && atBottom && !model.reduceMotion
+        // Messages that came in at the newest end fade in, as on the desktop, and the list
+        // glides to them while it's there. Anything else, as older pages or going back to the
+        // newest messages, just appears.
+        let added = oldIds.first.flatMap { ids.firstIndex(of: $0) } ?? 0
+        let now = CACurrentMediaTime()
+        fresh = fresh.filter { now - $0.value < 0.12 }
+        for id in ids.prefix(added) { fresh[id] = now }
+        // Sending always brings you to the newest message, at once, from where yours glides in
+        // as the desktop's does. Only this device's own copy is still sending: one written on
+        // another of your devices leaves the reader in place.
+        let sent = previous != nil && input.items.last.map { $0.id != oldIds.first && $0.senderId == input.server.me?.userId && $0.status == .sending } == true
+        if sent, added > 0, !atBottom { scrollToBottom(animated: false) }
+        let animate = added > 0 && atBottom && !model.reduceMotion
         let anchor = atBottom || oldIds.isEmpty || scrollingDown ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
         if oldIds.isEmpty, !input.detached {
@@ -157,18 +169,34 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 guard let self else { return }
                 if let anchor { restore(anchor) }
                 if oldIds.isEmpty { placeOpening() }
-                // Sending always brings you to the newest message. Only this device's own copy is
-                // still sending: one written on another of your devices leaves the reader in place.
-                if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, newest.status == .sending, previous != nil {
-                    scrollToBottom(animated: true)
-                }
+                // Sent from older messages than the newest, which the list went back to.
+                if sent, added == 0 { scrollToBottom(animated: false) }
                 handleJump()
                 if input.editing != previous?.editing { revealEditing() }
                 noteSeen()
             }
         }
-        // Telegram's spring, critically damped, which the list's own animation inside takes on.
-        if animate { UIView.animate(springDuration: 0.267, bounce: 0, animations: apply) } else { apply() }
+        // The desktop's glide, 180 ms on its `--ease-out`, as a critically damped spring, which
+        // follows it to within 4% all the way, and which the list's own animation inside takes on.
+        // A spring, as it carries on to where a row ends up when its size settles a moment later:
+        // on a curve, the rows stopped 4 points short and jumped there at the end.
+        if animate { UIView.animate(springDuration: 0.145, bounce: 0, animations: apply) } else { apply() }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        // A cell used again may still be fading in for the message it showed before.
+        cell.contentView.layer.removeAnimation(forKey: "fresh")
+        guard let id = dataSource.itemIdentifier(for: indexPath), let since = fresh[id], !model.reduceMotion,
+              CACurrentMediaTime() - since < 0.12 else { return }
+        // As `.msg.is-fresh`: over 120 ms with CSS's `ease`, from the frame it's first drawn in,
+        // with the glide. Laying out its row takes a frame or two, which counted from when it
+        // came was a quarter of the fade gone before it showed.
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.12
+        fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        cell.contentView.layer.add(fade, forKey: "fresh")
     }
 
     override func viewDidLayoutSubviews() {
@@ -398,8 +426,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     }
 }
 
-/// The list's layout, which brings a new message up from under the composer, as Telegram's
-/// does, instead of fading it in where it lands.
+/// The list's layout, which brings new messages up from under the composer with the rest of
+/// the list, as the desktop's glides to them, instead of fading them in where they land.
 private final class ChatLayout: UICollectionViewCompositionalLayout {
     private var inserted: Set<IndexPath> = []
 
@@ -416,10 +444,19 @@ private final class ChatLayout: UICollectionViewCompositionalLayout {
     override func initialLayoutAttributesForAppearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
         let attributes = super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
         guard inserted.contains(itemIndexPath), let below = attributes?.copy() as? UICollectionViewLayoutAttributes else { return attributes }
-        // Upside down, below on screen is up here. From further than its height, as in Telegram,
-        // so it comes up a little behind the messages it pushes. Moved by a transform, as the
-        // cell taking its size puts its frame back where it lands.
-        below.transform = CGAffineTransform(translationX: 0, y: -below.size.height * 1.6)
+        // The new messages at the newest end, which push the rest up by as much as they're tall.
+        var pushed: CGFloat = 0
+        var index = 0
+        while inserted.contains(IndexPath(item: index, section: 0)) {
+            pushed += layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.size.height ?? 0
+            index += 1
+        }
+        guard itemIndexPath.item < index else { return attributes }
+        // Upside down, below on screen is up here: from that far, so they move with the rest.
+        // Moved by a transform, as the cell taking its size puts its frame back where it lands.
+        // Their fade is the cell's own, shorter than the glide (`collectionView(_:willDisplay:forItemAt:)`).
+        below.transform = CGAffineTransform(translationX: 0, y: -pushed)
+        below.alpha = 1
         return below
     }
 }
