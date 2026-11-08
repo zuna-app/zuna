@@ -184,14 +184,6 @@ Ordered roughly by value.
 - Suggested change: write a `.tmp` file and rename it over the original; log when an existing file fails to parse.
 - Check after: `npm run dev:windows`.
 
-### Stop waiting forever to open a link when the app failed to start
-- Where: apps/desktop/src/main.rs:127-144 (138-140)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a `zuna://` link polls every 200 ms until the phase is `Ready`. If boot failed, it polls for the rest of the run, and later links queue behind it.
-- Suggested change: break out when the phase is `Failed`, or wait on a oneshot instead of polling.
-- Check after: `npm run dev:windows`.
-
 ### Commit the sidebar width once at the end of a resize
 - Where: ui/mod.rs:741-778
 - Category: perf

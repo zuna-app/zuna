@@ -67,14 +67,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: on either disabled event, `CGEvent::tap_enable(&port, true)` (port via `user_info` or a static); also reset `down` and tell the listener `false`.
 - Check after: mac-voice-check.mjs (push to talk).
 
-### Stop the link and notification-click loops from polling forever when the app failed to start
-- Where: main.rs:127-144 (polls every 200 ms until `Phase::Ready`, inside the only loop that also handles `QUIT`); platform/macos/notifications.rs:107-116 (the same wait)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: if the phase is `Failed` and a `zuna://` link arrives, the loop wakes five times a second forever, and every later message queues behind it, including `QUIT` from `zuna --quit`, which `npm run install:windows` uses. (The desktop-UI review found the same at a lower severity.)
-- Suggested change: handle `QUIT` before waiting, or give each link its own task; stop waiting on `Failed`; wait on a oneshot/watch fired when the app leaves `Booting` instead of polling.
-- Check after: `npm run dev:windows` with a broken device key: open a link, then run `--quit`.
-
 ### Give up the screen-share slot and say why when there's no room key yet
 - Where: voice/screen.rs:455-467 (`let Some(..) = room.current_key() else { return };` after `voiceScreenAccess` succeeded)
 - Category: robustness

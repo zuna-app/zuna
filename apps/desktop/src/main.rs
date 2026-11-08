@@ -138,10 +138,18 @@ fn main() {
                 if !message.starts_with("zuna://") {
                     continue;
                 }
-                while cx.update(|cx| !matches!(opening.read(cx).phase, state::Phase::Ready)) {
-                    cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
-                }
-                cx.update(|cx| opening.update(cx, |state, cx| state.set_overlay(Some(state::Overlay::AddServer { link: Some(message.clone()), sign_in_url: None }), cx)));
+                // Each link waits on its own for the app to finish starting, so a quit that comes
+                // behind it isn't held up, and it's dropped if starting failed.
+                let opening = opening.clone();
+                cx.spawn(async move |cx| {
+                    while cx.update(|cx| matches!(opening.read(cx).phase, state::Phase::Booting)) {
+                        cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
+                    }
+                    if cx.update(|cx| matches!(opening.read(cx).phase, state::Phase::Ready)) {
+                        cx.update(|cx| opening.update(cx, |state, cx| state.set_overlay(Some(state::Overlay::AddServer { link: Some(message), sign_in_url: None }), cx)));
+                    }
+                })
+                .detach();
             }
         })
         .detach();

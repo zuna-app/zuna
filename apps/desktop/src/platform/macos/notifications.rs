@@ -106,11 +106,14 @@ pub fn install(state: WeakEntity<AppState>, cx: &mut App) {
     cx.set_global(CenterGlobal(entity.clone()));
     cx.spawn(async move |cx| {
         while let Some(about) = clicks.next().await {
-            // A click may be what started the app, when its chats aren't there yet.
-            while entity.read_with(cx, |center, cx| center.state.upgrade().is_some_and(|state| !matches!(state.read(cx).phase, crate::state::Phase::Ready))) {
+            // A click may be what started the app, when its chats aren't there yet. One that
+            // came while starting failed has nothing to open.
+            while entity.read_with(cx, |center, cx| center.state.upgrade().is_some_and(|state| matches!(state.read(cx).phase, crate::state::Phase::Booting))) {
                 cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
             }
-            entity.update(cx, |center, cx| center.clicked(about, cx));
+            if entity.read_with(cx, |center, cx| center.state.upgrade().is_some_and(|state| matches!(state.read(cx).phase, crate::state::Phase::Ready))) {
+                entity.update(cx, |center, cx| center.clicked(about, cx));
+            }
         }
     })
     .detach();
