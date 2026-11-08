@@ -5132,10 +5132,11 @@ export class ServerSession {
     const now = Date.now();
     const next = Math.min(...Object.values(this.prefs.mutedUntil ?? {}).filter((until) => until > now));
     if (!Number.isFinite(next) || this.stopped) return;
+    // A mute from another device can last longer than setTimeout can wait, which would fire at once, over and over.
     this.muteTimer = setTimeout(() => {
       this.emitConversations();
       this.watchMutes();
-    }, next - now + 50);
+    }, Math.min(next - now + 50, LONGEST_WAIT_MS));
   }
 
   // --- Notifications ---

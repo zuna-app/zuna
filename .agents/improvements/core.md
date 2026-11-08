@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: split the manifest across numbered items (`manifest:0..n`) written under one version, or shrink entries (binary ids and keys), and size-check the rotation path the same way. Until then, `warnOnce` and stop retrying while the pin set hasn't changed. Fix the comment. Read docs/ACCOUNT_KEY_ROTATION.md and SECURITY_DETAILS first.
 - Check after: `npx vitest run test/rotation.test.ts test/security.test.ts`.
 
-### Keep the mute timer from overflowing `setTimeout`
-- Where: packages/core/src/session.ts:5019-5028 (`watchMutes`: `next - now + 50`); compare 207 (`LONGEST_WAIT_MS`) and 4524, where `expireMessages` already clamps
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high (latent: today's UIs offer at most 1 day)
-- What's wrong: a `mutedUntil` more than ~24.8 days away (it can arrive from another device's manifest; `parsePreferences` only checks it's a number) overflows `setTimeout`, which fires at once; `watchMutes` re-arms, giving a tight loop of `conversations` events.
-- Suggested change: `setTimeout(…, Math.min(next - now + 50, LONGEST_WAIT_MS))`.
-- Check after: `npx vitest run test/chat-controls.test.ts`.
-
 ### Don't let one failed side step skip the whole catch-up, and run one catch-up at a time
 - Where: packages/core/src/session.ts:775-822 (`syncAll`: `refreshEmotes` 790 and `processWelcomes` 791 run unguarded before groups sync; channels, calls and sounds are guarded), 750-773 (`onConnected` starts `syncAll` on every `ready` with no guard), 4041 (a `welcome` frame runs `processWelcomes` + `processHistoryGrants` alongside)
 - Category: robustness
