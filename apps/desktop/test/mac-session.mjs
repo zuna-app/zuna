@@ -109,10 +109,12 @@ export function session({ shots } = {}) {
     );
     const lines = createInterface({ input: socket })[Symbol.asyncIterator]();
     let queue = Promise.resolve();
+    // An app that stops answering fails the step after 30 seconds, rather than holding the
+    // check, and its finish, for good.
     const send = (request) => {
       const answer = queue.then(async () => {
         socket.write(`${JSON.stringify(request)}\n`);
-        const { value } = await lines.next();
+        const { value } = await Promise.race([lines.next(), new Promise((resolve) => setTimeout(() => resolve({ value: '{"error":"timed out"}' }), 30_000).unref())]);
         return JSON.parse(value ?? '{"error":"closed"}');
       });
       queue = answer.catch(() => {});
@@ -141,9 +143,24 @@ export function session({ shots } = {}) {
     };
   }
 
+  let finished = false;
   function finish() {
+    if (finished) return;
+    finished = true;
     for (const child of started) child.kill();
-    for (const socket of sockets) rmSync(socket, { force: true });
+    // The apps `open` started aren't its children: each is found by the test control's socket
+    // it holds, and stopped, so none is left running after the check.
+    for (const socket of sockets) {
+      const holders = spawnSync("lsof", ["-t", socket], { encoding: "utf8" }).stdout ?? "";
+      for (const pid of holders.split("\n").map(Number).filter((pid) => pid > 0 && pid !== process.pid)) {
+        try {
+          process.kill(pid);
+        } catch {
+          // Gone already.
+        }
+      }
+      rmSync(socket, { force: true });
+    }
     // The run's folder goes, unless the screenshots are in it or something failed, when its
     // logs are worth reading.
     if (shots && !failures.length) rmSync(work, { recursive: true, force: true });
@@ -156,6 +173,21 @@ export function session({ shots } = {}) {
       console.log("all passed");
     }
   }
+
+  // Stopped by hand, or by an error nothing caught: what was started goes all the same.
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => {
+      failures.push(`stopped by ${signal}`);
+      finish();
+      process.exit(1);
+    });
+  }
+  process.once("uncaughtException", (error) => {
+    failures.push(String(error));
+    console.error(error);
+    finish();
+    process.exit(1);
+  });
 
   return { work, shots: shotsDir, check, start, startServer, startApp, finish };
 }

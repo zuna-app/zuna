@@ -27,11 +27,3 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: wait (bounded, ~20 s) for `org.freedesktop.secrets` on the bus before trying; when `device-key.bin` exists and sealing now works, write `device-key.sealed` and remove the plain file, keeping the same key bytes. Asks nothing of the person, so CLAUDE.md's "no added step" rule holds.
 - Check after: linux-check.mjs, plus a manual start with gnome-keyring stopped, then started.
 
-### Make the macOS and Linux checks unable to hang or leave things behind
-- Where: test/mac-session.mjs:112-120 (`send` has no timeout), 139, 144-146 (apps started with `open -n` are never killed); mac-voice-check.mjs:196-198; test/linux-session.mjs:176-183 (null sinks loaded into the person's own PipeWire), 251-271, 228-235 (`drive` has no timeout); no SIGINT or uncaughtException handler in any check
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a hung app makes the mac check hang forever, even in its `finally`. Ctrl+C on a Linux check leaves `zuna_check_*` sinks loaded until logout, plus a nested KWin and a keyring daemon.
-- Suggested change: race `send` and `drive` against a 30 s timeout; record each app's PID and kill it in `finish`; register an idempotent `finish` on SIGINT, SIGTERM and uncaughtException.
-- Check after: Ctrl+C mid-run; `pactl list short modules` should be clean.
-

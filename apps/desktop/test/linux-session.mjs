@@ -228,11 +228,15 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     });
     await until(() => driver.output.includes('"ready"'), "the driver");
     // Input is followed by a moment for the app to draw what it changed, as a person would wait.
+    // A driver that stops answering fails the step after 30 seconds, rather than holding the check.
     const drive = async (command) => {
-      const answer = await new Promise((resolve) => {
-        waiting.push(resolve);
-        driver.stdin.write(`${JSON.stringify(command)}\n`);
-      });
+      const answer = await Promise.race([
+        new Promise((resolve) => {
+          waiting.push(resolve);
+          driver.stdin.write(`${JSON.stringify(command)}\n`);
+        }),
+        new Promise((resolve) => setTimeout(() => resolve({ error: "timed out" }), 30_000).unref()),
+      ]);
       if (["click", "key", "press", "type", "drag"].includes(command.do)) await sleep(250);
       return answer;
     };
@@ -249,7 +253,13 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
   }
 
   /** Kills what the check started, and says how it went. */
-  async function finish(error) {
+  let finishing = null;
+  function finish(error) {
+    finishing ??= finishOnce(error);
+    return finishing;
+  }
+
+  async function finishOnce(error) {
     if (error) {
       failures.push(String(error));
       console.error(error);
@@ -269,6 +279,11 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     // Whatever a check left listening, such as a TLS front, goes with it.
     process.exit(0);
   }
+
+  // Stopped by hand, or by an error nothing caught: the KWin, the keyring and the sinks loaded
+  // into the person's own PipeWire go all the same.
+  for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void finish(`stopped by ${signal}`));
+  process.once("uncaughtException", (error) => void finish(error));
 
   return { work, xdg, base, session, shots, check, failures, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startWebHost, startKeyring, startDriver, core, finish };
 }
