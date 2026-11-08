@@ -175,6 +175,7 @@ struct ChatListView: View {
         // On a phone the channels have a tab of their own, but searching here still finds them by name.
         let channelHits = !needle.isEmpty && server.showsChannels && server.channels.contains { $0.name.lowercased().contains(needle.lowercased()) }
         let channels = (showsChannels(server) || channelHits) && (filter == .all || filter == .channels)
+        let hits = messageHits.filter { passes($0, server) }
         return PullSearchList(query: $query, prompt: "Search", identifier: A11y.ChatList.search, resetKey: model.activeServerId) {
             Section {
                 // The server's channels first, as on the desktop.
@@ -189,7 +190,7 @@ struct ChatListView: View {
                     }
                 }
                 ForEach(visible) { row($0, server) }
-                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, !channelHits, filter != .channels, needle.isEmpty || !searchingMessages {
+                if visible.isEmpty, hidden.isEmpty, hits.isEmpty, !channelHits, filter != .channels, needle.isEmpty || !searchingMessages {
                     emptyState(searching: !needle.isEmpty)
                 }
             }
@@ -217,9 +218,9 @@ struct ChatListView: View {
                     .accessibilityIdentifier(A11y.ChatList.hiddenToggle)
                 }
             }
-            if !messageHits.isEmpty {
+            if !hits.isEmpty {
                 Section {
-                    ForEach(messageHits, id: \.message.id) { hit in
+                    ForEach(hits, id: \.message.id) { hit in
                         Button {
                             open(hit, serverId: server.entry.id)
                         } label: {
@@ -348,6 +349,18 @@ struct ChatListView: View {
                     Label(conversation.hidden ? "Show in list" : "Hide from list", systemImage: conversation.hidden ? "eye" : "eye.slash")
                 }
             }
+    }
+
+    /// A message found by search, where the filter lets its chat through.
+    private func passes(_ hit: SearchResult, _ server: AppModel.ServerState) -> Bool {
+        let conversation = server.conversation(hit.conversationKey)
+        switch filter {
+        case .all: return true
+        case .channels: return server.channel(hit.conversationKey) != nil
+        case .people: return conversation?.kind == .dm
+        case .groups: return conversation?.kind == .group
+        case .unread: return conversation.map { $0.unread > 0 || $0.markedUnread } ?? false
+        }
     }
 
     /// What the filter and search let through, split into the list and its hidden part, as on the desktop.
