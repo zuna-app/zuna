@@ -74,7 +74,11 @@ function getHighlighter(): Promise<HighlighterCore> {
       langs: [],
       engine: createJavaScriptRegexEngine(),
     });
-  })();
+  })().catch((error: unknown) => {
+    // Tried again for the next block, rather than never.
+    highlighter = null;
+    throw error;
+  });
   return highlighter;
 }
 

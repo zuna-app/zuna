@@ -8,7 +8,16 @@ import type { PasswordStrength } from "@zuna/core/password";
 type Estimate = typeof import("@zuna/core/password").passwordStrength;
 
 let loading: Promise<Estimate> | null = null;
-const load = (): Promise<Estimate> => (loading ??= import("@zuna/core/password").then((module) => module.passwordStrength));
+// One that failed, as when an update to zuna-web took away the old files, is tried again next time.
+const load = (): Promise<Estimate> =>
+  (loading ??= import("@zuna/core/password")
+    .then((module) => module.passwordStrength)
+    .catch((error: unknown) => {
+      loading = null;
+      throw error;
+    }));
+
+const FAILED: PasswordStrength = { score: 0, label: "Couldn't load the password checker. Reload the page." };
 
 /**
  * Rates `password`, using `related` (the username, the display name) as what anyone
@@ -19,9 +28,13 @@ const load = (): Promise<Estimate> => (loading ??= import("@zuna/core/password")
  */
 export function usePasswordStrength(password: string, related: string[] = []): PasswordStrength & { accepts: () => boolean } {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    void load().then((loaded) => live && setEstimate(() => loaded));
+    load().then(
+      (loaded) => live && setEstimate(() => loaded),
+      () => live && setFailed(true),
+    );
     return () => {
       live = false;
     };
@@ -30,8 +43,8 @@ export function usePasswordStrength(password: string, related: string[] = []): P
   const deferred = useDeferredValue(password);
   const relatedKey = related.join("\u0000");
   const strength = useMemo(
-    () => (estimate ? estimate(deferred, relatedKey ? relatedKey.split("\u0000") : []) : { score: 0, label: "" }),
-    [estimate, deferred, relatedKey],
+    () => (estimate ? estimate(deferred, relatedKey ? relatedKey.split("\u0000") : []) : failed ? FAILED : { score: 0, label: "" }),
+    [estimate, failed, deferred, relatedKey],
   );
   const accepts = () => estimate !== null && (deferred === password ? strength : estimate(password, related)).score >= 2;
   return { ...strength, accepts };

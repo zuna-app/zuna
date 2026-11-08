@@ -59,14 +59,6 @@ Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/ind
 - Suggested change: update the descriptions and comments, rename the prefix to `ZUNA_DEV_` in all three places, and rename the class `.connection-status`.
 - Check after: typecheck, `npm run dev:web` (the sign-in form should still start filled in), web check.
 
-### Don't cache a failed lazy import forever
-- Where: packages/ui/src/lib/password.ts:10-11,22-28,36 (`loading ??= import(...)`, no catch); features/onboarding/Onboarding.tsx:574; lib/highlight.ts:63-79 (`highlighter ??=`)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: if the password-checker chunk fails to load once (after a zuna-web update removes the old hashed chunks, or on a network blip), the rejected promise stays cached. The score then stays 0, so sign-up, recovery and password change stay disabled with no message. Highlighting stays off for the session the same way.
-- Suggested change: on failure, reset the cached promise to `null` and rethrow. Expose `failed` and show "Couldn't load the password checker. Reload the page."
-- Check after: web check.
-
 ### Revoke the composer's preview URLs
 - Where: packages/ui/src/lib/media.ts:315,324 (`createObjectURL`); features/chat/Composer.tsx:164-167,263-266,581. Nothing revokes them.
 - Category: robustness
