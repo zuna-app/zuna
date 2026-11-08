@@ -6,7 +6,7 @@
 mod shared;
 
 mod media {
-    pub use crate::mf;
+    pub(crate) use crate::mf;
     pub use crate::shared::*;
 }
 
