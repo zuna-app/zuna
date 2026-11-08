@@ -1256,6 +1256,9 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 (209., 209.)
             };
             let image = context.images.get(&attachment.file_id).cloned();
+            if image.is_some() {
+                context.state.read(cx).touch_media(&format!("file:{}", attachment.file_id));
+            }
             let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
             // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
             // bubble's width, as wide as text or a link preview made it, keeping its shape. It

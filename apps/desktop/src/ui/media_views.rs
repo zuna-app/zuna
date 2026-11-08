@@ -128,6 +128,7 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
     let key = attachment.file_id.clone();
     let uploading = key.is_empty();
     let duration = attachment.duration.unwrap_or(0.);
+    context.state.read(cx).touch_media(&key);
     let clip = context.state.read(cx).clips.get(&key).cloned();
     let playing = player::position(&key);
     let position = playing.map(|(at, _)| at).unwrap_or_else(|| context.state.read(cx).paused_at.get(&key).copied().unwrap_or(0.));
@@ -224,6 +225,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
     let theme = theme(cx);
     let key = attachment.file_id.clone();
     let uploading = key.is_empty();
+    context.state.read(cx).touch_media(&key);
     let clip = context.state.read(cx).clips.get(&key).cloned();
     let playing = player::position(&key);
     let started = playing.is_some() || context.state.read(cx).paused_at.contains_key(&key);
@@ -321,6 +323,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     let scale = (420. / width).min(380. / height).min(1.);
     let w = (width * scale).max(200.);
     let h = w * height / width;
+    context.state.read(cx).touch_media(&key);
     let player = context.state.read(cx).videos.get(&key).cloned();
     let file = context.state.read(cx).media_files.get(&key).cloned();
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
@@ -376,6 +379,7 @@ pub fn round(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
         let (server_id, a) = (context.server_id.clone(), attachment.clone());
         context.state.update(cx, |state, cx| state.open_video(&server_id, &a, true, cx));
     }
+    context.state.read(cx).touch_media(&key);
     let player = context.state.read(cx).videos.get(&key).cloned();
     let failed = matches!(context.state.read(cx).media_files.get(&key), Some(MediaFile::Failed));
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));

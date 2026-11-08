@@ -230,6 +230,10 @@ pub struct AppState {
     /// A message to scroll to and highlight: (groupId, messageId, nonce).
     pub jump_target: Option<(String, String, u64)>,
     pub pictures: HashMap<String, Picture>,
+    /// When each picture, sound, video and media file was last shown, by its key, on a count
+    /// that goes up with each showing, so the least recently shown go first once a cache is full.
+    media_used: std::cell::RefCell<HashMap<String, u64>>,
+    media_count: std::cell::Cell<u64>,
     pending: HashSet<String>,
     next_toast: u64,
     reading: HashMap<String, f64>,
@@ -290,6 +294,14 @@ const UNREAD_PAGES: usize = 20;
 /// it again loads older ones as it's scrolled.
 const KEPT_WHEN_CLOSED: usize = 150;
 
+/// How much of each kind of decrypted media stays in memory, or on disk, before the least
+/// recently shown goes: pictures by their encoded bytes, sounds by their decoded samples,
+/// video players and decrypted media files by count. Whatever plays is always kept.
+const PICTURE_BYTES: usize = 128 << 20;
+const CLIP_BYTES: usize = 128 << 20;
+const VIDEOS_KEPT: usize = 12;
+const MEDIA_FILES_KEPT: usize = 48;
+
 impl AppState {
     pub fn new(core: Core, events: futures::channel::mpsc::UnboundedReceiver<Value>, cx: &mut Context<Self>) -> Self {
         let settings = Settings::load();
@@ -331,6 +343,8 @@ impl AppState {
             jump_target: None,
             pictures: HashMap::new(),
             pending: HashSet::new(),
+            media_used: std::cell::RefCell::new(HashMap::new()),
+            media_count: std::cell::Cell::new(0),
             next_toast: 1,
             reading: HashMap::new(),
             notified: HashMap::new(),
@@ -1309,7 +1323,9 @@ impl AppState {
             Ok((bytes, mime)) if !bytes.is_empty() => Picture::Ready(Arc::new(Image::from_bytes(image_format(&mime, &bytes), bytes))),
             _ => Picture::Failed,
         };
+        self.touch_media(&key);
         self.pictures.insert(key, picture);
+        self.trim_media();
         self.show_waiting(cx);
         cx.notify();
     }
@@ -1317,7 +1333,11 @@ impl AppState {
     /// Something a server serves openly, such as its icon or an emote, by address.
     pub fn remote_picture(&mut self, url: &str, cx: &mut Context<Self>) -> Option<Arc<Image>> {
         match self.pictures.get(url) {
-            Some(Picture::Ready(image)) => return Some(image.clone()),
+            Some(Picture::Ready(image)) => {
+                let image = image.clone();
+                self.touch_media(url);
+                return Some(image);
+            }
             Some(_) => return None,
             None => {}
         }
@@ -1336,7 +1356,11 @@ impl AppState {
     pub fn decrypted_picture(&mut self, server_id: &str, avatar: &AvatarRef, cx: &mut Context<Self>) -> Option<Arc<Image>> {
         let key = format!("file:{}", avatar.file_id);
         match self.pictures.get(&key) {
-            Some(Picture::Ready(image)) => return Some(image.clone()),
+            Some(Picture::Ready(image)) => {
+                let image = image.clone();
+                self.touch_media(&key);
+                return Some(image);
+            }
             Some(_) => return None,
             None => {}
         }
@@ -1369,10 +1393,12 @@ impl AppState {
                 host::save_value(&value, &target, true)
             });
             let ready = written.is_ok();
+            state.touch_media(&id);
             state.media_files.insert(id.clone(), if ready { MediaFile::Ready(target) } else { MediaFile::Failed });
             if ready {
                 state.media_arrived(&id, cx);
             }
+            state.trim_media();
             cx.notify();
         });
         MediaFile::Loading
@@ -1412,7 +1438,9 @@ impl AppState {
                 .update(cx, |state, cx| {
                     match decoded {
                         Some(clip) => {
+                            state.touch_media(&id);
                             state.clips.insert(id.clone(), ClipState::Ready(clip.clone()));
+                            state.trim_media();
                             // Pressed before it was ready: it starts now.
                             if let Some((key, from)) = state.play_when_ready.clone().filter(|(key, _)| *key == id) {
                                 state.play_when_ready = None;
@@ -1447,7 +1475,9 @@ impl AppState {
             };
             let key = id.to_string();
             let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, duration, clip, cx));
+            self.touch_media(id);
             self.videos.insert(id.to_string(), player);
+            self.trim_media();
             if !matches!(self.clips.get(id), Some(ClipState::Ready(_))) {
                 self.decode_clip(id.to_string(), path, cx);
             }
@@ -1491,6 +1521,100 @@ impl AppState {
 
     pub fn emote_url(&self, server_url: &str, id: &str) -> String {
         format!("{server_url}/api/emotes/{id}/2x.webp")
+    }
+}
+
+impl AppState {
+    /// Notes that a picture, sound, video or media file is being shown, so it's the last to go.
+    pub fn touch_media(&self, key: &str) {
+        let count = self.media_count.get() + 1;
+        self.media_count.set(count);
+        let mut used = self.media_used.borrow_mut();
+        match used.get_mut(key) {
+            Some(at) => *at = count,
+            None => {
+                used.insert(key.to_string(), count);
+            }
+        }
+    }
+
+    /// Lets the least recently shown pictures, sounds, video players and media files go while
+    /// their caches are over the limits, down to three quarters of each, so it isn't done again
+    /// at once. Whatever is playing stays, as does a media file with a player, and anything
+    /// still loading.
+    fn trim_media(&mut self) {
+        let playing = crate::media::player::current();
+        let used = self.media_used.borrow().clone();
+        let last_shown = |key: &str| used.get(key).copied().unwrap_or(0);
+        let oldest_first = |mut keys: Vec<(String, usize)>| {
+            keys.sort_by_key(|(key, _)| last_shown(key));
+            keys
+        };
+
+        let pictures: Vec<(String, usize)> = self
+            .pictures
+            .iter()
+            .filter_map(|(key, picture)| match picture {
+                Picture::Ready(image) => Some((key.clone(), image.bytes().len())),
+                _ => None,
+            })
+            .collect();
+        let mut total: usize = pictures.iter().map(|(_, size)| size).sum();
+        if total > PICTURE_BYTES {
+            for (key, size) in oldest_first(pictures) {
+                if total <= PICTURE_BYTES / 4 * 3 {
+                    break;
+                }
+                self.pictures.remove(&key);
+                total -= size;
+            }
+        }
+
+        let clips: Vec<(String, usize)> = self
+            .clips
+            .iter()
+            .filter_map(|(key, clip)| match clip {
+                ClipState::Ready(clip) if playing.as_deref() != Some(key.as_str()) => Some((key.clone(), clip.samples.len() * 2)),
+                _ => None,
+            })
+            .collect();
+        let mut total: usize = clips.iter().map(|(_, size)| size).sum();
+        if total > CLIP_BYTES {
+            for (key, size) in oldest_first(clips) {
+                if total <= CLIP_BYTES / 4 * 3 {
+                    break;
+                }
+                self.clips.remove(&key);
+                total -= size;
+            }
+        }
+
+        if self.videos.len() > VIDEOS_KEPT {
+            let videos: Vec<(String, usize)> = self.videos.keys().filter(|key| playing.as_deref() != Some(key.as_str())).map(|key| (key.clone(), 1)).collect();
+            let excess = self.videos.len() - VIDEOS_KEPT / 4 * 3;
+            for (key, _) in oldest_first(videos).into_iter().take(excess) {
+                self.videos.remove(&key);
+            }
+        }
+
+        if self.media_files.len() > MEDIA_FILES_KEPT {
+            let files: Vec<(String, usize)> = self
+                .media_files
+                .iter()
+                .filter(|(key, file)| !matches!(file, MediaFile::Loading) && playing.as_deref() != Some(key.as_str()) && !self.videos.contains_key(*key))
+                .map(|(key, _)| (key.clone(), 1))
+                .collect();
+            let excess = self.media_files.len() - MEDIA_FILES_KEPT / 4 * 3;
+            for (key, _) in oldest_first(files).into_iter().take(excess) {
+                // The decrypted copy on disk goes with it.
+                if let Some(MediaFile::Ready(path)) = self.media_files.remove(&key) {
+                    std::fs::remove_file(path).ok();
+                }
+            }
+        }
+
+        let mut used = self.media_used.borrow_mut();
+        used.retain(|key, _| self.pictures.contains_key(key) || self.clips.contains_key(key) || self.videos.contains_key(key) || self.media_files.contains_key(key));
     }
 }
 

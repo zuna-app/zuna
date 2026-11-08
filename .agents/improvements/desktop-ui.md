@@ -20,14 +20,6 @@ Ordered roughly by value.
 - Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
 - Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
 
-### Bound the media, picture and message caches in `AppState`
-- Where: state.rs:207, 218-230 (`lists`, `media_files`, `clips`, `videos`, `paused_at`, `pictures`), 1347-1432; ui/media_views.rs:370-378, 446-469
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: nothing is ever removed from these maps while the app runs. `clips` keeps decoded i16 PCM for every sound (~57 MB for a 10-minute file); every video message's sound is decoded just for scrolling past it. `videos` keeps one `VideoPlayer` entity per video ever shown, each with a full-size last frame. `pictures` keeps the encoded bytes of every photo, avatar and emote. `lists` keeps every loaded page of every chat opened.
-- Suggested change: LRU on `clips`, `videos` and `media_files` (never evict what's playing or visible; delete the temp file with the entry). Trim a closed chat's list back to its newest page. Cap `pictures` by total bytes.
-- Check after: `npm run dev:windows` (scroll a media-heavy chat and watch memory); Linux and macOS builds. The web and iOS have the same unbounded lists (see their findings).
-
 ### Let finished transitions go from `TRANSITIONS`
 - Where: ui/motion.rs:246-319, 550-560; per-message keys in ui/message.rs:533-571, 1140-1155
 - Category: robustness
