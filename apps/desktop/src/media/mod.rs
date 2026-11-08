@@ -112,6 +112,21 @@ pub struct CameraDevice {
 }
 
 /// Spreads loudnesses over the bars, as bytes, base64 (`encodeWaveform`).
+/// Mirrors a BGRA picture left to right, in place, as a camera shows the person themselves.
+pub fn mirror(bgra: &mut [u8], width: usize) {
+    if width == 0 {
+        return;
+    }
+    for line in bgra.chunks_exact_mut(width * 4) {
+        for x in 0..width / 2 {
+            let across = width - 1 - x;
+            for byte in 0..4 {
+                line.swap(x * 4 + byte, across * 4 + byte);
+            }
+        }
+    }
+}
+
 pub fn encode_waveform(levels: &[f32]) -> String {
     use base64::Engine;
     const BARS: usize = 48;
@@ -125,4 +140,17 @@ pub fn encode_waveform(levels: &[f32]) -> String {
         })
         .collect();
     base64::engine::general_purpose::STANDARD.encode(bars)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn mirrors_each_row_in_place() {
+        // Two rows of three pixels, each pixel's bytes its column and row.
+        let mut bgra: Vec<u8> = (0..2u8).flat_map(|row| (0..3u8).flat_map(move |column| [column, row, 0, 255])).collect();
+        super::mirror(&mut bgra, 3);
+        let columns: Vec<u8> = bgra.chunks(4).map(|pixel| pixel[0]).collect();
+        assert_eq!(columns, [2, 1, 0, 2, 1, 0]);
+        assert!(bgra.chunks(4).take(3).all(|pixel| pixel[1] == 0) && bgra.chunks(4).skip(3).all(|pixel| pixel[1] == 1));
+    }
 }

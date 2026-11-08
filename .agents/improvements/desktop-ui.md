@@ -44,14 +44,6 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Mirror camera frames in place, without per-row allocations, on the UI thread
-- Where: ui/voice_stage.rs:101-140 (110 full clone; 125-133 a `Vec` per row); ui/voice_settings.rs:256-274 (263-266)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: for each new frame (up to 60/s), `render` clones the frame, may copy a crop, and mirrors your own camera by building a new vector for every row. media/round.rs:62-75 already mirrors in place by swapping pixels.
-- Suggested change: swap pixels in place as round.rs does; crop by copying rows straight into the new buffer; ideally do both on the thread that fills `tile.feed`.
-- Check after: `npm run dev:windows` and `npm run dev:linux` in a call with a camera; linux-voice-check.mjs.
-
 ### Don't tie the video-message preview's frame rate to an unrelated animation
 - Where: ui/chat.rs:776-798, 916, 940-952
 - Category: ux
@@ -76,10 +68,3 @@ Ordered roughly by value.
 - Suggested change: remember each rule's next match and re-run a rule only when that match starts before the current position. Add a test with a long, span-heavy message.
 - Check after: `cargo test` for markup in apps/desktop (needs the GPUI fetch). iOS has a related quadratic issue (see the iOS findings).
 
-### Prune a call stage's frames for tiles that went away
-- Where: ui/voice_stage.rs:101-140, 780-785
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `images` keeps full-size frames, and their `#cover` copies, for every tile ever shown until the stage is dropped, including cameras turned off and shares stopped.
-- Suggested change: in `render`, retire entries whose tile is no longer among the current videos.
-- Check after: `npm run dev:windows` in a call where cameras and shares start and stop; linux-voice-check.mjs.

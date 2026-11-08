@@ -107,29 +107,30 @@ impl VoiceStage {
             }
         }
         let (mut width, mut height) = (frame.width, frame.height);
-        let mut bytes = frame.bgra.as_ref().clone();
-        if cover && width > 0 && height > 0 {
-            let shape = 16. / 9.;
-            let (keep_width, keep_height) = if width as f32 / height as f32 > shape { (((height as f32 * shape).round() as u32).clamp(1, width), height) } else { (width, ((width as f32 / shape).round() as u32).clamp(1, height)) };
-            if (keep_width, keep_height) != (width, height) {
-                let (left, top) = ((width - keep_width) / 2, (height - keep_height) / 2);
-                let mut kept = Vec::with_capacity((keep_width * keep_height * 4) as usize);
-                for row in top..top + keep_height {
-                    let start = ((row * width + left) * 4) as usize;
-                    kept.extend_from_slice(&bytes[start..start + (keep_width * 4) as usize]);
-                }
-                (bytes, width, height) = (kept, keep_width, keep_height);
+        let shape = 16. / 9.;
+        let (keep_width, keep_height) = if !cover || width == 0 || height == 0 {
+            (width, height)
+        } else if width as f32 / height as f32 > shape {
+            (((height as f32 * shape).round() as u32).clamp(1, width), height)
+        } else {
+            (width, ((width as f32 / shape).round() as u32).clamp(1, height))
+        };
+        // Cropped by copying only the rows and columns kept, straight from the frame.
+        let mut bytes = if (keep_width, keep_height) != (width, height) {
+            let (left, top) = ((width - keep_width) / 2, (height - keep_height) / 2);
+            let mut kept = Vec::with_capacity((keep_width * keep_height * 4) as usize);
+            for row in top..top + keep_height {
+                let start = ((row * width + left) * 4) as usize;
+                kept.extend_from_slice(&frame.bgra[start..start + (keep_width * 4) as usize]);
             }
-        }
+            (width, height) = (keep_width, keep_height);
+            kept
+        } else {
+            frame.bgra.as_ref().clone()
+        };
         // Your own camera as you'd see yourself in a mirror.
         if tile.local && tile.source == VideoSource::Camera {
-            let row = width as usize * 4;
-            for line in bytes.chunks_mut(row) {
-                let pixels: Vec<[u8; 4]> = line.chunks(4).rev().map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]]).collect();
-                for (index, pixel) in pixels.iter().enumerate() {
-                    line[index * 4..index * 4 + 4].copy_from_slice(pixel);
-                }
-            }
+            crate::media::mirror(&mut bytes, width as usize);
         }
         let buffer = image::RgbaImage::from_raw(width, height, bytes)?;
         let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
@@ -789,6 +790,13 @@ impl Render for VoiceStage {
         let voice = self.voice.read(cx);
         let status = voice.status;
         let videos = voice.videos.clone();
+        // Frames of tiles that went, a camera turned off or a share stopped, go with them.
+        let gone: Vec<String> = self.images.keys().filter(|key| !videos.iter().any(|tile| tile.key == key.trim_end_matches("#cover"))).cloned().collect();
+        for key in gone {
+            if let Some((_, old)) = self.images.remove(&key) {
+                self.retired.push(old);
+            }
+        }
         let focus = voice.focus.clone();
         let screen_share = voice.screen.clone();
         let channel = server.channels.iter().find(|channel| channel.id == self.room.id).cloned();

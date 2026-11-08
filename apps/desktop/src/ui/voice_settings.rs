@@ -263,11 +263,7 @@ impl VoiceSettingsPage {
         if let Some((width, height, mut bgra, serial)) = frame {
             if self.camera_image.as_ref().is_none_or(|(shown, _)| *shown != serial) {
                 // As you'd see yourself in a mirror.
-                let row = width as usize * 4;
-                for line in bgra.chunks_mut(row) {
-                    let flipped: Vec<u8> = line.chunks(4).rev().flatten().copied().collect();
-                    line.copy_from_slice(&flipped);
-                }
+                crate::media::mirror(&mut bgra, width as usize);
                 if let Some(buffer) = image::RgbaImage::from_raw(width, height, bgra) {
                     let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
                     if let Some((_, old)) = self.camera_image.replace((serial, image)) {

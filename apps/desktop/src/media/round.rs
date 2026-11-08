@@ -63,15 +63,7 @@ impl RoundRecorder {
     /// The camera as the person sees themselves, mirrored.
     pub fn preview(&self) -> Option<Vec<u8>> {
         let mut frame = self.camera.frame()?;
-        let row = ROUND_SIZE as usize * 4;
-        for line in frame.chunks_mut(row) {
-            for x in 0..ROUND_SIZE as usize / 2 {
-                let mirror = ROUND_SIZE as usize - 1 - x;
-                for byte in 0..4 {
-                    line.swap(x * 4 + byte, mirror * 4 + byte);
-                }
-            }
-        }
+        super::mirror(&mut frame, ROUND_SIZE as usize);
         Some(frame)
     }
 
