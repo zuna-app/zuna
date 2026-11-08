@@ -306,8 +306,8 @@ struct Composer: View {
     }
 
     private var placeholder: String {
-        // As Telegram says it, while the countdown is where the send button was.
-        if conversation.slowMode > 0 { return "Slow mode: \(Format.timer(conversation.slowMode))" }
+        // As Telegram says it, while the countdown is where the send button was. Admins aren't held back.
+        if conversation.slowMode > 0, !exemptFromSlowMode { return "Slow mode: \(Format.timer(conversation.slowMode))" }
         if conversation.kind == .channel { return "Message #\(conversation.title)" }
         return conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
     }
@@ -323,8 +323,12 @@ struct Composer: View {
 
     /// A message is on its way, so in slow mode the next one waits from now, unless you're an admin.
     private func startSlowWait() {
-        let admin = conversation.members.contains { $0.userId == server.me?.userId && $0.role == .admin }
-        if conversation.slowMode > 0 && !admin { sentUntil = Date.now.timeIntervalSince1970 * 1000 + Double(conversation.slowMode) * 1000 }
+        if conversation.slowMode > 0 && !exemptFromSlowMode { sentUntil = Date.now.timeIntervalSince1970 * 1000 + Double(conversation.slowMode) * 1000 }
+    }
+
+    /// An admin here, whom slow mode doesn't hold back, as the core and the server count them.
+    private var exemptFromSlowMode: Bool {
+        conversation.members.contains { $0.userId == server.me?.userId && $0.role == .admin }
     }
 
     // MARK: Reply and edit
