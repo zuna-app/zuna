@@ -162,7 +162,10 @@ struct ForwardSheet: View {
             .compactMap { model.servers[$0] }
             .map { server in
                 (server, server.allConversations.filter { chat in
-                    !server.prefs.hidden.contains(chat.key) && (needle.isEmpty || chat.title.lowercased().contains(needle))
+                    // Only where it can go: not a group this account left, someone blocked, or an account that's gone.
+                    let peer = chat.peerId.flatMap { server.users[$0] }
+                    let closed = chat.removed || chat.blocked || peer?.banned == true || peer?.deleted == true
+                    return !closed && !server.prefs.hidden.contains(chat.key) && (needle.isEmpty || chat.title.lowercased().contains(needle))
                 })
             }
             .filter { !$0.chats.isEmpty }
