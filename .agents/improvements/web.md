@@ -28,14 +28,6 @@ Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/ind
 - Suggested change: `useMemo` the elements, or read `startOfChat` through a ref inside `itemContent`.
 - Check after: web check.
 
-### Trim message lists of chats that aren't open
-- Where: packages/ui/src/state/store.ts:94; `removeServer` (680-696) keeps that server's lists, `replyTo` and `editing`; nothing prunes lists apart from `returnToLatest` (823-830)
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: high for the growth, medium for the effect
-- What's wrong: every page ever loaded stays in memory, including video posters and link-preview images held as data URLs.
-- Suggested change: when a chat closes, trim its list to the newest ~150 items, with `firstIndex = BASE_INDEX` and `hasMore: true`, and drop a detached window (MessageList.tsx:249-252 already handles a saved place whose row is gone). Delete a removed server's lists.
-- Check after: web check. Parity: check how much apps/desktop/src/state.rs keeps per chat.
-
 ### Pin the session and list across awaits
 - Where: packages/ui/src/state/store.ts:734,743,736-738 (`loadList`), 764-792 (`loadOlder`), 802,809 (`jumpToMessage`), 823-830 (`returnToLatest`)
 - Category: robustness

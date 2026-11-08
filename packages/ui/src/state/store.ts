@@ -172,6 +172,25 @@ function emptyList(): MessageList {
   return { items: [], hasMore: true, loading: false, loaded: false, firstIndex: BASE_INDEX, detached: false };
 }
 
+/** How many of a chat's newest messages stay in memory once it's closed. Opening it again loads older ones as it's scrolled. */
+const KEPT_WHEN_CLOSED = 150;
+
+/** A closed chat's list cut back to its newest messages, or null when it should go: a window around an old message. Undefined leaves it. */
+function closedList(list: MessageList | undefined): MessageList | null | undefined {
+  if (!list || list.loading) return undefined;
+  if (list.detached) return null;
+  if (list.items.length <= KEPT_WHEN_CLOSED) return undefined;
+  return { ...list, items: list.items.slice(-KEPT_WHEN_CLOSED), firstIndex: BASE_INDEX, hasMore: true };
+}
+
+/** The lists a server's chats and channels are kept under. */
+function listIdsOf(server: ServerState | undefined): Set<string> {
+  if (!server) return new Set();
+  return new Set([...server.conversations.map(listIdFor), ...server.channels.map((channel) => (channel.conversation ? listIdFor(channel.conversation) : channel.id))]);
+}
+
+const without = <T,>(record: Record<string, T>, ids: Set<string>): Record<string, T> => Object.fromEntries(Object.entries(record).filter(([id]) => !ids.has(id)));
+
 const debouncers = new Map<string, ReturnType<typeof setTimeout>>();
 function debounced(key: string, fn: () => void, ms = 60): void {
   if (debouncers.has(key)) return;
@@ -203,6 +222,22 @@ export const useApp = create<AppState>((set, get) => {
       if (!server) return state;
       const changes = typeof patch === "function" ? patch(server) : patch;
       return { servers: { ...state.servers, [serverId]: { ...server, ...changes } } };
+    });
+
+  /** Cuts a chat back to its newest messages once it isn't shown, so a long session doesn't keep every page it ever loaded. */
+  const closeList = (serverId: string, key: string) =>
+    set((state) => {
+      const server = state.servers[serverId];
+      const channel = server?.channels.find((item) => item.key === key);
+      const conversation = server?.conversations.find((item) => item.key === key) ?? channel?.conversation;
+      const listId = conversation ? listIdFor(conversation) : channel?.id;
+      if (!listId) return state;
+      const list = closedList(state.lists[listId]);
+      if (list === undefined) return state;
+      const lists = { ...state.lists };
+      if (list) lists[listId] = list;
+      else delete lists[listId];
+      return { lists };
     });
 
   const refreshUsers = (serverId: string) =>
@@ -684,9 +719,14 @@ export const useApp = create<AppState>((set, get) => {
         const servers = { ...state.servers };
         delete servers[serverId];
         const order = state.order.filter((id) => id !== serverId);
+        // Its chats' messages, and what was being written in them, go with it.
+        const gone = listIdsOf(state.servers[serverId]);
         return {
           servers,
           order,
+          lists: without(state.lists, gone),
+          replyTo: without(state.replyTo, gone),
+          editing: without(state.editing, gone),
           activeServerId: state.activeServerId === serverId ? (order[0] ?? null) : state.activeServerId,
           panel: null,
           overlay: null,
@@ -705,13 +745,18 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     selectServer(serverId) {
+      const { activeServerId, servers } = get();
+      const leaving = activeServerId && activeServerId !== serverId ? servers[activeServerId]?.activeKey : null;
       set({ activeServerId: serverId, panel: null });
+      if (leaving) closeList(activeServerId!, leaving);
     },
 
     selectConversation(key) {
       const serverId = get().activeServerId;
       if (!serverId) return;
+      const previous = get().servers[serverId]?.activeKey;
       patchServer(serverId, { activeKey: key });
+      if (previous && previous !== key) closeList(serverId, previous);
       set({ panel: null });
       // Opening a chat marked as unread takes the mark off, as in Telegram.
       if (key && get().servers[serverId]?.conversations.find((item) => item.key === key)?.markedUnread) {
