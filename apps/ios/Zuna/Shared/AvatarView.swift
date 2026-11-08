@@ -11,6 +11,9 @@ import ZunaModels
 final class ImageStore {
     @ObservationIgnored private let cache = NSCache<NSString, UIImage>()
     @ObservationIgnored private var loading: [String: Task<UIImage?, Never>] = [:]
+    /// Pictures kept at their own size, as they were no bigger than asked for: one of
+    /// these is never too small, however large it's shown.
+    @ObservationIgnored private var whole: Set<String> = []
     @ObservationIgnored private let core: CoreConnection
     /// Bumped when a server's icon changes, so the views showing it load it again.
     private(set) var iconVersion = 0
@@ -98,13 +101,18 @@ final class ImageStore {
     }
 
     private func load(_ key: String, size: CGFloat, fetch: @escaping @Sendable () async throws -> Data?) async -> UIImage? {
-        if let image = cached(key) { return image }
-        if let task = loading[key] { return await task.value }
         let scale = UITraitCollection.current.displayScale
+        // Twice the size on screen is plenty, and keeps big pictures out of memory.
+        let wanted = size * scale * 2
+        // One shrunk for a smaller place, as a list's row, is loaded again for a larger one,
+        // as a profile, rather than shown blurred.
+        if let image = cached(key), whole.contains(key) || min(image.size.width, image.size.height) * image.scale >= wanted * 0.95 {
+            return image
+        }
+        if let task = loading[key] { return await task.value }
         let task = Task<UIImage?, Never> {
             guard let data = try? await fetch(), let image = UIImage(data: data) else { return nil }
-            // Twice the size on screen is plenty, and keeps big pictures out of memory.
-            let factor = size * scale * 2 / min(image.size.width, image.size.height)
+            let factor = wanted / min(image.size.width, image.size.height)
             guard factor < 1 else { return image }
             let target = CGSize(width: image.size.width * factor, height: image.size.height * factor)
             return await image.byPreparingThumbnail(ofSize: target) ?? image
@@ -112,7 +120,10 @@ final class ImageStore {
         loading[key] = task
         let image = await task.value
         loading[key] = nil
-        if let image { cache.setObject(image, forKey: key as NSString) }
+        if let image {
+            cache.setObject(image, forKey: key as NSString)
+            if min(image.size.width, image.size.height) * image.scale < wanted * 0.95 { whole.insert(key) } else { whole.remove(key) }
+        }
         return image
     }
 }

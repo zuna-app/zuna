@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Make the avatar cache aware of size
-- Where: apps/ios/Zuna/Shared/AvatarView.swift:27-32, 100-117, 177-188
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the cache key is just the file id, but the image is shrunk for whichever view asks first. Seen first at 16 pt (a reaction chip at MessageParts.swift:308, or a channel reply at ChannelMessages.swift:372), the cached copy is ~96 px, and the 96 pt header in details or account screens draws it blurry.
-- Suggested change: reload at the larger size when the cached image is too small for the request, or key the cache by size bucket.
-- Check after: the DetailsTests screen tour.
-
 ### Take the RPC reply parsing off the core's thread and parse once
 - Where: apps/ios/ZunaKit/Sources/ZunaModels/CoreConnection.swift:68-81, 105-138; apps/ios/ZunaKit/Sources/ZunaHost/CoreRuntime.swift:269-275
 - Category: perf
