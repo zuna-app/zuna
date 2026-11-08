@@ -47,9 +47,18 @@ enum MessageTextBuilder {
         return out
     }
 
-    /// Room at the end of the last line for the time, which sits over it, as in Telegram.
+    /// Room at the end of the last line for the time, which sits over it, as in Telegram, or on a
+    /// line of its own where the last line is too full. An empty picture of that width, after a
+    /// space it can break at: kerning a space left the room hanging past the edge, uncounted, so
+    /// the time went over the end of a full line.
     static func reserve(_ width: CGFloat, in text: NSMutableAttributedString, style: TextStyle) {
-        text.append(NSAttributedString(string: "\u{00A0}", attributes: [.font: style.font, .kern: width]))
+        let room = NSTextAttachment()
+        // Without an image an attachment draws a document icon.
+        room.image = UIImage()
+        room.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
+        let piece = NSMutableAttributedString(string: " ", attributes: [.font: style.font])
+        piece.append(NSAttributedString(attachment: room))
+        text.append(piece)
     }
 
     static func baseAttributes(_ style: TextStyle) -> [NSAttributedString.Key: Any] {
