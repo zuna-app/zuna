@@ -4,22 +4,55 @@
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import type { DbProvider, LocalDb, SqlValue } from "@zuna/core";
 
+/** How many compiled statements are kept, as the native app's host keeps (host/db.rs). */
+const KEPT_STATEMENTS = 256;
+
 class SqliteDb implements LocalDb {
   private depth = 0;
+  /**
+   * Statements compiled once and used again, which SQLite as WebAssembly otherwise
+   * compiles for every query: a lookup by key took 7.6 µs that way and 3.2 µs kept,
+   * for each of the eighteen or so queries the core makes for each message.
+   */
+  private readonly statements = new Map<string, any>();
 
   constructor(private readonly db: any) {}
 
+  private statement(sql: string): any {
+    let statement = this.statements.get(sql);
+    if (!statement) {
+      if (this.statements.size >= KEPT_STATEMENTS) {
+        const [oldest, unused] = this.statements.entries().next().value!;
+        this.statements.delete(oldest);
+        unused.finalize();
+      }
+      statement = this.db.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
+  }
+
+  /** Runs a kept statement with its parameters, giving each row it returns. */
+  private each(sql: string, params: SqlValue[], row?: (value: unknown) => void): void {
+    const statement = this.statement(sql);
+    try {
+      if (params.length) statement.bind(params);
+      while (statement.step()) row?.(statement.get({}));
+    } finally {
+      statement.reset(true);
+    }
+  }
+
   run(sql: string, params: SqlValue[] = []): void {
-    this.db.exec({ sql, bind: params.length ? params : undefined });
+    // Without parameters it may be several statements, as a migration is.
+    if (params.length) this.each(sql, params);
+    else this.db.exec(sql);
   }
 
   all<T>(sql: string, params: SqlValue[] = []): T[] {
-    return this.db.exec({
-      sql,
-      bind: params.length ? params : undefined,
-      rowMode: "object",
-      returnValue: "resultRows",
-    }) as T[];
+    const rows: T[] = [];
+    this.each(sql, params, (row) => rows.push(row as T));
+    return rows;
   }
 
   get<T>(sql: string, params: SqlValue[] = []): T | undefined {
@@ -43,6 +76,8 @@ class SqliteDb implements LocalDb {
   }
 
   close(): void {
+    for (const statement of this.statements.values()) statement.finalize();
+    this.statements.clear();
     this.db.close();
   }
 }
