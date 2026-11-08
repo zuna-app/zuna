@@ -19,11 +19,3 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move both to GPUI's versions (check which runtime feature gpui_linux selects); adapt linux/location.rs and device_key.rs:92-113.
 - Check after: linux-check.mjs.
 
-### Recover on Linux when the Secret Service wasn't there yet
-- Where: host/device_key.rs:15-39 (a key once stored plain in `device-key.bin` is never sealed later), 104-126 (an unseal failure is final: main.rs:164-167 sets `Failed`, and the failed screen at ui/mod.rs:691 has no retry)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: an autostart at login can race the keyring. On a first start that leaves the key unprotected forever; on later starts the app fails until restarted by hand.
-- Suggested change: wait (bounded, ~20 s) for `org.freedesktop.secrets` on the bus before trying; when `device-key.bin` exists and sealing now works, write `device-key.sealed` and remove the plain file, keeping the same key bytes. Asks nothing of the person, so CLAUDE.md's "no added step" rule holds.
-- Check after: linux-check.mjs, plus a manual start with gnome-keyring stopped, then started.
-

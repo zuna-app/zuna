@@ -123,7 +123,7 @@ How long a chat's messages last is set by an admin in a group, or by either pers
 
 ### Data on your device
 
-Sensitive data the app keeps is encrypted with a key held in your system's keychain. Files you open are decrypted into a folder that the desktop and iPhone apps empty each time they start. Search runs on your device, and its index keeps no readable text. If Linux has no keychain, Settings warns you. The web app has no keychain, so anyone who can copy your browser's profile can read its data, and Settings says so.
+Sensitive data the app keeps is encrypted with a key held in your system's keychain. Files you open are decrypted into a folder that the desktop and iPhone apps empty each time they start. Search runs on your device, and its index keeps no readable text. If Linux has no keychain, Settings warns you, and the key is sealed once there is one. The web app has no keychain, so anyone who can copy your browser's profile can read its data, and Settings says so.
 
 ### Deleting your account
 

@@ -23,6 +23,14 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
         return Err(std::io::Error::other(UNSEAL_FAILED));
     }
     if let Ok(key) = std::fs::read(&plain_path) {
+        // Kept plain because the system wouldn't seal it then, as when the app started with
+        // the login before the Secret Service did: the same key is sealed once it will be,
+        // and the plain copy goes.
+        if let Some(sealed) = protect(&key) {
+            write_new(&sealed_path, &sealed)?;
+            std::fs::remove_file(&plain_path).ok();
+            return Ok(DeviceKey { key, protected: true });
+        }
         return Ok(DeviceKey { key, protected: false });
     }
     let key = zuna_crypto::primitives::random_bytes(32).map_err(std::io::Error::other)?;
@@ -93,7 +101,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
     let id: String = zuna_crypto::primitives::random_bytes(16).ok()?.iter().map(|byte| format!("{byte:02x}")).collect();
     let data = data.to_vec();
     within_wait(async move {
-        let keyring = oo7::Keyring::new().await.inspect_err(|error| log::warn!("no Secret Service for the device key: {error}")).ok()?;
+        let keyring = keyring().await?;
         keyring.unlock().await.ok()?;
         keyring.create_item("Zuna device key", &secret_attributes(&id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the device key wasn't sealed: {error}")).ok()?;
         Some(format!("{SECRET_PREFIX}{id}").into_bytes())
@@ -104,7 +112,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
 fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
     let id = std::str::from_utf8(sealed).ok()?.strip_prefix(SECRET_PREFIX)?.to_string();
     within_wait(async move {
-        let keyring = oo7::Keyring::new().await.inspect_err(|error| log::warn!("no Secret Service for the device key: {error}")).ok()?;
+        let keyring = keyring().await?;
         let items = keyring.search_items(&secret_attributes(&id)).await.ok()?;
         let item = items.first()?;
         item.unlock().await.ok()?;
@@ -114,6 +122,25 @@ fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
 
 #[cfg(target_os = "linux")]
 const SECRET_PREFIX: &str = "secret-service:";
+
+/// The Secret Service, waited for up to 20 seconds: started with the login, the app can ask
+/// before the service is there, which would leave a new key unsealed, or a sealed one
+/// unreadable until the app was started again by hand.
+#[cfg(target_os = "linux")]
+async fn keyring() -> Option<oo7::Keyring> {
+    let started = std::time::Instant::now();
+    loop {
+        match oo7::Keyring::new().await {
+            Ok(keyring) => return Some(keyring),
+            Err(error) if started.elapsed() > std::time::Duration::from_secs(20) => {
+                log::warn!("no Secret Service for the device key: {error}");
+                return None;
+            }
+            // This runs on a thread of its own (`within_wait`), which may sleep.
+            Err(_) => std::thread::sleep(std::time::Duration::from_secs(1)),
+        }
+    }
+}
 
 /// Runs a request to the Secret Service, which can ask the person something first, such as
 /// to make KWallet's wallet, so it gets two minutes. A service that never answers then
