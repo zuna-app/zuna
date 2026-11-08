@@ -159,7 +159,7 @@ export function Shell() {
   const activeKey = useActiveField((server) => server.activeKey, null);
   const entry = useActiveField((server) => server.entry, null);
   const [width, setWidth] = useState(loadWidth);
-  const dragging = useRef(false);
+  const sidebar = useRef<HTMLElement>(null);
 
   useEffect(installStickyFocus, []);
   useEffect(watchPushToTalk, []);
@@ -169,21 +169,26 @@ export function Shell() {
   const onResizeStart = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
-      dragging.current = true;
       document.body.style.cursor = "col-resize";
       const startX = event.clientX;
       const startWidth = width;
+      let current = width;
+      // Straight onto the page while dragging, so the shell renders, and the width is
+      // saved, once, when it ends: on letting go, or on the window losing focus mid-drag.
       const onMove = (move: MouseEvent) => {
-        setWidth(Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, startWidth + move.clientX - startX)));
+        current = Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, startWidth + move.clientX - startX));
+        if (sidebar.current) sidebar.current.style.width = `${current}px`;
       };
       const onUp = () => {
-        dragging.current = false;
         document.body.style.cursor = "";
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        window.removeEventListener("blur", onUp);
+        setWidth(current);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
+      window.addEventListener("blur", onUp);
     },
     [width],
   );
@@ -195,7 +200,7 @@ export function Shell() {
   return (
     <div className="shell">
       <ServerRail />
-      <aside className="sidebar" style={{ width }}>
+      <aside ref={sidebar} className="sidebar" style={{ width }}>
         <div className="sidebar-column">
           <div key={activeServerId} className="sidebar-inner">
             <ConversationList />

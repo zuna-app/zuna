@@ -97,7 +97,8 @@ pub struct Root {
     toast_list: Vec<(crate::state::Toast, Option<std::time::Instant>)>,
     /// The server in the rail under the pointer, whose pill grows and icon brightens.
     rail_hovered: Option<String>,
-    resizing: Option<(f32, f32)>,
+    /// While the sidebar is being resized: where the pointer started, the width then, and now.
+    resizing: Option<(f32, f32, f32)>,
     menu: Entity<menu::MenuLayer>,
     picker: Entity<picker::PickerLayer>,
     focus: gpui::FocusHandle,
@@ -703,7 +704,8 @@ impl Render for Root {
         let theme = theme(cx);
         let phase = self.state.read(cx).phase.clone();
         let has_servers = !self.state.read(cx).order.is_empty();
-        let list_width = self.state.read(cx).settings.list_width.clamp(260., 460.);
+        // While the sidebar is being resized, its width is Root's alone, and saved once at the end.
+        let list_width = self.resizing.map(|(_, _, width)| width).unwrap_or(self.state.read(cx).settings.list_width).clamp(260., 460.);
 
         let body: AnyElement = match phase {
             Phase::Booting => div().flex_1().flex().items_center().justify_center().child(logo(44.)).into_any_element(),
@@ -733,7 +735,6 @@ impl Render for Root {
             }
             Phase::Ready => {
                 let main = self.main_area(window, cx);
-                let state = self.state.clone();
                 div()
                     .flex_1()
                     .min_w_0()
@@ -761,7 +762,7 @@ impl Render for Root {
                                         MouseButton::Left,
                                         cx.listener(move |root, event: &gpui::MouseDownEvent, _, cx| {
                                             let width = root.state.read(cx).settings.list_width;
-                                            root.resizing = Some((f32::from(event.position.x), width));
+                                            root.resizing = Some((f32::from(event.position.x), width, width));
                                             cx.stop_propagation();
                                         }),
                                     ),
@@ -779,19 +780,17 @@ impl Render for Root {
                             .child(main),
                     )
                     .on_mouse_move(cx.listener(move |root, event: &MouseMoveEvent, _, cx| {
-                        if let Some((start_x, start_width)) = root.resizing {
+                        if let Some((start_x, start_width, _)) = root.resizing {
                             let width = (start_width + f32::from(event.position.x) - start_x).clamp(260., 460.);
-                            state.update(cx, |state, cx| {
-                                state.settings.list_width = width;
-                                cx.notify();
-                            });
+                            root.resizing = Some((start_x, start_width, width));
+                            cx.notify();
                         }
                     }))
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(|root, _: &MouseUpEvent, _, cx| {
-                            if root.resizing.take().is_some() {
-                                root.state.update(cx, |state, cx| state.update_settings(|_| {}, cx));
+                            if let Some((_, _, width)) = root.resizing.take() {
+                                root.state.update(cx, |state, cx| state.update_settings(|settings| settings.list_width = width, cx));
                             }
                         }),
                     )

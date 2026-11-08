@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Resize the sidebar without re-rendering the app on every pointer move
-- Where: packages/ui/src/features/shell/Shell.tsx:161,169-193
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every mouse move re-renders the whole shell and writes localStorage.
-- Suggested change: set the width through a ref or CSS variable while dragging, commit it on mouseup, and end the drag on `blur`.
-- Check after: web check.
-
 ### Tell the person when the core worker dies after boot
 - Where: packages/ui/src/core/boot.ts:19 (`worker.onerror` only rejects the boot); packages/core/src/rpc.ts:110-152 (pending calls are never rejected)
 - Category: robustness

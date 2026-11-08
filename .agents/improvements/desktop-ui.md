@@ -184,14 +184,6 @@ Ordered roughly by value.
 - Suggested change: write a `.tmp` file and rename it over the original; log when an existing file fails to parse.
 - Check after: `npm run dev:windows`.
 
-### Commit the sidebar width once at the end of a resize
-- Where: ui/mod.rs:741-778
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every mouse move during a resize writes `settings.list_width` into `AppState` and notifies all its observers. (The web has the same issue, see its findings.)
-- Suggested change: keep the live width in `Root` while dragging and call `update_settings` once on mouse up.
-- Check after: `npm run dev:windows`.
-
 ### Prune a call stage's frames for tiles that went away
 - Where: ui/voice_stage.rs:101-140, 780-785
 - Category: robustness
