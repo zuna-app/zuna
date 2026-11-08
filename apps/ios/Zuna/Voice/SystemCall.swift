@@ -57,13 +57,18 @@ final class SystemCall: NSObject {
     /// Apps on the App Store in mainland China may not use CallKit. The phone's region alone doesn't tell: someone
     /// on China's App Store can have theirs set elsewhere.
     func allowed() async -> Bool {
+        guard Self.mayBeAllowed else { return false }
+        return await storefront.value != "CHN"
+    }
+
+    /// What can be told of `allowed()` at once, as the app launches, without the App Store's country.
+    static var mayBeAllowed: Bool {
         #if DEBUG
         // The simulator's CallKit ends a call as soon as it has it, having no audio to give it, and its audio
         // session is the Mac's. Test builds only hand a call to it when a test asks.
         if VoiceTesting.toneMicrophone, !VoiceTesting.systemCall { return false }
         #endif
-        if Locale.current.region?.identifier == "CN" { return false }
-        return await storefront.value != "CHN"
+        return Locale.current.region?.identifier != "CN"
     }
 
     override init() {

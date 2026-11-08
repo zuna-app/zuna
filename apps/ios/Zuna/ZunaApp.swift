@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.setNotificationCategories(Notifications.categories)
+        // PushKit has to have its delegate as the app launches, or a VoIP push that woke it is never handed over.
+        core.listenForCalls()
         Task { await core.start() }
         return true
     }
@@ -66,7 +68,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
         Task {
-            if push.kind == .callEnd { core.model?.voice.callEndedByPush(serverId: push.serverId, groupId: push.groupId) }
+            if push.kind == .callEnd { core.voice.callEndedByPush(serverId: push.serverId, groupId: push.groupId) }
             await Notifications.clear(push)
             completionHandler(.newData)
         }

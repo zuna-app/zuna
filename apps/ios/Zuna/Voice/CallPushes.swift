@@ -3,9 +3,9 @@ import PushKit
 
 /// Calls ringing this phone while Zuna isn't running. A VoIP push through PushKit wakes the
 /// app, which has to hand the call to CallKit at once, before it has caught up with its server
-/// (`rangByPush` in VoiceModel). Only where CallKit is allowed: elsewhere, as on China's App
-/// Store, no VoIP token is asked for, and the server pushes a notification instead, which the
-/// notification extension words.
+/// or even been unlocked (`rangByPush` in VoiceModel), so this starts as the app launches.
+/// Only where CallKit is allowed: elsewhere, as on China's App Store, the relay gets no VoIP
+/// token, and the server pushes a notification instead, which the notification extension words.
 @MainActor
 final class CallPushes: NSObject {
     private let registry = PKPushRegistry(queue: .main)

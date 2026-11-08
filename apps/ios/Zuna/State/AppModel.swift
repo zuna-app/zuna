@@ -208,8 +208,8 @@ final class AppModel {
     var appLocked = AppSettings.load().appLock
 
     let core: CoreConnection
-    /// The voice channel this device is in, if any.
-    let voice = VoiceModel()
+    /// The voice channel this device is in, if any. It's there from launch, before this is, for calls pushed meanwhile.
+    let voice: VoiceModel
     /// Called when servers are added or removed, so notifications can follow.
     @ObservationIgnored var onServersChanged: (() -> Void)?
     /// Called for a new message the person should hear about while the app runs: server, group and message.
@@ -225,8 +225,9 @@ final class AppModel {
     /// By server: the set last fetched ahead, so it's fetched again only when it changes.
     @ObservationIgnored private var prefetchedEmotes: [String: String] = [:]
 
-    init(core: CoreConnection) {
+    init(core: CoreConnection, voice: VoiceModel) {
         self.core = core
+        self.voice = voice
         voice.attach(self)
     }
 

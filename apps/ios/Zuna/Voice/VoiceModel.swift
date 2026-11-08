@@ -218,16 +218,32 @@ final class VoiceModel {
 
     func attach(_ app: AppModel) {
         self.app = app
-        callPushes.onToken = { [weak self] token in self?.onCallPushToken?(token) }
-        callPushes.onRing = { [weak self] push in self?.rangByPush(push) }
-        // A VoIP push has to ring through CallKit, so there's no token where CallKit is left out.
-        Task {
-            if await systemCall.allowed() { callPushes.start() }
-        }
     }
 
-    /// The VoIP token, once PushKit has given one.
-    var callPushToken: String? { callPushes.token }
+    /// Takes VoIP pushes from the moment the app launches, before the core has started and while the app
+    /// waits to be unlocked after the phone restarted: iOS ends an app that doesn't hand each one to CallKit
+    /// at once, and stops waking one that keeps failing to. One that comes before the app has caught up rings
+    /// as `rangByPush` says, and is let go after a minute if the app never does.
+    func listenForCalls() {
+        callPushes.onToken = { [weak self] token in self?.callPushTokenChanged(token) }
+        callPushes.onRing = { [weak self] push in self?.rangByPush(push) }
+        if SystemCall.mayBeAllowed { callPushes.start() }
+    }
+
+    /// The VoIP token, for the push relay, once PushKit has given one, and only where CallKit is allowed.
+    @ObservationIgnored private(set) var callPushToken: String?
+
+    /// A VoIP push has to ring through CallKit, so the relay gets no token where CallKit is left out, which
+    /// the App Store's country tells, once it's been looked up.
+    private func callPushTokenChanged(_ token: String?) {
+        Task {
+            let allowed = await systemCall.allowed()
+            // A newer one came meanwhile.
+            guard callPushes.token == token else { return }
+            callPushToken = allowed ? token : nil
+            onCallPushToken?(callPushToken)
+        }
+    }
 
     var inCall: Bool { status != .idle }
 

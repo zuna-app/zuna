@@ -30,6 +30,8 @@ final class CoreController {
     private(set) var connection: CoreConnection?
     /// The UI's state, from the moment the core is running.
     private(set) var model: AppModel?
+    /// Voice and calls, from launch: a VoIP push has to ring even while the app waits to be unlocked.
+    let voice: VoiceModel
     private(set) var images: ImageStore?
     /// Notifications, from the moment the core is running.
     private(set) var notifications: Notifications?
@@ -61,6 +63,19 @@ final class CoreController {
     private var statsReader: StreamStats?
     #endif
 
+    init() {
+        #if DEBUG
+        // Before the voice reads its settings, which `start` resets with everything else.
+        if UserDefaults.standard.bool(forKey: "ZunaResetData") { VoiceSettings.reset() }
+        #endif
+        voice = VoiceModel()
+    }
+
+    /// Hands VoIP pushes to CallKit from launch, before the core is running or has been unlocked.
+    func listenForCalls() {
+        voice.onPushed = { [weak self] in self?.callPushed() }
+        voice.listenForCalls()
+    }
 
     func start() async {
         do {
@@ -155,7 +170,7 @@ final class CoreController {
         // Events arrive on the core's queue and are applied on the main actor in the order they were sent.
         let inbox = EventInbox()
         let connection = CoreConnection(runtime: runtime) { inbox.add($0) }
-        let model = AppModel(core: connection)
+        let model = AppModel(core: connection, voice: voice)
         // Before anything is delivered, which happens on the main actor once this one waits.
         inbox.deliver = { events in
             for event in events { model.handle(event) }
@@ -190,7 +205,6 @@ final class CoreController {
         model.voice.onEnded = { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
         }
-        model.voice.onPushed = { [weak self] in self?.callPushed() }
         let shareInbox = ShareInbox(model: model, core: connection, deviceKey: key)
         // So does something the share extension handed over, once it's gone.
         shareInbox.onIdle = { [weak self] in

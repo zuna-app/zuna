@@ -4,14 +4,6 @@ Covered by reading only (no Swift build on Windows): AppModel, MessageLists, Com
 Skimmed: Settings, Details (apart from SharedMedia), Onboarding, Channels (apart from ChannelMessages), the call screens, the ZunaShare views, ZunaBroadcast and the UI tests.
 Nothing was run. Severity is estimated user impact; Confidence says whether the problem is real as described. Any fix here needs a Mac to build, so an implementing agent on Windows must say so in the commit message.
 
-### Create the PushKit registry at launch, not after the core has started
-- Where: apps/ios/Zuna/Voice/VoiceModel.swift:217-225; apps/ios/Zuna/State/AppModel.swift:228-231; apps/ios/Zuna/CoreController.swift:81-88, 142-158; apps/ios/Zuna/Voice/CallPushes.swift:20-23, 36-40; apps/ios/Zuna/Voice/SystemCall.swift:55-67
-- Category: robustness
-- Severity: high ; Effort: M ; Confidence: medium
-- What's wrong: `desiredPushTypes = [.voIP]` is set only in `CallPushes.start()`, run from `VoiceModel.attach`, run from `AppModel.init`. `AppModel` only exists once the device key is unlocked and `runtime.start()` has booted the JS core; the call is also gated on `await systemCall.allowed()` (a store-country lookup). After a phone restart the app stays `.locked`, so the registry is never created, while the server still holds this device's call handle and keeps sending VoIP pushes. iOS terminates apps that don't report a VoIP push to CallKit, and stops delivering VoIP pushes to apps that keep failing.
-- Suggested change: create `CallPushes` and `SystemCall` from `AppDelegate`/`CoreController` in `didFinishLaunching`; set the delegate and push types immediately when `Locale.current.region != "CN"`; move the store-country check to the decision about handing the VoIP token to the relay; when a push arrives before `AppModel` exists, report it with `ringNow`/`ringUnreadable`, then hand it to `VoiceModel` once it attaches, as `pushed` already does.
-- Check after: `npm run test:ios:ui -- --only CallTests` (the `voipPush` command), plus a manual check on a phone: restart it, leave Zuna locked, call it from the web app, confirm it rings, and keeps ringing for later calls.
-
 ### Reconfigure only the message rows whose content changed
 - Where: apps/ios/Zuna/Chat/MessageListController.swift:120-171 (136, 142-143); apps/ios/Zuna/Chat/MessageRow.swift:6-29, 662, 693-697
 - Category: perf
