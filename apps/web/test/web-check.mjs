@@ -15,7 +15,7 @@ import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
-import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -56,9 +56,7 @@ function start(command, commandArgs, options = {}) {
 function stop(process_) {
   if (!process_) return;
   try {
-    // Bots run under npx, so the whole group goes.
-    if (process.platform !== "win32" && process_.child.spawnargs[0] === "npx") process.kill(-process_.child.pid);
-    else if (process.platform === "win32") execFileSync("taskkill", ["/pid", String(process_.child.pid), "/T", "/F"], { stdio: "ignore" });
+    if (process.platform === "win32") execFileSync("taskkill", ["/pid", String(process_.child.pid), "/T", "/F"], { stdio: "ignore" });
     else process_.child.kill();
   } catch {
     // It may have exited already.
@@ -271,7 +269,7 @@ async function runIn(name) {
       (await linkField.count()) === 1 && (await linkField.inputValue()) === invite && !(await page.getByRole("heading", { name: "Join Friends" }).isVisible()),
     );
     await page.keyboard.press("Escape");
-    bots = start("npx", ["vite-node", "test/dev-bots.ts", invite], { cwd: join(root, "packages", "core"), detached: process.platform !== "win32", shell: process.platform === "win32" });
+    bots = start(...viteNodeArgs("test/dev-bots.ts", invite), { cwd: join(root, "packages", "core") });
     await waitFor(bots.output, "Bots are ready", "the bots").catch(async () => {
       for (let i = 0; i < 1200 && !bots.output().includes("Bots are ready"); i++) await sleep(100);
       if (!bots.output().includes("Bots are ready")) throw new Error(`the bots didn't start:\n${bots.output()}`);

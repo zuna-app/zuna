@@ -68,14 +68,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: update each by hand to the current release commit of its newest major, keeping the `# vN` comments (no Dependabot). Check setup-node v5's automatic caching: keep `cache: npm` where it is, none in `advisories`.
 - Check after: CI has no Node 20 deprecation annotations.
 
-### Stop passing arguments to a shell, which Node 24 warns about (DEP0190)
-- Where: scripts/build-web.mjs:20; apps/web/test/web-check.mjs:274; poc/screenshare/scripts/demo.mjs:49
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `run("npm", [...], { shell: process.platform === "win32" })` and web-check's `start("npx", [...], { shell: true on win32 })` hand an argument array to a shell; Node 24 prints `[DEP0190] DeprecationWarning`, and arguments are joined unescaped.
-- Suggested change: in build-web.mjs run Vite directly as dev-web.mjs:27 does (`run(process.execPath, [join(root, "node_modules", "vite", "bin", "vite.js"), "build"], { cwd: join(root, "apps", "web") })`); in web-check.mjs use the vite-node helper below.
-- Check after: `npm run build:web` on Windows has no DEP0190; `node apps/web/test/web-check.mjs`.
-
 ### Notice when LiveKit or zuna-web stops in the dev scripts
 - Where: scripts/dev-server.mjs:49-52; scripts/dev-web.mjs:26-41
 - Category: robustness
@@ -91,22 +83,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - What's wrong: `ensureBuilt()` runs `npm install` when the lockfile hash changes after a pull; that may rewrite package-lock.json for the local npm version, leaving an uncommitted change the next commit can pick up. It also left this checkout's tree inconsistent (`npm ls` lists `@zuna/desktop-electron-legacy` and Electron-era packages as extraneous). dev/setup.sh deliberately uses `npm ci`.
 - Suggested change: use `npm ci` in ensureBuilt (it only runs when the lockfile changed, and it prunes leftovers).
 - Check after: after a pull that changes package-lock.json, `npm run dev:server`; `git status` stays clean, `npm ls` shows nothing extraneous.
-
-### Start vite-node one way, through a lib.mjs helper
-- Where: scripts/dev-server.mjs:83-86; apps/web/test/web-check.mjs:56-62, :274; apps/desktop/test/linux-check.mjs:167
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: dev-server.mjs runs vite-node's bin with `process.execPath` and no shell; web-check.mjs and linux-check.mjs use `npx vite-node`, which needs `shell: true` on Windows (DEP0190), a detached process group, and `taskkill /T /F` or `process.kill(-pid)` to stop the bots behind npx.
-- Suggested change: export `viteNodeArgs(script, ...args)` from lib.mjs returning `[process.execPath, [binPath, script, ...args]]` (bin resolved as dev-server.mjs:84-85 does); use it in all three places; drop the npx kill branch in web-check.mjs:60-61.
-- Check after: `npm run dev:server`; `node apps/web/test/web-check.mjs`; on Linux `node apps/desktop/test/linux-check.mjs`.
-
-### Share the Go cross-compile between build-server and build-web, and sort the checksum list by bytes
-- Where: scripts/build-server.mjs:6-34; scripts/build-web.mjs:9-15, :38-48
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: both carry the same `targets` list and `go build -trimpath -ldflags "-s -w -X main.version=..."` loop. build-web.mjs sorts zuna-web-files.sha256 with `localeCompare` (ICU-locale dependent) for a release artifact meant to be reproducible.
-- Suggested change: export `GO_TARGETS` and `goBuildAll(pkg, outDir, prefix)` from lib.mjs; sort with a plain byte comparison of the path part (`a.slice(66) < b.slice(66) ? -1 : …`).
-- Check after: `npm run build:server`; `npm run build:web` (same file names in dist/).
 
 ### Retire poc/screenshare, which needs the removed Electron, and keep its key-log check
 - Where: poc/screenshare/scripts/demo.mjs:92-94, :236; poc/screenshare/viewer/main.cjs:3; poc/screenshare/README.md:13, :19; poc/screenshare/scripts/deps.mjs:13-34; scripts/lib.mjs:113-117; docs/SECURITY_DETAILS.md:111; docs/SCREEN_SHARE.md:11

@@ -4,20 +4,11 @@
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { ensureBuilt, env, root, run } from "./lib.mjs";
-
-const targets = [
-  ["linux", "amd64"],
-  ["linux", "arm64"],
-  ["darwin", "amd64"],
-  ["darwin", "arm64"],
-  ["windows", "amd64"],
-];
-
-const version = process.env.ZUNA_VERSION ?? "dev";
+import { ensureBuilt, goBuildAll, root, run } from "./lib.mjs";
 
 ensureBuilt();
-run("npm", ["run", "build", "-w", "@zuna/web"], { shell: process.platform === "win32" });
+// Vite itself, as `npm run build -w @zuna/web` runs it, without a shell between.
+run(process.execPath, [join(root, "node_modules", "vite", "bin", "vite.js"), "build"], { cwd: join(root, "apps", "web") });
 
 const built = join(root, "apps", "web", "dist");
 const site = join(root, "server", "cmd", "zuna-web", "site");
@@ -37,14 +28,9 @@ const out = join(root, "dist", "web");
 mkdirSync(out, { recursive: true });
 const sums = filesIn(built)
   .map((path) => `${createHash("sha256").update(readFileSync(path)).digest("hex")}  ${relative(built, path).split(sep).join("/")}`)
-  .sort((a, b) => a.slice(66).localeCompare(b.slice(66)));
+  // By the path's bytes, not the locale's order, so the list is the same wherever it's made.
+  .sort((a, b) => (a.slice(66) < b.slice(66) ? -1 : a.slice(66) > b.slice(66) ? 1 : 0));
 writeFileSync(join(out, "zuna-web-files.sha256"), `${sums.join("\n")}\n`);
 
-for (const [goos, goarch] of targets) {
-  const name = `zuna-web-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;
-  run("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.version=${version}`, "-o", join(out, name), "./cmd/zuna-web"], {
-    cwd: join(root, "server"),
-    env: { ...env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },
-  });
-}
+goBuildAll("./cmd/zuna-web", out, "zuna-web");
 console.log(`\nBuilt into ${out}`);

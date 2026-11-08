@@ -130,6 +130,41 @@ export function ensureLiveKit() {
   return binary;
 }
 
+/**
+ * The command that runs a TypeScript file through vite-node: Node with vite-node's own script,
+ * wherever its version keeps it, so there's no npx, no shell on Windows and nothing between
+ * this and the process to stop. As [command, args].
+ */
+export function viteNodeArgs(script, ...args) {
+  const dir = join(root, "node_modules", "vite-node");
+  const bin = join(dir, JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).bin["vite-node"]);
+  return [process.execPath, [bin, script, ...args]];
+}
+
+/** The systems the server and zuna-web are released for, as GOOS and GOARCH. */
+export const GO_TARGETS = [
+  ["linux", "amd64"],
+  ["linux", "arm64"],
+  ["darwin", "amd64"],
+  ["darwin", "arm64"],
+  ["windows", "amd64"],
+];
+
+/**
+ * Cross-compiles a Go program in server/ for every one of GO_TARGETS, stripped and pure Go,
+ * into `outDir` as `<prefix>-<os>-<arch>`, with ZUNA_VERSION as its version.
+ */
+export function goBuildAll(pkg, outDir, prefix) {
+  const version = process.env.ZUNA_VERSION ?? "dev";
+  for (const [goos, goarch] of GO_TARGETS) {
+    const name = `${prefix}-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;
+    run("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.version=${version}`, "-o", join(outDir, name), pkg], {
+      cwd: join(root, "server"),
+      env: { ...env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },
+    });
+  }
+}
+
 export async function devServerRunning() {
   try {
     const response = await fetch("http://127.0.0.1:8787/healthz", { signal: AbortSignal.timeout(800) });

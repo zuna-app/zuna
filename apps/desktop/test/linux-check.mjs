@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { viteNodeArgs } from "../../../scripts/lib.mjs";
 import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
@@ -164,7 +165,7 @@ try {
   await shot("08-invite-made");
   // Its ×, as Escape only reaches a dialog through a field in it.
   await drive({ do: "click", x: 889, y: 281 });
-  peer = start("npx", ["vite-node", join(here, "peer.ts"), invite ?? ""], { ...process.env, MANGOHUD: "0", DISABLE_MANGOHUD: "1" }, "peer", join(root, "packages", "core"));
+  peer = start(...viteNodeArgs(join(here, "peer.ts"), invite ?? ""), { ...process.env, MANGOHUD: "0", DISABLE_MANGOHUD: "1" }, "peer", join(root, "packages", "core"));
   peer.stdout.removeAllListeners("data");
   const heard = [];
   createInterface({ input: peer.stdout }).on("line", (line) => {

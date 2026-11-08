@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { LIVEKIT_CONFIG, devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run } from "./lib.mjs";
+import { LIVEKIT_CONFIG, devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run, viteNodeArgs } from "./lib.mjs";
 
 const URL = "http://localhost:8787";
 const serverData = join(devData, "server");
@@ -80,10 +80,7 @@ for (let i = 0; !serverReady; i++) {
 
 console.log(firstRun ? "Setting up the server and its people. This only happens once..." : "Bringing everyone back online...");
 
-// vite-node's own command, wherever its version keeps it.
-const viteNodeDir = join(root, "node_modules", "vite-node");
-const viteNode = join(viteNodeDir, JSON.parse(readFileSync(join(viteNodeDir, "package.json"), "utf8")).bin["vite-node"]);
-const bots = spawn(process.execPath, [viteNode, "test/dev-bots.ts"], {
+const bots = spawn(...viteNodeArgs("test/dev-bots.ts"), {
   cwd: join(root, "packages", "core"),
   env: { ...env, ZUNA_DEV_WORLD: devWorld, ZUNA_DEV_SETUP_LINK: setupLink() ?? "" },
   stdio: ["ignore", "pipe", "pipe"],
