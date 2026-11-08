@@ -356,19 +356,6 @@ pub fn list_monitors() {
     println!("{{\"type\":\"note\",\"message\":\"On Linux the portal's dialog asks what to share.\"}}");
 }
 
-/// Whether there's a portal to share through, and whether it shares screens and windows.
-pub fn portal_sources(runtime: &tokio::runtime::Runtime) -> Result<()> {
-    let available = runtime
-        .block_on(async { Screencast::new().await?.available_source_types().await })
-        .map_err(|error| format!("Asking the portal what it shares: {error}"))?;
-    println!(
-        "{{\"type\":\"portal\",\"screen\":{},\"window\":{}}}",
-        available.contains(SourceType::Monitor),
-        available.contains(SourceType::Window)
-    );
-    Ok(())
-}
-
 fn open_encoder_for(negotiated: Negotiated, codec: &str, render_node: &str, stream: Stream) -> Result<Encoder> {
     let (pixel, _) = describe_format(negotiated.format).ok_or("PipeWire settled on a format this can't encode")?;
     Encoder::open(&Config {

@@ -10,7 +10,7 @@ pub mod pod;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::{list_monitors, portal_sources, Capture};
+pub use linux::{list_monitors, Capture};
 #[cfg(windows)]
 pub use windows::{list_monitors, Capture};
 

@@ -10,11 +10,7 @@ mod capture;
 mod cpu;
 mod encoder;
 mod h264;
-#[cfg(windows)]
-mod notification_state;
 mod pipeline;
-#[cfg(target_os = "linux")]
-mod shortcut;
 #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 mod sound;
 
@@ -53,9 +49,6 @@ struct Args {
     output_raw: Option<String>,
     list_monitors: bool,
     check_dmabuf: bool,
-    portal_sources: bool,
-    global_shortcuts: bool,
-    push_to_talk: Option<String>,
     control: bool,
     sound: bool,
     sound_from: Option<String>,
@@ -126,17 +119,12 @@ const USAGE: &str = "zuna-screenshare [options]
   --output-raw FILE      Also write the encoder's output, unchanged
   --list-monitors        List monitors and exit
   --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing
-  --portal-sources       Linux: say whether the portal shares screens and windows, as JSON, and exit
-  --global-shortcuts     Linux: say which version of the global shortcuts portal there is, 0 for none, and exit
-  --push-to-talk KEY     Linux: bind KEY through the global shortcuts portal and say when it goes down and up,
-                         as JSON lines, until standard input closes. An empty KEY lets the person choose
   --control              Take the address, token and keys from standard input, as JSON lines
   --sound                Write the computer's sound to standard output instead of sharing
   --sound-from ID        Only one app's sound, by its id from --sound-apps or --window-app
   --sound-apps           List the apps playing sound, as JSON, and exit
   --window-app ID        Say which app a window belongs to, by its X11 id or HWND, as JSON, and exit
-  --exclude-pid N        Leave out the sound of this process and those it started
-  --notification-state   Windows: say whether it wants quiet right now, and exit";
+  --exclude-pid N        Leave out the sound of this process and those it started";
 
 fn parse_args() -> std::result::Result<Args, String> {
     let mut args = Args {
@@ -156,9 +144,6 @@ fn parse_args() -> std::result::Result<Args, String> {
         output_raw: None,
         list_monitors: false,
         check_dmabuf: false,
-        portal_sources: false,
-        global_shortcuts: false,
-        push_to_talk: None,
         control: false,
         sound: false,
         sound_from: None,
@@ -222,9 +207,6 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--output-raw" => args.output_raw = Some(value()?),
             "--list-monitors" => args.list_monitors = true,
             "--check-dmabuf" => args.check_dmabuf = true,
-            "--portal-sources" => args.portal_sources = true,
-            "--global-shortcuts" => args.global_shortcuts = true,
-            "--push-to-talk" => args.push_to_talk = Some(value()?),
             "--control" => args.control = true,
             "--sound" => args.sound = true,
             "--sound-from" => {
@@ -407,24 +389,6 @@ fn share(args: Args) -> Result<()> {
 
     let runtime = tokio::runtime::Runtime::new().map_err(|error| format!("Starting the runtime: {error}"))?;
     let _entered = runtime.enter();
-    if args.portal_sources {
-        #[cfg(target_os = "linux")]
-        return capture::portal_sources(&runtime);
-        #[cfg(not(target_os = "linux"))]
-        return Err("--portal-sources is for Linux".into());
-    }
-    if args.global_shortcuts {
-        #[cfg(target_os = "linux")]
-        return shortcut::check(&runtime);
-        #[cfg(not(target_os = "linux"))]
-        return Err("--global-shortcuts is for Linux".into());
-    }
-    if let Some(_trigger) = &args.push_to_talk {
-        #[cfg(target_os = "linux")]
-        return shortcut::watch(&runtime, _trigger);
-        #[cfg(not(target_os = "linux"))]
-        return Err("--push-to-talk is for Linux".into());
-    }
     #[cfg(windows)]
     if args.capture.source == Source::Window && args.capture.window.is_none() {
         return Err("Windows shares a window by its HWND, with --window".into());
@@ -512,13 +476,6 @@ fn share(args: Args) -> Result<()> {
 }
 
 fn main() -> ExitCode {
-    // Nothing to do with sharing, but this is the program on the computer that can ask.
-    #[cfg(windows)]
-    if std::env::args().nth(1).as_deref() == Some("--notification-state") {
-        notification_state::print();
-        return ExitCode::SUCCESS;
-    }
-
     // libwebrtc's logs stay off whatever RUST_LOG says, since the native frame cryptor
     // has been reported to log key material. ZUNA_WEBRTC_LOG lets them through, which
     // is how scripts/key-log-check.mjs looks for that.

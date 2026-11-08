@@ -11,14 +11,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: build `AudioProcessingModule` and `Microphone` inside `background_executor().spawn` and hand back with `this.update`; keep creating `mic_source` synchronously so the join proceeds and the mic publishes when ready. Same for `reopen_mic`, `toggle_mic_test`, the camera test and the recorders. Drop `Camera` on a background thread, or make its `Drop` signal the reader and detach.
 - Check after: linux-voice-check.mjs, mac-voice-check.mjs, `npm run dev:windows` (join with a non-default mic).
 
-### Remove zuna-screenshare's modes that only the removed Electron app used
-- Where: apps/screenshare/src/main.rs:13-17, 56-58, 129-131, 139, 225-227, 410-427, 514-520; src/shortcut.rs and src/notification_state.rs (whole files); src/capture/linux.rs:359-370 and capture/mod.rs:13 (`portal_sources`); apps/screenshare/Cargo.toml (ashpd feature `global_shortcuts`; windows feature `Win32_UI_Shell`, used only by notification_state.rs); docs/SCREEN_SHARE.md:35, 72, 74
-- Category: cleanup
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: nothing calls `--notification-state`, `--global-shortcuts`, `--push-to-talk` or `--portal-sources` any more: platform/windows/quiet.rs asks Windows directly (a copy of the same COM code), platform/linux/ptt.rs binds push to talk through the portal itself, platform/linux/screens.rs asks the portal itself. SCREEN_SHARE.md:72 and :74 already say "Only the Electron app asked". The docs review also notes the native app never passes `--list-monitors`; check whether that one is dead too.
-- Suggested change: delete the four modes with their `Args` fields and USAGE lines, the files and functions above, and the two Cargo features. Remove SCREEN_SHARE.md:72 and :74, rewrite :35, reword FEATURE_PARITY.md:298 (mentions `zuna-screenshare --notification-state`).
-- Check after: `npm run build:screenshare`, linux-voice-check.mjs (share, push to talk), a share with `npm run dev:windows`.
-
 ### Match Focus Assist's priority list against an ID the native app actually has
 - Where: platform/windows/quiet.rs:15 (`APP_ID = "chat.zuna.app"`), 126; no code calls `SetCurrentProcessExplicitAppUserModelID` or the fork's `set_app_identity`; installer/zuna.nsi:86-88 creates shortcuts without an AppUserModelID
 - Category: ux

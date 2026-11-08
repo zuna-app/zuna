@@ -172,9 +172,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: move key-log-check.mjs to apps/screenshare/test/key-log-check.mjs, importing `ensureLiveKit` from scripts/lib.mjs and waiting for port 7880 to accept a connection instead of `setTimeout(1500)`; update SECURITY_DETAILS.md:111; move the README's measurements that SCREEN_SHARE.md:11 links to into docs/SCREEN_SHARE.md; delete poc/screenshare (with its package.json and lockfile) and the poc branch in lib.mjs:113-117.
 - Check after: `node apps/screenshare/test/key-log-check.mjs` on Windows after `npm run build:screenshare`; `npm run dev:server` still builds or reuses LiveKit.
 
-### Remove the Electron-only modes left in zuna-screenshare
-- (Duplicate of the entry in desktop-system.md, which has the full list of files and Cargo features. Do it once.)
-
 ### Make dev/setup.sh check what the native app and its packages need, and Go 1.26
 - Where: dev/setup.sh:53-59, :61-71, :109-116; dev/build.sh:2, :24-29; scripts/linux-app.mjs:95, :137, :164; apps/desktop/Cargo.toml (Linux target: pipewire, ffmpeg-next)
 - Category: robustness

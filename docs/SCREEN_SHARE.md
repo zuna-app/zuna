@@ -34,7 +34,7 @@ The computer's sound can't come with its pictures. The app captures it apart and
 
 ## Choosing what to share on Linux
 
-Under Wayland, nothing but the portal's dialog can say what there is to share, so the picker in the app offers one of each kind the ScreenCast portal says it shares, a screen or a window, with an icon in place of a picture, and the portal's own dialog picks once Share is pressed, through the program (`apps/desktop/src/platform/linux/screens.rs`). Where there's no portal, there's nothing to offer.
+Under Wayland, nothing but the portal's dialog can say what there is to share, so the picker in the app offers one of each kind the ScreenCast portal says it shares, which the app asks the portal itself (`apps/desktop/src/platform/linux/screens.rs`), a screen or a window, with an icon in place of a picture, and the portal's own dialog picks once Share is pressed, as the program starts capturing. Where there's no portal, there's nothing to offer.
 
 The portal only says whether a screen or a window was chosen, and the program says the same once it's publishing. A window can change size: PipeWire settles on the new size, and the program opens another encoder at it, keeping to the tallest that was asked, with a keyframe, so someone watching sees it at its new size at once. When the window closes, the compositor takes its PipeWire node away, which the program hears from PipeWire's registry, the same on every compositor, and it leaves, so the share ends without a word.
 
@@ -70,10 +70,6 @@ On macOS Core Audio's process taps take everything but a list of processes, or a
 On Windows an app is the first process of its program, found by walking up from the one with sound while the parent is the same program, so a browser's sound, which comes from a process it started, goes with it. Everything but Zuna is the same process loopback the other way round: all that plays apart from Zuna's processes, which Chromium's own audio comes from. Process loopback needs Windows 10 version 2004 or later, and before that a share goes without sound and says so.
 
 The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays, and on macOS while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
-
-On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits. Only the Electron app asked, as Node couldn't; the native app asks Windows itself.
-
-On Linux it does the same for push to talk under Wayland, where nothing but the compositor sees a key held in another window. `--global-shortcuts` says whether the compositor has the global shortcuts portal and lets this app use it, and `--push-to-talk KEY` binds the key through it and says when it goes down and up, until the app closes its standard input (`src/shortcut.rs`). Only the Electron app ran it; the native app asks the portal itself. The portal only gives a shortcut to an app it can name, by the .desktop file installed under the name of the systemd scope the app runs in, which Electron makes from `desktopName`: `zuna-legacy.desktop`. The .deb, .rpm and pacman packages install it, and an AppImage or a `.tar.gz` writes this person's own in `~/.local/share/applications` as it starts (`apps/desktop-electron-legacy/src/main/desktop-entry.ts`). A development build has none, so there push to talk is greyed out and says why, as it is where the compositor has no such portal.
 
 It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality`, on Linux `--source screen` or `--source window`, which the portal's dialog offers, and on Windows `--window` with a window's HWND.
 
