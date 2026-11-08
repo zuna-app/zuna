@@ -3,6 +3,7 @@
 //! The server only ever sees the opaque bytes this module produces. It orders
 //! commits for each group, which is all MLS asks of a delivery service.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use openmls::prelude::*;
@@ -23,6 +24,10 @@ const MAX_PAST_EPOCHS: usize = 0;
 /// change it, is the core's to decide. MLS makes every member hold the same one,
 /// epoch by epoch, and only a commit can change it, so the server can't.
 const ROSTER_EXTENSION: u16 = 0xf5a0;
+
+/// How many groups are kept as loaded at once. Most people are in fewer, and a
+/// group of a thousand takes a few megabytes in memory.
+const MAX_LOADED: usize = 32;
 
 /// What every leaf says it supports. A group requires the roster's extension, so a
 /// leaf that didn't list it couldn't be added.
@@ -88,6 +93,31 @@ pub struct MlsClient {
     credential: CredentialWithKey,
     /// Last persisted copy of the storage, used to work out what changed.
     checkpoint: HashMap<Vec<u8>, Vec<u8>>,
+    /// Groups as last loaded from storage, for reading. Loading one parses all of
+    /// its state, tree and all, and the core reads a group's epoch, members and
+    /// keys around ten times for each message it sends: in a group of 100 that
+    /// came to 4 ms a message, and of 1,000 to 40 ms. Whatever changes a group's
+    /// state forgets it here once it's done, through [`Changing`].
+    loaded: RefCell<HashMap<Vec<u8>, MlsGroup>>,
+}
+
+/// Forgets what's loaded of one group, or of all of them, as it goes, so that
+/// whatever changed storage meanwhile, and however it ended, is read afresh.
+struct Changing<'a> {
+    loaded: &'a RefCell<HashMap<Vec<u8>, MlsGroup>>,
+    group: Option<Vec<u8>>,
+}
+
+impl Drop for Changing<'_> {
+    fn drop(&mut self) {
+        let mut loaded = self.loaded.borrow_mut();
+        match &self.group {
+            Some(group) => {
+                loaded.remove(group);
+            }
+            None => loaded.clear(),
+        }
+    }
 }
 
 impl MlsClient {
@@ -117,7 +147,45 @@ impl MlsClient {
             signer,
             credential,
             checkpoint,
+            loaded: RefCell::default(),
         }
+    }
+
+    /// Marks a group's state as about to change, until what this returns goes.
+    fn changing(&self, group_id: &[u8]) -> Changing<'_> {
+        Changing { loaded: &self.loaded, group: Some(group_id.to_vec()) }
+    }
+
+    /// Marks every group's state as about to change, as a join may replace any.
+    fn changing_all(&self) -> Changing<'_> {
+        Changing { loaded: &self.loaded, group: None }
+    }
+
+    /// Reads a group as it's stored, or None if there isn't one, loading it only
+    /// the first time until something changes it.
+    fn read<T>(&self, group_id: &[u8], read: impl FnOnce(&MlsGroup) -> T) -> Result<Option<T>> {
+        if let Some(group) = self.loaded.borrow().get(group_id) {
+            return Ok(Some(read(group)));
+        }
+        let Some(group) = MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
+            .map_err(err("load group"))?
+        else {
+            return Ok(None);
+        };
+        let value = read(&group);
+        let mut loaded = self.loaded.borrow_mut();
+        if loaded.len() >= MAX_LOADED {
+            if let Some(other) = loaded.keys().next().cloned() {
+                loaded.remove(&other);
+            }
+        }
+        loaded.insert(group_id.to_vec(), group);
+        Ok(Some(value))
+    }
+
+    /// Reads a group that has to be there.
+    fn read_held<T>(&self, group_id: &[u8], read: impl FnOnce(&MlsGroup) -> T) -> Result<T> {
+        self.read(group_id, read)?.ok_or_else(|| "unknown group".to_string())
     }
 
     /// Returns what changed in storage since the last call, so the caller can
@@ -148,6 +216,7 @@ impl MlsClient {
     /// Goes back to the state of the last `take_changes`, undoing whatever
     /// happened since, such as a join the server then refused.
     pub fn rollback(&self) {
+        let _changing = self.changing_all();
         *self.provider.storage().values.write().unwrap() = self.checkpoint.clone();
     }
 
@@ -178,11 +247,7 @@ impl MlsClient {
     }
 
     pub fn has_group(&self, group_id: &[u8]) -> Result<bool> {
-        Ok(
-            MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
-                .map_err(err("load group"))?
-                .is_some_and(|group| group.is_active()),
-        )
+        Ok(self.read(group_id, |group| group.is_active())?.unwrap_or(false))
     }
 
     pub fn generate_key_package(&self, last_resort: bool) -> Result<Vec<u8>> {
@@ -207,6 +272,7 @@ impl MlsClient {
 
     /// Starts a group, with a roster if it's to have one.
     pub fn create_group(&self, group_id: &[u8], roster: Option<&[u8]>) -> Result<u64> {
+        let _changing = self.changing(group_id);
         let group = MlsGroup::new_with_group_id(
             &self.provider,
             &self.signer,
@@ -253,6 +319,7 @@ impl MlsClient {
         remove_leaves: &[u32],
         roster: Option<&[u8]>,
     ) -> Result<PendingCommit> {
+        let _changing = self.changing(group_id);
         let mut group = self.load(group_id)?;
         let adds = self.parse_key_packages(key_packages)?;
         let removes = remove_leaves.iter().map(|i| LeafNodeIndex::new(*i));
@@ -295,6 +362,7 @@ impl MlsClient {
     }
 
     pub fn merge_pending(&self, group_id: &[u8]) -> Result<u64> {
+        let _changing = self.changing(group_id);
         let mut group = self.load(group_id)?;
         group
             .merge_pending_commit(&self.provider)
@@ -303,6 +371,7 @@ impl MlsClient {
     }
 
     pub fn clear_pending(&self, group_id: &[u8]) -> Result<()> {
+        let _changing = self.changing(group_id);
         let mut group = self.load(group_id)?;
         group
             .clear_pending_commit(self.provider.storage())
@@ -310,11 +379,12 @@ impl MlsClient {
     }
 
     pub fn has_pending(&self, group_id: &[u8]) -> Result<bool> {
-        Ok(self.load(group_id)?.pending_commit().is_some())
+        self.read_held(group_id, |group| group.pending_commit().is_some())
     }
 
     /// Applies a commit from another device.
     pub fn process_commit(&self, group_id: &[u8], bytes: &[u8]) -> Result<ProcessedCommit> {
+        let _changing = self.changing(group_id);
         let mut group = self.load(group_id)?;
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(err("commit decode"))?;
         let protocol = message
@@ -356,6 +426,7 @@ impl MlsClient {
 
     /// Joins from a Welcome. Returns the group ID and epoch.
     pub fn join_from_welcome(&self, bytes: &[u8], group_id: &[u8]) -> Result<(Vec<u8>, u64)> {
+        let _changing = self.changing_all();
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(err("welcome decode"))?;
         let MlsMessageBodyIn::Welcome(welcome) = message.extract() else {
             return Err("expected a welcome".into());
@@ -384,6 +455,7 @@ impl MlsClient {
     /// device whose group state was lost. The old state is replaced if present,
     /// and kept if the group info turns out to be unusable.
     pub fn join_external(&self, group_id: &[u8], group_info: &[u8]) -> Result<(Vec<u8>, u64)> {
+        let _changing = self.changing_all();
         let before = self.provider.storage().values.read().unwrap().clone();
         let joined = self.replace_by_external_join(group_id, group_info);
         if joined.is_err() {
@@ -437,42 +509,36 @@ impl MlsClient {
 
     /// Exports a group info usable for external joins at the current epoch.
     pub fn export_group_info(&self, group_id: &[u8]) -> Result<Vec<u8>> {
-        let group = self.load(group_id)?;
-        let info = group
-            .export_group_info(self.provider.crypto(), &self.signer, true)
+        let info = self
+            .read_held(group_id, |group| group.export_group_info(self.provider.crypto(), &self.signer, true))?
             .map_err(err("export group info"))?;
         encode(&info)
     }
 
     pub fn epoch(&self, group_id: &[u8]) -> Result<u64> {
-        Ok(self.load(group_id)?.epoch().as_u64())
+        self.read_held(group_id, |group| group.epoch().as_u64())
     }
 
     /// The roster in a group's context now, if it has one.
     pub fn roster(&self, group_id: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .load(group_id)?
-            .extensions()
-            .unknown(ROSTER_EXTENSION)
-            .map(|roster| roster.0.clone()))
+        self.read_held(group_id, |group| group.extensions().unknown(ROSTER_EXTENSION).map(|roster| roster.0.clone()))
     }
 
     pub fn own_leaf_index(&self, group_id: &[u8]) -> Result<u32> {
-        Ok(self.load(group_id)?.own_leaf_index().u32())
+        self.read_held(group_id, |group| group.own_leaf_index().u32())
     }
 
     pub fn members(&self, group_id: &[u8]) -> Result<Vec<MemberInfo>> {
-        let group = self.load(group_id)?;
-        group
-            .members()
-            .map(|m| {
-                Ok(MemberInfo {
+        self.read_held(group_id, |group| {
+            group
+                .members()
+                .map(|m| MemberInfo {
                     leaf_index: m.index.u32(),
                     credential: credential_or_empty(&m.credential),
                     signature_key: m.signature_key,
                 })
-            })
-            .collect()
+                .collect()
+        })
     }
 
     /// RFC 9420 section 8.5 exporter: the source of each epoch's content key.
@@ -483,8 +549,7 @@ impl MlsClient {
         context: &[u8],
         len: usize,
     ) -> Result<Vec<u8>> {
-        self.load(group_id)?
-            .export_secret(self.provider.crypto(), label, context, len)
+        self.read_held(group_id, |group| group.export_secret(self.provider.crypto(), label, context, len))?
             .map_err(err("export secret"))
     }
 
@@ -497,17 +562,18 @@ impl MlsClient {
         context: &[u8],
         len: usize,
     ) -> Result<Vec<u8>> {
-        let group = self.load(group_id)?;
-        let pending = group
-            .pending_commit()
-            .ok_or_else(|| "no pending commit".to_string())?;
-        pending
-            .export_secret(self.provider.crypto(), label, context, len)
-            .map_err(err("export pending secret"))
+        self.read_held(group_id, |group| {
+            group
+                .pending_commit()
+                .ok_or_else(|| "no pending commit".to_string())?
+                .export_secret(self.provider.crypto(), label, context, len)
+                .map_err(err("export pending secret"))
+        })?
     }
 
     /// Forgets a group completely, for example after being removed from it.
     pub fn delete_group(&self, group_id: &[u8]) -> Result<()> {
+        let _changing = self.changing(group_id);
         if let Some(mut group) =
             MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
                 .map_err(err("load group"))?
@@ -788,6 +854,40 @@ mod tests {
         alice.merge_pending(GROUP).unwrap();
         bob.process_commit(GROUP, &next.commit).unwrap();
         assert_eq!(exported(&alice), exported(&bob));
+    }
+
+    /// A group is kept as loaded for reading, and what's read of it follows each
+    /// change to it, whether it goes through or not.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn what_is_read_of_a_group_follows_each_change() {
+        let (alice, bob) = pair();
+        let carol = client("carol");
+        let read = |c: &MlsClient| {
+            (c.epoch(GROUP).unwrap(), c.members(GROUP).unwrap().len(), c.has_pending(GROUP).unwrap(), exported(c))
+        };
+        let before = read(&alice);
+        assert_eq!(read(&bob), before);
+
+        alice.commit_changes(GROUP, &[carol.generate_key_package(false).unwrap()], &[], None).unwrap();
+        assert!(alice.has_pending(GROUP).unwrap());
+        assert_ne!(alice.export_pending_secret(GROUP, "zuna/test", b"", 32).unwrap(), before.3);
+        alice.clear_pending(GROUP).unwrap();
+        assert_eq!(read(&alice), before);
+
+        let pending = alice.commit_changes(GROUP, &[carol.generate_key_package(false).unwrap()], &[], None).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        let after = read(&alice);
+        assert_eq!((after.0, after.1, after.2), (before.0 + 1, 3, false));
+        assert_ne!(after.3, before.3);
+        assert!(bob.process_commit(GROUP, b"not a commit").is_err());
+        assert_eq!(read(&bob), before);
+        bob.process_commit(GROUP, &pending.commit).unwrap();
+        assert_eq!(read(&bob), after);
+
+        bob.delete_group(GROUP).unwrap();
+        assert!(!bob.has_group(GROUP).unwrap());
+        assert!(bob.epoch(GROUP).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
