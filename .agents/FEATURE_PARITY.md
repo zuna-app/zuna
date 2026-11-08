@@ -47,6 +47,7 @@ Things one platform should have and doesn't.
 - **Web and native app: channel headings are folded by name on every server at once.** iOS folds them per server (`foldKey` in `Channels/ChannelList.swift`). The web keeps `collapsed[section.name]` (`features/voice/ChannelList.tsx`), and the native app `collapsed_categories` by name (`apps/desktop/src/ui/conversations.rs`).
 - **Web and native app: coming into a voice channel ends a call without asking.** iOS asks before a voice channel takes the place of a call in a conversation, though not of another voice channel (`leavingCallFor` in `Channels/ChannelList.swift`). The web and the native app move straight into it.
 - **Web and native app: deleting one message for everyone doesn't ask first.** iOS asks, as it does for several picked at once (`deletingOne` in `Chat/ChatScreen.swift`). The web's menu deletes at once (`features/chat/MessageItem.tsx`), and so does the native app's (`Delete for everyone` in `apps/desktop/src/ui/message.rs`).
+- **Web and native app: a group's row says only "typing…".** iOS names who, as the chat's title does: "alice is typing…", "alice and bob are typing…" (`typing` in `Shell/ChatListView.swift`). The web's row is `features/shell/ConversationList.tsx` (`typing`).
 
 ## Accounts and servers
 
