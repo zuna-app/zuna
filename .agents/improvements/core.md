@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Stop re-verifying every leaf certificate several times per commit
-- Where: packages/core/src/session.ts:3014-3039 (`treeMembers`: `pinnedIdentity` is a DB read plus AEAD open, `certificateStanding` 1568-1577 is a signature check, per leaf). In one `applyCommit` it's called via 3661 (`usersBefore`), 3077 (`noteLeaves`), 3079 and 3081 (`checkTree`, twice), 3574-3575 (`recordDepartures`, twice), 3805 (`describeCommit`), 3520 (`announceConfirmedRemovals`), then 3936-3989 in the following reconcile; 4114-4118 and 4083 schedule a reconcile of every shared group on any `user` frame
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: medium (call count certain; cost depends on channel size)
-- What's wrong: one external join to a channel with N leaves costs ~8–10 full `treeMembers` passes (8–10 × N certificate verifications, pin reads, AEAD opens) on every member's device, plus the reconcile. Every `user` frame, including profile-only changes, schedules a reconcile of every group that person is in (on a community server, every channel).
-- Suggested change: memoize `treeMembers(groupId)` by MLS epoch plus a "trust revision" counter bumped whenever pins, chains or a user's devices change (`applyUser`, `acceptLink`, `applyManifest`, `markVerified`); clear it with `treeUsersCache` in `forgetMlsState`. In `onFrame` `case "user"`, call `rescheduleAffectedByDeviceChange` only when the device set or identity key changed vs the cached user. This touches the security path, so read SECURITY_DETAILS first.
-- Check after: `npx vitest run test/security.test.ts test/channels.test.ts test/rotation.test.ts`.
-
 ### Carry `reported` across an account's devices
 - Where: packages/core/src/validate.ts:350-370 (`parsePreferences` leaves out `reported`); written at session.ts:4974-4978, shared via `nextManifest` 1364 and `applyManifest` 1325-1326; read by packages/ui/src/features/chat/SidePanel.tsx:237
 - Category: robustness

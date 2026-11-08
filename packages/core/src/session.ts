@@ -576,6 +576,13 @@ export class ServerSession {
   private cleanEpochs = new Map<string, number>();
   /** Who holds each group's keys now, for showing its members. */
   private treeUsersCache = new Map<string, Set<string>>();
+  /**
+   * certificateStanding's answers, by everything they're worked out from: whose it is, the key
+   * pinned for them, their chain link by link, and the certificate itself. A commit checks every
+   * leaf of the tree many times, each a signature check, and the answer can't differ for the same
+   * inputs, so nothing about it can go stale.
+   */
+  private standingCache = new Map<string, { cert: DeviceCertificate; carried: boolean } | null>();
   private rosters = new Map<string, { text: string; signed: SignedRoster | null }>();
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
@@ -1616,9 +1623,19 @@ export class ServerSession {
    * nothing. Null if it isn't signed, or is from further along than is known.
    */
   private certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): { cert: DeviceCertificate; carried: boolean } | null {
+    const chain = this.chainOf(userId);
+    const key = [userId, toBase64(root), ...chain.map((link) => toBase64(link.hash)), toBase64(certificate)].join("|");
+    const known = this.standingCache.get(key);
+    if (known !== undefined) return known;
+    const standing = this.workOutStanding(root, chain, certificate);
+    if (this.standingCache.size >= 4096) this.standingCache.clear();
+    this.standingCache.set(key, standing);
+    return standing;
+  }
+
+  private workOutStanding(root: Uint8Array, chain: Link[], certificate: Uint8Array): { cert: DeviceCertificate; carried: boolean } | null {
     const parsed = parseCertificate(certificate);
     if (!parsed) return null;
-    const chain = this.chainOf(userId);
     if (parsed.generation > chain.length) return null;
     const cert = verifyCertificate(parsed.generation === 0 ? root : chain[parsed.generation - 1]!.identity, certificate);
     if (!cert) return null;
@@ -4125,13 +4142,18 @@ export class ServerSession {
       case "presence":
         this.onPresence(data);
         break;
-      case "user":
-        this.applyUser(data as ApiUser);
+      case "user": {
+        const user = data as ApiUser;
+        const before = this.keysOf(user.id);
+        this.applyUser(user);
         void this.saveTrust().catch(() => undefined);
         this.emit({ type: "users", serverId: this.serverId });
         this.emitConversations();
-        this.rescheduleAffectedByDeviceChange((data as ApiUser).id);
+        // Only a change to who they are or which devices they have can change their groups' trees:
+        // a new name or picture needn't reconcile every group they're in.
+        if (this.keysOf(user.id) !== before || user.key_generation > this.headGeneration(user.id)) this.rescheduleAffectedByDeviceChange(user.id);
         break;
+      }
       case "vault":
         void this.syncVault().catch((error) => console.warn("[zuna] vault", error));
         break;
@@ -4159,6 +4181,14 @@ export class ServerSession {
         this.signedOut(data.reason ?? "session_ended");
         break;
     }
+  }
+
+  /** What about someone bears on their groups' trees: their keys, standing and devices, as one string to compare. */
+  private keysOf(userId: string): string {
+    const user = this.users.get(userId);
+    if (!user) return "";
+    const devices = [...user.devices.values()].map((device) => `${device.id}:${toBase64(device.signatureKey)}:${device.revoked}`).sort();
+    return [user.role, user.banned, user.deleted, toBase64(user.identityKey), toBase64(user.hpkeKey), this.headGeneration(userId), ...devices].join("|");
   }
 
   private rescheduleAffectedByDeviceChange(userId: string): void {
