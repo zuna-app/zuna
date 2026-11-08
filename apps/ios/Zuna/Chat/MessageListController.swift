@@ -250,8 +250,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         var result: [String: MessageRowContext] = [:]
         for (index, message) in items.enumerated() {
             let showDay = index == 0 || days[index - 1] != days[index]
-            let continues = !showDay && Self.continues(items[index - 1], message)
-            let continued = index + 1 < items.count && days[index + 1] == days[index] && Self.continues(message, items[index + 1])
+            // The unread line starts a run of its own, under its name, as Telegram's does.
+            let continues = !showDay && message.id != bridge.unreadLine && Self.continues(items[index - 1], message)
+            let continued = index + 1 < items.count && days[index + 1] == days[index] && items[index + 1].id != bridge.unreadLine && Self.continues(message, items[index + 1])
             let own = message.senderId == selfId
             result[message.id] = MessageRowContext(
                 message: message,
