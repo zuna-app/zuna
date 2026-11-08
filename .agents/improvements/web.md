@@ -28,14 +28,6 @@ Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/ind
 - Suggested change: `useMemo` the elements, or read `startOfChat` through a ref inside `itemContent`.
 - Check after: web check.
 
-### Bound the decrypted-file cache by bytes, not by count
-- Where: packages/ui/src/lib/media.ts:7-38 (`MAX_CACHED = 300`), 227-232 (pictures and videos up to 20 MB load on their own), 234-240 (`downloadAttachment` goes through the same cache)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high for the bound, medium for the real effect
-- What's wrong: up to ~6 GB of blobs can stay referenced, and a large file someone downloads stays cached too.
-- Suggested change: keep a byte budget (e.g. 256 MB) alongside the count. Have `downloadAttachment` skip the cache and revoke its URL after a delay.
-- Check after: web check. Parity: the native app's media cache wasn't checked.
-
 ### Trim message lists of chats that aren't open
 - Where: packages/ui/src/state/store.ts:94; `removeServer` (680-696) keeps that server's lists, `replyTo` and `editing`; nothing prunes lists apart from `returnToLatest` (823-830)
 - Category: robustness

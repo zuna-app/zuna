@@ -4,10 +4,28 @@ import type { AvatarRef, Attachment } from "@zuna/core";
 import { useEffect, useState } from "react";
 import { useApp } from "@/state/store";
 
+/** Decrypted files kept for drawing again, by count and by what they hold, whichever is reached first. */
 const MAX_CACHED = 300;
+const MAX_CACHED_BYTES = 256 << 20;
 const cache = new Map<string, Promise<string>>();
 /** URLs that are ready, so a remounted image can render on its first frame. */
 const ready = new Map<string, string>();
+/** How big each ready file is, and all of them together. */
+const sizes = new Map<string, number>();
+let cachedBytes = 0;
+
+/** Lets the oldest files go, never the newest, until the cache is within both limits. */
+function trimCache(): void {
+  while (cache.size > 1 && (cache.size > MAX_CACHED || cachedBytes > MAX_CACHED_BYTES)) {
+    const [oldestId, oldest] = cache.entries().next().value as [string, Promise<string>];
+    cache.delete(oldestId);
+    ready.delete(oldestId);
+    cachedBytes -= sizes.get(oldestId) ?? 0;
+    sizes.delete(oldestId);
+    // Anything still drawing it has a while to let go first.
+    void oldest.then((url) => setTimeout(() => URL.revokeObjectURL(url), 60_000)).catch(() => undefined);
+  }
+}
 
 function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }): Promise<string> {
   const cached = cache.get(ref.fileId);
@@ -23,17 +41,20 @@ function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; pr
     .downloadFile(ref)
     .then((blob) => {
       const url = URL.createObjectURL(blob);
-      ready.set(ref.fileId, url);
+      // It may have been let go while it downloaded, and is then only handed to whoever asked.
+      if (cache.get(ref.fileId) === pending) {
+        ready.set(ref.fileId, url);
+        sizes.set(ref.fileId, blob.size);
+        cachedBytes += blob.size;
+        trimCache();
+      }
       return url;
     });
   cache.set(ref.fileId, pending);
-  pending.catch(() => cache.delete(ref.fileId));
-  if (cache.size > MAX_CACHED) {
-    const [oldestId, oldest] = cache.entries().next().value as [string, Promise<string>];
-    cache.delete(oldestId);
-    ready.delete(oldestId);
-    void oldest.then((url) => setTimeout(() => URL.revokeObjectURL(url), 60_000));
-  }
+  pending.catch(() => {
+    if (cache.get(ref.fileId) === pending) cache.delete(ref.fileId);
+  });
+  trimCache();
   return pending;
 }
 
@@ -231,12 +252,19 @@ const AUTO_LOAD_CHUNKS = 21;
 /** The file's chunks, unlike its stated size, can't be lied about: decrypting checks them. */
 export const loadsByItself = (attachment: Attachment): boolean => attachment.size <= AUTO_LOAD_BYTES && attachment.chunks <= AUTO_LOAD_CHUNKS;
 
+/** Saves a file. One already drawn is saved from memory; anything else isn't kept there once saved. */
 export async function downloadAttachment(serverId: string, attachment: Attachment): Promise<void> {
-  const url = await fetchDecrypted(serverId, attachment);
+  const shown = ready.get(attachment.fileId);
+  const url = shown ?? URL.createObjectURL(await useApp.getState().session(serverId).downloadFile(attachment));
   const link = document.createElement("a");
   link.href = url;
   link.download = attachment.name;
+  link.style.display = "none";
+  // Some WebKit versions only save from a link that's in the page, and before its URL is let go.
+  document.body.append(link);
   link.click();
+  link.remove();
+  if (!shown) setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 function loadImage(blob: Blob): Promise<HTMLImageElement> {
