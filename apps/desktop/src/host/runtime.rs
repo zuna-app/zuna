@@ -300,6 +300,8 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
             let period = Duration::from_millis(ms.max(if repeats { 1 } else { 0 }));
             if repeats {
                 let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+                // After a stall, as when the computer sleeps, one tick and on from there, not every one missed at once.
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     interval.tick().await;
                     if tasks.send(Task::Timer(id)).is_err() {

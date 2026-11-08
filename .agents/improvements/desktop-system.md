@@ -173,14 +173,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: race `send` and `drive` against a 30 s timeout; record each app's PID and kill it in `finish`; register an idempotent `finish` on SIGINT, SIGTERM and uncaughtException.
 - Check after: Ctrl+C mid-run; `pactl list short modules` should be clean.
 
-### Don't let repeating core timers burst after a stall
-- Where: host/runtime.rs:299-308 (`interval_at` with tokio's default `MissedTickBehavior::Burst`)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: low
-- What's wrong: after the core thread stalls (argon2, a big sync), or across sleep where the clock counts it, every missed tick is queued back to back, so JS `setInterval` callbacks run in a burst, which browsers never do.
-- Suggested change: `set_missed_tick_behavior(MissedTickBehavior::Delay)` right after creating the interval.
-- Check after: `npm run dev:windows`, idle across a sleep.
-
 ### Register zuna:// in one place on Windows
 - Where: platform/windows/single.rs:90-107 (rewrites the registry with "URL:Zuna" on every start of the installed copy, main.rs:73-75); installer/zuna.nsi:100-103 (writes the same keys with "URL:Zuna invite link")
 - Category: cleanup
