@@ -36,14 +36,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: `web` uploads apps/web/dist as an artifact; `web-image` `needs: [checks, web]`, downloads it into server/cmd/zuna-web/site/, and drops its Rust, wasm-bindgen, `npm ci` and build steps.
 - Check after: a release dry run; `node scripts/check-web.mjs <image's address> zuna-web-files.sha256`.
 
-### Move the pinned actions to their Node 24 majors
-- Where: ci.yml:17, :18, :21, :110; release.yml:26, :27, :30, :34, :150, :159, :163
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium (GitHub's Node 20 deprecation timeline is from memory)
-- What's wrong: the SHAs pin checkout v4, setup-node v4, setup-go v5, upload/download-artifact v4 and attest-build-provenance v2, which run on Node 20; their newer majors run on Node 24.
-- Suggested change: update each by hand to the current release commit of its newest major, keeping the `# vN` comments (no Dependabot). Check setup-node v5's automatic caching: keep `cache: npm` where it is, none in `advisories`.
-- Check after: CI has no Node 20 deprecation annotations.
-
 ### Delete the leftover Electron folder here, then drop its .gitignore patterns
 - Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
 - Category: cleanup
