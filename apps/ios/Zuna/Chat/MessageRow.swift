@@ -56,6 +56,8 @@ struct ChatActions {
     var pickReaction: (_ messageId: String) -> Void = { _ in }
     /// Who in this group has read a message, as far as their read receipts say.
     var readers: (_ message: MessageView) -> [UserView] = { _ in [] }
+    /// The names of those who reacted, as a list to read: "You, alice".
+    var reactedBy: (_ userIds: [String]) -> String = { _ in "" }
     var openChat: (_ conversationKey: String) -> Void = { _ in }
     /// You can delete others' messages here: you're an admin of this group, or of the server in a channel.
     var isGroupAdmin = false
@@ -466,7 +468,7 @@ private struct MessageItem: View {
                 LocationCard(location: location, own: own, messageId: message.id)
             }
             if !message.reactions.isEmpty {
-                ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }, card: actions.emoteCard) {
+                ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }) {
                     meta
                 }
             } else if !metaInText && !onlyMedia && !onlyRound {
@@ -664,6 +666,23 @@ struct MessageMenu: View {
             Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
                 actions.pin(message, message.pinnedAt == nil)
             }
+        }
+        // Who reacted with what, which the desktop shows on hover; an emote's card from it, as a
+        // long press on the reaction itself only opens this menu.
+        if !message.reactions.isEmpty && !deleted {
+            Menu("Reactions", systemImage: "face.smiling") {
+                ForEach(message.reactions, id: \.key) { reaction in
+                    let names = actions.reactedBy(reaction.userIds)
+                    Button {
+                        if let emote = reaction.emote { actions.emoteCard(reaction.key, emote, "Reacted by \(names)") }
+                    } label: {
+                        Text(reaction.emote == nil ? reaction.key : ":\(reaction.key):")
+                        Text(names)
+                    }
+                    .accessibilityIdentifier(A11y.Chat.reactionInMenu(reaction.key))
+                }
+            }
+            .accessibilityIdentifier(A11y.Chat.reactionsMenu)
         }
         // As on the desktop, for your own messages in a group.
         if canAct && own && context.isGroup {

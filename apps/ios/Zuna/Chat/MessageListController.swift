@@ -300,6 +300,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             discard: { [weak self] in self?.input?.actions.discard($0) },
             pickReaction: { [weak self] in self?.input?.actions.pickReaction($0) },
             readers: { [weak self] in self?.input?.actions.readers($0) ?? [] },
+            reactedBy: { [weak self] in self?.input?.actions.reactedBy($0) ?? "" },
             openChat: { [weak self] in self?.input?.actions.openChat($0) },
             isGroupAdmin: given.isGroupAdmin,
             editChannel: given.editChannel == nil ? nil : { [weak self] in self?.input?.actions.editChannel?() }

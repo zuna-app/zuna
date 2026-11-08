@@ -221,7 +221,7 @@ struct ChannelMessageRow: View {
                 said
             }
             if !message.reactions.isEmpty {
-                ChannelReactions(message: message, server: server, canAdd: selectable, react: { actions.react(message.id, $0, $1) }, add: { actions.pickReaction(message.id) }, card: actions.emoteCard)
+                ChannelReactions(message: message, server: server, canAdd: selectable, react: { actions.react(message.id, $0, $1) }, add: { actions.pickReaction(message.id) })
             }
             if message.status == .failed {
                 Button {
@@ -414,7 +414,6 @@ private struct ChannelReactions: View {
     let canAdd: Bool
     let react: (String, EmoteRef?) -> Void
     let add: () -> Void
-    let card: (String, EmoteRef, String?) -> Void
 
     var body: some View {
         let selfId = server.me?.userId ?? ""
@@ -443,9 +442,6 @@ private struct ChannelReactions: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(mine ? accent.color : .clear))
                 }
                 .buttonStyle(.plain)
-                .simultaneousGesture(LongPressGesture().onEnded { _ in
-                    if let emote = reaction.emote { card(reaction.key, emote, "Reacted by \(names(reaction, selfId))") }
-                })
                 .accessibilityLabel("\(reaction.key), \(names(reaction, selfId))")
                 .accessibilityAddTraits(mine ? .isSelected : [])
                 .accessibilityIdentifier(A11y.Chat.reaction(reaction.key))

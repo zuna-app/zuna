@@ -155,6 +155,9 @@ enum A11y {
         static func text(_ id: String) -> String { "chat.text.\(id)" }
         static func meta(_ id: String) -> String { "chat.meta.\(id)" }
         static func reaction(_ key: String) -> String { "chat.reaction.\(key)" }
+        static let reactionsMenu = "chat.reactionsMenu"
+        static let retryLoad = "chat.retryLoad"
+        static func reactionInMenu(_ key: String) -> String { "chat.reactionsMenu.\(key)" }
         static func attachment(_ name: String) -> String { "chat.attachment.\(name)" }
     }
 

@@ -313,7 +313,6 @@ struct ReactionsView<Meta: View>: View {
     let own: Bool
     let server: AppModel.ServerState
     let react: (String, EmoteRef?) -> Void
-    let card: (String, EmoteRef, String?) -> Void
     @ViewBuilder var meta: Meta
 
     var body: some View {
@@ -350,9 +349,6 @@ struct ReactionsView<Meta: View>: View {
                     .background(mine ? (own && model.settings.accent != .neutral ? Color.white : Theme.text1) : Color.white.opacity(0.08), in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .simultaneousGesture(LongPressGesture().onEnded { _ in
-                    if let emote = reaction.emote { card(reaction.key, emote, "Reacted by \(names(reaction, selfId))") }
-                })
                 .accessibilityLabel("\(reaction.key), \(names(reaction, selfId))")
                 .accessibilityAddTraits(mine ? .isSelected : [])
                 .accessibilityIdentifier(A11y.Chat.reaction(reaction.key))

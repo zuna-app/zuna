@@ -450,6 +450,39 @@ final class ChatReadingTests: XCTestCase {
         }
     }
 
+    /// Who reacted with what is in a message's menu, as a long press on a reaction only opens
+    /// that menu, and an emote's card, saying who reacted with it, opens from there.
+    func testAMessagesMenuSaysWhoReactedAndOpensAnEmotesCard() throws {
+        let alice = try Peer("alice")
+        let id = try alice.send(to: "user:\(bobId)", ["text": "React with an emote \(UUID().uuidString.prefix(4))"])
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        try toNewest(until: message(id))
+
+        let conversation = try XCTUnwrap(try alice.conversation("user:\(bobId)"))
+        let groupId = try XCTUnwrap(conversation["groupId"] as? String)
+        let emotes = try XCTUnwrap(try alice.call("emotesIn", ["zunaHappy"]) as? [String: Any])
+        try alice.call("toggleReaction", [groupId, id, "zunaHappy", try XCTUnwrap(emotes["zunaHappy"])])
+        let chip = message(id).descendants(matching: .any)[A11y.Chat.reaction("zunaHappy")]
+        XCTAssertTrue(chip.waitForExistence(timeout: 20))
+
+        chip.press(forDuration: 1.0)
+        let reactions = zuna.app.buttons["Reactions"]
+        XCTAssertTrue(reactions.waitForExistence(timeout: 5))
+        reactions.tap()
+        let item = zuna.app.buttons.matching(NSPredicate(format: "label CONTAINS ':zunaHappy:'")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        XCTAssertTrue(item.label.contains("alice"), item.label)
+        zuna.screenshot("64b-reactions-in-the-menu")
+        item.tap()
+        let card = zuna.element(A11y.Chat.emoteCard)
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(card.label.contains("zunaHappy"), card.label)
+        XCTAssertTrue(card.label.contains("Reacted by alice"), card.label)
+    }
+
     /// A picture much taller than wide, as a long screenshot, is cut to a height a screen holds.
     func testCutsAVeryTallPictureToAScreensHeight() throws {
         let alice = try Peer("alice")

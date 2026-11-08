@@ -369,6 +369,9 @@ struct ChatScreen: View {
                     .compactMap { server.users[$0.userId] }
                     .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
             },
+            reactedBy: { ids in
+                ids.map { $0 == server.me?.userId ? "You" : server.users[$0]?.displayName ?? "Someone" }.joined(separator: ", ")
+            },
             openChat: { model.openChat($0) },
             isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin,
             editChannel: server.channel(conversation.key).flatMap { editChannel(server, $0) }
