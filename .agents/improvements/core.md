@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: split the manifest across numbered items (`manifest:0..n`) written under one version, or shrink entries (binary ids and keys), and size-check the rotation path the same way. Until then, `warnOnce` and stop retrying while the pin set hasn't changed. Fix the comment. Read docs/ACCOUNT_KEY_ROTATION.md and SECURITY_DETAILS first.
 - Check after: `npx vitest run test/rotation.test.ts test/security.test.ts`.
 
-### Cut the work behind each conversation-list refresh
-- Where: packages/core/src/session.ts:4775-4878 (`getConversations`/`conversationOf`), 6311-6334 (`getChannels`), 2912-2914 (`emitConversations` names no group); UIs debounce at 60 ms (apps/desktop/src/state.rs:494-519, packages/ui/src/state/store.ts:219-231, apps/ios/Zuna/State/AppModel.swift:506-530)
-- Category: perf
-- Severity: low ; Effort: M ; Confidence: medium
-- What's wrong: every refresh rebuilds every conversation: per group, `lastMessage` (query + decrypt + reply lookup), two COUNTs, `slowUntil` (query + `getKv` decrypt for channels) and `membersWithKeys`, plus one entry for every server user without a DM, all sent over RPC, repeated ~every 60 ms during steady traffic in one channel.
-- Suggested change: cache each group's `ConversationView` and invalidate from the places that change it (ingest, read, prefs, group/meta changes, channel changes), or at least cache `lastMessage` and unread counts per group keyed by the latest `updated_seq` and `ownRead`. Optionally have `emitConversations(groupId?)` carry changed ids so hosts could patch (an event shape change: update types.ts, Models.swift and models.rs together).
-- Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
-
 ### Split session.ts along its markers, starting with the sections that stand alone
 - Where: packages/core/src/session.ts (6,935 lines); rpc.ts:57-70 (`SESSION_METHODS` typed against `ServerSession`'s public methods); ~117 `as any` reaches into private members across the tests (security.test.ts 61, e2e.test.ts 26, rotation.test.ts 9, dev-bots.ts 4, …), e.g. `treeMembers`, `withLock`, `commitWithRetry`, `db`, `api`, `onFrame`
 - Category: cleanup
