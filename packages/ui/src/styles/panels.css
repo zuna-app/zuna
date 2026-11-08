@@ -109,7 +109,6 @@
 .device-icon { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--bg-3); color: var(--text-2); }
 .device-current { margin-left: 8px; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--bg-4); color: var(--text-2); }
 .role-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 10px; font-size: 11.5px; background: var(--bg-4); color: var(--text-2); flex: none; }
-.role-chip.is-danger { background: var(--red-soft); color: var(--red); }
 
 .about-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 0; text-align: center; }
 .current-set { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-m); background: var(--bg-2); }

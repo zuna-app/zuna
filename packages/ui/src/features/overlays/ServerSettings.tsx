@@ -1,4 +1,4 @@
-import type { ReportView, UserView } from "@zuna/core";
+import type { BanView, ReportView, UserView } from "@zuna/core";
 import { AudioLines, Ban, Crown, Flag, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
@@ -170,8 +170,74 @@ function ReportsSection() {
 function BanConfirm({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <Confirm title={`Ban ${name}?`} action="Ban from server" onCancel={onCancel} onConfirm={onConfirm}>
-      They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Members.
+      They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Bans.
     </Confirm>
+  );
+}
+
+/** Who is banned, when and by whom, to let them back in. */
+function BansSection() {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const [bans, setBans] = useState<BanView[] | null>(null);
+  const { run } = useAction();
+  // Read again whenever someone is banned or unbanned, from here or anywhere else.
+  const banned = Object.values(server?.users ?? {})
+    .filter((user) => user.banned && !user.deleted)
+    .map((user) => user.id)
+    .sort()
+    .join();
+  const load = useCallback(() => {
+    void session()
+      .getBans()
+      .then(setBans)
+      .catch(() => setBans([]));
+  }, [session]);
+  useEffect(load, [load, banned]);
+  if (!server) return null;
+  const selfRole = server.self?.role;
+  const shown = (bans ?? []).filter((ban) => server.users[ban.userId]?.banned !== false);
+  return (
+    <>
+      <h1>Bans</h1>
+      <p className="settings-lead">
+        People banned from <b>{server.entry.name}</b>. Unbanned, they can sign in again, and they're back in their direct messages and channels. Groups have to add them again.
+      </p>
+      {bans === null ? (
+        <Spinner />
+      ) : shown.length === 0 ? (
+        <p className="muted">Nobody is banned.</p>
+      ) : (
+        <div className="device-list">
+          {shown.map((ban) => {
+            const user = server.users[ban.userId];
+            const name = user?.displayName ?? "Unknown";
+            const by = ban.bannedBy === server.self?.userId ? "you" : ban.bannedBy ? server.users[ban.bannedBy]?.displayName : undefined;
+            // The owner can unban anyone, and admins only members, as with banning.
+            const canUnban = !!user && (selfRole === "owner" || user.role === "member");
+            return (
+              <div key={ban.userId} className="device-row">
+                <Avatar name={name} seed={ban.userId} avatar={user?.avatar ?? null} size={36} />
+                <span className="grow">
+                  <span style={{ display: "block", fontWeight: 500 }}>{name}</span>
+                  <span className="faint" style={{ fontSize: 12 }}>
+                    {user && `@${user.username} · `}Banned {by && `by ${by} `}on {formatFull(ban.bannedAt)}
+                  </span>
+                </span>
+                <button
+                  className="btn btn-small"
+                  disabled={!canUnban}
+                  title={canUnban ? undefined : "Only the server's owner can unban an admin."}
+                  onClick={() => void run(async () => { await session().unbanUser(ban.userId); load(); })}
+                >
+                  <UserRound size={13} /> Unban
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -185,11 +251,11 @@ function MembersSection() {
   if (!server) return null;
   const selfRole = server.self?.role;
   const needle = query.trim().toLowerCase();
-  // Nothing can be done about an account that's gone.
-  const members = Object.values(server.users).filter((user) => !user.deleted);
+  // Nothing can be done about an account that's gone, and someone banned is in Bans.
+  const members = Object.values(server.users).filter((user) => !user.deleted && !user.banned);
   const users = members
     .filter((user) => !needle || user.displayName.toLowerCase().includes(needle) || user.username.toLowerCase().includes(needle))
-    .sort((a, b) => Number(a.banned) - Number(b.banned) || a.displayName.localeCompare(b.displayName));
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
   const target = menu ? server.users[menu.userId] : null;
 
   return (
@@ -214,7 +280,6 @@ function MembersSection() {
               <span style={{ display: "block", fontWeight: 500 }}>{user.displayName}</span>
               <span className="faint" style={{ fontSize: 12 }}>@{user.username}</span>
             </span>
-            {user.banned && <span className="role-chip is-danger">Banned</span>}
             {user.role !== "member" && (
               <span className="role-chip">
                 <Crown size={12} /> {user.role === "owner" ? "Owner" : "Admin"}
@@ -236,9 +301,7 @@ function MembersSection() {
                   onSelect: () => void run(() => session().setServerRole(target.id, target.role === "admin" ? "member" : "admin")),
                 }]
               : []),
-            target.banned
-              ? { label: "Unban", icon: <UserRound size={15} />, onSelect: () => void run(() => session().unbanUser(target.id)) }
-              : { label: "Ban from server", icon: <Ban size={15} />, danger: true, onSelect: () => setBanning(target) },
+            { label: "Ban from server", icon: <Ban size={15} />, danger: true, onSelect: () => setBanning(target) },
           ]}
         />
       )}
@@ -472,6 +535,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
           { id: "invites", label: "Invites", icon: LinkIcon },
           { id: "members", label: "Members", icon: Users },
           { id: "reports", label: "Reports", icon: Flag },
+          { id: "bans", label: "Bans", icon: Ban },
           { id: "emotes", label: "Emotes", icon: Smile },
           { id: "soundboard", label: "Soundboard", icon: AudioLines },
           { id: "storage", label: "Storage", icon: HardDrive },
@@ -487,6 +551,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
       {section === "invites" && <InvitesSection />}
       {section === "members" && <MembersSection />}
       {section === "reports" && <ReportsSection />}
+      {section === "bans" && <BansSection />}
       {section === "emotes" && <EmotesSection />}
       {section === "soundboard" && <ServerSoundboardSection />}
       {section === "storage" && <StorageSection />}

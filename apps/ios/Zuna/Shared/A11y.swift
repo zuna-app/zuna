@@ -376,6 +376,8 @@ enum A11y {
         static func device(_ id: String) -> String { "settings.device.\(id)" }
         static func member(_ username: String) -> String { "settings.member.\(username)" }
         static let reports = "settings.reports"
+        static let bans = "settings.bans"
+        static func ban(_ username: String) -> String { "settings.ban.\(username)" }
         static func accent(_ id: String) -> String { "settings.accent.\(id)" }
     }
 }

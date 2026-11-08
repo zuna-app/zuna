@@ -56,6 +56,13 @@ export interface ApiReport {
   created_at: number;
 }
 
+/** Someone banned from the server: when, and by which admin. */
+export interface ApiBan {
+  user_id: string;
+  banned_at: number;
+  banned_by: string;
+}
+
 export interface ApiDevice {
   id: string;
   user_id: string;
@@ -577,6 +584,7 @@ export class Api {
   setRole = (userId: string, role: "admin" | "member") => this.request("PUT", at`/api/admin/users/${userId}/role`, { role });
   ban = (userId: string) => this.request("POST", at`/api/admin/users/${userId}/ban`, {});
   unban = (userId: string) => this.request("POST", at`/api/admin/users/${userId}/unban`, {});
+  bans = () => this.request<{ bans: ApiBan[] }>("GET", "/api/admin/bans");
 }
 
 export interface LoginResponse {

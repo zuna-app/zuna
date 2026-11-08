@@ -752,7 +752,34 @@ async function runIn(name) {
     await again.keyboard.press("Escape");
     await memberMenu.waitFor({ state: "detached", timeout: 5_000 });
     check("Escape on a member's menu closes only the menu", (await again.locator(".settings-layer").count()) === 1);
+    // A ban from Members moves them to Bans, which says by whom and when, and an unban lets them sign in again.
+    await again.locator(".device-row.is-button", { hasText: "Lee Leaving" }).click();
+    await again.getByRole("menuitem", { name: "Ban from server" }).click();
+    await again.locator(".modal").getByRole("button", { name: "Ban from server" }).click();
+    leaving.add(gone);
+    await gone.getByRole("heading", { name: /^You were removed from/ }).waitFor({ timeout: 20_000 });
+    await again.locator(".device-row.is-button", { hasText: "Lee Leaving" }).waitFor({ state: "detached", timeout: 10_000 });
+    check("someone banned is signed out and off Members", true);
+    await again.locator(".settings-nav-item", { hasText: "Bans" }).click();
+    const ban = again.locator(".device-row", { hasText: "Lee Leaving" });
+    await ban.waitFor({ timeout: 10_000 });
+    check("Bans says whom, by whom and when", (await ban.innerText()).includes("@leaving.check · Banned by you on "), (await ban.innerText()).replace(/\n/g, " "));
+    await sleep(300);
+    await again.screenshot({ path: prefix("08a-bans") });
+    await ban.getByRole("button", { name: "Unban" }).click();
+    await again.getByText("Nobody is banned.").waitFor({ timeout: 10_000 });
+    await again.locator(".settings-nav-item", { hasText: "Members" }).click();
+    await again.locator(".device-row.is-button", { hasText: "Lee Leaving" }).waitFor({ timeout: 10_000 });
+    check("an unban takes them off Bans and back onto Members", true);
     await again.keyboard.press("Escape");
+    await gone.getByRole("button", { name: "Remove from this device" }).click();
+    await gone.getByRole("button", { name: "Sign in", exact: true }).click();
+    await fill(gone.getByLabel("Server address"), serverUrl);
+    await fill(gone.getByLabel("Username"), "leaving.check");
+    await fill(gone.locator('input[type="password"]'), "web-check-only-Pass-5531");
+    await gone.getByRole("button", { name: "Sign in", exact: true }).click();
+    await gone.locator(".conv-row", { hasText: "Priya Nair" }).waitFor({ timeout: 45_000 });
+    check("someone unbanned signs in again", true);
 
     await gone.getByLabel("Settings", { exact: true }).click();
     await gone.getByRole("button", { name: "Delete account" }).click();

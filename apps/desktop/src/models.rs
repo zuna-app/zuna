@@ -402,6 +402,16 @@ pub struct ReportView {
     pub last_at: f64,
 }
 
+/// Someone banned from a server, as its admins see it: when, and by which admin, whose
+/// user ID is empty when the server doesn't know it.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BanView {
+    pub user_id: String,
+    pub banned_at: f64,
+    pub banned_by: String,
+}
+
 /// What someone can be reported for, in the order offered, with what each is called
 /// (`REPORT_REASON_LABELS` in lib/report.ts).
 pub const REPORT_REASONS: [(&str, &str); 4] = [("spam", "Spam"), ("harassment", "Harassment"), ("inappropriate", "Inappropriate content"), ("other", "Something else")];

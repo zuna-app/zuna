@@ -684,6 +684,15 @@ public struct ReportView: Codable, Sendable, Equatable, Identifiable {
     public var id: String { userId }
 }
 
+/// Someone banned from a server, as its admins see it: when, and by which admin, whose
+/// user ID is empty when the server doesn't know it.
+public struct BanView: Codable, Sendable, Equatable, Identifiable {
+    public var userId: String
+    public var bannedAt: Int
+    public var bannedBy: String
+    public var id: String { userId }
+}
+
 public struct DeviceView: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var createdAt: Int

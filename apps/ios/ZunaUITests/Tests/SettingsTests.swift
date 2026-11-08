@@ -168,7 +168,24 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
         try waitFor("alice's desktop to see the ban", timeout: 30) { try self.aliceSees(targetId)?["banned"] as? Bool == true }
+        XCTAssertTrue(row.waitForNonExistence(timeout: 10), "someone banned is off Members")
         zuna.screenshot("93-members")
+
+        // In Bans, by whom and when, and unbanned from there.
+        zuna.app.navigationBars.buttons.firstMatch.tap()
+        let bans = zuna.element(A11y.Settings.bans)
+        for _ in 0..<5 where !bans.exists { zuna.app.swipeUp() }
+        bans.tap()
+        let ban = zuna.element(A11y.Settings.ban(target))
+        XCTAssertTrue(ban.waitForExistence(timeout: 10))
+        XCTAssertTrue(ban.label.contains("@\(target) · Banned by you on "), ban.label)
+        zuna.screenshot("93b-bans")
+        ban.tap()
+        let unban = zuna.app.buttons["Unban"]
+        XCTAssertTrue(unban.waitForExistence(timeout: 5))
+        unban.tap()
+        try waitFor("alice's desktop to see the unban", timeout: 30) { try self.aliceSees(targetId)?["banned"] as? Bool == false }
+        XCTAssertTrue(zuna.app.staticTexts["Nobody is banned."].waitForExistence(timeout: 10))
     }
 
     func testFetchesTheEmoteSetFrom7TVAgain() throws {

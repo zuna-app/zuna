@@ -943,6 +943,45 @@ func TestReportsReachAdminsWithoutWhoSentThem(t *testing.T) {
 	}
 }
 
+// TestAdminsListBans covers the list of bans: for admins only, the latest first,
+// with which admin banned whom, and nobody on it once unbanned.
+func TestAdminsListBans(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	carol := h.register("carol", owner.newInvite())
+	h.mustDo("PUT", "/api/admin/users/"+carol.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
+	bob := h.register("bob", owner.newInvite())
+	dave := h.register("dave", owner.newInvite())
+
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil)
+	time.Sleep(2 * time.Millisecond)
+	h.mustDo("POST", "/api/admin/users/"+dave.userID+"/ban", carol.token, nil, nil)
+	member := h.register("erin", owner.newInvite())
+	if status, _ := h.do("GET", "/api/admin/bans", member.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a member listing bans gave %d", status)
+	}
+	var listed struct {
+		Bans []store.Ban `json:"bans"`
+	}
+	h.mustDo("GET", "/api/admin/bans", carol.token, nil, &listed)
+	if len(listed.Bans) != 2 || listed.Bans[0].UserID != dave.userID || listed.Bans[0].BannedBy != carol.userID ||
+		listed.Bans[1].UserID != bob.userID || listed.Bans[1].BannedBy != owner.userID || listed.Bans[0].BannedAt < listed.Bans[1].BannedAt {
+		t.Fatalf("the bans: %+v", listed.Bans)
+	}
+
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/unban", carol.token, nil, nil)
+	h.mustDo("GET", "/api/admin/bans", owner.token, nil, &listed)
+	if len(listed.Bans) != 1 || listed.Bans[0].UserID != dave.userID {
+		t.Fatalf("after unbanning bob: %+v", listed.Bans)
+	}
+	// Banned again, it's this time and this admin.
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", carol.token, nil, nil)
+	h.mustDo("GET", "/api/admin/bans", owner.token, nil, &listed)
+	if len(listed.Bans) != 2 || listed.Bans[0].UserID != bob.userID || listed.Bans[0].BannedBy != carol.userID {
+		t.Fatalf("after banning bob again: %+v", listed.Bans)
+	}
+}
+
 // --- WebSocket ---
 
 type socket struct {

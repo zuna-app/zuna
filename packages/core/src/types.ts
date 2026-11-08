@@ -502,6 +502,14 @@ export interface ReportView {
   lastAt: number;
 }
 
+/** Someone banned from a server, as its admins see it: when, and by which admin. */
+export interface BanView {
+  userId: string;
+  bannedAt: number;
+  /** The admin's user ID, or empty when the server doesn't know it. */
+  bannedBy: string;
+}
+
 export interface DeviceView {
   id: string;
   createdAt: number;

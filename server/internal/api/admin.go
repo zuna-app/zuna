@@ -433,7 +433,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 			return
 		}
 	}
-	if err := s.db.BanUser(r.Context(), targetID); err != nil {
+	if err := s.db.BanUser(r.Context(), targetID, sess.UserID); err != nil {
 		writeFailure(w, err)
 		return
 	}
@@ -468,4 +468,14 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess *store
 		s.broadcastGroup(r, groupID)
 	}
 	writeOK(w)
+}
+
+// handleBans lists who is banned, when, and by which admin.
+func (s *Server) handleBans(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	bans, err := s.db.Bans(r.Context())
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bans": bans})
 }

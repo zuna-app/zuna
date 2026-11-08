@@ -1136,7 +1136,7 @@ describe("administration", () => {
     for (const app of [nina, omar, phone]) app.client.stop();
   });
 
-  it("lets someone unbanned back in, and back into their direct messages", async () => {
+  it("lists who is banned for admins, and lets them back in once unbanned", async () => {
     const pia = await new TestApp("pia-laptop").open();
     await pia.register(invite, "pia");
     const piaId = pia.userId;
@@ -1145,9 +1145,13 @@ describe("administration", () => {
     await waitFor(() => alice.texts(`user:${piaId}`).includes("before the ban"), "pia's first message");
 
     await alice.session.banUser(piaId);
+    const bans = await alice.session.getBans();
+    expect(bans[0]).toMatchObject({ userId: piaId, bannedBy: alice.userId });
+    expect(bans[0]!.bannedAt).toBeGreaterThan(Date.now() - 60_000);
     pia.client.stop();
 
     await alice.session.unbanUser(piaId);
+    expect((await alice.session.getBans()).some((ban) => ban.userId === piaId)).toBe(false);
     await waitFor(() => alice.session.getUsers().find((user) => user.id === piaId)?.banned === false, "alice to see pia unbanned");
     const back = await new TestApp("pia-phone").open();
     await back.login(server.url, "pia");

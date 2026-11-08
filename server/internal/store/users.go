@@ -351,11 +351,11 @@ func (d *DB) SetRole(ctx context.Context, userID, role string) error {
 	return nil
 }
 
-// BanUser marks the user banned and ends all of their sessions.
-func (d *DB) BanUser(ctx context.Context, userID string) error {
+// BanUser marks the user banned by the admin bannedBy and ends all of their sessions.
+func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
 	return d.tx(ctx, func(tx handle) error {
 		now := Now()
-		res, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = ?, updated_at = ? WHERE id = ?`, now, now, userID)
+		res, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = ?, banned_by = ?, updated_at = ? WHERE id = ?`, now, bannedBy, now, userID)
 		if err != nil {
 			return err
 		}
@@ -400,7 +400,7 @@ func (d *DB) UnbanUser(ctx context.Context, userID string) ([]string, error) {
 	err := d.tx(ctx, func(tx handle) error {
 		dms = nil
 		now := Now()
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = NULL, updated_at = ? WHERE id = ?`, now, userID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = NULL, banned_by = NULL, updated_at = ? WHERE id = ?`, now, userID); err != nil {
 			return err
 		}
 		// A DM's key is its two people's IDs, which are hex, in order.
@@ -429,6 +429,33 @@ func (d *DB) UnbanUser(ctx context.Context, userID string) ([]string, error) {
 		return nil
 	})
 	return dms, err
+}
+
+// Ban is someone banned from the server: when, and by which admin.
+type Ban struct {
+	UserID   string `json:"user_id"`
+	BannedAt int64  `json:"banned_at"`
+	BannedBy string `json:"banned_by"`
+}
+
+// Bans lists who is banned, the latest first. An account deleted since is left out,
+// as nothing can be done about it.
+func (d *DB) Bans(ctx context.Context) ([]Ban, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT id, banned_at, COALESCE(banned_by, '') FROM users
+		WHERE banned_at IS NOT NULL AND deleted_at IS NULL ORDER BY banned_at DESC, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bans := []Ban{}
+	for rows.Next() {
+		var ban Ban
+		if err := rows.Scan(&ban.UserID, &ban.BannedAt, &ban.BannedBy); err != nil {
+			return nil, err
+		}
+		bans = append(bans, ban)
+	}
+	return bans, rows.Err()
 }
 
 // DeleteAccount erases what an account keeps here, as its owner asked, and frees

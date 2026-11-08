@@ -301,6 +301,8 @@ public struct SessionCalls: Sendable {
     public func setServerRole(_ userId: String, role: Role) async throws { try await run("setServerRole", [userId, role]) }
     public func banUser(_ userId: String) async throws { try await run("banUser", [userId]) }
     public func unbanUser(_ userId: String) async throws { try await run("unbanUser", [userId]) }
+    /// Who is banned, when and by whom, the latest first. For admins.
+    public func getBans() async throws -> [BanView] { try await call("getBans") }
     /// Reports someone to the server's admins, who see whom and why, never what was said nor who reported them.
     public func reportUser(_ userId: String, reason: ReportReason) async throws { try await run("reportUser", [userId, reason]) }
     /// What people were reported for, one entry a person, the latest first. For admins.

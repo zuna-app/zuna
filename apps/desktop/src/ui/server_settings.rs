@@ -10,7 +10,7 @@ use super::invites::InvitePanel;
 use super::menu::{MenuEntry, open_menu};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::format_full;
-use crate::models::{ReportView, from_value, report_reason_label};
+use crate::models::{BanView, ReportView, from_value, report_reason_label};
 use crate::state::{AppState, ServerState, ToastKind};
 use crate::theme::{FONT_MONO, RADIUS_M, RADIUS_XL};
 
@@ -33,6 +33,10 @@ pub struct ServerSettings {
     screen_rules: Option<Entity<super::server_voice::ServerScreenRules>>,
     /// Who was reported, read each time Reports is opened, or nothing while it's read.
     reports: Option<Vec<ReportView>>,
+    /// Who is banned, read each time Bans is opened and whenever who is changes, or nothing while it's read.
+    bans: Option<Vec<BanView>>,
+    /// Whom the server's users said were banned when the bans were last read.
+    banned_seen: Vec<String>,
     /// Whom a ban is being asked about, by ID and name.
     banning: Option<(String, String)>,
     /// Whether deleting the account is being asked about.
@@ -59,7 +63,13 @@ impl ServerSettings {
         let retention = input(cx, "", format!("{}", info.retention_days));
         let delete_password = cx.new(|cx| TextInput::new(cx, "").masked(true));
         let invites = cx.new(|cx| InvitePanel::new(state.clone(), cx));
-        let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&state, |view: &mut Self, _, cx| {
+            // Read again whenever someone is banned or unbanned, from here or anywhere else.
+            if view.section == "bans" && view.banned_ids(cx) != view.banned_seen {
+                view.load_bans(cx);
+            }
+            cx.notify()
+        })];
         for input in [&name, &member_search, &emote_link, &max_upload, &retention, &delete_password] {
             subscriptions.push(cx.subscribe_in(input, window, |view, _, event, _, cx| {
                 if *event == InputEvent::Escape {
@@ -87,12 +97,17 @@ impl ServerSettings {
             soundboard: None,
             screen_rules: None,
             reports: None,
+            bans: None,
+            banned_seen: Vec::new(),
             banning: None,
             deleting: false,
             _subscriptions: subscriptions,
         };
         if settings.section == "reports" {
             settings.load_reports(cx);
+        }
+        if settings.section == "bans" {
+            settings.load_bans(cx);
         }
         settings
     }
@@ -176,7 +191,7 @@ impl ServerSettings {
         Some(super::overlays::confirm(
             format!("Ban {name}?"),
             "Ban from server",
-            "They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Members.".into(),
+            "They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Bans.".into(),
             move |_, cx| {
                 cancel
                     .update(cx, |view, cx| {
@@ -211,7 +226,30 @@ impl ServerSettings {
         .detach();
     }
 
-    /// Bans someone or dismisses their reports, then reads the reports again if they're shown.
+    /// Whom the server's users say are banned, in order.
+    fn banned_ids(&self, cx: &gpui::App) -> Vec<String> {
+        let mut ids: Vec<_> = self.state.read(cx).active().map(|server| server.users.values().filter(|user| user.banned && !user.deleted).map(|user| user.id.clone()).collect()).unwrap_or_default();
+        ids.sort();
+        ids
+    }
+
+    /// Reads who is banned, as `BansSection` does each time it's opened and whenever who is changes.
+    fn load_bans(&mut self, cx: &mut Context<Self>) {
+        let Some(server) = self.state.read(cx).active_server.clone() else { return };
+        self.banned_seen = self.banned_ids(cx);
+        let call = self.state.read(cx).core.call(Some(&server), "getBans", vec![]);
+        cx.spawn(async move |view, cx| {
+            let result = call.await;
+            view.update(cx, |view, cx| {
+                view.bans = Some(result.map(from_value).unwrap_or_default());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Bans or unbans someone or dismisses their reports, then reads the list shown again.
     fn moderate(&mut self, method: &'static str, user_id: String, cx: &mut Context<Self>) {
         let Some(server) = self.state.read(cx).active_server.clone() else { return };
         let call = self.state.read(cx).core.call(Some(&server), method, vec![json!(user_id)]);
@@ -219,6 +257,7 @@ impl ServerSettings {
             let result = call.await;
             view.update(cx, |view, cx| match result {
                 Ok(_) if view.section == "reports" => view.load_reports(cx),
+                Ok(_) if view.section == "bans" => view.load_bans(cx),
                 Ok(_) => {}
                 Err(error) => view.state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx)),
             })
@@ -357,9 +396,9 @@ impl ServerSettings {
         let theme = theme(cx);
         let needle = self.member_search.read(cx).text().trim().to_lowercase();
         let self_role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
-        // Nothing can be done about an account that's gone.
-        let mut users: Vec<_> = server.users.values().filter(|user| !user.deleted).filter(|user| needle.is_empty() || user.display_name.to_lowercase().contains(&needle) || user.username.to_lowercase().contains(&needle)).cloned().collect();
-        users.sort_by_key(|user| (user.banned, user.display_name.to_lowercase()));
+        // Nothing can be done about an account that's gone, and someone banned is in Bans.
+        let mut users: Vec<_> = server.users.values().filter(|user| !user.deleted && !user.banned).filter(|user| needle.is_empty() || user.display_name.to_lowercase().contains(&needle) || user.username.to_lowercase().contains(&needle)).cloned().collect();
+        users.sort_by_key(|user| user.display_name.to_lowercase());
         let mut list = div().flex().flex_col().gap(px(3.));
         for user in users {
             let can_act = user.id != server.self_id() && user.role != "owner" && (self_role == "owner" || user.role == "member");
@@ -374,16 +413,11 @@ impl ServerSettings {
                     state.update(cx, |state, cx| state.act("setServerRole", vec![json!(id), json!(if admin { "member" } else { "admin" })], cx))
                 }));
             }
-            let (state, id) = (self.state.clone(), user.id.clone());
-            if user.banned {
-                entries.push(MenuEntry::new("Unban", "user-round", move |_, cx| state.update(cx, |state, cx| state.act("unbanUser", vec![json!(id)], cx))));
-            } else {
-                let (view, name) = (cx.entity().downgrade(), user.display_name.clone());
-                entries.push(MenuEntry::new("Ban from server", "ban", move |window, cx| {
-                    view.update(cx, |view, cx| view.ask_ban(id.clone(), name.clone(), window, cx)).ok();
-                }).danger());
-            }
-            let chip = |text: String, danger: bool| {
+            let (view, id, name) = (cx.entity().downgrade(), user.id.clone(), user.display_name.clone());
+            entries.push(MenuEntry::new("Ban from server", "ban", move |window, cx| {
+                view.update(cx, |view, cx| view.ask_ban(id.clone(), name.clone(), window, cx)).ok();
+            }).danger());
+            let chip = |text: String| {
                 div()
                     .flex()
                     .items_center()
@@ -393,9 +427,9 @@ impl ServerSettings {
                     .rounded(px(10.))
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
-                    .bg(if danger { theme.red_soft } else { theme.bg3 })
-                    .text_color(if danger { theme.red } else { theme.text2 })
-                    .when(!danger, |el| el.child(icon("crown", 12., theme.text2)))
+                    .bg(theme.bg3)
+                    .text_color(theme.text2)
+                    .child(icon("crown", 12., theme.text2))
                     .child(text)
             };
             list = list.child(
@@ -418,8 +452,7 @@ impl ServerSettings {
                     })
                     .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 36., online: user.online, rounded: false, dot_border: theme.bg2 }, cx))
                     .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::MEDIUM).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
-                    .when(user.banned, |el| el.child(chip("Banned".into(), true)))
-                    .when(user.role != "member", |el| el.child(chip(if user.role == "owner" { "Owner".into() } else { "Admin".into() }, false))),
+                    .when(user.role != "member", |el| el.child(chip(if user.role == "owner" { "Owner".into() } else { "Admin".into() }))),
             );
         }
         vec![
@@ -497,6 +530,70 @@ impl ServerSettings {
         vec![
             Self::heading("Reports"),
             Self::lead(&format!("People others on {} reported, and why. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.", server.entry.name), cx),
+            list,
+        ]
+    }
+
+    /// Who is banned, when and by whom, to let them back in (BansSection).
+    fn bans_section(&mut self, server: &ServerState, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let self_role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
+        // Someone unbanned anywhere else is off it at once, before it's read again.
+        let shown = self.bans.clone().map(|bans| bans.into_iter().filter(|ban| server.users.get(&ban.user_id).is_none_or(|user| user.banned)).collect::<Vec<_>>());
+        let list = match shown {
+            None => div().flex().child(spinner(18., theme.text2)).into_any_element(),
+            Some(bans) if bans.is_empty() => div().text_size(px(13.5)).text_color(theme.text2).child("Nobody is banned.").into_any_element(),
+            Some(bans) => {
+                let mut list = div().flex().flex_col().gap(px(3.));
+                for ban in bans {
+                    let user = server.users.get(&ban.user_id).cloned();
+                    let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+                    let by = if ban.banned_by == server.self_id() { Some("you".to_string()) } else { server.users.get(&ban.banned_by).map(|user| user.display_name.clone()) };
+                    // The owner can unban anyone, and admins only members, as with banning.
+                    let can_unban = user.as_ref().is_some_and(|user| self_role == "owner" || user.role == "member");
+                    let image = user.as_ref().and_then(|user| user.avatar.clone()).and_then(|avatar| {
+                        let server_id = server.entry.id.clone();
+                        self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
+                    });
+                    let username = user.as_ref().map(|user| format!("@{} · ", user.username)).unwrap_or_default();
+                    let by = by.map(|by| format!("by {by} ")).unwrap_or_default();
+                    let id = ban.user_id.clone();
+                    let unban = button(SharedString::from(format!("unban-{}", ban.user_id)), ButtonKind::Default, ButtonSize::Small, !can_unban, cx).child(icon("user-round", 13., theme.text1)).child("Unban");
+                    list = list.child(
+                        div()
+                            .id(SharedString::from(format!("ban-row-{}", ban.user_id)))
+                            .w_full()
+                            .flex()
+                            .items_center()
+                            .gap(px(11.))
+                            .px(px(10.))
+                            .py(px(8.))
+                            .rounded(RADIUS_M)
+                            .bg(theme.bg2)
+                            .text_size(px(13.5))
+                            .child(avatar(AvatarProps { name: name.clone(), seed: ban.user_id.clone(), image, size: 36., online: false, rounded: false, dot_border: theme.bg2 }, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().one_line().font_weight(FontWeight::MEDIUM).child(name))
+                                    .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("{username}Banned {by}on {}", format_full(ban.banned_at)))),
+                            )
+                            .child(if can_unban {
+                                unban.on_click(cx.listener(move |view, _, _, cx| view.moderate("unbanUser", id.clone(), cx))).into_any_element()
+                            } else {
+                                unban.tooltip(tooltip("Only the server's owner can unban an admin.")).into_any_element()
+                            }),
+                    );
+                }
+                list.into_any_element()
+            }
+        };
+        vec![
+            Self::heading("Bans"),
+            Self::lead(&format!("People banned from {}. Unbanned, they can sign in again, and they're back in their direct messages and channels. Groups have to add them again.", server.entry.name), cx),
             list,
         ]
     }
@@ -705,6 +802,7 @@ impl Render for ServerSettings {
                 ("invites", "Invites", "link"),
                 ("members", "Members", "users"),
                 ("reports", "Reports", "flag"),
+                ("bans", "Bans", "ban"),
                 ("emotes", "Emotes", "face-slightly-smiling"),
                 ("soundboard", "Soundboard", "audio-lines"),
                 ("storage", "Storage", "hard-drive"),
@@ -718,6 +816,7 @@ impl Render for ServerSettings {
             "invites" if is_admin => self.invites_section(&server, cx),
             "members" if is_admin => self.members(&server, cx),
             "reports" if is_admin => self.reports_section(&server, cx),
+            "bans" if is_admin => self.bans_section(&server, cx),
             "delete" => self.delete_section(&server, cx),
             "emotes" if is_admin => self.emotes(&server, cx),
             "storage" if is_admin => self.storage(cx),
@@ -782,6 +881,10 @@ impl Render for ServerSettings {
                         if id == "reports" {
                             view.reports = None;
                             view.load_reports(cx);
+                        }
+                        if id == "bans" {
+                            view.bans = None;
+                            view.load_bans(cx);
                         }
                         cx.notify();
                     }))

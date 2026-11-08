@@ -578,6 +578,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/admin/users/{id}/role", s.admin(s.handleSetRole))
 	mux.HandleFunc("POST /api/admin/users/{id}/ban", s.admin(s.handleBan))
 	mux.HandleFunc("POST /api/admin/users/{id}/unban", s.admin(s.handleUnban))
+	mux.HandleFunc("GET /api/admin/bans", s.admin(s.handleBans))
 
 	// Reporting someone to the server's admins
 	mux.HandleFunc("POST /api/reports", s.withDevice(s.handleReport))

@@ -78,9 +78,13 @@ struct ServerSettingsView: View {
                 }
 
                 Section("Members") {
-                    NavigationLink("\(server.users.values.filter { !$0.deleted }.count) members") { ServerMembersView(serverId: serverId) }
+                    NavigationLink("\(server.users.values.filter { !$0.deleted && !$0.banned }.count) members") { ServerMembersView(serverId: serverId) }
                     NavigationLink("Reports") { ReportsView(serverId: serverId) }
                         .accessibilityIdentifier(A11y.Settings.reports)
+                    NavigationLink { BansView(serverId: serverId) } label: {
+                        LabeledContent("Bans", value: "\(server.users.values.filter { $0.banned && !$0.deleted }.count)")
+                    }
+                    .accessibilityIdentifier(A11y.Settings.bans)
                 }
                 Section("Channels") {
                     NavigationLink(server.channels.count == 1 ? "1 channel" : "\(server.channels.count) channels") { ChannelsSettingsView(serverId: serverId) }
@@ -140,7 +144,8 @@ struct ServerSettingsView: View {
     }
 }
 
-/// Everyone on the server, with roles, and banning for admins, as on the desktop.
+/// Everyone on the server, with roles, and banning for admins, as on the desktop. Someone
+/// banned is in Bans.
 struct ServerMembersView: View {
     let serverId: String
 
@@ -154,10 +159,10 @@ struct ServerMembersView: View {
         let selfRole = server?.me?.role
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         // Nothing can be done about an account that's gone.
-        let members = (server?.users.values.map { $0 } ?? []).filter { !$0.deleted }
+        let members = (server?.users.values.map { $0 } ?? []).filter { !$0.deleted && !$0.banned }
         let users = members
             .filter { needle.isEmpty || $0.displayName.lowercased().contains(needle) || $0.username.lowercased().contains(needle) }
-            .sorted { ($0.banned ? 1 : 0, $0.displayName.lowercased()) < ($1.banned ? 1 : 0, $1.displayName.lowercased()) }
+            .sorted { $0.displayName.lowercased() < $1.displayName.lowercased() }
         List(users) { user in
             Button {
                 // The owner manages admins; admins manage members. Nobody acts on the owner or themselves.
@@ -177,9 +182,6 @@ struct ServerMembersView: View {
                         Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)
                     }
                     Spacer()
-                    if user.banned {
-                        Text("Banned").font(.caption.weight(.semibold)).foregroundStyle(Theme.red)
-                    }
                     if user.role != .member {
                         Label(user.role == .owner ? "Owner" : "Admin", systemImage: "crown.fill").font(.caption).foregroundStyle(Theme.text2)
                     }
@@ -201,11 +203,7 @@ struct ServerMembersView: View {
                     run { try await model.core.session(serverId).setServerRole(user.id, role: user.role == .admin ? .member : .admin) }
                 }
             }
-            if user.banned {
-                Button("Unban") { run { try await model.core.session(serverId).unbanUser(user.id) } }
-            } else {
-                Button("Ban from server", role: .destructive) { banning = user }
-            }
+            Button("Ban from server", role: .destructive) { banning = user }
         }
         .confirmationDialog("Ban \(banning?.displayName ?? "them")? They're signed out everywhere and removed from every group.", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
             Button("Ban from server", role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
@@ -284,6 +282,93 @@ struct ReportsView: View {
                 model.toast(ErrorText.describe(error), .error)
             }
         }
+    }
+}
+
+/// Who is banned, when and by whom, as on the desktop, to let them back in.
+struct BansView: View {
+    let serverId: String
+
+    @Environment(AppModel.self) private var model
+    @State private var bans: [BanView]?
+    @State private var target: BanView?
+
+    var body: some View {
+        let server = model.servers[serverId]
+        // Someone unbanned anywhere else is off it at once, before it's read again.
+        let shown = (bans ?? []).filter { server?.users[$0.userId]?.banned != false }
+        List {
+            Section {
+                if bans != nil, shown.isEmpty {
+                    Text("Nobody is banned.").foregroundStyle(Theme.text2)
+                }
+                ForEach(shown) { ban in
+                    let user = server?.users[ban.userId]
+                    let name = user?.displayName ?? "Unknown"
+                    let by = ban.bannedBy == server?.me?.userId ? "you" : server?.users[ban.bannedBy]?.displayName
+                    Button {
+                        if canUnban(ban) {
+                            target = ban
+                        } else {
+                            model.toast("Only the server's owner can unban an admin.")
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            AvatarView(name: name, seed: ban.userId, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(name).foregroundStyle(Theme.text1)
+                                Text("\(user.map { "@\($0.username) · " } ?? "")Banned \(by.map { "by \($0) " } ?? "")on \(Format.full(ban.bannedAt))")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.text3)
+                            }
+                            Spacer()
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions {
+                        if canUnban(ban) {
+                            Button("Unban") { unban(ban) }.tint(Theme.green)
+                        }
+                    }
+                    .accessibilityIdentifier(A11y.Settings.ban(user?.username ?? ban.userId))
+                }
+            } footer: {
+                Text("Unbanned, people can sign in again, and they're back in their direct messages and channels. Groups have to add them again.")
+            }
+            .listRowBackground(Theme.bg2)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg0)
+        .navigationTitle("Bans")
+        .navigationBarTitleDisplayMode(.inline)
+        // Read again whenever someone is banned or unbanned, from here or anywhere else.
+        .task(id: (server?.users.values.filter { $0.banned && !$0.deleted }.map(\.id) ?? []).sorted()) { await load() }
+        .confirmationDialog(target.flatMap { server?.users[$0.userId]?.displayName } ?? "", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }), presenting: target) { ban in
+            Button("Unban") { unban(ban) }
+        }
+    }
+
+    /// The owner can unban anyone, and admins only members, as with banning.
+    private func canUnban(_ ban: BanView) -> Bool {
+        let server = model.servers[serverId]
+        guard let user = server?.users[ban.userId] else { return false }
+        return server?.me?.role == .owner || user.role == .member
+    }
+
+    private func unban(_ ban: BanView) {
+        Task {
+            do {
+                try await model.core.session(serverId).unbanUser(ban.userId)
+                await load()
+            } catch {
+                model.toast(ErrorText.describe(error), .error)
+            }
+        }
+    }
+
+    private func load() async {
+        bans = (try? await model.core.session(serverId).getBans()) ?? []
     }
 }
 

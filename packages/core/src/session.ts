@@ -118,6 +118,7 @@ import {
 import type {
   Attachment,
   AvatarRef,
+  BanView,
   CallView,
   ChannelType,
   ChannelView,
@@ -7182,6 +7183,12 @@ export class ServerSession {
 
   unbanUser(userId: string): Promise<unknown> {
     return this.api.unban(userId);
+  }
+
+  /** Who is banned, when and by whom, the latest first. For admins. */
+  async getBans(): Promise<BanView[]> {
+    const { bans } = await this.api.bans();
+    return bans.map((ban) => ({ userId: ban.user_id, bannedAt: ban.banned_at, bannedBy: ban.banned_by }));
   }
 
   serverUrl(): string {

@@ -628,6 +628,9 @@ CREATE INDEX sessions_device ON sessions(device_id);
 -- What deleting a group cascades to, which would otherwise read all of each table.
 CREATE INDEX welcomes_group ON welcomes(group_id);
 CREATE INDEX history_grants_group ON history_grants(group_id);
+`, `
+-- Which admin banned someone, for the server's list of bans.
+ALTER TABLE users ADD COLUMN banned_by TEXT;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.
