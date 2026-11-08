@@ -19,14 +19,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: pick one ID (e.g. `chat.zuna.desktop`, the macOS bundle ID); set it at startup with `cx.set_app_identity` (gpui_windows/src/platform.rs:939); stamp it on the Start-menu shortcut in NSIS; use the same constant in quiet.rs.
 - Check after: `npm run install:windows`, then Focus Assist "Priority only" with Zuna added. Note it in FEATURE_PARITY.
 
-### Draw and write macOS notification pictures off the window's thread
-- Where: platform/macos/notifications.rs:143-169 (`show` runs on the window's thread), 241-253 (decode, Lanczos resize, PNG encode, file write); platform/notification.rs:73-82 (the first set of initials calls `load_system_fonts()`)
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: every macOS notification does image work and file IO on the window's thread, and the first can load every system font. Linux already does this on its own thread (linux/notifications.rs:67-84).
-- Suggested change: move `picture_attachment` and `addNotificationRequest` to a background thread (`UNUserNotificationCenter` is thread-safe); warm the font options once on a worker, or load only Inter plus a small fallback set.
-- Check after: mac-voice-check.mjs (`delivered`).
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps

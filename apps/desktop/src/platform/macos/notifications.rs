@@ -145,32 +145,48 @@ impl NotificationCenter {
     /// Shows one.
     pub fn show(&mut self, payload: Payload, _reduce_motion: bool, _cx: &mut Context<Self>) {
         let sound = SOUND_NEXT.swap(false, Ordering::Relaxed);
-        let Some(center) = &self.center else { return };
+        if self.center.is_none() {
+            return;
+        }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = format!("zuna-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
-        let content = UNMutableNotificationContent::new();
-        content.setTitle(&NSString::from_str(&payload.title));
-        content.setBody(&NSString::from_str(&payload.body));
-        // Grouped by chat in Notification Center.
-        content.setThreadIdentifier(&NSString::from_str(&format!("{}/{}", payload.server_id, payload.key)));
-        if sound {
-            content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(SOUND_FILE))));
-        }
-        if let Some(attachment) = picture_attachment(&id, payload.picture.as_ref()) {
-            content.setAttachments(&NSArray::from_retained_slice(&[attachment]));
-        }
-        // SAFETY: the dictionary holds only strings, which a notification can keep.
-        unsafe { content.setUserInfo(&About::info(&payload)) };
-        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id), &content, None);
-        let done = RcBlock::new(|error: *mut NSError| {
-            // SAFETY: when it isn't null, the error is valid for the call.
-            if let Some(error) = unsafe { error.as_ref() } {
-                log::warn!("the notification wasn't shown: {}", error.localizedDescription());
-            }
-        });
-        center.center.addNotificationRequest_withCompletionHandler(&request, Some(&done));
+        // Drawing the chat's picture, writing it and handing the request over happen on a thread
+        // of their own, as on Linux: the window's thread would wait on all of it, and the first
+        // initials load the system's fonts. The center is the same one from any thread.
+        std::thread::Builder::new()
+            .name("zuna-notification".into())
+            .spawn(move || show_on_this_thread(&id, &payload, sound))
+            .ok();
     }
+}
 
+/// Shows one, from a thread of its own.
+fn show_on_this_thread(id: &str, payload: &Payload, sound: bool) {
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let content = UNMutableNotificationContent::new();
+    content.setTitle(&NSString::from_str(&payload.title));
+    content.setBody(&NSString::from_str(&payload.body));
+    // Grouped by chat in Notification Center.
+    content.setThreadIdentifier(&NSString::from_str(&format!("{}/{}", payload.server_id, payload.key)));
+    if sound {
+        content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(SOUND_FILE))));
+    }
+    if let Some(attachment) = picture_attachment(&id, payload.picture.as_ref()) {
+        content.setAttachments(&NSArray::from_retained_slice(&[attachment]));
+    }
+    // SAFETY: the dictionary holds only strings, which a notification can keep.
+    unsafe { content.setUserInfo(&About::info(payload)) };
+    let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id), &content, None);
+    let done = RcBlock::new(|error: *mut NSError| {
+        // SAFETY: when it isn't null, the error is valid for the call.
+        if let Some(error) = unsafe { error.as_ref() } {
+            log::warn!("the notification wasn't shown: {}", error.localizedDescription());
+        }
+    });
+    center.addNotificationRequest_withCompletionHandler(&request, Some(&done));
+}
+
+impl NotificationCenter {
     /// Takes back notifications matching everything given: a server's, read chats', or one
     /// message's, from among all Notification Center shows, this run's or an earlier one's.
     pub fn clear(&mut self, server_id: Option<&str>, keys: Option<&[String]>, message_id: Option<&str>, _cx: &mut Context<Self>) {
