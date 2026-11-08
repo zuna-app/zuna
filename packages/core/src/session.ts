@@ -690,6 +690,7 @@ export class ServerSession {
     this.markStaleSendsFailed();
     this.forgetOldRemovedGroups();
     this.forgetUnprovenDeletions();
+    this.forgetLongExpired();
     void this.rebuildSearchIndex();
     this.connect();
   }
@@ -4697,6 +4698,15 @@ export class ServerSession {
 
   // --- Disappearing messages ---
 
+  /**
+   * The IDs of disappearing messages that went from here are kept so that none comes back, but
+   * not for ever: once longer ago than a message can last, and a month more, any copy that
+   * arrived would have run out by its own signed time and go at once anyway.
+   */
+  private forgetLongExpired(): void {
+    this.db.run("DELETE FROM expired WHERE at < ?", [Date.now() - MAX_EXPIRES_IN * 1000 - 30 * 24 * 3600 * 1000]);
+  }
+
   private hasExpired(groupId: string, id: string): boolean {
     return !!this.db.get("SELECT 1 FROM expired WHERE group_id = ? AND id = ?", [groupId, id]);
   }
@@ -4713,7 +4723,7 @@ export class ServerSession {
         this.db.run("DELETE FROM media WHERE row_id = ?", [row.row_id]);
         this.db.run("DELETE FROM messages WHERE row_id = ?", [row.row_id]);
       }
-      this.db.run("INSERT OR IGNORE INTO expired(group_id, id) VALUES(?, ?)", [groupId, id]);
+      this.db.run("INSERT OR IGNORE INTO expired(group_id, id, at) VALUES(?, ?, ?)", [groupId, id, Date.now()]);
     });
     if (row) this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
   }
@@ -7139,8 +7149,13 @@ export class ServerSession {
         this.db.transaction(() => {
           for (const row of rows) {
             after = row.row_id;
-            const body = this.storedBody(row);
-            if (body) this.indexMessage(row.row_id, row.group_id, body);
+            // One message that won't open is left out, rather than leaving search empty, again at every start.
+            try {
+              const body = this.storedBody(row);
+              if (body) this.indexMessage(row.row_id, row.group_id, body);
+            } catch (error) {
+              console.warn("[zuna] a message couldn't be indexed", error);
+            }
           }
         });
         await new Promise((resolve) => setTimeout(resolve, 0));

@@ -175,6 +175,11 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE messages ADD COLUMN raw_reactions BLOB;`,
   // Pins went up one by one once; the manifest carries them all now, and nothing read this.
   `ALTER TABLE pinned_identities DROP COLUMN uploaded;`,
+  // When each disappearing message went, so its ID can be let go long after. Those already here count from now.
+  `
+  ALTER TABLE expired ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
+  UPDATE expired SET at = CAST(strftime('%s', 'now') AS INTEGER) * 1000;
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

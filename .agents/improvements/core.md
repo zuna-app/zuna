@@ -52,22 +52,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: keep `ServerSession` as the facade (the RPC allowlist depends on it); move standalone parts into modules taking a small context interface (`{ api, db, emit, seal, open, kv }`), with thin public methods left on the facade. Before moving anything the tests touch, add a typed test-only accessor (e.g. `session.testing`), so renames fail at compile time.
 - Check after: `npm run typecheck`, then the whole core suite. The public RPC surface must stay the same, or CoreAPI.swift and the desktop's `call("…")` strings must follow.
 
-### Prune the `expired` table
-- Where: packages/core/src/db.ts:143; session.ts:4500-4511 (`eraseExpired` keeps every ID forever), 4290-4293 (a resent message whose signed expiry has passed is erased on arrival anyway)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: busy chats with disappearing messages grow `expired` without limit; a row there is only needed for replies ("deleted" in `replyPreview`, 4691) and copies that arrive undecryptable.
-- Suggested change: store when each id expired (a new column at the end of `MIGRATIONS`) and delete rows older than `MAX_EXPIRES_IN` plus a margin on `start()`, as `forgetUnprovenDeletions` does.
-- Check after: `npx vitest run test/disappearing.test.ts`.
-
-### Don't let one unreadable row abort the search index rebuild
-- Where: packages/core/src/session.ts:6889-6911 (`rebuildSearchIndex`: `storedBody(row)` throws when a body fails to open; the catch logs and leaves `search` and `media` emptied, and the next start empties them again)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: one bad row leaves search, the chat details lists and the unread "@" counts (from `media`) empty, on every start.
-- Suggested change: catch per row inside the batch loop and skip it.
-- Check after: `npx vitest run test/mentions.test.ts test/media.test.ts`.
-
 ### Build the test server once per run and pick a free port
 - Where: packages/core/test/helpers.ts:135-143 (`buildServer` runs `go build` on every `TestServer.start()`; 17 test files construct one), 173 (random port in 20000–40000, never checked)
 - Category: cleanup
