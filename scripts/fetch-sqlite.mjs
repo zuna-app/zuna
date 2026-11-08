@@ -1,6 +1,7 @@
-// Downloads the SQLite amalgamation the iOS app compiles in. It's pinned to the
-// version the desktop app ships (@sqlite.org/sqlite-wasm), so both clients run
-// the same SQLite, including FTS5 with contentless_delete.
+// Downloads the SQLite amalgamation the iOS app compiles in. Every client runs the same
+// SQLite, including FTS5 with contentless_delete, so move these together: VERSION here,
+// `@sqlite.org/sqlite-wasm` in packages/ui/package.json, which the web app ships, and
+// `rusqlite` in apps/desktop/Cargo.toml, whose bundled libsqlite3-sys the native app links.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";

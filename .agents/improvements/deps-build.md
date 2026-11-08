@@ -164,13 +164,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: in one commit, `vite@^8.3.6` in web, site and ui, `@vitejs/plugin-react@^6.2.1` in web and site, `vite-node@^6.0.0` at the root; check `npm ls vite` shows one version. A build-speed and maintenance move, not a fix: do it last. (The user's memory still records a "keep one Vite major" preference; keeping every workspace on the same major is still right.)
 - Check after: `npm run typecheck`; `npm test`; `npm run build -w @zuna/web` and web-check.mjs; `npm run build -w @zuna/site` and site-check.mjs; `npm run dev:server` (dev-bots through vite-node).
 
-### Fix the comments that still describe the Electron app or WebAssembly on the desktop
-- Where: crypto/Cargo.toml:6, :24; crypto/src/lib.rs:3-6; crypto/src/wasm.rs:1 ("The desktop loads it as WebAssembly"; it calls it natively; WebAssembly is for the web and tests); crypto/src/native.rs:1 and Cargo.toml:32 (UniFFI "for the iOS app" only); apps/desktop/core-bundle/build.mjs:1 ("for the Windows app"); scripts/lib.mjs:59-63 and scripts/build-screenshare.mjs:2-4 ("shares through Chromium without it"); scripts/windows-app.mjs:36, linux-app.mjs:35, macos-app.mjs:42 ("The same version as the desktop app", now the root package.json's); scripts/fetch-sqlite.mjs:1-3 ("the version the desktop app ships (@sqlite.org/sqlite-wasm)": the web ships that, and the native app's rusqlite 0.41 / libsqlite3-sys 0.39.1 bundles 3.54.1 too). CLAUDE.md:178 and LINUX_APP_PLAN:176 are in docs.md.
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: edit each to describe the current state. In fetch-sqlite.mjs list all three pins (this file, `@sqlite.org/sqlite-wasm` in packages/ui, `rusqlite` in apps/desktop/Cargo.toml) as things to move together.
-- Check after: `git grep -n "desktop-electron-legacy\|npm run dist\b"` turns up only historical plan documents.
-
 ### Use a free port and clean up on failure in the e2e web app helper
 - Where: tests/e2e/src/web-app.ts:20, :32-40, :44-56; tests/e2e/src/host.ts:100
 - Category: robustness
