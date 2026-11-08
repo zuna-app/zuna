@@ -253,6 +253,12 @@ export interface CommitRequest {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * What a request is given on top for each byte it sends, so a file's chunk or a big
+ * commit has time to go up over a slow link: enough for 64 kbit/s, up to a limit.
+ */
+const MS_PER_BYTE_SENT = 1 / 8;
+const LONGEST_REQUEST_MS = 10 * 60_000;
 
 /**
  * A server that makes its own certificate, reached by its IP address, is trusted
@@ -336,6 +342,8 @@ export class Api {
       payload = text;
       bytes = utf8(text);
     }
+    const sent = raw ? (raw instanceof Uint8Array ? raw.length : raw.size) : bytes.length;
+    const timeout = Math.min(REQUEST_TIMEOUT_MS + Math.ceil(sent * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS);
     let response: Response;
     for (let attempt = 0; ; attempt++) {
       if (this.prove && method !== "GET") {
@@ -349,7 +357,7 @@ export class Api {
           method,
           headers,
           body: payload,
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(timeout),
         });
       } catch {
         throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");

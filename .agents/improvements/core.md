@@ -36,14 +36,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: remove the writes and arguments; leave the old migration; optionally drop the column in a new migration at the end of `MIGRATIONS`; update e2e.test.ts:358 if it goes.
 - Check after: `npx tsc --noEmit`, then `npx vitest run test/e2e.test.ts test/rotation.test.ts`.
 
-### Give file chunk uploads a timeout that fits a 1 MiB chunk
-- Where: packages/core/src/api.ts:255 (`REQUEST_TIMEOUT_MS = 30_000`), 531 (`uploadChunk` goes through `request`), 534-546 (`downloadChunk` gets 120 s); session.ts:162 (`CHUNK_SIZE = 1 MiB`), 170 (`UPLOAD_CONCURRENCY = 3`)
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: three 1 MiB chunks upload in parallel with a 30 s limit each, so any uplink slower than ~0.8 Mbit/s times out on every chunk (common on mobile): those people can't send photos or videos at all. Downloads get 120 s per chunk.
-- Suggested change: give `request` an optional timeout and pass ~120 s from `uploadChunk` (and `updateIcon`). Optionally retry a chunk once on `status === 0`.
-- Check after: `npx vitest run test/media.test.ts`.
-
 ### Stop the other upload and download workers once one chunk fails
 - Where: packages/core/src/session.ts:5729-5740 (`uploadBlob`), 5752-5763 (`downloadFile`)
 - Category: robustness
