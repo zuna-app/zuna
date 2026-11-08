@@ -170,4 +170,4 @@ Its host is never a chat server, so a chat server, or someone who breaks into on
 
 ## Installing
 
-Installed apps only hold their advantage if the app you installed is genuine, so install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases). Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.
+Installed apps only hold their advantage if the app you installed is genuine, so install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases). Each release lists SHA-256 checksums for its files. Releases don't carry the desktop app yet. Once they do, signed Windows builds update themselves, and only ever to an update signed by the same publisher. macOS and Linux builds don't update themselves yet.

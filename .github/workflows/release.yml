@@ -11,8 +11,10 @@ on:
 # Whatever signs or publishes waits for every test and advisory check in ci.yml,
 # and runs in the "release" environment. Its signing secrets belong there rather
 # than in the repository, with the other maintainer as a required reviewer and
-# only v* tags allowed, so that one account or token alone can't ship an update
-# that installed apps take on their own.
+# only v* tags allowed, so that one account or token alone can't ship a release,
+# whose binaries and images servers take as they are. It builds no desktop app
+# yet: that job went with the Electron app, and the native app's is still to be
+# written (docs/ROADMAP.md).
 permissions:
   contents: read
 

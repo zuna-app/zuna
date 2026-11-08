@@ -175,7 +175,7 @@ The same five as the Electron app: a `.deb`, an `.rpm`, a pacman package, an App
 - **Made with nfpm** for the three packages, from one file of its settings, run with `go run` at a pinned version, since Go is already needed for the server; the AppImage as AppImage's own runtime, a tagged release pinned by its hash, with the program's folder appended as SquashFS by `mksquashfs`, which is what `appimagetool` does; and the `.tar.gz` by the script.
 - **Laid out as:** `/usr/lib/zuna/zuna`, `/usr/lib/zuna/screenshare/` with the screen capture and FFmpeg's libraries, `/usr/bin/zuna` linking to the program, `/usr/share/applications/zuna.desktop`, and the icons in hicolor from `apps/desktop-electron-legacy/resources/icons`.
 - **What they depend on:** `libxkbcommon`, `wayland`, `vulkan-icd-loader` and a Vulkan driver, `fontconfig`, `freetype2`, `pipewire`, `xdg-desktop-portal` with a backend for the session, and a color emoji font such as Noto Color Emoji. Recommended: a Secret Service and `geoclue`.
-- **Built here, for now:** `npm run dist:linux` makes them, and the release workflow stays as it is until it's decided otherwise.
+- **Built here, for now:** `npm run dist:linux` makes them. The release workflow has no job for the native app yet.
 - **glibc:** the program needs the glibc it was built against or newer. Packages built on this machine need Arch's, which is fine here. Once they're published, they'll have to be built in an old enough container, such as Debian 12's or Ubuntu 22.04's.
 
 ## Zuna's changes to GPUI

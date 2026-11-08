@@ -44,8 +44,9 @@ The iPhone app's approach carries over:
 
 ## Other ideas
 
+- **Releasing the native app.** The release workflow's desktop job went with the Electron app on 2026-11-08. It needs one that builds and signs the Windows installer (`npm run dist:windows`, with `CSC_LINK` and `CSC_KEY_PASSWORD`), the Linux packages (`npm run dist:linux`, in a container old enough for glibc), and later the macOS app.
 - **Automatic updates** for the native app on macOS, as it has on Windows, which needs a signed release pipeline first.
-- **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases. `release.yml` already accepts them.
+- **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases, which the native app's release job, still to be written, would take.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealed sender**, to hide from the server who sent a message.
 - **Encrypted backups** you can export and import yourself.
