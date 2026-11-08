@@ -25,7 +25,11 @@ pub struct SidePanel {
     key: String,
     search: Entity<TextInput>,
     results: Vec<SearchResult>,
+    /// The chat's pinned messages, or None while the first answer is on its way.
     pins: Option<Vec<MessageView>>,
+    /// Which of the loaded messages were pinned when the pins were last asked for, so
+    /// that pinning or unpinning one asks again, as the web does.
+    pins_for: Option<String>,
     searching: Option<Task<()>>,
     /// From a key press until its results are in, so "No messages match" waits for them.
     search_pending: bool,
@@ -74,6 +78,7 @@ impl SidePanel {
             search,
             results: Vec::new(),
             pins: None,
+            pins_for: None,
             searching: None,
             search_pending: false,
             counts: None,
@@ -132,11 +137,12 @@ impl SidePanel {
     }
 
     fn load_pins(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
-        if self.pins.is_some() {
+        let Some(group) = conversation.group_id.clone() else { return };
+        let pinned = self.state.read(cx).lists.get(&group).map(|list| list.items.iter().filter(|item| item.pinned_at.is_some()).map(|item| item.id.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default();
+        if self.pins_for.as_deref() == Some(pinned.as_str()) {
             return;
         }
-        let Some(group) = conversation.group_id.clone() else { return };
-        self.pins = Some(Vec::new());
+        self.pins_for = Some(pinned);
         let call = self.state.read(cx).core.call(Some(&self.server_id), "loadPins", vec![json!(group)]);
         cx.spawn(async move |panel, cx| {
             if let Ok(value) = call.await {
@@ -1094,8 +1100,11 @@ impl Render for SidePanel {
             Some(Panel::Pins) => {
                 self.load_pins(&conversation, cx);
                 let pins = self.pins.clone().unwrap_or_default();
-                if pins.is_empty() {
-                    vec![div().p(px(30.)).flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(icon("pin", 22., theme.text3)).child("No pinned messages yet.").into_any_element()]
+                // Nothing while the first answer is on its way, rather than a moment of "nothing pinned".
+                if self.pins.is_none() {
+                    Vec::new()
+                } else if pins.is_empty() {
+                    vec![div().p(px(30.)).flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(icon("pin", 22., theme.text3)).child("Nothing is pinned yet. Right-click a message to pin it.").into_any_element()]
                 } else {
                     pins.iter().map(|message| self.result_row(message, &server, cx)).collect()
                 }

@@ -44,14 +44,6 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Refresh the pins panel when pins change, and don't flash the empty state while loading
-- Where: ui/side_panel.rs:115-133, 1071-1078; web: packages/ui/src/features/chat/SidePanel.tsx:627-638
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: pins are fetched once per panel and never again, so pinning or unpinning while the panel is open leaves the list stale. `pins` is set to an empty list before the call returns, so "No pinned messages yet." flashes on every open. The web reloads whenever the set of pinned ids changes, and shows nothing while loading.
-- Suggested change: keep `None` while loading, and reload when the ids of pinned messages in the loaded list change. Consider the web's empty text: "Nothing is pinned yet. Right-click a message to pin it."
-- Check after: `npm run dev:windows`; check iOS behaves the same.
-
 ### Scope named scroll handles to their owner instead of one global per name
 - Where: ui/scrollbar.rs:53-65; used by "conv-list", "member-list", "modal-body"/"modal-flow", "new-group-people", "picker-body", "composer-scroll"
 - Category: ux
