@@ -2966,6 +2966,11 @@ impl Render for ChatView {
         }
         self.update_mentions(&conversation, cx);
         let composer = if selecting { self.selection_bar(&conversation, cx) } else { self.composer_area(&conversation, cx) };
+        // A video message's preview is pulled each frame while it records, which nothing else
+        // asks for once Reduce motion stops the red dot's pulse.
+        if matches!(self.recording, Some(Recording::Round(_))) {
+            window.request_animation_frame();
+        }
         // The panel opens by growing from the right edge, its content sliding in with that
         // edge as the chat narrows, and closes the same way back. In a channel it grows from
         // the member list it takes the place of, and the list fades back in after it.

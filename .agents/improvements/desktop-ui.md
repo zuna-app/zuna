@@ -44,14 +44,6 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Don't tie the video-message preview's frame rate to an unrelated animation
-- Where: ui/chat.rs:776-798, 916, 940-952
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: the camera preview while recording a video message is pulled only when ChatView draws. It's smooth today only because the pulsing red dot asks for a frame every vsync. With Reduce motion on, the dot stops and the preview drops to the 100 ms tick (10 fps).
-- Suggested change: call `window.request_animation_frame()` from `round_preview` while recording.
-- Check after: `npm run dev:windows` with Reduce motion on.
-
 ### Keep the emoji/emote picker from rebuilding on every frame and hover
 - Where: ui/picker.rs:154-158, 213-218, 234-260; ui/mod.rs:121-122, 879
 - Category: perf
