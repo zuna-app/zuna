@@ -76,14 +76,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: move key-log-check.mjs to apps/screenshare/test/key-log-check.mjs, importing `ensureLiveKit` from scripts/lib.mjs and waiting for port 7880 to accept a connection instead of `setTimeout(1500)`; update SECURITY_DETAILS.md:111; move the README's measurements that SCREEN_SHARE.md:11 links to into docs/SCREEN_SHARE.md; delete poc/screenshare (with its package.json and lockfile) and the poc branch in lib.mjs:113-117.
 - Check after: `node apps/screenshare/test/key-log-check.mjs` on Windows after `npm run build:screenshare`; `npm run dev:server` still builds or reuses LiveKit.
 
-### Make dev/setup.sh check what the native app and its packages need, and Go 1.26
-- Where: dev/setup.sh:53-59, :61-71, :109-116; dev/build.sh:2, :24-29; scripts/linux-app.mjs:95, :137, :164; apps/desktop/Cargo.toml (Linux target: pipewire, ffmpeg-next)
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: medium
-- What's wrong: setup.sh asks for "Go 1.25 or newer", but server/go.mod says `go 1.26.0` (with `GOTOOLCHAIN=local`, 1.25 passes the check and then refuses the module). It checks only Node, Go, a C compiler, Rust and wasm-bindgen, then suggests dev/app.sh and dev/build.sh, which build the native app: its Linux dependencies `pipewire` and `ffmpeg-next` generate bindings with libclang and look up libpipewire-0.3 via pkg-config, and `dist:linux` calls `desktop-file-validate` (linux-app.mjs:95) and `mksquashfs` (:164). Following setup.sh then build.sh fails partway.
-- Suggested change: change 1.25 to 1.26 on lines 55, 56, 58. Add `missing()` checks for `clang` (pacman `clang`, dnf `clang`, apt `clang libclang-dev`), `pkg-config` (`pkgconf`, `pkgconf-pkg-config`, `pkg-config`), `desktop-file-validate` (`desktop-file-utils`), `mksquashfs` (`squashfs-tools`), and `pkg-config --exists libpipewire-0.3 xkbcommon fontconfig freetype2` (`pipewire`, `pipewire-devel libxkbcommon-devel fontconfig-devel freetype-devel`, `libpipewire-0.3-dev libxkbcommon-dev libfontconfig-dev libfreetype-dev`). Confirm the list by running setup.sh then dev/build.sh on clean Debian, Fedora and Arch.
-- Check after: on a clean VM, dev/setup.sh then dev/build.sh succeed; linux-check.mjs.
-
 ### Delete the leftover Electron folder here, then drop its .gitignore patterns
 - Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
 - Category: cleanup

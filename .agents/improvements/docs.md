@@ -7,6 +7,3 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 ### Fix the screen-share POC's setup step, which relies on Electron from the root
 - (Same as "Retire poc/screenshare" in deps-build.md, which has the fuller plan.) poc/screenshare/README.md:13, :19 say "Run `npm install` at the top of the repository first, for Electron"; the root no longer installs it.
 
-### Match dev/setup.sh's Go version to go.mod
-- (Folded into the dev/setup.sh entry in deps-build.md.) dev/setup.sh:55-58 asks for "Go 1.25 or newer"; go.mod:3 says 1.26.0, as do CLAUDE.md, README:96 and CONTRIBUTING:6.
-

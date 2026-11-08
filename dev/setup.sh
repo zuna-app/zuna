@@ -52,14 +52,29 @@ fi
 
 go_version=$(go env GOVERSION 2>/dev/null | sed 's/^go//; s/[^0-9.].*//')
 if [ -z "$go_version" ]; then
-  missing go golang "" "Go 1.25 or newer: https://go.dev/dl"
-elif ! at_least "$go_version" 1.25; then
+  missing go golang "" "Go 1.26 or newer: https://go.dev/dl"
+elif ! at_least "$go_version" 1.26; then
   by_hand="$by_hand
-  - Go 1.25 or newer, you have $go_version: https://go.dev/dl"
+  - Go 1.26 or newer, you have $go_version: https://go.dev/dl"
 fi
 
 # Rust links its build scripts with the system C compiler.
 command -v cc >/dev/null 2>&1 || missing gcc gcc build-essential "a C compiler, such as gcc"
+
+# The native app and its screen capture (dev/app.sh, dev/build.sh): their bindings to PipeWire
+# and FFmpeg are made with libclang, and the libraries they link to are found with pkg-config.
+command -v clang >/dev/null 2>&1 || missing clang clang "clang libclang-dev" "clang, with libclang"
+if ! command -v pkg-config >/dev/null 2>&1; then
+  missing pkgconf pkgconf-pkg-config pkg-config "pkg-config"
+elif ! pkg-config --exists libpipewire-0.3 xkbcommon fontconfig freetype2 glib-2.0 libva; then
+  missing "pipewire libxkbcommon fontconfig freetype2 glib2 libva" \
+    "pipewire-devel libxkbcommon-devel fontconfig-devel freetype-devel glib2-devel libva-devel" \
+    "libpipewire-0.3-dev libxkbcommon-dev libfontconfig-dev libfreetype-dev libglib2.0-dev libva-dev" \
+    "the headers of PipeWire, xkbcommon, fontconfig, FreeType, GLib and libva"
+fi
+# Its packages (npm run dist:linux, which dev/build.sh runs) check the .desktop file and make the AppImage with these.
+command -v desktop-file-validate >/dev/null 2>&1 || missing desktop-file-utils desktop-file-utils desktop-file-utils "desktop-file-validate, from desktop-file-utils"
+command -v mksquashfs >/dev/null 2>&1 || missing squashfs-tools squashfs-tools squashfs-tools "mksquashfs, from squashfs-tools"
 
 # With rustup the WebAssembly target is added below. Rust from the package
 # manager has it in a separate package.

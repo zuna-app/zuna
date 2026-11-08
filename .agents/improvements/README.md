@@ -18,8 +18,8 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 2 |
-| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 2 |
-| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 12 |
+| `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 1 |
+| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 11 |
 
 A few entries in `docs.md` and `deps-build.md` are only pointers to the same issue in another file.
 
