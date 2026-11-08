@@ -128,6 +128,9 @@ pub struct ChatView {
     /// list, a speaker for its name's #, and an × that hides it.
     pub beside_voice: Option<gpui::WeakEntity<super::voice_stage::VoiceStage>>,
     last_list_id: String,
+    /// The list was a window reading on when its rows last changed, so rows added at its end
+    /// are the page after, read into rather than moved to.
+    reading_on: bool,
     files: Vec<StagedFile>,
     /// What's being completed: ':' or '@', what's typed after it, and where it starts.
     trigger: Option<(char, String, usize)>,
@@ -189,7 +192,8 @@ pub struct ChatView {
 struct ListShape {
     loaded: bool,
     empty: bool,
-    detached: bool,
+    /// A window around an old message that hasn't read on to the newest yet.
+    reading_on: bool,
 }
 
 /// The chat's messages, which `ChatView` draws for it (`render_body`).
@@ -360,6 +364,7 @@ impl ChatView {
             call_stage: None,
             beside_voice: None,
             last_list_id: String::new(),
+            reading_on: false,
             drop_over: false,
             files: Vec::new(),
             trigger: None,
@@ -497,6 +502,7 @@ impl ChatView {
             self.unread_line = Some(first);
         }
         let new_rows: Vec<(String, u64)> = list.items.iter().map(|item| (item.id.clone(), fingerprint(item))).collect();
+        let paging = std::mem::replace(&mut self.reading_on, list.detached && list.has_newer);
         if new_rows == self.rows {
             // A jump to a message that's already loaded changes no rows.
             self.jump_if_asked(cx);
@@ -523,7 +529,14 @@ impl ChatView {
                 }
             }
             let added: Vec<String> = new_rows[old.len()..].iter().map(|(id, _)| id.clone()).collect();
-            if !added.is_empty() {
+            if !added.is_empty() && paging {
+                // The page after the window's end, which stays where it is to be read on into.
+                // At its end the list keeps no top of its own, and would follow the page down.
+                if self.list.logical_scroll_top().item_ix >= self.list.item_count() {
+                    let height = self.list.viewport_bounds().size.height;
+                    self.list.scroll_by(-height);
+                }
+            } else if !added.is_empty() {
                 let now = std::time::Instant::now();
                 {
                     let mut fresh = self.fresh.borrow_mut();
@@ -605,6 +618,10 @@ impl ChatView {
         if visible.start < 15 {
             self.state.update(cx, |state, cx| state.load_older(&list_id, cx));
         }
+        // And newer ones before the end of a window around an old message.
+        if visible.end + 15 > self.rows.len() && self.reading_on {
+            self.state.update(cx, |state, cx| state.load_newer(&list_id, cx));
+        }
         self.note_visible(visible, &list_id, cx);
         self.refresh_messages(cx);
         cx.notify();
@@ -660,7 +677,7 @@ impl ChatView {
         let Some(list) = state.lists.get(&group) else { return };
         // The list is in order, so the newest is found from the end, as this runs every frame.
         let newest = list.items.iter().rev().filter(|item| !item.id.starts_with("sys-")).find_map(|item| item.seq).unwrap_or(0.);
-        let up_to = if self.at_bottom && !list.detached { newest } else { self.visible_newest };
+        let up_to = if self.at_bottom && !(list.detached && list.has_newer) { newest } else { self.visible_newest };
         // Read only while the person is here to see it: not in a minimized window, nor one left in
         // front with nobody at it, as reading would take back the notification their phone is
         // waiting to show. They read it once they're back (`watch_activity`).
@@ -1399,7 +1416,8 @@ impl ChatView {
             }
             state.set_reply(&list_id, None, cx);
             state.drafts.remove(&key);
-            if state.lists.get(&list_id).is_some_and(|list| list.detached) {
+            // A window that has read on to the newest is already there.
+            if state.lists.get(&list_id).is_some_and(|list| list.detached && list.has_newer) {
                 state.return_to_latest(&list_id, cx);
             }
         });
@@ -2188,7 +2206,7 @@ impl ChatView {
         };
         let state = self.state.clone();
         let list_id = conversation.list_id();
-        let detached = self.state.read(cx).lists.get(&list_id).is_some_and(|list| list.detached);
+        let detached = self.state.read(cx).lists.get(&list_id).is_some_and(|list| list.detached && list.has_newer);
         div()
             .id("jump-present")
             .absolute()
@@ -2754,7 +2772,7 @@ impl ChatView {
         let theme = theme(cx);
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
         let is_channel = conversation.kind == "channel";
-        let list = self.state.read(cx).lists.get(&conversation.list_id()).map(|list| ListShape { loaded: list.loaded, empty: list.items.is_empty(), detached: list.detached });
+        let list = self.state.read(cx).lists.get(&conversation.list_id()).map(|list| ListShape { loaded: list.loaded, empty: list.items.is_empty(), reading_on: list.detached && list.has_newer });
         match &list {
             Some(list) if !list.loaded && list.empty => div().flex_1().flex().items_center().justify_center().child(spinner(18., theme.text2)).into_any_element(),
             Some(list) if list.empty => self.empty_chat(&conversation, cx),
@@ -2845,10 +2863,10 @@ impl ChatView {
                 let chat = cx.entity().downgrade();
                 let settle = gpui::canvas(move |_, _, cx| cx.defer(move |cx| chat.update(cx, |view, cx| view.settle_scroll(cx)).unwrap_or(())), |_, _, _, _| {}).absolute().size_0();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
-                let raised = !self.at_bottom || list.as_ref().is_some_and(|list| list.detached);
+                let raised = !self.at_bottom || list.as_ref().is_some_and(|list| list.reading_on);
                 let mention_button = self.mention_button(&conversation, raised, cx);
                 let jump_bar = (is_channel && raised).then(|| self.jump_present(&conversation, unread_below, cx));
-                let detached = list.as_ref().is_some_and(|list| list.detached);
+                let detached = list.as_ref().is_some_and(|list| list.reading_on);
                 let to_bottom_state = self.state.clone();
                 let list_id = conversation.list_id();
                 div()

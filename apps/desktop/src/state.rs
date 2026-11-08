@@ -100,6 +100,8 @@ pub struct MessageList {
     pub loaded: bool,
     /// Showing a window around a jump target, not the latest messages.
     pub detached: bool,
+    /// Such a window has messages after its newest, so it reads on rather than taking new ones.
+    pub has_newer: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -616,7 +618,8 @@ impl AppState {
         let Some(list) = self.lists.get_mut(&message.group_id) else { return };
         if let Some(index) = list.items.iter().position(|item| item.id == message.id) {
             list.items[index] = message;
-        } else if !list.detached {
+        } else if !(list.detached && list.has_newer) {
+            // A window around an old message takes new ones once it has read on to the newest.
             list.items.push(message);
             sort_messages(&mut list.items);
         }
@@ -870,7 +873,8 @@ impl AppState {
     pub fn load_older(&mut self, list_id: &str, cx: &mut Context<Self>) {
         let Some(server_id) = self.active_server.clone() else { return };
         let Some(list) = self.lists.get_mut(list_id) else { return };
-        if list.loading || !list.has_more || list.detached {
+        // In a window around a message jumped to too, which reads on both ways.
+        if list.loading || !list.has_more {
             return;
         }
         let Some(oldest) = list.items.iter().find_map(|item| item.seq) else { return };
@@ -889,6 +893,58 @@ impl AppState {
             }
             cx.notify();
         });
+    }
+
+    /// Reads on from a window around a message jumped to, a page at a time, until it reaches the
+    /// newest, where it takes new messages again.
+    pub fn load_newer(&mut self, list_id: &str, cx: &mut Context<Self>) {
+        let Some(server_id) = self.active_server.clone() else { return };
+        let Some(list) = self.lists.get_mut(list_id) else { return };
+        if list.loading || !list.detached || !list.has_newer {
+            return;
+        }
+        let Some(newest) = list.items.iter().rev().find_map(|item| item.seq) else { return };
+        list.loading = true;
+        let list_id = list_id.to_string();
+        let core = self.core.clone();
+        cx.spawn(async move |this, cx| {
+            let page: Option<MessagePage> = core.call(Some(&server_id), "loadNewer", vec![json!(list_id), json!(newest)]).await.ok().map(from_value);
+            let caught_up = page.as_ref().is_some_and(|page| !page.has_more);
+            let mut end = newest;
+            this.update(cx, |state, cx| {
+                let Some(list) = state.lists.get_mut(&list_id).filter(|list| list.detached && list.has_newer) else { return };
+                list.loading = false;
+                if let Some(page) = page {
+                    let known: HashSet<String> = list.items.iter().map(|item| item.id.clone()).collect();
+                    list.items.extend(page.messages.into_iter().filter(|m| !known.contains(&m.id)));
+                    sort_messages(&mut list.items);
+                    list.has_newer = page.has_more;
+                    end = list.items.iter().rev().find_map(|item| item.seq).unwrap_or(newest);
+                }
+                cx.notify();
+            })
+            .ok();
+            if !caught_up {
+                return;
+            }
+            // What came while the window wasn't taking new messages, between that page and now.
+            let Ok(value) = core.call(Some(&server_id), "loadMessages", vec![json!(list_id)]).await else { return };
+            let latest: MessagePage = from_value(value);
+            this.update(cx, |state, cx| {
+                let Some(list) = state.lists.get_mut(&list_id).filter(|list| list.detached && !list.has_newer) else { return };
+                for message in latest.messages {
+                    if let Some(index) = list.items.iter().position(|item| item.id == message.id) {
+                        list.items[index] = message;
+                    } else if message.seq.is_none_or(|seq| seq > end) {
+                        list.items.push(message);
+                    }
+                }
+                sort_messages(&mut list.items);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn jump_to_message(&mut self, group_id: &str, message_id: &str, cx: &mut Context<Self>) {
@@ -914,7 +970,7 @@ impl AppState {
             let mut items: Vec<MessageView> = from_value(window);
             sort_messages(&mut items);
             this.update(cx, |state, cx| {
-                state.lists.insert(group.clone(), MessageList { items, has_more: true, loading: false, loaded: true, detached: true });
+                state.lists.insert(group.clone(), MessageList { items, has_more: true, loading: false, loaded: true, detached: true, has_newer: true });
                 state.jump_target = Some((group, id, nonce));
                 cx.notify();
             })
