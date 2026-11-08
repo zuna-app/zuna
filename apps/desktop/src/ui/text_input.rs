@@ -145,6 +145,8 @@ pub fn bind_keys(cx: &mut App) {
 #[derive(Clone, Debug, PartialEq)]
 pub enum InputEvent {
     Changed,
+    /// The caret moved without the text changing: a click, an arrow, Home or End.
+    CaretMoved,
     /// Enter, in a field where Enter doesn't make a new line.
     Submit,
     Escape,
@@ -291,7 +293,16 @@ impl TextInput {
 
     /// Replaces a range of the text, leaving the caret after what was put in.
     pub fn replace_range(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
-        let range = range.start.min(self.content.len())..range.end.min(self.content.len());
+        // Either end may be stale or reversed, which String::replace_range would panic on.
+        let snap = |offset: usize| {
+            let mut offset = offset.min(self.content.len());
+            while !self.content.is_char_boundary(offset) {
+                offset -= 1;
+            }
+            offset
+        };
+        let (start, end) = (snap(range.start), snap(range.end));
+        let range = start.min(end)..start.max(end);
         self.content.replace_range(range.clone(), text);
         let caret = range.start + text.len();
         self.selected_range = caret..caret;
@@ -331,13 +342,14 @@ impl TextInput {
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let before = self.cursor_offset();
         self.selected_range = offset..offset;
         self.selection_reversed = false;
-        self.show_caret(cx);
-        cx.notify();
+        self.caret_moved(before, cx);
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let before = self.cursor_offset();
         if self.selection_reversed {
             self.selected_range.start = offset
         } else {
@@ -347,8 +359,15 @@ impl TextInput {
             self.selection_reversed = !self.selection_reversed;
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
+        self.caret_moved(before, cx);
+    }
+
+    fn caret_moved(&mut self, before: usize, cx: &mut Context<Self>) {
         self.show_caret(cx);
-        cx.notify()
+        if self.cursor_offset() != before {
+            cx.emit(InputEvent::CaretMoved);
+        }
+        cx.notify();
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {

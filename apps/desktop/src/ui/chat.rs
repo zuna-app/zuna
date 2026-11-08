@@ -687,6 +687,12 @@ impl ChatView {
                 self.update_link(&text, cx);
                 cx.notify();
             }
+            // Moving out of a ":" or "@" closes its suggestions, and moving into one opens them.
+            InputEvent::CaretMoved if self.current_trigger(cx) != self.trigger => {
+                let Some(conversation) = self.conversation(cx) else { return };
+                self.update_suggestions(&conversation, cx);
+                cx.notify();
+            }
             InputEvent::Escape => {
                 let list_id = self.last_list_id.clone();
                 let editing = self.state.read(cx).editing.contains_key(&list_id);
@@ -1129,17 +1135,21 @@ impl ChatView {
 
     // --- Suggestions, link previews and files ---
 
-    /// What ":" or "@" just before the caret asks to complete, and what fits it.
-    fn update_suggestions(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
+    /// The ":" or "@" just before the caret, what follows it, and where it starts.
+    fn current_trigger(&self, cx: &gpui::App) -> Option<(char, String, usize)> {
         static TRIGGER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$").unwrap());
         let input = self.composer.read(cx);
-        let text = input.text().to_string();
+        let text = input.text();
         let caret = input.cursor().min(text.len());
-        let trigger = TRIGGER.captures(&text[..caret]).and_then(|found| {
-            let kind = found[1].chars().next()?;
-            let query = found[2].to_lowercase();
-            (kind == ':' || !query.is_empty()).then(|| (kind, query, caret - found[2].len() - 1))
-        });
+        let found = TRIGGER.captures(text.get(..caret)?)?;
+        let kind = found[1].chars().next()?;
+        let query = found[2].to_lowercase();
+        (kind == ':' || !query.is_empty()).then(|| (kind, query, caret - found[2].len() - 1))
+    }
+
+    /// What ":" or "@" just before the caret asks to complete, and what fits it.
+    fn update_suggestions(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
+        let trigger = self.current_trigger(cx);
         let changed = trigger.as_ref().map(|(kind, query, _)| (*kind, query.clone())) != self.trigger.as_ref().map(|(kind, query, _)| (*kind, query.clone()));
         self.trigger = trigger.clone();
         let state = self.state.read(cx);
@@ -1209,7 +1219,9 @@ impl ChatView {
     }
 
     fn apply_suggestion(&mut self, index: usize, cx: &mut Context<Self>) {
-        let (Some((_, _, start)), Some(suggestion)) = (self.trigger.clone(), self.suggestions.get(index).cloned()) else { return };
+        // Only while the caret is still in the ":" or "@" the suggestions were made for.
+        let trigger = self.current_trigger(cx).filter(|trigger| Some(trigger) == self.trigger.as_ref());
+        let (Some((_, _, start)), Some(suggestion)) = (trigger, self.suggestions.get(index).cloned()) else { return };
         let caret = self.composer.read(cx).cursor();
         self.composer.update(cx, |input, cx| input.replace_range(start..caret, &suggestion.insert, cx));
     }
