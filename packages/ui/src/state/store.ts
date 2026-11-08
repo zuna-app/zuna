@@ -221,6 +221,8 @@ export const useApp = create<AppState>((set, get) => {
       const server = state.servers[serverId];
       if (!server) return state;
       const changes = typeof patch === "function" ? patch(server) : patch;
+      // Nothing that differs, as with presence for someone not known here, wakes nobody.
+      if (Object.entries(changes).every(([key, value]) => server[key as keyof ServerState] === value)) return state;
       return { servers: { ...state.servers, [serverId]: { ...server, ...changes } } };
     });
 

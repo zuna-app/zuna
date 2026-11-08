@@ -19,7 +19,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 |---|---|---|
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 2 |
 | `server.md` | `server/` and `deploy/`: queries, indexes, limits, shutdown, push | 1 |
-| `web.md` | `packages/ui` and `apps/web`: re-renders, Escape, caches, Platform leftovers | 22 |
+| `web.md` | `packages/ui` and `apps/web`: re-renders, Escape, caches, Platform leftovers | 21 |
 | `desktop-ui.md` | `apps/desktop/src/ui` and `state.rs`: per-frame work, caches | 25 |
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 30 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 15 |

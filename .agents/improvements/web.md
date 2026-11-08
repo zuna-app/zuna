@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Skip store updates that change nothing
-- Where: packages/ui/src/state/store.ts:200-206 (`patchServer`), 443-449 (presence for an unknown user returns `{}`), 458-466 (the typing expiry returns `{}`)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: an empty patch still produces a new server object and wakes every subscriber.
-- Suggested change: in `patchServer`, return `state` unchanged when `Object.keys(changes).length === 0`.
-- Check after: web check.
-
 ### Keep the emote picker's grid from re-rendering on every hover
 - Where: packages/ui/src/features/chat/EmotePicker.tsx:38,113-118
 - Category: perf
