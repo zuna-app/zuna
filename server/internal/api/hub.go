@@ -210,13 +210,6 @@ func (h *Hub) ToAllExcept(exceptUser string, event Event) {
 	}
 }
 
-// Connections is how many live connections a user has.
-func (h *Hub) Connections(userID string) int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.conns[userID])
-}
-
 // Disconnect closes every connection of a user or, if deviceID is set, of one device.
 func (h *Hub) Disconnect(userID, deviceID string) {
 	h.mu.RLock()
@@ -336,9 +329,15 @@ func (h *Hub) wentAway(userID, deviceID string, linger time.Duration) {
 	h.away[userID] = away
 }
 
-func (h *Hub) add(c *conn, hidden bool) {
+// add takes a connection in, unless its user already has as many as anyone may, which
+// it says by returning false. The count and the adding are under one lock, so
+// connections arriving together can't all get past the limit.
+func (h *Hub) add(c *conn, hidden bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if len(h.conns[c.userID]) >= maxConnsPerUser {
+		return false
+	}
 	h.hidden[c.userID] = hidden
 	if h.conns[c.userID] == nil {
 		h.conns[c.userID] = map[*conn]struct{}{}
@@ -346,6 +345,7 @@ func (h *Hub) add(c *conn, hidden bool) {
 	h.conns[c.userID][c] = struct{}{}
 	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
 	c.deliver(h.activity(c.userID))
+	return true
 }
 
 // SetActive records whether the person is using a device right now, which is
@@ -568,17 +568,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	if s.hub.Connections(sess.UserID) >= maxConnsPerUser {
-		ws.Close(websocket.StatusTryAgainLater, "too many connections")
-		return
-	}
 	c := &conn{
 		userID:   sess.UserID,
 		deviceID: sess.DeviceID,
 		send:     make(chan []byte, sendBufferSize),
 		close:    cancel,
 	}
-	s.hub.add(c, user.HideLastSeen)
+	if !s.hub.add(c, user.HideLastSeen) {
+		ws.Close(websocket.StatusTryAgainLater, "too many connections")
+		return
+	}
 	defer s.voiceSocketClosed(c)
 	defer s.hub.remove(c)
 

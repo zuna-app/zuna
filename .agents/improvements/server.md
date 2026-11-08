@@ -100,14 +100,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: mirror zuna-web: `signal.NotifyContext`, then `Shutdown` with a 20 s context (the APNs client timeout is 15 s).
 - Check after: `go test ./internal/relay`, and the installer check.
 
-### Check the per-user connection limit atomically
-- Where: server/internal/api/hub.go:569-579 and :337-347
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `Connections()` and `add()` take the lock separately, so connections arriving together can all get past the limit.
-- Suggested change: have `add` check the limit under the write lock and return false when it's full.
-- Check after: Go tests.
-
 ### Prune hub and emote maps for people and keys no longer in use
 - Where: api/hub.go:340 (`hidden` is never deleted), :398-407 and :487-501 (the outer `lastUsed[user]` entry is never deleted), and emotes/emotes.go:213-222 (the `inFlight` locks are never deleted)
 - Category: robustness
