@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Add indexes for the foreign keys a group delete cascades through
-- Where: server/internal/store/store.go:323-348, and postgres.go:352-380
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `welcomes.group_id` and `history_grants.group_id` cascade on delete from `groups(id)`, but have no index. Each `DeleteGroup` (store/groups.go:718) therefore scans both tables in full, in SQLite and PostgreSQL alike.
-- Suggested change: append `CREATE INDEX welcomes_group ON welcomes(group_id); CREATE INDEX history_grants_group ON history_grants(group_id);` to both lists.
-- Check after: Go tests and the PostgreSQL run.
-
 ### Make the hourly storage recount cheaper and race-free
 - Where: server/internal/store/limits.go:51-99
 - Category: perf

@@ -507,4 +507,8 @@ CREATE INDEX reports_user ON reports(user_id);
 -- A session by its device, which telling who to push to looks up for every message,
 -- and which revoking a device or signing out deletes by.
 CREATE INDEX sessions_device ON sessions(device_id);
+`, `
+-- What deleting a group cascades to, which would otherwise read all of each table.
+CREATE INDEX welcomes_group ON welcomes(group_id);
+CREATE INDEX history_grants_group ON history_grants(group_id);
 `}
