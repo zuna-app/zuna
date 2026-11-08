@@ -4,14 +4,6 @@ Covered by reading: apps/desktop/src/{host,platform,voice,media}, main.rs, test_
 Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and encoder internals (pipeline.rs, capture/*, native/*.c, h264.rs), media/windows/{encode,mf}.rs, apple/camera.rs beyond device listing. Nothing built or run; perf claims come from reading code paths.
 Overlap: the device-listing and temp-file findings here are the same issues as two entries in desktop-ui.md; implement them once.
 
-### Close remote LiveKit streams when a track goes away, instead of waiting for a frame that never comes
-- Where: apps/desktop/src/voice/room.rs:603-631 (audio), 633-667 (video), 672-680 (`unsubscribed`), 535-551 (`close`)
-- Category: robustness
-- Severity: high ; Effort: S ; Confidence: high on the mechanism (spot-checked during the review), medium on how often it bites
-- What's wrong: each remote track gets a spawned loop `while let Some(frame) = stream.next().await { if stopping.load(..) { break } ... }`. `unsubscribed` and `close` only set the `stop` flag, which is only checked after a frame arrives. In libwebrtc 0.3.55, `NativeAudioStream`/`NativeVideoStream` only return `None` after `close()` or drop. Once a track is unpublished or the peer connection closes, no more frames arrive, so the task stays parked forever, keeping the stream (whose sink stays registered and keeps the RTC track alive), a `Mixer` clone, and for video the `Feed` with the last decoded BGRA frame (8 MB at 1080p, 33 MB at 4K). This happens every time someone leaves, turns off their camera or stops a share, and for every remote track on every `VoiceRoom::close` (each leave or reconnect).
-- Suggested change: store each task's `tokio::task::AbortHandle` (from `crate::host::tokio().spawn`) in `RemoteAudio`/`RemoteVideo` in place of `stop: Arc<AtomicBool>`, and `.abort()` it in `unsubscribed` and `close` (aborting drops the stream, whose `Drop` calls `close()`). Alternative: `tokio::select!` on a oneshot/`Notify` beside `stream.next()`.
-- Check after: linux-voice-check.mjs and mac-voice-check.mjs (start and stop a camera and a share); watch memory across cycles. Web and iOS use their own SDKs.
-
 ### List sound devices and cameras once on a worker, not on the window's thread at every render
 - (Same issue as "Stop enumerating microphones, speakers and cameras on every frame of Voice settings" in desktop-ui.md; that entry has the call sites.) Extra detail from this review:
 - Where: voice/audio.rs:39-48, 83-95; voice/pipewire.rs:43-98 (a new PipeWire connection and registry round trip per call); media/windows/record.rs:127-168; media/ffmpeg/v4l2.rs:31-63 (opens every `/dev/video*`, which on some laptops flicks the camera light); macOS copies at audio.rs:54-81 and media/apple/camera.rs:49-70

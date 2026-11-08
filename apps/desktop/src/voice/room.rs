@@ -158,12 +158,27 @@ struct RemoteAudio {
     user_id: String,
     screen: bool,
     mixer_id: u64,
-    stop: Arc<AtomicBool>,
+    /// The loop reading the track. It waits on the next frame, which never comes once the
+    /// track is gone, so it's ended from here rather than left to notice.
+    task: tokio::task::AbortHandle,
 }
 
 struct RemoteVideo {
     feed: Feed,
-    stop: Arc<AtomicBool>,
+    task: tokio::task::AbortHandle,
+}
+
+// Ending a track's loop drops its stream, which lets go of the track, and for video of its last frame.
+impl Drop for RemoteAudio {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl Drop for RemoteVideo {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 /// How loud each person is: their voice, and their share's sound.
@@ -538,12 +553,9 @@ impl VoiceRoom {
         }
         self.camera.lock().take();
         for (_, audio) in self.shared.audio.lock().drain() {
-            audio.stop.store(true, Ordering::Relaxed);
             self.shared.mixer.remove(audio.mixer_id);
         }
-        for (_, video) in self.shared.videos.lock().drain() {
-            video.stop.store(true, Ordering::Relaxed);
-        }
+        self.shared.videos.lock().clear();
         let room = self.room.clone();
         tokio_spawn(async move {
             room.close().await.ok();
@@ -608,17 +620,13 @@ impl Shared {
                 let volume = (self.volumes.lock())(&user, screen);
                 let channels = if screen { 2 } else { 1 };
                 let mixer_id = self.mixer.live(volume);
-                let stop = Arc::new(AtomicBool::new(false));
                 let mut stream = NativeAudioStream::new(audio.rtc_track(), RATE as i32, channels);
-                let (mixer, stopping) = (self.mixer.clone(), stop.clone());
+                let mixer = self.mixer.clone();
                 let heard = identity.clone();
-                tokio_spawn(async move {
+                let task = crate::host::tokio().spawn(async move {
                     // How loud what decodes is, a second at a time, for checking voice from the log.
                     let (mut peak, mut frames) = (0i16, 0u32);
                     while let Some(frame) = stream.next().await {
-                        if stopping.load(Ordering::Relaxed) {
-                            break;
-                        }
                         peak = peak.max(frame.data.iter().map(|sample| sample.saturating_abs()).max().unwrap_or(0));
                         frames += 1;
                         if frames == 100 {
@@ -628,22 +636,18 @@ impl Shared {
                         mixer.push(mixer_id, &frame.data, frame.num_channels);
                     }
                 });
-                self.audio.lock().insert(sid, RemoteAudio { user_id: user, screen, mixer_id, stop });
+                self.audio.lock().insert(sid, RemoteAudio { user_id: user, screen, mixer_id, task: task.abort_handle() });
             }
             RemoteTrack::Video(video) => {
                 if self.videos.lock().contains_key(&sid) {
                     return;
                 }
                 let feed: Feed = Arc::new(Mutex::new(None));
-                let stop = Arc::new(AtomicBool::new(false));
                 let mut stream = NativeVideoStream::new(video.rtc_track());
-                let (writing, stopping) = (feed.clone(), stop.clone());
-                tokio_spawn(async move {
+                let writing = feed.clone();
+                let task = crate::host::tokio().spawn(async move {
                     let mut serial = 0u64;
                     while let Some(frame) = stream.next().await {
-                        if stopping.load(Ordering::Relaxed) {
-                            break;
-                        }
                         #[cfg(target_os = "macos")]
                         if let Some((width, height, picture)) = crate::platform::screen_capture::decoded(frame.buffer.as_ref()) {
                             if serial == 0 {
@@ -664,19 +668,16 @@ impl Shared {
                         show(&writing, Frame { width, height, bgra: Arc::new(bgra), serial, #[cfg(target_os = "macos")] surface: None });
                     }
                 });
-                self.videos.lock().insert(sid, RemoteVideo { feed, stop });
+                self.videos.lock().insert(sid, RemoteVideo { feed, task: task.abort_handle() });
             }
         }
     }
 
     fn unsubscribed(&self, sid: &TrackSid) {
         if let Some(audio) = self.audio.lock().remove(sid) {
-            audio.stop.store(true, Ordering::Relaxed);
             self.mixer.remove(audio.mixer_id);
         }
-        if let Some(video) = self.videos.lock().remove(sid) {
-            video.stop.store(true, Ordering::Relaxed);
-        }
+        self.videos.lock().remove(sid);
     }
 }
 
