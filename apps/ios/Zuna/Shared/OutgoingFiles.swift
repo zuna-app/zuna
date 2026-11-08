@@ -10,6 +10,8 @@ struct StagedFile: Identifiable, Equatable {
     let id = UUID()
     var file: OutgoingFile
     var size: Int
+    /// A picture's small copy for the message box, made once as it's staged, so typing never decodes the photo.
+    var preview: UIImage? = nil
 }
 
 /// Prepares files for a message the way the desktop does (lib/media.ts): a copy
@@ -55,7 +57,19 @@ enum OutgoingFiles {
             file.thumb = details.thumb
         }
         let size = (try? fileManager.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
-        return StagedFile(file: file, size: size)
+        return StagedFile(file: file, size: size, preview: mime.hasPrefix("image/") ? previewImage(target) : nil)
+    }
+
+    /// The message box shows a staged picture at 36 points, so three times that is enough, read
+    /// with ImageIO without decoding the whole photo, and turned upright.
+    private static func previewImage(_ url: URL) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 108,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
     }
 
     /// A recording's length, and a video's size and picture, which a message shows.

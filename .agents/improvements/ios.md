@@ -36,14 +36,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: search the original NSString with `NSRange(location: position, length: ns.length - position)` and default options, keeping ranges absolute, and confirm against `markup-golden.json`. Cache parsed blocks per message id and text. Fix the comment.
 - Check after: `swift test` (MarkupTests); add a case with ~20,000 `*a*` spans and a time limit.
 
-### Don't decode full-size photos in the Composer on every keystroke
-- Where: apps/ios/Zuna/Chat/Composer.swift:524-562 (530)
-- Category: perf
-- Severity: high ; Effort: S ; Confidence: high
-- What's wrong: `filesBar` calls `UIImage(contentsOfFile:)` inside `body`, which runs on every keystroke. With up to 10 staged photos, each keystroke loads 10 full-resolution images into 36x36 frames.
-- Suggested change: when a file is staged, keep a ~108 px thumbnail on `StagedFile` (`OutgoingFiles.imageDetails` already makes an ImageIO thumbnail). Or load it once in a `.task` off the main actor.
-- Check after: `npm run test:ios:ui -- --only ComposerTests,ShareTests`.
-
 ### Stage picked files off the main actor
 - Where: apps/ios/Zuna/Chat/Composer.swift:577-590; apps/ios/Zuna/Shared/OutgoingFiles.swift:28-59 (38-49)
 - Category: perf

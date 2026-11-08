@@ -527,8 +527,8 @@ struct Composer: View {
                 ForEach(state.files) { staged in
                     HStack(spacing: 8) {
                         Group {
-                            if staged.file.mime.hasPrefix("image/"), let image = UIImage(contentsOfFile: staged.file.blob.path) {
-                                Image(uiImage: image).resizable().scaledToFill()
+                            if let preview = staged.preview {
+                                Image(uiImage: preview).resizable().scaledToFill()
                             } else {
                                 Image(systemName: "doc.fill").foregroundStyle(Theme.text2)
                             }
