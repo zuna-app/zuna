@@ -20,14 +20,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: cache each group's `ConversationView` and invalidate from the places that change it (ingest, read, prefs, group/meta changes, channel changes), or at least cache `lastMessage` and unread counts per group keyed by the latest `updated_seq` and `ownRead`. Optionally have `emitConversations(groupId?)` carry changed ids so hosts could patch (an event shape change: update types.ts, Models.swift and models.rs together).
 - Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
 
-### Have `previewPush` and the session share one rule for whether a message could have been sent
-- Where: packages/core/src/push.ts:108-122 (a hand copy of `couldBeSent`, session.ts:4396-4407, including the sealed-row labels); push.ts:65-79 and 189-200 (`previewPush` and `previewCall` repeat the same setup)
-- Category: cleanup
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: push.ts's own comment says these "must match" the session's checks; two copies of a security check drift, and the row labels (`departure`, `epoch-start`, `joined`, `arrival`) are spelled out in both files.
-- Suggested change: a pure `couldBeSent({ left, joined, arrived, nextStart }, message)` and `sealedRowLabel(name, row)` in a small module both import; an `openServerForPreview(options, serverId)` helper for both push.ts functions.
-- Check after: `npx vitest run test/e2e.test.ts test/calls.test.ts test/channels.test.ts`; iOS uses these through the core bundle: `npm run test:ios` on a Mac.
-
 ### Split session.ts along its markers, starting with the sections that stand alone
 - Where: packages/core/src/session.ts (6,935 lines); rpc.ts:57-70 (`SESSION_METHODS` typed against `ServerSession`'s public methods); ~117 `as any` reaches into private members across the tests (security.test.ts 61, e2e.test.ts 26, rotation.test.ts 9, dev-bots.ts 4, …), e.g. `treeMembers`, `withLock`, `commitWithRetry`, `db`, `api`, `onFrame`
 - Category: cleanup

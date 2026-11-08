@@ -14,6 +14,7 @@ import { namesItsSender, openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
+import { couldBeSent, sealedRows } from "./sendable";
 import { isMuted, onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
 import { parseChannelDetails, parseMessageBody } from "./validate";
 
@@ -54,14 +55,11 @@ interface StoredGroup {
   meta: { name?: string; avatar?: AvatarRef | null };
 }
 
-export async function previewPush(
-  options: { db: DbProvider; deviceKey: Uint8Array },
-  serverId: string,
-  groupId: string,
-  messageId: string,
-  /** Also download and decrypt the sender's and the group's pictures, as base64. */
-  pictures = false,
-): Promise<PushPreview> {
+/**
+ * A server as this device keeps it, opened without a session: its account, its database, and
+ * reading what the session sealed there, for a phone's previews.
+ */
+async function openServer(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string) {
   const key = serverKeyFor(options.deviceKey, serverId);
   const index = await options.db.open(INDEX_DB);
   const server = index.get<{ account: Uint8Array; name: string }>("SELECT account, name FROM servers WHERE id = ?", [serverId]);
@@ -75,6 +73,18 @@ export async function previewPush(
     return row ? read<StoredUser>("user", id!, row.data) : null;
   };
   const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
+  return { key, server, account, db, read, user, nameOf };
+}
+
+export async function previewPush(
+  options: { db: DbProvider; deviceKey: Uint8Array },
+  serverId: string,
+  groupId: string,
+  messageId: string,
+  /** Also download and decrypt the sender's and the group's pictures, as base64. */
+  pictures = false,
+): Promise<PushPreview> {
+  const { key, server, account, db, read, user, nameOf } = await openServer(options, serverId);
 
   const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
   const group = groupRow ? read<StoredGroup>("group", groupId, groupRow.data) : null;
@@ -123,13 +133,18 @@ export async function previewPush(
       return careful;
     }
   };
-  const whose = `${groupId}/${message.sender_user}/${message.sender_device}`;
-  const left = value("departure", whose, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device])?.epoch, 0);
-  const next = value("epoch-start", `${groupId}:${message.epoch + 1}`, db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1])?.seq, 0);
-  const joined = value("joined", groupId, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId])?.epoch, 0);
-  const arrived = value("arrival", whose, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device])?.epoch, Number.MAX_SAFE_INTEGER);
-  const absent = joined !== null && message.epoch >= joined && (arrived === null || message.epoch < arrived);
-  if ((left !== null && message.epoch >= left) || (next !== null && message.seq >= next) || absent || sender.trust === "changed") return preview({});
+  const { sender_user: senderUser, sender_device: senderDevice } = message;
+  const { departure, arrival, joined, epochStart } = sealedRows;
+  const sendable = couldBeSent(
+    {
+      left: () => value(departure.name, departure.row(groupId, senderUser, senderDevice), db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, senderUser, senderDevice])?.epoch, departure.careful),
+      joined: () => value(joined.name, joined.row(groupId), db.get<{ epoch: Uint8Array }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId])?.epoch, joined.careful),
+      arrived: () => value(arrival.name, arrival.row(groupId, senderUser, senderDevice), db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, senderUser, senderDevice])?.epoch, arrival.careful),
+      nextStart: () => value(epochStart.name, epochStart.row(groupId, message.epoch + 1), db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1])?.seq, epochStart.careful),
+    },
+    message,
+  );
+  if (!sendable || sender.trust === "changed") return preview({});
   const epochKey = wasm.aeadOpen(key, epochRow.key, label(`epoch|${groupId}:${message.epoch}`));
   const opened = openEnvelope<unknown>(
     epochKey,
@@ -194,19 +209,7 @@ export interface CallPreview {
 
 /** A call ringing this phone, as the app would ring it: from the conversation and its caller, with nothing fetched. */
 export async function previewCall(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string, groupId: string, callerId: string): Promise<CallPreview> {
-  const key = serverKeyFor(options.deviceKey, serverId);
-  const index = await options.db.open(INDEX_DB);
-  const server = index.get<{ account: Uint8Array; name: string }>("SELECT account, name FROM servers WHERE id = ?", [serverId]);
-  if (!server) throw new Error("This device isn't signed in to that server.");
-  const account = decodeAccount(fromUtf8(wasm.aeadOpen(key, server.account, label("account"))));
-  const db = await options.db.open(serverDbName(serverId));
-  // As the session seals it: naming its table and row.
-  const read = <T>(name: string, row: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(`${name}|${row}`))));
-  const user = (id: string | null) => {
-    const row = id ? db.get<{ data: Uint8Array }>("SELECT data FROM users WHERE id = ?", [id]) : undefined;
-    return row ? read<StoredUser>("user", id!, row.data) : null;
-  };
-  const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
+  const { server, account, db, read, user, nameOf } = await openServer(options, serverId);
   const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
   const group = groupRow ? read<StoredGroup & { removedAt?: number | null }>("group", groupId, groupRow.data) : null;
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);

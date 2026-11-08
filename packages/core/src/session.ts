@@ -95,6 +95,7 @@ import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import { openSoundDetails, sealSoundDetails } from "./soundboard";
 import { readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type Roster, type RosterContext, type SignedRoster } from "./roster";
 import { prepareSound, readWav } from "./sounds";
+import { couldBeSent, sealedRows } from "./sendable";
 import { VOICE_LABEL, voiceIdentity } from "./voice";
 import {
   MAX_EXPIRES_IN,
@@ -2552,7 +2553,8 @@ export class ServerSession {
   private joinedEpoch(groupId: string): number | null {
     const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId]);
     // Joined at the very start, as far as anything that doesn't open says, so every message is checked.
-    return row ? this.openValue("joined", groupId, row.epoch, 0) : null;
+    const sealed = sealedRows.joined;
+    return row ? this.openValue(sealed.name, sealed.row(groupId), row.epoch, sealed.careful) : null;
   }
 
   private setJoinedEpoch(groupId: string, epoch: number): void {
@@ -3711,13 +3713,15 @@ export class ServerSession {
   /** The epoch from which someone's device has been in a group's tree, as this device saw. */
   private arrivedAt(groupId: string, userId: string, deviceId: string): number | null {
     const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId]);
-    return row ? this.openValue("arrival", `${groupId}/${userId}/${deviceId}`, row.epoch, Number.MAX_SAFE_INTEGER) : null;
+    const sealed = sealedRows.arrival;
+    return row ? this.openValue(sealed.name, sealed.row(groupId, userId, deviceId), row.epoch, sealed.careful) : null;
   }
 
   /** The epoch someone's device left a group's tree, if it has. */
   private departedAt(groupId: string, userId: string, deviceId: string): number | null {
     const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId]);
-    return row ? this.openValue("departure", `${groupId}/${userId}/${deviceId}`, row.epoch, 0) : null;
+    const sealed = sealedRows.departure;
+    return row ? this.openValue(sealed.name, sealed.row(groupId, userId, deviceId), row.epoch, sealed.careful) : null;
   }
 
   /** The genuine devices in a group's tree, as `user/device`. */
@@ -4604,16 +4608,20 @@ export class ServerSession {
    * old messages are unaffected: they fit the order the group's commits came in.
    */
   private couldBeSent(message: ApiMessage): boolean {
-    const left = this.departedAt(message.group_id, message.sender_user, message.sender_device);
-    if (left !== null && message.epoch >= left) return false;
-    // Under an epoch this device was there for, only a device that was in the tree then can have sent it.
-    const joined = this.joinedEpoch(message.group_id);
-    if (joined !== null && message.epoch >= joined) {
-      const arrived = this.arrivedAt(message.group_id, message.sender_user, message.sender_device);
-      if (arrived === null || message.epoch < arrived) return false;
-    }
-    const next = this.db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
-    return !next || message.seq < this.openValue("epoch-start", `${message.group_id}:${message.epoch + 1}`, next.seq, 0);
+    const { group_id: groupId, sender_user: userId, sender_device: deviceId } = message;
+    return couldBeSent(
+      {
+        left: () => this.departedAt(groupId, userId, deviceId),
+        joined: () => this.joinedEpoch(groupId),
+        arrived: () => this.arrivedAt(groupId, userId, deviceId),
+        nextStart: () => {
+          const next = this.db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
+          const { name, row, careful } = sealedRows.epochStart;
+          return next ? this.openValue(name, row(groupId, message.epoch + 1), next.seq, careful) : null;
+        },
+      },
+      message,
+    );
   }
 
   /**
