@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Reword the stale upload-limit comment and use chunkOverhead
-- Where: server/internal/api/files.go:156-160, :233
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the comment "An upload described before the count was held to the limit may still be around" describes a one-off transition (fixed 2026-11-01). The check still matters, because an admin can lower `max_upload_mb` while an upload is in progress. An agent reading the comment might delete it as compatibility code. Line 233 hard-codes `256` where `chunkOverhead` is meant.
-- Suggested change: change the comment to say "The limit may have been lowered since this upload began.", and use `chunkOverhead` at line 233.
-- Check after: Go tests.
-
 ### Fix the compat-sounding comment on PublicUser
 - Where: server/internal/store/users.go:17-18
 - Category: docs

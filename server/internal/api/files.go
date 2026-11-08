@@ -153,7 +153,7 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		writeFailure(w, err)
 		return
 	}
-	// An upload described before the count was held to the limit may still be around.
+	// The limit may have been lowered since this upload began.
 	if int64(file.ChunkCount) > limit/plainChunkBytes+1 {
 		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
 		return
@@ -230,7 +230,7 @@ func (s *Server) handleCompleteFile(w http.ResponseWriter, r *http.Request, sess
 		writeFailure(w, err)
 		return
 	}
-	if total > limit+int64(file.ChunkCount)*256 {
+	if total > limit+int64(file.ChunkCount)*chunkOverhead {
 		s.removeFiles(r.Context(), []string{id})
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That file is too large for this server.")
 		return
