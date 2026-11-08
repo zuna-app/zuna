@@ -325,6 +325,9 @@ struct RecoveryKeyStep: View {
                     Text(part)
                         .font(.system(.body, design: .monospaced).weight(.medium))
                         .foregroundStyle(Theme.text1)
+                        // Each group whole on one line, however large the text: one broken in two reads as two.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                 }
             }
             .padding(16)
