@@ -33,19 +33,6 @@ struct VoiceSettings: Codable, Equatable, Sendable {
         return settings
     }
 
-    init() {}
-
-    // Settings saved by an earlier version lack the newer fields; they take their defaults.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sounds = try container.decodeIfPresent(Bool.self, forKey: .sounds) ?? true
-        startMuted = try container.decodeIfPresent(Bool.self, forKey: .startMuted) ?? false
-        screenVolume = try container.decodeIfPresent(Double.self, forKey: .screenVolume) ?? 1
-        screenFocus = try container.decodeIfPresent(Bool.self, forKey: .screenFocus) ?? true
-        screenBitrate = try container.decodeIfPresent(Int.self, forKey: .screenBitrate)
-        soundboardVolume = try container.decodeIfPresent(Double.self, forKey: .soundboardVolume) ?? 0.6
-    }
-
     func save() {
         if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
     }

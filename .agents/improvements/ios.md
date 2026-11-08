@@ -44,14 +44,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: in `receive`, hop to a private serial queue (keeps replies and events in order); decode a small envelope (kind, id, ok, error) from the raw Data and resume with that Data, then decode `Reply<V> { value }` in `call`. Decode events in a single pass the same way.
 - Check after: `swift test` (CoreConnectionTests, WireTests), `npm run test:ios`, `npm run test:ios:perf`.
 
-### Remove leftover compatibility in the saved settings
-- Where: apps/ios/Zuna/State/AppSettings.swift:29-39, 74-78; apps/ios/Zuna/Voice/VoiceModel.swift:36-47
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: both settings structs keep hand-written decoders commented "Settings saved by an earlier version lack the newer fields", and `AppSettings.save()` deletes `UserDefaults.standard`'s copy on every save (left from moving settings into the App Group). CLAUDE.md's no-backward-compatibility rule says to remove this; `load()` already falls back to defaults.
-- Suggested change: delete both custom `init(from:)` (and the then-unneeded `init() {}`), and drop the `standard` removal from `save()`.
-- Check after: `npm run test:ios:ui -- --only SettingsTests`. Note: without a custom decoder, adding a field later makes old saved settings fail to decode and fall back to defaults entirely; that's acceptable under the rule but worth knowing.
-
 ### Put the session-call boilerplate in one helper and describe errors consistently
 - Where: apps/ios/Zuna/State/AppModel.swift:279, 312, 574-661; apps/ios/Zuna/Onboarding/OnboardingComponents.swift:252-258; apps/ios/Zuna/Voice/VoiceModel.swift:435-439
 - Category: cleanup

@@ -26,20 +26,6 @@ struct AppSettings: Codable, Equatable, Sendable {
         return settings
     }
 
-    // Settings saved by an earlier version lack the newer fields; they take their defaults.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        accent = try container.decodeIfPresent(Accent.self, forKey: .accent) ?? .neutral
-        messageSize = try container.decodeIfPresent(MessageSize.self, forKey: .messageSize) ?? .medium
-        reduceMotion = try container.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false
-        enterToSend = try container.decodeIfPresent(Bool.self, forKey: .enterToSend) ?? true
-        appLock = try container.decodeIfPresent(Bool.self, forKey: .appLock) ?? false
-        linkPreviews = try container.decodeIfPresent(Bool.self, forKey: .linkPreviews) ?? true
-        removeMetadata = try container.decodeIfPresent(Bool.self, forKey: .removeMetadata) ?? true
-    }
-
-    init() {}
-
     /// The server that was open last, to open it again at launch, and first in the share extension.
     static var lastServer: String? {
         get { shared.string(forKey: lastServerKey) }
@@ -74,6 +60,5 @@ struct AppSettings: Codable, Equatable, Sendable {
     func save() {
         guard let data = try? JSONEncoder().encode(self) else { return }
         Self.shared.set(data, forKey: Self.key)
-        UserDefaults.standard.removeObject(forKey: Self.key)
     }
 }
