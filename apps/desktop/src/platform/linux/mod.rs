@@ -18,7 +18,6 @@ pub mod updates;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
@@ -41,6 +40,22 @@ static COMMANDS: OnceLock<UnboundedSender<Command>> = OnceLock::new();
 /// Minimized by the app itself, until the window is active again. Wayland doesn't tell a
 /// window it's minimized, so this is all there is to know.
 static MINIMIZED: AtomicBool = AtomicBool::new(false);
+/// Whether the window, once minimized, has been away from the front, so that being active
+/// again means it was brought back.
+static AWAY_SINCE_MINIMIZED: AtomicBool = AtomicBool::new(false);
+
+/// The main window became active or stopped being, as GPUI says: one the app minimized is
+/// visible again once it's been away and then active, from the taskbar or anywhere.
+pub fn main_activation(active: bool) {
+    if !MINIMIZED.load(Ordering::Relaxed) {
+        return;
+    }
+    if !active {
+        AWAY_SINCE_MINIMIZED.store(true, Ordering::Relaxed);
+    } else if AWAY_SINCE_MINIMIZED.load(Ordering::Relaxed) {
+        MINIMIZED.store(false, Ordering::Relaxed);
+    }
+}
 /// The latest activation token handed over, by a second start, the tray or a notification,
 /// which the next showing of the window uses: Wayland only lets a window come to the front
 /// with one.
@@ -112,26 +127,10 @@ async fn run(command: Command, cx: &mut AsyncApp) {
             if !minimized {
                 return;
             }
+            // Visible again once it's been away and then active, which main_activation hears from
+            // the window's activation, rather than asking it four times a second.
+            AWAY_SINCE_MINIMIZED.store(false, Ordering::Relaxed);
             MINIMIZED.store(true, Ordering::Relaxed);
-            // Visible again once it's been away and then active, from the taskbar or anywhere,
-            // watched apart, so what's asked meanwhile, as showing it, isn't held up.
-            cx.spawn(async move |cx| {
-                let mut away = false;
-                loop {
-                    cx.background_executor().timer(Duration::from_millis(250)).await;
-                    if !MINIMIZED.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let Ok(active) = handle.update(cx, |_, window, _| window.is_window_active()) else { return };
-                    if !active {
-                        away = true;
-                    } else if away {
-                        MINIMIZED.store(false, Ordering::Relaxed);
-                        return;
-                    }
-                }
-            })
-            .detach();
         }
     }
 }

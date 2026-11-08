@@ -120,6 +120,8 @@ impl Root {
         let activation_state = state.clone();
         cx.observe_window_activation(window, move |root, window, cx| {
             let active = window.is_window_active();
+            #[cfg(target_os = "linux")]
+            crate::platform::main_activation(active);
             activation_state.update(cx, |state, cx| {
                 state.window_focused = active;
                 cx.notify();

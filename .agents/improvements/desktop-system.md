@@ -43,21 +43,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: on either disabled event, `CGEvent::tap_enable(&port, true)` (port via `user_info` or a static); also reset `down` and tell the listener `false`.
 - Check after: mac-voice-check.mjs (push to talk).
 
-### Clear Linux's "minimized" flag from the window's activation, rather than polling every 250 ms
-- Where: platform/linux/mod.rs:103-135; ui/mod.rs:110-120 already observes window activation
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: while minimized to the tray, the app wakes four times a second, possibly for hours (`idleCost` in the Linux check measures exactly this).
-- Suggested change: add `platform::window_activated(bool)` (no-op on Windows and macOS), call it from the existing observer, delete the polling task.
-- Check after: linux-check.mjs (tray, `idleCost`).
-
-### Move the main-window command queue that Linux and macOS duplicate into platform/unix
-- Where: platform/linux/mod.rs:32-171 and platform/macos/mod.rs:27-109 (same `Command` enum, `MAIN`, `COMMANDS`, `install`, `send`, `show`/`hide`/`flash_main`)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: move the shared parts to `platform/unix/window.rs`; keep only each system's `run`.
-- Check after: linux-check.mjs, mac-voice-check.mjs.
-
 ### Move ashpd to 0.13 and oo7 to 0.6, as GPUI has them
 - Where: apps/desktop/Cargo.toml:62-70 (`ashpd 0.11` commented "as GPUI's own portals", `oo7 0.5`); in Cargo.lock gpui_linux uses ashpd 0.13.13 and oo7 0.6.0, while oo7 0.5 pulls ashpd 0.12.3
 - Category: deps
