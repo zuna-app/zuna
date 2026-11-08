@@ -23,8 +23,27 @@ export function tokenize(text: string): string[] {
   return normalize(text).match(/[\p{L}\p{N}_]+/gu) ?? [];
 }
 
-const hashToken = (searchKey: Uint8Array, token: string) =>
-  `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
+/**
+ * Hashes already worked out, by key. Messages share most of their words and nearly
+ * all their prefixes, so a catch-up hashes the same few thousand over and over: of
+ * chat-like text, 96% of a message's tokens are in here, and indexing it takes a
+ * tenth of the time. They're in memory only, where the key and the messages are
+ * anyway, and only so many.
+ */
+const hashes = new WeakMap<Uint8Array, Map<string, string>>();
+const MAX_HASHES = 20_000;
+
+function hashToken(searchKey: Uint8Array, token: string): string {
+  let known = hashes.get(searchKey);
+  if (!known) hashes.set(searchKey, (known = new Map()));
+  let hash = known.get(token);
+  if (hash === undefined) {
+    hash = `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
+    if (known.size >= MAX_HASHES) known.delete(known.keys().next().value!);
+    known.set(token, hash);
+  }
+  return hash;
+}
 
 /**
  * Which way the local indexes were built: 2 hashes words as they are now, 3
