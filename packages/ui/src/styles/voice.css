@@ -159,7 +159,8 @@
 .voice-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--bg-5); }
 .voice-slider::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--accent); }
 .mic-meter { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--bg-3); overflow: hidden; }
-.mic-meter-bar { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--text-3); transition: width 50ms linear; }
+/* Scaled rather than resized, as it moves twenty times a second while Voice is open. */
+.mic-meter-bar { position: absolute; inset: 0; transform: scaleX(0); transform-origin: left; background: var(--text-3); transition: transform 50ms linear; }
 .mic-meter-open { position: absolute; right: 4px; top: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--bg-5); }
 .mic-meter-open.is-open { background: var(--green); }
 .mic-meter:has(.mic-meter-open.is-open) .mic-meter-bar { background: var(--green); }

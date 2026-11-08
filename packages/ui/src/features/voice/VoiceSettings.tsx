@@ -49,7 +49,7 @@ function InputMeter({ onReady }: { onReady: (setter: (reading: MicReading) => vo
   const dot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     onReady((reading) => {
-      if (bar.current) bar.current.style.width = `${percent(reading.level)}%`;
+      if (bar.current) bar.current.style.transform = `scaleX(${percent(reading.level) / 100})`;
       if (dot.current) dot.current.classList.toggle("is-open", reading.open);
     });
   }, [onReady]);
