@@ -1,6 +1,6 @@
 import type { ConversationView } from "@zuna/core";
 import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Phone, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Video, Volume2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { useEscape } from "@/lib/escape";
@@ -342,6 +342,9 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
   const isSaved = conversation.peerId === selfId;
   const selecting = useApp((state) => state.selection?.listId === listId);
   const isChannel = conversation.kind === "channel";
+  // Made once per conversation: the message list redraws every row its start or empty
+  // state is given anew.
+  const welcome = useMemo(() => (isChannel ? <ChannelWelcome conversation={conversation} voice={voice} /> : <EmptyChat conversation={conversation} />), [isChannel, conversation, voice]);
   const callsHere = !isChannel && callsOn && !isSaved && canCall(conversation, selfId, !!peer?.banned || !!peer?.deleted);
   // Who's in this conversation's call, and whether it's this device.
   const inCall = useVoice((state) => !!conversation.groupId && state.status !== "idle" && state.serverId === serverId && state.channelId === conversation.groupId);
@@ -468,11 +471,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         )}
 
         <div className="chat-scroll" hidden={inCall && callExpanded}>
-          {isChannel ? (
-            <MessageList conversation={conversation} listId={listId} emptyState={<ChannelWelcome conversation={conversation} voice={voice} />} start={<ChannelWelcome conversation={conversation} voice={voice} />} />
-          ) : (
-            <MessageList conversation={conversation} listId={listId} emptyState={<EmptyChat conversation={conversation} />} />
-          )}
+          <MessageList conversation={conversation} listId={listId} emptyState={welcome} start={isChannel ? welcome : undefined} />
         </div>
 
         {inCall && callExpanded ? null : selecting ? (

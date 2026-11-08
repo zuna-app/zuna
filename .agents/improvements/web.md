@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Stop rebuilding every message row whenever ChatView renders
-- Where: packages/ui/src/features/chat/ChatView.tsx:467-469 (new `start` and `emptyState` elements every render); features/chat/MessageList.tsx:480-536 (`itemContent` depends on `startOfChat`)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: Virtuoso re-renders every drawn row (wrapper, separators, `ErrorBoundary`) each time `ChatView` renders.
-- Suggested change: `useMemo` the elements, or read `startOfChat` through a ref inside `itemContent`.
-- Check after: web check.
-
 ### Pin the session and list across awaits
 - Where: packages/ui/src/state/store.ts:734,743,736-738 (`loadList`), 764-792 (`loadOlder`), 802,809 (`jumpToMessage`), 823-830 (`returnToLatest`)
 - Category: robustness
