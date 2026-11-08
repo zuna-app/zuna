@@ -291,11 +291,13 @@ struct VoiceSettingsView: View {
         List {
             Section {
                 Toggle("Come in muted", isOn: $voice.settings.startMuted)
+                    .tint(model.settings.accent.switchTint)
             } footer: {
                 Text("Starts every voice channel with your microphone off.")
             }
             Section {
                 Toggle("Sounds", isOn: $voice.settings.sounds)
+                    .tint(model.settings.accent.switchTint)
             } footer: {
                 Text("When people come and go, and when you mute.")
             }
@@ -314,6 +316,7 @@ struct VoiceSettingsView: View {
             }
             Section {
                 Toggle("Open a share when it starts", isOn: $voice.settings.screenFocus)
+                    .tint(model.settings.accent.switchTint)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("How loud shares are")
@@ -336,7 +339,12 @@ struct VoiceSettingsView: View {
                 Text("The iPhone cancels echo and noise itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
             }
         }
+        // As the other settings look.
+        .listRowBackground(Theme.bg2)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg0)
         .navigationTitle("Voice and video")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     /// The most a share from this phone may send, as it would go out on the server open now.
