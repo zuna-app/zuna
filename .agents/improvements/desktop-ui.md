@@ -116,13 +116,6 @@ Ordered roughly by value.
 - Suggested change: remember each rule's next match and re-run a rule only when that match starts before the current position. Add a test with a long, span-heavy message.
 - Check after: `cargo test` for markup in apps/desktop (needs the GPUI fetch). iOS has a related quadratic issue (see the iOS findings).
 
-### Deduplicate emote-reference JSON and the group-admin check
-- Where: emote maps at chat.rs:1317-1324, 2245-2248, state.rs:1206-1216, message.rs:546; the admin check at chat.rs:816, 1360, 2356, 2508
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
-- Check after: `npm run dev:windows`.
-
 ### Prune a call stage's frames for tiles that went away
 - Where: ui/voice_stage.rs:101-140, 780-785
 - Category: robustness

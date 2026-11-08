@@ -543,7 +543,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                                     json!(group),
                                     json!(id),
                                     json!(emote.name),
-                                    json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner }),
+                                    emote.to_ref(),
                                 ],
                             };
                             state.update(cx, |state, cx| state.act("toggleReaction", args, cx));

@@ -562,7 +562,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
                 move |pick, _, cx| {
                     let args = match pick {
                         super::picker::Pick::Emoji(value) => vec![json!(group_id), json!(id), json!(value)],
-                        super::picker::Pick::Emote(emote) => vec![json!(group_id), json!(id), json!(emote.name), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner })],
+                        super::picker::Pick::Emote(emote) => vec![json!(group_id), json!(id), json!(emote.name), emote.to_ref()],
                     };
                     state.update(cx, |state, cx| state.act("toggleReaction", args, cx));
                 },

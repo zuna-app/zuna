@@ -833,7 +833,7 @@ impl ChatView {
         let list_id = conversation.list_id();
         let reply = self.state.read(cx).reply_to.get(&list_id).map(|message| message.id.clone());
         let server_id = self.server_id.clone();
-        let is_admin = conversation.members.iter().any(|member| member.role == "admin" && self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.self_id() == member.user_id));
+        let is_admin = self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| conversation.is_admin(&server.self_id()));
         if conversation.slow_mode > 0. && !is_admin {
             self.sent_until = now_ms() + conversation.slow_mode * 1000.;
         }
@@ -1345,14 +1345,7 @@ impl ChatView {
             return;
         }
         let mentions = mentions_in(&value, &server.mentionable);
-        let emotes: serde_json::Map<String, serde_json::Value> = value
-            .split_whitespace()
-            .filter_map(|word| {
-                server.emotes.emotes.iter().find(|emote| emote.name == word).map(|emote| {
-                    (word.to_string(), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner }))
-                })
-            })
-            .collect();
+        let emotes = server.emotes.refs_in(&value);
         if let Some(editing) = editing {
             if value != editing.text {
                 let args = vec![json!(editing.group_id), json!(editing.id), json!(value), json!(emotes), json!(mentions)];
@@ -1388,7 +1381,7 @@ impl ChatView {
         let key = conversation.key.clone();
         let files: Vec<serde_json::Value> = std::mem::take(&mut self.files).into_iter().map(|staged| staged.file).collect();
         let keep_metadata = !state.settings.remove_metadata;
-        let is_admin = conversation.members.iter().any(|member| member.user_id == server.self_id() && member.role == "admin");
+        let is_admin = conversation.is_admin(&server.self_id());
         let server_id = self.server_id.clone();
         self.state.update(cx, |state, cx| {
             if files.is_empty() {
@@ -2272,10 +2265,7 @@ impl ChatView {
                     let state = self.state.read(cx);
                     let Some(server) = state.servers.get(&self.server_id) else { return };
                     let mentions = mentions_in(&value, &server.mentionable);
-                    let emotes: serde_json::Map<String, serde_json::Value> = value
-                        .split_whitespace()
-                        .filter_map(|word| server.emotes.emotes.iter().find(|emote| emote.name == word).map(|emote| (word.to_string(), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner }))))
-                        .collect();
+                    let emotes = server.emotes.refs_in(&value);
                     let args = vec![json!(message.group_id), json!(message.id), json!(value), json!(emotes), json!(mentions)];
                     self.state.update(cx, |state, cx| state.act("editMessage", args, cx));
                 }
@@ -2382,7 +2372,7 @@ impl ChatView {
         // In the chat's order, whatever order they were picked in.
         let picked: Vec<MessageView> = state.lists.get(&list_id).map(|list| list.items.iter().filter(|item| ids.contains(&item.id)).cloned().collect()).unwrap_or_default();
         let self_id = server.self_id().to_string();
-        let is_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
+        let is_admin = conversation.is_admin(&self_id);
         let can_delete = !picked.is_empty() && picked.iter().all(|item| item.sender_id == self_id || (conversation.kind != "dm" && is_admin));
         let names: HashMap<String, String> = server.users.iter().map(|(id, user)| (id.clone(), user.display_name.clone())).collect();
         let count = picked.len();
@@ -2534,7 +2524,7 @@ impl ChatView {
         let list = state.lists.get(&conversation.list_id())?;
         let self_id = server.self_id().to_string();
         let read_up_to = conversation.read_up_to(&self_id);
-        let is_group_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
+        let is_group_admin = conversation.is_admin(&self_id);
         let items = &list.items;
         let selection = state.selection.clone().filter(|(list, _)| *list == conversation.list_id());
         // The pictures already here: decrypted images and people's avatars.

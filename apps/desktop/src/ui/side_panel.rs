@@ -437,7 +437,7 @@ impl SidePanel {
         if conversation.kind == "group" {
             if let Some(group) = conversation.group_id.clone() {
                 let state = self.state.clone();
-                let is_admin = conversation.members.iter().any(|m| m.user_id == server.self_id() && m.role == "admin");
+                let is_admin = conversation.is_admin(&server.self_id());
                 let delete_state = self.state.clone();
                 let delete_group = group.clone();
                 parts.push(
@@ -808,7 +808,7 @@ impl SidePanel {
     fn group_info(&mut self, server: &ServerState, conversation: &ConversationView, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let self_id = server.self_id().to_string();
-        let is_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
+        let is_admin = conversation.is_admin(&self_id);
         let group = conversation.group_id.clone().unwrap_or_default();
         let mut parts = vec![self.group_card(conversation, is_admin, cx)];
         parts.push(notice("lock", "The server can see who is in this group, but not its name, picture or messages.", cx).into_any_element());
@@ -953,7 +953,7 @@ impl SidePanel {
             entries.push(MenuEntry::new(if blocked { "Unblock" } else { "Block" }, "ban", move |_, cx| s.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(!blocked)], cx))));
         }
         if is_admin {
-            let admin = conversation.members.iter().any(|member| member.user_id == user_id && member.role == "admin");
+            let admin = conversation.is_admin(&user_id);
             let (s, g, id) = (state.clone(), group.clone(), user_id.clone());
             entries.push(MenuEntry::new(if admin { "Remove admin" } else { "Make admin" }, "crown", move |_, cx| {
                 s.update(cx, |state, cx| state.act("setGroupRole", vec![json!(g), json!(id), json!(if admin { "member" } else { "admin" })], cx))

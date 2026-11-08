@@ -1263,17 +1263,7 @@ impl AppState {
             return;
         }
         let mentions = crate::markup::mentions_in(&value, &server.mentionable);
-        let emotes: serde_json::Map<String, Value> = value
-            .split_whitespace()
-            .filter_map(|word| {
-                server
-                    .emotes
-                    .emotes
-                    .iter()
-                    .find(|emote| emote.name == word)
-                    .map(|emote| (word.to_string(), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner })))
-            })
-            .collect();
+        let emotes = server.emotes.refs_in(&value);
         if let (Some(group), Some(newest)) = (&conversation.group_id, conversation.last_message.as_ref().and_then(|m| m.seq)) {
             self.call(Some(server_id), "markRead", vec![json!(group), json!(newest)], cx, |_, _, _| {});
         }

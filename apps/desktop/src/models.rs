@@ -262,6 +262,11 @@ pub struct ConversationView {
 }
 
 impl ConversationView {
+    /// Whether this person is one of the conversation's own admins.
+    pub fn is_admin(&self, self_id: &str) -> bool {
+        self.members.iter().any(|member| member.user_id == self_id && member.role == "admin")
+    }
+
     /// What it adds to unread counts: its unread messages, or one if only marked, and nothing while muted.
     pub fn counted_unread(&self) -> u32 {
         if self.muted {
@@ -340,12 +345,26 @@ pub struct Emote {
     pub owner: String,
 }
 
+impl Emote {
+    /// What a message or a reaction keeps of an emote it uses (the core's `EmoteRef`).
+    pub fn to_ref(&self) -> serde_json::Value {
+        serde_json::json!({ "id": self.id, "animated": self.animated, "zeroWidth": self.zero_width, "owner": self.owner })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default)]
 pub struct EmoteSet {
     pub set_id: String,
     pub set_name: String,
     pub emotes: Vec<Emote>,
+}
+
+impl EmoteSet {
+    /// The emotes a text uses, by the word that names each, as a message sends them.
+    pub fn refs_in(&self, text: &str) -> serde_json::Map<String, serde_json::Value> {
+        text.split_whitespace().filter_map(|word| self.emotes.iter().find(|emote| emote.name == word).map(|emote| (word.to_string(), emote.to_ref()))).collect()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
