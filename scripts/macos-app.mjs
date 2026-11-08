@@ -25,9 +25,11 @@
 // credentials `xcrun notarytool store-credentials zuna-notary` saved there, by that name only.
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Resvg } from "@resvg/resvg-js";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
 
@@ -214,10 +216,68 @@ function notarize(file) {
 }
 
 /**
+ * dmgbuild, which lays out a DMG's window as electron-builder's were: the bundle of it with its
+ * own Python that electron-builder publishes, fetched once and pinned by the hash its dmg-builder
+ * 26.18 pins.
+ */
+async function dmgbuild() {
+  const name = "dmgbuild-bundle-arm64-75c8a6c.tar.gz";
+  const hash = "793404d0c96687e27d5ee40a668d498c92e36a64d6c2906df511031adb33cbeb";
+  const dir = join(target, "dmgbuild-75c8a6c");
+  const program = join(dir, "dmgbuild");
+  if (existsSync(program)) return program;
+  const response = await fetch(`https://github.com/electron-userland/electron-builder-binaries/releases/download/dmg-builder@1.2.5/${name}`);
+  if (!response.ok) throw new Error(`dmgbuild: HTTP ${response.status}`);
+  const archive = Buffer.from(await response.arrayBuffer());
+  if (createHash("sha256").update(archive).digest("hex") !== hash) throw new Error("dmgbuild's bundle isn't the one pinned.");
+  const unpacking = `${dir}.part`;
+  rmSync(unpacking, { recursive: true, force: true });
+  mkdirSync(unpacking, { recursive: true });
+  writeFileSync(join(unpacking, name), archive);
+  run("tar", ["-xzf", join(unpacking, name), "-C", unpacking]);
+  rmSync(join(unpacking, name));
+  renameSync(unpacking, dir);
+  return program;
+}
+
+/**
+ * The DMG's window: apps/desktop/resources/dmg-background.svg drawn at 1× and 2×, which dmgbuild
+ * makes one TIFF of, with Zuna and Applications where its cards are. Gives the settings' path.
+ */
+function dmgLayout(app, folder) {
+  rmSync(folder, { recursive: true, force: true });
+  mkdirSync(folder, { recursive: true });
+  const fonts = join(root, "apps", "desktop", "assets", "fonts");
+  const font = { fontFiles: [join(fonts, "Inter-Medium.ttf")], loadSystemFonts: false, defaultFontFamily: "Inter" };
+  const svg = readFileSync(join(root, "apps", "desktop", "resources", "dmg-background.svg"));
+  for (const [file, width] of [["background.png", 660], ["background@2x.png", 1320]]) {
+    writeFileSync(join(folder, file), new Resvg(svg, { fitTo: { mode: "width", value: width }, font }).render().asPng());
+  }
+  const settings = join(folder, "settings.json");
+  writeFileSync(
+    settings,
+    JSON.stringify({
+      title: "Zuna",
+      icon: join(app, "Contents", "Resources", "zuna.icns"),
+      background: join(folder, "background.png"),
+      "icon-size": 128,
+      "text-size": 12,
+      window: { position: { x: 400, y: 240 }, size: { width: 660, height: 400 } },
+      format: "ULFO",
+      contents: [
+        { x: 170, y: 170, type: "file", path: app, hide_extension: true },
+        { x: 490, y: 170, type: "link", path: "/Applications" },
+      ],
+    }),
+  );
+  return settings;
+}
+
+/**
  * Notarizes the release and staples Apple's ticket to it, then makes a DMG of it to drag into
  * Applications, signed, notarized and stapled too, and a zip, as an update would be fetched.
  */
-function packages(app, dist) {
+async function packages(app, dist) {
   run("codesign", ["--verify", "--strict", "--deep", "--verbose=2", app]);
   // The app first, so that the one in the DMG carries its ticket and opens offline too.
   const upload = join(target, "Zuna-notarize.zip");
@@ -225,16 +285,12 @@ function packages(app, dist) {
   notarize(upload);
   rmSync(upload, { force: true });
   run("xcrun", ["stapler", "staple", app]);
-  // The DMG: the app beside a link to Applications.
+  // The DMG: the app beside a link to Applications, on its background.
   const image = join(dist, `Zuna-${version}-arm64.dmg`);
-  const staging = join(target, "dmg");
-  rmSync(staging, { recursive: true, force: true });
-  mkdirSync(staging, { recursive: true });
-  run("ditto", [app, join(staging, "Zuna.app")]);
-  symlinkSync("/Applications", join(staging, "Applications"));
+  const layout = join(target, "dmg");
   rmSync(image, { force: true });
-  run("hdiutil", ["create", "-volname", "Zuna", "-srcfolder", staging, "-format", "ULFO", image]);
-  rmSync(staging, { recursive: true, force: true });
+  run(await dmgbuild(), ["-s", dmgLayout(app, layout), "Zuna", image]);
+  rmSync(layout, { recursive: true, force: true });
   run("codesign", ["--sign", developerId, "--timestamp", image]);
   notarize(image);
   run("xcrun", ["stapler", "staple", image]);
@@ -264,7 +320,7 @@ if (command === "build" || command === "dist") {
   mkdirSync(dist, { recursive: true });
   const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop", developerId });
   console.log(`> wrote ${app}`);
-  if (command === "dist") packages(app, dist);
+  if (command === "dist") await packages(app, dist);
 } else if (command === "bundle") {
   const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
   console.log(`> wrote ${app}`);
