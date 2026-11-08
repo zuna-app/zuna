@@ -136,8 +136,8 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSAccessibility
 objc2-core-graphics = { version = "0.3", features = ["CGEvent", "CGEventSource", "CGEventTypes"] }
 objc2-core-foundation = { version = "0.3", features = ["CFMachPort", "CFRunLoop", "CFDate"] }
 objc2-user-notifications = "0.3"
-objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureVideoDataOutput", "AVCaptureSession", "AVCaptureSessionPreset", "AVMediaFormat", "block2", "dispatch2"] }
-objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "objc2-core-video"] }
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureVideoDataOutput", "AVCaptureSession", "AVCaptureSessionPreset", "AVMediaFormat", "objc2-core-media", "block2", "dispatch2"] }
+objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "CMFormatDescription", "objc2-core-video"] }
 objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn"] }
 dispatch2 = "0.3"
 objc2-screen-capture-kit = { version = "0.3", features = ["SCContentSharingPicker", "SCShareableContent", "SCStream", "block2", "dispatch2", "objc2-core-media"] }

@@ -1,8 +1,9 @@
 //! Cameras on macOS, read through AVFoundation as Chromium reads them there: each listed by
 //! the name macOS gives it, the Mac's own, one plugged in and an iPhone through Continuity
-//! Camera, opened by its unique ID at 720p where it can, and each frame taken as BGRA, top row
-//! first, into the same reader V4L2's feed on Linux (`camera::Reader`). macOS asks the person
-//! the first time, with the words in the bundle's `Info.plist`.
+//! Camera, opened by its unique ID, and each frame taken as BGRA, top row first, made no taller
+//! than 720p by AVFoundation itself, into the same reader V4L2's feed on Linux
+//! (`camera::Reader`). macOS asks the person the first time, with the words in the bundle's
+//! `Info.plist`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,8 +31,46 @@ use crate::media::camera::Reader;
 
 type Frame = (u32, u32, Vec<u8>);
 
-/// The cameras there are, by their unique ID and name.
+/// The tallest a call sends, which frames are made no taller than.
+const WANTED_HEIGHT: u32 = 720;
+
+/// A picture of this size made the same shape and no taller than asked, each side even.
+fn fitted(width: u32, height: u32, max_height: u32) -> (u32, u32) {
+    if height <= max_height {
+        return (width & !1, height & !1);
+    }
+    let scaled = (width as u64 * max_height as u64 / height as u64) as u32;
+    ((scaled & !1).max(2), max_height)
+}
+
+/// The cameras there are, by their unique ID and name, as last listed: Settings asks for them
+/// each time it's drawn, so they're listed on a thread of their own, again each time they're
+/// asked for and two seconds have passed, as the sound devices are.
 pub fn cameras() -> Vec<CameraDevice> {
+    use parking_lot::Mutex;
+    use std::time::Instant;
+    struct Listed {
+        cameras: Vec<CameraDevice>,
+        reading: bool,
+        read_at: Option<Instant>,
+    }
+    static LISTED: Mutex<Listed> = Mutex::new(Listed { cameras: Vec::new(), reading: false, read_at: None });
+    let mut listed = LISTED.lock();
+    if !listed.reading && listed.read_at.is_none_or(|at| at.elapsed() > Duration::from_secs(2)) {
+        listed.reading = true;
+        std::thread::Builder::new()
+            .name("zuna-cameras".into())
+            .spawn(|| {
+                let cameras = discovered();
+                let mut listed = LISTED.lock();
+                (listed.cameras, listed.reading, listed.read_at) = (cameras, false, Some(Instant::now()));
+            })
+            .ok();
+    }
+    listed.cameras.clone()
+}
+
+fn discovered() -> Vec<CameraDevice> {
     // SAFETY: the device types and media type are AVFoundation's own constants.
     let devices = unsafe {
         let Some(video) = AVMediaTypeVideo else { return Vec::new() };
@@ -113,9 +152,16 @@ fn start(id: &str) -> Result<(Receiver<Frame>, Retained<AVCaptureSession>), Stri
         }
         session.addInput(&input);
         let output = AVCaptureVideoDataOutput::new();
-        let key: &NSString = &*(kCVPixelBufferPixelFormatTypeKey as *const _ as *const NSString);
-        let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
-        let settings: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::from_retained_objects(&[key], &[Retained::into_super(Retained::into_super(Retained::into_super(format)))]);
+        // The camera's own picture, made no taller than 720p on the GPU, as a call sends no
+        // more, and scaling 1080p on the CPU each frame held it to a few a second.
+        let dimensions = objc2_core_media::CMVideoFormatDescriptionGetDimensions(&device.activeFormat().formatDescription());
+        let (width, height) = fitted(dimensions.width.max(2) as u32, dimensions.height.max(2) as u32, WANTED_HEIGHT);
+        let as_key = |key: &objc2_core_foundation::CFString| -> &NSString { &*(key as *const _ as *const NSString) };
+        let number = |value: u32| Retained::into_super(Retained::into_super(Retained::into_super(NSNumber::new_u32(value))));
+        let settings: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::from_retained_objects(
+            &[as_key(kCVPixelBufferPixelFormatTypeKey), as_key(objc2_core_video::kCVPixelBufferWidthKey), as_key(objc2_core_video::kCVPixelBufferHeightKey)],
+            &[number(kCVPixelFormatType_32BGRA), number(width), number(height)],
+        );
         output.setVideoSettings(Some(&settings));
         output.setAlwaysDiscardsLateVideoFrames(true);
         let delegate = Delegate::new(sender);
