@@ -584,10 +584,11 @@ if [ -n "$SERVER_DOMAIN" ]; then
       DATABASE_URL="$(sed -n 's/^ZUNA_DATABASE_URL=//p' /etc/zuna/zuna.env | tail -n 1)"
     fi
     # Only root reads it, since it can hold LiveKit's secret. systemd reads it before
-    # it starts the server.
-    install -m 0600 /dev/null /etc/zuna/zuna.env
+    # it starts the server. It's written beside the old one and moved into place whole,
+    # since a file cut short, without ZUNA_DATABASE_URL, would start the server empty.
+    install -m 0600 /dev/null /etc/zuna/zuna.env.new
     if [ -n "$SERVER_IP" ]; then
-      cat >>/etc/zuna/zuna.env <<EOF
+      cat >>/etc/zuna/zuna.env.new <<EOF
 # The chat server, at this machine's IP address, with HTTPS and a certificate of its
 # own, whose key is certificate.key in ZUNA_DATA. Written by deploy/update.sh.
 ZUNA_DATA=/var/lib/zuna
@@ -595,7 +596,7 @@ ZUNA_DOMAIN=$SERVER_DOMAIN
 ZUNA_LISTEN=:$SERVER_PORT
 EOF
     else
-      cat >>/etc/zuna/zuna.env <<EOF
+      cat >>/etc/zuna/zuna.env.new <<EOF
 # The chat server, behind a reverse proxy that adds HTTPS. Written by deploy/update.sh.
 ZUNA_DATA=/var/lib/zuna
 ZUNA_LISTEN=$(address "$LISTEN" "$SERVER_PORT")
@@ -607,20 +608,21 @@ ZUNA_TRUSTED_PROXIES=$TRUSTED_PROXIES
 ZUNA_BEHIND_CLOUDFLARE=$CLOUDFLARE_ENV
 EOF
     fi
-    cat >>/etc/zuna/zuna.env <<EOF
+    cat >>/etc/zuna/zuna.env.new <<EOF
 # Empty is the project's relay, and "off" is none.
 ZUNA_PUSH_RELAYS=$PUSH_RELAYS
 # PostgreSQL, or empty for SQLite in ZUNA_DATA.
 ZUNA_DATABASE_URL=$DATABASE_URL
 EOF
     if [ "$VOICE" = on ]; then
-      cat >>/etc/zuna/zuna.env <<EOF
+      cat >>/etc/zuna/zuna.env.new <<EOF
 # Voice channels, through LiveKit on this machine. Apps reach it through this server, at /livekit/.
 ZUNA_LIVEKIT_INTERNAL_URL=http://$(address 127.0.0.1 "$VOICE_PORT")
 ZUNA_LIVEKIT_KEY=zuna
 ZUNA_LIVEKIT_SECRET=$(sed -n 's/^zuna: *//p' /etc/zuna/livekit-keys.yaml)
 EOF
     fi
+    mv -f /etc/zuna/zuna.env.new /etc/zuna/zuna.env
   fi
 fi
 
@@ -644,7 +646,8 @@ if [ -n "$RELAY_DOMAIN" ]; then
         echo "ZUNA_PUSH_APNS_KEY=/etc/zuna/apns.p8"
         echo "ZUNA_PUSH_APNS_KEY_ID=$APNS_KEY_ID"
       fi
-    } >/etc/zuna/push.env
+    } >/etc/zuna/push.env.new
+    mv -f /etc/zuna/push.env.new /etc/zuna/push.env
   fi
   if [ ! -f /etc/zuna/apns.p8 ]; then
     echo "No APNs key yet: phones can't register, and pushes fail. Add one with --apns-key and --apns-key-id."
@@ -655,7 +658,7 @@ if [ -n "$WEB_DOMAIN" ]; then
   install_binary zuna-web
   install -m 0644 "$SRC/deploy/zuna-web.service" /etc/systemd/system/zuna-web.service
   if [ ! -f /etc/zuna/zuna-web.env ] || [ "$WEB_CHANGED" = 1 ]; then
-    cat >/etc/zuna/zuna-web.env <<EOF
+    cat >/etc/zuna/zuna-web.env.new <<EOF
 # The web app, behind a reverse proxy that adds HTTPS. Written by deploy/update.sh.
 ZUNA_WEB_LISTEN=$(address "$LISTEN" "$WEB_PORT")
 ZUNA_WEB_TRUST_PROXY=true
@@ -666,6 +669,7 @@ ZUNA_WEB_SERVER=$WEB_SERVER
 ZUNA_WEB_SERVERS=$WEB_SERVERS
 ZUNA_WEB_PREVIEWS=$WEB_PREVIEWS
 EOF
+    mv -f /etc/zuna/zuna-web.env.new /etc/zuna/zuna-web.env
   fi
 fi
 

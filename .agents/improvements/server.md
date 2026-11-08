@@ -12,14 +12,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: `go get` both, run `go mod tidy`, and check the changelog against the `_pragma` and `_txlock` DSN options used in store.go:89-105.
 - Check after: `npm test`, the PostgreSQL run, and a Docker image build.
 
-### Write the server's env file atomically in update.sh
-- Where: deploy/update.sh:588-623, :636-647, :658-668
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: zuna.env is truncated, then rebuilt from several appends. If the script stops partway, the next restart reads a partial file, possibly without `ZUNA_DATABASE_URL`, and the server starts on an empty SQLite database. The comment at :581-582 warns of exactly this.
-- Suggested change: write each env file to a `.new` file, then `mv -f` it into place.
-- Check after: deploy/test/install-check.sh.
-
 ### Quote values written to update.conf
 - Where: deploy/update.sh:459-482 (written) and :114 (sourced as root)
 - Category: robustness
