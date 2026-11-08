@@ -1,9 +1,0 @@
-## Documentation and agent-facing files
-
-Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PARITY.md, docs/*.md, READMEs under apps/packages/server/deploy/tests/crypto/scripts, .github, the local .claude folder, package.json descriptions, and source comments the docs point at. Every path CLAUDE.md names exists; what's broken is mostly what it says about them.
-Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
-Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
-
-### Fix the screen-share POC's setup step, which relies on Electron from the root
-- (Same as "Retire poc/screenshare" in deps-build.md, which has the fuller plan.) poc/screenshare/README.md:13, :19 say "Run `npm install` at the top of the repository first, for Electron"; the root no longer installs it.
-

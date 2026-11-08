@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,18 +116,12 @@ export function ensureLiveKit() {
   const stamp = `${binary}.tag`;
   if (existsSync(binary) && existsSync(stamp) && readFileSync(stamp, "utf8") === LIVEKIT_TAG) return binary;
   mkdirSync(dirname(binary), { recursive: true });
-  // The screen sharing proof of concept may already have one.
-  const built = join(root, "poc", "screenshare", ".deps", name);
-  if (existsSync(built) && existsSync(`${built}.tag`) && readFileSync(`${built}.tag`, "utf8") === LIVEKIT_TAG) {
-    copyFileSync(built, binary);
-  } else {
-    console.log(`Building LiveKit ${LIVEKIT_TAG}, which only happens once...`);
-    const source = join(devData, "livekit-src");
-    rmSync(source, { recursive: true, force: true });
-    run("git", ["clone", "--quiet", "--depth", "1", "--branch", LIVEKIT_TAG, "https://github.com/livekit/livekit", source]);
-    run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/server"], { cwd: source });
-    rmSync(source, { recursive: true, force: true });
-  }
+  console.log(`Building LiveKit ${LIVEKIT_TAG}, which only happens once...`);
+  const source = join(devData, "livekit-src");
+  rmSync(source, { recursive: true, force: true });
+  run("git", ["clone", "--quiet", "--depth", "1", "--branch", LIVEKIT_TAG, "https://github.com/livekit/livekit", source]);
+  run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/server"], { cwd: source });
+  rmSync(source, { recursive: true, force: true });
   writeFileSync(stamp, LIVEKIT_TAG);
   return binary;
 }

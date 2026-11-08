@@ -68,14 +68,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: update each by hand to the current release commit of its newest major, keeping the `# vN` comments (no Dependabot). Check setup-node v5's automatic caching: keep `cache: npm` where it is, none in `advisories`.
 - Check after: CI has no Node 20 deprecation annotations.
 
-### Retire poc/screenshare, which needs the removed Electron, and keep its key-log check
-- Where: poc/screenshare/scripts/demo.mjs:92-94, :236; poc/screenshare/viewer/main.cjs:3; poc/screenshare/README.md:13, :19; poc/screenshare/scripts/deps.mjs:13-34; scripts/lib.mjs:113-117; docs/SECURITY_DETAILS.md:111; docs/SCREEN_SHARE.md:11
-- Category: cleanup
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: the demo's viewer resolves `electron` from the repo root; Electron left package.json in e55fd3c and is in no lockfile, so the demo fails on a fresh clone (it works here only because of a stale node_modules). deps.mjs keeps its own LiveKit tag (`v1.13.11`) and `ensureLiveKit` beside lib.mjs's `LIVEKIT_TAG`; lib.mjs:113-117 copies a LiveKit from poc/screenshare/.deps. The one piece still cited is key-log-check.mjs (SECURITY_DETAILS.md:111), which doesn't need Electron but waits a fixed 1.5 s for LiveKit (line 15).
-- Suggested change: move key-log-check.mjs to apps/screenshare/test/key-log-check.mjs, importing `ensureLiveKit` from scripts/lib.mjs and waiting for port 7880 to accept a connection instead of `setTimeout(1500)`; update SECURITY_DETAILS.md:111; move the README's measurements that SCREEN_SHARE.md:11 links to into docs/SCREEN_SHARE.md; delete poc/screenshare (with its package.json and lockfile) and the poc branch in lib.mjs:113-117.
-- Check after: `node apps/screenshare/test/key-log-check.mjs` on Windows after `npm run build:screenshare`; `npm run dev:server` still builds or reuses LiveKit.
-
 ### Delete the leftover Electron folder here, then drop its .gitignore patterns
 - Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
 - Category: cleanup
