@@ -414,7 +414,7 @@ export const useApp = create<AppState>((set, get) => {
       let items: MessageView[];
       if (index >= 0) {
         items = list.items.slice();
-        items[index] = { ...message, uploadProgress: message.uploadProgress };
+        items[index] = message;
       } else {
         if (list.detached) return state;
         items = sortMessages([...list.items, message]);

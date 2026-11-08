@@ -6,7 +6,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
 import { motionReduced } from "@/lib/motion";
-import { isUnread, useApp } from "@/state/store";
+import { activeServerNow, isUnread, useApp } from "@/state/store";
 import { MessageItem, readUpToOf } from "./MessageItem";
 import { useDragPick } from "./use-drag-pick";
 
@@ -196,8 +196,7 @@ export function MessageList({
   const unreadLine = useRef<string | null | undefined>(undefined);
   const openAtUnread = useRef(false);
   if (unreadLine.current === undefined && (items.length > 0 || list?.loaded)) {
-    const blocked = useApp.getState().servers[useApp.getState().activeServerId ?? ""]?.prefs.blocked;
-    const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId, blocked)) : undefined;
+    const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId, activeServerNow()?.prefs.blocked)) : undefined;
     unreadLine.current = first?.id ?? null;
     openAtUnread.current = !!first;
   }
@@ -548,7 +547,8 @@ export function MessageList({
   }
 
   const unreadBelow = !atBottom ? conversation.unread : 0;
-  const firstUnreadAt = unreadBelow > 0 ? items.find((item) => isUnread(item, conversation.ownRead, selfId))?.createdAt : undefined;
+  // Someone blocked doesn't count, as with the line above the first unread message.
+  const firstUnreadAt = unreadBelow > 0 ? items.find((item) => isUnread(item, conversation.ownRead, selfId, activeServerNow()?.prefs.blocked))?.createdAt : undefined;
 
   return (
     <div className="message-list" onMouseDown={pickByDragging}>

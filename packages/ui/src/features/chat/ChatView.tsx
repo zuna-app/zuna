@@ -1,4 +1,4 @@
-import type { ConversationView } from "@zuna/core";
+import type { ConversationView, MessageView } from "@zuna/core";
 import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Phone, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Video, Volume2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
@@ -259,14 +259,18 @@ function ChannelWelcome({ conversation, voice }: { conversation: ConversationVie
   );
 }
 
+// The same empty lists every time, as zustand renders again for a new one.
+const NO_IDS: string[] = [];
+const NO_MESSAGES: MessageView[] = [];
+
 /** What can be done with the picked messages, in place of the composer, as in Telegram. */
 function SelectionBar({ conversation, listId }: { conversation: ConversationView; listId: string }) {
   const selfId = useActiveField((server) => server.self?.userId, undefined);
   const session = useApp((state) => state.session);
   const toast = useApp((state) => state.toast);
   const toggleSelected = useApp((state) => state.toggleSelected);
-  const ids = useApp((state) => state.selection?.ids ?? []);
-  const items = useApp((state) => state.lists[listId]?.items ?? []);
+  const ids = useApp((state) => state.selection?.ids ?? NO_IDS);
+  const items = useApp((state) => state.lists[listId]?.items ?? NO_MESSAGES);
   const { busy, run } = useAction();
   // In the chat's order, whatever order they were picked in.
   const picked = items.filter((item) => ids.includes(item.id));
