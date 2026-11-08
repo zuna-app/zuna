@@ -134,6 +134,9 @@ private struct SharedMessages: View {
     @State private var messages: [MessageView]?
     @State private var hasMore = false
     @State private var loadingMore = false
+    /// Why the first page couldn't be loaded, rather than saying there's nothing.
+    @State private var failed: String?
+    @State private var attempt = 0
 
     private static let page = 50
 
@@ -143,12 +146,24 @@ private struct SharedMessages: View {
                 NothingShared(kind: SharedKind(rawValue: kind.rawValue) ?? .file)
             } else if let messages {
                 if kind == .photo || kind == .video { grid(messages) } else { list(messages) }
+            } else if let failed {
+                ContentUnavailableView {
+                    Label("Couldn't load these", systemImage: "exclamationmark.circle")
+                } description: {
+                    Text(failed)
+                } actions: {
+                    Button("Try again") {
+                        self.failed = nil
+                        attempt += 1
+                    }
+                }
+                .foregroundStyle(Theme.text2)
             } else {
-                Color.clear
+                ProgressView()
             }
         }
         // When the chat changes, everything shown so far is read again, so deletions and edits show.
-        .task(id: model.chatChange(server.entry.id, conversation)) {
+        .task(id: Reload(change: model.chatChange(server.entry.id, conversation), attempt: attempt)) {
             // New messages come in bursts as history arrives, so reading again waits for a quiet moment.
             if messages != nil { try? await Task.sleep(for: .milliseconds(150)) }
             guard !Task.isCancelled else { return }
@@ -158,9 +173,14 @@ private struct SharedMessages: View {
                 messages = page.messages
                 hasMore = page.hasMore
             } catch {
-                if !Task.isCancelled, messages == nil { messages = [] }
+                if !Task.isCancelled, messages == nil { failed = ErrorText.describe(error) }
             }
         }
+    }
+
+    private struct Reload: Equatable {
+        let change: ChatChange
+        let attempt: Int
     }
 
     private func grid(_ messages: [MessageView]) -> some View {

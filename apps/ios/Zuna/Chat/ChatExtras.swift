@@ -108,6 +108,9 @@ struct PinnedMessagesView: View {
     let conversationKey: String
 
     @State private var pins: [MessageView]?
+    /// Why the pins couldn't be loaded, rather than saying there are none.
+    @State private var failed: String?
+    @State private var attempt = 0
 
     var body: some View {
         ZStack {
@@ -131,7 +134,20 @@ struct PinnedMessagesView: View {
         // Pinning or unpinning in the chat, here or elsewhere, shows up straight away.
         let signature = conversation.groupId.flatMap { model.list(serverId, $0)?.items.filter { $0.pinnedAt != nil }.map(\.id).joined(separator: ",") } ?? ""
         return List {
-            if pins?.isEmpty == true {
+            if let failed {
+                ContentUnavailableView {
+                    Label("Couldn't load the pins", systemImage: "pin.slash")
+                } description: {
+                    Text(failed)
+                } actions: {
+                    Button("Try again") { attempt += 1 }
+                }
+                .listRowBackground(Color.clear)
+            } else if pins == nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } else if pins?.isEmpty == true {
                 ContentUnavailableView("Nothing is pinned yet.", systemImage: "pin", description: Text("Press and hold a message to pin it."))
                     .listRowBackground(Color.clear)
             }
@@ -168,12 +184,17 @@ struct PinnedMessagesView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .task(id: "\(conversation.groupId ?? "")|\(signature)") {
+        .task(id: "\(conversation.groupId ?? "")|\(signature)|\(attempt)") {
             guard let groupId = conversation.groupId else {
                 pins = []
                 return
             }
-            pins = (try? await model.core.session(serverId).loadPins(groupId)) ?? []
+            do {
+                pins = try await model.core.session(serverId).loadPins(groupId)
+                failed = nil
+            } catch {
+                if !Task.isCancelled { failed = ErrorText.describe(error) }
+            }
         }
     }
 }
