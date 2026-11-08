@@ -1148,6 +1148,11 @@ describe("reporting someone", () => {
     expect(quinn.session.getPreferences().reported).toEqual([rex.userId]);
     await expect(quinn.session.reportUser(rex.userId, "spam")).rejects.toThrow("already");
     await expect(quinn.session.getReports()).rejects.toThrow();
+    // Quinn's other devices know too, so none offers to report rex again.
+    const quinnPhone = await new TestApp("quinn-phone").open();
+    await quinnPhone.login(server.url, "quinn");
+    await waitFor(() => quinnPhone.session.getPreferences().reported?.includes(rex.userId) ?? false, "quinn's phone to know rex was reported");
+    quinnPhone.client.stop();
 
     const reports = await alice.session.getReports();
     expect(reports.find((report) => report.userId === rex.userId)).toMatchObject({ count: 1, reasons: ["harassment"] });

@@ -366,5 +366,8 @@ export function parsePreferences(value: unknown): Partial<Preferences> {
   const blocked = strings(value.blocked);
   if (blocked) prefs.blocked = blocked;
   if (typeof value.sendReadReceipts === "boolean") prefs.sendReadReceipts = value.sendReadReceipts;
+  // Who this account reported, so its other devices don't offer to report them again.
+  const reported = strings(value.reported);
+  if (reported) prefs.reported = reported;
   return prefs;
 }

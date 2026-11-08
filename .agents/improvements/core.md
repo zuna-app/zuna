@@ -4,14 +4,6 @@ Covered: all of packages/core/src (session.ts section by section, with the crypt
 Checked: `npx tsc --noEmit` in packages/core passes. Query costs measured in a scratch node:sqlite database using the core's schema (50k messages in one group). No test suite was run.
 Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts, the inside of the rotation flow) and metadata.ts's binary parsers. Core changes reach every platform, so most entries need no parity work.
 
-### Carry `reported` across an account's devices
-- Where: packages/core/src/validate.ts:350-370 (`parsePreferences` leaves out `reported`); written at session.ts:4974-4978, shared via `nextManifest` 1364 and `applyManifest` 1325-1326; read by packages/ui/src/features/chat/SidePanel.tsx:237
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `reportUser` saves `prefs.reported` so each person is reported once, and the manifest carries it, but `parsePreferences` drops the field when another device's manifest is applied, so other devices offer Report again.
-- Suggested change: add `const reported = strings(value.reported); if (reported) prefs.reported = reported;` to `parsePreferences`.
-- Check after: `npx vitest run test/chat-controls.test.ts` (add a two-device assertion).
-
 ### Keep the trust manifest within one vault item, or account rotations fail on large servers
 - Where: packages/core/src/session.ts:208-210 (comment and `MAX_MANIFEST_BYTES`), 1396 (`if (data.length > MAX_MANIFEST_BYTES) return true;`), 1931, 2008-2013 (rotation seals `nextManifest()` with no size check), 1025-1027 (a pin for every user seen); server/internal/api/accounts.go:53, 668-675 (`maxVaultItemBytes = 256 KiB`), generations.go:119, 126-128 (400 `bad_request` on an oversized item)
 - Category: robustness
