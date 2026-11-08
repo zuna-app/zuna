@@ -44,7 +44,7 @@ export function Privacy() {
         <h2 id="push">zuna-push, the push relay</h2>
         <p>
           Apple only accepts pushes from whoever publishes an app, and a self-hosted server can't hold that key. So servers wake phones through zuna-push, which
-          the project's maintainers run at <code>relay.mgalazka.pl</code>. Its code is in the{" "}
+          the project's maintainers run at <code>relay.zuna.chat</code>. Its code is in the{" "}
           <a href={`${REPO}/tree/main/server/internal/relay`}>repository</a>, and <a href={doc("docs/PUSH_RELAY.md")}>how it works</a> is written up in full.
         </p>
         <h3>What it receives</h3>

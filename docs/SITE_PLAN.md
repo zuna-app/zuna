@@ -94,6 +94,5 @@ zuna.chat {
 
 ## Left to decide
 
-- The push relay is at `https://relay.mgalazka.pl`. Moving it to `push.zuna.chat` before the iPhone app is released means only one address to keep.
 - The repository is private and has no release yet, so download and GitHub links only work for visitors once it's public.
 - A contact address for `/support` and `/privacy`, which Apple asks for.
