@@ -64,6 +64,14 @@ check_address() {
   echo "That isn't one of this machine's addresses."
   return 1
 }
+# An address and port, as a URL writes them: an IPv6 address goes in brackets.
+address() {
+  case "$1" in
+    *:*) echo "[$1]:$2" ;;
+    *) echo "$1:$2" ;;
+  esac
+}
+
 is_private() {
   case "$1" in
     10.* | 127.* | 192.168.* | 169.254.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
@@ -124,10 +132,11 @@ case "$LISTEN" in
     ;;
 esac
 while ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q . && ! ss -Hltnp "sport = :$PORT" 2>/dev/null | grep -q '"zuna-push"'; do PORT=$((PORT + 1)); done
+RELAY_AT="$(address "$LISTEN" "$PORT")"
 
 echo
 echo "Ready to set up:"
-echo "  Relay      https://$DOMAIN, through your proxy, to http://$LISTEN:$PORT"
+echo "  Relay      https://$DOMAIN, through your proxy, to http://$RELAY_AT"
 echo "  Proxy      $PROXY, the only one that can say who's calling"
 echo "  APNs key   $KEY, Key ID $KEY_ID, kept in /etc/zuna/apns.p8"
 echo "  Update     sudo zuna-update"
@@ -138,7 +147,7 @@ case "${reply:-y}" in [Yy]*) ;; *) echo "Nothing was changed."; exit 0 ;; esac
 "$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT" --trusted-proxies "$PROXY" --behind-cloudflare "$CLOUDFLARE"
 
 echo
-echo "Your proxy has to reach http://$LISTEN:$PORT. If a firewall is on here, let it through to"
+echo "Your proxy has to reach http://$RELAY_AT. If a firewall is on here, let it through to"
 echo "port $PORT/tcp, and nothing else."
 echo
 if ! is_private "$LISTEN"; then

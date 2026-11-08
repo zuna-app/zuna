@@ -12,10 +12,3 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: `go get` both, run `go mod tidy`, and check the changelog against the `_pragma` and `_txlock` DSN options used in store.go:89-105.
 - Check after: `npm test`, the PostgreSQL run, and a Docker image build.
 
-### Bracket IPv6 addresses in install-relay.sh's messages
-- Where: deploy/install-relay.sh:130, :141
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the script accepts this machine's IPv6 addresses, but prints them unbracketed, as in `http://2001:db8::5:8090`, which a proxy can't use. update.sh's `address()` (lines 248-253) brackets them correctly.
-- Suggested change: bracket the address when it contains `:`.
-- Check after: deploy/test/install-check.sh (relay scenario).
