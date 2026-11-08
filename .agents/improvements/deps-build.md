@@ -148,10 +148,3 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: get a free port first (`net.createServer().listen(0, "127.0.0.1", …)`, read the port, close); wrap everything after the spawn in try/catch that kills zuna-web and removes both folders before rethrowing; import `env` from scripts/lib.mjs as ui-run.ts does.
 - Check after: on a Mac, `npm run test:ios:voice` and `npm run test:ios:notify`.
 
-### Time out the site build's GitHub request, and check its template markers
-- Where: apps/site/build.mjs:23-26, :45-62
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `latestRelease()` calls `fetch` with no signal, so a network that accepts but never answers holds the site build for minutes. The `.replace("<!--csp-->", ...)` and `'<div id="root"><!--app--></div>'` replacements silently do nothing if index.html's markers change, leaving pages without their CSP meta tag or prerendered content (site-check catches CSP violations, not a missing policy).
-- Suggested change: `signal: AbortSignal.timeout(10_000)`; before the loop, throw if the template lacks either marker.
-- Check after: `npm run build -w @zuna/site`, then a browser look at dist/index.html; site-check only if markup changed.

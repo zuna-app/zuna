@@ -19,6 +19,11 @@ await build({ root, define, logLevel: "warn", build: { ssr: "src/render.tsx", ou
 
 const { PAGES, SITE, render, head } = await import(pathToFileURL(join(ssr, "render.js")).href);
 const template = await readFile(join(dist, "index.html"), "utf8");
+// Each page's policy and content go where these markers are, and a page without them would
+// go out with neither, which nothing else would notice.
+for (const marker of ["<!--csp-->", '<div id="root"><!--app--></div>']) {
+  if (!template.includes(marker)) throw new Error(`index.html has lost its ${marker} marker`);
+}
 for (const page of PAGES) {
   const html = template
     .replace("<!--csp-->", `<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}" />`)
@@ -46,7 +51,8 @@ async function latestRelease() {
   const headers = { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
   if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   try {
-    const response = await fetch("https://api.github.com/repos/SocketByte/zuna-chat/releases/latest", { headers });
+    // A network that takes the request and never answers mustn't hold the build.
+    const response = await fetch("https://api.github.com/repos/SocketByte/zuna-chat/releases/latest", { headers, signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       console.warn(`No release to link to (GitHub said ${response.status}), so downloads lead to the releases page`);
       return null;
