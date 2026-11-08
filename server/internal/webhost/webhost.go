@@ -50,8 +50,12 @@ type Config struct {
 }
 
 type file struct {
-	body        []byte
-	gzipped     []byte
+	body    []byte
+	gzipped []byte
+	// brotli is the build's own name.br beside it, which zuna-web serves where a
+	// browser takes it: a fifth smaller than gzip for the app's script, and a third
+	// for the crypto core's WebAssembly. Go has no brotli of its own to make it here.
+	brotli      []byte
 	contentType string
 	etag        string
 	immutable   bool
@@ -216,8 +220,14 @@ var contentTypes = map[string]string{
 // a file never touches the disk.
 func (h *host) load(files fs.FS) error {
 	h.files = map[string]*file{}
+	brotli := map[string][]byte{}
 	err := fs.WalkDir(files, ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || strings.HasPrefix(path.Base(name), ".") {
+			return err
+		}
+		if base, ok := strings.CutSuffix(name, ".br"); ok {
+			body, err := fs.ReadFile(files, name)
+			brotli[base] = body
 			return err
 		}
 		body, err := fs.ReadFile(files, name)
@@ -255,6 +265,11 @@ func (h *host) load(files fs.FS) error {
 	if err != nil {
 		return err
 	}
+	for name, body := range brotli {
+		if f := h.files[name]; f != nil && compressible(f.contentType) {
+			f.brotli = body
+		}
+	}
 	if h.files["index.html"] == nil {
 		return errors.New("the web app's files have no index.html")
 	}
@@ -265,10 +280,10 @@ func compressible(contentType string) bool {
 	return strings.HasPrefix(contentType, "text/") || strings.HasPrefix(contentType, "application/") || strings.HasPrefix(contentType, "image/svg")
 }
 
-func acceptsGzip(r *http.Request) bool {
+func accepts(r *http.Request, encoding string) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
 		coding, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if strings.EqualFold(strings.TrimSpace(coding), "gzip") && strings.ReplaceAll(params, " ", "") != "q=0" {
+		if strings.EqualFold(strings.TrimSpace(coding), encoding) && strings.ReplaceAll(params, " ", "") != "q=0" {
 			return true
 		}
 	}
@@ -300,7 +315,10 @@ func (h *host) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := f.body
-	if f.gzipped != nil && acceptsGzip(r) {
+	if f.brotli != nil && accepts(r, "br") {
+		headers.Set("Content-Encoding", "br")
+		body = f.brotli
+	} else if f.gzipped != nil && accepts(r, "gzip") {
 		headers.Set("Content-Encoding", "gzip")
 		body = f.gzipped
 	}

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { brotliCompress, constants } from "node:zlib";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -24,9 +26,44 @@ function buildVersion(): Plugin {
   };
 }
 
+/**
+ * Writes name.br beside each file brotli makes much smaller, which zuna-web serves to
+ * browsers that take it (webhost.go): a fifth less than gzip for the script, and a
+ * third for the crypto core's WebAssembly, on everyone's first visit.
+ */
+function brotliFiles(): Plugin {
+  const squeeze = promisify(brotliCompress);
+  let outDir = "";
+  return {
+    name: "zuna-brotli",
+    apply: "build",
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      const files: string[] = [];
+      const walk = (dir: string) => {
+        for (const name of readdirSync(dir)) {
+          const file = join(dir, name);
+          if (statSync(file).isDirectory()) walk(file);
+          else if (/\.(js|mjs|css|html|wasm|json|svg|txt)$/.test(name) && statSync(file).size > 1024) files.push(file);
+        }
+      };
+      walk(outDir);
+      await Promise.all(
+        files.map(async (file) => {
+          const body = readFileSync(file);
+          const squeezed = await squeeze(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: body.length } });
+          if (squeezed.length < body.length * 0.9) writeFileSync(`${file}.br`, squeezed);
+        }),
+      );
+    },
+  };
+}
+
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [react(), buildVersion()],
+  plugins: [react(), buildVersion(), brotliFiles()],
   // What npm run dev:web gives the sign-in form to start with, which only development reads.
   envPrefix: "ZUNA_DEV_",
   define: { "import.meta.env.ZUNA_VERSION": JSON.stringify(version) },

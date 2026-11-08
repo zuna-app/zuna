@@ -26,6 +26,8 @@ func testFiles() fstest.MapFS {
 		"favicon.svg":            {Data: []byte("<svg></svg>")},
 		"assets/index-abc.js":    {Data: bytes.Repeat([]byte("console.log('zuna');\n"), 400)},
 		"assets/crypto-abc.wasm": {Data: []byte("\x00asm")},
+		// What brotli made of the script, as the build writes it: only told apart by its name here.
+		"assets/index-abc.js.br": {Data: []byte("brotli")},
 		".hidden":                {Data: []byte("secret")},
 	}
 }
@@ -106,7 +108,11 @@ func TestFilesAreServedAndCachedRightly(t *testing.T) {
 		t.Errorf("WebAssembly type %q", got)
 	}
 
-	gzipped := get(t, handler, "/assets/index-abc.js", map[string]string{"Accept-Encoding": "gzip, br"})
+	brotli := get(t, handler, "/assets/index-abc.js", map[string]string{"Accept-Encoding": "gzip, deflate, br, zstd"})
+	if brotli.Header().Get("Content-Encoding") != "br" || brotli.Body.String() != "brotli" {
+		t.Fatalf("a script with brotli beside it went as %q", brotli.Header().Get("Content-Encoding"))
+	}
+	gzipped := get(t, handler, "/assets/index-abc.js", map[string]string{"Accept-Encoding": "gzip, br;q=0"})
 	if gzipped.Header().Get("Content-Encoding") != "gzip" {
 		t.Fatal("a large script wasn't compressed")
 	}
@@ -124,7 +130,7 @@ func TestFilesAreServedAndCachedRightly(t *testing.T) {
 		t.Errorf("an unchanged index.html should be %d, got %d", http.StatusNotModified, again.Code)
 	}
 
-	for _, target := range []string{"/missing.js", "/.hidden", "/index.html/x", "/assets/"} {
+	for _, target := range []string{"/missing.js", "/.hidden", "/index.html/x", "/assets/", "/assets/index-abc.js.br"} {
 		if rec := get(t, handler, target, nil); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: got %d, want 404", target, rec.Code)
 		}
