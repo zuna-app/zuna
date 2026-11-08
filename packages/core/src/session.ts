@@ -562,6 +562,12 @@ export class ServerSession {
   private flushRetry: ReturnType<typeof setTimeout> | undefined;
   /** Chats whose next message a channel's slow mode holds back, by conversation key, and until when (ms). */
   private slowHeld = new Map<string, number>();
+  /**
+   * Chats whose last send failed in a way that may pass, until when, and how long the next wait
+   * is, from 2.5 seconds doubling to half a minute: each waits on its own, and every other chat's messages go meanwhile.
+   */
+  private retryHeld = new Map<string, number>();
+  private retryDelay = new Map<string, number>();
   /** Updates the conversations when the next chat muted for a while is heard again. */
   private muteTimer: ReturnType<typeof setTimeout> | undefined;
   /** Erases the next disappearing message when it's due, and when that is (ms). */
@@ -889,6 +895,9 @@ export class ServerSession {
     await this.topUpKeyPackages();
     await this.uploadEpochKeys();
     await this.sendUnsentReads();
+    // Back online, so whatever was waiting to try again goes now.
+    this.retryHeld.clear();
+    this.retryDelay.clear();
     void this.flushOutbox();
   }
 
@@ -5590,19 +5599,29 @@ export class ServerSession {
       // A chat that slow mode holds back waits, with everything after it there, but no other chat does.
       const now = Date.now();
       for (const [key, until] of this.slowHeld) if (until <= now) this.slowHeld.delete(key);
-      const held = [...this.slowHeld.keys()];
+      for (const [key, until] of this.retryHeld) if (until <= now) this.retryHeld.delete(key);
+      const held = [...new Set([...this.slowHeld.keys(), ...this.retryHeld.keys()])];
       const row = this.db.get<{ id: string; group_key: string; payload: Uint8Array }>(
         `SELECT id, group_key, payload FROM outbox WHERE group_key NOT IN (${held.map(() => "?").join(",")}) ORDER BY created_at LIMIT 1`,
         held,
       );
       if (!row || this.stopped) {
-        if (held.length > 0 && !this.stopped) this.flushRetry = setTimeout(() => void this.flushOutbox(), Math.min(...this.slowHeld.values()) - now);
+        if (held.length > 0 && !this.stopped) this.flushRetry = setTimeout(() => void this.flushOutbox(), Math.min(...this.slowHeld.values(), ...this.retryHeld.values()) - now);
         return;
       }
-      const entry = this.openJson<OutboxEntry>("outbox", row.id, row.payload);
+      let entry: OutboxEntry;
+      try {
+        entry = this.openJson<OutboxEntry>("outbox", row.id, row.payload);
+      } catch (error) {
+        // One that won't open can't be sent, and mustn't stand in front of everything after it.
+        console.warn("[zuna] something waiting to be sent couldn't be read", error);
+        this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
+        continue;
+      }
       try {
         await this.deliver(row.group_key, entry);
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
+        this.retryDelay.delete(row.group_key);
       } catch (error) {
         if (error instanceof ApiError && error.code === "slow_mode") {
           const wait = Number(error.body.wait_ms);
@@ -5611,8 +5630,10 @@ export class ServerSession {
           continue;
         }
         if (error instanceof ApiError && error.retryable) {
-          this.flushRetry = setTimeout(() => void this.flushOutbox(), 5000);
-          return;
+          const delay = Math.min((this.retryDelay.get(row.group_key) ?? 1250) * 2, 30_000);
+          this.retryDelay.set(row.group_key, delay);
+          this.retryHeld.set(row.group_key, Date.now() + delay);
+          continue;
         }
         console.warn("[zuna] sending failed", error);
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);

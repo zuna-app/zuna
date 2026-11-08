@@ -36,14 +36,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: limit reaction keys to ~64 characters and run `plainName` over them; strip `HIDDEN_CHARACTERS` from preview `title`/`description`/`siteName`; give image dimensions the same `side()` limits; cap `data` at ~256 KiB. Export `plainName` for links.ts.
 - Check after: `npx vitest run test/security.test.ts`. Any validation change is a security-relevant change: check SECURITY_DETAILS for what it claims about `validate.ts`.
 
-### Keep one bad outbox row, or one stuck chat, from holding up every send
-- Where: packages/core/src/session.ts:5369-5404 (`openJson` at 5384 runs outside the try; one global queue ordered by `created_at`, 5376-5379; a retryable error stops everything for 5 s at 5395-5397)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: if the oldest outbox row fails to open, `runOutbox` rejects (an unhandled rejection via `void this.flushOutbox()`), and every later flush trips on the same row first: nothing is ever sent again. A chat that keeps failing with retryable errors (5xx for one group, `unchecked_member` from `ensureTreeClean` 3217/3225) blocks sends to every other chat, retried every 5 s with no backoff.
-- Suggested change: move `openJson` inside the try and delete a row that doesn't open (marking its message failed). Hold a chat whose send hit a retryable error, as `slowHeld` does for slow mode, so others keep going, with backoff (5 s, 10 s … 60 s).
-- Check after: `npx vitest run test/e2e.test.ts test/chat-controls.test.ts`.
-
 ### Have `previewPush` and the session share one rule for whether a message could have been sent
 - Where: packages/core/src/push.ts:108-122 (a hand copy of `couldBeSent`, session.ts:4396-4407, including the sealed-row labels); push.ts:65-79 and 189-200 (`previewPush` and `previewCall` repeat the same setup)
 - Category: cleanup
