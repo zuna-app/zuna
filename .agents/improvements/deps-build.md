@@ -92,14 +92,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: locally (not a commit, and only with the user's go-ahead since it deletes 1.3 GB): `rm -rf apps/desktop-electron-legacy && npm ci`. Then commit removing `out/` and `release/` from .gitignore. The other maintainer must delete the folder too, or it shows up as untracked; mention it in the commit body.
 - Check after: `git status --short --ignored` lists no apps/desktop-electron-legacy; `npm ls` shows nothing extraneous.
 
-### Give the desktop core bundle its own dependencies, and one esbuild setup shared with iOS
-- Where: apps/desktop/core-bundle/build.mjs:8-41; apps/ios/core-bundle/build.mjs:14-55; apps/ios/package.json:14-18
-- Category: deps
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: apps/desktop has no package.json, so its core bundle gets `esbuild`, `core-js`, `shiki` and `@zuna/core` only because they're hoisted from `@zuna/ios`'s devDependencies. The two build scripts repeat the same three esbuild entry points with only `target` and output folder different. `core-js` is shipped in both apps but, as a devDependency, `npm audit --omit=dev` never looks at it.
-- Suggested change: export `bundleCore({ target, outDir })` from apps/ios/core-bundle/build.mjs (or a shared packages/core-bundle) and call it with `es2022` from the desktop and `safari18` from iOS; move `core-js` and `shiki` to `dependencies` in apps/ios/package.json; if apps/desktop gets a package.json, declare `esbuild` there.
-- Check after: `node apps/desktop/core-bundle/build.mjs` produces the same three files; `npm run dev:windows`; `npm audit --omit=dev`.
-
 ### Move to Vite 8, which the Electron removal unblocked, all workspaces at once
 - Where: apps/web/package.json:15,19; apps/site/package.json:20,26; packages/ui/package.json:37; package.json:51
 - Category: deps

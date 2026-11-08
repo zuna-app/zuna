@@ -9,11 +9,13 @@
     "build:core": "node core-bundle/build.mjs",
     "typecheck": "tsc --noEmit -p core-bundle/tsconfig.json"
   },
+  "dependencies": {
+    "core-js": "^3.51.0",
+    "shiki": "^4.5.0"
+  },
   "devDependencies": {
     "@zuna/core": "*",
-    "core-js": "^3.51.0",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.0",
-    "shiki": "^4.5.0"
+    "typescript": "^5.9.0"
   }
 }
