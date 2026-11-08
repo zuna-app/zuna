@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+
+/** The version every app is released with, the root package.json's, which About shows. */
+const version: string = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8")).version;
 
 /** version.json names this build, so a tab left open can tell when its host has a newer one. */
 function buildVersion(): Plugin {
@@ -25,6 +29,7 @@ export default defineConfig({
   plugins: [react(), buildVersion()],
   // What npm run dev:web gives the sign-in form to start with, which only development reads.
   envPrefix: "ZUNA_DEV_",
+  define: { "import.meta.env.ZUNA_VERSION": JSON.stringify(version) },
   resolve: { alias: { "@": resolve(import.meta.dirname, "../../packages/ui/src") } },
   optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   worker: { format: "es" },
