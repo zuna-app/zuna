@@ -9,6 +9,8 @@ import ZunaModels
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingSignOut = false
+    /// Closes it, where it's a sheet, as on an iPad, which has no tab bar to leave it by.
+    var onDone: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -114,6 +116,11 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg0, for: .navigationBar)
+            .toolbar {
+                if let onDone {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
+                }
+            }
             .accessibilityIdentifier(A11y.Settings.screen)
         }
     }

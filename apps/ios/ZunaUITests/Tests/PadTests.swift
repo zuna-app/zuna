@@ -32,6 +32,11 @@ final class PadTests: XCTestCase {
         zuna.element(A11y.Shell.settingsTab).tap()
         XCTAssertTrue(zuna.element(A11y.Settings.screen).waitForExistence(timeout: 10))
         zuna.screenshot("pad-12-settings")
+        // A sheet here, with no tab bar to leave it by: Done closes it.
+        let done = zuna.app.navigationBars.buttons["Done"]
+        XCTAssertTrue(done.exists)
+        done.tap()
+        try waitFor("Settings to close") { !self.zuna.element(A11y.Settings.screen).exists }
     }
 
     func testShowsAChannelsMembersBesideIt() throws {

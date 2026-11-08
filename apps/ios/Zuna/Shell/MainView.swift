@@ -110,7 +110,7 @@ private struct WideLayout: View {
             }
         }
         .background(Theme.bg0)
-        .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $showingSettings) { SettingsView(onDone: { showingSettings = false }) }
         .sheet(isPresented: $model.joining) { JoinFlow(embedded: true) }
     }
 

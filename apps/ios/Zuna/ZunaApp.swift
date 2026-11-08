@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.setNotificationCategories(Notifications.categories)
+        // An iPad's chat list puts its five filters in a narrow column, where equal parts cut "Channels" short.
+        if UIDevice.current.userInterfaceIdiom == .pad { UISegmentedControl.appearance().apportionsSegmentWidthsByContent = true }
         // PushKit has to have its delegate as the app launches, or a VoIP push that woke it is never handed over.
         core.listenForCalls()
         Task { await core.start() }
