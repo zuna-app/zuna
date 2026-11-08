@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Avatar, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
@@ -192,6 +192,14 @@ export function ConversationList() {
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null);
   const rowMenu = useContextMenu();
   const [menuItem, setMenuItem] = useState<ConversationView | null>(null);
+  const openRowMenu = rowMenu.open;
+  const onRowMenu = useCallback(
+    (event: React.MouseEvent, target: ConversationView) => {
+      setMenuItem(target);
+      openRowMenu(event);
+    },
+    [openRowMenu],
+  );
   const listRef = useRef<HTMLDivElement>(null);
 
   const conversations = server?.conversations ?? [];
@@ -319,10 +327,7 @@ export function ConversationList() {
         readUpTo={ownLast(item, selfId) ? readUpToOf(item, selfId) : null}
         isSaved={item.peerId === selfId}
         onSelect={selectConversation}
-        onMenu={(event, target) => {
-          setMenuItem(target);
-          rowMenu.open(event);
-        }}
+        onMenu={onRowMenu}
       />
     </ErrorBoundary>
   );

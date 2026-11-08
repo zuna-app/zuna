@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner, useAction } from "@/components/ui";
 import { installStickyFocus } from "@/lib/focus";
 import { prefetchEmotes } from "@/lib/media";
-import { useActiveChannel, useActiveConversation, useActiveServer, useApp } from "@/state/store";
+import { useActiveChannel, useActiveConversation, useActiveField, useApp, type ServerState } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
 import { channelTitle } from "@/features/voice/ChannelList";
 import { IncomingCalls } from "@/features/voice/IncomingCalls";
@@ -37,12 +37,12 @@ function JoiningChannel() {
 }
 
 function NoConversation() {
-  const server = useActiveServer();
+  const name = useActiveField((server) => server.entry.name, null);
   return (
     <div className="no-chat">
       <div className="empty-state">
         <MessageCircle size={28} className="empty-icon" />
-        <h3>{server?.entry.name ?? "Zuna"}</h3>
+        <h3>{name ?? "Zuna"}</h3>
         <p>Pick someone from the list to start talking.</p>
         <p className="row faint" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}>
           <Lock size={12} /> Everything here is end-to-end encrypted
@@ -56,7 +56,7 @@ function NoConversation() {
  * The server ended this device's session. Nothing is erased on its word: what's
  * here stays until the person signs in again or clears it, or after a month.
  */
-function SignedOut({ server }: { server: NonNullable<ReturnType<typeof useActiveServer>> }) {
+function SignedOut({ server }: { server: Pick<ServerState, "entry"> }) {
   const core = useApp((state) => state.core);
   const setOverlay = useApp((state) => state.setOverlay);
   const removeServer = useApp((state) => state.removeServer);
@@ -156,8 +156,8 @@ export function Shell() {
   const channel = useActiveChannel();
   const activeServerId = useApp((state) => state.activeServerId);
   const inThisVoice = useVoice((state) => channel?.type === "voice" && state.channelId === channel.id && state.serverId === activeServerId);
-  const activeServer = useActiveServer();
-  const activeKey = activeServer?.activeKey;
+  const activeKey = useActiveField((server) => server.activeKey, null);
+  const entry = useActiveField((server) => server.entry, null);
   const [width, setWidth] = useState(loadWidth);
   const dragging = useRef(false);
 
@@ -208,8 +208,8 @@ export function Shell() {
       <main className="main">
         <div className="main-inner">
           {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}
-          {activeServer?.entry.signedOut ? (
-            <SignedOut server={activeServer} />
+          {entry?.signedOut ? (
+            <SignedOut server={{ entry }} />
           ) : channel && inThisVoice ? (
             <VoiceStage
               key={`${activeServerId}:${channel.id}`}

@@ -4,6 +4,7 @@ import type { AvatarRef } from "@zuna/core";
 import { ChevronRight, Eye, EyeOff, X } from "lucide-react";
 import { motion } from "motion/react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -370,14 +371,13 @@ export function PopupMenu({
 
 export function useContextMenu() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  return {
-    menu,
-    open: (event: { clientX: number; clientY: number; preventDefault?: () => void }) => {
-      event.preventDefault?.();
-      setMenu({ x: event.clientX, y: event.clientY });
-    },
-    close: () => setMenu(null),
-  };
+  // The same functions every render, so a memoized row handed them doesn't redraw.
+  const open = useCallback((event: { clientX: number; clientY: number; preventDefault?: () => void }) => {
+    event.preventDefault?.();
+    setMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+  const close = useCallback(() => setMenu(null), []);
+  return { menu, open, close };
 }
 
 export function Tooltip({ text, children, side = "bottom" }: { text: string; children: ReactElement<ComponentProps<"span">>; side?: "top" | "bottom" | "right" }) {

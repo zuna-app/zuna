@@ -4,28 +4,12 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Stop re-rendering the whole app on every presence, typing and voice event
-- Where: packages/ui/src/state/store.ts:889-890 (`useActiveServer`, 53 call sites); features/shell/Shell.tsx:159-160 (only needs `activeKey` and `entry.signedOut`); features/chat/ChatView.tsx:20,185,329; features/chat/Composer.tsx:68; features/voice/ChannelList.tsx:45,66 (`memo` on `VoiceOccupant` is defeated); features/chat/EmotePicker.tsx:34
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: each event builds a new `ServerState` (typing alone sends one every 3 s per typer, plus an expiry 5.1 s later). `Shell` re-renders, and its children `ServerRail`, `ConversationList`, `ChatView`, `VoicePanel` and `IncomingCalls` aren't memoized.
-- Suggested change: add narrow selector hooks like `useServerField` in features/chat/MessageItem.tsx:55-59. In `Shell`, select only `activeKey` and `signedOut`. In `ChatView`, select the peer, `self`, `info.calls` and the people in the call through `useShallow`. In `Composer`, select emotes, users, `self` and the server URL. Start with `Shell`, `ChatView`, `Composer` and `ConversationList`.
-- Check after: typecheck, web check.
-
 ### Skip store updates that change nothing
 - Where: packages/ui/src/state/store.ts:200-206 (`patchServer`), 443-449 (presence for an unknown user returns `{}`), 458-466 (the typing expiry returns `{}`)
 - Category: perf
 - Severity: low ; Effort: S ; Confidence: high
 - What's wrong: an empty patch still produces a new server object and wakes every subscriber.
 - Suggested change: in `patchServer`, return `state` unchanged when `Object.keys(changes).length === 0`.
-- Check after: web check.
-
-### Give ConversationRow a stable `onMenu`
-- Where: packages/ui/src/features/shell/ConversationList.tsx:74 (`memo`) and 322-325 (inline `onMenu`); `useContextMenu` in components/ui.tsx:371-381 returns a new `open` every render
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every row re-renders on every list render, so the `memo` does nothing.
-- Suggested change: `useCallback`, or make `useContextMenu`'s `open` and `close` stable.
 - Check after: web check.
 
 ### Keep the emote picker's grid from re-rendering on every hover

@@ -4,7 +4,8 @@ import { Reorder } from "motion/react";
 import { memo, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { muteEntries } from "@/lib/mute";
-import { useActiveServer, useApp } from "@/state/store";
+import { activeServerNow, useActiveField, useApp } from "@/state/store";
+import { useShallow } from "zustand/react/shallow";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
 
 const COLLAPSED_KEY = "zuna-collapsed-categories";
@@ -39,14 +40,16 @@ function sectionsOf(channels: ChannelView[]): Section[] {
   return [...sections.values()];
 }
 
+const NO_CHANNELS: ChannelView[] = [];
+
 export const channelTitle = (channel: ChannelView): string => channel.name || (channel.unreadable ? "Unreadable channel" : "Channel");
 
 const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMember }) {
-  const server = useActiveServer();
-  const selfId = server?.self?.userId;
-  const inThisCall = useVoice((state) => state.channelId === member.channelId && state.serverId === server?.entry.id);
+  const serverId = useApp((state) => state.activeServerId);
+  const selfId = useActiveField((server) => server.self?.userId, undefined);
+  const inThisCall = useVoice((state) => state.channelId === member.channelId && state.serverId === serverId);
   const speaking = useVoice((state) => (member.userId === selfId ? selfIsSpeaking(state) && state.status === "connected" : inThisCall && !!state.speaking[member.userId]));
-  const user = server?.users[member.userId];
+  const user = useActiveField((server) => server.users[member.userId], undefined);
   const name = user?.displayName ?? "Someone";
   return (
     <div className={`voice-occupant${speaking ? " is-speaking" : ""}`}>
@@ -63,23 +66,28 @@ const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMem
 });
 
 function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu: (event: React.MouseEvent, channel: ChannelView) => void; canEdit: boolean }) {
-  const server = useActiveServer();
+  const serverId = useApp((state) => state.activeServerId);
   const selectConversation = useApp((state) => state.selectConversation);
   const setOverlay = useApp((state) => state.setOverlay);
   const join = useVoice((state) => state.join);
   const toast = useApp((state) => state.toast);
-  const inChannel = useVoice((state) => state.channelId === channel.id && state.serverId === server?.entry.id);
-  const active = server?.activeKey === channel.key;
+  const inChannel = useVoice((state) => state.channelId === channel.id && state.serverId === serverId);
+  const active = useActiveField((server) => server.activeKey === channel.key, false);
   const { conversation } = channel;
   // A voice channel is somewhere to go, not something to read, so only a mention marks one.
   const unread = channel.type === "text" && !!conversation && conversation.unread > 0 && !conversation.muted;
   const mentions = conversation?.unreadMentions ?? 0;
-  const occupants = useMemo(
-    () => Object.values(server?.voice ?? {}).filter((member) => member.channelId === channel.id).sort((a, b) => a.since - b.since),
-    [server?.voice, channel.id],
+  const occupants = useApp(
+    useShallow((state) => {
+      const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+      return Object.values(server?.voice ?? {})
+        .filter((member) => member.channelId === channel.id)
+        .sort((a, b) => a.since - b.since);
+    }),
   );
   const full = channel.userLimit > 0 && occupants.length >= channel.userLimit;
   const onOpen = () => {
+    const server = activeServerNow();
     if (channel.type === "voice" && server) {
       // Clicking a voice channel is coming into it, as in Discord. Leaving goes back to what was open before.
       const activeIsVoice = server.channels.find((item) => item.key === server.activeKey)?.type === "voice";
@@ -144,7 +152,11 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
 
 /** The server's channels, at the top of the list, under headings that fold away. */
 export function ChannelSections({ query }: { query: string }) {
-  const server = useActiveServer();
+  const hasServer = useApp((state) => !!state.activeServerId && !!state.servers[state.activeServerId]);
+  const role = useActiveField((server) => server.self?.role, undefined);
+  const channels = useActiveField((server) => server.channels, NO_CHANNELS);
+  // The voice channels this account is in, which a folded heading keeps showing.
+  const mine = useActiveField((server) => Object.values(server.voice).filter((member) => member.userId === server.self?.userId).map((member) => member.channelId).join(" "), "");
   const session = useApp((state) => state.session);
   const setOverlay = useApp((state) => state.setOverlay);
   const toast = useApp((state) => state.toast);
@@ -155,9 +167,8 @@ export function ChannelSections({ query }: { query: string }) {
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const dragged = useRef(false);
 
-  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  const isAdmin = role === "owner" || role === "admin";
   const needle = query.trim().toLowerCase();
-  const channels = server?.channels ?? [];
   const ordered = useMemo(() => {
     if (!dragOrder) return channels;
     const byId = new Map(channels.map((channel) => [channel.id, channel]));
@@ -166,7 +177,7 @@ export function ChannelSections({ query }: { query: string }) {
   const shown = needle ? ordered.filter((channel) => channel.name.toLowerCase().includes(needle)) : ordered;
   const sections = useMemo(() => sectionsOf(shown), [shown]);
 
-  if (!server) return null;
+  if (!hasServer) return null;
   if (channels.length === 0 && !isAdmin) return null;
 
   const toggleSection = (name: string) => {
@@ -216,7 +227,7 @@ export function ChannelSections({ query }: { query: string }) {
         const folded = !!collapsed[section.name] && !needle;
         const ids = section.channels.map((channel) => channel.id);
         // A folded heading keeps showing what someone's in, and what mentions them.
-        const visible = folded ? section.channels.filter((channel) => channel.conversation?.unreadMentions || Object.values(server.voice).some((member) => member.channelId === channel.id && member.userId === server.self?.userId)) : section.channels;
+        const visible = folded ? section.channels.filter((channel) => channel.conversation?.unreadMentions || mine.split(" ").includes(channel.id)) : section.channels;
         return (
           <section key={section.name} className="channel-section">
             <header className="channel-section-head">

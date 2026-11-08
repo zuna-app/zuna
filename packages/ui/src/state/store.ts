@@ -886,8 +886,30 @@ export const useApp = create<AppState>((set, get) => {
   };
 });
 
+/**
+ * The active server, whole. Anything reading this re-renders on every presence,
+ * typing and voice event, so a component that needs a few things takes them with
+ * `useActiveField` instead.
+ */
 export const useActiveServer = (): ServerState | null =>
   useApp((state) => (state.activeServerId ? (state.servers[state.activeServerId] ?? null) : null));
+
+/**
+ * One thing from the active server, so a component re-renders when that changes and
+ * not with the rest. `pick` returns a part of the state or a plain value, never a new
+ * object or array, and `fallback` is a constant for when no server is open.
+ */
+export const useActiveField = <T,>(pick: (server: ServerState) => T, fallback: T): T =>
+  useApp((state) => {
+    const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+    return server ? pick(server) : fallback;
+  });
+
+/** The active server as it is now, for an event handler, which needn't re-render with it. */
+export const activeServerNow = (): ServerState | null => {
+  const state = useApp.getState();
+  return state.activeServerId ? (state.servers[state.activeServerId] ?? null) : null;
+};
 
 export const useActiveConversation = (): ConversationView | null =>
   useApp((state) => {

@@ -1,4 +1,4 @@
-import type { ConversationView, Emote as ServerEmote, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
+import type { ConversationView, Emote as ServerEmote, EmoteRef, LinkPreview, MessageView, UserView } from "@zuna/core";
 import { findLink } from "@zuna/core/links";
 import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
 import { plainText } from "@zuna/core/plain-text";
@@ -13,7 +13,7 @@ import { MAX_ROUND_SECONDS, ROUND_SIZE, RoundRecorder } from "@/lib/round";
 import { useSlowWait, waitText } from "@/lib/slow-mode";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
 import { prepareFile, type PreparedFile } from "@/lib/media";
-import { useActiveServer, useApp } from "@/state/store";
+import { activeServerNow, useActiveField, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
 import { RoundPreview } from "./Round";
 
@@ -64,8 +64,11 @@ function PlusCircle() {
   );
 }
 
+const NO_EMOTES: ServerEmote[] = [];
+const NO_USERS: Record<string, UserView> = {};
+
 export const Composer = forwardRef<ComposerHandle, { conversation: ConversationView; listId: string }>(function Composer({ conversation, listId }, ref) {
-  const server = useActiveServer();
+  const selfId = useActiveField((server) => server.self?.userId, undefined);
   const session = useApp((state) => state.session);
   const toast = useApp((state) => state.toast);
   const settings = useApp((state) => state.settings);
@@ -77,7 +80,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const slowWait = useSlowWait(conversation, sent?.key === conversation.key ? sent.until : 0);
   /** A message is on its way, so in slow mode the next one waits from now, unless you're an admin. */
   const startSlowWait = () => {
-    const admin = conversation.members.some((member) => member.userId === server?.self?.userId && member.role === "admin");
+    const admin = conversation.members.some((member) => member.userId === selfId && member.role === "admin");
     if (conversation.slowMode > 0 && !admin) setSent({ key: conversation.key, until: Date.now() + conversation.slowMode * 1000 });
   };
   // A channel's messages are edited where they are, so its message box only ever writes new ones.
@@ -111,9 +114,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const emotes = server?.emotes.emotes ?? [];
-  const users = server?.users ?? {};
-  const serverUrl = server?.entry.url ?? "";
+  const emotes = useActiveField((server) => server.emotes.emotes, NO_EMOTES);
+  const serverUrl = useActiveField((server) => server.entry.url, "");
 
   useEffect(() => {
     const element = input.current!;
@@ -180,6 +182,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   // Until two letters are typed, as in ":D", Enter sends what's written, and only the
   // arrows or Tab pick an emote, so nothing is picked to begin with.
   const tentative = trigger?.kind === ":" && trigger.query.length < 2;
+  // The people, for suggesting one, only while a name is being typed, so presence doesn't redraw the composer.
+  const users = useActiveField((server) => (trigger?.kind === "@" ? server.users : null), null) ?? NO_USERS;
   const emoteSuggestion = (emote: ServerEmote): Suggestion => ({
     key: emote.id,
     label: emote.name,
@@ -243,7 +247,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     }
     if (editing) {
       if (value && value !== editing.text) {
-        void session().editMessage(editing.groupId, editing.id, value, emotesInText(value), mentionsIn(value, users));
+        void session().editMessage(editing.groupId, editing.id, value, emotesInText(value), mentionsIn(value, activeServerNow()?.users ?? NO_USERS));
       }
       setEditing(listId, null);
       setText("");
@@ -256,7 +260,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       text: value || undefined,
       replyTo: replyTo?.id,
       emotes: emotesInText(value),
-      mentions: mentionsIn(value, users),
+      mentions: mentionsIn(value, activeServerNow()?.users ?? NO_USERS),
       preview: linkPreview?.preview && value.includes(linkPreview.url) ? linkPreview.preview : undefined,
     };
     // A preview that isn't ready yet, as when a link is pasted and sent at once, goes
@@ -481,7 +485,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   };
 
   const context: MessageView | null = editing ?? replyTo;
-  const contextSender = context ? (context.senderId === server?.self?.userId ? "yourself" : (users[context.senderId]?.displayName ?? "Unknown")) : "";
+  const contextName = useActiveField((server) => (context ? server.users[context.senderId]?.displayName : undefined), undefined);
+  const contextSender = context ? (context.senderId === selfId ? "yourself" : (contextName ?? "Unknown")) : "";
   const canSend = !!text.trim() || files.length > 0;
   // Slow mode holds back a new message, and a voice or video message with it, while what's written waits.
   const waiting = slowWait > 0 && !editing;
@@ -658,7 +663,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               ref={input}
               className="composer-input"
               rows={1}
-              placeholder={conversation.peerId && conversation.peerId === server?.self?.userId ? "Write a note to yourself" : `Message ${isChannel ? "#" : ""}${conversation.title}`}
+              placeholder={conversation.peerId && conversation.peerId === selfId ? "Write a note to yourself" : `Message ${isChannel ? "#" : ""}${conversation.title}`}
               value={text}
               onChange={onInput}
               onKeyDown={onKeyDown}

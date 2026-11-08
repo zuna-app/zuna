@@ -1,3 +1,4 @@
+import type { Emote as ServerEmote } from "@zuna/core";
 import { Search, Smile } from "lucide-react";
 import { motion } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -6,13 +7,14 @@ import { Emote } from "@/components/Emote";
 import { quick, useReturnFocus } from "@/components/ui";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
 import { useRemoteImage } from "@/lib/media";
-import { useActiveServer } from "@/state/store";
+import { useActiveField } from "@/state/store";
 
 export type Pick =
   | { kind: "emoji"; value: string }
   | { kind: "emote"; id: string; name: string; animated: boolean; zeroWidth: boolean; owner: string };
 
 const WIDTH = 352;
+const NO_EMOTES: ServerEmote[] = [];
 const HEIGHT = 420;
 
 type Hovered = { kind: "emoji"; value: string; name: string } | { kind: "emote"; id: string; name: string; owner: string };
@@ -31,8 +33,9 @@ export const EmotePicker = memo(function EmotePicker({
   onPick: (pick: Pick) => void;
   onClose: () => void;
 }) {
-  const server = useActiveServer();
-  const emotes = server?.emotes.emotes ?? [];
+  const emotes = useActiveField((server) => server.emotes.emotes, NO_EMOTES);
+  const setName = useActiveField((server) => server.emotes.set_name, "");
+  const serverUrl = useActiveField((server) => server.entry.url, "");
   const [tab, setTab] = useState<"emotes" | "emoji">(emotes.length > 0 ? "emotes" : "emoji");
   const [query, setQuery] = useState("");
   const [hovered, setHovered] = useState<Hovered | null>(null);
@@ -89,7 +92,7 @@ export const EmotePicker = memo(function EmotePicker({
     >
       <div className="picker-tabs" role="tablist">
         <button role="tab" aria-selected={tab === "emotes"} className={tab === "emotes" ? "is-active" : ""} onClick={() => setTab("emotes")}>
-          {server?.emotes.set_name || "Server emotes"}
+          {setName || "Server emotes"}
         </button>
         <button role="tab" aria-selected={tab === "emoji"} className={tab === "emoji" ? "is-active" : ""} onClick={() => setTab("emoji")}>
           Emoji
@@ -113,7 +116,7 @@ export const EmotePicker = memo(function EmotePicker({
                   onMouseEnter={() => setHovered({ kind: "emote", id: emote.id, name: emote.name, owner: emote.owner })}
                   onClick={() => onPick({ kind: "emote", id: emote.id, name: emote.name, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner })}
                 >
-                  <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={server!.entry.url} size="picker" hoverCard={false} />
+                  <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="picker" hoverCard={false} />
                 </button>
               ))}
             </div>
@@ -141,7 +144,7 @@ export const EmotePicker = memo(function EmotePicker({
       <div className="picker-footer">
         {hovered?.kind === "emote" && (
           <>
-            <EmotePreview address={`${server!.entry.url}/api/emotes/${hovered.id}/2x.webp`} />
+            <EmotePreview address={`${serverUrl}/api/emotes/${hovered.id}/2x.webp`} />
             <span className="grow truncate">
               <b>{hovered.name}</b>
               {hovered.owner && <span> by {hovered.owner}</span>}

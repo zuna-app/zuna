@@ -1,12 +1,13 @@
 import type { ConversationView } from "@zuna/core";
 import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Phone, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Video, Volume2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
-import { listIdFor, useActiveServer, useApp } from "@/state/store";
+import { activeServerNow, listIdFor, useActiveField, useActiveServer, useApp } from "@/state/store";
+import { useShallow } from "zustand/react/shallow";
 import { VoiceStage } from "@/features/voice/VoiceStage";
 import { useVoice } from "@/voice/store";
 import { Composer, type ComposerHandle } from "./Composer";
@@ -90,20 +91,25 @@ function CallButtons({ conversation, going }: { conversation: ConversationView; 
 
 /** A call going on in this conversation that this device isn't in: who's there, and a way in. */
 function CallBanner({ conversation, people }: { conversation: ConversationView; people: string[] }) {
-  const server = useActiveServer();
+  const serverId = useApp((state) => state.activeServerId);
+  const selfId = useActiveField((server) => server.self?.userId, undefined);
+  // Only the first two are named, so only their names are watched.
+  const first = useActiveField((server) => server.users[people[0] ?? ""]?.displayName, undefined);
+  const second = useActiveField((server) => server.users[people[1] ?? ""]?.displayName, undefined);
   const join = useVoice((state) => state.join);
-  if (!server || !conversation.groupId || people.length === 0) return null;
-  const names = people.map((id) => (id === server.self?.userId ? "You" : (server.users[id]?.displayName.split(" ")[0] ?? "Someone")));
+  if (!serverId || !conversation.groupId || people.length === 0) return null;
+  const nameOf = (id: string | undefined, displayName: string | undefined) => (id === selfId ? "You" : (displayName?.split(" ")[0] ?? "Someone"));
+  const names = [nameOf(people[0], first), nameOf(people[1], second), ...people.slice(2)];
   const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`;
   // Being in it on another device of yours is still being in it.
-  const elsewhere = people.includes(server.self?.userId ?? "");
+  const elsewhere = people.includes(selfId ?? "");
   return (
     <div className="call-banner">
       <Phone size={15} />
       <span className="grow truncate">
         {elsewhere ? "You're in this call on another device" : `${who} ${people.length === 1 ? "is" : "are"} in a call`}
       </span>
-      <button className="btn btn-small btn-primary" onClick={() => void join(server.entry.id, conversation.groupId!)}>
+      <button className="btn btn-small btn-primary" onClick={() => void join(serverId, conversation.groupId!)}>
         {elsewhere ? "Move here" : "Join"}
       </button>
     </div>
@@ -230,9 +236,9 @@ function SlowMode({ conversation }: { conversation: ConversationView }) {
 
 /** The top of a channel's history, as in Discord. */
 function ChannelWelcome({ conversation, voice }: { conversation: ConversationView; voice?: boolean }) {
-  const server = useActiveServer();
+  const role = useActiveField((server) => server.self?.role, undefined);
   const setOverlay = useApp((state) => state.setOverlay);
-  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  const isAdmin = role === "owner" || role === "admin";
   return (
     <div className="channel-welcome">
       <span className="channel-welcome-icon">{voice ? <Volume2 size={40} /> : <Hash size={44} />}</span>
@@ -254,7 +260,7 @@ function ChannelWelcome({ conversation, voice }: { conversation: ConversationVie
 
 /** What can be done with the picked messages, in place of the composer, as in Telegram. */
 function SelectionBar({ conversation, listId }: { conversation: ConversationView; listId: string }) {
-  const server = useActiveServer();
+  const selfId = useActiveField((server) => server.self?.userId, undefined);
   const session = useApp((state) => state.session);
   const toast = useApp((state) => state.toast);
   const toggleSelected = useApp((state) => state.toggleSelected);
@@ -263,7 +269,6 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
   const { busy, run } = useAction();
   // In the chat's order, whatever order they were picked in.
   const picked = items.filter((item) => ids.includes(item.id));
-  const selfId = server?.self?.userId;
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
   const canDelete = picked.length > 0 && picked.every((item) => item.senderId === selfId || (conversation.kind !== "dm" && isAdmin));
   const stop = () => toggleSelected(listId, null);
@@ -277,7 +282,8 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
   });
 
   const copy = async () => {
-    const name = (id: string) => (id === selfId ? "You" : (server?.users[id]?.displayName ?? "Unknown"));
+    const users = activeServerNow()?.users ?? {};
+    const name = (id: string) => (id === selfId ? "You" : (users[id]?.displayName ?? "Unknown"));
     const text =
       picked.length === 1
         ? picked[0]!.text
@@ -303,7 +309,7 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
       <button
         className="btn"
         disabled={!picked.length || !conversation.groupId}
-        onClick={() => useApp.getState().setOverlay({ type: "forward", serverId: server!.entry.id, groupId: conversation.groupId!, ids: picked.map((item) => item.id) })}
+        onClick={() => useApp.getState().setOverlay({ type: "forward", serverId: useApp.getState().activeServerId!, groupId: conversation.groupId!, ids: picked.map((item) => item.id) })}
       >
         <Forward size={15} /> Forward
       </button>
@@ -326,7 +332,11 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
 }
 
 export function ChatView({ conversation, voice, onClose }: { conversation: ConversationView; /** It's the chat of a voice channel, beside its call. */ voice?: boolean; onClose?: () => void }) {
-  const server = useActiveServer();
+  // Only what this uses, so presence and typing elsewhere on the server don't redraw the chat.
+  const serverId = useApp((state) => state.activeServerId);
+  const selfId = useActiveField((server) => server.self?.userId, undefined);
+  const callsOn = useActiveField((server) => !!server.info?.calls, false);
+  const peer = useActiveField((server) => (conversation.peerId ? (server.users[conversation.peerId] ?? null) : null), null);
   const listId = listIdFor(conversation);
   const loadList = useApp((state) => state.loadList);
   const togglePanel = useApp((state) => state.togglePanel);
@@ -335,16 +345,17 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
   const session = useApp((state) => state.session);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
-  const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
-  const isSaved = conversation.peerId === server?.self?.userId;
+  const isSaved = conversation.peerId === selfId;
   const selecting = useApp((state) => state.selection?.listId === listId);
   const isChannel = conversation.kind === "channel";
-  const callsHere = !isChannel && !!server?.info?.calls && !isSaved && canCall(conversation, server?.self?.userId, !!peer?.banned || !!peer?.deleted);
+  const callsHere = !isChannel && callsOn && !isSaved && canCall(conversation, selfId, !!peer?.banned || !!peer?.deleted);
   // Who's in this conversation's call, and whether it's this device.
-  const inCall = useVoice((state) => !!conversation.groupId && state.status !== "idle" && state.serverId === server?.entry.id && state.channelId === conversation.groupId);
-  const callPeople = useMemo(
-    () => [...new Set(Object.values(server?.voice ?? {}).filter((member) => member.channelId === conversation.groupId).map((member) => member.userId))],
-    [server?.voice, conversation.groupId],
+  const inCall = useVoice((state) => !!conversation.groupId && state.status !== "idle" && state.serverId === serverId && state.channelId === conversation.groupId);
+  const callPeople = useApp(
+    useShallow((state) => {
+      const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+      return [...new Set(Object.values(server?.voice ?? {}).filter((member) => member.channelId === conversation.groupId).map((member) => member.userId))];
+    }),
   );
   const [callExpanded, setCallExpanded] = useState(false);
   // A channel's member list stays open or closed across channels, as in Discord.
@@ -534,10 +545,9 @@ function RemovedFromChat({ conversation }: { conversation: ConversationView }) {
 }
 
 function EmptyChat({ conversation }: { conversation: ConversationView }) {
-  const server = useActiveServer();
   const setOverlay = useApp((state) => state.setOverlay);
-  const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
-  const isSaved = conversation.peerId === server?.self?.userId;
+  const peer = useActiveField((server) => (conversation.peerId ? (server.users[conversation.peerId] ?? null) : null), null);
+  const isSaved = useActiveField((server) => conversation.peerId === server.self?.userId, false);
   return (
     <div className="chat-empty-card">
       <Lock size={20} />
