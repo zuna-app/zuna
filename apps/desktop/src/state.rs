@@ -1646,7 +1646,8 @@ fn media_extension(mime: &str, name: &str) -> String {
     std::path::Path::new(name).extension().map(|extension| extension.to_string_lossy().to_lowercase()).filter(|extension| extension.len() <= 5).unwrap_or_else(|| "bin".into())
 }
 
-/// Takes notifications back: those matching everything given.
+/// Everything the interface keeps about a server, read from its session at start and when
+/// one is added. What fails to load is left empty, for the next event to fill in.
 async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
     let id = entry.id.clone();
     let get = |method: &'static str| core.call(Some(&id), method, vec![]);

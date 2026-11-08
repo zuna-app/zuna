@@ -224,6 +224,7 @@ impl Render for MemberList {
     }
 }
 
+/// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
 fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::App) -> AnyElement {
     let theme = theme(cx);
     let state = state_entity.read(cx);
@@ -2127,7 +2128,6 @@ impl ChatView {
             .into_any_element()
     }
 
-    /// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
     /// Who's typing in a channel, under the message box, with slow mode on the right. Always there, so nothing moves.
     fn channel_typing(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -2766,8 +2766,8 @@ impl ChatView {
             Some(list) if list.empty => self.empty_chat(&conversation, cx),
             None => div().flex_1().into_any_element(),
             Some(_) => {
-                // Built again only when the chat's state changed, not each frame: it copies
-                // every person on the server.
+                // Kept between frames, as it copies every person on the server, and built again
+                // after anything in the app's state changes, however far from this chat.
                 if self.context_cache.is_none() {
                     self.context_cache = self.chat_context(&conversation, cx).map(Rc::new);
                 }

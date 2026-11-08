@@ -411,7 +411,6 @@ pub trait OneLine: Styled + Sized {
 
 impl<T: Styled> OneLine for T {}
 
-/// Each of four corners rounded as given.
 /// An empty box that fills its parent's width and is as tall as a picture of this size is at
 /// that width, as CSS's `width: 100%; aspect-ratio` makes one. With nothing given it's the
 /// picture's own size, so that's the width it asks of what holds it. Taffy's own aspect ratio,
@@ -468,6 +467,7 @@ impl gpui::Element for AspectFill {
     fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<Pixels>, _: &mut (), _: &mut (), _: &mut Window, _: &mut App) {}
 }
 
+/// Each of four corners rounded as given.
 pub fn round_corners<E: Styled>(element: E, corners: gpui::Corners<Pixels>) -> E {
     element.rounded_tl(corners.top_left).rounded_tr(corners.top_right).rounded_br(corners.bottom_right).rounded_bl(corners.bottom_left)
 }

@@ -130,13 +130,6 @@ Ordered roughly by value.
 - Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
 - Check after: `npm run dev:windows`.
 
-### Fix doc comments that are wrong or attached to the wrong item
-- Where: state.rs:1481 (`load_server`'s doc is "Takes notifications back…"); chat.rs:2100-2101 (`channel_typing` carries the member list's old first line); main.rs:209-211 (`quit`'s doc is attached to `const QUIT`); components.rs:418 (the corners line sits above `AspectFill` and belongs on `round_corners` at 475); chat.rs:2740-2741 and message.rs:62-63 (overstate the caching)
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: rewrite or move each one.
-- Check after: a build.
-
 ### Update comments that point at the removed Electron app or call packages/ui "the desktop's"
 - Where: ui/notifications.rs:1-2, settings.rs:466-467 and format.rs:42-43 mention the Electron app. About 39 comments use "the desktop's" to mean packages/ui, e.g. state.rs:1-2, ui/mod.rs:45, chat.rs:121, 461, 1412, 1897, 2689, 2752, components.rs:20, 270, 278, 293, 310, conversations.rs:42. docs/WINDOWS_APP.md:18 uses the same wording.
 - Category: docs

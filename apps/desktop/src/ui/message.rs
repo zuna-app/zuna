@@ -59,8 +59,8 @@ pub struct ChatContext {
     /// The message being edited where it is, in a channel, and the field it's edited in.
     pub editing_id: Option<String>,
     pub inline_editor: Option<Entity<super::text_input::TextInput>>,
-    /// Each message's text, parsed once while this context lasts: it's built again when
-    /// the chat's state changes, so a message whose text changed is parsed again then.
+    /// Each message's text, parsed once while this context lasts. The context is built again
+    /// after anything in the app's state changes, so every message drawn is parsed again then.
     pub parsed: std::cell::RefCell<HashMap<String, Rc<Vec<Block>>>>,
     /// Where the videos are drawn, above the messages.
     pub video_slots: super::media_views::VideoSlots,

@@ -217,10 +217,10 @@ fn main() {
     });
 }
 
-/// Quits for good, taking the tray's icon with it, and installs a downloaded update.
 /// What a start with --quit hands the copy already running.
 const QUIT: &str = "quit";
 
+/// Quits for good, taking the tray's icon with it, and installs a downloaded update.
 fn quit(cx: &mut App) {
     platform::tray::remove();
     platform::updates::install_on_quit();
