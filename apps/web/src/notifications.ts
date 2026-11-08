@@ -19,7 +19,13 @@ export function notify(payload: NotifyPayload): void {
   if (!supported || Notification.permission !== "granted") return;
   const id = `${payload.route.serverId}|${payload.route.key}`;
   shown.get(id)?.notification.close();
-  const notification = new Notification(payload.title, { body: payload.body, tag: id, icon: "/icon-192.png", silent: true });
+  let notification: Notification;
+  try {
+    notification = new Notification(payload.title, { body: payload.body, tag: id, icon: "/icon-192.png", silent: true });
+  } catch {
+    // Chrome on Android, tablets too, only notifies through a service worker, and throws here.
+    return;
+  }
   const entry: Shown = { route: payload.route, messageId: payload.messageId, notification };
   shown.set(id, entry);
   notification.onclick = () => {
@@ -50,6 +56,25 @@ export function onOpenConversation(listener: (route: NotificationRoute) => void)
 export function notificationPermission(): "granted" | "denied" | "unknown" {
   if (!supported) return "denied";
   return Notification.permission === "default" ? "unknown" : Notification.permission;
+}
+
+/** Follows the browser's permission as the person changes it in its settings, where the browser says. */
+export function onNotificationPermission(listener: (permission: "granted" | "denied" | "unknown") => void): () => void {
+  let stopped = false;
+  let status: PermissionStatus | null = null;
+  const changed = () => listener(notificationPermission());
+  void navigator.permissions
+    ?.query({ name: "notifications" })
+    .then((found) => {
+      if (stopped) return;
+      status = found;
+      status.addEventListener("change", changed);
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+    status?.removeEventListener("change", changed);
+  };
 }
 
 /** The browser only asks right after a click or a key press. */

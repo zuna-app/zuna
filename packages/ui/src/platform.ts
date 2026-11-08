@@ -38,6 +38,8 @@ export interface Platform {
   clearNotifications(which: NotificationsToClear): void;
   /** Whether the browser lets Zuna notify, which it asks the person first. */
   notificationPermission(): "granted" | "denied" | "unknown";
+  /** Follows that as the person changes it in the browser's settings. */
+  onNotificationPermission(listener: (permission: "granted" | "denied" | "unknown") => void): () => void;
   /** Asks to be let notify. A browser only asks right after a click or a key press. */
   askToNotify(): Promise<void>;
   /** An invite link the app was opened with, once. */

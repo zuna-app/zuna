@@ -266,6 +266,7 @@ function NotificationsSection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
   const [permission, setPermission] = useState(() => platform.notificationPermission());
+  useEffect(() => platform.onNotificationPermission(setPermission), []);
   // Turning them on is a click, which is when a browser can ask.
   const setNotifications = async (value: boolean) => {
     update({ notifications: value });

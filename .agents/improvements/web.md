@@ -4,13 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Make browser notifications fail quietly and follow permission changes
-- Where: apps/web/src/notifications.ts:18-34 (`new Notification` throws on Chrome for Android, including tablets ≥ 860 px); features/overlays/Settings.tsx:283 (reads the permission once)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- Suggested change: wrap the constructor in try/catch, and follow permission changes with `navigator.permissions.query` and its `change` event.
-- Check after: web check.
-
 ### Remove the unused `@types/node` from `@zuna/ui`
 - Where: packages/ui/package.json:30 (tsconfig `types` is only `vite/client`; no `node:` imports or `process.` uses)
 - Category: deps

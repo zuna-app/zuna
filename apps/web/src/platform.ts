@@ -4,7 +4,7 @@
 import { connectWorker, type Platform } from "@zuna/ui";
 import type { HostConfig } from "./config";
 import { deviceName, loadDeviceKey, removeUnreadableDatabase } from "./device";
-import { askToNotify, clearNotifications, notificationPermission, notify, onOpenConversation } from "./notifications";
+import { askToNotify, clearNotifications, notificationPermission, notify, onNotificationPermission, onOpenConversation } from "./notifications";
 
 const UPDATE_CHECK_MS = 30 * 60_000;
 const UPDATE_CHECK_ON_FOCUS_MS = 60_000;
@@ -49,6 +49,7 @@ export function webPlatform(config: HostConfig): Platform {
     clearNotifications,
     onOpenConversation,
     notificationPermission,
+    onNotificationPermission,
     askToNotify,
     takeDeepLink: takeJoinLink,
     onDeepLink(listener) {
