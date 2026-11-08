@@ -110,31 +110,29 @@ public enum Markup {
     /// scratch for every span.
     private static func renderInline(_ text: String, _ context: Context, depth: Int = 0) -> [Inline] {
         guard depth < maxInlineDepth else { return links(text, context) }
-        let ns = text as NSString
+        // One NSString for the whole search, so nothing after a span is copied for the next.
+        let ns = NSString(string: text)
+        let source = ns as String
         var nodes: [Inline] = []
         var searched = [Bool](repeating: false, count: inlineRules.count)
         // Where each rule next matches, and its inside, counted from the start of the text.
         var found = [(range: NSRange, inner: NSRange)?](repeating: nil, count: inlineRules.count)
         var position = 0
+        let placed = { (match: NSTextCheckingResult) -> (range: NSRange, inner: NSRange) in (match.range, match.range(at: 1)) }
         while true {
-            // What came before a span no longer counts, so the rest is searched on its own,
-            // as the desktop slices it: a search range would still let lookbehinds see it.
-            let rest = ns.substring(from: position)
-            let restRange = NSRange(location: 0, length: (rest as NSString).length)
-            let start = position
-            let placed = { (match: NSTextCheckingResult) -> (range: NSRange, inner: NSRange) in
-                let inner = match.range(at: 1)
-                return (NSRange(location: match.range.location + start, length: match.range.length), NSRange(location: inner.location + start, length: inner.length))
-            }
+            // What came before a span no longer counts, as the desktop slices the text there. A
+            // search range from here does the same: without transparent bounds, which aren't asked
+            // for, neither a lookbehind nor ^ sees anything before it.
+            let restRange = NSRange(location: position, length: ns.length - position)
             var earliest: Int?
             for (index, rule) in inlineRules.enumerated() {
                 let known = found[index]
                 if !searched[index] || (known.map { $0.range.location < position } ?? false) {
-                    found[index] = rule.firstMatch(in: rest, range: restRange).map(placed)
+                    found[index] = rule.firstMatch(in: source, range: restRange).map(placed)
                     searched[index] = true
                 } else if known == nil || known!.range.location > position {
                     // Further on, everything reads the same as before. Only the very start can differ.
-                    if let match = rule.firstMatch(in: rest, options: .anchored, range: restRange) { found[index] = placed(match) }
+                    if let match = rule.firstMatch(in: source, options: .anchored, range: restRange) { found[index] = placed(match) }
                 }
                 if let current = found[index], earliest == nil || current.range.location < found[earliest!]!.range.location {
                     earliest = index

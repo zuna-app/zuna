@@ -37,6 +37,17 @@ final class MarkupTests: XCTestCase {
         }
     }
 
+    /// The core takes texts up to 100,000 characters, and parsing runs as a row is drawn, so a
+    /// span-heavy one has to take time in proportion to its length, not to its square.
+    func testParsesThousandsOfSpansQuickly() {
+        let text = String(repeating: "*a* ", count: 20_000)
+        let started = Date()
+        let blocks = Markup.parse(text, Markup.Context(emotes: [:], mentionable: [:]))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        guard case let .text(nodes)? = blocks.first else { return XCTFail("no text block") }
+        XCTAssertEqual(nodes.filter { if case .italic = $0 { true } else { false } }.count, 20_000)
+    }
+
     func testSizesLargeEmojiLikeTheDesktop() {
         XCTAssertGreaterThan(golden.jumbo.count, 15)
         for item in golden.jumbo {

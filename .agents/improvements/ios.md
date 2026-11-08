@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Search inline markup without copying the rest of the text on every span
-- Where: apps/ios/ZunaKit/Sources/ZunaModels/Markup.swift:111-157 (119-123)
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: medium
-- What's wrong: `renderInline` runs `let rest = ns.substring(from: position)` once per span found, so work grows with the square of the length. The core accepts texts up to 100,000 characters (`MAX_TEXT_LENGTH`), and parsing runs on the main thread on every reconfigure: one crafted message could freeze the chat. The comment at 120-121 says a search range "would still let lookbehinds see" the earlier text; with NSRegularExpression's default (non-transparent) bounds, lookbehind and `^` don't look past the range start, only `.withTransparentBounds` lets them.
-- Suggested change: search the original NSString with `NSRange(location: position, length: ns.length - position)` and default options, keeping ranges absolute, and confirm against `markup-golden.json`. Cache parsed blocks per message id and text. Fix the comment.
-- Check after: `swift test` (MarkupTests); add a case with ~20,000 `*a*` spans and a time limit.
-
 ### Prepare avatars without a full-resolution bitmap on the main thread
 - Where: apps/ios/Zuna/Shared/OutgoingFiles.swift:104-123, 189-196; callers Settings/AccountSettings.swift:100, Details/ConversationDetails.swift:273, Settings/ServerSettingsView.swift:119
 - Category: perf
