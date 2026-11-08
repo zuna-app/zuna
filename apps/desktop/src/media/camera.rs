@@ -67,10 +67,10 @@ impl Camera {
 }
 
 impl Drop for Camera {
+    /// Its reader is told to stop and left to, rather than waited for, which on Linux can be
+    /// V4L2's half-second wait for a frame, on whichever thread drops it, the window's too.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            thread.join().ok();
-        }
+        self.thread.take();
     }
 }

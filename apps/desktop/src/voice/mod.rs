@@ -143,6 +143,9 @@ pub struct Voice {
     ptt_task: Option<Task<()>>,
     /// Trying the microphone outside a call: it, and where it plays back.
     mic_test: Option<(Microphone, u64)>,
+    /// The microphone being opened again, or for the test, on a thread of its own.
+    mic_task: Option<Task<()>>,
+    mic_test_task: Option<Task<()>>,
 }
 
 struct GlobalVoice(Entity<Voice>);
@@ -201,6 +204,8 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         ptt_watching: None,
         ptt_task: None,
         mic_test: None,
+        mic_task: None,
+        mic_test_task: None,
     });
     cx.set_global(GlobalVoice(voice.clone()));
     // Listed now, off this thread, so a call's device menus have them the first time they open.
@@ -333,28 +338,36 @@ impl Voice {
     /// Tries the microphone without being in a channel, with the same processing a call gets,
     /// playing back what others would hear. Or stops trying it.
     pub fn toggle_mic_test(&mut self, cx: &mut Context<Self>) {
-        if self.mic_test.is_some() || self.status != VoiceStatus::Idle {
+        if self.mic_test.is_some() || self.mic_test_task.is_some() || self.status != VoiceStatus::Idle {
             self.stop_mic_test(cx);
             return;
         }
-        let settings = &self.settings;
-        let processing = livekit::webrtc::native::apm::AudioProcessingModule::new(settings.echo_cancellation, settings.auto_gain, true, settings.noise_suppression == "standard");
-        *self.processing.lock() = Some(Processing(processing));
         self.mixer.open(&self.settings.output_device);
         let back = self.mixer.live(1.);
         let mixer = self.mixer.clone();
-        match Microphone::open(&self.settings, false, self.processing.clone(), move |frame| mixer.push(back, &frame, 1)) {
-            Ok(mic) => self.mic_test = Some((mic, back)),
-            Err(problem) => {
-                self.mixer.remove(back);
-                *self.processing.lock() = None;
-                self.toast(problem, ToastKind::Error, cx);
-            }
-        }
+        let opening = open_microphone(&self.settings, false, self.processing.clone(), move |frame| mixer.push(back, &frame, 1), cx);
+        self.mic_test_task = Some(cx.spawn(async move |this, cx| {
+            let opened = opening.await;
+            this.update(cx, |voice, cx| {
+                voice.mic_test_task = None;
+                match opened {
+                    Ok(mic) => voice.mic_test = Some((mic, back)),
+                    Err(problem) => {
+                        voice.mixer.remove(back);
+                        *voice.processing.lock() = None;
+                        voice.toast(problem, ToastKind::Error, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
         cx.notify();
     }
 
     fn stop_mic_test(&mut self, cx: &mut Context<Self>) {
+        // A test still opening is dropped, and its microphone with it, once it's open.
+        self.mic_test_task = None;
         if let Some((_, back)) = self.mic_test.take() {
             self.mixer.remove(back);
             if self.status == VoiceStatus::Idle {
@@ -525,6 +538,7 @@ impl Voice {
         }
         self.mic = None;
         self.mic_source = None;
+        self.mic_task = None;
         *self.processing.lock() = None;
         self.ring_on_announce = false;
         self.call_rang = false;
@@ -567,31 +581,22 @@ impl Voice {
         self.update_ptt(cx);
     }
 
-    fn open_microphone(&mut self) -> Option<String> {
-        let settings = &self.settings;
-        let processing = livekit::webrtc::native::apm::AudioProcessingModule::new(settings.echo_cancellation, settings.auto_gain, true, settings.noise_suppression == "standard");
-        *self.processing.lock() = Some(Processing(processing));
+    /// Opens the microphone for the room, off the window's thread, with the source its sound
+    /// goes to, which is published.
+    fn open_room_microphone(&self, settings: &VoiceSettings, cx: &mut Context<Self>) -> Task<Result<(Microphone, livekit::webrtc::audio_source::native::NativeAudioSource), String>> {
         let source = VoiceRoom::microphone_source();
         let sending = source.clone();
-        match Microphone::open(settings, self.mic_off(), self.processing.clone(), move |frame| room::send_frame(&sending, frame, 1)) {
-            Ok(mic) => {
-                self.mic = Some(mic);
-                self.mic_source = Some(source);
-                None
-            }
-            Err(problem) => {
-                *self.processing.lock() = None;
-                Some(problem)
-            }
-        }
+        let opening = open_microphone(settings, self.mic_off(), self.processing.clone(), move |frame| room::send_frame(&sending, frame, 1), cx);
+        cx.background_executor().spawn(async move { opening.await.map(|mic| (mic, source)) })
     }
 
     fn connect(&mut self, server_id: String, channel_id: String, mine: u64, how: JoinHow, cx: &mut Context<Self>) {
         let core = self.core(cx);
         let bitrate = self.state.read(cx).servers.get(&server_id).and_then(|server| server.channels.iter().find(|channel| channel.id == channel_id)).map(|channel| channel.bitrate as u64).unwrap_or(0);
         self.mixer.open(&self.settings.output_device);
-        // Nothing about voice needs a microphone: someone without one can still listen.
-        let mic_problem = self.open_microphone();
+        // Nothing about voice needs a microphone: someone without one can still listen. It's
+        // opened alongside joining, off the window's thread, and joining waits for it.
+        let opening = self.open_room_microphone(&self.settings.clone(), cx);
         let volumes = self.volumes_fn();
         let mixer = self.mixer.clone();
         cx.spawn(async move |this, cx| {
@@ -607,7 +612,26 @@ impl Voice {
                 Ok((room, events, server_muted))
             }
             .await;
-            this.update(cx, |voice, cx| voice.joined(result, mine, server_id, channel_id, how, mic_problem, bitrate, cx)).ok();
+            let opened = opening.await;
+            this.update(cx, |voice, cx| {
+                // A microphone for a join that's been given up goes, unless another one took its place.
+                let mic_problem = match opened {
+                    Ok((mic, source)) if mine == voice.attempt => {
+                        voice.mic = Some(mic);
+                        voice.mic_source = Some(source);
+                        None
+                    }
+                    Ok(_) => None,
+                    Err(problem) => {
+                        if mine == voice.attempt {
+                            *voice.processing.lock() = None;
+                        }
+                        Some(problem)
+                    }
+                };
+                voice.joined(result, mine, server_id, channel_id, how, mic_problem, bitrate, cx)
+            })
+            .ok();
         })
         .detach();
     }
@@ -705,27 +729,41 @@ impl Voice {
 
     /// Opens the microphone again, for a different device or for what only applies when it's opened.
     fn reopen_mic(&mut self, device: Option<String>, cx: &mut Context<Self>) {
-        if self.mic.is_none() {
+        if self.mic.is_none() && self.mic_task.is_none() {
             return;
         }
         let mut settings = self.settings.clone();
         if let Some(device) = device {
             settings.input_device = device;
         }
-        let saved = std::mem::replace(&mut self.settings, settings);
         self.mic = None;
-        let problem = self.open_microphone();
-        self.settings = saved;
-        // The room's source stays the same, so nothing has to be published again.
-        if let (Some(room), Some(source)) = (self.room.clone(), self.mic_source.clone()) {
-            if room.mic_source().is_none() {
-                let muted = self.mic_off();
-                crate::host::tokio().spawn(async move { room.publish_mic(source, 0, muted).await.ok() });
-            }
-        }
-        if let Some(problem) = problem {
-            log::warn!("voice microphone: {problem}");
-        }
+        let attempt = self.attempt;
+        let opening = self.open_room_microphone(&settings, cx);
+        self.mic_task = Some(cx.spawn(async move |this, cx| {
+            let opened = opening.await;
+            this.update(cx, |voice, cx| {
+                voice.mic_task = None;
+                if voice.attempt != attempt || voice.status == VoiceStatus::Idle {
+                    return;
+                }
+                match opened {
+                    Ok((mic, source)) => {
+                        voice.mic = Some(mic);
+                        voice.mic_source = Some(source);
+                        // The room's source stays the same, so nothing has to be published again.
+                        if let (Some(room), Some(source)) = (voice.room.clone(), voice.mic_source.clone()) {
+                            if room.mic_source().is_none() {
+                                let muted = voice.mic_off();
+                                crate::host::tokio().spawn(async move { room.publish_mic(source, 0, muted).await.ok() });
+                            }
+                        }
+                    }
+                    Err(problem) => log::warn!("voice microphone: {problem}"),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
         cx.notify();
     }
 
@@ -1298,6 +1336,18 @@ pub fn on_event(event: &Value, cx: &mut App) {
         "signed_out" => voice.update(cx, |voice, cx| voice.on_server_gone(&server_id, cx)),
         _ => {}
     }
+}
+
+/// Opens the microphone, with the processing a call gets, on a thread of its own: finding the
+/// device and starting it waits on the system, which on Windows lists every input by name,
+/// and on macOS may not answer at all.
+fn open_microphone(settings: &VoiceSettings, muted: bool, processing: SharedProcessing, sink: impl FnMut(Vec<i16>) + Send + 'static, cx: &mut Context<Voice>) -> Task<Result<Microphone, String>> {
+    let settings = settings.clone();
+    cx.background_executor().spawn(async move {
+        let module = livekit::webrtc::native::apm::AudioProcessingModule::new(settings.echo_cancellation, settings.auto_gain, true, settings.noise_suppression == "standard");
+        *processing.lock() = Some(Processing(module));
+        Microphone::open(&settings, muted, processing.clone(), sink).inspect_err(|_| *processing.lock() = None)
+    })
 }
 
 /// A sound's WAV, as the core checked it, as interleaved stereo at 48 kHz.
