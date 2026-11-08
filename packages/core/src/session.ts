@@ -1517,19 +1517,54 @@ export class ServerSession {
     await this.putVault(`device:${this.account.deviceId}`, utf8(this.deviceName)).catch(() => undefined);
   }
 
-  private async uploadEpochKeys(): Promise<void> {
+  private uploadingKeys: { again: boolean; done: Promise<void> } | null = null;
+
+  /**
+   * Puts every key not yet in the vault there, a batch at a time, one upload at a time: a call
+   * while one runs asks it to look again, rather than putting the same keys up twice.
+   */
+  private uploadEpochKeys(): Promise<void> {
+    if (this.uploadingKeys) {
+      this.uploadingKeys.again = true;
+      return this.uploadingKeys.done;
+    }
+    const entry = { again: false, done: Promise.resolve() };
+    entry.done = (async () => {
+      try {
+        do {
+          entry.again = false;
+          while ((await this.uploadKeyBatch()) && !this.stopped) {
+            // A full batch, so there may be more.
+          }
+        } while (entry.again && !this.stopped);
+      } finally {
+        this.uploadingKeys = null;
+      }
+    })();
+    this.uploadingKeys = entry;
+    return entry.done;
+  }
+
+  /** For whatever needn't wait on it: a failure is logged, and the next upload tries again. */
+  private uploadEpochKeysSoon(): void {
+    void this.uploadEpochKeys().catch((error) => console.warn("[zuna] putting keys in the vault", error));
+  }
+
+  /** One batch of keys into the vault. True when it was full, so there may be more. */
+  private async uploadKeyBatch(): Promise<boolean> {
     const rows = this.db.all<{ group_id: string; epoch: number; key: Uint8Array }>(
       "SELECT group_id, epoch, key FROM epoch_keys WHERE uploaded = ? LIMIT ?",
       [KEY_NOT_UPLOADED, VAULT_BATCH],
     );
-    if (rows.length === 0) return;
+    if (rows.length === 0) return false;
     const items = rows.map((row) => ({ id: `ek:${row.group_id}:${row.epoch}`, data: this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key) }));
-    if (!(await this.putItems(items))) return;
+    if (!(await this.putItems(items))) return false;
     this.db.transaction(() => {
       for (const row of rows) {
         this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ?", [KEY_UPLOADED, row.group_id, row.epoch]);
       }
     });
+    return rows.length === VAULT_BATCH;
   }
 
   /**
@@ -3052,7 +3087,7 @@ export class ServerSession {
     if (joined) {
       await this.afterJoining(groupId);
       this.retryUndecryptable(groupId);
-      void this.uploadEpochKeys().catch(() => undefined);
+      this.uploadEpochKeysSoon();
     }
   }
 
@@ -3269,7 +3304,7 @@ export class ServerSession {
       this.rememberCurrentEpochKey(groupId);
       await this.checkTree(groupId);
       this.noteArrivalsAtJoin(groupId);
-      void this.uploadEpochKeys().catch(() => undefined);
+      this.uploadEpochKeysSoon();
       return true;
     }
     return false;
@@ -3402,7 +3437,7 @@ export class ServerSession {
     this.treeUsersCache.delete(group.id);
     this.setKnownMembers(group.id, targets);
     this.noteLeaves(group.id);
-    void this.uploadEpochKeys().catch(() => undefined);
+    this.uploadEpochKeysSoon();
     const started = await this.api.group(group.id);
     this.applyGroup(started);
     if (meta) {
@@ -3482,7 +3517,7 @@ export class ServerSession {
       this.treeUsersCache.delete(groupId);
       this.confirmedEpochs.set(groupId, newEpoch);
       this.noteLeaves(groupId);
-      void this.uploadEpochKeys().catch(() => undefined);
+      this.uploadEpochKeysSoon();
       return;
     }
     throw new Error("The conversation is very busy right now. Please try again.");
@@ -3802,7 +3837,7 @@ export class ServerSession {
       return;
     }
     this.rememberCurrentEpochKey(groupId);
-    void this.uploadEpochKeys().catch(() => undefined);
+    this.uploadEpochKeysSoon();
     await this.checkTree(groupId);
     // Nobody is added to a channel: they come in by themselves, so that's when to look at whether they should have.
     if (processed.isExternal && this.groups.get(groupId)?.kind === "channel") this.scheduleReconcile(groupId);
@@ -6435,7 +6470,7 @@ export class ServerSession {
       this.applyGroup(group);
     }
     await this.withLock(id, () => this.ensureReady(id));
-    void this.uploadEpochKeys().catch(() => undefined);
+    this.uploadEpochKeysSoon();
     this.emitConversations();
   }
 

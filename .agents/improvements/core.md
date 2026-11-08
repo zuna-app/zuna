@@ -28,14 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Make `uploadEpochKeys` single-flight and have it upload every pending batch
-- Where: packages/core/src/session.ts:1444-1457 (`LIMIT VAULT_BATCH`, uploads once); fire-and-forget at 2956, 3173, 3306, 3386, 3697, 6278 (each `void this.uploadEpochKeys().catch(() => undefined)`), plus 819, 1494, 2132, 2942
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: overlapping calls select the same `uploaded = 0` rows and PUT the same vault items twice; a backlog over 200 keys waits for whatever triggers the next call; the catch-and-ignore line is copied 6 times.
-- Suggested change: route everything through `uploadEpochKeysSoon()` holding one promise (like `flushOutbox`), looping while a batch comes back full, logging failures.
-- Check after: `npx vitest run test/e2e.test.ts test/channels.test.ts`.
-
 ### Make the sync a live frame starts for an unknown group actually fetch it, or drop the call
 - Where: packages/core/src/session.ts:4120-4124 (`onLiveMessage`), 4135-4139 (`onLiveEvent`) call `backgroundSync` for a group not in `this.groups`; 3447-3448 (`pullPage` returns false when there's no `cached`)
 - Category: cleanup
