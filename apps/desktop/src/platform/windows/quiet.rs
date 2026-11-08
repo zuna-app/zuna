@@ -4,10 +4,11 @@
 //! apps/screenshare): what the shell says about the screen, and which
 //! Focus Assist profile is on, which has no public interface.
 
-use std::sync::Mutex;
+use std::sync::mpsc::Sender;
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use windows::Win32::System::Com::{CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
+use windows::Win32::System::Com::{CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Shell::SHQueryUserNotificationState;
 use windows::core::{GUID, HRESULT, IUnknown, IUnknown_Vtbl, PWSTR, interface};
 
@@ -75,7 +76,6 @@ fn restrictiveness(profile: &str) -> u8 {
 /// profile can be, as Telegram found Windows 11 needs. Anything unreadable counts as no.
 fn focus_assist() -> bool {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let Ok(settings) = CoCreateInstance::<_, IQuietHoursSettings>(&QUIET_HOURS_SETTINGS, None, CLSCTX_LOCAL_SERVER) else {
             return false;
         };
@@ -135,23 +135,57 @@ const BUSY: i32 = 2;
 const FULL_SCREEN_D3D: i32 = 3;
 const PRESENTATION: i32 = 4;
 
-/// What Windows wants now, asked at most once a second, so a burst of messages asks once.
-pub fn notification_state() -> NotificationState {
-    static ASKED: Mutex<Option<(Instant, NotificationState)>> = Mutex::new(None);
-    let mut asked = ASKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((at, state)) = *asked {
-        if at.elapsed() < Duration::from_secs(1) {
-            return state;
-        }
-    }
+/// What Windows last said it wants, and when, kept by the thread that asks it.
+static LAST: Mutex<Option<(Instant, NotificationState)>> = Mutex::new(None);
+static ANSWERED: Condvar = Condvar::new();
+
+fn ask_windows() -> NotificationState {
     let shell = unsafe { SHQueryUserNotificationState() }.map_or(0, |state| state.0);
     let focus = focus_assist();
     // The same rules as Telegram's, and the desktop's.
-    let state = NotificationState {
+    NotificationState {
         show: shell != PRESENTATION && shell != FULL_SCREEN_D3D && !focus,
         sound: shell != NOT_PRESENT && shell != PRESENTATION && !focus,
         wait_for_input: shell != BUSY,
-    };
-    *asked = Some((Instant::now(), state));
-    state
+    }
+}
+
+/// A thread of its own that asks Windows when told to. Focus Assist is asked through a COM
+/// server in another process, which can take a while, or not answer, and the window's thread
+/// mustn't wait on it.
+fn asker() -> &'static Sender<()> {
+    static ASKER: OnceLock<Sender<()>> = OnceLock::new();
+    ASKER.get_or_init(|| {
+        let (send, asked) = std::sync::mpsc::channel::<()>();
+        std::thread::Builder::new()
+            .name("zuna-quiet".into())
+            .spawn(move || {
+                unsafe {
+                    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                }
+                while asked.recv().is_ok() {
+                    // A burst of messages asks once.
+                    while asked.try_recv().is_ok() {}
+                    let state = ask_windows();
+                    *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), state));
+                    ANSWERED.notify_all();
+                }
+            })
+            .ok();
+        send
+    })
+}
+
+/// What Windows wants now: the last answer straight away, asked again in the background when
+/// it's more than a second old. Only the first time is an answer waited for, briefly, and
+/// anything unanswered counts as no quiet.
+pub fn notification_state() -> NotificationState {
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if last.is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(1)) {
+        asker().send(()).ok();
+    }
+    if last.is_none() {
+        last = ANSWERED.wait_timeout_while(last, Duration::from_millis(300), |last| last.is_none()).map(|(last, _)| last).unwrap_or_else(|poisoned| poisoned.into_inner().0);
+    }
+    last.map_or(NotificationState { show: true, sound: true, wait_for_input: true }, |(_, state)| state)
 }

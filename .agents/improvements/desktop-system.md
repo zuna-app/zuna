@@ -19,14 +19,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: delete the four modes with their `Args` fields and USAGE lines, the files and functions above, and the two Cargo features. Remove SCREEN_SHARE.md:72 and :74, rewrite :35, reword FEATURE_PARITY.md:298 (mentions `zuna-screenshare --notification-state`).
 - Check after: `npm run build:screenshare`, linux-voice-check.mjs (share, push to talk), a share with `npm run dev:windows`.
 
-### Ask Windows whether it wants quiet off the window's thread
-- Where: platform/windows/quiet.rs:76-110 (`focus_assist`: `CoCreateInstance` with `CLSCTX_LOCAL_SERVER`, an out-of-process COM activation), 139-157; called from state.rs:1022, 1109 on the window's thread
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: high on the thread, medium on the cost
-- What's wrong: the first notification after each idle second makes a cross-process COM activation on the window's thread, which blocks if the service hangs.
-- Suggested change: return the last value immediately; refresh it on a dedicated thread that calls `CoInitializeEx(MTA)` once.
-- Check after: `npm run dev:windows` with notifications, Focus Assist on and off.
-
 ### Match Focus Assist's priority list against an ID the native app actually has
 - Where: platform/windows/quiet.rs:15 (`APP_ID = "chat.zuna.app"`), 126; no code calls `SetCurrentProcessExplicitAppUserModelID` or the fork's `set_app_identity`; installer/zuna.nsi:86-88 creates shortcuts without an AppUserModelID
 - Category: ux
