@@ -195,7 +195,7 @@ impl PickerLayer {
         for (index, row) in filtered.chunks(columns).enumerate() {
             let mut line = div().flex().gap(px(2.));
             for emote in row {
-                let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
+                let url = crate::models::emote_url(&server_url, &emote.id);
                 let image = if near.contains(&index) { state.update(cx, |state, cx| state.remote_picture(&url, cx)) } else { None };
                 let emote = (*emote).clone();
                 let hovered = emote.clone();
@@ -293,7 +293,7 @@ impl Render for PickerLayer {
         let body = if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
         let footer: AnyElement = match &self.hovered {
             Some(Hovered::Emote(emote)) => {
-                let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
+                let url = crate::models::emote_url(&server_url, &emote.id);
                 let image = state.update(cx, |state, cx| state.remote_picture(&url, cx));
                 div()
                     .flex()

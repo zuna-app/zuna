@@ -1525,9 +1525,6 @@ impl AppState {
         }));
     }
 
-    pub fn emote_url(&self, server_url: &str, id: &str) -> String {
-        format!("{server_url}/api/emotes/{id}/2x.webp")
-    }
 }
 
 impl AppState {

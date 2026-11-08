@@ -2480,7 +2480,7 @@ impl ChatView {
         for (index, suggestion) in self.suggestions.iter().enumerate() {
             let picture: AnyElement = match &suggestion.what {
                 Suggested::Emote(emote) => {
-                    let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
+                    let url = crate::models::emote_url(&server_url, &emote.id);
                     let image = self.state.update(cx, |state, cx| state.remote_picture(&url, cx));
                     match image {
                         Some(image) => img(image).size(px(24.)).flex_none().object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("suggested-emote-{index}"))).into_any_element(),

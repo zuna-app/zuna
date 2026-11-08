@@ -748,7 +748,7 @@ fn flow_text(
     for (range, style) in &rich.spans {
         let text = &rich.text[range.clone()];
         if let Some((name, emote)) = &style.emote {
-            let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
+            let url = crate::models::emote_url(&context.server_url, &emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             let zero_width = emote.zero_width == Some(true);
             let width = emote_width(context, &emote.id, 26., 110.);
@@ -985,7 +985,7 @@ pub(super) fn jumbo_body(message: &MessageView, context: &ChatContext, cx: &mut 
     let mut row = div().flex().flex_wrap().items_end().gap(px(2.));
     for (position, word) in message.text.split_whitespace().enumerate() {
         if let Some(emote) = message.emotes.get(word) {
-            let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
+            let url = crate::models::emote_url(&context.server_url, &emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             let width = emote_width(context, &emote.id, 48., 150.);
             row = row.child(match image {
@@ -1164,7 +1164,7 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         });
     chip = match &reaction.emote {
         Some(emote) => {
-            let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
+            let url = crate::models::emote_url(&context.server_url, &emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
                 Some(image) => {
                     let picture = img(image).h(px(18.)).when_some(emote_width(context, &emote.id, 18., 40.), |el, width| el.w(px(width))).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));

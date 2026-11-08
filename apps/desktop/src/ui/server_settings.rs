@@ -509,7 +509,7 @@ impl ServerSettings {
         let link = self.emote_link.read(cx).text().trim().to_string();
         let mut grid = div().flex().flex_wrap().gap(px(4.));
         for emote in server.emotes.emotes.iter().take(80) {
-            let url = format!("{}/api/emotes/{}/2x.webp", server.entry.url, emote.id);
+            let url = crate::models::emote_url(&server.entry.url, &emote.id);
             let image = self.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             grid = grid.child(div().id(SharedString::from(format!("emote-preview-{}", emote.id))).size(px(40.)).p(px(4.)).tooltip(tooltip(emote.name.clone())).when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain))));
         }

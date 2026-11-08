@@ -462,6 +462,11 @@ pub struct Registered {
 }
 
 /// Reads a value from the core, or its default if it doesn't fit.
+/// Where a server serves one of its emotes, at twice its size, which is how every place draws them.
+pub fn emote_url(server_url: &str, id: &str) -> String {
+    format!("{server_url}/api/emotes/{id}/2x.webp")
+}
+
 pub fn from_value<T: for<'de> Deserialize<'de> + Default>(value: Value) -> T {
     serde_json::from_value(value).unwrap_or_else(|error| {
         log::warn!("a value from the core didn't fit: {error}");

@@ -116,13 +116,6 @@ Ordered roughly by value.
 - Suggested change: remember each rule's next match and re-run a rule only when that match starts before the current position. Add a test with a long, span-heavy message.
 - Check after: `cargo test` for markup in apps/desktop (needs the GPUI fetch). iOS has a related quadratic issue (see the iOS findings).
 
-### Use one helper for emote URLs and remove the unused `AppState::emote_url`
-- Where: state.rs:1457-1459 (never called); the URL is written out at chat.rs:2454, channel_message.rs:667, message.rs:751, 988, 1016, 1167, picker.rs:198, 296, server_settings.rs:512
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: a free function `emote_url(server_url, id, scale)` used everywhere; delete the method.
-- Check after: `npm run dev:windows`.
-
 ### Deduplicate emote-reference JSON and the group-admin check
 - Where: emote maps at chat.rs:1317-1324, 2245-2248, state.rs:1206-1216, message.rs:546; the admin check at chat.rs:816, 1360, 2356, 2508
 - Category: cleanup

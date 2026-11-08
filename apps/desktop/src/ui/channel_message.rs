@@ -639,7 +639,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         });
     chip = match &reaction.emote {
         Some(emote) => {
-            let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
+            let url = crate::models::emote_url(&context.server_url, &emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
                 Some(image) => {
                     let picture = img(image).h(px(20.)).when_some(emote_width(context, &emote.id, 20., 44.), |el, width| el.w(px(width))).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
