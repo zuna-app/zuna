@@ -713,6 +713,9 @@ impl AppState {
                     server.entry.name = info.name.clone();
                     server.entry.has_icon = info.has_icon;
                     server.info = Some(info);
+                    // The icon may be a new one, which the rail fetches again once it's let go.
+                    let icon = format!("{}/api/icon", server.entry.url);
+                    self.pictures.remove(&icon);
                 }
             }
             "emotes" => self.refresh_field(&server_id, "getEmotes", cx, |server, value| server.emotes = from_value(value)),

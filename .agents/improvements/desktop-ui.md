@@ -76,14 +76,6 @@ Ordered roughly by value.
 - Suggested change: make handles fields of the owning view (as `SidePanel` does at line 76), or key them by owner. Reset the picker's handle on open.
 - Check after: `npm run dev:windows`.
 
-### Refetch the server icon when the server's settings change
-- Where: ui/mod.rs:230-233; state.rs:650-657, 1276-1291; compare ui/server_settings.rs:281 (`?v=`) and server/internal/api/admin.go:174 (`max-age=300`)
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the rail's icon is cached by URL for the whole run, so a new icon only appears after a restart. Browsers refetch it every 5 minutes.
-- Suggested change: drop the cached `/api/icon` picture on the "settings" event, or append an icon generation as `?v=`.
-- Check after: `npm run dev:windows` with two clients.
-
 ### Mirror camera frames in place, without per-row allocations, on the UI thread
 - Where: ui/voice_stage.rs:101-140 (110 full clone; 125-133 a `Vec` per row); ui/voice_settings.rs:256-274 (263-266)
 - Category: perf
