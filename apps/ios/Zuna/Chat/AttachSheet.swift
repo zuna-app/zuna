@@ -663,7 +663,8 @@ private struct TakenTile: View {
 final class CameraFeed {
     private(set) var running = false
 
-    @ObservationIgnored private let session = AVCaptureSession()
+    /// Made when first used: the sheet makes a CameraFeed each time it's drawn again, and keeps the first.
+    @ObservationIgnored private lazy var session = AVCaptureSession()
     @ObservationIgnored private(set) lazy var preview: AVCaptureVideoPreviewLayer = {
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill

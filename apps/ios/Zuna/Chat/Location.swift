@@ -30,7 +30,8 @@ final class LocationFinder: NSObject, CLLocationManagerDelegate {
         let errorDescription: String?
     }
 
-    private let manager = CLLocationManager()
+    /// Made when first asked: the sheet makes a LocationFinder each time it's drawn again, and keeps the first.
+    private lazy var manager = CLLocationManager()
     private var waiting: CheckedContinuation<SharedLocation, Error>?
 
     func locate() async throws -> SharedLocation {

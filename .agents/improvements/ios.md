@@ -20,14 +20,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Create the Composer's recorders when they're used, not on every redraw
-- Where: apps/ios/Zuna/Chat/Composer.swift:19-20; Chat/Round.swift:39-49; Chat/AttachSheet.swift:42, 663-672; Chat/Location.swift:134
-- Category: perf
-- Severity: medium ; Effort: S ; Confidence: medium
-- What's wrong: `@State private var round = RoundRecorder()` evaluates its initializer every time the Composer struct is created (every ChatScreen redraw). SwiftUI keeps only the first instance, but each extra one allocates and throws away an `AVCaptureSession`, a movie output, a queue and a delegate. `CameraFeed()` in AttachSheet and `LocationFinder()` (a CLLocationManager) follow the same pattern.
-- Suggested change: hold them as optionals created on first use, or one shared `RoundRecorder` (one recording at a time). Create `CameraFeed` in `.task`.
-- Check after: `npm run test:ios:ui -- --only ComposerTests` (roundStart/roundStop).
-
 ### Rebuild `mentionable` only when the people change, not on presence
 - Where: apps/ios/Zuna/State/AppModel.swift:23-27, 438-440
 - Category: perf

@@ -17,7 +17,10 @@ struct Composer: View {
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
     @State private var recorder = VoiceRecorder()
-    @State private var round = RoundRecorder()
+    /// Made when a video message is first recorded here. SwiftUI works out a @State's first value
+    /// each time the composer is made, every redraw of the chat, and keeps only the first, and each
+    /// RoundRecorder made makes a capture session, a movie output and a queue.
+    @State private var round: RoundRecorder?
     /// The button records video messages rather than voice ones, as it was last left, as in Telegram.
     @AppStorage("zuna-records-video") private var recordsVideo = false
     /// The finger is on the microphone; how far it slid to the left, toward cancelling.
@@ -28,7 +31,7 @@ struct Composer: View {
     /// Moves on while slow mode holds back the next message, for its countdown.
     @State private var now = Date.now
 
-    private var isRecording: Bool { recorder.isRecording || round.isRecording }
+    private var isRecording: Bool { recorder.isRecording || round?.isRecording == true }
 
     private var slowUntil: Double { conversation.slowMode > 0 ? max(conversation.slowUntil, sentUntil) : 0 }
     /// How many seconds until the channel's slow mode lets the next message go, or 0.
@@ -161,7 +164,7 @@ struct Composer: View {
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
         .overlay(alignment: .top) {
             // What the camera sees while a video message is recorded, above the message box, with the minute going round.
-            if round.isPreviewing {
+            if let round, round.isPreviewing {
                 ZStack {
                     CameraPreview(preview: round.preview)
                     Circle()
@@ -180,7 +183,7 @@ struct Composer: View {
                 .accessibilityIdentifier(A11y.Composer.roundPreview)
             }
         }
-        .animation(.spring(duration: 0.3), value: round.isPreviewing)
+        .animation(.spring(duration: 0.3), value: round?.isPreviewing ?? false)
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: RoundRecorder.control)) { note in
             // As holding the button in video mode and letting go do.
@@ -399,7 +402,7 @@ struct Composer: View {
         HStack(spacing: 8) {
             Circle().fill(Theme.red).frame(width: 9, height: 9)
                 .phaseAnimator([1, 0.3]) { dot, opacity in dot.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.6) }
-            Text(Format.duration(round.isRecording ? round.elapsed : recorder.elapsed))
+            Text(Format.duration(round?.isRecording == true ? (round?.elapsed ?? 0) : recorder.elapsed))
                 .font(.body.monospacedDigit())
                 .foregroundStyle(Theme.text1)
             Spacer(minLength: 0)
@@ -411,7 +414,7 @@ struct Composer: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 38)
-        .onChange(of: recorder.elapsed >= VoiceRecorder.limit || round.elapsed >= RoundRecorder.limit) { _, over in
+        .onChange(of: recorder.elapsed >= VoiceRecorder.limit || (round?.elapsed ?? 0) >= RoundRecorder.limit) { _, over in
             if over { finishRecording() }
         }
         .accessibilityElement(children: .combine)
@@ -433,7 +436,13 @@ struct Composer: View {
             return
         }
         do {
-            if recordsVideo { try await round.start() } else { try await recorder.start() }
+            if recordsVideo {
+                let video = round ?? RoundRecorder()
+                round = video
+                try await video.start()
+            } else {
+                try await recorder.start()
+            }
             // The finger came off while the app asked for the camera or the microphone.
             if !holding { cancelRecording() }
         } catch {
@@ -444,11 +453,11 @@ struct Composer: View {
 
     private func cancelRecording() {
         recorder.cancel()
-        round.cancel()
+        round?.cancel()
     }
 
     private func finishRecording() {
-        if round.isRecording {
+        if let round, round.isRecording {
             Task {
                 do {
                     guard let recording = try await round.stop() else { return }
