@@ -27,7 +27,7 @@ pub struct SpanStyle {
 }
 
 /// One block's text, and how each part of it looks.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Rich {
     pub text: String,
     pub spans: Vec<(Range<usize>, SpanStyle)>,
@@ -165,25 +165,59 @@ fn render_links(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context
     }
 }
 
+/// The rules that look at the character before a match, again anchored to where a search
+/// starts: there, the text before no longer counts, so one may match where it didn't before.
+static ANCHORED: LazyLock<Vec<Option<FancyRegex>>> =
+    LazyLock::new(|| RULES.iter().map(|(_, pattern)| pattern.as_str().starts_with("(?<!").then(|| FancyRegex::new(&format!("^(?:{})", pattern.as_str())).unwrap())).collect());
+
+/// A rule's match: where it starts and ends, and what it holds, in the whole text.
+type Found = (usize, usize, Range<usize>);
+
+fn find(pattern: &FancyRegex, text: &str, from: usize) -> Option<Found> {
+    let captures = pattern.captures(&text[from..]).ok().flatten()?;
+    let whole = captures.get(0)?;
+    let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
+    Some((from + whole.start(), from + whole.end(), from + inner.start..from + inner.end))
+}
+
+/// The earliest rule's match goes first, and the text from its end is formatted the same way.
+/// Each rule's next match is kept while it's still ahead, so a long message with many spans is
+/// read once by each rule rather than again after every span, with the same result as asking
+/// every rule afresh from each position (`formats_as_rescanning_does`).
 fn render_inline(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context, depth: usize) {
     if depth >= MAX_INLINE_DEPTH {
         return render_links(out, text, style, context);
     }
     let mut position = 0;
+    // For each rule: not looked for yet, nothing further on, or its next match.
+    let mut next: Vec<Option<Option<Found>>> = vec![None; RULES.len()];
     loop {
-        let rest = &text[position..];
-        let mut earliest: Option<(Rule, usize, usize, Range<usize>)> = None;
-        for (rule, pattern) in RULES.iter() {
-            let Ok(Some(captures)) = pattern.captures(rest) else { continue };
-            let whole = captures.get(0).unwrap();
-            let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
-            if earliest.as_ref().is_none_or(|(_, start, _, _)| whole.start() < *start) {
-                earliest = Some((*rule, whole.start(), whole.end(), inner));
+        for (index, (_, pattern)) in RULES.iter().enumerate() {
+            match &next[index] {
+                Some(Some((start, _, _))) if *start < position => next[index] = Some(find(pattern, text, position)),
+                None => next[index] = Some(find(pattern, text, position)),
+                _ => {
+                    if let Some(anchored) = &ANCHORED[index] {
+                        if next[index].as_ref().unwrap().as_ref().is_none_or(|(start, _, _)| *start > position) {
+                            if let Some(here) = find(anchored, text, position) {
+                                next[index] = Some(Some(here));
+                            }
+                        }
+                    }
+                }
             }
         }
-        let Some((rule, start, end, inner)) = earliest else { break };
-        render_links(out, &rest[..start], style, context);
-        let inner_text = &rest[inner];
+        let mut earliest: Option<(Rule, Found)> = None;
+        for (index, found) in next.iter().enumerate() {
+            if let Some(Some(found)) = found {
+                if earliest.as_ref().is_none_or(|(_, (start, _, _))| found.0 < *start) {
+                    earliest = Some((RULES[index].0, found.clone()));
+                }
+            }
+        }
+        let Some((rule, (start, end, inner))) = earliest else { break };
+        render_links(out, &text[position..start], style, context);
+        let inner_text = &text[inner];
         match rule {
             Rule::Code => out.push(inner_text, &SpanStyle { code: true, ..style.clone() }),
             Rule::Spoiler => render_inline(out, inner_text, &SpanStyle { spoiler: true, ..style.clone() }, context, depth + 1),
@@ -191,7 +225,7 @@ fn render_inline(out: &mut Rich, text: &str, style: &SpanStyle, context: &Contex
             Rule::Strike => render_inline(out, inner_text, &SpanStyle { strike: true, ..style.clone() }, context, depth + 1),
             Rule::Italic => render_inline(out, inner_text, &SpanStyle { italic: true, ..style.clone() }, context, depth + 1),
         }
-        position += end;
+        position = end;
     }
     render_links(out, &text[position..], style, context);
 }
@@ -320,6 +354,70 @@ pub fn mentions_in(text: &str, users: &HashMap<String, String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser as it was, asking every rule afresh from each position.
+    fn rescanning(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context, depth: usize) {
+        if depth >= MAX_INLINE_DEPTH {
+            return render_links(out, text, style, context);
+        }
+        let mut position = 0;
+        loop {
+            let rest = &text[position..];
+            let mut earliest: Option<(Rule, usize, usize, Range<usize>)> = None;
+            for (rule, pattern) in RULES.iter() {
+                let Ok(Some(captures)) = pattern.captures(rest) else { continue };
+                let whole = captures.get(0).unwrap();
+                let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
+                if earliest.as_ref().is_none_or(|(_, start, _, _)| whole.start() < *start) {
+                    earliest = Some((*rule, whole.start(), whole.end(), inner));
+                }
+            }
+            let Some((rule, start, end, inner)) = earliest else { break };
+            render_links(out, &rest[..start], style, context);
+            let inner_text = &rest[inner];
+            match rule {
+                Rule::Code => out.push(inner_text, &SpanStyle { code: true, ..style.clone() }),
+                Rule::Spoiler => rescanning(out, inner_text, &SpanStyle { spoiler: true, ..style.clone() }, context, depth + 1),
+                Rule::Bold => rescanning(out, inner_text, &SpanStyle { bold: true, ..style.clone() }, context, depth + 1),
+                Rule::Strike => rescanning(out, inner_text, &SpanStyle { strike: true, ..style.clone() }, context, depth + 1),
+                Rule::Italic => rescanning(out, inner_text, &SpanStyle { italic: true, ..style.clone() }, context, depth + 1),
+            }
+            position += end;
+        }
+        render_links(out, &text[position..], style, context);
+    }
+
+    #[test]
+    fn formats_as_rescanning_does() {
+        let emotes = HashMap::new();
+        let mentionable = HashMap::new();
+        let context = context(&emotes, &mentionable);
+        let pieces = ["**b**", "_i_", "*i*", "`c`", "||s||", "~~x~~", "a", " ", "_", "*", "**", "`", "|", "~", "w_", "_w", "x*y", "\n", "é", "😀"];
+        // Every mix of a few pieces, then long ones built from all of them.
+        let mut texts: Vec<String> = Vec::new();
+        for a in pieces {
+            for b in pieces {
+                for c in pieces {
+                    texts.push(format!("{a}{b}{c}"));
+                }
+            }
+        }
+        let mut seed = 7u64;
+        for _ in 0..300 {
+            let mut text = String::new();
+            for _ in 0..60 {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                text.push_str(pieces[(seed >> 33) as usize % pieces.len()]);
+            }
+            texts.push(text);
+        }
+        for text in texts {
+            let (mut linear, mut rescanned) = (Rich::default(), Rich::default());
+            render_inline(&mut linear, &text, &SpanStyle::default(), &context, 0);
+            rescanning(&mut rescanned, &text, &SpanStyle::default(), &context, 0);
+            assert_eq!(linear, rescanned, "{text:?}");
+        }
+    }
 
     fn context<'a>(emotes: &'a HashMap<String, EmoteRef>, mentionable: &'a HashMap<String, String>) -> Context<'a> {
         Context { emotes, mentionable, self_id: "me" }

@@ -44,11 +44,3 @@ Ordered roughly by value.
 - Suggested change: build the menu lazily from state inside the handler; cache `preview_for`; move the rows into `gpui::list`/`uniform_list`, or skip building rows far off screen as the picker's `near` does.
 - Check after: `npm run dev:windows` against a server with many users (add bots via packages/core/test/dev-bots.ts).
 
-### Make the inline markup parser linear instead of re-scanning with every rule
-- Where: apps/desktop/src/markup.rs:168-197
-- Category: perf
-- Severity: low ; Effort: M ; Confidence: medium
-- What's wrong: each step runs all six regexes over the whole rest of the text and keeps only the earliest match, so cost grows with spans × length. Combined with re-parsing on every notification, a long span-heavy message can cost noticeable time per redraw. The algorithm mirrors packages/ui/src/lib/markup.tsx, so output must stay identical.
-- Suggested change: remember each rule's next match and re-run a rule only when that match starts before the current position. Add a test with a long, span-heavy message.
-- Check after: `cargo test` for markup in apps/desktop (needs the GPUI fetch). iOS has a related quadratic issue (see the iOS findings).
-
