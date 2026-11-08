@@ -92,14 +92,6 @@ Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/ind
 - Suggested change: add a shared `fetchServerState`; load servers with `Promise.allSettled`, keep the ones that loaded and toast for the rest; word the failure screen for the web; run `refreshUsers`' two calls with `Promise.all`.
 - Check after: web check.
 
-### Fix FEATURE_PARITY entries that point at code 027c0d2 removed
-- Where: .agents/FEATURE_PARITY.md:30 (says the web has `locked` in `state/activity.ts` from `platform.onPresence`; both are gone), :29 ("which Electron shares"), :92 (lists `voice/share-sound.ts`, `share-sound.worklet.ts`, `useShareSound`, `startSystemAudio`, `startShareSound`), :54 (lists `core/serve.ts` and `core/boot.ts` for pinned servers; the pin code is gone from both)
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: agents will look for hooks and files that don't exist, because the code column is titled "Desktop and web code".
-- Suggested change: rewrite gap 30 (browsers have no lock signal, so it's `n/a` for the web; keep the native app's part); remove the Electron-only paths from the code column or mark them "(Electron, removed)", and consider renaming the column "Web code". See also the docs findings, which cover the same file.
-- Check after: none.
-
 ### Rename the Electron-era leftovers in names, descriptions and comments
 - Where: packages/ui/package.json:6 ("The interface the desktop and web apps share…"); apps/web/package.json:6 ("the desktop's interface"); apps/web/vite.config.ts:26-27 (`envPrefix: "RENDERER_VITE_"` and its comment "the desktop's development build reads", which is false: nothing in apps/desktop reads these variables; the same names appear in scripts/dev-web.mjs:18-20 and Onboarding.tsx:481-484); apps/web/index.html:13; core/serve.ts:1-2 ("Each host's worker"); the `.titlebar-status` class in components/ui.tsx:430, base.css:56-57 and shell.css:61
 - Category: docs / cleanup
