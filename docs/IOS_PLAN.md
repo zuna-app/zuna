@@ -1,17 +1,17 @@
 # iOS app: plan
 
-Status: agreed direction, not started. Scope: feature parity with the 0.1 desktop app, **without notifications** (system notifications, sounds, previews and the icon badge). Testing is described in [IOS_TESTING.md](IOS_TESTING.md).
+Status: built through F8 and since, not yet released (docs/ROADMAP.md). Notifications, first left out, are built too, as are calls. This plan's parity tables aren't kept current: `.agents/FEATURE_PARITY.md` is. Testing is described in [IOS_TESTING.md](IOS_TESTING.md).
 
 ## Summary
 
 - **Native app: SwiftUI, with UIKit where SwiftUI falls short. The protocol is not rewritten:** the existing `@zuna/core` runs unchanged inside JavaScriptCore on iOS. All MLS, envelope, vault, outbox, sync and self-repair logic stays one implementation, covered by the existing end-to-end tests.
 - **Cryptography is the same Rust crate**, compiled natively for iOS and exposed to Swift through UniFFI. JavaScriptCore on iOS has no JIT, so WebAssembly isn't an option, and native code is faster anyway.
 - **The server needs no changes**, apart from two optional environment variables that let tests use a fake 7TV. A phone is one more device on an account: it signs in with the password, joins each group with an external commit and downloads history from the vault.
-- **Changes to existing code are small and backward compatible:**
+- **Changes to existing code are small:**
   - Rust: target-specific dependencies and a UniFFI module next to the WASM bindings.
   - Core: a `FileAdapter` instead of `Blob`, plus `suspend()`/`resume()` for the iOS lifecycle.
   - Nothing changes in the data the server sees.
-- **Conventions:** code, commits, UI text and docs in English. Work happens directly on `main`, one commit per finished, tested feature, never pushed without asking.
+- **Conventions:** code, commits, UI text and docs in English. Work happens directly on `main`, one commit per finished, tested feature, pushed as CLAUDE.md says.
 - **Signing:** the paid Apple Developer team `SGKB9R23YT`, automatic signing, bundle ID `chat.zuna.mobile`, App Group `group.chat.zuna.mobile`, shared Keychain access group `SGKB9R23YT.chat.zuna.shared`.
 
 ## How Zuna works

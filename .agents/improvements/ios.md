@@ -196,10 +196,3 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: say "the notification extension", and drop the Calls-tab sentence.
 - Check after: none.
 
-### Bring IOS_PLAN.md's status and the iOS docs' push rule in line with CLAUDE.md
-- Where: docs/IOS_PLAN.md:3, 9-14; docs/IOS_TESTING.md:246
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: IOS_PLAN.md says "Status: agreed direction, not started ... without notifications", yet records a TestFlight upload at line 545, and the app has notifications and calls. Both docs say nothing is pushed without asking, contradicting CLAUDE.md's "commit as you go ... pushed when it's done". IOS_PLAN.md:9 calls the changes "backward compatible", against the no-compatibility rule.
-- Suggested change: replace the status line with what's true and point at .agents/FEATURE_PARITY.md for the tables; make both workflow lines defer to CLAUDE.md; drop "backward compatible".
-- Check after: none.

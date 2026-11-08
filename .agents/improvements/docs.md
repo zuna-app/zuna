@@ -4,14 +4,6 @@ Covered: CLAUDE.md, README.md, CONTRIBUTING.md, SECURITY.md, .agents/FEATURE_PAR
 Not covered: deep reading of IOS_PLAN's phase reports, ACCOUNT_KEY_ROTATION's protocol text, and LINUX/SELF_HOSTING/PUSH_RELAY beyond grep sweeps.
 Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that touches a claim the landing page makes needs apps/site in the same commit.
 
-### Update IOS_PLAN's status line and its rule against pushing
-- Where: docs/IOS_PLAN.md:3, :9, :14; docs/IOS_TESTING.md:246
-- Category: docs
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: :3 says "Status: agreed direction, not started … **without notifications**", but F0–F8 results are recorded (:333-508), a TestFlight upload at :545, ROADMAP:9 says "built, not yet released", and notifications are built. :14 and IOS_TESTING.md:246 say "never pushed without asking", contradicting CLAUDE.md's commit-and-push rule. :9 calls the changes "backward compatible", against the no-compatibility rule. (Also reported by the iOS review.)
-- Suggested change: :3 → "Status: built through F8 and since, not yet released (docs/ROADMAP.md); notifications, first left out, are built too; its parity tables aren't kept current." :14 and IOS_TESTING.md:246 → "…as CLAUDE.md says." Drop "backward compatible".
-- Check after: none.
-
 ### Update SITE_PLAN's account of what ships
 - Where: docs/SITE_PLAN.md:44
 - Category: docs

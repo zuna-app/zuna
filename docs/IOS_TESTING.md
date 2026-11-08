@@ -243,7 +243,7 @@ For each item in the parity matrix:
 2. Implement until `ios:check` and the area's tests pass.
 3. Look at the screen tour for that area and fix what looks wrong.
 4. Run the full regression (`ios:all`, including the desktop's `npm test`).
-5. Commit directly to `main` with an English message, one commit per finished feature. Nothing is pushed without your go-ahead.
+5. Commit directly to `main` with an English message, one commit per finished feature, and push it as CLAUDE.md says.
 
 A feature counts as done when its scenario passes against the desktop peer in both directions, its screenshots are reviewed, and nothing else regressed.
 
