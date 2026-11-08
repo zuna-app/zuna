@@ -134,10 +134,13 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 	})
 }
 
+// prunableCommits picks the commits PruneCommits deletes, through group_events_commits.
+const prunableCommits = `kind = 'commit' AND created_at < ?
+	AND epoch <= (SELECT epoch FROM groups WHERE groups.id = group_events.group_id) - ?`
+
 // PruneCommits forgets commits nobody should still need.
 func (d *DB) PruneCommits(ctx context.Context) error {
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM group_events WHERE kind = 'commit' AND created_at < ?
-		AND epoch <= (SELECT epoch FROM groups WHERE groups.id = group_events.group_id) - ?`,
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM group_events WHERE `+prunableCommits,
 		time.Now().Add(-keepCommitsFor).UnixMilli(), keepCommitEpochs)
 	return err
 }

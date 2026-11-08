@@ -413,10 +413,15 @@ func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, p
 	return d.Message(ctx, groupID, messageID)
 }
 
+// pinsQuery picks a group's pins seen from a sequence number on. The unary + keeps
+// SQLite from taking messages_seq for the range on seq, which reads every message
+// in the group, over messages_pinned, which holds only the few that are pinned.
+const pinsQuery = `SELECT ` + messageColumns + ` FROM messages
+	WHERE group_id = ? AND pinned_at IS NOT NULL AND +seq > ? ORDER BY pinned_at DESC`
+
 // Pins returns pinned messages, newest pin first.
 func (d *DB) Pins(ctx context.Context, groupID string, visibleFrom int64) ([]*Message, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages
-		WHERE group_id = ? AND pinned_at IS NOT NULL AND seq > ? ORDER BY pinned_at DESC`, groupID, visibleFrom)
+	rows, err := d.sql.QueryContext(ctx, pinsQuery, groupID, visibleFrom)
 	if err != nil {
 		return nil, err
 	}
@@ -559,14 +564,14 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 // the files no message uses any more, including on an error, for the batches
 // that were deleted before it.
 func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]string, error) {
-	return d.deleteMessagesWhere(ctx, `created_at < ? AND pinned_at IS NULL`, cutoff)
+	return d.deleteMessagesWhere(ctx, retentionBatch(), cutoff)
 }
 
 // DeleteExpiredMessages removes the disappearing messages that are due by now,
 // pinned or not. It returns the files no message uses any more, as
 // DeleteMessagesOlderThan does.
 func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, error) {
-	return d.deleteMessagesWhere(ctx, `expires_at IS NOT NULL AND expires_at <= ?`, now)
+	return d.deleteMessagesWhere(ctx, expiryBatch(), now)
 }
 
 // deleteBatch is how many messages one transaction deletes. The first delete
@@ -576,10 +581,21 @@ func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, er
 // to collide.
 var deleteBatch = 1000
 
-// deleteMessagesWhere deletes the messages a condition on one argument picks, a
-// batch at a time, and returns the files no message uses any more.
-func (d *DB) deleteMessagesWhere(ctx context.Context, condition string, arg int64) ([]string, error) {
-	batch := `SELECT group_id, id FROM messages WHERE ` + condition + ` ORDER BY group_id, id LIMIT ` + strconv.Itoa(deleteBatch)
+// retentionBatch and expiryBatch pick a batch of messages to delete. Each goes in
+// the order of the indexed column it picks by: in any other, such as the primary
+// key's, SQLite would read every message to fill a batch, with the write lock
+// held, whenever fewer than a batch are due, as they are nearly every time.
+func retentionBatch() string {
+	return `SELECT group_id, id FROM messages WHERE created_at < ? AND pinned_at IS NULL ORDER BY created_at LIMIT ` + strconv.Itoa(deleteBatch)
+}
+
+func expiryBatch() string {
+	return `SELECT group_id, id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ` + strconv.Itoa(deleteBatch)
+}
+
+// deleteMessagesWhere deletes the messages a batch query on one argument picks,
+// a batch at a time, and returns the files no message uses any more.
+func (d *DB) deleteMessagesWhere(ctx context.Context, batch string, arg int64) ([]string, error) {
 	var removed []string
 	for {
 		var fileIDs []string

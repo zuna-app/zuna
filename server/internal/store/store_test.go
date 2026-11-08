@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -453,6 +454,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP INDEX welcomes_group;
 		DROP INDEX history_grants_group;
 		ALTER TABLE users DROP COLUMN banned_by;
+		DROP INDEX group_events_commits;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
@@ -813,5 +815,43 @@ func TestMessagesAfterAPlaceComeOldestFirstFromWhatTheMemberMaySee(t *testing.T)
 	// What came before someone could see stays out, wherever they ask from.
 	if page, _ = db.MessagesAfter(ctx, group, 0, 8, 5); !slices.Equal(seqs(page), []int64{9, 10, 11, 12}) {
 		t.Fatalf("after 0, visible from 8: %v", seqs(page))
+	}
+}
+
+// The hourly cleanups and the pins drawer find their rows through an index. Each
+// would otherwise read every message or every commit, which on a large server
+// takes long enough, with SQLite's write lock held for the cleanups, to stall
+// every send while it does.
+func TestQueriesThatFindFewRowsUseTheirIndexes(t *testing.T) {
+	onlySQLite(t)
+	ctx := context.Background()
+	db := openTestDB(t)
+	for _, c := range []struct {
+		name, query, index string
+		args               []any
+	}{
+		{"retention", retentionBatch(), "messages_created", []any{Now()}},
+		{"disappearing messages", expiryBatch(), "messages_expires", []any{Now()}},
+		{"pins", pinsQuery, "messages_pinned", []any{"g", 0}},
+		{"pruning commits", `SELECT 1 FROM group_events WHERE ` + prunableCommits, "group_events_commits", []any{Now(), 256}},
+	} {
+		rows, err := db.conn.QueryContext(ctx, `EXPLAIN QUERY PLAN `+c.query, c.args...)
+		if err != nil {
+			t.Fatal(c.name, err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(c.name, err)
+			}
+			plan = append(plan, detail)
+		}
+		rows.Close()
+		joined := strings.Join(plan, "; ")
+		if !strings.Contains(joined, "USING INDEX "+c.index) || strings.Contains(joined, "SCAN messages") || strings.Contains(joined, "SCAN group_events") {
+			t.Errorf("%s: %s", c.name, joined)
+		}
 	}
 }

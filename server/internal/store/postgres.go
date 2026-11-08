@@ -539,4 +539,8 @@ CREATE INDEX history_grants_group ON history_grants(group_id);
 `, `
 -- Which admin banned someone, for the server's list of bans.
 ALTER TABLE users ADD COLUMN banned_by TEXT COLLATE "C";
+`, `
+-- The commits old enough to prune, which the hourly prune would otherwise find by
+-- reading every commit, and every commit's whole data, with the write lock held.
+CREATE INDEX group_events_commits ON group_events(created_at) WHERE kind = 'commit';
 `}
