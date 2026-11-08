@@ -458,10 +458,14 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess *store
 		writeError(w, http.StatusForbidden, "forbidden", "You can't unban this user.")
 		return
 	}
-	if err := s.db.UnbanUser(r.Context(), targetID); err != nil {
+	dms, err := s.db.UnbanUser(r.Context(), targetID)
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	s.broadcastUser(r, targetID)
+	for _, groupID := range dms {
+		s.broadcastGroup(r, groupID)
+	}
 	writeOK(w)
 }

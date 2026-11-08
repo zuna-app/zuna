@@ -392,9 +392,43 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 	})
 }
 
-func (d *DB) UnbanUser(ctx context.Context, userID string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET banned_at = NULL, updated_at = ? WHERE id = ?`, Now(), userID)
-	return err
+// UnbanUser lets someone back in, and back into the direct messages the ban took
+// them out of, which it returns. Groups are for their admins to add them to again,
+// and channels each device joins by itself.
+func (d *DB) UnbanUser(ctx context.Context, userID string) ([]string, error) {
+	var dms []string
+	err := d.tx(ctx, func(tx handle) error {
+		dms = nil
+		now := Now()
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = NULL, updated_at = ? WHERE id = ?`, now, userID); err != nil {
+			return err
+		}
+		// A DM's key is its two people's IDs, which are hex, in order.
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM groups WHERE kind = 'dm' AND (dm_key LIKE ? OR dm_key LIKE ?)
+			AND id NOT IN (SELECT group_id FROM group_members WHERE user_id = ?)`, userID+":%", "%:"+userID, userID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			dms = append(dms, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		for _, id := range dms {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at) VALUES(?, ?, 'admin', ?)`, id, userID, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return dms, err
 }
 
 // DeleteAccount erases what an account keeps here, as its owner asked, and frees

@@ -282,15 +282,22 @@ describe("who can be in a channel", () => {
     }
   });
 
-  it("doesn't include someone banned from the server", async () => {
+  it("doesn't include someone banned from the server, until they're unbanned", async () => {
     const id = channel(alice, "general")!.id;
-    const dave = await makeUser("dave");
+    let dave = await makeUser("dave");
     try {
       await waitFor(() => joined(dave, id), "dave to come in");
       const tree = () => (alice.session as unknown as { treeUsers(group: string): string[] }).treeUsers(id);
       await waitFor(() => tree().includes(dave.userId), "alice to see dave in the channel");
       await alice.session.banUser(dave.userId);
       await waitFor(() => !tree().includes(dave.userId), "dave's keys to be taken back", 15_000);
+      dave.client.stop();
+      // Unbanned, a device of theirs comes in again by itself.
+      await alice.session.unbanUser(dave.userId);
+      dave = await new TestApp("dave-phone").open();
+      await dave.login(server.url, "dave");
+      await waitFor(() => joined(dave, id), "dave to come in again", 15_000);
+      await waitFor(() => tree().includes(dave.userId), "alice to see dave in the channel again", 15_000);
     } finally {
       dave.client.stop();
     }

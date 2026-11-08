@@ -1136,6 +1136,29 @@ describe("administration", () => {
     for (const app of [nina, omar, phone]) app.client.stop();
   });
 
+  it("lets someone unbanned back in, and back into their direct messages", async () => {
+    const pia = await new TestApp("pia-laptop").open();
+    await pia.register(invite, "pia");
+    const piaId = pia.userId;
+    await waitFor(() => alice.session.getUsers().some((user) => user.id === piaId), "alice to see pia");
+    pia.session.sendMessage(`user:${alice.userId}`, { text: "before the ban" });
+    await waitFor(() => alice.texts(`user:${piaId}`).includes("before the ban"), "pia's first message");
+
+    await alice.session.banUser(piaId);
+    pia.client.stop();
+
+    await alice.session.unbanUser(piaId);
+    await waitFor(() => alice.session.getUsers().find((user) => user.id === piaId)?.banned === false, "alice to see pia unbanned");
+    const back = await new TestApp("pia-phone").open();
+    await back.login(server.url, "pia");
+    back.session.sendMessage(`user:${alice.userId}`, { text: "after the unban" });
+    await waitFor(() => alice.texts(`user:${piaId}`).includes("after the unban"), "pia's message after the unban", 30_000);
+    alice.session.sendMessage(`user:${piaId}`, { text: "welcome back" });
+    await waitFor(() => back.texts(`user:${alice.userId}`).includes("welcome back"), "alice's reply", 30_000);
+    await waitFor(() => back.texts(`user:${alice.userId}`).includes("before the ban"), "what pia sent before the ban", 30_000);
+    back.client.stop();
+  });
+
   it("creates invite links that carry the community key and can be revoked", async () => {
     const link = await alice.session.createInvite(1, 3600);
     const preview = await alice.client.previewInvite(link);
