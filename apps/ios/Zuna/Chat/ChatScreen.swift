@@ -409,8 +409,8 @@ struct ChatScreen: View {
 
     /// What can be done with the picked messages, in place of the composer, as in Telegram.
     private func selectionBar(_ ids: [String], server: AppModel.ServerState, conversation: ConversationView, list: MessageList) -> some View {
-        // In the chat's order, whatever order they were picked in.
-        let picked = list.items.filter { ids.contains($0.id) }
+        // In the chat's order, whatever order they were picked in, without any deleted meanwhile.
+        let picked = list.items.filter { ids.contains($0.id) && $0.deletedAt == nil }
         let selfId = server.me?.userId
         let isAdmin = conversation.members.first { $0.userId == selfId }?.role == .admin
         let canDelete = !picked.isEmpty && picked.allSatisfy { $0.senderId == selfId || (conversation.kind != .dm && isAdmin) }
@@ -427,12 +427,14 @@ struct ChatScreen: View {
             } label: {
                 Image(systemName: "doc.on.doc").frame(width: 40, height: 40)
             }
+            .disabled(picked.isEmpty)
             .accessibilityLabel("Copy")
             Button {
                 sheet = .forward(picked)
             } label: {
                 Image(systemName: "arrowshape.turn.up.right").frame(width: 40, height: 40)
             }
+            .disabled(picked.isEmpty)
             .accessibilityLabel("Forward")
             if canDelete {
                 Button(role: .destructive) {
@@ -444,7 +446,6 @@ struct ChatScreen: View {
                 .accessibilityLabel("Delete")
             }
         }
-        .disabled(picked.isEmpty)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
@@ -452,6 +453,10 @@ struct ChatScreen: View {
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.selectionBar)
+        // Everything picked went, deleted or gone with the time it had: picking is over.
+        .onChange(of: picked.isEmpty) { _, empty in
+            if empty { selection = nil }
+        }
         .confirmationDialog("Delete \(picked.count == 1 ? "this message" : "\(picked.count) messages") for everyone?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete for everyone", role: .destructive) {
                 guard let groupId = conversation.groupId else { return }
@@ -465,9 +470,11 @@ struct ChatScreen: View {
     /// One message's text, or several with who wrote each and when, as Telegram copies them.
     private func copy(_ picked: [MessageView], server: AppModel.ServerState) {
         let name = { (id: String) in id == server.me?.userId ? "You" : server.users[id]?.displayName ?? "Unknown" }
+        // A message of only files is copied as their names, rather than as nothing.
+        let text = { (message: MessageView) in message.text.isEmpty ? message.attachments.map(\.name).joined(separator: ", ") : message.text }
         UIPasteboard.general.string = picked.count == 1
-            ? picked[0].text
-            : picked.map { "\(name($0.senderId)), [\(Format.full($0.createdAt))]\n\($0.text.isEmpty ? $0.attachments.map(\.name).joined(separator: ", ") : $0.text)" }.joined(separator: "\n\n")
+            ? text(picked[0])
+            : picked.map { "\(name($0.senderId)), [\(Format.full($0.createdAt))]\n\(text($0))" }.joined(separator: "\n\n")
         model.toast(picked.count == 1 ? "Copied" : "Copied \(picked.count) messages")
         selection = nil
     }
