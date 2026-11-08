@@ -141,7 +141,7 @@ Rules the core depends on:
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/host/web.rs`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `channel_message.rs`, `voice_stage.rs` and `voice.rs` in `apps/desktop/src/ui`, `packages/ui/src/features/voice` |
 | Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `apps/desktop/src/voice`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
-| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen.rs`, which starts it |
+| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen.rs`, which starts it, or on macOS captures in the app through `apps/desktop/src/platform/macos/screen_capture.rs` |
 | The native app's host: the core in QuickJS, storage, network, device key | `apps/desktop/src/host` |
 | The native app's state and screens | `apps/desktop/src/state.rs`, `apps/desktop/src/ui` |
 | Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications.rs`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs` |

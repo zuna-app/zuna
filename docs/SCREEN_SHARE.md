@@ -1,16 +1,18 @@
 # Native screen sharing
 
-On Windows and Linux, the desktop app shares a whole screen or one window from a small program of its own, which captures and encodes on the GPU and only uses LiveKit to carry the result. Viewers stay in Chromium, or the web app's browser, with nothing native.
+The desktop app shares a whole screen or one window natively on every system. On Windows and Linux a small program of its own, `zuna-screenshare`, captures and encodes on the GPU and only uses LiveKit to carry the result. On macOS the app captures through ScreenCaptureKit, picked in macOS's own picker, and VideoToolbox encodes it on the app's own connection. Viewers decode in the app, or in the web app's browser.
 
 ```
 Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF, Media Foundation ─┐
                           ├─ zuna-screenshare ────┤                                ├─ LiveKit SDK ─ encrypted ─ media server ─ viewers
 xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ────────────────┘   (pre-encoded mode)
+
+macOS's picker ─ ScreenCaptureKit ─ IOSurfaces ─ VideoToolbox ─ the app's own LiveKit connection ─ encrypted ─ media server ─ viewers
 ```
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [The proof of concept's README](../poc/screenshare/README.md) has the measurements. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Everything else goes through Chromium: macOS, the web app, a window under X11, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
+Only the web app goes through the browser's capture. The native app has no browser to fall back on: where a share can't start, it says why. It doesn't run under X11 at all. On Macs the program only takes the computer's sound, beside the app's own capture, as [Sharing from a Mac](#sharing-from-a-mac) says. Every share looks the same to whoever is watching. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
 
 ## How the app runs it
 
@@ -22,7 +24,7 @@ The native app starts the program with `--control` (`apps/desktop/src/voice/scre
 | `{"type":"key","key":…,"key_index":…}` | The group moved on, so frames go under this from now on |
 | `{"type":"stop"}` | Leave. Its standard input closing means the same, so it can't outlive the app |
 
-It says `{"type":"ready",…}` on its standard output once it's publishing, `{"type":"stats",…}` once a second after that, and what's wrong on its standard error if it can't. If it doesn't start, the app says why, and the stream stats window, the button at the top of a voice channel, gives the reason. That window also has everything both routes report, frame by frame, for whoever is sending and whoever is watching.
+It says `{"type":"ready",…}` on its standard output once it's publishing, `{"type":"stats",…}` once a second after that, and what's wrong on its standard error if it can't. If it doesn't start, the app says why. The stream stats window, the button at the top of a voice channel, has everything the share reports once it's going, frame by frame, for whoever is sending and whoever is watching.
 
 It reaches the media server over TLS through rustls, trusting the system's certificates as Chromium does, so a server behind a private certificate authority works the same. `apps/desktop/test/linux-voice-check.mjs` runs its media server behind TLS for this reason: plain `ws://` works without any TLS in the program at all.
 
@@ -32,7 +34,7 @@ The computer's sound can't come with its pictures. The app captures it apart and
 
 ## Choosing what to share on Linux
 
-Under Wayland, nothing but the portal's dialog can say what there is to share, so the native program asks it, and the picker in the app only offers its two tabs: a screen, or a window, which tells the portal which to list. Chromium's own list would ask the portal too, so a native share used to bring up the dialog twice. `portalSources` in `native-screen.ts` asks the program (`--portal-sources`) whether there's a portal and what it shares, once, and where there isn't one, as in a session under X11, the app lists screens and windows itself as before. A share that can't go natively after all asks the portal again, through Chromium.
+Under Wayland, nothing but the portal's dialog can say what there is to share, so the picker in the app offers one of each kind the ScreenCast portal says it shares, a screen or a window, with an icon in place of a picture, and the portal's own dialog picks once Share is pressed, through the program (`apps/desktop/src/platform/linux/screens.rs`). Where there's no portal, there's nothing to offer.
 
 The portal only says whether a screen or a window was chosen, and the program says the same once it's publishing. A window can change size: PipeWire settles on the new size, and the program opens another encoder at it, keeping to the tallest that was asked, with a keyframe, so someone watching sees it at its new size at once. When the window closes, the compositor takes its PipeWire node away, which the program hears from PipeWire's registry, the same on every compositor, and it leaves, so the share ends without a word.
 
@@ -50,14 +52,14 @@ A share's sound goes out over the device's own connection, beside the picture, w
 
 | | Captured by | What can be chosen |
 |---|---|---|
-| Windows | This program, through process loopback (`src/sound/windows.rs`): everything but Zuna's processes, or one app's. A build without it, Chromium's loopback, which `restrictOwnAudio` keeps Zuna out of | Everything but Zuna, or one app |
+| Windows | This program, through process loopback (`src/sound/windows.rs`): everything but Zuna's processes, or one app's | Everything but Zuna, or one app |
 | Linux | This program, from PipeWire (`src/sound/linux.rs`) | Everything but Zuna, or one app |
 | macOS, on Apple silicon | This program, through Core Audio's process taps (`src/sound/macos.rs`), from macOS 14.2 | Everything but Zuna, or one app |
 | The web | The browser | Whatever its own picker offers |
 
 `--sound` writes everything playing apart from the process `--exclude-pid` names and those it started, and `--sound-from ID` only one app's, by the id `--sound-apps` or `--window-app` gives it. `pid:N` is a process and those it started.
 
-What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `--window-app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. A window on Windows without the program starts without sound too, since Chromium could only add everything. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
+What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `--window-app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. macOS's picker only says which window once Share is pressed, so a window starts with no sound there too. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
 
 On Linux, PipeWire has no stream of everything but one program, so the program makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Chromium plays Zuna's sound from a process under the app's, so it's left out, and nobody in the call hears themselves back. The links belong to the program, and go when it does.
 
@@ -99,11 +101,11 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 
 **Settings, Screen sharing,** on each device:
 
-| Setting | Native | Through the browser |
+| Setting | Native | The web app |
 |---|---|---|
 | Size, frame rate, most it may send | yes | yes |
-| Sound: starting with it on, its quality | Captured beside the share by the program | yes, and by the program where there is one, as for a native share |
-| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux and Windows | Linux, macOS and Windows |
+| Sound: starting with it on, its quality | Captured beside the share by the program | yes, where the browser's picker gives sound |
+| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux, macOS and Windows | |
 | How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
 | Capturing on the graphics card at all | yes | |
 | Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured on Windows, so it isn't offered |
@@ -111,7 +113,7 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 | What it's mostly showing, what gives first when the connection can't keep up | | yes |
 | Codec, and sending a smaller copy | No: H.264, one layer, since it arrives already encoded | yes |
 
-A native share that can't do what was chosen doesn't fail: it goes through the browser, and stream stats says why.
+A native share that can't do what was chosen doesn't start, and the app says why.
 
 **Making the picture smaller** happens on the GPU, keeping its shape and an even size:
 
@@ -120,10 +122,15 @@ A native share that can't do what was chosen doesn't fail: it goes through the b
 | Windows | D3D11's video processor, in `native/encoder.c`, which also makes NV12 for Media Foundation |
 | Linux, NVENC from DMA-BUFs | An OpenGL blit, in `native/dmabuf_cuda.c` |
 | Linux, VA-API | `scale_vaapi`, which the graph already had for its colours |
-| NVENC or AMF from CPU memory, which is a compositor that can't share DMA-BUFs | It can't, so that share goes through the browser |
-| Through the browser | `height: { max }` in `getDisplayMedia` |
+| NVENC or AMF from CPU memory, which is a compositor that can't share DMA-BUFs | It can't, so that share doesn't start, and says why |
+| macOS | ScreenCaptureKit, which captures it no larger than asked |
+| The web app | `height: { max }` in `getDisplayMedia` |
 
 **The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27.
+
+## Sharing from a Mac
+
+On macOS the app shares by itself, with no program and no Screen Recording permission (`apps/desktop/src/platform/macos/screen_capture.rs`, `start_screen_here` in `apps/desktop/src/voice/screen.rs`). macOS's own picker chooses a screen or a window, ScreenCaptureKit captures it on the GPU into IOSurfaces in NV12, already no larger than asked, and each frame goes to LiveKit as it was captured for VideoToolbox to encode, from the device's own connection rather than a participant of its own. Only Apple silicon, from macOS 14.2, is built for. The share's sound still comes from `zuna-screenshare`, as [The computer's sound](#the-computers-sound) says, and video that arrives is decoded by VideoToolbox and drawn from its buffer. A test build can share moving bars in place of a screen, past the picker, with `ZUNA_FAKE_SCREEN`, which `apps/desktop/test/mac-voice-check.mjs` uses.
 
 ## From an iPhone or iPad
 
@@ -176,7 +183,7 @@ A development build of the app finds the program in that same `dist` folder, or 
 
 ## Watching
 
-Whoever's watching in the web app decodes in their browser. On Linux, Chromium won't decode through VA-API on an NVIDIA GPU unless `VaapiOnNvidiaGPUs` is on, which the Electron app turned on under Wayland. That goes through nvidia-vaapi-driver, which NVIDIA doesn't ship, and where it isn't installed Chromium decodes in software as before. On X11 it stays off: there VA-API decodes every frame and paints each one white, seen on KDE through XWayland, both in the app and in a bare Electron page sending itself H.264. Measured in the app on Arch with KDE and an RTX 5080, at 1920x1080, a frame takes:
+Whoever's watching in the native app decodes through LiveKit's libwebrtc, and on macOS draws what VideoToolbox decoded straight from its buffer. Whoever's watching in the web app decodes in their browser. On Linux, Chromium won't decode through VA-API on an NVIDIA GPU unless `VaapiOnNvidiaGPUs` is on, which the Electron app turned on under Wayland. That goes through nvidia-vaapi-driver, which NVIDIA doesn't ship, and where it isn't installed Chromium decodes in software as before. On X11 it stays off: there VA-API decodes every frame and paints each one white, seen on KDE through XWayland, both in the app and in a bare Electron page sending itself H.264. Measured in the app on Arch with KDE and an RTX 5080, at 1920x1080, a frame takes:
 
 | Codec | Hardware | Software |
 |---|---|---|
@@ -229,7 +236,7 @@ How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv
 
 ## What hasn't been checked
 
-The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far:
+The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far, and macOS through ScreenCaptureKit and VideoToolbox (`mac-voice-check.mjs`, and a real screen and a window by hand):
 
 - **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
 - **VA-API and AMF** have never run. **Media Foundation** has only run on NVIDIA's own encoder for it, on an RTX 5070 Ti: from the app in `voice-check.mjs` with `VOICE_ENCODER=h264_mf`, a screen at 60 fps over TLS, under a new key, and a window at 60 fps, until that run was stopped partway; by itself, a screen made smaller, a window dragged, and colours within 2 of 255 of what was drawn, as NVENC's are. Intel's and other GPUs' haven't, nor has one of a laptop's two GPUs.
@@ -238,6 +245,6 @@ The proof of concept's README lists what has run where. Inside the app, Windows 
 - **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows 11 it works too: with the pointer still over text, a frame encoded by NVENC showed its I-beam with the pointer on, and not with `--no-cursor`.
 - **Sharing a window natively** has run on Linux with KWin, in the app on Arch with an RTX 5080: a 908x634 window at 60 fps from DMA-BUFs, the one app's sound chosen for it reaching someone watching, its picture following it to 1288x534 at once, and the share ending quietly as it closed. GNOME, wlroots compositors and Hyprland haven't run it. One that kept a window's stream at one size and marked the window in it as `SPA_META_VideoCrop` would need that read, which the program doesn't ask for. On Windows 11 with an RTX 5070 Ti it has run from the app in `voice-check.mjs`: a 222x181 window at 60 fps over TLS, decoded at 60 by someone watching. By itself, to a file: a window that grew, at once and while dragged, made smaller to 360 lines, and the program leaving as it closed.
 - **The computer's sound on Linux** has run from the app beside a share through the browser, in the Electron app's `sound-check.mjs`, since removed, on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share, one app's sound has run with a window shared through KDE's portal, and the entire system's beside a native screen in `voice-check.mjs`. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.
-- **The computer's sound on macOS** has run from the app beside a share through the browser, in the Electron app's `mac-sound-check.mjs`, since removed, on macOS 27 on Apple silicon: everything but Zuna, one app alone, and the picker's apps. What it shares is a moving picture standing in for the screen, as macOS's own picker can't be driven, so a real screen with its sound hasn't been seen together. The program by itself has also taken another program's speech while leaving out the app that started it, and its tone, and Apple's converter has taken 44.1 kHz to 48 kHz in a test. An output at another rate, and a change of output during a share, haven't run.
+- **The computer's sound on macOS** has run from the app beside a share through the browser, in the Electron app's `mac-sound-check.mjs`, since removed, on macOS 27 on Apple silicon: everything but Zuna, one app alone, and the picker's apps. In the native app, picked in macOS's picker on 2026-11-08: a real 3600x2338 screen at 60 fps with the entire system's sound, and QuickTime Player's window with its own, another program's left out. A whole screen with one app's sound hasn't run. The program by itself has also taken another program's speech while leaving out the app that started it, and its tone, and Apple's converter has taken 44.1 kHz to 48 kHz in a test. An output at another rate, and a change of output during a share, haven't run.
 - **The computer's sound on Windows** has run from the app in the Electron app's `win-sound-check.mjs`, since removed, on Windows 11 (build 26300), beside a native share and one through the browser: everything but Zuna, with Zuna's own tone 46 dB under another app's, one app alone, the picker's apps, and a window starting with its app's. Its tones are at -60 dBFS, so that nobody hears them, and told apart by frequency. They play to the default output, and an app playing to another hasn't been tried.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality. How the bitrate follows a real link with no regular keyframes, and rises that wait longer after each that was too much, has only run against the tests' model of libwebrtc's estimate, not in a call.

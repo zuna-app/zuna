@@ -1,7 +1,7 @@
 // Builds the native screen capture for this system, and gathers what it needs into
-// apps/screenshare/dist, which goes into installers. A build of the app
-// without it shares screens through Chromium instead, so this is optional. On macOS it
-// only takes the computer's sound, and only Macs with Apple silicon use it.
+// apps/screenshare/dist, which goes into installers. Without it, the native app
+// can't share a screen on Windows or Linux, and a share from a Mac has no sound. On
+// macOS it only takes the computer's sound, and only Macs with Apple silicon use it.
 //
 // It needs Rust and a C compiler, as well as: on Windows, Visual Studio's C++ build
 // tools and a Rust MSVC toolchain (rustup toolchain install stable-x86_64-pc-windows-msvc);
