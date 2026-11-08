@@ -292,7 +292,8 @@ export async function makeLinkPreview(web: WebAdapter, url: string): Promise<Lin
   const type = page.type.toLowerCase();
   const host = new URL(page.url).hostname.replace(/^www\./, "");
   if (type.startsWith("image/")) {
-    const image = await shrink(web, url);
+    // A link straight to a picture already brought it, unless it was cut off at the page's limit.
+    const image = page.body.length < PAGE_BYTES ? ((await web.shrinkImage(page.body, IMAGE_SIZE)) ?? undefined) : await shrink(web, page.url);
     return image ? { url, siteName: host, image } : null;
   }
   if (!type.includes("html")) return null;

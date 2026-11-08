@@ -215,6 +215,14 @@ describe("link previews", () => {
     expect(findLink("no links here")).toBeNull();
   });
 
+  it("fetches a link straight to a picture once for its preview", async () => {
+    const link = `${site.url}/pictures/harbour.png`;
+    const before = site.hits.filter((hit) => hit === "/pictures/harbour.png").length;
+    const preview = (await bob.client.linkPreview(link))!;
+    expect(preview).toMatchObject({ url: link, siteName: "127.0.0.1", image: { width: 1200, height: 630 } });
+    expect(site.hits.filter((hit) => hit === "/pictures/harbour.png").length).toBe(before + 1);
+  });
+
   it("makes a preview on the sender's device from the page's tags", async () => {
     const link = `${site.url}/moved`;
     const preview = (await bob.client.linkPreview(link))!;

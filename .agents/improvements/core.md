@@ -132,13 +132,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: start `readSent` at `previous?.readSent ?? previous?.ownRead ?? 0` in `applyGroup`, make it required, remove the `!== undefined` checks and `??=`. Check `sendUnsentReads` still sends nothing for a never-read group.
 - Check after: `npx vitest run test/e2e.test.ts` (read position cases).
 
-### Fetch a direct image link once for its preview
-- Where: packages/core/src/links.ts:289-297 (`makeLinkPreview` fetches the URL as a page, up to 2 MiB, then `shrink(web, url)` fetches it again, up to 5 MiB)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: when `type.startsWith("image/")`, call `web.shrinkImage(page.body, IMAGE_SIZE)` directly if `page.body.length < PAGE_BYTES`, and only refetch (with `IMAGE_BYTES`, from `page.url`) when it was cut off. This isn't an address rule, so webhost/preview.go and host/web.rs needn't change.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
 ### Hold reaction keys and preview text to the rules names already follow
 - Where: packages/core/src/validate.ts:334-339 (`parseReaction`: any key up to 1024 characters, hidden characters kept) vs 60-65 (`plainName`); links.ts:311-332 (`checkPreview`: `title`/`siteName` keep bidi controls; image `width`/`height` and `data` length have no limit, unlike `side()` and `MAX_THUMB_LENGTH` for attachments)
 - Category: robustness
