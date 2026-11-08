@@ -134,15 +134,20 @@ try {
   });
   await page.addInitScript(() => {
     const w = window as unknown as { __shown: { title: string; body: string; at: number }[]; __input: (on: boolean) => void };
-    // What the web app would show, kept rather than shown on this Mac.
+    // What the web app would show, allowed and kept rather than shown on this Mac.
     w.__shown = [];
-    const Real = window.Notification;
-    window.Notification = class extends Real {
+    class Kept extends EventTarget {
+      static readonly permission = "granted";
+      static requestPermission = async () => "granted";
+      onclick: (() => void) | null = null;
+      onclose: (() => void) | null = null;
       constructor(title: string, options?: NotificationOptions) {
-        super(title, { ...options, silent: true });
+        super();
         w.__shown.push({ title, body: options?.body ?? "", at: Date.now() });
       }
-    } as typeof Notification;
+      close() {}
+    }
+    window.Notification = Kept as unknown as typeof Notification;
     // Someone at the computer, moving the pointer every second, or not.
     let timer: ReturnType<typeof setInterval> | undefined;
     w.__input = (on) => {
@@ -286,6 +291,11 @@ try {
   judge("used last, the desktop shows it at once", await onDesktop(c.text), c.sent, "now");
   judge("the phone waits, as bob was at the desktop more recently", pushedAt("iphone", c.id), c.sent, "waited");
   judge("so does the other phone", pushedAt("ipad", c.id), c.sent, "waited");
+
+  // --- Back at the desktop ---
+  await input("active");
+  await focusDesktop();
+  await waitFor(() => activeElsewhere(), "bob to be back at the desktop", 15_000);
 
   // --- The phone shows what it was pushed ---
   log("the phone open, and the desktop in use");
