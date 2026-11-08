@@ -59,9 +59,11 @@ pub struct ChatContext {
     /// The message being edited where it is, in a channel, and the field it's edited in.
     pub editing_id: Option<String>,
     pub inline_editor: Option<Entity<super::text_input::TextInput>>,
-    /// Each message's text, parsed once while this context lasts. The context is built again
-    /// after anything in the app's state changes, so every message drawn is parsed again then.
-    pub parsed: std::cell::RefCell<HashMap<String, Rc<Vec<Block>>>>,
+    /// Each message's text, parsed, kept by the chat across the contexts it builds, with what
+    /// it was parsed from (`parse_key`), so a message is parsed again only when that changed.
+    pub parsed: Rc<std::cell::RefCell<HashMap<String, (u64, Rc<Vec<Block>>)>>>,
+    /// Who can be mentioned, reduced to a number, as parsing a message depends on it.
+    pub mentionable_print: u64,
     /// Where the videos are drawn, above the messages.
     pub video_slots: super::media_views::VideoSlots,
     /// The width and height of each emote in the server's set, by id, so that its place is
@@ -810,12 +812,45 @@ fn flow_text(
     row.into_any_element()
 }
 
+/// How many messages' parsed text a chat keeps, all let go together once there are more.
+const PARSED_KEPT: usize = 5000;
+
+/// What a message's parsed text depends on: its text, its emotes and who can be mentioned.
+fn parse_key(message: &MessageView, mentionable_print: u64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    message.text.hash(&mut hasher);
+    let mut emotes: Vec<(&String, &String)> = message.emotes.iter().map(|(name, emote)| (name, &emote.id)).collect();
+    emotes.sort();
+    emotes.hash(&mut hasher);
+    mentionable_print.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Who can be mentioned, reduced to a number that doesn't depend on the map's order.
+pub(super) fn mentionable_print(mentionable: &HashMap<String, String>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    mentionable
+        .iter()
+        .map(|pair| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            pair.hash(&mut hasher);
+            hasher.finish()
+        })
+        .fold(mentionable.len() as u64, |print, one| print ^ one.rotate_left(1).wrapping_add(one))
+}
+
 pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
-    let cached = context.parsed.borrow().get(&message.id).cloned();
+    let key = parse_key(message, context.mentionable_print);
+    let cached = context.parsed.borrow().get(&message.id).filter(|(parsed_from, _)| *parsed_from == key).map(|(_, blocks)| blocks.clone());
     let blocks = cached.unwrap_or_else(|| {
         let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
         let blocks = Rc::new(markup::parse(&message.text, &markup_context));
-        context.parsed.borrow_mut().insert(message.id.clone(), blocks.clone());
+        let mut parsed = context.parsed.borrow_mut();
+        if parsed.len() > PARSED_KEPT {
+            parsed.clear();
+        }
+        parsed.insert(message.id.clone(), (key, blocks.clone()));
         blocks
     });
     let base = if own { theme.bubble_own_text } else { theme.text1 };

@@ -4,14 +4,6 @@ Covered: apps/desktop/src/ui/* (read chat.rs, message.rs, mod.rs, conversations.
 Skipped or skimmed: onboarding.rs, the settings UI, server_settings.rs, server_voice.rs, soundboard.rs, stream_stats.rs, screen_picker.rs, invites.rs, shared_media.rs, selection.rs and menu.rs internals. Nothing was built or run.
 Ordered roughly by value.
 
-### Rebuild the chat's row context and markup cache only when something it uses changed
-- Where: ui/chat.rs:317-323 (observer), 455-485 (`sync_rows` hashes every loaded message), 2502-2577 (`chat_context` clones `users` and `mentionable`), 2740-2745; ui/message.rs:62-64 (the `parsed` cache lives inside the context); state.rs:726 (`handle_event` always notifies)
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high
-- What's wrong: any notification drops `context_cache` (presence on another server, typing elsewhere, a debounced "conversations" event before its data arrives, the media tick). The next draw clones the user map, re-parses every visible message (the parse cache goes with the context) and re-hashes the text of up to 20 pages of messages. The comments at chat.rs:2740-2741 and message.rs:62-63 say this happens only "when the chat's state changed", which overstates it.
-- Suggested change: keep the parse cache in `ChatView`, keyed by (id, text hash, mentionable generation). Add generation counters to `ServerState` (users, conversations, prefs) and a `version` to `MessageList`; the observer skips work when this server's and this list's counters haven't changed. `handle_event` notifies only when it changed something. Fix the two comments.
-- Check after: `npm run dev:windows` (a channel on the test server with bots talking); `npm run dev:linux` and apps/desktop/test/linux-check.mjs.
-
 ### Notify the view that owns a hover or tooltip instead of refreshing the whole window
 - Where: ui/motion.rs:533-545 (`track_hover` calls `window.refresh()`); ui/components.rs:320 and ui/message.rs:1122 (refresh on every mouse move while a tooltip or emote card shows); ui/scrollbar.rs:175, 186, 192, 209
 - Category: perf

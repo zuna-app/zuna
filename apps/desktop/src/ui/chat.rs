@@ -173,6 +173,8 @@ pub struct ChatView {
     /// What the rows need, from the last time the chat's state changed. The messages aren't in
     /// it: each row reads its own and those beside it from the app's state as it's drawn.
     context_cache: Option<Rc<ChatContext>>,
+    /// Messages' parsed text, which outlives each context: see `ChatContext::parsed`.
+    parsed: Rc<RefCell<HashMap<String, (u64, Rc<Vec<crate::markup::Block>>)>>>,
     /// This chat's conversation as the state has it, taken once per change of the state rather
     /// than cloned on every frame, a channel's members and all.
     conversation_cache: RefCell<Option<Rc<ConversationView>>>,
@@ -386,6 +388,7 @@ impl ChatView {
             mentions_asked: None,
             messages,
             context_cache: None,
+            parsed: Rc::default(),
             conversation_cache: RefCell::new(None),
             member_view: None,
             video_slots: Default::default(),
@@ -2580,7 +2583,8 @@ impl ChatView {
             selected: selection.map(|(_, ids)| ids.into_iter().collect()).unwrap_or_default(),
             members: conversation.members.iter().map(|member| member.user_id.clone()).collect(),
             read_by: conversation.read_by.clone(),
-            parsed: Default::default(),
+            parsed: self.parsed.clone(),
+            mentionable_print: super::message::mentionable_print(&server.mentionable),
             video_slots: self.video_slots.clone(),
             emote_sizes: server.emotes.emotes.iter().filter(|emote| emote.width > 0. && emote.height > 0.).map(|emote| (emote.id.clone(), (emote.width as f32, emote.height as f32))).collect(),
         };
