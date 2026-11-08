@@ -36,14 +36,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: remember the last value and return early when unchanged; make `PushStore.defaults` a `static let`.
 - Check after: `npm run test:ios:notify`; `npm run test:ios:ui -- --only NotificationTests`.
 
-### Fix the emote view showing a stale emote after reuse
-- Where: apps/ios/Zuna/Chat/EmoteImages.swift:130-145; apps/ios/Zuna/Chat/MessageText.swift:238-251
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: when the image is already cached, `EmoteImageView.show` sets it and returns without cancelling the running load or hiding the name label. `placeEmotes` reuses these views by position, so a load still running for the previous emote overwrites the cached one, and a name label from an earlier failure stays visible.
-- Suggested change: in both branches, cancel the load first and hide the name label; clear the image before starting a new load.
-- Check after: `npm run test:ios:ui -- --only ChatReadingTests`.
-
 ### Make the avatar cache aware of size
 - Where: apps/ios/Zuna/Shared/AvatarView.swift:27-32, 100-117, 177-188
 - Category: ux

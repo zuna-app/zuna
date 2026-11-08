@@ -139,12 +139,17 @@ final class EmoteImageView: UIView {
     func show(name: String, id: String, size: EmoteImages.Size, serverUrl: String) {
         accessibilityLabel = name
         fallback.text = name
+        // A view used again for another emote: a load still going for the last one mustn't land
+        // over this, nor its name stay showing.
+        loadTask?.cancel()
+        loadTask = nil
+        fallback.isHidden = true
         let images = EmoteImages.shared
         if let image = images.cached(id, size) {
             imageView.image = image
             return
         }
-        loadTask?.cancel()
+        imageView.image = nil
         loadTask = Task { [weak self] in
             let image = await images.image(id, size, serverUrl: serverUrl)
             guard let self, !Task.isCancelled else { return }
