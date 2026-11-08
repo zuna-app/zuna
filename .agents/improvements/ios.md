@@ -12,11 +12,3 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: move typing, presence and voice into separate observable storage (top-level dictionaries on AppModel, or a small observable class per server), read only in the views that show them (ChatHeader, ChatRow.preview, ChannelTyping, AvatarView's online dot, CallBanner). Give each message list its own observable box.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ConversationListTests,ChatReadingTests`. (The web has the same shape of problem with `useActiveServer`, see its findings.)
 
-### Take the RPC reply parsing off the core's thread and parse once
-- Where: apps/ios/ZunaKit/Sources/ZunaModels/CoreConnection.swift:68-81, 105-138; apps/ios/ZunaKit/Sources/ZunaHost/CoreRuntime.swift:269-275
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: medium
-- What's wrong: `post` calls `receive` synchronously on the core's queue, where `receive` parses the whole reply with JSONSerialization, serializes the value back to Data, and `call` decodes it a third time with JSONDecoder. For big replies (conversations, users, message pages), the JS thread waits through two extra full JSON passes.
-- Suggested change: in `receive`, hop to a private serial queue (keeps replies and events in order); decode a small envelope (kind, id, ok, error) from the raw Data and resume with that Data, then decode `Reply<V> { value }` in `call`. Decode events in a single pass the same way.
-- Check after: `swift test` (CoreConnectionTests, WireTests), `npm run test:ios`, `npm run test:ios:perf`.
-

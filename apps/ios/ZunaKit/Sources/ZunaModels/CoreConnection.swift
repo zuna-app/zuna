@@ -49,10 +49,15 @@ public final class CoreConnection: @unchecked Sendable {
     private let onEvent: @Sendable (CoreEvent) -> Void
     private let logger = Logger(subsystem: "chat.zuna", category: "rpc")
     private var drift: Set<String> = []
+    /// Where replies and events are read, one at a time in the order the core sent them, so
+    /// that the core's thread only hands each over rather than waiting while it's parsed.
+    private let inbox = DispatchQueue(label: "chat.zuna.rpc")
 
     public init(runtime: CoreRuntime, onEvent: @escaping @Sendable (CoreEvent) -> Void) {
         self.onEvent = onEvent
-        channel = runtime.connect { [weak self] json in self?.receive(json) }
+        channel = runtime.connect { [weak self] json in
+            self?.inbox.async { self?.receive(json) }
+        }
     }
 
     deinit {
@@ -69,13 +74,16 @@ public final class CoreConnection: @unchecked Sendable {
         let data = try await send(method, server: server, arguments)
         let value: Value
         do {
-            value = try Self.decoder.decode(Value.self, from: data)
+            value = try Self.decoder.decode(Reply<Value>.self, from: data).value
         } catch {
             logger.error("Couldn't decode the result of \(method, privacy: .public): \(String(describing: error), privacy: .public)")
             throw error
         }
         #if DEBUG
-        report(Drift.missing(in: data, decodedAs: value), from: method)
+        if let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let valueData = try? JSONSerialization.data(withJSONObject: reply["value"] ?? NSNull(), options: [.fragmentsAllowed]) {
+            report(Drift.missing(in: valueData, decodedAs: value), from: method)
+        }
         #endif
         return value
     }
@@ -102,31 +110,31 @@ public final class CoreConnection: @unchecked Sendable {
         }
     }
 
+    /// Reads what kind of message came, and hands a reply over whole, for `call` to decode
+    /// its value from in one pass, or decodes an event, also in one pass.
     private func receive(_ json: String) {
-        guard let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        switch message["kind"] as? String {
+        let data = Data(json.utf8)
+        guard let envelope = try? Self.decoder.decode(Envelope.self, from: data) else { return }
+        switch envelope.kind {
         case "reply":
-            guard let id = message["id"] as? Int, let continuation = lock.withLock({ pending.removeValue(forKey: id) }) else { return }
-            if message["ok"] as? Bool == true {
-                let value = message["value"] ?? NSNull()
-                let valueData = (try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])) ?? Data("null".utf8)
-                continuation.resume(returning: valueData)
+            guard let id = envelope.id, let continuation = lock.withLock({ pending.removeValue(forKey: id) }) else { return }
+            if envelope.ok == true {
+                continuation.resume(returning: data)
             } else {
-                let error = message["error"] as? [String: Any]
                 continuation.resume(throwing: CoreCallError(
-                    message: error?["message"] as? String ?? "Something went wrong.",
-                    code: error?["code"] as? String,
-                    status: error?["status"] as? Int
+                    message: envelope.error?.message ?? "Something went wrong.",
+                    code: envelope.error?.code,
+                    status: envelope.error?.status
                 ))
             }
         case "event":
-            guard let event = message["event"],
-                  let eventData = try? JSONSerialization.data(withJSONObject: event) else { return }
             do {
-                let decoded = try Self.decoder.decode(CoreEvent.self, from: eventData)
+                let decoded = try Self.decoder.decode(EventMessage.self, from: data).event
                 #if DEBUG
-                report(Drift.missing(in: eventData, decodedAs: decoded), from: "event")
+                if let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let event = message["event"],
+                   let eventData = try? JSONSerialization.data(withJSONObject: event) {
+                    report(Drift.missing(in: eventData, decodedAs: decoded), from: "event")
+                }
                 #endif
                 onEvent(decoded)
             } catch {
@@ -172,6 +180,61 @@ public final class CoreConnection: @unchecked Sendable {
     }()
 
     private enum BytesKey: String, CodingKey { case bytes = "$bytes" }
+}
+
+/// What a message from the core is, read without its value or event.
+private struct Envelope: Decodable {
+    struct Failure: Decodable {
+        let message: String?
+        let code: String?
+        let status: Int?
+
+        private enum Key: String, CodingKey { case message, code, status }
+
+        /// Each part only if it's there and of the kind expected, as an error may carry anything.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            message = try? container.decodeIfPresent(String.self, forKey: .message)
+            code = try? container.decodeIfPresent(String.self, forKey: .code)
+            status = try? container.decodeIfPresent(Int.self, forKey: .status)
+        }
+    }
+
+    let kind: String
+    let id: Int?
+    let ok: Bool?
+    let error: Failure?
+
+    private enum Key: String, CodingKey { case kind, id, ok, error }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Key.self)
+        kind = try container.decode(String.self, forKey: .kind)
+        id = try? container.decodeIfPresent(Int.self, forKey: .id)
+        ok = try? container.decodeIfPresent(Bool.self, forKey: .ok)
+        error = try? container.decodeIfPresent(Failure.self, forKey: .error)
+    }
+}
+
+/// A reply's value, decoded straight from the reply the core sent. A call with no result
+/// has no value at all, which reads as null.
+private struct Reply<Value: Decodable>: Decodable {
+    let value: Value
+
+    private enum Key: String, CodingKey { case value }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Key.self)
+        if container.contains(.value) {
+            value = try container.decode(Value.self, forKey: .value)
+        } else {
+            value = try CoreConnection.decoder.decode(Value.self, from: Data("null".utf8))
+        }
+    }
+}
+
+private struct EventMessage: Decodable {
+    let event: CoreEvent
 }
 
 private struct AnyEncodable: Encodable {
