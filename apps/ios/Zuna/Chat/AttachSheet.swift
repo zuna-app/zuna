@@ -43,6 +43,8 @@ struct AttachSheet: View {
     @State private var shooting = false
     @State private var cameraProblem: String?
     @State private var sending = false
+    /// Copying what's picked out of the library, which can take a while for what's only in iCloud, and can be let go.
+    @State private var sendTask: Task<Void, Never>?
     @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingFiles = false
@@ -87,7 +89,13 @@ struct AttachSheet: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
+                ToolbarItem(placement: .cancellationAction) {
+                    // Also while copying from iCloud, which without a network could wait for good.
+                    Button("Cancel") {
+                        sendTask?.cancel()
+                        dismiss()
+                    }
+                }
                 ToolbarItem(placement: .principal) { title }.withoutSharedBackground()
             }
         }
@@ -95,6 +103,7 @@ struct AttachSheet: View {
         .presentationContentInteraction(.resizes)
         .presentationBackground(Theme.bg1)
         .interactiveDismissDisabled(sending)
+        .onDisappear { sendTask?.cancel() }
         .animation(.snappy(duration: 0.25), value: picked.isEmpty)
         .task { await library.start() }
         // The camera only runs while its tile can be seen, and lets go of it for the camera itself.
@@ -258,7 +267,7 @@ struct AttachSheet: View {
     private func sendPicked() {
         sending = true
         let picks = picked
-        Task {
+        sendTask = Task {
             var urls: [URL] = []
             for pick in picks {
                 switch pick {
@@ -266,13 +275,14 @@ struct AttachSheet: View {
                     do {
                         urls.append(try await PhotoLibrary.export(id))
                     } catch {
-                        model.toast("Couldn't add a photo or video: \(error.localizedDescription)", .error)
+                        if !Task.isCancelled { model.toast("Couldn't add a photo or video: \(error.localizedDescription)", .error) }
                     }
                 case let .taken(url):
                     urls.append(url)
                 }
+                if Task.isCancelled { return }
             }
-            guard !urls.isEmpty else {
+            guard !urls.isEmpty, !Task.isCancelled else {
                 sending = false
                 return
             }
