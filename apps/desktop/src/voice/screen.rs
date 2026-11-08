@@ -36,7 +36,7 @@ const EXECUTABLE: &str = "zuna-screenshare";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Where this build's program is: beside the app, as an installer puts it, where a Linux
-/// package puts it, or the desktop's in a checkout.
+/// package puts it, or the one `npm run build:screenshare` writes in a checkout.
 pub fn program_path() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(path) = std::env::var_os("ZUNA_SCREENSHARE") {
@@ -582,7 +582,7 @@ impl Voice {
     }
 
     /// On macOS: macOS's picker chooses, the app captures with ScreenCaptureKit, and the picture
-    /// goes from this device's own connection, as Chromium's does from the Electron app there,
+    /// goes from this device's own connection, as Chromium's did from the Electron app there,
     /// each frame handed to VideoToolbox as it was captured, in an IOSurface.
     #[cfg(target_os = "macos")]
     #[allow(clippy::too_many_arguments)]

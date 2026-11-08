@@ -337,9 +337,9 @@ if [ -n "$WEB_DOMAIN" ]; then
   as_builder "$CARGO_BIN/rustup" target add wasm32-unknown-unknown >/dev/null 2>&1
   echo "Rust: $(as_builder "$CARGO_BIN/rustc" --version)"
 fi
-# Building the web app needs Rust and Node on the PATH, and never Electron's download.
+# Building the web app needs Rust and Node on the PATH.
 as_web_builder() {
-  runuser -u "$BUILDER" -- env HOME="$BUILDER_HOME" PATH="$CARGO_BIN:$PATH" ELECTRON_SKIP_BINARY_DOWNLOAD=1 "$@"
+  runuser -u "$BUILDER" -- env HOME="$BUILDER_HOME" PATH="$CARGO_BIN:$PATH" "$@"
 }
 
 # --- Pull and build ---

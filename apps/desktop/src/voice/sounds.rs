@@ -1,4 +1,4 @@
-//! The small sounds a voice channel makes, and a call's ringing, synthesized as the desktop's
+//! The small sounds a voice channel makes, and a call's ringing, synthesized as the web's
 //! are (packages/ui/src/voice/sounds.ts), so no audio files are bundled.
 
 use super::audio::RATE;

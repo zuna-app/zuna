@@ -321,7 +321,7 @@ impl SettingsView {
         ]
     }
 
-    /// A new profile picture: the middle square of an image, 256 pixels across, as the desktop makes it.
+    /// A new profile picture: the middle square of an image, 256 pixels across, as the web makes it.
     fn change_avatar(&mut self, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
         let state = self.state.clone();
@@ -416,7 +416,7 @@ impl SettingsView {
             _ => "Sender and message",
         };
         let preview_state = self.state.clone();
-        // As the desktop's select: the choice, and a menu of the three under it.
+        // As the web's select: the choice, and a menu of the three under it.
         let (select_bounds, select_probe) = bounds_probe();
         let select = div()
             .id("notification-preview")
@@ -464,7 +464,7 @@ impl SettingsView {
             Self::row("What notifications show", Some("Choose less if others can see your screen."), select, &theme),
         ];
         // macOS keeps every app running with its window closed, and has no tray, as the
-        // Electron app doesn't offer this there.
+        // Electron app didn't offer this there.
         if cfg!(not(target_os = "macos")) {
             parts.push(Self::row(
                 "Keep running when closed",

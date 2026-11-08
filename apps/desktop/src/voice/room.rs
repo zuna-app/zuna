@@ -504,7 +504,7 @@ impl VoiceRoom {
 
     // --- A share's picture, on macOS ---
 
-    /// Sends a screen share's picture from this connection, as the Electron app sends
+    /// Sends a screen share's picture from this connection, as the Electron app sent
     /// Chromium's on macOS: H.264 from VideoToolbox, in one layer, at the server's terms.
     #[cfg(target_os = "macos")]
     pub async fn start_share_video(&self, width: u32, height: u32, fps: u32, kbps: u32) -> Result<NativeVideoSource, String> {

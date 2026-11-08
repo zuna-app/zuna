@@ -130,14 +130,6 @@ Ordered roughly by value.
 - Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
 - Check after: `npm run dev:windows`.
 
-### Update comments that point at the removed Electron app or call packages/ui "the desktop's"
-- Where: ui/notifications.rs:1-2, settings.rs:466-467 and format.rs:42-43 mention the Electron app. About 39 comments use "the desktop's" to mean packages/ui, e.g. state.rs:1-2, ui/mod.rs:45, chat.rs:121, 461, 1412, 1897, 2689, 2752, components.rs:20, 270, 278, 293, 310, conversations.rs:42. docs/WINDOWS_APP.md:18 uses the same wording.
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the Electron app exists only in git history, and CLAUDE.md calls packages/ui the web's interface. These comments send an agent looking for a desktop that isn't there.
-- Suggested change: say "the web's X (packages/ui/…)" instead, and drop the Electron references. A grep for `desktop's` and `Electron` under apps/desktop/src finds them all.
-- Check after: a build.
-
 ### Move hard-coded colors into theme tokens
 - Where: ui/mod.rs:151, 155 (`0xa0a0a6`, which is `theme.text2`); mod.rs:539-540 (toast backgrounds); chat.rs:238, 1987 and channel_message.rs:19-25 (`0x8b8b92` and `0x505057`, which are `--channel-muted` and `--spine` in packages/ui/src/styles/channel.css:7-8); chat.rs:2311, 2874 (`0x45454b`); `0xe8d3a2` at chat.rs:3023, message.rs:188, settings.rs:568; `0xf4bcbe` at message.rs:302, 622, overlays.rs:530, channel_message.rs:362
 - Category: cleanup

@@ -1,5 +1,5 @@
-//! Where this device is, for sharing it, as the desktop's browser asks for it (`locate` in
-//! lib/location.ts): from GeoClue, through the location portal, which asks the person in
+//! Where this device is, for sharing it, as the web asks the browser for it (`locate` in
+//! packages/ui/src/lib/location.ts): from GeoClue, through the location portal, which asks the person in
 //! the system's own dialog where it asks at all. Nothing here loads a map.
 
 use std::time::Duration;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use ashpd::desktop::location::{Accuracy, LocationProxy};
 use futures::StreamExt;
 
-/// How long a position may take, as the desktop asks.
+/// How long a position may take, as the web asks.
 const FIND_WITHIN: Duration = Duration::from_secs(20);
 
 enum Found {

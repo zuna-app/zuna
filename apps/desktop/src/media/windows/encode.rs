@@ -1,4 +1,4 @@
-//! Writing voice and video messages as the desktop sends them, with Windows's own
+//! Writing voice and video messages as the web sends them, with Windows's own
 //! encoders: AAC in MP4 for a voice message, H.264 and AAC in MP4 for a video message.
 
 use std::path::Path;
@@ -105,7 +105,7 @@ impl RoundWriter {
             output.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
             output.SetUINT64(&MF_MT_FRAME_RATE, rate)?;
             output.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
-            // Baseline, which everything plays, as the desktop's avc1.42E01E is.
+            // Baseline, which everything plays, as the web's avc1.42E01E is.
             output.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
             let video = writer.AddStream(&output)?;
             let input = MFCreateMediaType()?;

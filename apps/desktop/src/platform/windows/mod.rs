@@ -143,7 +143,7 @@ pub fn hide_window(hwnd: HWND) {
     }
 }
 
-/// A short, soft sound, as the desktop synthesizes it (`notification_tones`), made once into
+/// A short, soft sound, as the web synthesizes it (`notification_tones`), made once into
 /// a WAV that Windows plays.
 pub fn play_notification_sound() {
     static WAV: OnceLock<Vec<u8>> = OnceLock::new();

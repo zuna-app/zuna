@@ -1,4 +1,4 @@
-//! The desktop's design tokens (packages/ui/src/styles/tokens.css), as GPUI colors.
+//! The web's design tokens (packages/ui/src/styles/tokens.css), as GPUI colors.
 
 use gpui::{Hsla, Rgba, px, Pixels};
 

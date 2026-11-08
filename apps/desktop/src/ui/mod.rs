@@ -1,4 +1,4 @@
-//! The window's interface, laid out as the desktop's (packages/ui).
+//! The window's interface, laid out as the web's (packages/ui).
 
 pub mod channel_message;
 pub mod chat;
@@ -43,7 +43,7 @@ use crate::state::{AppState, Phase, ToastKind};
 gpui::actions!(shell, [FocusSearch, NextConversation, PreviousConversation]);
 
 /// Ctrl+K jumps to search, ⌘K on macOS, and Alt+Up and Alt+Down move through conversations, as
-/// on the desktop.
+/// on the web.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new(if cfg!(target_os = "macos") { "cmd-k" } else { "ctrl-k" }, FocusSearch, None),
@@ -654,7 +654,7 @@ impl Root {
     }
 
     /// Keys while a message's text is selected, which the message box holds focus through:
-    /// Ctrl+C copies it, as the desktop's browser does, and typing lets go of it, as typing
+    /// Ctrl+C copies it, as a browser does, and typing lets go of it, as typing
     /// there moves the browser's selection into the message box.
     fn key_with_selection(&mut self, keystroke: &gpui::Keystroke, window: &Window, cx: &mut Context<Self>) {
         let Some(text) = selection::text() else { return };
@@ -832,7 +832,7 @@ impl Render for Root {
             }
         };
         let settings = self.settings.as_ref().map(|(_, view)| view.clone());
-        // As the desktop's useReturnFocus: when a dialog goes, the message box has focus again.
+        // As the web's useReturnFocus: when a dialog goes, the message box has focus again.
         let covered = overlay.is_some() || settings.is_some();
         if self.covered && !covered {
             match &self.chat {

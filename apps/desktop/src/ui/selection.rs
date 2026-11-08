@@ -1,4 +1,4 @@
-//! Selecting a message's text with the mouse and copying it, as the browser lets the desktop's
+//! Selecting a message's text with the mouse and copying it, as the browser lets the web's
 //! messages be (`user-select: text`, and `::selection` in base.css). A selection stays within
 //! the message it began in: a drag onto another picks messages instead (`drag_move` in
 //! chat.rs), as `use-drag-pick.ts` lets go of the text then.

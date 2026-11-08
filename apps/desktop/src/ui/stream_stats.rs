@@ -1,5 +1,5 @@
 //! Everything there is to know about what's going out and coming in, over the call, as the
-//! desktop's stream stats window shows it (StreamStatsPanel.tsx): read each second, the
+//! web's stream stats window shows it (StreamStatsPanel.tsx): read each second, the
 //! sound folded away at first, copied all at once, and moved by its header.
 
 use std::collections::HashSet;

@@ -1,6 +1,6 @@
 //! This device's key, which seals everything the core keeps here. It's sealed in turn
-//! with Windows's data protection for this user, as Electron's safeStorage does for
-//! the desktop app on Windows, so another account on this computer can't read it. On
+//! with Windows's data protection for this user, as Electron's safeStorage did for
+//! the Electron app on Windows, so another account on this computer can't read it. On
 //! Linux it's kept in the Secret Service, and on macOS in the login keychain, where
 //! safeStorage keeps its own.
 
@@ -8,7 +8,7 @@ use std::path::Path;
 
 pub struct DeviceKey {
     pub key: Vec<u8>,
-    /// Sealed by the system. False only if Windows wouldn't, and it's kept as it is.
+    /// Sealed by the system. False only if the system wouldn't seal it, and it's kept as it is.
     pub protected: bool,
 }
 
@@ -41,7 +41,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
 fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("partial");
     std::fs::write(&partial, bytes)?;
-    // For this person alone, as Electron writes its own.
+    // For this person alone, as Electron wrote its own.
     #[cfg(unix)]
     std::fs::set_permissions(&partial, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     std::fs::rename(partial, path)
@@ -86,7 +86,7 @@ const UNSEAL_FAILED: &str = "The keychain couldn't unseal this device's key.";
 const UNSEAL_FAILED: &str = "The system's keyring couldn't unseal this device's key.";
 
 /// On Linux the key itself goes into the Secret Service (GNOME Keyring, KWallet, KeePassXC),
-/// as Electron's safeStorage keeps its own there, and what's written to disk only names its
+/// as Electron's safeStorage kept its own there, and what's written to disk only names its
 /// item. None with no Secret Service, and it's kept unprotected, as with `basic_text`.
 #[cfg(target_os = "linux")]
 fn protect(data: &[u8]) -> Option<Vec<u8>> {
@@ -130,7 +130,7 @@ fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String
     std::collections::HashMap::from([("application", "chat.zuna".to_string()), ("device-key", id.to_string())])
 }
 
-/// On macOS the key itself goes into the login keychain, as Electron's safeStorage keeps its
+/// On macOS the key itself goes into the login keychain, as Electron's safeStorage kept its
 /// own there, and what's written to disk only names its item. The keychain lets the app that
 /// wrote an item read it back without asking, by its signature, which a build signed with the
 /// same identity keeps. None if the keychain won't take it, and it's kept unprotected.

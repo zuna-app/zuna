@@ -1,4 +1,4 @@
-//! Writing voice and video messages as the desktop sends them, through FFmpeg: AAC in MP4 for
+//! Writing voice and video messages as the web sends them, through FFmpeg: AAC in MP4 for
 //! a voice message, and H.264 Baseline (OpenH264) and AAC in MP4 for a video message, as
 //! Windows writes them. Chromium on Linux writes Opus, as it has no AAC encoder, which costs
 //! the iPhone a slice of each message.
@@ -137,7 +137,7 @@ impl RoundWriter {
             context.set_flags(codec::Flags::GLOBAL_HEADER);
         }
         // Constrained Baseline, which OpenH264 writes unless told otherwise, and everything
-        // plays, as the desktop's avc1.42E01E is. VideoToolbox is told so, in hardware.
+        // plays, as the web's avc1.42E01E is. VideoToolbox is told so, in hardware.
         let mut options = ffmpeg::Dictionary::new();
         if cfg!(target_os = "macos") {
             options.set("profile", "constrained_baseline");

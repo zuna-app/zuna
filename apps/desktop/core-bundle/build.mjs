@@ -1,4 +1,4 @@
-// Bundles the client core for the Windows app, which runs it in QuickJS. The core
+// Bundles the client core for the native desktop app, which runs it in QuickJS. The core
 // is the same one the iOS app loads into JavaScriptCore, with the same polyfills and
 // native shims (apps/ios/core-bundle/src): the Rust host installs the same
 // __zunaHost, __zunaCrypto and __zunaDb that the Swift host does.
@@ -36,7 +36,8 @@ await build({
 // The password meter's word lists, in a context of their own: they're large.
 await build({ ...common, entryPoints: [join(shims, "password.ts")], outfile: join(out, "zuna-password.js"), minify: true });
 
-// Code highlighting, in a context of its own, loaded when the first code block shows.
+// Code highlighting, in a context of its own. Nothing in the app loads it yet: it draws
+// code blocks in one color.
 await build({ ...common, entryPoints: [join(shims, "highlight.ts")], outfile: join(out, "zuna-highlight.js"), minify: true });
 
 console.log(`> wrote the core bundles to ${out}`);

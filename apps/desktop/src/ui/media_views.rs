@@ -1,4 +1,4 @@
-//! Voice messages, sound files, videos and video messages in a chat, as the desktop shows
+//! Voice messages, sound files, videos and video messages in a chat, as the web shows
 //! them (VoiceAttachment, AudioAttachment, VideoAttachment in MessageItem.tsx, and Round.tsx).
 
 use std::cell::RefCell;
@@ -328,7 +328,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     let file = context.state.read(cx).media_files.get(&key).cloned();
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
     // Its own size where there's room, and narrower, keeping its shape, where the bubble has
-    // less, as `max-width: 100%` lets the desktop's.
+    // less, as `max-width: 100%` lets the web's.
     let sized = move |frame: gpui::Stateful<gpui::Div>| div().relative().w_full().max_w(px(w as f32)).my(px(2.)).child(aspect_fill(w as f32, h as f32)).child(frame.absolute().inset_0()).into_any_element();
     let mut frame = div().id(SharedString::from(format!("video-{key}"))).relative().rounded(RADIUS_M).overflow_hidden().bg(gpui::black());
     if let Some(player) = player {
@@ -464,7 +464,7 @@ pub struct VideoPlayer {
     origin: Instant,
     from: f64,
     position: f64,
-    /// When it was last drawn: off screen it stops, as the desktop's video does when its
+    /// When it was last drawn: off screen it stops, as the web's video does when its
     /// chat is left, instead of decoding frames nobody sees.
     drawn: Instant,
     /// Stopped for being off screen, so a video message starts its loop again when it's back.

@@ -88,7 +88,7 @@ pub(super) fn closed_by_press(event: &gpui::MouseDownEvent, position: Point<Pixe
 }
 
 /// Whether opening a popup here would only open again the one this same click's press just
-/// closed. Then the click on what opened it closes it, as the desktop's dropdowns do, rather
+/// closed. Then the click on what opened it closes it, as the web's dropdowns do, rather
 /// than opening it anew. A right click's menu is never held back.
 pub(super) fn reopens_closed(position: Point<Pixels>) -> bool {
     match PRESSED_SHUT.take() {

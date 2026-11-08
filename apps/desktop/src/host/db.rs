@@ -37,7 +37,7 @@ fn to_sql(value: &Value<'_>) -> SqlValue {
         return SqlValue::Integer(integer as i64);
     }
     if let Some(number) = value.as_float() {
-        // Whole numbers are stored as integers, as they are from the desktop's SQLite.
+        // Whole numbers are stored as integers, as the other hosts' SQLite keeps them.
         if number.fract() == 0.0 && number.abs() < 9.007_199_254_740_992e15 {
             return SqlValue::Integer(number as i64);
         }

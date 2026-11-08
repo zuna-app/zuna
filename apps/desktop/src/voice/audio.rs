@@ -1,6 +1,6 @@
 //! The sound devices, through cpal on Windows (WASAPI) and macOS (Core Audio), and PipeWire on Linux
 //! (`voice/pipewire.rs`): everyone's voices and the app's own sounds mixed onto one output,
-//! and the microphone read at 48 kHz, as a browser's AudioContext does for the desktop.
+//! and the microphone read at 48 kHz, as a browser's AudioContext does for the web.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;

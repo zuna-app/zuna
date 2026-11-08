@@ -1,4 +1,4 @@
-//! There's no tray on macOS, as the Electron app has none there: the Dock's icon opens the
+//! There's no tray on macOS, as the Electron app had none there: the Dock's icon opens the
 //! window and its menu quits. These are the same calls as Windows's and Linux's, doing nothing.
 
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};

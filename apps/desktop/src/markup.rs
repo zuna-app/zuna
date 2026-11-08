@@ -1,4 +1,4 @@
-//! Message text to formatted runs, by the desktop's rules (packages/ui/src/lib/markup.tsx).
+//! Message text to formatted runs, by the web's rules (packages/ui/src/lib/markup.tsx).
 //! Nothing here interprets the text as anything but text: a message can't make the
 //! app do more than show bold, links and the rest.
 

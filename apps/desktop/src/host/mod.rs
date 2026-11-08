@@ -1,6 +1,6 @@
 //! The client core, hosted natively. `Core` is the UI's handle on it: calls go in as
 //! the RPC messages of `packages/core/src/rpc.ts`, and replies and `CoreEvent`s come
-//! back the same way, as they do between the desktop's page and its Worker.
+//! back the same way, as they do between the web's page and its Worker.
 
 mod crypto;
 mod db;

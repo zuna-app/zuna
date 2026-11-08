@@ -1,7 +1,6 @@
 //! Whether Windows wants quiet right now. The app draws its notifications itself, so
 //! they don't get the rules the system's own do. These are the questions Telegram asks,
-//! as the desktop's native program asks them (notification_state.rs in
-//! apps/screenshare): what the shell says about the screen, and which
+//! as the Electron app's native program asked them: what the shell says about the screen, and which
 //! Focus Assist profile is on, which has no public interface.
 
 use std::sync::mpsc::Sender;
@@ -142,7 +141,7 @@ static ANSWERED: Condvar = Condvar::new();
 fn ask_windows() -> NotificationState {
     let shell = unsafe { SHQueryUserNotificationState() }.map_or(0, |state| state.0);
     let focus = focus_assist();
-    // The same rules as Telegram's, and the desktop's.
+    // The same rules as Telegram's, and the Electron app's.
     NotificationState {
         show: shell != PRESENTATION && shell != FULL_SCREEN_D3D && !focus,
         sound: shell != NOT_PRESENT && shell != PRESENTATION && !focus,

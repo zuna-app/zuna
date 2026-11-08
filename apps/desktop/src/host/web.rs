@@ -1,5 +1,5 @@
 //! Fetching pages and pictures for link previews (the core's `webFetch`), under the
-//! address rules of `packages/core/src/links.ts` and the desktop's `preview-proxy.ts`.
+//! address rules of `packages/core/src/links.ts` and zuna-web's `server/internal/webhost/address.go`.
 //!
 //! A public name can lead to this machine or a private network, and what a preview
 //! found there would go into the message. So names are resolved here, refused if any

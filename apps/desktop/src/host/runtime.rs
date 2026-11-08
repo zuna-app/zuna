@@ -550,7 +550,7 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         string(&c, &path.to_string_lossy())
     });
 
-    // Link previews' pages and pictures, under the desktop's address rules (web.rs).
+    // Link previews' pages and pictures, under the address rules every host keeps (web.rs).
     host_fn!(object, ctx, host, "webFetch", |c, h, a| {
         let id = number_arg(&a, 0) as u32;
         let url = string_arg(&a, 1);

@@ -14,7 +14,7 @@ use crate::models::{Attachment, AvatarRef, ConversationView, MessageView};
 use crate::state::{AppState, Picture, ServerState, SharedKind};
 use crate::theme::{self, RADIUS_M};
 
-/// Pictures this large wait to be asked for, as on the desktop (`loadsByItself`).
+/// Pictures this large wait to be asked for, as on the web (`loadsByItself`).
 const AUTO_LOAD_BYTES: f64 = (20 << 20) as f64;
 const AUTO_LOAD_CHUNKS: f64 = 21.;
 

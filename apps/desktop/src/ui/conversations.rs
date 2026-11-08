@@ -41,7 +41,7 @@ pub struct ConversationList {
     search_pending: bool,
     search_focused: bool,
     /// The channel row under the pointer, whose edit button shows. It takes no room otherwise,
-    /// as the desktop's is `display: none`, so a voice channel's limit sits at the row's end.
+    /// as the web's is `display: none`, so a voice channel's limit sits at the row's end.
     hovered_channel: Option<String>,
     /// The channel being dragged to another place, and the order the list shows meanwhile,
     /// which it keeps until the core has it.
@@ -480,7 +480,7 @@ impl Render for ConversationList {
                         entries.push(MenuEntry::separator());
                         let leave = state.clone();
                         entries.push(MenuEntry::new("Leave this server", "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
-                        // From the title's left edge, 4 px under it, as the desktop opens it.
+                        // From the title's left edge, 4 px under it, as the web opens it.
                         let at = title_bounds.get();
                         super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
                     })
@@ -556,7 +556,7 @@ impl Render for ConversationList {
         if matches!(self.filter, Filter::All | Filter::Channels) {
             rows.extend(self.channel_rows(&server, &query, cx));
         }
-        // A row moving when the order changes slides to its new place, as the desktop's do.
+        // A row moving when the order changes slides to its new place, as the web's do.
         let list_scroll = super::scrollbar::scroll_handle("conv-list");
         for item in &visible {
             rows.push(super::motion::sliding(format!("conv-{}", item.key), list_scroll.clone(), self.row(item, &server, window, cx)).into_any_element());

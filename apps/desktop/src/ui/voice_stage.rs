@@ -52,7 +52,7 @@ pub struct VoiceStage {
     retired: Vec<Arc<RenderImage>>,
     area: Rc<Cell<Bounds<Pixels>>>,
     /// A shared screen over the whole of the window, made full screen for it, by its key, as
-    /// the desktop's tile is with `requestFullscreen`, and whether the window has been full
+    /// the web's tile is with `requestFullscreen`, and whether the window has been full
     /// screen since.
     full_screen: Option<(String, bool)>,
     /// Escape, which brings it back, ahead of whatever has focus.
@@ -312,7 +312,7 @@ impl VoiceStage {
     }
 
     /// A shared screen onto the whole screen, or back, as the button or a double click does on
-    /// the desktop: the window goes full screen with the share over all of it.
+    /// the web: the window goes full screen with the share over all of it.
     fn toggle_full_screen(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.full_screen.is_some() {
             self.leave_full_screen(window, cx);
@@ -841,7 +841,7 @@ impl Render for VoiceStage {
             let people = members.len() + ringing.len() + screens.len() + usize::from(native_self_share.is_some());
             let mut tiles: Vec<AnyElement> = Vec::new();
             let strip = focused.is_some();
-            // As the desktop's grid: columns of equal width, each tile as large as fits its cell, the cells filled row by row.
+            // As the web's grid: columns of equal width, each tile as large as fits its cell, the cells filled row by row.
             let columns = (people.max(1) as f32).sqrt().ceil().min(4.) as usize;
             let rows = people.max(1).div_ceil(columns);
             let cell = ((area_width - GAP * (columns as f32 - 1.)) / columns as f32, (area_height - GAP * (rows as f32 - 1.)) / rows as f32);

@@ -1,10 +1,10 @@
 //! Push to talk's key under Wayland, where only the compositor sees a key held in another
 //! window: the global shortcuts portal binds it, asking the person through the compositor
-//! where it wants to, and says when it goes down and up, as `zuna-screenshare --push-to-talk`
-//! does for the desktop (`global-key.ts`). KDE, GNOME and Hyprland have it; a compositor that
+//! where it wants to, and says when it goes down and up, as the Electron
+//! app's push to talk did. KDE, GNOME and Hyprland have it; a compositor that
 //! doesn't has no portal for it at all. Keys are named as the browser's `KeyboardEvent.code`
 //! names them, so a setting reads the same in either app, and given to the portal by XKB's
-//! names. One is chosen by pressing it in this window, as the desktop's `KeyBinder` hears it.
+//! names. One is chosen by pressing it in this window, as the web's `KeyBinder` hears it.
 //! A mouse button can't be, as the portal's shortcuts are keys alone.
 //!
 //! Each talk with the portal is on a D-Bus connection of its own, which first names the app to
@@ -259,7 +259,7 @@ fn code_of(key: &str) -> Option<String> {
 }
 
 /// A browser name as the XDG shortcuts specification names the key, which is XKB's name for it
-/// (`triggerOf` in global-key.ts).
+/// (as the Electron app's `triggerOf` did).
 fn trigger_of(code: &str) -> Option<String> {
     if let Some(letter) = code.strip_prefix("Key").filter(|rest| rest.len() == 1) {
         return Some(letter.to_lowercase());

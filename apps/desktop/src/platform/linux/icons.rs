@@ -1,5 +1,5 @@
 //! The unread count on the taskbar's icon, through `com.canonical.Unity.LauncherEntry`, as
-//! Electron's `app.setBadgeCount` gives it on Linux. KDE's task manager shows it, as do
+//! Electron's `app.setBadgeCount` gave it on Linux. KDE's task manager shows it, as do
 //! Ubuntu's dock and Dash to Dock, finding the app by its `.desktop` file.
 
 use std::collections::HashMap;

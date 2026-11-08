@@ -1,5 +1,5 @@
-//! Where this device is, from Windows's location service, as the desktop's browser
-//! asks for it (`locate` in lib/location.ts). Nothing here loads a map.
+//! Where this device is, from Windows's location service, as the web asks the
+//! browser for it (`locate` in packages/ui/src/lib/location.ts). Nothing here loads a map.
 
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ pub fn locate() -> Result<(f64, f64, Option<f64>), String> {
     }
     let locator = Geolocator::new().map_err(|_| unavailable())?;
     locator.SetDesiredAccuracy(PositionAccuracy::High).ok();
-    // As the desktop asks: at most 30 seconds old, and 20 seconds to find it.
+    // As the web asks: at most 30 seconds old, and 20 seconds to find it.
     let age = TimeSpan::from(Duration::from_secs(30));
     let timeout = TimeSpan::from(Duration::from_secs(20));
     let position = locator.GetGeopositionAsyncWithAgeAndTimeout(age, timeout).and_then(|found| found.get()).map_err(|error| {

@@ -59,7 +59,7 @@ pub fn details(path: &Path) -> Option<Details> {
             }
         }
     }
-    // The desktop's own MP4s don't say how long they are, so the sound says.
+    // The web's own MP4s don't say how long they are, so the sound says.
     if details.duration.is_none() {
         details.duration = decode_audio(path).ok().filter(|(_, rate)| *rate > 0).map(|(samples, rate)| samples.len() as f64 / rate as f64);
     }

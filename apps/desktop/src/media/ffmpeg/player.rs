@@ -1,5 +1,5 @@
 //! Playing sound: one voice message, sound file or video's sound at a time, as the
-//! desktop's `playOnly` keeps it, through the default output at the clip's own rate, PipeWire's
+//! web's `playOnly` keeps it, through the default output at the clip's own rate, PipeWire's
 //! on Linux and Core Audio's on macOS (`audio::play_media`).
 
 use std::sync::Arc;

@@ -438,7 +438,7 @@ impl Onboarding {
                 .child(div().mb(px(14.)).child(logo(64.)))
                 .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Welcome to Zuna"))
                 .child(div().text_size(px(13.5)).text_color(theme.text2).child("Private chat on servers you and your friends run."))
-                // Two rows, as they wrap at this width on the desktop. GPUI measures a wrapping
+                // Two rows, as they wrap at this width on the web. GPUI measures a wrapping
                 // row as one line when centering, which would put everything lower.
                 .child(
                     div()

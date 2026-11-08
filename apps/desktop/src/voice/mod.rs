@@ -1360,8 +1360,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn derives_sender_keys_as_the_desktop_does() {
-        // HKDF-SHA256 of 32 zero bytes, with no salt and the desktop's info, as voiceSenderKey computes it.
+    fn derives_sender_keys_as_the_web_does() {
+        // HKDF-SHA256 of 32 zero bytes, with no salt and the web's info, as voiceSenderKey computes it.
         let key = room::sender_key(&[0u8; 32], "00000000000000000000000000000001.00000000000000000000000000000002");
         assert_eq!(key.len(), 32);
         assert_ne!(key, room::sender_key(&[0u8; 32], "00000000000000000000000000000001.00000000000000000000000000000003"));

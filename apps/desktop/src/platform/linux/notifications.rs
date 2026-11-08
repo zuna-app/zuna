@@ -1,4 +1,4 @@
-//! Notifications on Linux are the system's, as the Electron app shows them there, through
+//! Notifications on Linux are the system's, as the Electron app showed them there, through
 //! `org.freedesktop.Notifications`, with the same calls as the cards Windows gets in
 //! `ui/notifications.rs`: a click opens the chat, and one is taken back when its chat is read
 //! or its message deleted. Do Not Disturb is the notification server's own; the app only

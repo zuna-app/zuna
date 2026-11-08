@@ -1,4 +1,4 @@
-//! The unread count on the Dock's icon, as Electron's `app.setBadgeCount` puts it there on
+//! The unread count on the Dock's icon, as Electron's `app.setBadgeCount` put it there on
 //! macOS: the number, or nothing at zero.
 
 use objc2::MainThreadMarker;

@@ -1,5 +1,5 @@
-//! The menu bar, as the Electron app's on macOS (`appMenu`, `editMenu` and `windowMenu` in
-//! main/index.ts): the app's menu, Edit, as the text field's own actions, and Window. Their
+//! The menu bar, as the Electron app's was on macOS (its `appMenu`, `editMenu` and
+//! `windowMenu`): the app's menu, Edit, as the text field's own actions, and Window. Their
 //! keys are bound here too, which is what the menus show beside each item.
 
 use gpui::{App, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};

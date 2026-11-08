@@ -1,5 +1,5 @@
 //! Sharing a screen or a window on macOS, in the app: macOS's own picker chooses what, as the
-//! Electron app's Chromium has it choose there (`useSystemPicker`), and ScreenCaptureKit
+//! Electron app's Chromium had it choose there (`useSystemPicker`), and ScreenCaptureKit
 //! captures it, already made no larger than asked, on the GPU, into IOSurfaces in NV12 that
 //! VideoToolbox encodes as they are. Content picked there needs no Screen Recording permission.
 //!

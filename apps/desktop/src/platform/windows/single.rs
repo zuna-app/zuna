@@ -1,5 +1,5 @@
-//! One Zuna at a time for each data folder, as Electron's single-instance lock gives the
-//! desktop: a second start hands a `zuna://` link, or just a wish to be seen, to the one
+//! One Zuna at a time for each data folder, as Electron's single-instance lock gave the
+//! Electron app: a second start hands a `zuna://` link, or just a wish to be seen, to the one
 //! already running, over a named pipe, and leaves. And `zuna://` registered as this app's,
 //! as `app.setAsDefaultProtocolClient` registers it for a packaged desktop app.
 
@@ -86,7 +86,7 @@ pub fn forward(data_dir: &Path, message: &str) {
     }
 }
 
-/// Makes `zuna://` links open this app, for this person only, as the desktop's installer does.
+/// Makes `zuna://` links open this app, for this person only, as the Electron app's installer did.
 pub fn register_scheme() {
     let Ok(exe) = std::env::current_exe() else { return };
     let command = format!("\"{}\" \"%1\"", exe.display());

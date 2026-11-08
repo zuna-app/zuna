@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 
-/// Whether the system's clock shows 12 hours, as the desktop follows it.
+/// Whether the system's clock shows 12 hours, as the Electron app followed it.
 fn hour12() -> bool {
     static HOUR12: OnceLock<bool> = OnceLock::new();
     *HOUR12.get_or_init(system_hour12)
@@ -40,7 +40,7 @@ fn system_hour12() -> bool {
 }
 
 /// Whether macOS shows times with AM and PM: the switch in Date & Time's settings first, as the
-/// Electron app reads it, then the locale's own time format.
+/// Electron app read it, then the locale's own time format.
 #[cfg(target_os = "macos")]
 fn system_hour12() -> bool {
     use objc2_foundation::{NSDateFormatter, NSLocale, NSString, NSUserDefaults};
@@ -166,7 +166,7 @@ pub fn initials_of(name: &str) -> String {
 const AVATAR_COLORS: [&str; 8] = ["#5b6b7a", "#6e625c", "#5f7065", "#7a6c58", "#6b6470", "#557072", "#7a6060", "#5f6775"];
 const NAME_COLORS: [&str; 8] = ["#a9b7c4", "#c4b4ac", "#a8bdac", "#c9b89a", "#b8b0b9", "#a2bcbe", "#c9abab", "#aab2c4"];
 
-/// The same hash as the desktop's: 31 times, as 32-bit integers, over UTF-16 code units.
+/// The same hash as the web's: 31 times, as 32-bit integers, over UTF-16 code units.
 fn color_index(seed: &str, count: usize) -> usize {
     let mut hash: i32 = 0;
     for unit in seed.encode_utf16() {

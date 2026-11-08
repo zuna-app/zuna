@@ -1,5 +1,5 @@
 //! Push to talk's key, held in any window, through Windows's low-level keyboard and mouse
-//! hooks, as the desktop hears it on Windows (platform.watchKey). Keys are named as the
+//! hooks, as the Electron app heard it on Windows. Keys are named as the
 //! browser's `KeyboardEvent.code` names them, so a setting reads the same in either app.
 //! The hooks are only in place while a key is watched for or one is being chosen.
 

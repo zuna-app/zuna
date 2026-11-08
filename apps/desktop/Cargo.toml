@@ -3,7 +3,7 @@ name = "zuna-windows"
 version = "0.0.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-description = "Zuna's native Windows app, drawn with GPUI."
+description = "Zuna's native desktop app, for Windows, Linux and macOS, drawn with GPUI."
 publish = false
 
 [[bin]]

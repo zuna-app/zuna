@@ -20,7 +20,7 @@ mod apple;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// The middle square of an image, 256 pixels across, as the desktop's `prepareAvatar`
+/// The middle square of an image, 256 pixels across, as the web's `prepareAvatar`
 /// makes a profile or group picture, written where the core can read it.
 pub fn prepare_avatar(path: &Path) -> Option<PathBuf> {
     let image = image::load_from_memory(&std::fs::read(path).ok()?).ok()?;

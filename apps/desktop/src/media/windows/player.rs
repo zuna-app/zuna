@@ -1,5 +1,5 @@
 //! Playing sound: one voice message, sound file or video's sound at a time, as the
-//! desktop's `playOnly` keeps it, through Windows's wave output.
+//! web's `playOnly` keeps it, through Windows's wave output.
 
 use parking_lot::Mutex;
 use windows::Win32::Media::Audio::*;

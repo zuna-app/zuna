@@ -1,5 +1,5 @@
-//! Where this device is, for sharing it, as the desktop's browser asks for it (`locate` in
-//! lib/location.ts): from CoreLocation, which asks the person the first time in macOS's own
+//! Where this device is, for sharing it, as the web asks the browser for it (`locate` in
+//! packages/ui/src/lib/location.ts): from CoreLocation, which asks the person the first time in macOS's own
 //! dialog, with the words in the bundle's `Info.plist`. Nothing here loads a map.
 //!
 //! A location manager answers on the run loop of the thread that made it, so each request gets
@@ -15,7 +15,7 @@ use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_core_location::{CLAuthorizationStatus, CLLocation, CLLocationManager, CLLocationManagerDelegate, kCLLocationAccuracyBest};
 use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
 
-/// How long a position may take, as the desktop asks.
+/// How long a position may take, as the web asks.
 const FIND_WITHIN: Duration = Duration::from_secs(20);
 /// How long the person gets to answer macOS's question first.
 const ASK_WITHIN: Duration = Duration::from_secs(120);

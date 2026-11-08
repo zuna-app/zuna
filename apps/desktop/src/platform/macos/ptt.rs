@@ -1,5 +1,5 @@
 //! Push to talk's key, held in any app, through a listen-only event tap, as Windows hears it
-//! through its low-level hooks (platform.watchKey). macOS allows one with Input Monitoring,
+//! through its low-level hooks (`windows/ptt.rs`). macOS allows one with Input Monitoring,
 //! which it asks the person for once, in System Settings. Keys are named as the browser's
 //! `KeyboardEvent.code` names them, from macOS's virtual key codes, so a setting reads the same
 //! in either app. The tap is only in place while a key is watched for or one is being chosen.

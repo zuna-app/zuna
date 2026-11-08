@@ -1,5 +1,5 @@
 //! What's going out and coming in, read from each track's WebRTC statistics through
-//! LiveKit, in the sections the desktop's stream stats show (packages/ui/src/voice/stats.ts).
+//! LiveKit, in the sections the web's stream stats show (packages/ui/src/voice/stats.ts).
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;

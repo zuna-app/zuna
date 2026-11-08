@@ -2,7 +2,7 @@
 //! file, `zuna.desktop`. The .deb, .rpm and pacman packages install it in
 //! /usr/share/applications. An AppImage or a .tar.gz has nowhere to put one, so it writes this
 //! person's own each time it starts, pointing at wherever it is now, and takes it away again
-//! once a package has one, as the desktop's `desktop-entry.ts` does.
+//! once a package has one, as the Electron app's did.
 
 use std::path::{Path, PathBuf};
 

@@ -1,4 +1,4 @@
-//! Notifications on macOS are the system's, as the Electron app shows them there, through
+//! Notifications on macOS are the system's, as the Electron app showed them there, through
 //! `UNUserNotificationCenter`, with the same calls as the cards Windows gets in
 //! `ui/notifications.rs`: a click opens the chat, and one is taken back when its chat is read
 //! or its message deleted. Focus and the person's own settings for Zuna are macOS's to apply,

@@ -17,7 +17,7 @@ pub fn theme(cx: &App) -> Theme {
 }
 
 /// The active server's connection while it isn't simply online (`ConnectionStatus`): an amber
-/// dot and the desktop's words.
+/// dot and the web's words.
 pub fn connection_status(server: &crate::state::ServerState, theme: &Theme) -> Option<Div> {
     let status = match server.connection.as_str() {
         "connecting" => "Connecting",
@@ -261,13 +261,13 @@ impl Render for TooltipView {
     }
 }
 
-/// A tooltip at the pointer, for `.tooltip(tooltip("..."))`: where the desktop has a `title`.
+/// A tooltip at the pointer, for `.tooltip(tooltip("..."))`: where the web has a `title`.
 pub fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();
     move |_window, cx| cx.new(|_| TooltipView { text: text.clone() }).into()
 }
 
-/// Which side of its element the desktop's `Tooltip` puts itself on.
+/// Which side of its element the web's `Tooltip` puts itself on.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Side {
     Top,
@@ -275,7 +275,7 @@ pub enum Side {
     Right,
 }
 
-/// A tooltip beside its element, as the desktop's `Tooltip` places it: centered 6 px above or
+/// A tooltip beside its element, as the web's `Tooltip` places it: centered 6 px above or
 /// below, or 8 px to the right.
 pub struct AnchoredTooltip {
     text: SharedString,
@@ -290,7 +290,7 @@ impl Render for AnchoredTooltip {
         let theme = theme(cx);
         let tip = tooltip_box(self.text.clone(), &theme);
         let Some(target) = self.target else { return div().child(tip) };
-        // As the desktop's, it goes once the pointer leaves its element, and doesn't come
+        // As the web's, it goes once the pointer leaves its element, and doesn't come
         // after a press on it until the pointer has left. GPUI judges by the element's bounds
         // even under an overlay, and lets one waiting to show come after a click.
         let mouse = window.mouse_position();
@@ -307,7 +307,7 @@ impl Render for AnchoredTooltip {
             Side::Bottom => (center.x - width / 2., target.bottom() + px(6.)),
             Side::Right => (target.right() + px(8.), center.y - height / 2.),
         };
-        // Kept inside the window, where the desktop's would be cut off at its edge.
+        // Kept inside the window, where the web's would be cut off at its edge.
         let viewport = window.viewport_size();
         left = left.min(viewport.width - width - px(4.)).max(px(4.));
         top = top.min(viewport.height - height - px(4.)).max(px(4.));
@@ -327,7 +327,7 @@ thread_local! {
 }
 
 pub trait Tip: StatefulInteractiveElement + ParentElement + Sized {
-    /// A tooltip on one side of this element, for where the desktop has a `Tooltip`.
+    /// A tooltip on one side of this element, for where the web has a `Tooltip`.
     fn tip(self, text: impl Into<SharedString>, side: Side) -> Self {
         let text = text.into();
         let bounds = std::rc::Rc::new(std::cell::Cell::new(None));

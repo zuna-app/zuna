@@ -1,4 +1,4 @@
-//! The desktop's motion, which GPUI has none of by itself: base.css's entrances (fade-in,
+//! The web's motion, which GPUI has none of by itself: base.css's entrances (fade-in,
 //! rise-in, pop-in) and motion/react's for dialogs and menus, with its easing,
 //! and CSS transitions, which only move when what they show changes.
 //!
@@ -154,7 +154,7 @@ impl<E: IntoElement + Styled + 'static> gpui::Element for Moving<E> {
 }
 
 pub trait Motion: IntoElement + Styled + Sized + 'static {
-    /// Comes in as the desktop's `animation: <kind> <ms>`, once, when it first appears with
+    /// Comes in as the web's `animation: <kind> <ms>`, once, when it first appears with
     /// this id, as a CSS animation runs when its element is added.
     fn enter(self, id: impl Into<ElementId>, kind: Enter, ms: u64) -> AnimationElement<Moving<Self>> {
         self.enter_after(id, kind, 0, ms)
@@ -371,7 +371,7 @@ thread_local! {
 
 const SLIDE: Duration = Duration::from_millis(140);
 
-/// A row that slides to its new place when the list's order changes, as the desktop's
+/// A row that slides to its new place when the list's order changes, as the web's
 /// conversation list moves its rows: from where it was, at most 120 px away, over 140 ms.
 pub fn sliding(key: impl Into<String>, scroll: gpui::ScrollHandle, element: impl IntoElement) -> Sliding {
     Sliding { key: key.into(), scroll, child: Some(element.into_any_element()) }

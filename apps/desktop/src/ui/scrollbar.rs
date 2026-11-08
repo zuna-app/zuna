@@ -1,4 +1,4 @@
-//! The desktop's scrollbars (base.css `::-webkit-scrollbar`), which GPUI doesn't draw: an
+//! The web's scrollbars (base.css `::-webkit-scrollbar`), which GPUI doesn't draw: an
 //! 8 px track at the right edge of anything that scrolls, with a 4 px thumb at 10% white,
 //! 20% under the pointer, that can be dragged, and a click on the track moving a page. The
 //! message list's is 4 px (`.virtuoso::-webkit-scrollbar`). While something overflows, a

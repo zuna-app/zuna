@@ -29,7 +29,7 @@ use std::sync::OnceLock;
 
 use image::{RgbaImage, imageops::FilterType};
 
-/// What this device is called among the person's devices, as the desktop names it.
+/// What this device is called among the person's devices, as the Electron app named it.
 #[cfg(windows)]
 pub const DEVICE_NAME: &str = "Windows PC";
 #[cfg(target_os = "linux")]
@@ -68,7 +68,7 @@ pub const APP_ID: &str = "chat.zuna.desktop";
 /// even with its window in front.
 pub const AWAY_AFTER_MS: u32 = 5_000;
 
-/// What Security says when the system couldn't protect the device key, as the desktop says it.
+/// What Security says when the system couldn't protect the device key, as the Electron app said it.
 #[cfg(windows)]
 pub const KEY_WARNING: &str = "Windows couldn't protect this device's key, so it's stored without that protection.";
 #[cfg(target_os = "linux")]
@@ -119,7 +119,7 @@ pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
     Some(path)
 }
 
-/// This build's version, as the dist scripts give it, the desktop app's.
+/// This build's version, as the dist scripts give it.
 pub const VERSION: &str = match option_env!("ZUNA_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
@@ -176,7 +176,7 @@ pub enum TrayEvent {
     Quit,
 }
 
-/// How large a source's picture is, as the desktop asks Electron for.
+/// How large a source's picture is, as the Electron app asked Electron for.
 pub const THUMB_WIDTH: u32 = 340;
 pub const THUMB_HEIGHT: u32 = 212;
 
@@ -250,7 +250,7 @@ pub fn notification_wav() -> Vec<u8> {
     wav
 }
 
-/// The notification sound, as the desktop synthesizes it: 880 Hz, then 1174.66 Hz 90 ms later,
+/// The notification sound, as the web synthesizes it: 880 Hz, then 1174.66 Hz 90 ms later,
 /// each rising in 12 ms and falling over 220 ms. 16-bit samples, one channel, at 48 kHz.
 pub fn notification_tones() -> &'static [i16] {
     static TONES: OnceLock<Vec<i16>> = OnceLock::new();

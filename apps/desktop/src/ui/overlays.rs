@@ -139,7 +139,7 @@ fn text_channel_name(name: &str) -> String {
         }
         out.push(part);
     }
-    // A trailing space becomes a dash as it's typed, as on the desktop.
+    // A trailing space becomes a dash as it's typed, as on the web.
     if lower.ends_with(char::is_whitespace) && !out.ends_with('-') {
         out.push('-');
     }

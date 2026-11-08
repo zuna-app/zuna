@@ -189,7 +189,7 @@ impl PickerLayer {
                 .into_any_element()];
         }
         let state = store(cx);
-        // repeat(auto-fill, minmax(46px, 1fr)) with a 2px gap, beside the desktop's 8px scrollbar: six square cells.
+        // repeat(auto-fill, minmax(46px, 1fr)) with a 2px gap, beside the web's 8px scrollbar: six square cells.
         let columns = 6;
         let mut parts = Vec::new();
         for (index, row) in filtered.chunks(columns).enumerate() {

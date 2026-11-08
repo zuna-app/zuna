@@ -18,7 +18,7 @@ pub struct Settings {
     pub enter_to_send: bool,
     pub link_previews: bool,
     pub remove_metadata: bool,
-    /// The conversation list's width, which the desktop keeps apart.
+    /// The conversation list's width, which the web keeps apart.
     pub list_width: f32,
     /// Channel headings folded away, by name.
     pub collapsed_categories: Vec<String>,

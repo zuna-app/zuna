@@ -1,4 +1,4 @@
-//! All UI state, kept in sync with the core through its events, as the desktop's
+//! All UI state, kept in sync with the core through its events, as the web's
 //! zustand store (packages/ui/src/state/store.ts) keeps it.
 
 use std::collections::{HashMap, HashSet, VecDeque};

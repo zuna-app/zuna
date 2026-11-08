@@ -1,4 +1,4 @@
-//! An editable text field, one line or several that wrap and grow, as the desktop's
+//! An editable text field, one line or several that wrap and grow, as the web's
 //! inputs and its message box are. Based on GPUI's own input example, with wrapping,
 //! vertical movement, words, masking and a blinking caret.
 

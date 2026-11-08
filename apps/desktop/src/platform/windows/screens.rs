@@ -1,5 +1,5 @@
 //! What can be shared, for the screen picker: each screen and each window, with a small
-//! picture of it, as Electron's desktopCapturer lists them for the desktop. A screen's
+//! picture of it, as Electron's desktopCapturer listed them for the Electron app. A screen's
 //! corner lets the native capture find the same one, and a window goes to it by its HWND.
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};

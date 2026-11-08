@@ -1,4 +1,4 @@
-//! Zuna for Windows, Linux and macOS: the desktop app's interface drawn with GPUI, around
+//! Zuna for Windows, Linux and macOS: the web app's interface (packages/ui) drawn with GPUI, around
 //! the same client core every app runs.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

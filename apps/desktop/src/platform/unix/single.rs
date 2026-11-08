@@ -1,5 +1,5 @@
-//! One Zuna at a time for each data folder, as Electron's single-instance lock gives the
-//! desktop: a lock on a file in the data folder, and a second start hands its `zuna://` link,
+//! One Zuna at a time for each data folder, as Electron's single-instance lock gave the
+//! Electron app: a lock on a file in the data folder, and a second start hands its `zuna://` link,
 //! or just a wish to be seen, to the one running over a Unix socket, and leaves. On Linux
 //! with it goes the activation token a launcher gave the second start, as Wayland only lets a
 //! window come to the front with one. `zuna://` itself belongs to the app through its

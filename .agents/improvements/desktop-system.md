@@ -218,9 +218,3 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: keep one, or make the strings match and comment why the app re-registers.
 - Check after: `npm run install:windows`.
 
-### Fix comments that point at removed Electron files or claim things that aren't so
-- Where: host/web.rs:2 (`preview-proxy.ts`); host/mod.rs:3 ("the desktop's page and its Worker"); platform/linux/ptt.rs:3-4, 262 (`global-key.ts`, `zuna-screenshare --push-to-talk`); linux/screens.rs:3 (`native-screen.ts`); linux/desktop_entry.rs:5 (`desktop-entry.ts`); macos/menu.rs:1-2 (`main/index.ts`); windows/quiet.rs:3-4; windows/ptt.rs:2; macos/ptt.rs:2; host/device_key.rs:11 ("False only if Windows wouldn't", but Linux and macOS can return false too); core-bundle/build.mjs:1 ("the Windows app") and :39 (says `zuna-highlight.js` loads at the first code block; nothing in apps/desktop loads it, and FEATURE_PARITY lists highlighting as a gap); Cargo.toml:2, :6 (crate named `zuna-windows`, "Zuna's native Windows app"); installer/zuna.nsi:43-44 ("such as the desktop app"); many headers saying "as the desktop does" mean the Electron app (e.g. platform/mod.rs:32, 122, 179; voice/screen.rs:38-39)
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: say "the Electron app's (in git history before e55fd3c)", or drop the comparison; fix the factual ones. Renaming the crate from `zuna-windows` touches scripts/*-app.mjs and the bundle paths, so do it as its own commit, if at all.
-- Check after: builds on each system.

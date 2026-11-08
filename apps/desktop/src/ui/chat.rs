@@ -118,7 +118,7 @@ pub struct ChatView {
     /// `.msg.is-fresh` does, for 400 ms.
     fresh: Rc<RefCell<HashMap<String, std::time::Instant>>>,
     /// The list moving to messages that arrived while it was at the newest, from where it
-    /// was, as the desktop's list glides over 180 ms instead of jumping.
+    /// was, as the web's list glides over 180 ms instead of jumping.
     glide: Option<(f32, std::time::Instant)>,
     /// The glide waited a frame for rows to be measured, which it doesn't do twice running.
     glide_waited: bool,
@@ -472,7 +472,7 @@ impl ChatView {
         let list_id = conversation.list_id();
         if list_id != self.last_list_id {
             // The first message of a direct message moved its list to the new group, whose
-            // messages are loaded as the desktop's list loads whenever its id changes. Without
+            // messages are loaded as the web's list loads whenever its id changes. Without
             // this the chat kept showing it was empty while its messages came in.
             self.last_list_id = list_id.clone();
             let group_id = conversation.group_id.clone();
@@ -1440,7 +1440,7 @@ impl ChatView {
         super::menu::open_menu(gpui::point(position.x - px(10.), position.y - px(96.)), entries, false, cx);
     }
 
-    /// Picks files to go with the next message, as the desktop's attach button does.
+    /// Picks files to go with the next message, as the web's attach button does.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: true, prompt: None });
         cx.spawn(async move |view, cx| {
@@ -1925,7 +1925,7 @@ impl ChatView {
                 )
                 .child(composer_button("emoji", "face-slightly-smiling", cx).child(emoji_probe).tip("Emoji and emotes", Side::Top).on_click(cx.listener(move |view, _: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
-                    // As the desktop's: 330 px left of the button's right edge, at its top.
+                    // As the web's: 330 px left of the button's right edge, at its top.
                     let at = emoji_bounds.get();
                     let position = gpui::point(at.right() - px(330.), at.top());
                     super::picker::open_picker(
@@ -2715,7 +2715,7 @@ fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
     };
     let path_text = path.to_string_lossy().into_owned();
     let mut file = json!({ "blob": crate::host::file(&path_text, mime), "name": name, "mime": mime });
-    // Dimensions and a tiny blurred preview, as the desktop's prepareFile makes them.
+    // Dimensions and a tiny blurred preview, as the web's prepareFile makes them.
     if mime.starts_with("image/") {
         if let Ok(bytes) = std::fs::read(path) {
             if let Ok(image) = image::load_from_memory(&bytes) {
@@ -2778,7 +2778,7 @@ impl ChatView {
                     self.list.reset(count);
                 }
                 let rows_state = self.state.clone();
-                // A message jumped to, in the middle as the desktop's list puts it, or at the top
+                // A message jumped to, in the middle as the web's list puts it, or at the top
                 // if it's taller than the list. It waits a frame at the top, where it's measured,
                 // and so are the rows above it in the list's overdraw, which moving it counts on.
                 // Where the list's end put it lower down, it stays.

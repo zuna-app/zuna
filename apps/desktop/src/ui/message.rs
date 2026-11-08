@@ -1501,7 +1501,7 @@ pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, cont
         entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
     if !message.text.is_empty() && !is_deleted {
-        // What's selected in it, if anything, as the desktop's "Copy selection".
+        // What's selected in it, if anything, as the web's "Copy selection".
         let selected = selection::text_in(&message.id);
         let label = if selected.is_some() { "Copy selection" } else { "Copy text" };
         let (state, text) = (state.clone(), selected.unwrap_or_else(|| message.text.clone()));

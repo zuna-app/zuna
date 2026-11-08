@@ -40,8 +40,8 @@ Page instfiles
 UninstPage instfiles
 !endif
 
-; This install's own copy, if it's running, closes first. Others named Zuna.exe, such as the
-; desktop app, are left alone.
+; This install's own copy, if it's running, closes first. Others named Zuna.exe, such as a
+; copy started from somewhere else, are left alone.
 !macro CloseRunning
   nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq '$INSTDIR\Zuna.exe' } | Stop-Process -Force"`
   Pop $0

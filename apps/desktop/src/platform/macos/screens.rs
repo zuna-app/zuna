@@ -1,5 +1,5 @@
 //! What can be shared, for the screen picker. macOS's own picker chooses which screen or
-//! window, once Share is pressed, as the Electron app has it choose there, so the app's picker
+//! window, once Share is pressed, as the Electron app had it choose there, so the app's picker
 //! offers one of each kind, as under Wayland, and lists nothing itself: listing would need
 //! Screen Recording permission, which content picked in macOS's picker doesn't.
 

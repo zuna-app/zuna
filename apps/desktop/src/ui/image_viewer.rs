@@ -90,7 +90,7 @@ struct View {
 
 const FITTED: View = View { scale: 1., x: 0., y: 0. };
 
-/// A picture, fitted to the screen, as the desktop's ImageViewer shows it in its window. It
+/// A picture, fitted to the screen, as the web's ImageViewer shows it in its window. It
 /// zooms with the mouse wheel, a pinch, a double click, the keys or the buttons, towards
 /// where the pointer is, and once it's bigger than the screen it can be dragged around. A
 /// click outside it or Escape closes it, and it can be saved.
@@ -142,7 +142,7 @@ impl ImageViewer {
     fn current(&self) -> View {
         let Some((from, started)) = self.glide else { return self.view };
         let t = (started.elapsed().as_secs_f32() / GLIDE.as_secs_f32()).min(1.);
-        // Close to the desktop's ease-out, cubic-bezier(0.2, 0, 0, 1).
+        // Close to the web's ease-out, cubic-bezier(0.2, 0, 0, 1).
         let eased = 1. - (1. - t).powi(3);
         let between = |a: f32, b: f32| a + (b - a) * eased;
         View { scale: between(from.scale, self.view.scale), x: between(from.x, self.view.x), y: between(from.y, self.view.y) }
@@ -240,7 +240,7 @@ impl Render for ImageViewer {
         let (fitted_width, fitted_height) = self.fitted();
         let zoomed = self.view.scale > 1.;
         let dragging = self.drag.is_some();
-        // The size it's shown at next to its own, as the desktop counts it.
+        // The size it's shown at next to its own, as the web counts it.
         let percent = match self.natural {
             Some((_, natural, _)) if natural > 0. => (self.view.scale * fitted_width / natural * 100.).round(),
             _ => 100.,
