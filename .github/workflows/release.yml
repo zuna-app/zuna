@@ -98,9 +98,17 @@ jobs:
           name: web
           path: dist/web/*
           if-no-files-found: error
+      # The same build for the zuna-web image, so that it serves exactly what
+      # zuna-web-files.sha256 lists, without a second build that would only match
+      # while Vite's output stays the same byte for byte.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: web-app
+          path: apps/web/dist/
+          if-no-files-found: error
 
   web-image:
-    needs: [checks]
+    needs: [checks, web]
     environment: release
     runs-on: ubuntu-latest
     permissions:
@@ -108,23 +116,11 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      # The web job's build, into server/cmd/zuna-web/site, where the image's build finds it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          go-version-file: server/go.mod
-          # setup-go keys its cache on a go.sum at the root by default.
-          cache-dependency-path: server/go.sum
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 24
-          cache: npm
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: ./.github/actions/wasm-bindgen
-      - run: npm ci
-      - run: npm run build:crypto
-      # Puts the app in server/cmd/zuna-web/site, where the image's build finds it.
-      - run: npm run build -w @zuna/web && cp -R apps/web/dist/. server/cmd/zuna-web/site/
+          name: web-app
+          path: server/cmd/zuna-web/site
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -154,10 +150,15 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # What's released, by name: the web app's own files went into the zuna-web image.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          name: server
           path: artifacts
-          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: web
+          path: artifacts
       - name: Create checksums
         working-directory: artifacts
         run: sha256sum * > SHA256SUMS

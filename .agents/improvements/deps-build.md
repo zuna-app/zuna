@@ -28,14 +28,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: start with a `desktop` job on `windows-latest`: `npm ci`, `node apps/desktop/core-bundle/build.mjs`, `cargo +stable-x86_64-pc-windows-msvc check --manifest-path apps/desktop/Cargo.toml` with `CARGO_TARGET_DIR` on a short path (windows-app.mjs:35). Cache `~/.cargo/git` for the large SocketByte/zed fetch. Add Linux later with the FFmpeg fetch (scripts/ffmpeg.mjs) and its apt packages.
 - Check after: the job passes on a test tag.
 
-### Put the same web build in the zuna-web image as in the release's checksum list
-- Where: release.yml:71-94, :96-120; scripts/build-web.mjs:38-41
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: `web` builds the app and writes `zuna-web-files.sha256` (which scripts/check-web.mjs checks a running copy against); `web-image` builds it again on another runner. That's a second crypto and web build, and the image matches the published list only while the Vite build is byte-for-byte reproducible, which nothing checks.
-- Suggested change: `web` uploads apps/web/dist as an artifact; `web-image` `needs: [checks, web]`, downloads it into server/cmd/zuna-web/site/, and drops its Rust, wasm-bindgen, `npm ci` and build steps.
-- Check after: a release dry run; `node scripts/check-web.mjs <image's address> zuna-web-files.sha256`.
-
 ### Delete the leftover Electron folder here, then drop its .gitignore patterns
 - Where: .gitignore:3-4 (`out/`, `release/`); apps/desktop-electron-legacy/ (untracked, ~1.3 GB on this machine); node_modules/@zuna/desktop-electron-legacy (extraneous link)
 - Category: cleanup
