@@ -4,14 +4,6 @@ Covered: all of `server/` (api, store including both migration lists, webhost, r
 Checks run: `go vet ./...` (clean), `go list -m -u all`, and `gofmt -l` on LF copies of the committed files. Not run: tests, govulncheck and shellcheck (neither is installed), the PostgreSQL run.
 Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go and proof.go (security-review territory), test files, and install.sh's question flow.
 
-### Compute server info once, from one settings query
-- Where: server/internal/api/admin.go:48-132, and pages.go:92, :106
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `serverInfo` runs about 11 queries (7 `Setting` calls, `UserCount`, `HasOwner`, `screenRules`, `community_key`) plus a stat. `handleInfo` runs it once through `publicServerInfo`, and a second time for a signed-in caller: about 23 queries per `/api/info`, which every client calls on every reconnect. The home and invite pages build the full info but only use Name and HasIcon.
-- Suggested change: add `store.Settings(ctx) map[string]string` (`SELECT key, value FROM settings`). In handleInfo, call `serverInfo` once and derive the public subset from it.
-- Check after: Go tests.
-
 ### Add indexes for the foreign keys a group delete cascades through
 - Where: server/internal/store/store.go:323-348, and postgres.go:352-380
 - Category: perf

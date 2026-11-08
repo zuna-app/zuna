@@ -85,18 +85,23 @@ func (rules ScreenRules) problem() string {
 }
 
 func (s *Server) screenRules(ctx context.Context) (ScreenRules, error) {
-	rules := defaultScreenRules()
 	raw, err := s.db.Setting(ctx, "screen_share", "")
 	if err != nil {
-		return rules, err
+		return defaultScreenRules(), err
 	}
+	return screenRulesFrom(raw), nil
+}
+
+// screenRulesFrom reads the rules as they're saved, or the defaults where there are none.
+func screenRulesFrom(raw string) ScreenRules {
+	rules := defaultScreenRules()
 	if raw != "" {
 		if err := json.Unmarshal([]byte(raw), &rules); err != nil {
 			slog.Warn("reading the screen sharing rules", "error", err)
-			return defaultScreenRules(), nil
+			return defaultScreenRules()
 		}
 	}
-	return rules, nil
+	return rules
 }
 
 func (s *Server) saveScreenRules(ctx context.Context, rules ScreenRules) error {

@@ -50,15 +50,21 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return publicPart(info), nil
+}
+
+func publicPart(info *ServerInfo) *ServerInfo {
 	return &ServerInfo{
 		Name:         info.Name,
 		HasIcon:      info.HasIcon,
 		Claimed:      info.Claimed,
 		Registration: info.Registration,
 		CommunityKey: info.CommunityKey,
-	}, nil
+	}
 }
 
+// serverInfo reads every setting it needs in one query: every client asks for it on
+// every reconnect.
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
 	info := &ServerInfo{Version: s.cfg.Version}
@@ -66,45 +72,39 @@ func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 		info.Voice = 1
 		info.Calls = 1
 	}
-	var err error
-	if info.Name, err = s.db.Setting(ctx, "name", "Zuna"); err != nil {
-		return nil, err
-	}
-	if info.Registration, err = s.db.Setting(ctx, "registration", "invite"); err != nil {
-		return nil, err
-	}
-	if info.MaxUploadMB, err = s.intSetting(ctx, "max_upload_mb", defaultUploadMB); err != nil {
-		return nil, err
-	}
-	if info.RetentionDays, err = s.intSetting(ctx, "retention_days", 0); err != nil {
-		return nil, err
-	}
-	allow, err := s.db.Setting(ctx, "allow_member_invites", "false")
+	settings, err := s.db.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	info.AllowMemberInvites = allow == "true"
-	if info.EmoteSetID, err = s.db.Setting(ctx, "emote_set_id", emotes.DefaultSet); err != nil {
-		return nil, err
+	setting := func(key, fallback string) string {
+		if value, ok := settings[key]; ok {
+			return value
+		}
+		return fallback
 	}
-	if info.EmoteSetName, err = s.db.Setting(ctx, "emote_set_name", ""); err != nil {
-		return nil, err
+	number := func(key string, fallback int) int {
+		if value, err := strconv.Atoi(setting(key, "")); err == nil {
+			return value
+		}
+		return fallback
 	}
+	info.Name = setting("name", "Zuna")
+	info.Registration = setting("registration", "invite")
+	info.MaxUploadMB = number("max_upload_mb", defaultUploadMB)
+	info.RetentionDays = number("retention_days", 0)
+	info.AllowMemberInvites = setting("allow_member_invites", "false") == "true"
+	info.EmoteSetID = setting("emote_set_id", emotes.DefaultSet)
+	info.EmoteSetName = setting("emote_set_name", "")
 	if info.UserCount, err = s.db.UserCount(ctx); err != nil {
 		return nil, err
 	}
 	if info.Claimed, err = s.db.HasOwner(ctx); err != nil {
 		return nil, err
 	}
-	rules, err := s.screenRules(ctx)
-	if err != nil {
-		return nil, err
-	}
+	rules := screenRulesFrom(setting("screen_share", ""))
 	info.ScreenShare = &rules
 	if info.Registration == "open" {
-		if info.CommunityKey, err = s.db.Setting(ctx, "community_key", ""); err != nil {
-			return nil, err
-		}
+		info.CommunityKey = setting("community_key", "")
 	}
 	if _, err := os.Stat(s.iconPath()); err == nil {
 		info.HasIcon = true
@@ -117,16 +117,14 @@ func (s *Server) iconPath() string {
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	info, err := s.publicServerInfo(r)
+	info, err := s.serverInfo(r)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	if _, err := s.db.SessionByToken(r.Context(), hashToken(bearerToken(r))); err == nil {
-		if info, err = s.serverInfo(r); err != nil {
-			writeFailure(w, err)
-			return
-		}
+	// Someone signed in hears all of it, anyone else only what the join screen needs.
+	if _, err := s.db.SessionByToken(r.Context(), hashToken(bearerToken(r))); err != nil {
+		info = publicPart(info)
 	}
 	writeJSON(w, http.StatusOK, info)
 }

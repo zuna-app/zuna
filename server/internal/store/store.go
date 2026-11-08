@@ -678,6 +678,24 @@ func (d *DB) Setting(ctx context.Context, key, fallback string) (string, error) 
 	return value, err
 }
 
+// Settings reads every setting at once, for what needs several of them.
+func (d *DB) Settings(ctx context.Context) (map[string]string, error) {
+	rows, err := d.sql.QueryContext(ctx, "SELECT key, value FROM settings")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	settings := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		settings[key] = value
+	}
+	return settings, rows.Err()
+}
+
 func (d *DB) SetSetting(ctx context.Context, key, value string) error {
 	_, err := d.sql.ExecContext(ctx,
 		`INSERT INTO settings(key, value) VALUES(?, ?)
