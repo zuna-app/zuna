@@ -28,14 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Write each users page in one transaction
-- Where: packages/core/src/session.ts:946-956 (`syncUsers` calls `applyUser` per user; each `persistUser` plus pin inserts at 1026 commits on its own)
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: a new device on a server with thousands of users commits thousands of separate SQLite transactions on first sync; on the web (OPFS, `journal_mode = TRUNCATE`, packages/ui/src/core/sqlite.ts:76) each touches the journal file.
-- Suggested change: `this.db.transaction(() => { for (const user of response.users) this.applyUser(user); });` (every host's `transaction` flattens nesting). Same for runs of messages between events in `pullPage` (3466-3472).
-- Check after: `npx vitest run test/e2e.test.ts test/security.test.ts`.
-
 ### Make `uploadEpochKeys` single-flight and have it upload every pending batch
 - Where: packages/core/src/session.ts:1444-1457 (`LIMIT VAULT_BATCH`, uploads once); fire-and-forget at 2956, 3173, 3306, 3386, 3697, 6278 (each `void this.uploadEpochKeys().catch(() => undefined)`), plus 819, 1494, 2132, 2942
 - Category: cleanup

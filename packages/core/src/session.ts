@@ -1014,7 +1014,10 @@ export class ServerSession {
   private async syncUsers(): Promise<void> {
     const response = await this.api.users(this.usersCursor);
     this.online = new Set(response.online);
-    for (const user of response.users) this.applyUser(user);
+    // One transaction for the page: a new device on a big server would otherwise commit thousands.
+    this.db.transaction(() => {
+      for (const user of response.users) this.applyUser(user);
+    });
     for (const user of response.users) {
       if (user.id !== this.account.userId && user.key_generation > this.headGeneration(user.id)) await this.followChain(user.id);
     }
@@ -3559,13 +3562,22 @@ export class ServerSession {
       ...page.events.map((event) => ({ seq: event.seq, event })),
     ];
     items.sort((a, b) => a.seq - b.seq);
+    // The messages between two events are written in one transaction, rather than one each.
+    let run: ApiMessage[] = [];
+    const writeRun = () => {
+      const messages = run;
+      run = [];
+      if (messages.length > 0) this.db.transaction(() => messages.forEach((message) => this.ingest(message, false)));
+    };
     for (const item of items) {
       if ("event" in item) {
+        writeRun();
         await this.applyEvent(item.event);
       } else {
-        this.ingest(item.message, false);
+        run.push(item.message);
       }
     }
+    writeRun();
     if (page.cursor > after) this.setSyncedSeq(groupId, page.cursor);
     const group = this.groups.get(groupId);
     if (group) {
