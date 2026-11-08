@@ -22,7 +22,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSy
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { devNativeAppData, env, root } from "./lib.mjs";
+import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
 
 if (process.platform !== "darwin") {
   console.log("This builds the native app on macOS. On Windows it's npm run dev:windows, and on Linux npm run dev:linux.");
@@ -41,6 +41,9 @@ const crate = join(root, "apps", "desktop");
 const target = join(homedir(), "Library", "Caches", "zuna-desktop-target");
 // The same version as the desktop app, which is released with it.
 const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+
+// The bundle carries the share's sound program from apps/screenshare/dist, so an old one would go in after a pull.
+ensureNativeScreenCurrent();
 
 /** GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once asked. */
 function checkMetal() {
@@ -105,6 +108,7 @@ function bundle(program, media, out, { name, id }) {
   chmodSync(join(macos, "zuna"), 0o755);
   const screenshare = join(root, "apps", "screenshare", "dist", "zuna-screenshare");
   if (existsSync(screenshare)) copyFileSync(screenshare, join(macos, "zuna-screenshare"));
+  else if (name === "Zuna") console.warn("> no native screen capture to put in: npm run build:screenshare first, or this build's shares have no sound");
   // The media library and FFmpeg's libraries, which name each other through @rpath.
   const frameworks = join(app, "Contents", "Frameworks");
   mkdirSync(frameworks, { recursive: true });

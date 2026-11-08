@@ -153,7 +153,7 @@ The simulator can't share at all, so the button isn't there. It has no ScreenCap
 npm run build:screenshare
 ```
 
-On Windows and Linux this fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/screenshare/dist`, which the native app's packages carry (`npm run dist:windows`, `npm run dist:linux`). Without it, the app can't share a screen there. Once it's built, `npm run dev:windows` rebuilds it whenever its code changes, but the first build is always something to ask for.
+On Windows and Linux this fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/screenshare/dist`, which the native app's packages carry (`npm run dist:windows`, `npm run dist:linux`). Without it, the app can't share a screen there. Once it's built, the native app's scripts (`npm run dev:windows`, `dev:linux`, `dev:macos` and the rest) rebuild it whenever its code changes, but the first build is always something to ask for.
 
 **macOS** builds only the computer's sound, for Apple silicon, without FFmpeg or LiveKit, and needs Xcode's command line tools. Zuna isn't built for Intel Macs.
 

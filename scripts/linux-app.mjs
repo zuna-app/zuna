@@ -16,7 +16,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, r
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { devNativeAppData, env, root } from "./lib.mjs";
+import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
 
 if (process.platform !== "linux") {
   console.log("This builds the native app on Linux. On Windows, it's npm run dev:windows.");
@@ -34,6 +34,9 @@ const crate = join(root, "apps", "desktop");
 const target = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
 // The same version as the desktop app, which is released with it.
 const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+
+// A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
+ensureNativeScreenCurrent();
 
 const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (bundle.status !== 0) process.exit(bundle.status ?? 1);

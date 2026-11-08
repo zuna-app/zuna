@@ -58,8 +58,9 @@ export function ensureBuilt() {
 
 /**
  * Keeps native screen capture current, if it's been built here. The first build is
- * long and needs tools of its own, so that stays something to ask for, and the app
- * shares through Chromium without it. The folder is made anew by each build.
+ * long and needs tools of its own, so that stays something to ask for, though without
+ * it the native app can't share a screen on Windows or Linux, and a share from a Mac
+ * has no sound. The folder is made anew by each build.
  */
 export function ensureNativeScreenCurrent() {
   const crate = join(root, "apps", "screenshare");

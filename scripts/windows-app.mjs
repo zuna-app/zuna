@@ -46,6 +46,9 @@ function toolchain() {
   return found;
 }
 
+// A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
+ensureNativeScreenCurrent();
+
 const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (bundle.status !== 0) process.exit(bundle.status ?? 1);
 
@@ -62,7 +65,6 @@ if (command === "build" || packaging) {
 }
 
 if (packaging) {
-  ensureNativeScreenCurrent();
   const dist = join(root, "dist", "windows");
   // What's installed: the app, and the desktop's native screen capture beside it, where it's been built.
   const staged = join(dist, "Zuna");

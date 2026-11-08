@@ -24,7 +24,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | `desktop-system.md` | `apps/desktop` host, platform, voice, media, and `apps/screenshare` | 31 |
 | `ios.md` | `apps/ios`: redraws, main-thread work | 24 |
 | `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 10 |
-| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 30 |
+| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 29 |
 
 A few entries in `docs.md` and `deps-build.md` are only pointers to the same issue in another file.
 

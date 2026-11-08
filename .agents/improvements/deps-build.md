@@ -20,14 +20,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: smallest step: pin it exactly (`"app-builder-lib": "26.18.0"`). Better: drop it. Add `scripts/nsis.mjs` that downloads NSIS from electron-builder-binaries' GitHub release, pinned by URL and SHA-256 as scripts/ffmpeg.mjs pins FFmpeg, and find `signtool.exe` in the Windows SDK that VS's C++ build tools already install (`%ProgramFiles(x86)%\Windows Kits\10\bin\<version>\x64\signtool.exe`). Then remove app-builder-lib and update docs/WINDOWS_APP.md:30.
 - Check after: `npm run dist:windows` and `npm run install:windows` on Windows, also with CSC_LINK set; `npm audit` shows 0.
 
-### Rebuild a stale screen capture for `dev:windows`, as the docs say, and on Linux and macOS
-- Where: scripts/windows-app.mjs:64-65; scripts/linux-app.mjs:52-56; scripts/macos-app.mjs:106-107; scripts/lib.mjs:59-73; docs/SCREEN_SHARE.md:153
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: SCREEN_SHARE.md:153 says "`npm run dev:windows` rebuilds it whenever its code changes", but windows-app.mjs only calls `ensureNativeScreenCurrent()` inside `if (packaging)`. A development build loads apps/screenshare/dist (voice/screen.rs:55), so dev:windows runs an old capture program after a pull. linux-app.mjs builds it only when missing, never when stale. macos-app.mjs copies it only if present, with no warning, so `build:macos` can quietly ship without a share's sound.
-- Suggested change: call `ensureNativeScreenCurrent()` near the top of all three scripts for every command; in linux-app.mjs:53 keep building it when missing after the freshness check; in macos-app.mjs's `bundle()`, warn (as windows-app.mjs:76 does) when `zuna-screenshare` is missing in a release build.
-- Check after: `npm run dev:windows` after touching apps/screenshare/src; `npm run dist:linux` then linux-package-check.mjs; `npm run build:macos`.
-
 ### Point setup-go's cache at server/go.sum
 - Where: .github/workflows/ci.yml:18-20, :49-51, :79-81; release.yml:27-29, :75-77, :105-107
 - Category: perf
