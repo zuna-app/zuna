@@ -162,6 +162,12 @@ command -v systemctl >/dev/null || fail "this needs systemd."
 [ -d "$SRC/.git" ] || fail "$SRC isn't a git checkout of Zuna."
 [ -n "$SERVER_DOMAIN$RELAY_DOMAIN$WEB_DOMAIN" ] || fail "nothing to run yet. Say what runs here the first time, for example: --server chat.example.com"
 if [ -n "$APNS_KEY_FILE" ] && [ ! -r "$APNS_KEY_FILE" ]; then fail "can't read $APNS_KEY_FILE"; fi
+case "$APNS_KEY_FILE" in "" | /*) ;; *) APNS_KEY_FILE="$PWD/$APNS_KEY_FILE" ;; esac
+# Building runs as another user, who may not be able to enter the folder this was
+# started in, such as a home folder, and GNU find stops there. So everything runs
+# from /, and the rest of this script names its folders in full.
+START_DIR="$PWD"
+cd /
 # Without a domain, the server is reached at an IP address and serves HTTPS itself,
 # with no proxy, so on a port it may use without any power, on every address.
 SERVER_IP=""
@@ -379,6 +385,8 @@ if [ "$PULL" = 1 ]; then
   # A newer version of this script finishes the job.
   if [ "$(sha256sum "$SRC/deploy/update.sh")" != "$before" ]; then
     echo "This script changed; running the new version"
+    # From where this one started, where any files its options name are.
+    cd "$START_DIR"
     exec "$SRC/deploy/update.sh" "${ARGS[@]}" --no-pull
   fi
 fi
