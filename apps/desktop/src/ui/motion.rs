@@ -241,10 +241,25 @@ struct Transition {
     started: Instant,
     length: Duration,
     generation: u64,
+    /// When its key was last drawn.
+    used: Instant,
 }
 
 thread_local! {
     static TRANSITIONS: RefCell<HashMap<String, Transition>> = RefCell::new(HashMap::new());
+}
+
+/// How many keys the motion maps hold before letting go of those not drawn lately. Every
+/// message row adds several, for its buttons and reactions, so over a session they'd grow by
+/// tens of thousands. A key that comes back after it's let go is simply where it should be,
+/// as one seen for the first time is.
+const KEPT_KEYS: usize = 4096;
+const KEPT_FOR: Duration = Duration::from_secs(60);
+
+fn forget_unused_transitions(transitions: &mut HashMap<String, Transition>, now: Instant) {
+    if transitions.len() > KEPT_KEYS {
+        transitions.retain(|_, transition| now - transition.used < KEPT_FOR || now - transition.started < transition.length);
+    }
 }
 
 fn value_at(transition: &Transition, now: Instant, easing: &dyn Fn(f32) -> f32) -> f32 {
@@ -262,15 +277,17 @@ pub fn transition<E: IntoElement + 'static>(element: E, key: impl Into<String>, 
     let ms = if reduced() { 0 } else { ms };
     let running = TRANSITIONS.with(|transitions| {
         let mut transitions = transitions.borrow_mut();
+        forget_unused_transitions(&mut transitions, now);
         match transitions.get_mut(&key) {
             None => {
-                transitions.insert(key.clone(), Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0 });
+                transitions.insert(key.clone(), Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0, used: now });
                 None
             }
             Some(transition) => {
+                transition.used = now;
                 if transition.to != target {
                     let from = value_at(transition, now, &easing);
-                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1 };
+                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1, used: now };
                 }
                 (now - transition.started < transition.length).then(|| (transition.from, transition.to, transition.generation, transition.length))
             }
@@ -298,15 +315,17 @@ pub fn tween(key: impl Into<String>, target: f32, ms: u64, easing: impl Fn(f32) 
     let ms = if reduced_or_system() { 0 } else { ms };
     let (value, moving) = TRANSITIONS.with(|transitions| {
         let mut transitions = transitions.borrow_mut();
+        forget_unused_transitions(&mut transitions, now);
         match transitions.get_mut(&key) {
             None => {
-                transitions.insert(key, Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0 });
+                transitions.insert(key, Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0, used: now });
                 (target, false)
             }
             Some(transition) => {
+                transition.used = now;
                 if transition.to != target {
                     let from = value_at(transition, now, &easing);
-                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1 };
+                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1, used: now };
                 }
                 if now - transition.started < transition.length { (value_at(transition, now, &easing), true) } else { (transition.to, false) }
             }
@@ -365,8 +384,9 @@ struct Slide {
 }
 
 thread_local! {
-    /// Where each sliding row last was, in what it scrolls in, and a slide it's on.
-    static ROWS: RefCell<HashMap<String, (f32, Option<Slide>)>> = RefCell::new(HashMap::new());
+    /// Where each sliding row last was, in what it scrolls in, a slide it's on, and when it
+    /// was last drawn.
+    static ROWS: RefCell<HashMap<String, (f32, Option<Slide>, Instant)>> = RefCell::new(HashMap::new());
 }
 
 const SLIDE: Duration = Duration::from_millis(140);
@@ -414,7 +434,11 @@ impl gpui::Element for Sliding {
         let now = Instant::now();
         let offset = ROWS.with(|rows| {
             let mut rows = rows.borrow_mut();
-            let entry = rows.entry(self.key.clone()).or_insert((place, None));
+            if rows.len() > KEPT_KEYS {
+                rows.retain(|_, (_, _, used)| now - *used < KEPT_FOR);
+            }
+            let entry = rows.entry(self.key.clone()).or_insert((place, None, now));
+            entry.2 = now;
             if (entry.0 - place).abs() > 0.5 {
                 if !reduced() {
                     // Where it's drawn now, carried on from a slide it was already on.

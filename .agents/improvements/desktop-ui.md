@@ -20,14 +20,6 @@ Ordered roughly by value.
 - Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
 - Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
 
-### Let finished transitions go from `TRANSITIONS`
-- Where: ui/motion.rs:246-319, 550-560; per-message keys in ui/message.rs:533-571, 1140-1155
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: every key `transition` or `tween` sees is kept forever. Each message row adds six keys (hover and color for each of three action buttons), each reaction two more, so the map grows by tens of thousands of entries over a session. `ROWS` has the same problem on a smaller scale. `FIRST_SEEN` already prunes itself.
-- Suggested change: add a `last_used` time; above a size limit, keep only entries that are running or were used recently. Same for `ROWS`.
-- Check after: `npm run dev:windows`.
-
 ### Decode data-URL thumbnails once, not on every draw
 - Where: ui/message.rs:1259, 1438-1445, 1482; ui/media_views.rs:326, 381; ui/chat.rs:1721 (composer link preview, which renders every frame)
 - Category: perf
