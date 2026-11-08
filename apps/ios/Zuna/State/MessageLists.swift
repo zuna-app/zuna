@@ -89,15 +89,34 @@ extension AppModel {
     /// something while the app slept: the servers, and each loaded chat's newest page.
     func reloaded() async {
         await load()
-        for (key, list) in lists where list.loaded && !list.detached {
+        // Each loaded chat's newest page, all asked for at once.
+        let wanted: [(key: String, serverId: String, listId: String)] = lists.compactMap { key, list in
+            guard list.loaded, !list.detached else { return nil }
             let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
-            guard parts.count == 2, !parts[1].hasPrefix("pending:"),
-                  let page = try? await core.session(parts[0]).loadMessages(parts[1]), var current = lists[key] else { continue }
+            guard parts.count == 2, !parts[1].hasPrefix("pending:") else { return nil }
+            return (key, parts[0], parts[1])
+        }
+        let pages = await withTaskGroup(of: (String, MessagePage?).self) { group in
+            for chat in wanted {
+                group.addTask { (chat.key, await self.newestPage(chat.serverId, chat.listId)) }
+            }
+            var pages: [(String, MessagePage)] = []
+            for await (key, page) in group {
+                if let page { pages.append((key, page)) }
+            }
+            return pages
+        }
+        for (key, page) in pages {
+            guard var current = lists[key] else { continue }
             var byId = Dictionary(current.items.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             for message in page.messages { byId[message.id] = message }
             current.items = Self.sorted(Array(byId.values))
             lists[key] = current
         }
+    }
+
+    private func newestPage(_ serverId: String, _ listId: String) async -> MessagePage? {
+        try? await core.session(serverId).loadMessages(listId)
     }
 
     /// The page before the oldest loaded message.

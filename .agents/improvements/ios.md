@@ -60,14 +60,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: trim a chat's list to its newest page when the chat is left (`viewWillDisappear` knows when), or keep only the N most recent lists. In `removeServer`, filter all per-server dictionaries and discard the staged files.
 - Check after: `npm run test:ios:ui -- --only ChatReadingTests,ShellTests`. Same issue on the web and desktop.
 
-### Load servers in parallel at launch
-- Where: apps/ios/Zuna/State/AppModel.swift:258-266; apps/ios/Zuna/State/MessageLists.swift:90-101
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: servers load one after another, so launch and every reload slow down with each server joined; `reloaded()` also refetches each loaded chat one at a time.
-- Suggested change: a task group for both, keeping the server order.
-- Check after: `npm run test:ios:ui -- --only LaunchAndUnlockTests,ShellTests`. The web loads servers sequentially too.
-
 ### Reuse the avatar already in memory for share suggestions
 - Where: apps/ios/Zuna/Shared/ShareSuggestions.swift:12-15, 38-45; apps/ios/Zuna/State/ComposerState.swift:192-194
 - Category: perf

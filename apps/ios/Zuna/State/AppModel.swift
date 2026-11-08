@@ -273,9 +273,16 @@ final class AppModel {
     func load() async {
         do {
             let entries = try await core.listServers()
-            var loaded: [String: ServerState] = [:]
-            for entry in entries {
-                loaded[entry.id] = await loadServer(entry)
+            // All at once, not one after another, so each server joined adds nothing to the wait.
+            let loaded = await withTaskGroup(of: (String, ServerState?).self) { group in
+                for entry in entries {
+                    group.addTask { (entry.id, await self.loadServer(entry)) }
+                }
+                var loaded: [String: ServerState] = [:]
+                for await (id, state) in group {
+                    if let state { loaded[id] = state }
+                }
+                return loaded
             }
             servers = loaded
             prefetchEmotesSoon()
