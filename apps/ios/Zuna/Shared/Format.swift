@@ -159,7 +159,8 @@ enum Format {
         }
         let body: String
         if !message.text.isEmpty {
-            body = String(decoding: plainText(message.text).utf16.prefix(80), as: UTF16.self)
+            // By characters, so an emoji at the cut isn't split into half of one.
+            body = String(plainText(message.text).prefix(80))
         } else if message.location != nil {
             body = "Location"
         } else if let attachment = message.attachments.first {
