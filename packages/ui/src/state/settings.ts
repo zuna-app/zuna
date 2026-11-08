@@ -1,5 +1,7 @@
 // Per-device appearance and notification settings.
 
+import { keepKnown, readSaved } from "@/lib/saved";
+
 export interface AppSettings {
   accent: "neutral" | "blue" | "green" | "red" | "amber";
   messageSize: "small" | "medium" | "large";
@@ -28,15 +30,12 @@ const DEFAULTS: AppSettings = {
   removeMetadata: true,
 };
 
-const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "amber"];
-
 export function loadSettings(): AppSettings {
-  try {
-    const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
-    return ACCENTS.includes(stored.accent) ? stored : { ...stored, accent: DEFAULTS.accent };
-  } catch {
-    return DEFAULTS;
-  }
+  return keepKnown(DEFAULTS, readSaved(KEY), {
+    accent: ["neutral", "blue", "green", "red", "amber"],
+    messageSize: ["small", "medium", "large"],
+    notificationPreview: ["full", "sender", "none"],
+  });
 }
 
 export function saveSettings(settings: AppSettings): void {

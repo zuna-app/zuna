@@ -2,6 +2,7 @@
 // and how loud are about the room it's in.
 
 import type { Role, ScreenRules } from "@zuna/core";
+import { keepKnown, readSaved } from "@/lib/saved";
 
 export type NoiseSuppression = "zuna" | "standard" | "off";
 /** What a share is mostly of, which encoders tune themselves for. */
@@ -116,11 +117,13 @@ export function screenLimitsText(rules: ScreenRules | undefined, role: Role | un
 }
 
 export function loadVoiceSettings(): VoiceSettings {
-  try {
-    return { ...VOICE_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
-  } catch {
-    return { ...VOICE_DEFAULTS };
-  }
+  return keepKnown(VOICE_DEFAULTS, readSaved(KEY), {
+    inputMode: ["voice", "ptt"],
+    noiseSuppression: ["zuna", "standard", "off"],
+    screenContent: ["detail", "text", "motion"],
+    screenPriority: ["sharp", "smooth", "balanced"],
+    screenCodec: ["auto", "h264", "vp8", "vp9"],
+  });
 }
 
 export function saveVoiceSettings(settings: VoiceSettings): void {

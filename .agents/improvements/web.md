@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Keep only known keys, and check enums, when loading settings
-- Where: packages/ui/src/state/settings.ts:33-40 and voice/settings.ts:121-127
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: keys saved before 027c0d2 (`closeToTray`, `screenNative`, `screenEncoder` and others) are re-saved forever. Values outside a union pass through: a bad `noiseSuppression` gives `undefined` in voice/store.ts:122.
-- Suggested change: build the result from `DEFAULTS`' keys, checking each value's type and allowed values.
-- Check after: web check.
-
 ### Reuse Confirm and the accent tokens instead of copying them
 - Where: packages/ui/src/features/overlays/Settings.tsx:249-279 (`KeepMetadataConfirm` copies `Confirm` from components/ui.tsx:226-263) and Settings.tsx:34-40 (`ACCENTS` copies styles/tokens.css:58-77)
 - Category: cleanup
