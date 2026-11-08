@@ -100,14 +100,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: mirror zuna-web: `signal.NotifyContext`, then `Shutdown` with a 20 s context (the APNs client timeout is 15 s).
 - Check after: `go test ./internal/relay`, and the installer check.
 
-### Prune hub and emote maps for people and keys no longer in use
-- Where: api/hub.go:340 (`hidden` is never deleted), :398-407 and :487-501 (the outer `lastUsed[user]` entry is never deleted), and emotes/emotes.go:213-222 (the `inFlight` locks are never deleted)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: these maps grow with every user who ever connected and every emote file ever requested, and never shrink.
-- Suggested change: in `Hub.remove`, delete these entries when the user's last connection goes. Drop the outer `lastUsed` entry once it's empty. Use singleflight for the emote downloads.
-- Check after: Go tests.
-
 ### Log failed requests with their route
 - Where: server/internal/api/server.go:765-767, and about 170 `writeFailure` call sites
 - Category: robustness

@@ -250,7 +250,11 @@ func (h *Hub) SetHidden(userID string, hidden bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	wasHidden := h.hidden[userID]
-	h.hidden[userID] = hidden
+	// Kept only while it can matter: someone connected, or online, or away for the linger.
+	// The next connection says it again.
+	if len(h.conns[userID]) > 0 || h.online[userID] || h.away[userID] != nil {
+		h.hidden[userID] = hidden
+	}
 	if hidden != wasHidden && h.online[userID] {
 		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: !hidden}})
 	}
@@ -500,6 +504,28 @@ func (h *Hub) remove(c *conn) {
 		// the linger, as after a moment without a network, nothing shows.
 		h.wentAway(c.userID, c.deviceID, h.linger)
 	}
+	h.forgetIfGone(c.userID)
+}
+
+// forgetIfGone lets go of what's kept about someone with no connection left, once
+// nothing still needs it: whether they hide their presence, until they're offline,
+// and when each device was last used, once that's longer ago than counts.
+func (h *Hub) forgetIfGone(userID string) {
+	if len(h.conns[userID]) > 0 {
+		return
+	}
+	now := time.Now()
+	for device, at := range h.lastUsed[userID] {
+		if now.Sub(at) > elsewhereRecently {
+			delete(h.lastUsed[userID], device)
+		}
+	}
+	if len(h.lastUsed[userID]) == 0 {
+		delete(h.lastUsed, userID)
+	}
+	if !h.online[userID] && h.away[userID] == nil {
+		delete(h.hidden, userID)
+	}
 }
 
 // markOffline takes someone offline once they've been away for the linger,
@@ -523,10 +549,10 @@ func (h *Hub) markOffline(userID string, away *absence) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	// Back while that was written: they came online again, which has gone out already.
-	if h.online[userID] || h.hidden[userID] {
-		return
+	if !h.online[userID] && !h.hidden[userID] {
+		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false, LastSeenAt: &left}})
 	}
-	h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false, LastSeenAt: &left}})
+	h.forgetIfGone(userID)
 }
 
 // --- WebSocket endpoint ---

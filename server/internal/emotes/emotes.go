@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"zuna/server/internal/store"
 )
 
@@ -50,8 +52,8 @@ type Service struct {
 	APIBase string
 	CDNBase string
 
-	mu       sync.Mutex
-	inFlight map[string]*sync.Mutex
+	// One download of each file at a time, however many ask for it at once.
+	downloads singleflight.Group
 }
 
 func New(db *store.DB, dir string) *Service {
@@ -61,7 +63,6 @@ func New(db *store.DB, dir string) *Service {
 		client:   &http.Client{Timeout: 30 * time.Second},
 		APIBase:  "https://7tv.io/v3",
 		CDNBase:  "https://cdn.7tv.app",
-		inFlight: map[string]*sync.Mutex{},
 	}
 }
 
@@ -188,12 +189,7 @@ func (s *Service) prefetch(emotes []store.Emote) {
 			go func() {
 				defer wg.Done()
 				defer func() { <-slots }()
-				lock := s.lockFor(emote.ID + "/" + file)
-				lock.Lock()
-				defer lock.Unlock()
-				if _, err := os.Stat(path); err != nil {
-					_ = s.download(ctx, emote.ID, file, path)
-				}
+				_ = s.fetch(ctx, emote.ID, file, path)
 			}()
 		}
 	}
@@ -210,16 +206,6 @@ func (s *Service) RefreshCurrent(ctx context.Context) error {
 	return err
 }
 
-func (s *Service) lockFor(key string) *sync.Mutex {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	lock, ok := s.inFlight[key]
-	if !ok {
-		lock = &sync.Mutex{}
-		s.inFlight[key] = lock
-	}
-	return lock
-}
 
 // ServeImage serves one emote image, downloading it on first use.
 func (s *Service) ServeImage(w http.ResponseWriter, r *http.Request, id, file string) {
@@ -233,19 +219,26 @@ func (s *Service) ServeImage(w http.ResponseWriter, r *http.Request, id, file st
 		return
 	}
 	path := filepath.Join(s.dir, id, file)
-	if _, err := os.Stat(path); err != nil {
-		lock := s.lockFor(id + "/" + file)
-		lock.Lock()
-		defer lock.Unlock()
-		if _, err := os.Stat(path); err != nil {
-			if err := s.download(r.Context(), id, file, path); err != nil {
-				http.Error(w, "emote unavailable", http.StatusBadGateway)
-				return
-			}
-		}
+	if err := s.fetch(r.Context(), id, file, path); err != nil {
+		http.Error(w, "emote unavailable", http.StatusBadGateway)
+		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeFile(w, r, path)
+}
+
+// fetch downloads an emote's file unless it's here, once however many ask for it at once.
+func (s *Service) fetch(ctx context.Context, id, file, path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	_, err, _ := s.downloads.Do(id+"/"+file, func() (any, error) {
+		if _, err := os.Stat(path); err == nil {
+			return nil, nil
+		}
+		return nil, s.download(ctx, id, file, path)
+	})
+	return err
 }
 
 func (s *Service) download(ctx context.Context, id, file, path string) error {
