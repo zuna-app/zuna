@@ -350,14 +350,14 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 		writeFailure(w, err)
 		return
 	}
-	members, err := s.db.GroupMemberIDs(r.Context(), groupID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	// Nobody has read ticks in a channel, so where someone is goes only to their own devices.
-	if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil && kind == "channel" {
-		members = []string{sess.UserID}
+	// Nobody has read ticks in a channel, so where someone is goes only to their own
+	// devices, and the channel's members, who may be everyone on the server, aren't read.
+	members := []string{sess.UserID}
+	if kind, err := s.db.GroupKind(r.Context(), groupID); err != nil || kind != "channel" {
+		if members, err = s.db.GroupMemberIDs(r.Context(), groupID); err != nil {
+			writeFailure(w, err)
+			return
+		}
 	}
 	s.hub.ToUsersExcept(members, sess.DeviceID, Event{Type: "read", Data: map[string]any{
 		"group_id": groupID,
