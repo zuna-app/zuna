@@ -19,7 +19,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 |---|---|---|
 | `core.md` | `packages/core`: sockets, sync, ingest, outbox, manifest, validation | 2 |
 | `docs.md` | CLAUDE.md, README, docs/, FEATURE_PARITY after the Electron removal | 2 |
-| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 14 |
+| `deps-build.md` | dependencies, scripts, CI, crypto crate, site, e2e, repo hygiene | 13 |
 
 A few entries in `docs.md` and `deps-build.md` are only pointers to the same issue in another file.
 

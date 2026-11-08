@@ -92,14 +92,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: locally (not a commit, and only with the user's go-ahead since it deletes 1.3 GB): `rm -rf apps/desktop-electron-legacy && npm ci`. Then commit removing `out/` and `release/` from .gitignore. The other maintainer must delete the folder too, or it shows up as untracked; mention it in the commit body.
 - Check after: `git status --short --ignored` lists no apps/desktop-electron-legacy; `npm ls` shows nothing extraneous.
 
-### Keep the golden fixtures in LF on every checkout
-- Where: .gitattributes:1-3; apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures/*.json; apps/ios/Zuna/Resources/emoji.json; tests/e2e/test/golden.test.ts:15-20; CLAUDE.md (the `@zuna/e2e` gotcha)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: with `* text=auto` and `core.autocrlf=true`, `git ls-files --eol` shows the golden files as `i/lf w/crlf`; golden.test.ts compares byte for byte with `JSON.stringify(...) + "\n"`, so on Windows it "fails there on line endings alone" and leaves them "changed with an empty diff", which is the workaround CLAUDE.md documents. The metadata SVG fixtures in packages/core/test/fixtures/metadata also check out with CRLF.
-- Suggested change: add to .gitattributes `apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures/*.json text eol=lf`, `apps/ios/Zuna/Resources/emoji.json text eol=lf` and `packages/core/test/fixtures/** -text`; `git add --renormalize .` in the same commit; shorten CLAUDE.md's workaround.
-- Check after: on Windows, with the throwaway config but without UPDATE_GOLDEN, `npx vitest run test/golden.test.ts` passes in tests/e2e; `npm run test:core` (metadata tests).
-
 ### Give the desktop core bundle its own dependencies, and one esbuild setup shared with iOS
 - Where: apps/desktop/core-bundle/build.mjs:8-41; apps/ios/core-bundle/build.mjs:14-55; apps/ios/package.json:14-18
 - Category: deps
