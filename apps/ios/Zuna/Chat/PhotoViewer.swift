@@ -168,12 +168,13 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         guard bounds.width > 0, image.size.width > 0, image.size.height > 0 else { return }
         let fitted = min(bounds.width / image.size.width, bounds.height / image.size.height)
         let size = CGSize(width: image.size.width * fitted, height: image.size.height * fitted)
+        // Each time, as the sharp copy that takes the place of the one it opened with goes further.
+        scrollView.maximumZoomScale = max(3, 1 / fitted)
         guard imageView.bounds.size != size else { return }
         scrollView.zoomScale = 1
         imageView.frame = CGRect(origin: .zero, size: size)
         scrollView.contentSize = size
         scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = max(3, 1 / fitted)
         center()
     }
 
@@ -332,6 +333,12 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
 
     @objc private func close() {
         dismiss(animated: true) { self.cleanUp() }
+    }
+
+    /// VoiceOver's two-finger scrub closes it, as it does any screen over another.
+    override func accessibilityPerformEscape() -> Bool {
+        close()
+        return true
     }
 
     @objc private func share() {
