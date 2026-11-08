@@ -440,19 +440,30 @@ struct AppLockView: View {
 
     var body: some View {
         let method = AppLock.methodName
+        let available = AppLock.available
         List {
             Section {
                 Toggle("Lock with \(method)", isOn: Binding(get: { model.settings.appLock }, set: { value in
+                    guard value else {
+                        model.settings.appLock = false
+                        return
+                    }
                     Task {
                         // Turning it on proves the person can unlock, so nobody locks themselves out.
-                        let allowed = value ? await AppLock.authenticate(reason: "Turn on App lock") : true
-                        if allowed { model.settings.appLock = value }
+                        switch await AppLock.authenticate(reason: "Turn on App lock") {
+                        case .unlocked: model.settings.appLock = true
+                        case .unavailable: model.toast("Set a passcode for this iPhone in its Settings first.")
+                        case .refused: break
+                        }
                     }
                 }))
                 .tint(model.settings.accent.switchTint)
+                .disabled(!available && !model.settings.appLock)
                 .accessibilityIdentifier(A11y.Settings.lockToggle)
             } footer: {
-                Text("Zuna asks for \(method) each time it opens, and hides your chats in the app switcher. After the phone restarts, your Zuna password is still needed once.")
+                Text(available
+                    ? "Zuna asks for \(method) each time it opens, and hides your chats in the app switcher. After the phone restarts, your Zuna password is still needed once."
+                    : "This iPhone has no passcode, which App lock needs. Set one in the iPhone's Settings, under Face ID & Passcode.")
             }
         }
         .listRowBackground(Theme.bg2)

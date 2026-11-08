@@ -105,7 +105,8 @@ final class ShareModel {
     /// App lock, as the app asks for it each time it opens.
     func unlock() async {
         guard phase == .appLocked else { return }
-        if await AppLock.authenticate(reason: "Unlock Zuna") { await listChats() }
+        // A phone without a passcode has nothing to unlock with, so App lock can't hold, as in the app.
+        if await AppLock.authenticate(reason: "Unlock Zuna") != .refused { await listChats() }
     }
 
     private func listChats() async {

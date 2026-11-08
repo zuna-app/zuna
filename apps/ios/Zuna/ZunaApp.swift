@@ -204,7 +204,17 @@ private struct AppLockGate: View {
         guard !asking else { return }
         asking = true
         Task {
-            if await AppLock.authenticate(reason: "Unlock Zuna") { model.appLocked = false }
+            switch await AppLock.authenticate(reason: "Unlock Zuna") {
+            case .unlocked:
+                model.appLocked = false
+            case .unavailable:
+                // The passcode was turned off, so nothing could ever unlock it: App lock goes with it.
+                model.settings.appLock = false
+                model.appLocked = false
+                model.toast("App lock is off, as this iPhone has no passcode.", .security)
+            case .refused:
+                break
+            }
             asking = false
         }
     }
