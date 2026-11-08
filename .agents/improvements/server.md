@@ -60,14 +60,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: in `withMiddleware`, wrap the ResponseWriter in a type that carries the method and route (with `Unwrap()`, so ResponseController and Hijack keep working). In `writeFailure`, type-assert it to add method and route to the log. No call site needs to change.
 - Check after: Go tests (the websocket and LiveKit-proxy tests prove Hijack still works).
 
-### Share the "file in a message they can see" SQL
-- Where: server/internal/store/messages.go:637-645 and :693-702
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the same EXISTS join, with the `msg.seq > m.visible_from_seq` rule, is written twice. A fix to who may read a file has to be made in both.
-- Suggested change: put it in one shared const fragment.
-- Check after: Go tests (security_test) and the PostgreSQL run.
-
 ### Strip BOMs and gofmt the server
 - Where: a UTF-8 BOM at the top of api/hub.go, api/generations.go, webhost/webhost.go and webhost/preview.go (and three test files); gofmt misalignment in cmd/zuna-web/main.go:150-158 and api/groups.go:404-411
 - Category: cleanup
