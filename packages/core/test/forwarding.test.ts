@@ -4,8 +4,10 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomId } from "../src/crypto";
 import { findLink } from "../src/links";
-import type { CoreEvent, LinkPreview, MessageView } from "../src/types";
+import type { ServerSession } from "../src/session";
+import type { CoreEvent, LinkPreview, MessageBody, MessageView } from "../src/types";
 import { loadCrypto, nodeWeb, png, TestApp, TestServer, waitFor } from "./helpers";
 
 const picture = png(1200, 630);
@@ -60,6 +62,14 @@ let bobFirst = "";
 let bobSecond = "";
 let carolFirst = "";
 let carolSecond = "";
+
+/** The parts of a session these tests reach into, to set up a message that failed to send. */
+const internals = (session: ServerSession) =>
+  session as unknown as {
+    ensureLocalEcho(key: string, id: string, body: MessageBody): MessageView;
+    messageRow(groupId: string, id: string): { status: string } | null;
+    db: { run(sql: string, params: unknown[]): void };
+  };
 
 const messages = (app: TestApp) =>
   app.events.filter((event): event is Extract<CoreEvent, { type: "message" }> => event.type === "message").map((event) => event.message);
@@ -165,6 +175,30 @@ describe("forwarding", () => {
     expect(there.attachments[0]!.fileId).not.toBe(copy.attachments[0]!.fileId);
     const blob = await bob.client.session(bobSecond).downloadFile(there.attachments[0]!);
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(photo);
+  });
+
+  it("keeps the label and the preview when a forward that failed is tried again", async () => {
+    const session = bob.client.session(bobFirst);
+    const carolId = carol.client.session(carolFirst).getSelf().userId;
+    const echo = internals(session).ensureLocalEcho(`user:${carolId}`, randomId(), {
+      text: "tried again https://example.com/page",
+      forwarded: { userId: alice.userId },
+      preview: { url: "https://example.com/page", title: "A page" },
+    });
+    internals(session).db.run("UPDATE messages SET status = 'failed' WHERE group_id = ? AND id = ?", [echo.groupId, echo.id]);
+    await session.retryMessage(echo.groupId, echo.id);
+    await waitFor(() => !!received(carol, "tried again https://example.com/page", carolFirst), "carol to get it");
+    expect(received(carol, "tried again https://example.com/page", carolFirst)).toMatchObject({ forwarded: { userId: alice.userId }, preview: { title: "A page" } });
+  });
+
+  it("won't try again a message whose files never went up", async () => {
+    const session = bob.client.session(bobFirst);
+    const carolId = carol.client.session(carolFirst).getSelf().userId;
+    const placeholder = { fileId: "", key: "", prefix: "", chunks: 0, name: "lost.png", mime: "image/png", size: 10 };
+    const echo = internals(session).ensureLocalEcho(`user:${carolId}`, randomId(), { text: "with a lost file", attachments: [placeholder] });
+    internals(session).db.run("UPDATE messages SET status = 'failed' WHERE group_id = ? AND id = ?", [echo.groupId, echo.id]);
+    expect(() => session.retryMessage(echo.groupId, echo.id)).toThrow(/Attach them again/);
+    expect(internals(session).messageRow(echo.groupId, echo.id)?.status).toBe("failed");
   });
 
   it("refuses messages that aren't there to forward", async () => {

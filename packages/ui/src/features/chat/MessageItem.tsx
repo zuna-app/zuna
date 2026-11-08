@@ -839,7 +839,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       : []),
     ...(message.status === "failed"
       ? [
-          { label: "Try again", icon: <RefreshCw size={15} />, onSelect: () => void session().retryMessage(message.groupId, message.id) },
+          { label: "Try again", icon: <RefreshCw size={15} />, onSelect: () => void run(() => session().retryMessage(message.groupId, message.id)) },
           { label: "Discard", icon: <Trash2 size={15} />, danger: true, onSelect: () => void session().discardMessage(message.groupId, message.id) },
         ]
       : []),
@@ -1011,7 +1011,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
               </div>
             )}
             {message.status === "failed" && (
-              <button className="msg-retry" onClick={() => void session().retryMessage(message.groupId, message.id)}>
+              <button className="msg-retry" onClick={() => void run(() => session().retryMessage(message.groupId, message.id))}>
                 <AlertCircle size={13} /> Not sent. Try again
               </button>
             )}
@@ -1128,7 +1128,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           )}
         </div>
         {message.status === "failed" && (
-          <button className="msg-retry" onClick={() => void session().retryMessage(message.groupId, message.id)}>
+          <button className="msg-retry" onClick={() => void run(() => session().retryMessage(message.groupId, message.id))}>
             <AlertCircle size={13} /> Not sent. Try again
           </button>
         )}

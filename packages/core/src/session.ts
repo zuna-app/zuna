@@ -5599,6 +5599,8 @@ export class ServerSession {
     const row = this.messageRow(groupId, id);
     const body = row ? this.storedBody(row) : null;
     if (!row || row.status !== "failed" || !row.body || !body) return;
+    // A file that never went up has nothing on the server for the message to point at.
+    if (body.attachments?.some((item) => !item.fileId)) throw new Error("Its files didn't upload. Attach them again to send this.");
     const group = this.groups.get(groupId);
     const key = group ? this.conversationKey(group) : groupId.replace(/^pending:/, "");
     this.db.run("UPDATE messages SET status = 'sending' WHERE group_id = ? AND id = ?", [groupId, id]);
@@ -5606,7 +5608,16 @@ export class ServerSession {
     this.enqueue(key, {
       kind: "message",
       id,
-      body: { text: body.text, replyTo: body.replyTo, emotes: body.emotes, attachments: body.attachments, mentions: body.mentions, location: body.location },
+      body: {
+        text: body.text,
+        replyTo: body.replyTo,
+        emotes: body.emotes,
+        attachments: body.attachments,
+        mentions: body.mentions,
+        location: body.location,
+        forwarded: body.forwarded,
+        preview: body.preview && linkInText(body.preview.url, body.text ?? "") ? body.preview : undefined,
+      },
       fileIds: body.attachments?.map((item) => item.fileId),
     });
   }

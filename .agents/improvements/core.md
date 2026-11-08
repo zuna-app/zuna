@@ -12,14 +12,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: memoize `treeMembers(groupId)` by MLS epoch plus a "trust revision" counter bumped whenever pins, chains or a user's devices change (`applyUser`, `acceptLink`, `applyManifest`, `markVerified`); clear it with `treeUsersCache` in `forgetMlsState`. In `onFrame` `case "user"`, call `rescheduleAffectedByDeviceChange` only when the device set or identity key changed vs the cached user. This touches the security path, so read SECURITY_DETAILS first.
 - Check after: `npx vitest run test/security.test.ts test/channels.test.ts test/rotation.test.ts`.
 
-### Keep a forwarded message's label and preview when it's retried, and refuse to retry a message whose files never went up
-- Where: packages/core/src/session.ts:5535-5549 (`retryMessage`), 5781-5804, 5835-5837 (`sendWithAttachments` saves placeholders with `fileId: ""` and marks the message failed)
-- Category: ux
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: `retryMessage` rebuilds the body as `{ text, replyTo, emotes, attachments, mentions, location }`, dropping `forwarded` and `preview`, so a retried forward goes out as the sender's own words. A message whose upload failed keeps placeholder attachments (`fileId: ""`, `chunks: 0`); retry enqueues `file_ids: [""]`, the server answers 400 (`store.ValidID`, server/internal/api/groups.go:491-495), and it goes straight back to failed. Retry can never work for it.
-- Suggested change: pass `forwarded` and `preview` through (keep `preview` only while `linkInText(preview.url, text)` holds). If any attachment has an empty `fileId`, throw a clear error ("Attach the files again to send this") instead of enqueueing.
-- Check after: add a case to test/forwarding.test.ts; `npx vitest run test/forwarding.test.ts test/media.test.ts`. The UIs (packages/ui, apps/desktop/src/ui, iOS) may want to offer only Discard for failed uploads.
-
 ### Carry `reported` across an account's devices
 - Where: packages/core/src/validate.ts:350-370 (`parsePreferences` leaves out `reported`); written at session.ts:4974-4978, shared via `nextManifest` 1364 and `applyManifest` 1325-1326; read by packages/ui/src/features/chat/SidePanel.tsx:237
 - Category: robustness
