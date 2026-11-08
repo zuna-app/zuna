@@ -36,14 +36,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: limit reaction keys to ~64 characters and run `plainName` over them; strip `HIDDEN_CHARACTERS` from preview `title`/`description`/`siteName`; give image dimensions the same `side()` limits; cap `data` at ~256 KiB. Export `plainName` for links.ts.
 - Check after: `npx vitest run test/security.test.ts`. Any validation change is a security-relevant change: check SECURITY_DETAILS for what it claims about `validate.ts`.
 
-### Don't let one bad server stop all of them from opening
-- Where: packages/core/src/client.ts:162-174 (`open()` decrypts, pins and builds every session in one loop with no per-server guard)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: if one server's account fails to open, or its migration or `new wasm.MlsClient(...)` (session.ts:627-632) throws on corrupt MLS state, `open()` rejects and no server loads.
-- Suggested change: try/catch per row, log, leave that server out (or list it as signed out with a reason). `listServers()` already tolerates a row without a session.
-- Check after: `npx vitest run test/share-extension.test.ts test/e2e.test.ts`. (The web store has the matching UI-side problem: one server's error fails the whole boot.)
-
 ### Keep one bad outbox row, or one stuck chat, from holding up every send
 - Where: packages/core/src/session.ts:5369-5404 (`openJson` at 5384 runs outside the try; one global queue ordered by `created_at`, 5376-5379; a retryable error stops everything for 5 s at 5395-5397)
 - Category: robustness

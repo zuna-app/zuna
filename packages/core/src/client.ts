@@ -166,11 +166,16 @@ export class ZunaClient {
         await this.options.db.remove(serverDbName(row.id));
         continue;
       }
-      const json = fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account")));
-      const account = decodeAccount(json);
-      if (account.pin) await this.pin(account.serverUrl, account.pin);
-      const session = await this.createSession(row.id, account);
-      session.start();
+      // One server that won't open, as with its data damaged, leaves the others to open.
+      try {
+        const json = fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account")));
+        const account = decodeAccount(json);
+        if (account.pin) await this.pin(account.serverUrl, account.pin);
+        const session = await this.createSession(row.id, account);
+        session.start();
+      } catch (error) {
+        console.warn(`[zuna] a server couldn't be opened (${row.id})`, error);
+      }
     }
   }
 
@@ -326,8 +331,14 @@ export class ZunaClient {
     const rows = this.index.all<{ id: string; account: Uint8Array; name: string; has_icon: number; signed_out: string | null }>(
       "SELECT id, account, name, has_icon, signed_out FROM servers ORDER BY position",
     );
-    return rows.map((row) => {
-      const account = JSON.parse(fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account"))));
+    return rows.flatMap((row) => {
+      let account;
+      try {
+        account = JSON.parse(fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account"))));
+      } catch {
+        // Its account won't open, so there's nothing to list it by. The rest still are.
+        return [];
+      }
       return {
         id: row.id,
         url: account.serverUrl,
