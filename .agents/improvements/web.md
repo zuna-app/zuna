@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Tell the person when the core worker dies after boot
-- Where: packages/ui/src/core/boot.ts:19 (`worker.onerror` only rejects the boot); packages/core/src/rpc.ts:110-152 (pending calls are never rejected)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: after a crash every RPC hangs silently and the UI looks alive.
-- Suggested change: after boot, route `onerror` and `onmessageerror` to `phase: "failed"` with "Reload the page", and reject everything pending.
-- Check after: web check. Parity: native QuickJS crash handling not checked.
-
 ### Delay revoking the recovery key's download URL
 - Where: packages/ui/src/features/onboarding/Onboarding.tsx:400-409 (revoked right after `click()`, on a detached anchor)
 - Category: robustness
