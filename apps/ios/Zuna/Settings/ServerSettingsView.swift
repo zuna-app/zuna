@@ -54,15 +54,13 @@ struct ServerSettingsView: View {
 
                 Section {
                     Button("Invite people", systemImage: "link") { inviting = true }
-                    Toggle("Let members create invite links", isOn: Binding(get: { server.info?.allowMemberInvites ?? false }, set: { value in
-                        run { try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(allowMemberInvites: value)) }
-                    }))
-                    .tint(model.settings.accent.switchTint)
+                    SavingToggle("Let members create invite links", value: server.info?.allowMemberInvites ?? false) { value in
+                        try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(allowMemberInvites: value))
+                    }
                     .accessibilityIdentifier(A11y.Settings.memberInvites)
-                    Toggle("Open sign-ups", isOn: Binding(get: { server.info?.registration == "open" }, set: { value in
-                        run { try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(registration: value ? "open" : "invite")) }
-                    }))
-                    .tint(model.settings.accent.switchTint)
+                    SavingToggle("Open sign-ups", value: server.info?.registration == "open") { value in
+                        try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(registration: value ? "open" : "invite"))
+                    }
                     .accessibilityIdentifier(A11y.Settings.openSignUps)
                 } header: {
                     Text("Invites")

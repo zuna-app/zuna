@@ -128,19 +128,17 @@ struct PrivacyView: View {
         let me = server?.selfUser
         List {
             Section {
-                Toggle("Send read receipts", isOn: Binding(get: { server?.prefs.sendReadReceipts ?? true }, set: { value in
-                    run { try await model.core.session(serverId).updatePreferences(PreferenceChanges(sendReadReceipts: value)) }
-                }))
-                .tint(model.settings.accent.switchTint)
+                SavingToggle("Send read receipts", value: server?.prefs.sendReadReceipts ?? true) { value in
+                    try await model.core.session(serverId).updatePreferences(PreferenceChanges(sendReadReceipts: value))
+                }
                 .accessibilityIdentifier(A11y.Settings.readReceipts)
             } footer: {
                 Text("Others see when you've read their messages. If off, your devices still stay in sync.")
             }
             Section {
-                Toggle("Show when I'm online", isOn: Binding(get: { !(me?.hidesLastSeen ?? false) }, set: { value in
-                    run { try await model.core.session(serverId).setHideLastSeen(!value) }
-                }))
-                .tint(model.settings.accent.switchTint)
+                SavingToggle("Show when I'm online", value: !(me?.hidesLastSeen ?? false)) { value in
+                    try await model.core.session(serverId).setHideLastSeen(!value)
+                }
                 .accessibilityIdentifier(A11y.Settings.showOnline)
             } footer: {
                 Text("If off, people see \u{201C}last seen recently\u{201D} instead of your status.")

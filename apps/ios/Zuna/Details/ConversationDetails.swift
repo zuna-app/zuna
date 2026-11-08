@@ -84,15 +84,14 @@ struct ConversationDetails: View {
                 members(server, conversation, selfId: selfId, isAdmin: isAdmin)
                 if isAdmin {
                     Section {
-                        Toggle(isOn: Binding(get: { conversation.historyVisible }, set: { value in
-                            run { try await model.core.session(serverId).updateGroupMeta(conversation.groupId ?? "", GroupMetaChanges(), historyVisible: value) }
-                        })) {
+                        SavingToggle(value: conversation.historyVisible) { value in
+                            try await model.core.session(serverId).updateGroupMeta(conversation.groupId ?? "", GroupMetaChanges(), historyVisible: value)
+                        } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("New members can read earlier messages")
                                 Text("Applies to people added after this is turned on.").font(.caption).foregroundStyle(Theme.text3)
                             }
                         }
-                        .tint(model.settings.accent.switchTint)
                         .accessibilityIdentifier(A11y.Details.history)
                     }
                     .listRowBackground(Theme.bg2)
@@ -143,7 +142,9 @@ struct ConversationDetails: View {
                 .tint(model.settings.accent.switchTint)
                 .accessibilityIdentifier(A11y.Details.notifications)
                 if conversation.kind == .group {
-                    Toggle(isOn: Binding(get: { conversation.mentionsOnly }, set: { model.setMentionsOnly(conversation.key, $0, on: serverId) })) {
+                    SavingToggle(value: conversation.mentionsOnly) { value in
+                        try await model.core.session(serverId).setMentionsOnly(conversation.key, on: value)
+                    } label: {
                         Label {
                             Text("Only mentions")
                             Text("Notify only when someone mentions you or replies to you")
@@ -151,7 +152,6 @@ struct ConversationDetails: View {
                             Image(systemName: "at")
                         }
                     }
-                    .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Details.mentionsOnly)
                 }
                 Button {
