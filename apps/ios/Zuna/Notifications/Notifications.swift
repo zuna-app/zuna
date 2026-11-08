@@ -44,6 +44,8 @@ final class Notifications {
     private let model: AppModel
     private let logger = Logger(subsystem: "chat.zuna", category: "notifications")
     private var refreshing = false
+    /// The count last written to the badge, so that a change elsewhere in the model writes nothing.
+    @ObservationIgnored private var badgeWritten: Int?
     private var refreshAgain = false
 
     init(model: AppModel) {
@@ -388,6 +390,10 @@ final class Notifications {
 
     private func syncUnread() {
         let total = model.totalUnread
+        // Written again only when it differs, from what was last written or from what the
+        // notification extension has added to it since.
+        if badgeWritten == total && PushStore.badge == total { return }
+        badgeWritten = total
         PushStore.badge = total
         UNUserNotificationCenter.current().setBadgeCount(total)
     }

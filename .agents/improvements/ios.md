@@ -28,14 +28,6 @@ Nothing was run. Severity is estimated user impact; Confidence says whether the 
 - Suggested change: drop the `didSet`; recompute `mentionable` in `init` and `refresh("users")`; apply presence through one mutating method that sets both fields in a single write.
 - Check after: `npm run test:ios:ui -- --only PresenceTests,ComposerTests`.
 
-### Write the app badge only when the count changes
-- Where: apps/ios/Zuna/Notifications/Notifications.swift:376-393; apps/ios/Zuna/Shared/PushStore.swift:19-21, 91-94
-- Category: perf
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the badge observer watches `model.totalUnread`, which reads `servers`, so it fires on every presence or typing change; each time it writes the App Group defaults (a new `UserDefaults(suiteName:)` per access) and calls `setBadgeCount`, even when the total hasn't changed.
-- Suggested change: remember the last value and return early when unchanged; make `PushStore.defaults` a `static let`.
-- Check after: `npm run test:ios:notify`; `npm run test:ios:ui -- --only NotificationTests`.
-
 ### Make the avatar cache aware of size
 - Where: apps/ios/Zuna/Shared/AvatarView.swift:27-32, 100-117, 177-188
 - Category: ux
