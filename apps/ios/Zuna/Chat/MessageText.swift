@@ -207,9 +207,59 @@ final class MessageTextLabel: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// The text as VoiceOver reads it: a spoiler not shown yet is called one, not read out.
     override var accessibilityLabel: String? {
-        get { attributedText.string.replacingOccurrences(of: "\u{FFFC}", with: "") }
+        get {
+            let spoken = NSMutableString(string: attributedText.string)
+            for range in hiddenSpoilers().map(\.range).reversed() { spoken.replaceCharacters(in: range, with: "spoiler") }
+            return (spoken as String).replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces)
+        }
         set {}
+    }
+
+    /// What a tap on the text does, for VoiceOver, which can't tap within it: links,
+    /// mentions, and spoilers to show. A link inside a hidden spoiler waits for it.
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get {
+            let whole = NSRange(location: 0, length: attributedText.length)
+            let hidden = hiddenSpoilers()
+            let covered = { (range: NSRange) in hidden.contains { NSIntersectionRange($0.range, range).length > 0 } }
+            var actions: [UIAccessibilityCustomAction] = []
+            attributedText.enumerateAttribute(.zunaLink, in: whole) { value, range, _ in
+                guard let text = value as? String, let url = URL(string: text), !covered(range) else { return }
+                actions.append(UIAccessibilityCustomAction(name: "Open \(text)") { [weak self] _ in
+                    self?.onLink?(url)
+                    return true
+                })
+            }
+            attributedText.enumerateAttribute(.zunaMention, in: whole) { value, range, _ in
+                guard let userId = value as? String, !covered(range) else { return }
+                let name = (attributedText.string as NSString).substring(with: range)
+                actions.append(UIAccessibilityCustomAction(name: "Show \(name)") { [weak self] _ in
+                    self?.onMention?(userId)
+                    return true
+                })
+            }
+            for spoiler in hidden {
+                actions.append(UIAccessibilityCustomAction(name: "Show spoiler") { [weak self] _ in
+                    self?.onSpoiler?(spoiler.index)
+                    return true
+                })
+            }
+            return actions
+        }
+        set {}
+    }
+
+    /// The spoilers not shown yet, which are drawn in a clear color.
+    private func hiddenSpoilers() -> [(index: Int, range: NSRange)] {
+        var hidden: [(index: Int, range: NSRange)] = []
+        attributedText.enumerateAttribute(.zunaSpoiler, in: NSRange(location: 0, length: attributedText.length)) { value, range, _ in
+            guard let index = value as? Int,
+                  (attributedText.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor) == .clear else { return }
+            hidden.append((index, range))
+        }
+        return hidden
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
