@@ -248,7 +248,7 @@ function ReportRow({ userId, name }: { userId: string; name: string }) {
   return (
     <>
       <button
-        className="side-row is-button"
+        className="side-row is-button is-danger"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           setMenu({ x: rect.left, y: rect.bottom + 4 });

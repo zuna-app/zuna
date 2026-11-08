@@ -505,7 +505,7 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
             <button className="btn btn-danger" onClick={() => setOverlay({ type: "server-settings", section: "leave" })}>
               <LogOut size={15} /> Sign out of this server
             </button>
-            <button className="btn" onClick={() => setOverlay({ type: "server-settings", section: "delete" })}>
+            <button className="btn btn-danger" onClick={() => setOverlay({ type: "server-settings", section: "delete" })}>
               <Trash2 size={15} /> Delete account
             </button>
           </div>

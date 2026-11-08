@@ -489,7 +489,7 @@ impl SidePanel {
                 .into_any_element();
         }
         let (state, id) = (self.state.clone(), peer.id.clone());
-        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins see whom and why, never what was said or who reported.".into()), false, cx)
+        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins see whom and why, never what was said or who reported.".into()), true, cx)
             .on_click(move |event, _, cx| {
                 let entries = REPORT_REASONS
                     .iter()

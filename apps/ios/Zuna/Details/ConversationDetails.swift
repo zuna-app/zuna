@@ -196,10 +196,9 @@ struct ConversationDetails: View {
                         Label("Reported to the server's admins", systemImage: "flag")
                             .foregroundStyle(Theme.text3)
                     } else {
-                        Button { reporting = peer } label: {
+                        Button(role: .destructive) { reporting = peer } label: {
                             Label("Report \(peer.displayName)", systemImage: "flag")
                         }
-                        .foregroundStyle(Theme.text1)
                     }
                 } footer: {
                     Text("The server's admins see whom and why, never what was said or who reported.")

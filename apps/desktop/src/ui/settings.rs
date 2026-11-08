@@ -311,8 +311,8 @@ impl SettingsView {
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))),
                     )
                     .child(
-                        button("delete-account", ButtonKind::Default, ButtonSize::Normal, false, cx)
-                            .child(icon("trash", 15., theme.text1))
+                        button("delete-account", ButtonKind::Danger, ButtonSize::Normal, false, cx)
+                            .child(icon("trash", 15., theme.red))
                             .child("Delete account")
                             .on_click(move |_, _, cx| delete_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some("delete".into()) }), cx))),
                     )
