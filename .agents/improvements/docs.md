@@ -12,14 +12,6 @@ Line numbers are as of eaa5627. Apply CLAUDE.md's own table: a doc change that t
 - Suggested change: "today the native desktop app runs on Windows, Linux and macOS, but the release workflow publishes none of them (its desktop job went with the Electron app on 2026-11-08), macOS has no package until there's a Developer ID, and the iPhone and iPad app isn't out. Before the first release, the release workflow builds the native installers, which the download buttons give (`downloads.ts`)."
 - Check after: apps/site Platforms.tsx: the macOS card offers a ".dmg" that won't exist (it falls back to the releases page). Changing the site means a browser look (site-check only if markup changes).
 
-### Clear LINUX_APP_PLAN's leftover Electron paths and tooling
-- Where: docs/LINUX_APP_PLAN.md:176, :226, :227
-- Category: docs
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: :176 takes icons from `apps/desktop-electron-legacy/resources/icons` (linux-app.mjs:68 now uses apps/desktop/resources/icons). :226 says the other side is started by `voice-check.mjs` (`scripts/lib.mjs`) and is "the Electron app driven by Playwright"; it's now the web app in Chromium, via `startWebHost` in linux-session.mjs. :227 cites `sound-check.mjs`, removed.
-- Suggested change: fix the path; :226 → "the web app in Chromium, served by a local `zuna-web` and driven by Playwright (`linux-voice-check.mjs`, `linux-session.mjs`)"; drop the :227 clause.
-- Check after: none.
-
 ### Stop calling the web app the desktop app without notifications
 - Where: README.md:90; docs/WEB.md:3, :14-25; packages/ui/package.json:6; apps/web/package.json:6
 - Category: docs
