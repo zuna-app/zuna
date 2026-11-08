@@ -37,6 +37,7 @@ import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type Me
 import { copyText } from "@/lib/clipboard";
 import { focusComposer } from "@/lib/focus";
 import { formatBytes, formatDuration, formatFull, formatStamp, formatTime, nameColor } from "@/lib/format";
+import { useGrowWithText } from "@/lib/grow";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { timerChangeText } from "@/lib/disappearing";
 import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
@@ -568,6 +569,7 @@ function InlineEditor({ message, listId }: { message: MessageView; listId: strin
   const enterToSend = useApp((state) => state.settings.enterToSend);
   const [text, setText] = useState(message.text);
   const input = useRef<HTMLTextAreaElement>(null);
+  useGrowWithText(input, text);
 
   useEffect(() => {
     const element = input.current!;

@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Grow the message box where the browser lacks `field-sizing`
-- Where: packages/ui/src/styles/chat.css:366-368 and channel.css:117,210 (`field-sizing: content` with `rows={1}`); the build targets `firefox128` and `safari17`
-- Category: ux
-- Severity: low ; Effort: S ; Confidence: medium (depends on which browser versions have shipped it)
-- What's wrong: there's no fallback, so multi-line text scrolls inside a one-line box.
-- Suggested change: when `!CSS.supports("field-sizing","content")`, set the height from `scrollHeight` in a `useLayoutEffect`, in `Composer` and `InlineEditor`.
-- Check after: web check in Firefox and WebKit.
-
 ### Show "searching" instead of flashing "No results"
 - Where: packages/ui/src/features/chat/SidePanel.tsx:585-623 ("No messages found." shows during the debounce; the async timeout has no try/catch); features/shell/ConversationList.tsx:203-223,417-419 ("Nothing matches that search." shows before the message hits arrive)
 - Category: ux

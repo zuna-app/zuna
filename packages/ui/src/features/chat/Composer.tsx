@@ -9,6 +9,7 @@ import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Tooltip } from "@/components/ui";
 import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
+import { useGrowWithText } from "@/lib/grow";
 import { MAX_ROUND_SECONDS, ROUND_SIZE, RoundRecorder } from "@/lib/round";
 import { useSlowWait, waitText } from "@/lib/slow-mode";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
@@ -116,6 +117,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const [round, setRound] = useState<{ recorder: RoundRecorder; elapsed: number } | null>(null);
   const roundRecorder = useRef<RoundRecorder | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  useGrowWithText(input, text);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const emotes = useActiveField((server) => server.emotes.emotes, NO_EMOTES);
