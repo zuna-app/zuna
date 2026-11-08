@@ -62,8 +62,11 @@ async function installPool(sqlite3: any): Promise<any> {
   }
 }
 
-export async function openSqliteProvider(): Promise<DbProvider> {
-  const sqlite3 = await sqlite3InitModule();
+/** Loads SQLite's WebAssembly, which touches no files yet, so it can start before the core boots. */
+export const loadSqlite = (): Promise<unknown> => sqlite3InitModule();
+
+export async function openSqliteProvider(loaded: Promise<unknown> = loadSqlite()): Promise<DbProvider> {
+  const sqlite3 = await loaded;
   const pool = await installPool(sqlite3);
   const open = new Map<string, SqliteDb>();
   const path = (name: string) => `/${name}.sqlite`;

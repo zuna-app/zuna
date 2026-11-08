@@ -27,14 +27,27 @@ function takeJoinLink(): string | null {
 }
 
 export function webPlatform(config: HostConfig): Platform {
+  const start = () =>
+    new Worker(new URL("./worker.ts", import.meta.url), {
+      type: "module",
+      name: config.previews ? "zuna-core" : "zuna-core-no-previews",
+    });
+  // The worker starts with the app, so that its script and WebAssembly load while the
+  // interface first draws and the device key is read, rather than after. It opens no
+  // files until it's booted, so an unreadable database can still be removed first.
+  const early = start();
+  worker = early;
+  let used = false;
+  // One that failed to load before anything listened is started again, rather than waited on for good.
+  let failed = false;
+  early.addEventListener("error", () => (failed = true));
   return {
     async bootCore(onEvent) {
       const { key, created } = await loadDeviceKey();
       if (created) await removeUnreadableDatabase();
-      worker = new Worker(new URL("./worker.ts", import.meta.url), {
-        type: "module",
-        name: config.previews ? "zuna-core" : "zuna-core-no-previews",
-      });
+      // Booted before, stopped or failed, it starts again.
+      if (worker !== early || used || failed) worker = start();
+      used = true;
       const booted = await connectWorker(worker, { key, deviceName: deviceName(), localLinks: config.localLinks }, onEvent);
       // Asks the browser not to clear Zuna's data when the disk fills up. If it does
       // anyway, signing in again brings the history back from the vault.

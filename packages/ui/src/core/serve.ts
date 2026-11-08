@@ -6,7 +6,7 @@ import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { initCrypto } from "@zuna/crypto";
 import wasmUrl from "@zuna/crypto/wasm?url";
-import { openSqliteProvider } from "./sqlite";
+import { loadSqlite, openSqliteProvider } from "./sqlite";
 
 interface BootMessage {
   kind: "boot";
@@ -50,6 +50,14 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
     resolveClient = resolve;
   });
   const web: WebAdapter | undefined = fetchPage && { fetch: fetchPage, shrinkImage };
+  // Both WebAssembly modules load as the worker starts, side by side, while the page
+  // is still reading its device key, rather than one after the other once it has.
+  // Neither touches the database's files, which another tab may still be letting go of.
+  const crypto = initCrypto({ module_or_path: wasmUrl });
+  const sqlite = loadSqlite();
+  // Whatever goes wrong is said when booting, which waits on them.
+  crypto.catch(() => undefined);
+  sqlite.catch(() => undefined);
 
   const port = self as unknown as { postMessage(message: unknown): void; onmessage: ((event: MessageEvent) => void) | null };
   const emit: (event: CoreEvent) => void = serveCore(port, () => clientReady);
@@ -63,8 +71,8 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
     const boot = data as BootMessage;
     allowLocalLinks(boot.localLinks);
     try {
-      await initCrypto({ module_or_path: wasmUrl });
-      const db = await openSqliteProvider();
+      await crypto;
+      const db = await openSqliteProvider(sqlite);
       const client = new ZunaClient({
         channels: true,
         calls: true,
