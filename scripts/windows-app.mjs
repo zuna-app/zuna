@@ -13,8 +13,9 @@
 // `npm run dev:clean` starts it over with the test server. ZUNA_DATA_DIR puts any of them elsewhere.
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 
@@ -158,13 +159,21 @@ async function signing(require) {
   const link = process.env.CSC_LINK;
   const password = process.env.CSC_KEY_PASSWORD;
   if (!link || !password) return null;
-  const pfx = join(root, "dist", "windows", "signing.pfx");
-  if (link.startsWith("https://")) writeFileSync(pfx, Buffer.from(await (await fetch(link)).arrayBuffer()));
-  else if (existsSync(link)) copyFileSync(link, pfx);
+  // The certificate, with its private key, goes in a folder of its own outside the checkout,
+  // never dist/, and is deleted however this ends: Ctrl+C or a kill too. The signtool
+  // command, which carries the password, is never printed.
+  const folder = mkdtempSync(join(tmpdir(), "zuna-sign-"));
+  const pfx = join(folder, "signing.pfx");
+  process.on("exit", () => rmSync(folder, { recursive: true, force: true }));
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) process.on(signal, () => process.exit(130));
+  if (link.startsWith("https://")) {
+    const response = await fetch(link);
+    if (!response.ok) throw new Error(`Couldn't fetch the signing certificate: HTTP ${response.status}`);
+    writeFileSync(pfx, Buffer.from(await response.arrayBuffer()));
+  } else if (existsSync(link)) copyFileSync(link, pfx);
   else writeFileSync(pfx, Buffer.from(link, "base64"));
   const { getSignToolPath } = require("app-builder-lib/out/toolsets/windows");
   const signtool = await getSignToolPath(undefined, true);
-  process.on("exit", () => rmSync(pfx, { force: true }));
   return (file) => {
     const signed = spawnSync(signtool.path, ["sign", "/f", pfx, "/p", password, "/fd", "sha256", "/tr", "http://timestamp.digicert.com", "/td", "sha256", "/d", "Zuna", file], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, ...(signtool.env ?? {}) } });
     if (signed.status !== 0) {

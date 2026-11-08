@@ -76,14 +76,6 @@ Confidence is "high" only where the claim was checked in code, the lockfile or a
 - Suggested change: in build-web.mjs run Vite directly as dev-web.mjs:27 does (`run(process.execPath, [join(root, "node_modules", "vite", "bin", "vite.js"), "build"], { cwd: join(root, "apps", "web") })`); in web-check.mjs use the vite-node helper below.
 - Check after: `npm run build:web` on Windows has no DEP0190; `node apps/web/test/web-check.mjs`.
 
-### Keep the signing certificate out of dist/ and delete it on every exit
-- Where: scripts/windows-app.mjs:178-196
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `signing()` writes the release's .pfx (private key included) to dist/windows/signing.pfx and removes it only in `process.on("exit")`; Ctrl+C can leave it in a gitignored folder that also holds a private report. An `https://` CSC_LINK is fetched without checking `response.ok`, so an error page becomes the "pfx".
-- Suggested change: write under `mkdtempSync(join(tmpdir(), "zuna-sign-"))`, remove it in `exit`, `SIGINT` and `SIGTERM` handlers, throw on `!response.ok`; never print the signtool command.
-- Check after: `npm run dist:windows` with CSC_LINK set, Ctrl+C mid-signing: no .pfx left anywhere.
-
 ### Notice when LiveKit or zuna-web stops in the dev scripts
 - Where: scripts/dev-server.mjs:49-52; scripts/dev-web.mjs:26-41
 - Category: robustness
