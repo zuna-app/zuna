@@ -20,14 +20,6 @@ Skipped: the parsing logic in mlsframe.go, the crypto checks in generations.go a
 - Suggested change: append `CREATE INDEX welcomes_group ON welcomes(group_id); CREATE INDEX history_grants_group ON history_grants(group_id);` to both lists.
 - Check after: Go tests and the PostgreSQL run.
 
-### Delete retention and expiry in batches
-- Where: server/internal/store/messages.go:553-591, and server/internal/api/server.go:336-348
-- Category: robustness
-- Severity: medium ; Effort: M ; Confidence: medium
-- What's wrong: `DeleteMessagesOlderThan` deletes everything past the cutoff, plus its cascades, in one transaction. The first time retention is turned on for a large server: in SQLite, that transaction holds the write lock (`_txlock=immediate`) throughout, so other writers wait past `busy_timeout(10000)` and get 500s; in PostgreSQL, it's one huge serializable transaction that is likely to be retried.
-- Suggested change: loop in batches of about 1000 keys (collect their file_refs, delete, run `unreferenced`, commit) until a batch comes back short. Do the same for `DeleteExpiredMessages`.
-- Check after: Go tests (retention and disappearing-message tests) and the PostgreSQL run.
-
 ### Make the hourly storage recount cheaper and race-free
 - Where: server/internal/store/limits.go:51-99
 - Category: perf

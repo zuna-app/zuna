@@ -75,6 +75,42 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 	}
 }
 
+func TestRetentionDeletesInBatches(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	defer func(size int) { deleteBatch = size }(deleteBatch)
+	deleteBatch = 2
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownFile(t, db, "shared")
+	ownFile(t, db, "own")
+	// Five messages, so three batches, with one file used in the first and the last.
+	for _, m := range []struct{ id, file string }{{"a", "shared"}, {"b", ""}, {"c", "own"}, {"d", ""}, {"e", "shared"}} {
+		var files []string
+		if m.file != "" {
+			files = []string{m.file}
+		}
+		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: m.id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x")}, files, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := db.DeleteMessagesOlderThan(ctx, Now()+1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(files)
+	if !slices.Equal(files, []string{"own", "shared"}) {
+		t.Fatalf("removed files = %v, want each once, once nothing used it", files)
+	}
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if _, err := db.Message(ctx, group, id); err == nil {
+			t.Fatalf("message %s should be gone", id)
+		}
+	}
+}
+
 func TestDisappearingMessagesGoWhenDueEvenPinned(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

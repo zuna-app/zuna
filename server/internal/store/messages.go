@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"sort"
+	"strconv"
 )
 
 // Message is an encrypted message and its server-visible state.
@@ -549,45 +550,60 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 }
 
 // DeleteMessagesOlderThan applies the server's retention policy. It returns
-// the files no message uses any more.
+// the files no message uses any more, including on an error, for the batches
+// that were deleted before it.
 func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]string, error) {
-	var fileIDs []string
-	err := d.tx(ctx, func(tx handle) error {
-		var err error
-		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
-			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
-			WHERE m.created_at < ? AND m.pinned_at IS NULL`, cutoff)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE created_at < ? AND pinned_at IS NULL`, cutoff); err != nil {
-			return err
-		}
-		fileIDs, err = unreferenced(ctx, tx, fileIDs)
-		return err
-	})
-	return fileIDs, err
+	return d.deleteMessagesWhere(ctx, `created_at < ? AND pinned_at IS NULL`, cutoff)
 }
 
 // DeleteExpiredMessages removes the disappearing messages that are due by now,
-// pinned or not. It returns the files no message uses any more.
+// pinned or not. It returns the files no message uses any more, as
+// DeleteMessagesOlderThan does.
 func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, error) {
-	var fileIDs []string
-	err := d.tx(ctx, func(tx handle) error {
-		var err error
-		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
-			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
-			WHERE m.expires_at IS NOT NULL AND m.expires_at <= ?`, now)
+	return d.deleteMessagesWhere(ctx, `expires_at IS NOT NULL AND expires_at <= ?`, now)
+}
+
+// deleteBatch is how many messages one transaction deletes. The first delete
+// after retention is turned on can reach most of a server's messages, and one
+// transaction for all of them would hold SQLite's write lock past every other
+// writer's busy timeout, or be a serializable transaction in PostgreSQL bound
+// to collide.
+var deleteBatch = 1000
+
+// deleteMessagesWhere deletes the messages a condition on one argument picks, a
+// batch at a time, and returns the files no message uses any more.
+func (d *DB) deleteMessagesWhere(ctx context.Context, condition string, arg int64) ([]string, error) {
+	batch := `SELECT group_id, id FROM messages WHERE ` + condition + ` ORDER BY group_id, id LIMIT ` + strconv.Itoa(deleteBatch)
+	var removed []string
+	for {
+		var fileIDs []string
+		var deleted int64
+		err := d.tx(ctx, func(tx handle) error {
+			used, err := collectStrings(ctx, tx, `SELECT DISTINCT file_id FROM file_refs WHERE (group_id, message_id) IN (`+batch+`)`, arg)
+			if err != nil {
+				return err
+			}
+			result, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE (group_id, id) IN (`+batch+`)`, arg)
+			if err != nil {
+				return err
+			}
+			if deleted, err = result.RowsAffected(); err != nil {
+				return err
+			}
+			fileIDs, err = unreferenced(ctx, tx, used)
+			return err
+		})
 		if err != nil {
-			return err
+			return removed, err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?`, now); err != nil {
-			return err
+		removed = append(removed, fileIDs...)
+		if deleted < int64(deleteBatch) {
+			return removed, nil
 		}
-		fileIDs, err = unreferenced(ctx, tx, fileIDs)
-		return err
-	})
-	return fileIDs, err
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+	}
 }
 
 func collectStrings(ctx context.Context, tx handle, query string, args ...any) ([]string, error) {

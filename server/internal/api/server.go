@@ -301,7 +301,6 @@ func (s *Server) removeExpired(ctx context.Context) {
 	files, err := s.db.DeleteExpiredMessages(ctx, store.Now())
 	if err != nil {
 		slog.Warn("removing disappearing messages", "error", err)
-		return
 	}
 	s.removeFiles(ctx, files)
 }
@@ -343,7 +342,6 @@ func (s *Server) cleanup(ctx context.Context) {
 	files, err := s.db.DeleteMessagesOlderThan(ctx, expired)
 	if err != nil {
 		slog.Warn("applying message retention", "error", err)
-		return
 	}
 	s.removeFiles(ctx, files)
 }
