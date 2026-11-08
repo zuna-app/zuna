@@ -82,7 +82,7 @@ pub(super) fn emote_width(context: &ChatContext, id: &str, height: f32, widest: 
 /// the set says, or square for one the set doesn't know. Its name stands in only for a picture
 /// that couldn't be had.
 pub(super) fn emote_placeholder(context: &ChatContext, url: &str, name: &str, width: Option<f32>, height: f32, cx: &App) -> gpui::Div {
-    if matches!(context.state.read(cx).pictures.get(url), Some(Picture::Failed)) {
+    if matches!(context.state.read(cx).pictures.get(url), Some(Picture::Failed(_))) {
         return div().text_color(theme(cx).text2).child(name.to_string());
     }
     div().flex_none().h(px(height)).w(px(width.unwrap_or(height)))

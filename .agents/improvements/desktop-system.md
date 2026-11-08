@@ -211,14 +211,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: race `send` and `drive` against a 30 s timeout; record each app's PID and kill it in `finish`; register an idempotent `finish` on SIGINT, SIGTERM and uncaughtException.
 - Check after: Ctrl+C mid-run; `pactl list short modules` should be clean.
 
-### Cap what the shared picture fetch downloads, and retry failed pictures
-- Where: host/mod.rs:208-230 (`response.bytes()` with no size cap); state.rs:1265-1291 (`Picture::Failed` kept forever)
-- Category: robustness
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: a server icon or emote URL can return any amount of data into memory (link previews already cap at 5 MB, web.rs:159-169). A transient failure at start leaves an icon or emote blank until restart. (iOS has the same "failed forever" emote issue.)
-- Suggested change: stream with `chunk()` and stop at ~8 MB; retry a failed picture after ~60 s.
-- Check after: `npm run dev:windows`.
-
 ### Don't let repeating core timers burst after a stall
 - Where: host/runtime.rs:299-308 (`interval_at` with tokio's default `MissedTickBehavior::Burst`)
 - Category: robustness

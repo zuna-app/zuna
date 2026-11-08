@@ -182,13 +182,16 @@ pub enum Phase {
     Failed(String),
 }
 
-/// A picture the interface shows, fetched or decrypted once and kept.
+/// A picture the interface shows, fetched or decrypted once and kept. One that failed is tried
+/// again once `PICTURE_RETRY` has passed, so a moment without the network doesn't last the run.
 #[derive(Clone)]
 pub enum Picture {
     Loading,
     Ready(Arc<Image>),
-    Failed,
+    Failed(std::time::Instant),
 }
+
+const PICTURE_RETRY: Duration = Duration::from_secs(60);
 
 /// A notification waiting to be shown, and the key of the photo it waits for.
 struct WaitingNotification {
@@ -1199,7 +1202,7 @@ impl AppState {
         let without_photo = payload.picture.as_ref().is_some_and(|picture| picture.image.is_none());
         if let Some(avatar) = avatar.filter(|_| without_photo) {
             let key = format!("file:{}", avatar.file_id);
-            if !matches!(self.pictures.get(&key), Some(Picture::Failed)) {
+            if !matches!(self.pictures.get(&key), Some(Picture::Failed(_))) {
                 self.decrypted_picture(server_id, avatar, cx);
                 photo = Some(key);
                 cx.spawn(async move |this, cx| {
@@ -1321,7 +1324,7 @@ impl AppState {
     fn store_picture(&mut self, key: String, result: Result<(Vec<u8>, String), String>, cx: &mut Context<Self>) {
         let picture = match result {
             Ok((bytes, mime)) if !bytes.is_empty() => Picture::Ready(Arc::new(Image::from_bytes(image_format(&mime, &bytes), bytes))),
-            _ => Picture::Failed,
+            _ => Picture::Failed(std::time::Instant::now()),
         };
         self.touch_media(&key);
         self.pictures.insert(key, picture);
@@ -1338,6 +1341,7 @@ impl AppState {
                 self.touch_media(url);
                 return Some(image);
             }
+            Some(Picture::Failed(at)) if at.elapsed() >= PICTURE_RETRY => {}
             Some(_) => return None,
             None => {}
         }
@@ -1361,6 +1365,7 @@ impl AppState {
                 self.touch_media(&key);
                 return Some(image);
             }
+            Some(Picture::Failed(at)) if at.elapsed() >= PICTURE_RETRY => {}
             Some(_) => return None,
             None => {}
         }

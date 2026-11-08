@@ -240,7 +240,17 @@ pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
         if !response.status().is_success() {
             return Err(format!("{} answered {}", url, response.status()));
         }
-        response.bytes().await.map(|bytes| bytes.to_vec()).map_err(|error| error.to_string())
+        // An icon or an emote is small, and a server mustn't be able to fill the app's memory.
+        const MOST: usize = 8 << 20;
+        let mut response = response;
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            if body.len() + chunk.len() > MOST {
+                return Err(format!("{url} sent more than 8 MB"));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
     });
     async move { task.await.map_err(|error| error.to_string())? }
 }
