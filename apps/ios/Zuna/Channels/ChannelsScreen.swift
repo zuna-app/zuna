@@ -23,6 +23,7 @@ private struct ChannelsScreen: View {
     @State private var editing: ChannelEditor.Target?
     @State private var muting: ChatListView.MutingTarget?
     @State private var deleting: ChannelView?
+    @State private var inviting = false
 
     var body: some View {
         Group {
@@ -69,6 +70,9 @@ private struct ChannelsScreen: View {
                 ChannelEditor(serverId: serverId, target: target)
             }
         }
+        .sheet(isPresented: $inviting) {
+            if let serverId = model.activeServerId { InviteSheet(serverId: serverId) }
+        }
         .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
@@ -112,11 +116,21 @@ private struct ChannelsScreen: View {
 
     // MARK: Navigation bar
 
-    /// The server's name, or how it's connecting.
+    /// The server's name, or how it's connecting, with the server's menu under it, as the chats have.
     private var title: some View {
-        titleLabel
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
+        Menu {
+            Button("Invite people", systemImage: "link") { inviting = true }
+            if model.activeServer?.isAdmin ?? false {
+                Button("New channel", systemImage: "number") { editing = .new(.text, category: "") }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                titleLabel
+                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(Theme.text3)
+            }
+        }
+        .accessibilityLabel(titleText)
+        .accessibilityAddTraits(.isHeader)
     }
 
     private var titleLabel: some View {
