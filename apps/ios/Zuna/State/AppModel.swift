@@ -491,12 +491,13 @@ final class AppModel {
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):
             voice.serverGone(serverId)
+            let name = servers[serverId]?.entry.name ?? "a server"
             // Nothing is erased on the server's word: what's here stays until the person decides.
             servers[serverId]?.entry.signedOut = reason
             toast(
-                reason == "banned" ? "You were removed from a server by its admins."
-                    : reason == "account_deleted" ? "Your account on a server was deleted from another device."
-                    : "You've been signed out of a server."
+                reason == "banned" ? "You were removed from \(name) by its admins."
+                    : reason == "account_deleted" ? "Your account on \(name) was deleted from another device."
+                    : "You've been signed out of \(name)."
             )
         case let .signedIn(serverId):
             servers[serverId]?.entry.signedOut = nil
@@ -673,6 +674,8 @@ final class AppModel {
     // MARK: Toasts
 
     func toast(_ message: String, _ kind: Toast.Kind = .info) {
+        // The same again, as a failure repeated, shows once, from now.
+        toasts.removeAll { $0.message == message && $0.kind == kind }
         let toast = Toast(id: nextToast, kind: kind, message: message)
         nextToast += 1
         toasts = Array(toasts.suffix(3)) + [toast]

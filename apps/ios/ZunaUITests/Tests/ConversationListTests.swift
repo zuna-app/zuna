@@ -127,7 +127,7 @@ final class ConversationListTests: XCTestCase {
         try Peer("alice").call("banUser", [hankId])
         let toast = zuna.element(A11y.Toast.item)
         XCTAssertTrue(toast.waitForExistence(timeout: 20))
-        XCTAssertEqual(toast.label, "You were removed from a server by its admins.")
+        XCTAssertEqual(toast.label, "You were removed from \(World.current.serverName) by its admins.")
         // Nothing is erased on the server's word: the server stays, saying so, until it's removed here.
         let remove = zuna.app.buttons["Remove from this device"]
         XCTAssertTrue(remove.waitForExistence(timeout: 10))
