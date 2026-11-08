@@ -35,7 +35,7 @@ export function webPlatform(config: HostConfig): Platform {
         type: "module",
         name: config.previews ? "zuna-core" : "zuna-core-no-previews",
       });
-      const booted = await connectWorker(worker, { key, protected: false, deviceName: deviceName(), localLinks: config.localLinks }, onEvent);
+      const booted = await connectWorker(worker, { key, deviceName: deviceName(), localLinks: config.localLinks }, onEvent);
       // Asks the browser not to clear Zuna's data when the disk fills up. If it does
       // anyway, signing in again brings the history back from the vault.
       void navigator.storage.persist?.().catch(() => false);
@@ -50,7 +50,7 @@ export function webPlatform(config: HostConfig): Platform {
     onOpenConversation,
     notificationPermission,
     askToNotify,
-    takeDeepLink: async () => takeJoinLink(),
+    takeDeepLink: takeJoinLink,
     onDeepLink(listener) {
       const onHashChange = () => {
         const link = takeJoinLink();
@@ -91,6 +91,5 @@ export function webPlatform(config: HostConfig): Platform {
       void check();
       return stop;
     },
-    warnBeforeLeaving: true,
   };
 }

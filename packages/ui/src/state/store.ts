@@ -87,7 +87,6 @@ interface AppState {
   phase: "booting" | "ready" | "failed";
   bootError: string | null;
   core: CoreConnection | null;
-  keyProtected: boolean;
   servers: Record<string, ServerState>;
   order: string[];
   activeServerId: string | null;
@@ -314,7 +313,7 @@ export const useApp = create<AppState>((set, get) => {
     const ringing = !!call?.ringing.includes(self);
     if (wasRinging === ringing) return;
     const messageId = `call:${groupId}`;
-    if (wasRinging) platform.clearNotifications?.({ serverId, messageId });
+    if (wasRinging) platform.clearNotifications({ serverId, messageId });
     const conversation = conversationOfGroup(server, groupId);
     const caller = (call ?? before)!.startedBy;
     if (!conversation || conversation.muted || conversation.blocked || server.prefs.blocked?.includes(caller)) return;
@@ -328,7 +327,7 @@ export const useApp = create<AppState>((set, get) => {
       if (missed) get().toast(conversation.kind === "dm" ? `Missed call from ${name}.` : `Missed call from ${name} in ${conversation.title}.`, "info");
       return;
     }
-    if (!platform.notify || !settings.notifications) return;
+    if (!settings.notifications) return;
     const preview = settings.notificationPreview;
     // A call's ringing has its own sound, so the notification makes none.
     platform.notify({
@@ -350,12 +349,12 @@ export const useApp = create<AppState>((set, get) => {
     const keys = conversations.filter((item) => item.unread === 0 && (inServer.get(item.key) ?? asked) < asked).map((item) => item.key);
     if (keys.length === 0) return;
     for (const key of keys) inServer.delete(key);
-    platform.clearNotifications?.({ serverId, keys });
+    platform.clearNotifications({ serverId, keys });
   };
 
   const clearServerNotifications = (serverId: string) => {
     notified.delete(serverId);
-    platform.clearNotifications?.({ serverId });
+    platform.clearNotifications({ serverId });
   };
 
   const updateBadge = () => {
@@ -447,7 +446,7 @@ export const useApp = create<AppState>((set, get) => {
         break;
       case "message":
         // Deleted for everyone: its row stays in the chat, but what it said goes from everywhere.
-        if (event.message.deletedAt) platform.clearNotifications?.({ serverId: event.serverId, messageId: event.message.id });
+        if (event.message.deletedAt) platform.clearNotifications({ serverId: event.serverId, messageId: event.message.id });
         upsertMessage(event.message);
         // A message from someone ends their typing, instead of leaving it up for seconds.
         if (event.isNew && get().servers[event.serverId]?.typing[event.message.groupId]?.[event.message.senderId]) {
@@ -459,7 +458,7 @@ export const useApp = create<AppState>((set, get) => {
         }
         break;
       case "message_removed":
-        platform.clearNotifications?.({ serverId: event.serverId, messageId: event.id });
+        platform.clearNotifications({ serverId: event.serverId, messageId: event.id });
         set((state) => {
           const list = state.lists[event.groupId];
           if (!list) return state;
@@ -574,7 +573,7 @@ export const useApp = create<AppState>((set, get) => {
     const isOpenAndVisible = state.windowFocused && state.activeServerId === event.serverId && server?.activeKey === event.conversationKey;
     if (isOpenAndVisible) return;
     const { settings } = state;
-    if (!platform.notify || !settings.notifications) return;
+    if (!settings.notifications) return;
     if (!notified.has(event.serverId)) notified.set(event.serverId, new Map());
     notified.get(event.serverId)!.set(event.conversationKey, Date.now());
     if (settings.notificationSound) playNotificationSound();
@@ -591,7 +590,6 @@ export const useApp = create<AppState>((set, get) => {
     phase: "booting",
     bootError: null,
     core: null,
-    keyProtected: true,
     servers: {},
     order: [],
     activeServerId: null,
@@ -609,8 +607,8 @@ export const useApp = create<AppState>((set, get) => {
 
     async boot() {
       try {
-        const { core, keyProtected } = await platform.bootCore(handleEvent);
-        set({ core, keyProtected });
+        const { core } = await platform.bootCore(handleEvent);
+        set({ core });
         const entries = await core.client.listServers();
         for (const entry of entries) await loadServerState(entry);
         set({

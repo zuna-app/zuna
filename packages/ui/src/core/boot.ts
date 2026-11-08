@@ -7,7 +7,6 @@ import type { BootResult } from "@/platform";
 
 export interface DeviceInfo {
   key: Uint8Array;
-  protected: boolean;
   deviceName: string;
   /** A development build's previews may reach this machine, for its test pages. */
   localLinks: boolean;
@@ -25,7 +24,7 @@ export function connectWorker(worker: Worker, device: DeviceInfo, onEvent: (even
           worker.onmessage = (event) => {
             const data = event.data as { kind: string; message?: string };
             if (data.kind === "booted") {
-              resolve({ core, keyProtected: device.protected });
+              resolve({ core });
             } else if (data.kind === "boot_failed") {
               reject(new Error(data.message ?? "The encryption engine failed to start."));
             } else {

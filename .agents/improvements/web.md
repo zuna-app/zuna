@@ -4,14 +4,6 @@ Covered: all of `packages/ui/src` and `apps/web/src`, both package.json files, v
 Skimmed or skipped: mic processing, stream stats, the video and audio encoders, the markup renderer, most settings and onboarding forms, web-check.mjs. Nothing was run in a browser, so performance claims come from reading the code, not profiling.
 Line numbers are for HEAD eaa5627 (apps/web/src/main.tsx and packages/ui/src/index.tsx ones were corrected during the review).
 
-### Drop the Platform's Electron-era options
-- Where: packages/ui/src/platform.ts:6-9,37-56 (`keyProtected`, the optional members, `takeDeepLink` returning a Promise, `keyWarning: string | null`); core/boot.ts:15,28 (`DeviceInfo.protected`); apps/web/src/platform.ts:39 (`protected: false` hard-coded); state/store.ts:90,549,567-568; features/overlays/Settings.tsx:283-323,405,420; App.tsx:77,113,117,129
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: the web is now the only host and provides every member. The key is never protected and the warning is always set, so the `?.` calls and the `notifies` branches are dead code, against the no-backward-compatibility rule.
-- Suggested change: make the members required, make `takeDeepLink` synchronous, make `keyWarning` a `string`, delete `keyProtected` everywhere and always show the warning. Keep the `Platform` seam itself.
-- Check after: typecheck, web check.
-
 ### Share one server loader between boot and addServer
 - Where: packages/ui/src/state/store.ts:582-620 and 636-673 (same 11-call `Promise.all` and `ServerState` literal, already drifted); 570 (servers load one after another); 578-579 (any throw sets `phase: "failed"`); App.tsx:41-53 (failure screen says "encrypted storage didn't open… restarting the app"); 208-217 (`refreshUsers` makes two calls in sequence)
 - Category: cleanup / robustness

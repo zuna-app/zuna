@@ -13,7 +13,7 @@ import { platform } from "@/platform";
 /** The web app's files changed on its host. Reloading picks up the new version. */
 function UpdateNotice() {
   const [ready, setReady] = useState(false);
-  useEffect(() => platform.onUpdate?.(() => setReady(true)), []);
+  useEffect(() => platform.onUpdate(() => setReady(true)), []);
   if (!ready) return null;
   return (
     <div className="update-notice" role="status">
@@ -67,25 +67,24 @@ export function App() {
   useEffect(() => {
     applySettings(settings);
     saveSettings(settings);
-    if (!settings.notifications) platform.clearNotifications?.({});
+    if (!settings.notifications) platform.clearNotifications({});
   }, [settings]);
 
   // Invite links and clicks on notifications.
   useEffect(() => {
     if (phase !== "ready") return;
     const openLink = (link: string) => setOverlay({ type: "add-server", link });
-    void platform.takeDeepLink?.().then((link) => {
-      if (link) openLink(link);
-    });
+    const link = platform.takeDeepLink();
+    if (link) openLink(link);
     const removers = [
-      platform.onDeepLink?.(openLink),
-      platform.onOpenConversation?.(({ serverId, key }) => {
+      platform.onDeepLink(openLink),
+      platform.onOpenConversation(({ serverId, key }) => {
         useApp.getState().selectServer(serverId);
         useApp.getState().selectConversation(key);
       }),
     ];
     return () => {
-      for (const remove of removers) remove?.();
+      for (const remove of removers) remove();
     };
   }, [phase, setOverlay]);
 
@@ -110,11 +109,11 @@ export function App() {
   // A browser asks whether Zuna may notify only after a click or a key press, so it's
   // asked at the first one, as Telegram Web does.
   useEffect(() => {
-    if (phase !== "ready" || platform.notificationPermission?.() !== "unknown") return;
+    if (phase !== "ready" || platform.notificationPermission() !== "unknown") return;
     const ask = () => {
       window.removeEventListener("pointerdown", ask);
       window.removeEventListener("keydown", ask);
-      if (useApp.getState().settings.notifications) void platform.askToNotify?.();
+      if (useApp.getState().settings.notifications) void platform.askToNotify();
     };
     window.addEventListener("pointerdown", ask);
     window.addEventListener("keydown", ask);
@@ -126,7 +125,6 @@ export function App() {
 
   // A tab can be closed in the middle of a send.
   useEffect(() => {
-    if (!platform.warnBeforeLeaving) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (isSending(useApp.getState().lists)) event.preventDefault();
     };

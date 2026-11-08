@@ -265,46 +265,39 @@ function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; on
 function NotificationsSection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
-  const [permission, setPermission] = useState(() => platform.notificationPermission?.() ?? "granted");
-  const notifies = !!platform.notify;
+  const [permission, setPermission] = useState(() => platform.notificationPermission());
   // Turning them on is a click, which is when a browser can ask.
   const setNotifications = async (value: boolean) => {
     update({ notifications: value });
-    if (value && platform.askToNotify) {
+    if (value) {
       await platform.askToNotify();
-      setPermission(platform.notificationPermission?.() ?? "granted");
+      setPermission(platform.notificationPermission());
     }
   };
   return (
     <>
       <h1>Notifications</h1>
       <p className="settings-lead">Previews are decrypted on this device. No notification service ever sees them.</p>
-      {notifies && (
-        <>
-          <SettingRow
-            title="Desktop notifications"
-            hint={
-              settings.notifications && permission === "denied"
-                ? "Your browser blocks notifications from this site. Allow them in its settings for the site."
-                : "While you're on another device, they wait 30 seconds, and don't show if you read the chat there."
-            }
-          >
-            <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label="Desktop notifications" />
-          </SettingRow>
-          <SettingRow title="Sound">
-            <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
-          </SettingRow>
-        </>
-      )}
-      {notifies && (
-        <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
-          <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
-            <option value="full">Sender and message</option>
-            <option value="sender">Sender only</option>
-            <option value="none">Nothing</option>
-          </select>
-        </SettingRow>
-      )}
+      <SettingRow
+        title="Desktop notifications"
+        hint={
+          settings.notifications && permission === "denied"
+            ? "Your browser blocks notifications from this site. Allow them in its settings for the site."
+            : "While you're on another device, they wait 30 seconds, and don't show if you read the chat there."
+        }
+      >
+        <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label="Desktop notifications" />
+      </SettingRow>
+      <SettingRow title="Sound">
+        <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
+      </SettingRow>
+      <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
+        <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
+          <option value="full">Sender and message</option>
+          <option value="sender">Sender only</option>
+          <option value="none">Nothing</option>
+        </select>
+      </SettingRow>
     </>
   );
 }
@@ -387,7 +380,6 @@ function DevicesCard() {
 function SecuritySection() {
   const session = useApp((state) => state.session);
   const toast = useApp((state) => state.toast);
-  const keyProtected = useApp((state) => state.keyProtected);
   const setOverlay = useApp((state) => state.setOverlay);
   const server = useActiveServer();
   const [current, setCurrent] = useState("");
@@ -402,12 +394,10 @@ function SecuritySection() {
   return (
     <>
       <h1>Security</h1>
-      {!keyProtected && platform.keyWarning && (
-        <div className="notice is-warn">
-          <Lock size={15} />
-          <span>{platform.keyWarning}</span>
-        </div>
-      )}
+      <div className="notice is-warn">
+        <Lock size={15} />
+        <span>{platform.keyWarning}</span>
+      </div>
       <SettingRow title="Your security key" hint="Compare it with friends to prove nobody is in between.">
         <button className="btn btn-small" onClick={() => server?.self && setOverlay({ type: "verify", userId: server.self.userId })}>
           <KeyRound size={14} /> View
