@@ -28,22 +28,6 @@ Skipped: auditing the cryptography itself (crypto.ts, generations.ts, roster.ts,
 - Suggested change: get `row_id` with `INSERT … RETURNING row_id` (via `db.get`, which every host's `LocalDb` supports) and build the `MessageView` from the in-memory body, pin, status and `expiresAt`, sharing the mapping in `toMessageView` through a helper that takes a body.
 - Check after: `npx vitest run test/e2e.test.ts test/disappearing.test.ts`.
 
-### Remove the `last_resort_usable` flag, which only existed for older devices
-- Where: packages/core/src/session.ts:2464-2465, 2472; server/internal/store/users.go:649-656 (`last_resort_at` is 0 when there's none)
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: medium-high
-- What's wrong: the comment says it replaces a last-resort package "made before this device set this". A device without one already counts as stale (`last_resort_at` is 0), and migration 13 (db.ts:159-172) wiped every device's `kv` anyway, so the flag only costs a kv read and write.
-- Suggested change: `const lastResortStale = Date.now() - status.last_resort_at > LAST_RESORT_MAX_AGE_MS;`; remove the `setKv` and the comment.
-- Check after: `npx vitest run test/e2e.test.ts`.
-
-### Give `readSent` a value from the start and drop its "saved before" note
-- Where: packages/core/src/session.ts:324-328 ("Groups saved before this was kept have none."), 2620, 2846, 5656 (`readSent ??= ownRead`), 5695, 5704
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: medium
-- What's wrong: the comment presents `undefined` as a leftover from older saves, but every group starts with it (2620) until its first `markRead`, and branches at 2846 and 5704 depend on that.
-- Suggested change: start `readSent` at `previous?.readSent ?? previous?.ownRead ?? 0` in `applyGroup`, make it required, remove the `!== undefined` checks and `??=`. Check `sendUnsentReads` still sends nothing for a never-read group.
-- Check after: `npx vitest run test/e2e.test.ts` (read position cases).
-
 ### Hold reaction keys and preview text to the rules names already follow
 - Where: packages/core/src/validate.ts:334-339 (`parseReaction`: any key up to 1024 characters, hidden characters kept) vs 60-65 (`plainName`); links.ts:311-332 (`checkPreview`: `title`/`siteName` keep bidi controls; image `width`/`height` and `data` length have no limit, unlike `side()` and `MAX_THUMB_LENGTH` for attachments)
 - Category: robustness

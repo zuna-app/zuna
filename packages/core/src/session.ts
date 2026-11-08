@@ -324,7 +324,8 @@ interface CachedGroup {
   ownRead: number;
   /**
    * How far the server is known to have this person's read position. Behind
-   * `ownRead`, it's sent again. Groups saved before this was kept have none.
+   * `ownRead`, it's sent again. A chat this device has never marked read has
+   * none, and nothing is sent again for it until it does.
    */
   readSent?: number;
   /** When the server said this device's person is no longer in this conversation. */
@@ -2597,15 +2598,14 @@ export class ServerSession {
   private async topUpKeyPackages(): Promise<void> {
     const status = await this.api.keyPackageStatus();
     const needOneTime = status.count < KEY_PACKAGE_LOW ? KEY_PACKAGE_TARGET - status.count : 0;
-    // One made before this device set this nobody could add to a group, so it's replaced whatever its age.
-    const lastResortStale = !this.getKv<boolean>("last_resort_usable") || Date.now() - status.last_resort_at > LAST_RESORT_MAX_AGE_MS;
+    // A device without one counts as stale too, as the server says 0 for when it was made.
+    const lastResortStale = Date.now() - status.last_resort_at > LAST_RESORT_MAX_AGE_MS;
     if (needOneTime === 0 && !lastResortStale) return;
     const packages: Uint8Array[] = [];
     for (let i = 0; i < needOneTime; i++) packages.push(this.mls.generateKeyPackage(false));
     const lastResort = lastResortStale ? this.mls.generateKeyPackage(true) : undefined;
     this.saveMls();
     await this.api.addKeyPackages(packages, lastResort);
-    if (lastResort) this.setKv("last_resort_usable", true);
   }
 
   /**
