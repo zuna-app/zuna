@@ -4,14 +4,6 @@ Covered: apps/desktop/src/ui/* (read chat.rs, message.rs, mod.rs, conversations.
 Skipped or skimmed: onboarding.rs, the settings UI, server_settings.rs, server_voice.rs, soundboard.rs, stream_stats.rs, screen_picker.rs, invites.rs, shared_media.rs, selection.rs and menu.rs internals. Nothing was built or run.
 Ordered roughly by value.
 
-### Notify the view that owns a hover or tooltip instead of refreshing the whole window
-- Where: ui/motion.rs:533-545 (`track_hover` calls `window.refresh()`); ui/components.rs:320 and ui/message.rs:1122 (refresh on every mouse move while a tooltip or emote card shows); ui/scrollbar.rs:175, 186, 192, 209
-- Category: perf
-- Severity: medium ; Effort: M ; Confidence: high (verified in the fork: `Window::refresh` sets `refreshing`, and `AnyView::cached` is bypassed while it's set, view.rs:551)
-- What's wrong: every hover in or out of a button redraws the cached message list and conversation list in full; while any tooltip is visible every pointer move does too; so does dragging a scrollbar thumb.
-- Suggested change: capture `window.current_view()` when the element is built and call `cx.notify(view)` in the handler (`track_hover` and `hover_layer` need `window` passed in). Tooltips and emote cards notify their own entity (via `cx.entity().downgrade()`). The scrollbar notifies the view that owns the scrolled content.
-- Check after: `npm run dev:windows` (hover fades and tooltips still behave); Linux and macOS builds.
-
 ### Virtualize the conversation list and stop cloning per row
 - Where: ui/conversations.rs:170-312 (174 peer clone, 178 `preview_for` runs the `plain_text` regexes, 282 `item.clone()`, 284 `prefs.clone()` per row), 548-556, 688-691
 - Category: perf

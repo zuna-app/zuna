@@ -553,9 +553,13 @@ pub fn hovered(key: &str) -> bool {
     HOVERED.with(|hovered| hovered.borrow().contains(key))
 }
 
-/// Notes when the pointer is on this element, for `hover_layer` and other hover fades.
-pub fn track_hover<E: gpui::StatefulInteractiveElement>(element: E, key: String) -> E {
-    element.on_hover(move |over, window, _| {
+/// Notes when the pointer is on this element, for `hover_layer` and other hover fades, and
+/// draws again the view it's in, found as it's laid out: refreshing the whole window would
+/// draw every cached list again too, on every hover in or out of a button.
+pub fn track_hover<E: gpui::StatefulInteractiveElement + gpui::ParentElement>(element: E, key: String) -> E {
+    let view = std::rc::Rc::new(std::cell::Cell::new(None::<gpui::EntityId>));
+    let seen = view.clone();
+    element.child(gpui::canvas(move |_, window, _| seen.set(Some(window.current_view())), |_, _, _, _| {}).absolute()).on_hover(move |over, window, cx| {
         HOVERED.with(|hovered| {
             let mut hovered = hovered.borrow_mut();
             if *over {
@@ -564,7 +568,10 @@ pub fn track_hover<E: gpui::StatefulInteractiveElement>(element: E, key: String)
                 hovered.remove(&key);
             }
         });
-        window.refresh();
+        match view.get() {
+            Some(view) => cx.notify(view),
+            None => window.refresh(),
+        }
     })
 }
 

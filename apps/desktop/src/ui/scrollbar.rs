@@ -162,6 +162,8 @@ impl gpui::Element for Scrollbar {
         window.paint_quad(gpui::fill(drawn, theme::color(theme::white_a(alpha))).corner_radii(drawn.size.width / 2.));
         window.set_cursor_style(gpui::CursorStyle::Arrow, &hitbox);
 
+        // What the thumb's moves draw again: the view it's drawn in, not every view in the window.
+        let view = window.current_view();
         let scrolls = self.scrolls.clone();
         let down_hitbox = hitbox.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
@@ -180,27 +182,27 @@ impl gpui::Element for Scrollbar {
                 let page = track.size.height * 0.875;
                 scrolls.scroll_to(if event.position.y < thumb.top() { down - page } else { down + page });
             }
-            window.refresh();
+            cx.notify(view);
         });
         let scrolls = self.scrolls.clone();
         let hovered_before = over_thumb;
         let move_hitbox = hitbox.clone();
-        window.on_mouse_event(move |event: &MouseMoveEvent, _, window, _| {
+        window.on_mouse_event(move |event: &MouseMoveEvent, _, window, cx| {
             let drag = DRAG.with(|drag| *drag.borrow());
             if let Some((_, from, start)) = drag.filter(|(which, _, _)| *which == name) {
                 if event.pressed_button == Some(MouseButton::Left) && room > px(0.) {
                     scrolls.scroll_to(start + (event.position.y - from) * (most / room));
-                    window.refresh();
+                    cx.notify(view);
                 }
                 return;
             }
             // Brighter under the pointer.
             if (move_hitbox.is_hovered(window) && thumb.contains(&event.position)) != hovered_before {
-                window.refresh();
+                cx.notify(view);
             }
         });
         let scrolls = self.scrolls.clone();
-        window.on_mouse_event(move |_: &MouseUpEvent, _, window, _| {
+        window.on_mouse_event(move |_: &MouseUpEvent, _, _, cx| {
             let ended = DRAG.with(|drag| {
                 let mut drag = drag.borrow_mut();
                 let mine = drag.is_some_and(|(which, _, _)| which == name);
@@ -213,7 +215,7 @@ impl gpui::Element for Scrollbar {
                 if let Scrolls::List(state) = &scrolls {
                     state.scrollbar_drag_ended();
                 }
-                window.refresh();
+                cx.notify(view);
             }
         });
     }
