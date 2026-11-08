@@ -27,14 +27,6 @@ Skipped: src/ui/* beyond those call sites, test/driver, screenshare capture and 
 - Suggested change: move `picture_attachment` and `addNotificationRequest` to a background thread (`UNUserNotificationCenter` is thread-safe); warm the font options once on a worker, or load only Inter plus a small fallback set.
 - Check after: mac-voice-check.mjs (`delivered`).
 
-### Close the Linux location session when finding a position times out
-- Where: platform/linux/location.rs:19-36, 38-51 (`recv_timeout` gives up after 20 s, but the thread keeps waiting on `updates.next()` with the portal session open); same shape in macos/location.rs:113-127 (up to 140 s) and windows/location.rs; caller ui/overlays.rs:813 runs it on GPUI's background executor
-- Category: robustness
-- Severity: medium ; Effort: S ; Confidence: high
-- What's wrong: after a timeout, GeoClue keeps locating and the desktop's location indicator stays on until the app quits; each retry leaks another thread and session; a GPUI background thread is blocked for the whole wait. The `Found` enum and messages are copied three times.
-- Suggested change: put the timeout inside `find` (`select` on `updates.next()` and a timer) so `session.close()` always runs; run `locate` on a dedicated thread with a oneshot back; optionally hoist `Found` and messages into platform/mod.rs.
-- Check after: share a location with GeoClue off.
-
 ### Report a ScreenCaptureKit start failure instead of showing a share that sends nothing
 - Where: platform/macos/screen_capture.rs:241-249 (the error from `startCaptureWithCompletionHandler` is only logged); voice/screen.rs:648-693 treats `Ok(Capture)` as sharing
 - Category: robustness

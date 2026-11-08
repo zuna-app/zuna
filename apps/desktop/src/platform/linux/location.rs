@@ -14,6 +14,7 @@ enum Found {
     Position(f64, f64, f64),
     Refused,
     Unavailable,
+    TookTooLong,
 }
 
 async fn find() -> Found {
@@ -26,12 +27,20 @@ async fn find() -> Found {
         session.close().await.ok();
         return Found::Refused;
     }
-    let location = updates.next().await;
+    // The wait is ended here, so that the session is always closed: left open, GeoClue would
+    // go on locating, and the system would show it doing so, until the app quit.
+    let (time_up, waited) = futures::channel::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        std::thread::sleep(FIND_WITHIN);
+        time_up.send(()).ok();
+    });
+    let found = match futures::future::select(updates.next(), waited).await {
+        futures::future::Either::Left((Some(location), _)) => Found::Position(location.latitude(), location.longitude(), location.accuracy()),
+        futures::future::Either::Left((None, _)) => Found::Unavailable,
+        futures::future::Either::Right(_) => Found::TookTooLong,
+    };
     session.close().await.ok();
-    match location {
-        Some(location) => Found::Position(location.latitude(), location.longitude(), location.accuracy()),
-        None => Found::Unavailable,
-    }
+    found
 }
 
 /// Latitude, longitude and how far off they may be, in meters; or why there isn't one, in words to show.
@@ -43,10 +52,11 @@ pub fn locate() -> Result<(f64, f64, Option<f64>), String> {
             found.send(futures::executor::block_on(find())).ok();
         })
         .ok();
-    match answer.recv_timeout(FIND_WITHIN) {
+    // A little past the wait `find` ends itself, for a portal that doesn't answer at all.
+    match answer.recv_timeout(FIND_WITHIN + Duration::from_secs(10)) {
         Ok(Found::Position(latitude, longitude, accuracy)) => Ok((latitude, longitude, Some(accuracy.round()))),
         Ok(Found::Refused) => Err("Zuna isn't allowed to use your location. Allow it in your system's privacy settings.".into()),
         Ok(Found::Unavailable) => Err("Your location isn't available right now.".into()),
-        Err(_) => Err("Finding your location took too long. Try again.".into()),
+        Ok(Found::TookTooLong) | Err(_) => Err("Finding your location took too long. Try again.".into()),
     }
 }
