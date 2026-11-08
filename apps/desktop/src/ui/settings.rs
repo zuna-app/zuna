@@ -565,7 +565,7 @@ impl SettingsView {
                     .rounded(RADIUS_M)
                     .bg(theme.amber_soft)
                     .text_size(px(13.))
-                    .text_color(theme::color(theme::hex(0xe8d3a2)))
+                    .text_color(theme.amber_text)
                     .child(icon("lock", 15., theme.amber))
                     .child(crate::platform::KEY_WARNING)
                     .into_any_element(),

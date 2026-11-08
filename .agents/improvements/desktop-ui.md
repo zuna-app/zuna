@@ -130,13 +130,6 @@ Ordered roughly by value.
 - Suggested change: add `Emote::to_ref()`, `EmoteSet::refs_in(text)` and `ConversationView::is_admin(self_id)` in models.rs and call them from every site.
 - Check after: `npm run dev:windows`.
 
-### Move hard-coded colors into theme tokens
-- Where: ui/mod.rs:151, 155 (`0xa0a0a6`, which is `theme.text2`); mod.rs:539-540 (toast backgrounds); chat.rs:238, 1987 and channel_message.rs:19-25 (`0x8b8b92` and `0x505057`, which are `--channel-muted` and `--spine` in packages/ui/src/styles/channel.css:7-8); chat.rs:2311, 2874 (`0x45454b`); `0xe8d3a2` at chat.rs:3023, message.rs:188, settings.rs:568; `0xf4bcbe` at message.rs:302, 622, overlays.rs:530, channel_message.rs:362
-- Category: cleanup
-- Severity: low ; Effort: S ; Confidence: high
-- Suggested change: add `channel_muted`, `spine`, `amber_text`, `danger_text` and `bg5_hover` to `Theme`, and use `text2` for `0xa0a0a6`.
-- Check after: `npm run dev:windows` (visual compare).
-
 ### Reuse format.rs for a channel message's stamp and day line
 - Where: ui/channel_message.rs:27-41 vs format.rs:58-70
 - Category: cleanup

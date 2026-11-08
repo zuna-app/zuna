@@ -102,6 +102,15 @@ pub struct Theme {
     pub red_soft: Hsla,
     pub amber: Hsla,
     pub amber_soft: Hsla,
+    /// A warning's words on amber_soft, and a danger's on red_soft (`.notice` in base.css).
+    pub amber_text: Hsla,
+    pub danger_text: Hsla,
+    /// Discord's quieter gray, for times and hints in a channel, and the line from a reply to
+    /// what it answers (`--channel-muted` and `--spine` in channel.css).
+    pub channel_muted: Hsla,
+    pub spine: Hsla,
+    /// bg5 under the pointer, as `.to-bottom:hover`.
+    pub bg5_hover: Hsla,
     pub message_size: Pixels,
     pub neutral: bool,
 }
@@ -149,6 +158,11 @@ impl Theme {
             red_soft: color(rgba(242, 85, 90, 0.13)),
             amber: color(hex(0xe5a50a)),
             amber_soft: color(rgba(229, 165, 10, 0.12)),
+            amber_text: color(hex(0xe8d3a2)),
+            danger_text: color(hex(0xf4bcbe)),
+            channel_muted: color(hex(0x8b8b92)),
+            spine: color(hex(0x505057)),
+            bg5_hover: color(hex(0x45454b)),
             message_size: match size {
                 TextSize::Small => px(13.5),
                 TextSize::Medium => px(14.5),

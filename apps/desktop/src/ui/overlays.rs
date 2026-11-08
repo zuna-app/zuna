@@ -527,7 +527,7 @@ impl Dialog {
                 "shield-alert",
                 theme.red,
                 theme.red_soft,
-                theme::color(theme::hex(0xf4bcbe)),
+                theme.danger_text,
                 format!("{}'s security key changed in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.", user.display_name),
             )),
             "verified" => body.push(notice("shield-check", theme.text2, theme.bg2, theme.text2, format!("You've verified {}. Nobody can quietly get between you.", user.display_name))),

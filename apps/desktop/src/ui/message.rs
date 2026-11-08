@@ -185,7 +185,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         let warning = matches!(message.system.as_ref().map(|s| s.kind.as_str()), Some("unexpected_join" | "identity_changed"));
         let mut pill = div().flex().items_center().gap(px(6.)).px(px(10.)).py(px(2.)).rounded(px(10.)).text_size(px(12.)).max_w(relative(0.8));
         pill = if warning {
-            pill.bg(theme.amber_soft).text_color(theme::color(theme::hex(0xe8d3a2))).child(icon("shield-alert", 13., theme.amber))
+            pill.bg(theme.amber_soft).text_color(theme.amber_text).child(icon("shield-alert", 13., theme.amber))
         } else {
             pill.bg(theme.bg2).text_color(theme.text2)
         };
@@ -299,7 +299,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         } else {
             (Some("shield-alert"), "This message couldn't be displayed.", true)
         };
-        let color = if danger { theme::color(theme::hex(0xf4bcbe)) } else if own { theme.bubble_own_faint } else { theme.text2 };
+        let color = if danger { theme.danger_text } else if own { theme.bubble_own_faint } else { theme.text2 };
         let mut line = div().flex().items_center().gap(px(7.)).text_size(px(13.5)).text_color(color);
         match icon_name {
             Some("spinner") => line = line.child(spinner(12., color)),
@@ -619,7 +619,7 @@ fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: 
             }
             // `.msg-tick.is-sending`: once it's been sending for as long as the bubble takes to dim.
             "sending" => icon("clock", 11., color).enter(SharedString::from(format!("tick-sending-{}", message.id)), Enter::Fade, 120).into_any_element(),
-            "failed" => icon("circle-alert", 12., theme::color(theme::hex(0xf4bcbe))).into_any_element(),
+            "failed" => icon("circle-alert", 12., theme.danger_text).into_any_element(),
             _ => match message.seq {
                 Some(seq) if read_up_to >= 0. => {
                     let read = read_up_to >= seq;

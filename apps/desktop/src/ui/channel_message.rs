@@ -15,15 +15,6 @@ use crate::models::{MessageView, ReactionView};
 use crate::state::Overlay;
 use crate::theme::{self, Theme};
 
-/// Discord's quieter gray, for times and hints in a channel.
-fn muted() -> gpui::Hsla {
-    theme::color(theme::hex(0x8b8b92))
-}
-
-fn spine() -> gpui::Hsla {
-    theme::color(theme::hex(0x505057))
-}
-
 /// "Today at 14:32", "Yesterday at 9:05", or the date and time (`formatStamp`).
 pub fn format_stamp(at_ms: f64) -> String {
     let local = |ms: f64| chrono::DateTime::from_timestamp_millis(ms as i64).map(|time| time.with_timezone(&chrono::Local)).unwrap_or_default();
@@ -69,7 +60,7 @@ pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, wi
             .mb(px(8.))
             .bg(color);
         if show_day {
-            line = line.child(div().px(px(4.)).py(px(2.)).bg(theme.bg_chat).text_size(px(12.)).line_height(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(if unread { theme.red } else { muted() }).child(format_day(message.created_at)));
+            line = line.child(div().px(px(4.)).py(px(2.)).bg(theme.bg_chat).text_size(px(12.)).line_height(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(if unread { theme.red } else { theme.channel_muted }).child(format_day(message.created_at)));
         }
         if unread {
             line = line.child(
@@ -127,8 +118,8 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .gap(px(6.))
                 .text_size(px(13.))
                 .line_height(px(18.))
-                .text_color(muted())
-                .child(div().mt(px(2.)).child(icon("lock", 13., muted())))
+                .text_color(theme.channel_muted)
+                .child(div().mt(px(2.)).child(icon("lock", 13., theme.channel_muted)))
                 .child(div().flex_1().min_w_0().child("End-to-end encrypted. Everyone on this server can read it, and the server itself can't.")),
         );
     if let (true, Some(channel_id)) = (context.is_server_admin, context.channel_id.clone()) {
@@ -170,8 +161,8 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             .text_size(size)
             .text_color(theme.text2)
             .when(highlighted, |el| el.bg(theme.accent_soft))
-            .child(div().absolute().left_0().top(px(5.)).w(px(72.)).flex().justify_center().child(icon(if warning { "shield-alert" } else { "arrow-right" }, 16., if warning { theme.amber } else { muted() })))
-            .child(div().flex().flex_wrap().items_baseline().child(system_text(message, context)).child(div().ml(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(muted()).child(format_stamp(message.created_at))))
+            .child(div().absolute().left_0().top(px(5.)).w(px(72.)).flex().justify_center().child(icon(if warning { "shield-alert" } else { "arrow-right" }, 16., if warning { theme.amber } else { theme.channel_muted })))
+            .child(div().flex().flex_wrap().items_baseline().child(system_text(message, context)).child(div().ml(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.channel_muted).child(format_stamp(message.created_at))))
             .into_any_element();
     }
     let own = message.sender_id == context.self_id;
@@ -186,7 +177,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             .items_center()
             .gap(px(6.))
             .text_size(px(14.))
-            .text_color(muted())
+            .text_color(theme.channel_muted)
             .child("A message from someone you blocked.")
             .child(
                 div()
@@ -288,7 +279,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                 .text_size(px(11.))
                 .line_height(px(22.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(muted())
+                .text_color(theme.channel_muted)
                 .opacity(0.)
                 .group_hover(group.clone(), |style| style.opacity(1.))
                 .tooltip(tooltip(format_full(message.created_at)))
@@ -333,7 +324,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                             .ml(px(6.))
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(muted())
+                            .text_color(theme.channel_muted)
                             .tooltip(tooltip(format_full(message.created_at)))
                             .child(format_stamp(message.created_at)),
                     ),
@@ -359,7 +350,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .text_color(if danger { theme::color(theme::hex(0xf4bcbe)) } else { muted() })
+                .text_color(if danger { theme.danger_text } else { theme.channel_muted })
                 .when(!danger, |el| el.italic())
                 .when(danger, |el| el.child(icon("shield-alert", 14., theme.red)))
                 .child(text),
@@ -402,7 +393,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                     .mb(px(2.))
                     .pl(px(8.))
                     .border_l_2()
-                    .border_color(spine())
+                    .border_color(theme.spine)
                     .flex()
                     .items_center()
                     .gap(px(5.))
@@ -421,13 +412,13 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             let text = if jumbo > 0 { jumbo_body(message, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
             let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(text);
             if message.edited_at.is_some() {
-                line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(muted()).child("(edited)"));
+                line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(theme.channel_muted).child("(edited)"));
             }
             if message.time_differs == Some(true) {
-                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip("The sender's device gives a very different time for this message.")).child(icon("shield-alert", 13., muted())));
+                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip("The sender's device gives a very different time for this message.")).child(icon("shield-alert", 13., theme.channel_muted)));
             }
             if let Some(expires) = message.expires_at {
-                line = line.child(div().id(SharedString::from(format!("timer-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(format!("Disappears {}", format_full(expires)))).child(icon("timer", 12., muted())));
+                line = line.child(div().id(SharedString::from(format!("timer-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(format!("Disappears {}", format_full(expires)))).child(icon("timer", 12., theme.channel_muted)));
             }
             body = body.child(line);
         }
@@ -500,7 +491,7 @@ fn channel_reply(message: &MessageView, reply: &crate::models::ReplyPreview, con
         .line_height(px(18.))
         .text_color(theme.text2)
         // The line from the picture below up to what's answered.
-        .child(div().absolute().left(px(-38.)).w(px(33.)).top(px(9.)).h(px(11.)).border_l_2().border_t_2().border_color(spine()).rounded_tl(px(6.)));
+        .child(div().absolute().left(px(-38.)).w(px(33.)).top(px(9.)).h(px(11.)).border_l_2().border_t_2().border_color(theme.spine).rounded_tl(px(6.)));
     if reply.deleted {
         line = line.child(div().size(px(16.)).flex_none().rounded_full().bg(theme.bg3).flex().items_center().justify_center().child(icon("corner-up-left", 10., theme.text2)));
     } else {

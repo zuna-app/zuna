@@ -159,11 +159,11 @@ impl Root {
                 .w(px(46.))
                 .h_full()
                 .window_control_area(area)
-                .text_color(theme::color(theme::hex(0xa0a0a6)))
+                .text_color(theme.text2)
                 .hover(move |style| {
                     if close { style.bg(theme::color(theme::hex(0xc42b1c))).text_color(gpui::white()) } else { style.bg(theme::color(theme::white_a(0.09))) }
                 })
-                .child(gpui::svg().path(format!("icons/{icon_name}.svg")).size(px(10.)).text_color(theme::color(theme::hex(0xa0a0a6))));
+                .child(gpui::svg().path(format!("icons/{icon_name}.svg")).size(px(10.)).text_color(theme.text2));
             // Wayland leaves the buttons to the app.
             #[cfg(target_os = "linux")]
             let button = crate::platform::title_button(button, area);

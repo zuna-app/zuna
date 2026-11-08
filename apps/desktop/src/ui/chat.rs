@@ -239,7 +239,7 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
         if people.is_empty() {
             continue;
         }
-        list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme::color(theme::hex(0x8b8b92))).child(format!("{} — {}", title.to_uppercase(), people.len())));
+        list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.channel_muted).child(format!("{} — {}", title.to_uppercase(), people.len())));
         for user in people {
             let image = user.avatar.as_ref().and_then(|avatar| state_entity.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx)));
             let (open_state, profile_id) = (state_entity.clone(), user.id.clone());
@@ -2015,7 +2015,7 @@ impl ChatView {
         let panel = state.panel;
         let show_members = !state.settings.hide_member_list;
         let muted = conversation.muted;
-        let muted_color = theme::color(theme::hex(0x8b8b92));
+        let muted_color = theme.channel_muted;
         let details = |id: &'static str, state: Entity<AppState>| {
             div().id(id).cursor_pointer().on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| state.toggle_panel(Panel::Info, cx));
@@ -2337,7 +2337,7 @@ impl ChatView {
                 .bg(theme.bg5)
                 .shadow(shadow_s())
                 .cursor_pointer()
-                .hover(|style| style.bg(theme::color(theme::hex(0x45454b))))
+                .hover(|style| style.bg(theme.bg5_hover))
                 .on_click(cx.listener(move |view, _, _, cx| {
                     if !view.mentions.is_empty() {
                         view.mentions.remove(0);
@@ -2900,7 +2900,7 @@ impl ChatView {
                                 .shadow(shadow_s())
                                 .cursor_pointer()
                                 // `.to-bottom`: background 0.1s.
-                                .child(super::motion::hover_layer("to-bottom", theme::color(theme::hex(0x45454b)), px(20.), 100))
+                                .child(super::motion::hover_layer("to-bottom", theme.bg5_hover, px(20.), 100))
                                 .on_click(cx.listener(move |view, _, _, cx| {
                                     if detached {
                                         to_bottom_state.update(cx, |state, cx| state.return_to_latest(&list_id, cx));
@@ -3049,7 +3049,7 @@ impl Render for ChatView {
                                     .px(px(14.))
                                     .py(px(8.))
                                     .text_size(px(13.))
-                                    .text_color(theme::color(theme::hex(0xe8d3a2)))
+                                    .text_color(theme.amber_text)
                                     .child(icon("shield-alert", 16., theme.amber))
                                     .child(div().flex_1().min_w_0().child(format!(
                                         "{}'s security key changed. This can mean someone is intercepting this chat. Compare keys before sharing anything private.",
