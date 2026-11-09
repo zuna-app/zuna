@@ -180,9 +180,9 @@ export class ZunaClient {
   }
 
   /** Whether the person is using this device right now, for every server (see ServerSession.setActive). */
-  setActive(active: boolean, putAway = false): void {
+  setActive(active: boolean): void {
     this.active = active;
-    for (const session of this.sessions.values()) session.setActive(active, putAway);
+    for (const session of this.sessions.values()) session.setActive(active);
   }
 
   private serverKey(serverId: string): Uint8Array {

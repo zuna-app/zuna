@@ -167,8 +167,9 @@ export function MessageList({
   const returnToLatest = useApp((state) => state.returnToLatest);
   const loadNewerPage = useApp((state) => state.loadNewer);
   const jumpTarget = useApp((state) => state.jumpTarget);
-  // Being here lasts 5 s after the window loses focus, which stops reading at once.
-  const here = useApp((state) => state.windowFocused && state.personHere);
+  // Read as Telegram's desktop app reads (MainWindow::markingAsRead): with the window in
+  // front, input in the last 30 s, and no dialog, or the picture viewer, over the chat.
+  const here = useApp((state) => state.windowFocused && state.personHere && !state.overlay);
   const session = useApp((state) => state.session);
   const selfId = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId]?.self?.userId : undefined)) ?? "";
   const virtuoso = useRef<VirtuosoHandle>(null);

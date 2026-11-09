@@ -198,7 +198,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         {peer && !peer.deleted && <p className="muted">@{peer.username}</p>}
         {peer && !isSelf && (
           <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
-            {peer.deleted ? "Deleted their account" : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} />}
+            {peer.deleted ? "Deleted their account" : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} full />}
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}

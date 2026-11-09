@@ -386,7 +386,7 @@ pub struct LastSeenTick {
 }
 
 /// Draws a view again when the last seen it shows next changes its words, as "just now" turning
-/// into "1 min ago", which nothing else would. Called as the view is drawn, with what it shows, or
+/// into "1 minute ago", which nothing else would. Called as the view is drawn, with what it shows, or
 /// None while it shows none, it waits for one change at a time, and that drawing waits for the next.
 pub fn redraw_last_seen<V: 'static>(tick: &mut Option<LastSeenTick>, at_ms: Option<f64>, hidden: bool, cx: &mut gpui::Context<V>) {
     let (Some(at), Some(wait)) = (at_ms, crate::format::last_seen_changes_in(at_ms, hidden)) else {

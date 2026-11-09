@@ -233,12 +233,6 @@ func (s *socket) setActive(active bool) {
 	s.sendActive(map[string]any{"t": "active", "active": active})
 }
 
-// putAway says the person put the device away, as a phone locked or sent to the background.
-func (s *socket) putAway() {
-	s.t.Helper()
-	s.sendActive(map[string]any{"t": "active", "active": false, "put_away": true})
-}
-
 func (s *socket) sendActive(body map[string]any) {
 	s.t.Helper()
 	frame, _ := json.Marshal(body)

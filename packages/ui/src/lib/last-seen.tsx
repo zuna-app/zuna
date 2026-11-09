@@ -1,13 +1,14 @@
-// "last seen 5 min ago", kept true as the minutes pass.
+// "last seen 5 minutes ago", kept true as time passes, as Telegram's desktop app keeps it.
 
 import { useEffect, useState } from "react";
-import { formatLastSeen } from "./format";
+import { formatLastSeen, lastSeenChangesIn } from "./format";
 
-/** How long until formatLastSeen's words can next change: at the turn of a minute since `at`, so never more than one. */
-const lastSeenChangesIn =(at: number, now = Date.now()): number => 60_000 - (Math.max(0, now - at) % 60_000) + 50;
-
-/** When someone was last seen, worded again each time the words change, so "just now" turns into "1 min ago" with nothing else happening. */
-export function LastSeen({ at, hidden }: { at: number | null; hidden: boolean }) {
+/**
+ * When someone was last seen, worded again each time the words change (lastSeenChangesIn),
+ * so "just now" turns into "1 minute ago" with nothing else happening. `full` words it as
+ * their details do, with the time.
+ */
+export function LastSeen({ at, hidden, full = false }: { at: number | null; hidden: boolean; full?: boolean }) {
   const [, redraw] = useState(0);
   useEffect(() => {
     if (hidden || at === null) return;
@@ -16,10 +17,10 @@ export function LastSeen({ at, hidden }: { at: number | null; hidden: boolean })
       timer = setTimeout(() => {
         redraw((count) => count + 1);
         wait();
-      }, lastSeenChangesIn(at));
+      }, lastSeenChangesIn(at) + 50);
     };
     wait();
     return () => clearTimeout(timer);
   }, [at, hidden]);
-  return <>{formatLastSeen(at, hidden)}</>;
+  return <>{formatLastSeen(at, hidden, full)}</>;
 }

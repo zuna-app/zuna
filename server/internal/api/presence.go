@@ -170,10 +170,11 @@ func (h *Hub) add(c *conn, hidden bool) bool {
 
 // SetActive records whether the person is using a device right now, which is
 // what shows them as online, and tells their other devices, whose
-// notifications wait while they're elsewhere. A device put away, as a phone
-// locked or sent to the background, takes them offline at once rather than
-// after the linger, unless they're using another one.
-func (h *Hub) SetActive(c *conn, active, putAway bool) {
+// notifications wait while they're elsewhere. An app saying they stopped, as
+// Telegram's tells its server, takes them offline at once, last seen now,
+// unless they're using another device: the app has already waited whatever it
+// waits, as a desktop's 30 s without input.
+func (h *Hub) SetActive(c *conn, active bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if c.active != active {
@@ -182,11 +183,7 @@ func (h *Hub) SetActive(c *conn, active, putAway bool) {
 			h.cameBack(c.userID)
 		} else {
 			h.leftDevice(c.userID, c.deviceID)
-			linger := h.linger
-			if putAway {
-				linger = 0
-			}
-			h.wentAway(c.userID, c.deviceID, linger)
+			h.wentAway(c.userID, c.deviceID, 0)
 		}
 		h.sendActivity(c.userID)
 	}

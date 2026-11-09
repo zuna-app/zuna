@@ -257,37 +257,60 @@ impl AppState {
         self.window_focused && crate::platform::main_visible()
     }
 
-    /// Whether the person is here, much as Telegram counts it: the window in front and input in the
-    /// last 5 s (`AWAY_AFTER_MS`). Only then does a chat open in it count as seen: one read in a
-    /// window left in front with nobody at it would take back the notification their phone is
-    /// waiting to show.
+    /// Whether the person is here, as Telegram's desktop app counts it: the window in front and
+    /// input in the last 30 s (`AWAY_AFTER_MS`), the window coming in front counting as input. Only
+    /// then does a chat open in it count as seen, so one left in front with nobody at it doesn't go
+    /// on taking back the notifications their phone is waiting to show.
     pub fn person_here(&self) -> bool {
-        self.window_in_front() && crate::platform::idle_ms() < crate::platform::AWAY_AFTER_MS
+        self.window_in_front() && self.quiet_ms() < crate::platform::AWAY_AFTER_MS as u64
     }
 
-    /// Tells the core whether the person is here (`person_here`). While they are, they show as
-    /// online, and their other devices hold notifications back (activity.ts). Once they're back,
-    /// the open chat reads what came while they were away.
+    /// How long since the person last touched the computer, or brought the window in front.
+    fn quiet_ms(&self) -> u64 {
+        let since_in_front = self.in_front_since.map_or(u64::MAX, |at| at.elapsed().as_millis() as u64);
+        (crate::platform::idle_ms() as u64).min(since_in_front)
+    }
+
+    /// Tells the core whether the person is here (`person_here`), if that changed. While they are,
+    /// they show as online, and as soon as they aren't, offline, as Telegram's desktop app tells its
+    /// server (`Updates::updateOnline`); their other devices hold notifications back meanwhile
+    /// (activity.ts). Once they're back, the open chat reads what came while they were away.
+    pub fn report_activity(&mut self, cx: &mut Context<Self>) {
+        // Nothing to tell before the core is up, which `watch_activity` waits for.
+        if self._activity.is_none() {
+            return;
+        }
+        let here = self.person_here();
+        if self.reported_active != Some(here) {
+            self.reported_active = Some(here);
+            self.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
+            cx.notify();
+        }
+    }
+
+    /// Keeps the core told (`report_activity`), looking again when that can next change without the
+    /// window being brought in front or left, which tells it at once (`ui/mod.rs`): as 30 s without
+    /// input run out, or, with the window in front and nobody at it, every 900 ms for them coming
+    /// back, as Telegram's does (`Updates::checkIdleFinish`). Otherwise every 5 s, in case.
     pub(super) fn watch_activity(&mut self, cx: &mut Context<Self>) {
         if self._activity.is_some() {
             return;
         }
         self._activity = Some(cx.spawn(async move |this, cx| {
             loop {
-                let alive = this
-                    .update(cx, |state, cx| {
-                        let here = state.person_here();
-                        if state.reported_active != Some(here) {
-                            state.reported_active = Some(here);
-                            state.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
-                            cx.notify();
-                        }
-                    })
-                    .is_ok();
-                if !alive {
-                    break;
-                }
-                cx.background_executor().timer(Duration::from_secs(5)).await;
+                let wait = this.update(cx, |state, cx| {
+                    state.report_activity(cx);
+                    let away = crate::platform::AWAY_AFTER_MS as u64;
+                    if state.person_here() {
+                        Duration::from_millis((away - state.quiet_ms().min(away) + 20).min(5_000))
+                    } else if state.window_in_front() {
+                        Duration::from_millis(900)
+                    } else {
+                        Duration::from_secs(5)
+                    }
+                });
+                let Ok(wait) = wait else { break };
+                cx.background_executor().timer(wait).await;
             }
         }));
     }

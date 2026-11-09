@@ -119,7 +119,10 @@ impl Root {
         // Whether the window opened in front: one that didn't, as when Windows keeps another app's
         // window there, would otherwise count as focused, and its person as online, until it was.
         let focused = window.is_window_active();
-        state.update(cx, |state, _| state.window_focused = focused);
+        state.update(cx, |state, _| {
+            state.window_focused = focused;
+            state.in_front_since = focused.then(std::time::Instant::now);
+        });
         let activation_state = state.clone();
         cx.observe_window_activation(window, move |root, window, cx| {
             let active = window.is_window_active();
@@ -127,6 +130,11 @@ impl Root {
             crate::platform::main_activation(active);
             activation_state.update(cx, |state, cx| {
                 state.window_focused = active;
+                if active {
+                    state.in_front_since = Some(std::time::Instant::now());
+                }
+                // Online or not as the window comes or goes, as Telegram's `handleActiveChanged`.
+                state.report_activity(cx);
                 cx.notify();
             });
             if active {

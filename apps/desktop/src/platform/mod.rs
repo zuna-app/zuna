@@ -65,8 +65,9 @@ pub const APP_ID: &str = "zuna";
 pub const APP_ID: &str = "chat.zuna.desktop";
 
 /// How long without input before the person counts as away from the computer: not using Zuna,
-/// even with its window in front.
-pub const AWAY_AFTER_MS: u32 = 5_000;
+/// even with its window in front. Telegram's `offline_idle_timeout_ms`, as its desktop app reads
+/// a chat on screen until then (`MainWindow::markingAsRead`).
+pub const AWAY_AFTER_MS: u32 = 30_000;
 
 /// What Security says when the system couldn't protect the device key, as the Electron app said it.
 #[cfg(windows)]

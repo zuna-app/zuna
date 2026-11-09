@@ -19,8 +19,6 @@ type clientFrame struct {
 	GroupID string `json:"group_id,omitempty"`
 	Data    []byte `json:"data,omitempty"`
 	Active  bool   `json:"active,omitempty"`
-	// With Active false, the person put the device away, as a phone locked or sent to the background.
-	PutAway bool `json:"put_away,omitempty"`
 	// What someone is doing in the voice channel named by GroupID, or nothing if they left.
 	Voice *voiceUpdate `json:"voice,omitempty"`
 }
@@ -160,7 +158,7 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 		case "typing":
 			s.relayTyping(ctx, c, frame)
 		case "active":
-			s.hub.SetActive(c, frame.Active, frame.PutAway)
+			s.hub.SetActive(c, frame.Active)
 		case "voice":
 			s.updateVoice(ctx, c, frame)
 		case "ping":

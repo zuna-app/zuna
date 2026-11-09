@@ -37,7 +37,7 @@ impl ChatView {
         } else if peer.as_ref().is_some_and(|p| p.online) {
             div().text_color(theme.green).child("online").into_any_element()
         } else {
-            div().text_color(theme.text3).child(format_last_seen(peer.as_ref().and_then(|p| p.last_seen_at), peer.as_ref().is_some_and(|p| p.hides_last_seen))).into_any_element()
+            div().text_color(theme.text3).child(format_last_seen(peer.as_ref().and_then(|p| p.last_seen_at), peer.as_ref().is_some_and(|p| p.hides_last_seen), false)).into_any_element()
         };
         let avatar_el: AnyElement = if is_saved {
             div().size(px(36.)).flex_none().rounded_full().bg(theme.bg4).flex().items_center().justify_center().child(icon("bookmark", 16., theme.text1)).into_any_element()

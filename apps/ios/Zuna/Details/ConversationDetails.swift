@@ -327,7 +327,7 @@ struct ConversationDetails: View {
                     let lastSeen = model.live(server.entry.id).lastSeenAt(peer)
                     // Drawn again as the minutes pass, so a last seen stays true.
                     TimelineView(.periodic(from: Format.lastSeenTurn(lastSeen), by: 60)) { _ in
-                        Text(online ? "online" : Format.lastSeen(lastSeen, hidden: peer.hidesLastSeen))
+                        Text(online ? "online" : Format.lastSeen(lastSeen, hidden: peer.hidesLastSeen, full: true))
                             .font(.footnote)
                             .foregroundStyle(online ? Theme.green : Theme.text3)
                     }

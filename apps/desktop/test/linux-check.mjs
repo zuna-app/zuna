@@ -355,9 +355,9 @@ try {
   // its frame loop while nothing wants a frame.
   check("at rest it hardly wakes", rest.wakeups < 20, `${rest.wakeups} main-thread wakeups a second, ${rest.cpu.toFixed(1)}% of a core, with KWin at 60 Hz`);
 
-  // --- Away, from the compositor, after 5 s without input ---
-  await until(() => app.output.includes("the person is away"), "the person to be away", 15_000).catch(() => null);
-  check("5 s without input counts as away", app.output.includes("the person is away"));
+  // --- Away, from the compositor, after 30 s without input, as Telegram counts it ---
+  await until(() => app.output.includes("the person is away"), "the person to be away", 45_000).catch(() => null);
+  check("30 s without input counts as away", app.output.includes("the person is away"));
   await drive({ do: "move", x: 700, y: 400 });
   await drive({ do: "move", x: 720, y: 420 });
   check("and input as back", !!(await until(() => app.output.includes("the person is back"), "the person to be back", 5_000).catch(() => null)));

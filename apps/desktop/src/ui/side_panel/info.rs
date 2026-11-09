@@ -120,7 +120,7 @@ impl SidePanel {
                         } else if peer.online {
                             "online".to_string()
                         } else {
-                            format_last_seen(peer.last_seen_at, peer.hides_last_seen)
+                            format_last_seen(peer.last_seen_at, peer.hides_last_seen, true)
                         }),
                 );
             }

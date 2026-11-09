@@ -357,18 +357,17 @@ export abstract class SessionConversations extends SessionIngest {
   // --- Notifications ---
 
   /**
-   * Whether the person is using this device right now: much as in Telegram, the
-   * desktop's window in front with input in the last 5 s, the phone app on
+   * Whether the person is using this device right now, as in Telegram: the
+   * desktop's window in front with input in the last 30 s, the phone app on
    * screen. While they are, and for a while after, their other devices'
    * notifications wait, and don't show if they read the chat here. They show
-   * as online too, for 5 s after, unless `putAway` says they put the
-   * device away, as a phone locked or left for another app: then, as on
-   * Telegram's, they go offline at once.
+   * as online while they are, and offline, last seen then, as soon as they
+   * aren't, as Telegram's apps tell its server.
    */
-  setActive(active: boolean, putAway = false): void {
+  setActive(active: boolean): void {
     if (this.active && !active) this.leftHereAt = Date.now();
     this.active = active;
-    this.socket.setActive(active, putAway);
+    this.socket.setActive(active);
   }
 
   /** Whether the person is using another of their devices, as the server last said. */

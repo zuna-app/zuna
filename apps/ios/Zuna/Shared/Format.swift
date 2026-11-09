@@ -73,19 +73,27 @@ enum Format {
         return (parts.year ?? 0) * 10_000 + (parts.month ?? 0) * 100 + (parts.day ?? 0)
     }
 
-    /// As the desktop words it (lib/format.ts).
-    static func lastSeen(_ milliseconds: Int?, hidden: Bool, now: Date = .now) -> String {
-        guard !hidden, let milliseconds else { return "last seen recently" }
+    /// When someone was last seen, worded as Telegram's desktop app words it (lib/format.ts): in a
+    /// chat's header the minutes, or the hours under 12, and in their details (`full`) the time.
+    /// Someone hiding it was seen "recently", and someone never seen "a long time ago".
+    static func lastSeen(_ milliseconds: Int?, hidden: Bool, full: Bool = false, now: Date = .now) -> String {
+        if hidden { return "last seen recently" }
+        guard let milliseconds else { return "last seen a long time ago" }
         let date = Date(milliseconds: milliseconds)
-        let minutes = Int(now.timeIntervalSince(date) / 60)
-        if minutes < 1 { return "last seen just now" }
-        if minutes < 60 { return "last seen \(minutes) min ago" }
-        let hours = minutes / 60
-        if hours < 24 { return "last seen \(hours) hour\(hours == 1 ? "" : "s") ago" }
+        if !full {
+            let minutes = Int(max(0, now.timeIntervalSince(date)) / 60)
+            if minutes == 0 { return "last seen just now" }
+            if minutes < 60 { return "last seen \(minutes) minute\(minutes == 1 ? "" : "s") ago" }
+            let hours = minutes / 60
+            if hours < 12 { return "last seen \(hours) hour\(hours == 1 ? "" : "s") ago" }
+        }
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        if days == 1 { return "last seen yesterday at \(date.formatted(date: .omitted, time: .shortened))" }
-        return "last seen \(date.formatted(.dateTime.month(.abbreviated).day()))"
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if days <= 0 { return "last seen today at \(time)" }
+        if days == 1 { return "last seen yesterday at \(time)" }
+        let day = date.formatted(date: .numeric, time: .omitted)
+        return full ? "last seen \(day) at \(time)" : "last seen \(day)"
     }
 
     /// The last turn of a minute since someone was last seen, from which `lastSeen`'s words can

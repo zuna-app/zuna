@@ -100,7 +100,7 @@ describe("presence and read state", () => {
     await bob.session.updatePreferences({ sendReadReceipts: true });
   });
 
-  it("shows someone online only while they use the app, and for the linger after, with when they left as last seen", async () => {
+  it("shows someone online only while they use the app, offline as soon as they stop, with when they stopped as last seen", async () => {
     const phone = await new TestApp("grace-phone").open();
     await phone.register(invite, "grace");
     const graceId = phone.userId;
@@ -111,26 +111,16 @@ describe("presence and read state", () => {
       await sleep(500);
       expect(grace()!.online).toBe(false);
 
+      // Leaving, as a phone locked or a window left: offline at once, as on Telegram.
       phone.client.setActive(true);
       await waitFor(() => grace()?.online === true, "grace online");
       const left = Date.now();
       phone.client.setActive(false);
-      await sleep(PRESENCE_LINGER / 2);
-      expect(grace()!.online).toBe(true);
-      await waitFor(() => grace()?.online === false, "grace offline after the linger", PRESENCE_LINGER * 4);
-      expect(Date.now() - left).toBeGreaterThanOrEqual(PRESENCE_LINGER);
+      await waitFor(() => grace()?.online === false, "grace offline as soon as she left", PRESENCE_LINGER / 2);
       expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
-      expect(grace()!.lastSeenAt).toBeLessThan(left + PRESENCE_LINGER / 2);
+      expect(grace()!.lastSeenAt).toBeLessThan(left + 1000);
 
-      // Put away, as a phone locked or left for another app: offline at once, as on Telegram.
-      phone.client.setActive(true);
-      await waitFor(() => grace()?.online === true, "grace online again");
-      const putAway = Date.now();
-      phone.client.setActive(false, true);
-      await waitFor(() => grace()?.online === false, "grace offline once the phone was put away", PRESENCE_LINGER / 2);
-      expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(putAway - 1000);
-
-      // Back on screen and then gone outright: online until the linger is up.
+      // Back on screen and then gone outright, as a connection lost: online until the linger is up.
       phone.client.setActive(true);
       await waitFor(() => grace()?.online === true, "grace online again");
       const closed = Date.now();
@@ -170,7 +160,7 @@ describe("presence and read state", () => {
       phone.client.setActive(true);
       await waitFor(() => heidi(alice)?.online === true, "heidi online");
       const left = Date.now();
-      phone.client.setActive(false, true);
+      phone.client.setActive(false);
       await waitFor(() => heidi(alice)?.online === false, "heidi offline");
       await viewer.restart();
       expect(heidi(viewer)!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);

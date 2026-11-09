@@ -114,10 +114,12 @@ func TestRealtimeDeliveryAndPresence(t *testing.T) {
 	}
 }
 
-// Someone shows as online while they use one of their devices and for a while
-// after, not because one is connected, as a phone woken for a push is.
-func TestOnlineMeansInUseAndLingers(t *testing.T) {
-	const linger = 500 * time.Millisecond
+// Someone shows as online while they use one of their devices, not because one
+// is connected, as a phone woken for a push is, and goes offline as soon as an
+// app says they stopped, as Telegram's does, last seen then, unless they're
+// using another device.
+func TestOnlineMeansInUse(t *testing.T) {
+	const linger = 2 * time.Second
 	h := newHarness(t, func(cfg *api.Config) { cfg.PresenceLinger = linger })
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
@@ -147,7 +149,7 @@ func TestOnlineMeansInUseAndLingers(t *testing.T) {
 		t.Fatal("a connection alone shows someone as online")
 	}
 
-	// On screen: online. Off it: online for the linger more, last seen when they left.
+	// On screen: online. Off it: offline at once, last seen when they left.
 	phoneSocket.setActive(true)
 	presence(true)
 	if !slices.Contains(online(), owner.userID) {
@@ -156,61 +158,45 @@ func TestOnlineMeansInUseAndLingers(t *testing.T) {
 	left := store.Now()
 	phoneSocket.setActive(false)
 	went := presence(false)
-	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited < linger {
-		t.Fatalf("offline after %v, before the linger of %v", waited, linger)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited > linger/2 {
+		t.Fatalf("offline %v after leaving, as if it lingered", waited)
 	}
-	if at := int64(went["last_seen_at"].(float64)); at < left-1000 || at > left+int64(linger/time.Millisecond)/2 {
+	if at := int64(went["last_seen_at"].(float64)); at < left-1000 || at > left+1000 {
 		t.Fatalf("last seen at %d, but they left at %d", at, left)
 	}
 	if slices.Contains(online(), owner.userID) {
-		t.Fatal("still online after the linger")
+		t.Fatal("still online after leaving")
 	}
 	var me store.PublicUser
 	h.mustDo("GET", "/api/users/"+owner.userID, owner.token, nil, &me)
 	for _, device := range me.Devices {
-		if device.ID == phone.device && (device.LastSeenAt < left-1000 || device.LastSeenAt > left+int64(linger/time.Millisecond)/2) {
+		if device.ID == phone.device && (device.LastSeenAt < left-1000 || device.LastSeenAt > left+1000) {
 			t.Fatalf("the phone was last seen at %d, but they left it at %d", device.LastSeenAt, left)
 		}
 	}
 
-	// Back within the linger: they stay online, and go once they've been away long enough.
-	phoneSocket.setActive(true)
-	presence(true)
-	phoneSocket.setActive(false)
-	time.Sleep(linger / 2)
-	phoneSocket.setActive(true)
-	phoneSocket.setActive(false)
-	left = store.Now()
-	presence(false)
-	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited < linger {
-		t.Fatalf("offline %v after leaving the second time, sooner than the linger", waited)
-	}
-
-	// On one device and then another: still online while either is in use.
+	// On one device and then another: still online while either is in use, offline as they leave the last.
 	laptopSocket := owner.connect()
 	phoneSocket.setActive(true)
 	presence(true)
 	laptopSocket.setActive(true)
 	phoneSocket.setActive(false)
-	time.Sleep(linger + linger/2)
+	time.Sleep(linger / 4)
 	if !slices.Contains(online(), owner.userID) {
 		t.Fatal("offline while the laptop is in use")
 	}
-
-	// A connection lost while in use lingers too: back in time, as after a moment without a network, nothing shows.
-	phoneSocket.ws.CloseNow()
-	laptopSocket.ws.CloseNow()
-	time.Sleep(100 * time.Millisecond)
-	if !slices.Contains(online(), owner.userID) {
-		t.Fatal("offline as soon as the connection dropped")
-	}
+	left = store.Now()
+	laptopSocket.setActive(false)
 	presence(false)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited > linger/2 {
+		t.Fatalf("offline %v after leaving the laptop, as if it lingered", waited)
+	}
 }
 
-// A phone put away, locked or left for another app, takes someone offline at
-// once, as Telegram's does, unless they're using another device. Leaving the
-// laptop still lingers.
-func TestAPhonePutAwayGoesOfflineAtOnce(t *testing.T) {
+// A connection that drops while its device is in use lingers: back within it, as
+// after a moment without a network, nothing shows; gone for longer, offline, last
+// seen when it dropped.
+func TestALostConnectionLingers(t *testing.T) {
 	const linger = 2 * time.Second
 	h := newHarness(t, func(cfg *api.Config) { cfg.PresenceLinger = linger })
 	owner := h.owner()
@@ -224,33 +210,24 @@ func TestAPhonePutAwayGoesOfflineAtOnce(t *testing.T) {
 		}
 		return got
 	}
-	phone := owner.anotherDevice()
-	phoneSocket := phone.connect()
 
-	phoneSocket.setActive(true)
+	first := owner.connect()
+	first.setActive(true)
 	presence(true)
+	first.ws.CloseNow()
+	time.Sleep(linger / 4)
+	again := owner.connect()
+	again.setActive(true)
+	time.Sleep(linger + linger/2)
+	// Nothing went out meanwhile: the next presence is the owner leaving.
 	left := store.Now()
-	phoneSocket.putAway()
+	again.ws.CloseNow()
 	went := presence(false)
-	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited > linger/2 {
-		t.Fatalf("offline %v after the phone was put away, as if it lingered", waited)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited < linger {
+		t.Fatalf("offline %v after the connection dropped, sooner than the linger", waited)
 	}
 	if at := int64(went["last_seen_at"].(float64)); at < left-1000 || at > left+1000 {
-		t.Fatalf("last seen at %d, but they left at %d", at, left)
-	}
-
-	// With the laptop in use, they stay online, and leaving it lingers as before.
-	laptopSocket := owner.connect()
-	laptopSocket.setActive(true)
-	presence(true)
-	phoneSocket.setActive(true)
-	phoneSocket.putAway()
-	time.Sleep(linger / 4)
-	laptopSocket.setActive(false)
-	left = store.Now()
-	presence(false)
-	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited < linger {
-		t.Fatalf("offline %v after leaving the laptop, sooner than the linger", waited)
+		t.Fatalf("last seen at %d, but the connection dropped at %d", at, left)
 	}
 }
 
@@ -277,11 +254,11 @@ func TestLastSeenReachesAppsThatMissedIt(t *testing.T) {
 	h.mustDo("PATCH", "/api/me", carol.token, map[string]any{"hide_last_seen": true}, nil)
 	carolSocket := carol.connect()
 	carolSocket.setActive(true)
-	carolSocket.putAway()
+	carolSocket.setActive(false)
 	ownerSocket := owner.connect()
 	ownerSocket.setActive(true)
 	left := store.Now()
-	ownerSocket.putAway()
+	ownerSocket.setActive(false)
 	if got := daveSocket.waitFor("presence"); got["user_id"] != owner.userID || got["online"] != true {
 		t.Fatalf("presence %v, want the owner online", got)
 	}
@@ -338,7 +315,7 @@ func TestSendingCountsAsBeingSeen(t *testing.T) {
 		t.Fatalf("last seen at %d, but they sent it at %d", at, sent)
 	}
 
-	// While using the app, sending changes nothing, and they linger from when they leave.
+	// While using the app, sending changes nothing, and they go as they leave it.
 	ownerSocket := owner.connect()
 	ownerSocket.setActive(true)
 	presence(true)

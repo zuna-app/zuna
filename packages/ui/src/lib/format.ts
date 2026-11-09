@@ -53,16 +53,42 @@ export function formatUpcoming(at: number): string {
   return sameDay(at, Date.now()) ? formatTime(at) : `${dayFormat.format(at)}, ${formatTime(at)}`;
 }
 
-export function formatLastSeen(at: number | null, hidden: boolean): string {
-  if (hidden || at === null) return "last seen recently";
-  const minutes = Math.floor((Date.now() - at) / 60_000);
-  if (minutes < 1) return "last seen just now";
-  if (minutes < 60) return `last seen ${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `last seen ${hours} hour${hours === 1 ? "" : "s"} ago`;
-  const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
+const shortDayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
+
+/**
+ * When someone was last seen, worded as Telegram's desktop app words it: in a chat's header
+ * (Data::OnlineText) the minutes, or the hours under 12, and in their details (`full`,
+ * Data::OnlineTextFull) the time. Someone hiding it was seen "recently", and someone never
+ * seen "a long time ago".
+ */
+export function formatLastSeen(at: number | null, hidden: boolean, full = false, now = Date.now()): string {
+  if (hidden) return "last seen recently";
+  if (at === null) return "last seen a long time ago";
+  if (!full) {
+    const minutes = Math.floor(Math.max(0, now - at) / 60_000);
+    if (minutes === 0) return "last seen just now";
+    if (minutes < 60) return `last seen ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 12) return `last seen ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  const days = Math.round((startOfDay(now) - startOfDay(at)) / 86_400_000);
+  if (days <= 0) return `last seen today at ${formatTime(at)}`;
   if (days === 1) return `last seen yesterday at ${formatTime(at)}`;
-  return `last seen ${dayFormat.format(at)}`;
+  return full ? `last seen ${shortDayFormat.format(at)} at ${formatTime(at)}` : `last seen ${shortDayFormat.format(at)}`;
+}
+
+/**
+ * How long until formatLastSeen's words next change, as Telegram works it out
+ * (OnlinePhraseChangeInSeconds): at the turn of a minute under an hour, of an hour
+ * under 12, and at midnight after.
+ */
+export function lastSeenChangesIn(at: number, now = Date.now()): number {
+  const since = Math.max(0, now - at);
+  if (since < 3_600_000) return 60_000 - (since % 60_000);
+  if (since < 12 * 3_600_000) return 3_600_000 - (since % 3_600_000);
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return Math.max(1_000, midnight.getTime() - now);
 }
 
 export function formatBytes(bytes: number): string {

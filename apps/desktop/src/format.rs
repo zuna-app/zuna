@@ -126,31 +126,58 @@ pub fn format_day_separator(at_ms: f64) -> String {
     if time.year() == Local::now().year() { time.format("%A, %B %-d").to_string() } else { time.format("%B %-d, %Y").to_string() }
 }
 
-pub fn format_last_seen(at_ms: Option<f64>, hidden: bool) -> String {
-    let Some(at) = at_ms.filter(|_| !hidden) else { return "last seen recently".into() };
-    let minutes = ((now_ms() - at) / 60_000.0).floor() as i64;
-    if minutes < 1 {
-        return "last seen just now".into();
+/// When someone was last seen, worded as Telegram's desktop app words it (`formatLastSeen`): in a
+/// chat's header (`Data::OnlineText`) the minutes, or the hours under 12, and in their details
+/// (`full`, `Data::OnlineTextFull`) the time. Someone hiding it was seen "recently", and someone
+/// never seen "a long time ago".
+pub fn format_last_seen(at_ms: Option<f64>, hidden: bool, full: bool) -> String {
+    if hidden {
+        return "last seen recently".into();
     }
-    if minutes < 60 {
-        return format!("last seen {minutes} min ago");
+    let Some(at) = at_ms else { return "last seen a long time ago".into() };
+    if !full {
+        let minutes = ((now_ms() - at).max(0.) / 60_000.0).floor() as i64;
+        if minutes == 0 {
+            return "last seen just now".into();
+        }
+        if minutes < 60 {
+            return format!("last seen {minutes} minute{} ago", if minutes == 1 { "" } else { "s" });
+        }
+        let hours = minutes / 60;
+        if hours < 12 {
+            return format!("last seen {hours} hour{} ago", if hours == 1 { "" } else { "s" });
+        }
     }
-    let hours = minutes / 60;
-    if hours < 24 {
-        return format!("last seen {hours} hour{} ago", if hours == 1 { "" } else { "s" });
+    match days_ago(at) {
+        ..=0 => format!("last seen today at {}", format_time(at)),
+        1 => format!("last seen yesterday at {}", format_time(at)),
+        _ if full => format!("last seen {} at {}", short_date(at), format_time(at)),
+        _ => format!("last seen {}", short_date(at)),
     }
-    if days_ago(at) == 1 {
-        return format!("last seen yesterday at {}", format_time(at));
-    }
-    format!("last seen {}", local(at).format("%b %-d"))
 }
 
-/// How long until `format_last_seen`'s words can next change, or None if they never do: at the
-/// turn of a minute since then, so never more than one.
+/// A date as Qt's short format gives it in English: "11/9/26".
+fn short_date(at_ms: f64) -> String {
+    local(at_ms).format("%-m/%-d/%y").to_string()
+}
+
+/// How long until `format_last_seen`'s words next change, or None if they never do, as Telegram
+/// works it out (`OnlinePhraseChangeInSeconds`): at the turn of a minute under an hour, of an hour
+/// under 12, and at midnight after.
 pub fn last_seen_changes_in(at_ms: Option<f64>, hidden: bool) -> Option<std::time::Duration> {
+    const MINUTE: f64 = 60_000.;
+    const HOUR: f64 = 3_600_000.;
     let at = at_ms.filter(|_| !hidden)?;
     let since = (now_ms() - at).max(0.);
-    Some(std::time::Duration::from_millis((60_000. - since % 60_000.) as u64 + 50))
+    let wait = if since < HOUR {
+        MINUTE - since % MINUTE
+    } else if since < 12. * HOUR {
+        HOUR - since % HOUR
+    } else {
+        let tomorrow = Local::now().date_naive().succ_opt().and_then(|day| day.and_hms_opt(0, 0, 0)).and_then(|midnight| midnight.and_local_timezone(Local).earliest());
+        tomorrow.map_or(HOUR, |midnight| (midnight.timestamp_millis() as f64 - now_ms()).max(1_000.))
+    };
+    Some(std::time::Duration::from_millis(wait as u64 + 50))
 }
 
 pub fn format_bytes(bytes: f64) -> String {

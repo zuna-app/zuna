@@ -7,7 +7,7 @@
 //   npm run build -w @zuna/web && npm run test:ios:notify [-- screenshot-dir]
 //
 // The web app is in use while its window has focus and there was input in it in the
-// last 5 s. Both are the page's own events here: input is a pointer moving every
+// last 30 s. Both are the page's own events here: input is a pointer moving every
 // second while someone's "at the desktop", and focus comes and goes as the window's.
 //
 // simctl can't allow notifications, so the app has to have been allowed them on the
@@ -281,11 +281,9 @@ try {
   log("leaving the desktop");
   await leaveDesktop();
   const left = Date.now();
-  await sleep(3_000);
-  check("3 s after leaving the desktop, it's still in use", activeElsewhere());
   await waitFor(() => !activeElsewhere(), "the desktop to stop counting as in use", 15_000);
   const after = Date.now() - left;
-  check("it stops counting 5 s after leaving it", after >= 4_500 && after < 12_000, `after ${(after / 1000).toFixed(1)} s`);
+  check("it stops counting as soon as it's left, as Telegram's", after < 3_000, `after ${(after / 1000).toFixed(1)} s`);
   const c = send(chats.Left!, "Gone already?");
   await sleep(WAIT + 10_000);
   judge("used last, the desktop shows it at once", await onDesktop(c.text), c.sent, "now");

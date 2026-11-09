@@ -67,14 +67,10 @@ export class Socket {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * Whether the person is using this device: sent now, and again after every reconnect.
-   * `putAway` says they put it away, as a phone locked or left for another app, which
-   * takes them offline at once rather than after the server's linger.
-   */
-  setActive(active: boolean, putAway = false): void {
+  /** Whether the person is using this device: sent now, and again after every reconnect. */
+  setActive(active: boolean): void {
     this.active = active;
-    if (this.connected) this.ws!.send(JSON.stringify({ t: "active", active, put_away: (!active && putAway) || undefined }));
+    if (this.connected) this.ws!.send(JSON.stringify({ t: "active", active }));
   }
 
   /** What this device is doing in a room, or nothing once it's left, and whether that went. `ring` starts a call ringing everyone else. */

@@ -99,7 +99,7 @@ export interface AppState {
   toasts: Toast[];
   settings: AppSettings;
   windowFocused: boolean;
-  /** Whether the person is here (activity.ts): the window has focus, with input in the last 5 s. Only then does a chat on screen count as read. */
+  /** Whether the person is here (activity.ts): the window has focus, with input in the last 30 s. Only then does a chat on screen count as read. */
   personHere: boolean;
   jumpTarget: { groupId: string; messageId: string; nonce: number } | null;
   replyTo: Record<string, MessageView | null>;
