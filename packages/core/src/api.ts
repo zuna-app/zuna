@@ -497,8 +497,7 @@ export class Api {
     this.request("POST", at`/api/channels/${id}/history-grants`, { user_id: userId, data });
   voiceToken = (id: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/channels/${id}/voice`, {});
-  startScreen = (id: string, how: { browser: boolean; sound: boolean }) =>
-    this.request<{ url?: string; token?: string; identity?: string; sound: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);
+  startScreen = (id: string, how: { sound: boolean }) => this.request<{ sound: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);
   stopScreen = (id: string) => this.request("DELETE", at`/api/channels/${id}/voice/screen`);
   stopScreenOf = (id: string, userId: string) => this.request("DELETE", at`/api/channels/${id}/voice/users/${userId}/screen`);
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
@@ -509,8 +508,7 @@ export class Api {
   calls = () => this.request<{ calls: ApiCall[]; voice: ApiVoiceState[] }>("GET", "/api/calls");
   callToken = (groupId: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/groups/${groupId}/call`, {});
-  startCallScreen = (groupId: string, how: { browser: boolean; sound: boolean }) =>
-    this.request<{ url?: string; token?: string; identity?: string; sound: boolean }>("POST", at`/api/groups/${groupId}/call/screen`, how);
+  startCallScreen = (groupId: string, how: { sound: boolean }) => this.request<{ sound: boolean }>("POST", at`/api/groups/${groupId}/call/screen`, how);
   stopCallScreen = (groupId: string) => this.request("DELETE", at`/api/groups/${groupId}/call/screen`);
   ringCall = (groupId: string, users: string[]) => this.request("POST", at`/api/groups/${groupId}/call/ring`, { users });
   declineCall = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/call/decline`, {});

@@ -149,7 +149,7 @@ impl VoiceRoom {
         let mut connection = Connection::default();
         let local = self.room_handle().local_participant();
         let identity = local.identity().0;
-        let user = parse_identity(&identity).map(|(user, _, _)| user).unwrap_or_default();
+        let user = parse_identity(&identity).map(|(user, _)| user).unwrap_or_default();
         for (sid, publication) in local.track_publications() {
             let Some(track) = publication.track() else { continue };
             let Ok(stats) = track.get_stats().await else { continue };
@@ -161,7 +161,7 @@ impl VoiceRoom {
         }
         for participant in self.room_handle().remote_participants().values() {
             let identity = participant.identity().0;
-            let Some((user, _, native)) = parse_identity(&identity) else { continue };
+            let Some((user, _)) = parse_identity(&identity) else { continue };
             for (sid, publication) in participant.track_publications() {
                 let Some(track) = publication.track() else { continue };
                 let Ok(stats) = track.get_stats().await else { continue };
@@ -169,7 +169,7 @@ impl VoiceRoom {
                 if connection.round_trip.is_none() && found.round_trip.is_some() {
                     connection = found;
                 }
-                samples.push(Sample { key: format!("{identity}/{sid}"), user_id: user.clone(), local: false, video: publication.kind() == TrackKind::Video, source: source_of(publication.source()), native: native || (publication.source() == TrackSource::Screenshare && publication.name() == "screen"), encrypted: publication.encryption_type() != livekit::e2ee::EncryptionType::None, muted: publication.is_muted(), numbers, texts });
+                samples.push(Sample { key: format!("{identity}/{sid}"), user_id: user.clone(), local: false, video: publication.kind() == TrackKind::Video, source: source_of(publication.source()), native: publication.source() == TrackSource::Screenshare && publication.name() == "screen", encrypted: publication.encryption_type() != livekit::e2ee::EncryptionType::None, muted: publication.is_muted(), numbers, texts });
             }
         }
         (samples, connection)

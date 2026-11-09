@@ -579,7 +579,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       const held = terms.held.map((name) => ({ height: heightName(terms.height), fps: rateName(terms.fps), kbps: bitrateName(terms.kbps), soundKbps: `${bitrateName(terms.soundKbps)} of sound` })[name]);
       const asked = { name: "Your screen", fps: terms.fps, bitrateKbps: terms.kbps, height: terms.height, held };
       try {
-        const access = await session.voiceScreenAccess(channelId, { browser: true, sound: wantsSound }).catch((error) => {
+        const access = await session.voiceScreenAccess(channelId, { sound: wantsSound }).catch((error) => {
           throw new ShareRefused((error as Error).message);
         });
         await current.whenAllowedToShare(true, access.sound);

@@ -110,11 +110,8 @@ type screenShare struct {
 	ChannelID string
 	UserID    string
 	// Call says it's in a conversation's call rather than a voice channel.
-	Call bool
-	// Native says it comes from a process of its own, so the device itself only needs to
-	// be let send its sound.
-	Native bool
-	Sound  bool
+	Call  bool
+	Sound bool
 }
 
 // reserveShare keeps a place for a device's share, and says which limit there's no room
@@ -162,9 +159,7 @@ func (v *voiceRooms) sourcesFor(userID, deviceID string, call bool) []string {
 		sources = append(sources, "microphone")
 	}
 	if share := v.shares[deviceID]; share != nil {
-		if !share.Native {
-			sources = append(sources, "screen_share")
-		}
+		sources = append(sources, "screen_share")
 		if share.Sound {
 			sources = append(sources, "screen_share_audio")
 		}
@@ -188,9 +183,8 @@ func (s *Server) updateRoomSources(ctx context.Context, roomID string, call bool
 }
 
 // handleStartScreen lets a device in a voice channel or a call share its screen, if the
-// rules allow it. A share through the browser goes out over the device's own connection,
-// which LiveKit is told to let it do. A native process joins as a participant of its own,
-// which can only publish a screen, and gets a token for that.
+// rules allow it. Every share goes out over the device's own connection, which LiveKit is
+// told to let it do, with its sound where that's asked for and allowed.
 func (s *Server) handleStartScreen(call bool) memberHandler {
 	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 		if !s.liveKitConfigured() {
@@ -202,8 +196,7 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 			return
 		}
 		var body struct {
-			Browser bool `json:"browser"`
-			Sound   bool `json:"sound"`
+			Sound bool `json:"sound"`
 		}
 		if !readJSON(w, r, &body) {
 			return
@@ -245,7 +238,7 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 		if isAdmin && rules.AdminsExempt {
 			perChannel, perServer = 0, 0
 		}
-		share := &screenShare{ChannelID: room.ID, UserID: sess.UserID, Call: room.Call, Native: !body.Browser, Sound: body.Sound && rules.Sound}
+		share := &screenShare{ChannelID: room.ID, UserID: sess.UserID, Call: room.Call, Sound: body.Sound && rules.Sound}
 		switch s.voice.reserveShare(sess.DeviceID, share, perChannel, perServer) {
 		case "channel":
 			if call {
@@ -258,33 +251,13 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 			writeError(w, http.StatusConflict, "screen_full", "As many people as this server allows are already sharing.")
 			return
 		}
-		if body.Browser || share.Sound {
-			if err := s.updateRoomSources(r.Context(), room.ID, room.Call, sess.UserID, sess.DeviceID); err != nil {
-				s.voice.takeShare(sess.DeviceID)
-				slog.Warn("letting someone share a screen", "error", err)
-				writeError(w, http.StatusBadGateway, "voice_unavailable", "The media server isn't answering.")
-				return
-			}
-		}
-		if body.Browser {
-			writeJSON(w, http.StatusOK, map[string]any{"sound": share.Sound})
-			return
-		}
-		identity := voiceIdentity(sess.UserID, sess.DeviceID) + ".screen"
-		token, err := s.liveKitToken(identity, map[string]any{
-			"room":              room.ID,
-			"roomJoin":          true,
-			"canPublish":        true,
-			"canSubscribe":      false,
-			"canPublishData":    false,
-			"canPublishSources": []string{"screen_share"},
-		})
-		if err != nil {
+		if err := s.updateRoomSources(r.Context(), room.ID, room.Call, sess.UserID, sess.DeviceID); err != nil {
 			s.voice.takeShare(sess.DeviceID)
-			writeFailure(w, err)
+			slog.Warn("letting someone share a screen", "error", err)
+			writeError(w, http.StatusBadGateway, "voice_unavailable", "The media server isn't answering.")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "sound": share.Sound})
+		writeJSON(w, http.StatusOK, map[string]any{"sound": share.Sound})
 	}
 }
 
@@ -317,14 +290,6 @@ func (s *Server) closeShare(ctx context.Context, deviceID string, share *screenS
 		return
 	}
 	if err := s.updateRoomSources(ctx, share.ChannelID, share.Call, share.UserID, deviceID); err != nil {
-		slog.Debug("ending a screen share", "error", err)
-	}
-	if !share.Native {
-		return
-	}
-	identity := voiceIdentity(share.UserID, deviceID) + ".screen"
-	// One that's already left is the usual answer.
-	if err := s.callLiveKit(ctx, share.ChannelID, "RemoveParticipant", map[string]any{"room": share.ChannelID, "identity": identity}); err != nil {
 		slog.Debug("ending a screen share", "error", err)
 	}
 }

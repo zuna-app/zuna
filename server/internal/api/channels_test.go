@@ -354,18 +354,9 @@ func TestVoiceTokensAreForMembersOfVoiceChannels(t *testing.T) {
 		t.Fatalf("the token names someone: %+v", claims)
 	}
 
-	// Sharing a screen is for those in the channel, as a participant that can do nothing else.
+	// Sharing a screen is for those in the channel (TestSharingAScreenIsAllowedBySource has the rest).
 	if status, _ := h.do("POST", "/api/channels/"+voice.ID+"/voice/screen", member.token, map[string]any{}, nil); status != http.StatusConflict {
-		t.Fatalf("a screen token from outside the channel got %d", status)
-	}
-	ws := member.connect()
-	ws.sendVoice(voice.ID, map[string]any{"muted": false})
-	ws.waitFor("voice")
-	h.mustDo("POST", "/api/channels/"+voice.ID+"/voice/screen", member.token, map[string]any{}, &out)
-	claims = tokenClaims(t, out.Token)
-	video = claims["video"].(map[string]any)
-	if out.Identity != member.userID+"."+member.device+".screen" || video["canSubscribe"] != false {
-		t.Fatalf("the screen token says %+v", claims)
+		t.Fatalf("sharing a screen from outside the channel got %d", status)
 	}
 }
 
@@ -522,7 +513,7 @@ func TestADeviceThatGoesQuietLeavesVoiceUnlessItSaysItsStillThere(t *testing.T) 
 	if inVoice() != 0 {
 		t.Fatal("someone who came back without saying so is still listed")
 	}
-	if removed := fake.last("RemoveParticipant"); removed["room"] != voice.ID || removed["identity"] != owner.userID+"."+owner.device+".screen" {
+	if removed := fake.last("RemoveParticipant"); removed["room"] != voice.ID || removed["identity"] != owner.userID+"."+owner.device {
 		t.Fatalf("the room wasn't told: %+v", removed)
 	}
 }

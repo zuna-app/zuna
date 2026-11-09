@@ -42,19 +42,18 @@ pub const SCREEN_SOURCE: i32 = 3;
 pub const SCREEN_SOUND_SOURCE: i32 = 4;
 const DEFAULT_AUDIO_KBPS: u64 = 64;
 
-/// Who a device is in a room, from its identity: `user.device`, or `user.device.screen` for its native share.
-pub fn parse_identity(identity: &str) -> Option<(String, String, bool)> {
+/// Who a device is in a room, from its identity, `user.device`: (user, device).
+pub fn parse_identity(identity: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = identity.split('.').collect();
     let hex = |text: &str| text.len() == 32 && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
     match parts.as_slice() {
-        [user, device] if hex(user) && hex(device) => Some((user.to_string(), device.to_string(), false)),
-        [user, device, "screen"] if hex(user) && hex(device) => Some((user.to_string(), device.to_string(), true)),
+        [user, device] if hex(user) && hex(device) => Some((user.to_string(), device.to_string())),
         _ => None,
     }
 }
 
 fn user_of(identity: &str) -> Option<String> {
-    parse_identity(identity).map(|(user, _, _)| user)
+    parse_identity(identity).map(|(user, _)| user)
 }
 
 /// The key one sender's media is under, from the room's key for an epoch (`voiceSenderKey`).
@@ -404,11 +403,7 @@ impl VoiceRoom {
         let videos = self.shared.videos.lock();
         for participant in self.room.remote_participants().values() {
             let identity = participant.identity().0;
-            let Some((user, _, _)) = parse_identity(&identity) else { continue };
-            // This device's own native share isn't sent back to it.
-            if identity == format!("{}.screen", self.shared.identity) {
-                continue;
-            }
+            let Some((user, _)) = parse_identity(&identity) else { continue };
             for (sid, publication) in participant.track_publications() {
                 if publication.kind() != TrackKind::Video || publication.is_muted() {
                     continue;
@@ -524,9 +519,9 @@ impl VoiceRoom {
 
     // --- Stats ---
 
-    /// How many people are here, counting this device and not native shares.
+    /// How many are here, counting this device.
     pub fn people(&self) -> usize {
-        self.room.remote_participants().keys().filter(|identity| !parse_identity(&identity.0).is_some_and(|(_, _, screen)| screen)).count() + 1
+        self.room.remote_participants().len() + 1
     }
 
     pub fn key_state(&self) -> Option<(i32, u64)> {

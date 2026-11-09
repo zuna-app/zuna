@@ -575,17 +575,14 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 	writeOK(w)
 }
 
-// removeFromRoom takes a device and its screen share out of a room.
+// removeFromRoom takes a device, and with it anything it shares, out of a room.
 func (s *Server) removeFromRoom(ctx context.Context, state *VoiceState) {
 	if !s.liveKitConfigured() {
 		return
 	}
 	identity := voiceIdentity(state.UserID, state.DeviceID)
-	for _, who := range []string{identity, identity + ".screen"} {
-		// One that isn't there is the usual answer for a screen share.
-		if err := s.callLiveKit(ctx, state.ChannelID, "RemoveParticipant", map[string]any{"room": state.ChannelID, "identity": who}); err != nil {
-			slog.Debug("removing someone from a voice channel's room", "error", err)
-		}
+	if err := s.callLiveKit(ctx, state.ChannelID, "RemoveParticipant", map[string]any{"room": state.ChannelID, "identity": identity}); err != nil {
+		slog.Debug("removing someone from a voice channel's room", "error", err)
 	}
 }
 

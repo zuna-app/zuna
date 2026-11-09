@@ -25,7 +25,7 @@ export interface StatsStream {
   userId: string;
   local: boolean;
   source: Track.Source;
-  /** Someone else's screen share that comes from their native app rather than from a browser. */
+  /** Someone else's screen share that comes from their desktop app rather than from a browser: its track is named `screen`. */
   native: boolean;
   track: LocalTrack | RemoteTrack;
   publication: TrackPublication;

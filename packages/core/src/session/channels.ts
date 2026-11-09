@@ -311,15 +311,12 @@ export abstract class SessionChannels extends SessionManagement {
 
   /**
    * Asks to share a screen, which throws with something to tell the person if the server's rules say no.
-   * A share from a native process gets what it needs to come into the room as a participant that can do
-   * nothing else, and one through the browser goes out over this device's connection, once the room says so.
+   * The share goes out over this device's own connection, once the room says so, with the computer's
+   * sound where that was asked for and the server allows it.
    */
-  async voiceScreenAccess(channelId: string, how: { browser: boolean; sound: boolean }): Promise<ScreenAccess> {
+  async voiceScreenAccess(channelId: string, how: { sound: boolean }): Promise<ScreenAccess> {
     const access = this.isCall(channelId) ? await this.api.startCallScreen(channelId, how) : await this.api.startScreen(channelId, how);
-    const { sound } = access;
-    if (how.browser) return { sound, native: null };
-    if (!access.url || !access.token || access.identity !== `${voiceIdentity(this.account.userId, this.account.deviceId)}.screen`) throw new Error("The server's answer about this voice channel doesn't hold together.");
-    return { sound, native: { url: access.url, token: access.token, identity: access.identity } };
+    return { sound: access.sound === true };
   }
 
   /** Gives up this device's place to share a screen, once it's stopped. */

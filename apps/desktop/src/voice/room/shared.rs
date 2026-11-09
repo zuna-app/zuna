@@ -33,11 +33,6 @@ impl Shared {
 
     pub(super) fn subscribed(&self, room: &Room, track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
         let identity = participant.identity().0;
-        // A share from this device's native process, which there's no need to send back to it.
-        if identity == format!("{}.screen", self.identity) {
-            publication.set_subscribed(false);
-            return;
-        }
         let _ = room;
         let Some(user) = user_of(&identity) else { return };
         let sid = publication.sid();
@@ -130,7 +125,7 @@ pub(super) async fn watch(room: Arc<Room>, shared: Arc<Shared>, mut events: toki
             RoomEvent::ParticipantConnected(participant) => {
                 let identity = participant.identity().0;
                 shared.install_for(&identity);
-                if let Some((user, _, false)) = parse_identity(&identity) {
+                if let Some((user, _)) = parse_identity(&identity) {
                     send(Event::Participants(Some(user), None));
                 }
             }
@@ -139,7 +134,7 @@ pub(super) async fn watch(room: Arc<Room>, shared: Arc<Shared>, mut events: toki
                 for sid in participant.track_publications().keys() {
                     shared.unsubscribed(sid);
                 }
-                if let Some((user, _, false)) = parse_identity(&identity) {
+                if let Some((user, _)) = parse_identity(&identity) {
                     send(Event::Participants(None, Some(user)));
                 }
                 send(Event::Media);
@@ -159,7 +154,7 @@ pub(super) async fn watch(room: Arc<Room>, shared: Arc<Shared>, mut events: toki
                     .filter_map(|speaker| {
                         let identity = speaker.identity().0;
                         match parse_identity(&identity) {
-                            Some((user, _, false)) if identity != shared.identity => Some(user),
+                            Some((user, _)) if identity != shared.identity => Some(user),
                             _ => None,
                         }
                     })

@@ -505,11 +505,10 @@ final class VoiceRoom {
             guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity) else { continue }
             for publication in participant.trackPublications.values {
                 guard let track = publication.track else { continue }
-                streams.append(StatsRoom.Stream(key: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, local: local, source: publication.source, native: parsed.screen || (publication.source == .screenShareVideo && publication.name == "screen"), track: track, publication: publication))
+                streams.append(StatsRoom.Stream(key: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, local: local, source: publication.source, native: publication.source == .screenShareVideo && publication.name == "screen", track: track, publication: publication))
             }
         }
-        // A native share comes from a participant of its own, who isn't another person.
-        let people = room.remoteParticipants.values.filter { participant in participant.identity.flatMap { VoiceIdentity($0.stringValue) }.map { !$0.screen } ?? false }.count + 1
+        let people = room.remoteParticipants.values.filter { participant in participant.identity.flatMap { VoiceIdentity($0.stringValue) } != nil }.count + 1
         return StatsRoom(
             url: mediaUrl,
             serverVersion: room.serverVersion,
@@ -576,7 +575,7 @@ final class VoiceRoom {
         func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
             onMain { owner in
                 owner.installFor(participant)
-                if let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }), !parsed.screen {
+                if let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) {
                     owner.events.participants(parsed.userId, nil)
                 }
             }
@@ -584,7 +583,7 @@ final class VoiceRoom {
 
         func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
             onMain { owner in
-                if let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }), !parsed.screen {
+                if let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) {
                     owner.events.participants(nil, parsed.userId)
                 }
                 owner.events.media()
@@ -621,7 +620,7 @@ final class VoiceRoom {
 
         func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
             let users = Set(participants.compactMap { participant -> String? in
-                guard let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }), !parsed.screen else { return nil }
+                guard let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) else { return nil }
                 return parsed.userId
             })
             onMain { $0.events.speaking(users) }

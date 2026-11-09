@@ -545,25 +545,13 @@ public struct VoiceAccess: Codable, Sendable, Equatable {
 public struct ScreenAccess: Codable, Sendable, Equatable {
     /// The device's sound may go with it.
     public var sound: Bool
-    /// How a native process reaches the room, as a participant that can do nothing else. The iPhone app
-    /// shares over its own connection, so it never asks for this.
-    public var native: NativeScreenAccess?
 }
 
-public struct NativeScreenAccess: Codable, Sendable, Equatable {
-    public var url: String
-    public var token: String
-    public var identity: String
-}
-
-/// How a share is asked for, for `voiceScreenAccess`: over this device's own connection, the
-/// desktop's "browser", or from a native process of its own.
+/// How a share is asked for, for `voiceScreenAccess`, which goes out over this device's own connection.
 public struct ScreenRequest: Codable, Sendable, Equatable {
-    public var browser: Bool
     public var sound: Bool
 
-    public init(browser: Bool, sound: Bool) {
-        self.browser = browser
+    public init(sound: Bool) {
         self.sound = sound
     }
 }

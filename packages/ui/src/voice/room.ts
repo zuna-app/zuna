@@ -238,11 +238,11 @@ export class VoiceRoom {
       .on(RoomEvent.ParticipantConnected, (participant) => {
         void this.installFor(participant.identity);
         const user = userOf(participant.identity);
-        if (user && !parseVoiceIdentity(participant.identity)?.screen) this.on.participants(user, null);
+        if (user) this.on.participants(user, null);
       })
       .on(RoomEvent.ParticipantDisconnected, (participant) => {
         const user = userOf(participant.identity);
-        if (user && !parseVoiceIdentity(participant.identity)?.screen) this.on.participants(null, user);
+        if (user) this.on.participants(null, user);
         this.on.media();
       })
       .on(RoomEvent.TrackSubscribed, (track, publication, participant) => this.onSubscribed(track, publication, participant))
@@ -260,7 +260,7 @@ export class VoiceRoom {
         const users = new Set<string>();
         for (const speaker of speakers) {
           const user = userOf(speaker.identity);
-          if (user && !parseVoiceIdentity(speaker.identity)?.screen && speaker.identity !== this.identity) users.add(user);
+          if (user && speaker.identity !== this.identity) users.add(user);
         }
         this.on.speaking(users);
       })
@@ -536,7 +536,7 @@ export class VoiceRoom {
       if (!parsed) return;
       for (const publication of participant.trackPublications.values()) {
         const track = publication.track as LocalTrack | RemoteTrack | undefined;
-        if (track) streams.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, local, source: publication.source, native: !!parsed.screen || (publication.source === Track.Source.ScreenShare && publication.trackName === "screen"), track, publication });
+        if (track) streams.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, local, source: publication.source, native: publication.source === Track.Source.ScreenShare && publication.trackName === "screen", track, publication });
       }
     };
     add(this.room.localParticipant, true);
@@ -548,7 +548,7 @@ export class VoiceRoom {
       serverVersion: this.room.serverInfo?.version,
       serverRegion: this.room.serverInfo?.region,
       serverNode: this.room.serverInfo?.nodeId,
-      people: new Set([...this.room.remoteParticipants.keys()].filter((identity) => !parseVoiceIdentity(identity)?.screen)).size + 1,
+      people: this.room.remoteParticipants.size + 1,
       encrypted: this.room.isE2EEEnabled,
       keyIndex: key?.index,
       keyEpoch: key?.epoch,

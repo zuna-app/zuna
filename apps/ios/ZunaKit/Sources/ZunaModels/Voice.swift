@@ -32,23 +32,18 @@ public enum Voice {
 public struct VoiceIdentity: Equatable, Sendable {
     public var userId: String
     public var deviceId: String
-    /// The native process sharing that device's screen, as a participant of its own.
-    public var screen: Bool
 
-    public init(userId: String, deviceId: String, screen: Bool) {
+    public init(userId: String, deviceId: String) {
         self.userId = userId
         self.deviceId = deviceId
-        self.screen = screen
     }
 
     /// Who a participant is, or nil for a name that isn't ours to have let in.
     public init?(_ identity: String) {
         let parts = identity.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 2 || parts.count == 3, Self.isId(parts[0]), Self.isId(parts[1]) else { return nil }
-        if parts.count == 3, parts[2] != "screen" { return nil }
+        guard parts.count == 2, Self.isId(parts[0]), Self.isId(parts[1]) else { return nil }
         userId = parts[0]
         deviceId = parts[1]
-        screen = parts.count == 3
     }
 
     private static func isId(_ text: String) -> Bool {

@@ -79,7 +79,7 @@ Everything a share uses comes from three places, in this order: what the person 
 | What's suggested for size, frame rate and bitrate | The apps |
 | Whether admins are held to the limits and to how many at once | Both of those |
 
-The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is LiveKit told to let that device's own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked. The server can still hand out a token for a participant of a share's own, `<user>.<device>.screen`, which the desktop's separate program used before the share moved into the app, and which no app asks for now.
+The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is LiveKit told to let that device's own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked. Only `user.device` comes into a room: there's no participant of a share's own, as the desktop's separate program was until 2026-11-09, and the apps let none in.
 
 So a share ends when it's stopped, when the device leaves the channel or makes a new connection, when an admin stops it, and when the rules stop allowing it. Limits on how many only hold for those starting after them.
 

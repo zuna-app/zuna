@@ -941,7 +941,7 @@ final class VoiceModel {
         let current = { [weak self] in self?.shareAttempt == mine && self?.room === room }
         screenStarting = true
         do {
-            _ = try await session.voiceScreenAccess(channelId, ScreenRequest(browser: true, sound: false))
+            _ = try await session.voiceScreenAccess(channelId, ScreenRequest(sound: false))
         } catch {
             if current() { screenStarting = false }
             refuseShare((error as? CoreCallError)?.message ?? "Couldn't share your screen.")

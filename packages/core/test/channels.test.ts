@@ -3,6 +3,8 @@
 // there stays out of the server's hands, and who can hear a voice channel is exactly
 // who's in its MLS group.
 
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, decode } from "../src/api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../src/channels";
@@ -13,6 +15,8 @@ import { DEFAULT_SCREEN_RULES, parseVoiceIdentity, screenRefusal, screenTerms, v
 import { loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
 
 let server: TestServer;
+let liveKit: Server;
+let liveKitUrl = "";
 let alice: TestApp;
 let bob: TestApp;
 let invite = "";
@@ -33,7 +37,11 @@ const makeUser = async (name: string): Promise<TestApp> => {
 
 beforeAll(async () => {
   loadCrypto();
-  server = new TestServer({ liveKit: "wss://voice.invalid" });
+  // A stand-in for the media server, which takes whatever the server tells it about who may send what.
+  liveKit = createServer((_request, response) => response.writeHead(200, { "content-type": "application/json" }).end("{}"));
+  await new Promise<void>((resolve) => liveKit.listen(0, "127.0.0.1", resolve));
+  liveKitUrl = `ws://127.0.0.1:${(liveKit.address() as AddressInfo).port}`;
+  server = new TestServer({ liveKit: liveKitUrl });
   await server.start();
   alice = await new TestApp("alice").open();
   await alice.register(server.setupLink, "alice");
@@ -45,6 +53,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const app of [alice, bob]) app?.client.stop();
   await server?.stop();
+  liveKit?.close();
 });
 
 describe("text channels", () => {
@@ -373,23 +382,21 @@ describe("voice channels", () => {
     expect(a.length).toBe(32);
     expect(equalBytes(a, b)).toBe(false);
     expect(equalBytes(a, key)).toBe(false);
-    const screen = new Uint8Array(await voiceSenderKey(key, `${voiceIdentity(aliceSelf.userId, aliceSelf.deviceId)}.screen`));
-    expect(equalBytes(a, screen)).toBe(false);
   });
 
   it("know who's a participant", () => {
     const user = "a".repeat(32);
     const device = "b".repeat(32);
-    expect(parseVoiceIdentity(`${user}.${device}`)).toEqual({ userId: user, deviceId: device, screen: false });
-    expect(parseVoiceIdentity(`${user}.${device}.screen`)).toEqual({ userId: user, deviceId: device, screen: true });
+    expect(parseVoiceIdentity(`${user}.${device}`)).toEqual({ userId: user, deviceId: device });
     expect(parseVoiceIdentity("someone")).toBeNull();
+    // A participant of a share's own, as the desktop's separate program once was, isn't let in.
+    expect(parseVoiceIdentity(`${user}.${device}.screen`)).toBeNull();
     expect(parseVoiceIdentity(`${user}.${device}.camera`)).toBeNull();
-    expect(parseVoiceIdentity(`${user}.${device}.screen.more`)).toBeNull();
   });
 
   it("give a new key to everyone in the call when someone new comes in", async () => {
     const access = await alice.session.voiceAccess(id);
-    expect(access.url).toBe("wss://voice.invalid");
+    expect(access.url).toBe(liveKitUrl);
     alice.session.setVoiceState(id, { muted: false, deafened: false, camera: false, screen: false });
     const before = await alice.session.voiceKey(id);
     const events = voiceEvents(alice);
@@ -446,21 +453,19 @@ describe("voice channels", () => {
   });
 
   it("hold a screen share to what the server allows", async () => {
-    const browserFree = { browser: false, sound: false };
+    const withSound = { sound: true };
     bob.session.setVoiceState(id, { muted: false, deafened: false, camera: false, screen: false });
     await waitFor(() => alice.session.getVoiceMembers().some((member) => member.userId === bob.userId), "alice to see bob");
 
-    // This test server's media server isn't there, so only a native share without sound can go ahead.
-    const access = await bob.session.voiceScreenAccess(id, browserFree);
-    const bobSelf = bob.session.getSelf();
-    expect(access.native?.identity).toBe(`${voiceIdentity(bobSelf.userId, bobSelf.deviceId)}.screen`);
+    // Over bob's own connection, with the computer's sound as the default rules allow, and nothing else to say.
+    expect(await bob.session.voiceScreenAccess(id, withSound)).toEqual({ sound: true });
     await bob.session.voiceScreenStop(id);
 
     const rules = { ...DEFAULT_SCREEN_RULES, who: "admins" as const, max_fps: 30, default_fps: 30, max_height: 1080 };
     await alice.session.updateServerSettings({ screen_share: rules });
     await waitFor(() => bob.session.getInfo()?.screen_share?.who === "admins", "bob to hear the rules");
     expect(bob.session.getInfo()?.screen_share).toMatchObject({ max_fps: 30, max_height: 1080 });
-    await expect(bob.session.voiceScreenAccess(id, browserFree)).rejects.toThrow("Only admins");
+    await expect(bob.session.voiceScreenAccess(id, withSound)).rejects.toThrow("Only admins");
     expect(screenRefusal(bob.session.getInfo()?.screen_share, "member")).toContain("Only admins");
     expect(screenRefusal(alice.session.getInfo()?.screen_share, "owner")).toBeNull();
 
@@ -470,12 +475,12 @@ describe("voice channels", () => {
     // A channel can turn it off, and everyone hears.
     await alice.session.updateChannel(id, { screenLimit: -1 });
     await waitFor(() => bob.session.getChannels().find((item) => item.id === id)?.screenLimit === -1, "bob to hear the channel's rule");
-    await expect(bob.session.voiceScreenAccess(id, browserFree)).rejects.toThrow("off in this voice channel");
+    await expect(bob.session.voiceScreenAccess(id, withSound)).rejects.toThrow("off in this voice channel");
     await alice.session.updateChannel(id, { screenLimit: 0 });
     await waitFor(() => bob.session.getChannels().find((item) => item.id === id)?.screenLimit === 0, "bob to hear it's back");
 
     // Stopping someone's share tells them.
-    await bob.session.voiceScreenAccess(id, browserFree);
+    await bob.session.voiceScreenAccess(id, withSound);
     await alice.session.voiceScreenStopOf(id, bob.userId);
     await waitFor(() => bob.events.some((event) => event.type === "screen_ended" && event.channelId === id && event.reason === "stopped"), "bob to hear his share stopped");
     bob.session.setVoiceState(null, null);

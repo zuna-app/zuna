@@ -658,8 +658,9 @@ mod tests {
     #[test]
     fn reads_identities_as_the_core_does() {
         let user = "0123456789abcdef0123456789abcdef";
-        assert_eq!(room::parse_identity(&format!("{user}.{user}")), Some((user.into(), user.into(), false)));
-        assert_eq!(room::parse_identity(&format!("{user}.{user}.screen")), Some((user.into(), user.into(), true)));
+        assert_eq!(room::parse_identity(&format!("{user}.{user}")), Some((user.into(), user.into())));
+        // A participant of a share's own, as the separate program once was, isn't let in.
+        assert_eq!(room::parse_identity(&format!("{user}.{user}.screen")), None);
         assert_eq!(room::parse_identity(&format!("{user}.{user}.other")), None);
         assert_eq!(room::parse_identity("someone.else"), None);
     }

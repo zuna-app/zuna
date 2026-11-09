@@ -21,8 +21,6 @@ export const VOICE_KEY_RING = 16;
 export interface VoiceIdentity {
   userId: string;
   deviceId: string;
-  /** The native process sharing that device's screen, as a participant of its own. */
-  screen: boolean;
 }
 
 const HEX_ID = /^[0-9a-f]{32}$/;
@@ -32,10 +30,9 @@ export const voiceIdentity = (userId: string, deviceId: string): string => `${us
 
 /** Who a participant is, or null for a name that isn't ours to have let in. */
 export function parseVoiceIdentity(identity: string): VoiceIdentity | null {
-  const [userId, deviceId, extra, ...rest] = identity.split(".");
+  const [userId, deviceId, ...rest] = identity.split(".");
   if (!userId || !deviceId || rest.length > 0 || !HEX_ID.test(userId) || !HEX_ID.test(deviceId)) return null;
-  if (extra !== undefined && extra !== "screen") return null;
-  return { userId, deviceId, screen: extra === "screen" };
+  return { userId, deviceId };
 }
 
 /** The key one sender's media is under, from the room's key for an epoch. */

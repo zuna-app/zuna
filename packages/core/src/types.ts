@@ -438,8 +438,6 @@ export interface VoiceAccess {
 export interface ScreenAccess {
   /** The computer's sound may go with it. */
   sound: boolean;
-  /** How a native process reaches the room, as a participant that can do nothing else. */
-  native: { url: string; token: string; identity: string } | null;
 }
 
 export interface Emote {

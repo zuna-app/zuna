@@ -140,15 +140,15 @@ func TestSharingAScreenIsAllowedBySource(t *testing.T) {
 	member.inVoice(voice.ID)
 	path := "/api/channels/" + voice.ID + "/voice/screen"
 
-	// Through the browser, with the device's own connection let send it.
+	// Over the device's own connection, which LiveKit is told to let send it, with no token of its own.
 	var share struct {
 		URL   string `json:"url"`
 		Token string `json:"token"`
 		Sound bool   `json:"sound"`
 	}
-	h.mustDo("POST", path, member.token, map[string]any{"browser": true, "sound": true}, &share)
-	if !share.Sound || share.Token != "" {
-		t.Fatalf("a share through the browser got %+v", share)
+	h.mustDo("POST", path, member.token, map[string]any{"sound": true}, &share)
+	if !share.Sound || share.Token != "" || share.URL != "" {
+		t.Fatalf("a share got %+v", share)
 	}
 	if update := fake.last("UpdateParticipant"); update["identity"] != member.userID+"."+member.device {
 		t.Fatalf("allowed %+v", update)
@@ -167,26 +167,15 @@ func TestSharingAScreenIsAllowedBySource(t *testing.T) {
 	if allowed := fake.allowed(t); strings.Contains(allowed, "SCREEN_SHARE") {
 		t.Fatalf("after stopping: %s", allowed)
 	}
-
-	// From a native process, whose token can only publish a screen, and the device can send its sound.
-	h.mustDo("POST", path, member.token, map[string]any{"sound": true}, &share)
-	video := tokenClaims(t, share.Token)["video"].(map[string]any)
-	sources := video["canPublishSources"].([]any)
-	if len(sources) != 1 || sources[0] != "screen_share" || video["canSubscribe"] != false {
-		t.Fatalf("a native share's token says %+v", video)
-	}
-	if allowed := fake.allowed(t); strings.Contains(allowed, "SCREEN_SHARE ") || !strings.HasSuffix(allowed, "SCREEN_SHARE_AUDIO") {
-		t.Fatalf("beside a native share: %s", allowed)
-	}
-	h.mustDo("DELETE", path, member.token, nil, nil)
-	if removed := fake.last("RemoveParticipant"); removed["identity"] != member.userID+"."+member.device+".screen" {
-		t.Fatalf("removed %+v", removed)
+	// The device stays in the room, only no longer let send a screen.
+	if removed := fake.last("RemoveParticipant"); removed != nil {
+		t.Fatalf("stopping a share took someone out: %+v", removed)
 	}
 
 	// Without sound being allowed, it isn't, whatever's asked for.
 	owner.setScreenRules(map[string]any{"sound": false})
 	share.Sound = true
-	h.mustDo("POST", path, member.token, map[string]any{"browser": true, "sound": true}, &share)
+	h.mustDo("POST", path, member.token, map[string]any{"sound": true}, &share)
 	if allowed := fake.allowed(t); share.Sound || strings.Contains(allowed, "AUDIO") {
 		t.Fatalf("without sound allowed: %+v, %s", share, allowed)
 	}
@@ -202,7 +191,7 @@ func TestWhoCanShareAScreen(t *testing.T) {
 	member.inVoice(voice.ID)
 	owner.inVoice(voice.ID)
 	path := "/api/channels/" + voice.ID + "/voice/screen"
-	share := map[string]any{"browser": true}
+	share := map[string]any{}
 
 	expect := func(who *client, want int, code string) {
 		t.Helper()
@@ -252,7 +241,7 @@ func TestHowManyCanShareAtOnce(t *testing.T) {
 	secondSocket := second.inVoice(voice.ID)
 	owner.inVoice(voice.ID)
 	path := "/api/channels/" + voice.ID + "/voice/screen"
-	share := map[string]any{"browser": true}
+	share := map[string]any{}
 
 	refused := func(who *client, channelPath string) {
 		t.Helper()
@@ -308,7 +297,7 @@ func TestAShareStopsWhenItsNoLongerAllowed(t *testing.T) {
 	member.joinChannel(voice.ID, false)
 	ws := member.inVoice(voice.ID)
 	path := "/api/channels/" + voice.ID + "/voice/screen"
-	browser := map[string]any{"browser": true}
+	asked := map[string]any{}
 
 	expectEnded := func(reason string) {
 		t.Helper()
@@ -322,7 +311,7 @@ func TestAShareStopsWhenItsNoLongerAllowed(t *testing.T) {
 	}
 
 	// An admin can stop it, and nobody else can.
-	h.mustDo("POST", path, member.token, browser, nil)
+	h.mustDo("POST", path, member.token, asked, nil)
 	stop := "/api/channels/" + voice.ID + "/voice/users/" + member.userID + "/screen"
 	if status, _ := h.do("DELETE", stop, member.token, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a member stopping a share got %d", status)
@@ -331,17 +320,17 @@ func TestAShareStopsWhenItsNoLongerAllowed(t *testing.T) {
 	expectEnded("stopped")
 
 	// The rules changing stops what they no longer allow.
-	h.mustDo("POST", path, member.token, browser, nil)
+	h.mustDo("POST", path, member.token, asked, nil)
 	owner.setScreenRules(map[string]any{"who": "admins"})
 	expectEnded("rules")
 	owner.setScreenRules(nil)
 
-	h.mustDo("POST", path, member.token, map[string]any{"browser": true, "sound": true}, nil)
+	h.mustDo("POST", path, member.token, map[string]any{"sound": true}, nil)
 	owner.setScreenRules(map[string]any{"sound": false})
 	expectEnded("rules")
 	owner.setScreenRules(nil)
 
-	h.mustDo("POST", path, member.token, browser, nil)
+	h.mustDo("POST", path, member.token, asked, nil)
 	h.mustDo("PATCH", "/api/channels/"+voice.ID, owner.token, map[string]any{"details": []byte("sealed"), "screen_limit": -1}, nil)
 	expectEnded("rules")
 	h.mustDo("PATCH", "/api/channels/"+voice.ID, owner.token, map[string]any{"details": []byte("sealed"), "screen_limit": 0}, nil)
@@ -350,7 +339,7 @@ func TestAShareStopsWhenItsNoLongerAllowed(t *testing.T) {
 	owner.setScreenRules(nil)
 	h.mustDo("PUT", "/api/admin/users/"+member.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
 	owner.setScreenRules(map[string]any{"who": "admins"})
-	h.mustDo("POST", path, member.token, browser, nil)
+	h.mustDo("POST", path, member.token, asked, nil)
 	h.mustDo("PUT", "/api/admin/users/"+member.userID+"/role", owner.token, map[string]any{"role": "member"}, nil)
 	expectEnded("rules")
 }

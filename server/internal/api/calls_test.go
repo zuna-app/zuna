@@ -324,7 +324,7 @@ func TestAdminsDontModerateCalls(t *testing.T) {
 
 	// Sharing a screen in a call keeps to the server's rules, in the call's own room.
 	path := "/api/groups/" + dm.ID + "/call/screen"
-	h.mustDo("POST", path, carol.token, map[string]any{"browser": true, "sound": true}, nil)
+	h.mustDo("POST", path, carol.token, map[string]any{"sound": true}, nil)
 	if update := fake.last("UpdateParticipant"); update["room"] != dm.ID || fake.allowed(t) != "CAMERA MICROPHONE SCREEN_SHARE SCREEN_SHARE_AUDIO" {
 		t.Fatalf("LiveKit was told %+v", update)
 	}
@@ -336,12 +336,12 @@ func TestAdminsDontModerateCalls(t *testing.T) {
 	if ended := carols.waitFor("screen_ended"); ended["reason"] != "rules" || ended["channel_id"] != dm.ID {
 		t.Fatalf("carol was told %+v", ended)
 	}
-	if status, _ := h.do("POST", path, carol.token, map[string]any{"browser": true}, nil); status != http.StatusForbidden {
+	if status, _ := h.do("POST", path, carol.token, map[string]any{}, nil); status != http.StatusForbidden {
 		t.Fatalf("sharing against the rules got %d", status)
 	}
 	owner.setScreenRules(nil)
 	outsider := h.register("outsider", invite)
-	if status, _ := h.do("POST", path, outsider.token, map[string]any{"browser": true}, nil); status != http.StatusForbidden {
+	if status, _ := h.do("POST", path, outsider.token, map[string]any{}, nil); status != http.StatusForbidden {
 		t.Fatalf("an outsider sharing got %d", status)
 	}
 

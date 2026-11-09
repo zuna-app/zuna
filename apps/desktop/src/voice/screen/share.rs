@@ -109,7 +109,7 @@ impl Voice {
             ..Options::default()
         };
         cx.spawn(async move |this, cx| {
-            let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "browser": true, "sound": wants_sound })]).await;
+            let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "sound": wants_sound })]).await;
             let access = match access {
                 Ok(access) => access,
                 Err(error) => {
@@ -251,7 +251,7 @@ impl Voice {
                 },
                 None => None,
             };
-            let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "browser": true, "sound": wants_sound })]).await;
+            let access = core.call(Some(&server_id), "voiceScreenAccess", vec![json!(channel_id), json!({ "sound": wants_sound })]).await;
             let access = match access {
                 Ok(access) => access,
                 Err(error) => {
