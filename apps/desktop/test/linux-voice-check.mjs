@@ -232,8 +232,11 @@ try {
 
   const { drive, windowOf } = await startDriver();
   // The system's default devices too, for messages recorded and played, are the check's own.
-  start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ...trust }, "app");
+  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ...trust }, "app");
   const first = await until(windowOf, "the app's window", 30_000);
+  /** Whether the app last asked for the screen to stay on, or to sleep, and what it asked through. */
+  const screenAwake = () => [...app.output.matchAll(/keeping the screen on|letting the screen sleep/g)].at(-1)?.[0] === "keeping the screen on";
+  const awakeThrough = () => [...app.output.matchAll(/the screen is kept on through the (Inhibit portal|screen saver)|the screen can't be kept on[^\n]*|the screen may sleep again/g)].map((match) => match[0]).at(-1);
   // Maximized, so where things are is the same each run, by a double click on the title bar,
   // again until it takes, as a window that's only just appeared may not have drawn it yet.
   await until(async () => {
@@ -331,8 +334,10 @@ try {
   await drive({ do: "click", x: 134, y: 221 });
   const again = tileIn(await shot("04-their-share-again"), stageArea);
   check("someone's share fills the stage as it starts, and again coming back to the channel from another chat", filled.width > 900 && again.width === filled.width && again.height === filled.height, `${filled.width}x${filled.height}, then ${again.width}x${again.height}`);
+  check("watching it keeps the screen on, through the Inhibit portal", screenAwake() && awakeThrough() === "the screen is kept on through the Inhibit portal", awakeThrough());
   await page.getByRole("button", { name: "Stop sharing" }).first().click();
   await sleep(2000);
+  check("and the screen may sleep again once it stops", !screenAwake() && awakeThrough() === "the screen may sleep again", awakeThrough());
 
   // --- The channel's chat beside the stage ---
   // Without the member list a channel's chat has elsewhere, which took 240 of its 400 px.
@@ -397,6 +402,12 @@ try {
     const own = await shot("04b-native-camera");
     // An avatar's tile spreads to about 0.08.
     check("and the native app shows it on its own tile", spreadIn(own, nativeTile) > 0.15, `spread ${spreadIn(own, nativeTile).toFixed(3)}`);
+    // The others watch it wherever this person is in the app.
+    await drive({ do: "click", x: 190, y: 397 });
+    await sleep(2500);
+    check("the screen stays on while the native app's camera goes out, away from the stage too", screenAwake());
+    await drive({ do: "click", x: 134, y: 221 });
+    await sleep(1500);
   }
   await page.getByRole("button", { name: "Turn on camera" }).first().click();
   await sleep(4000);
@@ -405,9 +416,18 @@ try {
   const moved = changedIn(earlier, await shot("04d-both-cameras-later"), webTile);
   // Chromium's fake camera only turns a shape and counts, where an avatar's tile doesn't change at all.
   check("the web app's camera plays in the native app", moved > 0.003, `${(moved * 100).toFixed(1)}% of it changed in a second, while it sent ${sending.toFixed(0)} frames/s`);
-  await page.getByRole("button", { name: "Turn off camera" }).first().click();
+  // Only watching, it's kept on while the stage is open, and away from it may sleep.
   if (camera) await drive({ do: "click", x: 146, y: 843 });
+  await sleep(2500);
+  check("watching someone's camera on the stage keeps the screen on", screenAwake());
+  await drive({ do: "click", x: 190, y: 397 });
+  await sleep(2500);
+  check("and away from the stage it may sleep", !screenAwake());
+  await drive({ do: "click", x: 134, y: 221 });
   await sleep(1500);
+  await page.getByRole("button", { name: "Turn off camera" }).first().click();
+  await sleep(2500);
+  check("with no camera on, it may sleep on the stage too", !screenAwake());
 
   // --- A call in their direct message, from the web app ---
   await drive({ do: "click", x: 360, y: 802 });

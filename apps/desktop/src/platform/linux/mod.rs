@@ -2,6 +2,7 @@
 //! the main window, the tray, the unread count, idle time, the notification sound, and
 //! whether the system wants quiet.
 
+mod awake;
 mod bus;
 mod desktop_entry;
 mod frame;
@@ -23,6 +24,7 @@ use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{AnyWindowHandle, App, AsyncApp};
 
+pub use awake::keep_screen_on;
 pub use frame::{own_frame, title_button, title_drag, window_frame};
 pub use idle::idle_ms;
 pub use settings::animations_off;

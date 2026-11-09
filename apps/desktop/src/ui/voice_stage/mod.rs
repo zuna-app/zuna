@@ -66,6 +66,8 @@ pub struct VoiceStage {
     /// The window's size changing, as it goes full screen and back.
     window_bounds: Option<Subscription>,
     _tick: Task<()>,
+    /// The screen stays on while the stage is open with a video on it (`voice/awake.rs`).
+    _open: crate::voice::awake::StageOpen,
 }
 
 impl VoiceStage {
@@ -89,7 +91,7 @@ impl VoiceStage {
                 break;
             }
         });
-        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick }
+        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick, _open: crate::voice::awake::StageOpen::new() }
     }
 
     /// The channel's chat beside it closed, from its ×.

@@ -4,6 +4,7 @@
 //! conversation's group, and everything a voice channel has works the same in it.
 
 pub mod audio;
+pub mod awake;
 pub mod mic;
 #[cfg(target_os = "linux")]
 pub mod pipewire;
@@ -212,6 +213,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         mic_test_task: None,
     });
     cx.set_global(GlobalVoice(voice.clone()));
+    awake::start(&voice, cx);
     // Listed now, off this thread, so a call's device menus have them the first time they open.
     crate::devices::sound(true);
     crate::devices::sound(false);

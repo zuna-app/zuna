@@ -2,6 +2,7 @@
 //! unread count on the taskbar, idle time, the notification sound, and whether
 //! Windows wants quiet right now.
 
+mod awake;
 mod clipboard;
 pub mod location;
 pub mod ptt;
@@ -24,6 +25,7 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+pub use awake::keep_screen_on;
 pub use clipboard::clipboard_files;
 pub use quiet::notification_state;
 

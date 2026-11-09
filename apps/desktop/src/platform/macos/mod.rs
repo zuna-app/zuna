@@ -3,6 +3,7 @@
 //! settings the app follows. There's no tray on macOS, as the Electron app had none there:
 //! closing the window hides the app, and the Dock brings it back.
 
+mod awake;
 pub mod icons;
 pub mod location;
 mod menu;
@@ -22,6 +23,7 @@ use gpui::{AnyWindowHandle, App, AsyncApp, Div, InteractiveElement, MouseButton,
 use objc2_app_kit::NSWorkspace;
 use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGEventType};
 
+pub use awake::keep_screen_on;
 pub use menu::set_menus;
 
 /// What's asked of the main window from outside an update, done on the next one.
