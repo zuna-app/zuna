@@ -7,10 +7,16 @@
 import { NativeFile } from "./files";
 import { BlobPolyfill } from "./polyfills";
 
+/** Uint8Array's own base64, or the host's where the engine has none (polyfills.ts). */
+const base64 = (bytes: Uint8Array): string => (bytes as unknown as { toBase64(): string }).toBase64();
+
 export function encodeWire(value: unknown): string {
   return JSON.stringify(value, (_key, item) => {
-    if (item instanceof Uint8Array) return { $bytes: __zunaHost.base64Encode(item) };
-    if (item instanceof BlobPolyfill) return { $blob: { bytes: __zunaHost.base64Encode(item.raw), type: item.type } };
+    // Nearly everything is a string, a number or a plain object, so those go through
+    // before the instanceof tests.
+    if (typeof item !== "object" || item === null) return item;
+    if (item instanceof Uint8Array) return { $bytes: base64(item) };
+    if (item instanceof BlobPolyfill) return { $blob: { bytes: base64(item.raw), type: item.type } };
     if (item instanceof NativeFile) return { $file: { path: item.path, type: item.type } };
     if (item instanceof Error) return { name: item.name, message: item.message };
     return item;
