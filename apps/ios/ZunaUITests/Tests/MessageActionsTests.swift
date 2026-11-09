@@ -328,10 +328,23 @@ final class MessageActionsTests: XCTestCase {
         let second = try alice.send(to: "user:\(bobId)", ["text": "Pick me second"])
         XCTAssertTrue(zuna.element(A11y.Chat.message(second)).waitForExistence(timeout: 15))
 
+        /// The test's typing hides the on-screen keyboard, which comes back a moment after Send,
+        /// moving the list under a press, so it waits for the message to stay put, and tries again.
         func select(_ id: String) {
-            zuna.element(A11y.Chat.message(id)).press(forDuration: 1.0)
+            let message = zuna.element(A11y.Chat.message(id))
             let item = zuna.app.buttons["Select"]
-            XCTAssertTrue(item.waitForExistence(timeout: 5))
+            for _ in 0..<3 where !item.exists {
+                var last = CGRect.null
+                var since = Date()
+                _ = try? waitFor("the message to stay put", timeout: 5) {
+                    let frame = message.frame
+                    if frame != last { last = frame; since = Date() }
+                    return message.isHittable && Date().timeIntervalSince(since) >= 0.5
+                }
+                message.press(forDuration: 1.0)
+                _ = item.waitForExistence(timeout: 3)
+            }
+            XCTAssertTrue(item.exists, "no Select in the menu")
             item.tap()
         }
         let count = zuna.element(A11y.Chat.selectionCount)
