@@ -12,7 +12,7 @@ Scope: everything the desktop app does, in a browser, like web.telegram.org. **N
 - **Fully self-hosted.** One binary, `zuna-web`, serves the app's files with strict security headers and fetches pages for link previews. It contacts nothing else: no CDN, no analytics, no third-party fonts.
 - **One interface for desktop and web.** The renderer moves into a shared package, `@zuna/ui`. Desktop and web are two hosts of it, the way `@zuna/core` already has three hosts. Parity is then structural: a feature added once appears in both.
 - **The core runs unchanged.** It already runs in a Worker with SQLite WebAssembly on OPFS, and `npm run dev:web` already shows the UI in a browser. What's missing is what Electron provides: the device key, link-preview fetching, single-instance, and the security headers.
-- **The chat server needs no changes.** It already allows any origin, because sign-in uses bearer tokens and never cookies (`withMiddleware` in `server/internal/api/server.go`, `handleWebSocket` in `hub.go`). An "Open in browser" button on invite pages was considered and left out (W6).
+- **The chat server needs no changes.** It already allows any origin, because sign-in uses bearer tokens and never cookies (`withMiddleware` in `server/internal/api/server.go`, `handleWebSocket` in `socket.go`). An "Open in browser" button on invite pages was considered and left out (W6).
 - **Browsers:** current Chrome, Edge, Firefox and Safari.
 - **Layout:** the desktop's, at 860 × 540 or more. A narrower window shows a "Make the window wider" notice. Phones have the iOS app.
 
