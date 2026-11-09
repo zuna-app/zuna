@@ -632,10 +632,17 @@ try {
   const carried = await loudness(page, 2);
   check("and the computer's sound goes with it", carried.peak > 0.01, `peak ${carried.peak.toFixed(3)}`);
   await shot("22-sharing-screen");
+  // The others watch it wherever this person is in the app: here in Saved messages.
+  await drive({ do: "click", x: 190, y: 398 });
+  await sleep(2500);
+  check("sharing the screen keeps it on, away from the stage too", screenAwake());
+  await drive({ do: "click", x: 134, y: 221 });
+  await sleep(1500);
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(3000);
   const afterStop = await videoIn(page, 2);
   check("stopping the share ends it for the web app", afterStop.fps === 0, `${afterStop.fps.toFixed(1)} frames/s`);
+  check("and the screen may sleep again", !screenAwake());
 
   // --- Sharing a window, picked in the portal's dialog too ---
   await drive({ do: "click", x: 302, y: 843 });
