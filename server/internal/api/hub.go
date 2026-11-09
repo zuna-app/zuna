@@ -25,7 +25,7 @@ const (
 	// only connected, as a phone woken for a push or a window in the tray is,
 	// doesn't count, until something is sent from it (spoke). A phone put away,
 	// locked or left for another app, goes offline at once, as Telegram's does.
-	presenceLinger = time.Minute
+	presenceLinger = 5 * time.Second
 	maxClientFrame = 64 << 10
 	// More than anyone has devices, even with a few reconnecting at once.
 	maxConnsPerUser = 32

@@ -9,7 +9,7 @@ final class PresenceTests: XCTestCase {
     }
 
     /// Locked with the app open, the phone takes bob offline at once, as Telegram's does,
-    /// rather than after the minute a desktop's window keeps him online. The core stays
+    /// rather than after the 5 s a desktop's window keeps him online. The core stays
     /// connected for as long as the app's does, so it's the app saying so that counts,
     /// not its connection closing.
     func testLockingThePhoneGoesOfflineAtOnce() throws {
@@ -23,9 +23,9 @@ final class PresenceTests: XCTestCase {
         }
         try waitFor("alice to see bob online") { try bobOnline() == true }
 
-        // Well within the 20 s the core stays connected, and the minute's linger.
+        // Well within the 20 s the core stays connected, and sooner than the 5 s linger.
         XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
-        try waitFor("alice to see bob offline", timeout: 10) { try bobOnline() == false }
+        try waitFor("alice to see bob offline", timeout: 4) { try bobOnline() == false }
 
         // Unlocked and back in the app: online again.
         XCUIDevice.shared.press(.home)

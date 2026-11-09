@@ -361,7 +361,7 @@ export abstract class SessionConversations extends SessionIngest {
    * desktop's window in front with input in the last 5 s, the phone app on
    * screen. While they are, and for a while after, their other devices'
    * notifications wait, and don't show if they read the chat here. They show
-   * as online too, for a minute after, unless `putAway` says they put the
+   * as online too, for 5 s after, unless `putAway` says they put the
    * device away, as a phone locked or left for another app: then, as on
    * Telegram's, they go offline at once.
    */

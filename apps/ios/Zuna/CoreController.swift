@@ -296,7 +296,7 @@ final class CoreController {
     /// pushed here, and their other devices hold notifications back for a while
     /// and drop those they read here. Off it, they put the phone away, locked or
     /// left for another app, and show as offline at once, as on Telegram, rather
-    /// than for the minute a desktop's window left behind keeps them online.
+    /// than for the 5 s a desktop's window left behind keeps them online.
     /// Each report sends the state at the time it goes out, so a late one can't
     /// contradict a newer one.
     private func reportActivity() {

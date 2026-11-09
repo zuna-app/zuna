@@ -182,7 +182,7 @@ func run(cfg config) error {
 	if _, err := clientip.New(cfg.trustProxy, proxies, cfg.cloudflare); err != nil {
 		return err
 	}
-	// For tests only: how long someone shows as online after they stop using Zuna, instead of a minute.
+	// For tests only: how long someone shows as online after they stop using Zuna, instead of 5 s.
 	linger, _ := time.ParseDuration(os.Getenv("ZUNA_TEST_PRESENCE_LINGER"))
 	srv := api.New(api.Config{
 		DataDir:          cfg.dataDir,
