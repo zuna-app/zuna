@@ -33,6 +33,8 @@ apps/ios/.e2e/
 # Local data
 .dev-data/
 .dev-data-removing-*/
+# A bot's keys, where zuna-bot puts them unless told otherwise
+zuna-bot-data/
 *.db
 *.db-shm
 *.db-wal

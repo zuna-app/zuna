@@ -78,6 +78,12 @@ export abstract class SessionJoining extends SessionGroups {
     return rules.add === "anyone" || (rules.add === "admins" && (role === "owner" || role === "admin"));
   }
 
+  /** Whether this device holds a chat's keys now, so that it can read what's said there and send. */
+  holdsKeys(groupId: string): boolean {
+    const group = this.groups.get(groupId);
+    return !!group && !group.removedAt && this.hasMlsGroup(groupId);
+  }
+
   /**
    * Whether this account hears what's said in a chat. Everyone does, but a private bot in
    * a direct message: that's for its owner, and for people in a group with it. Anyone

@@ -1,0 +1,26 @@
+{
+  "name": "@zuna/bot",
+  "version": "0.10.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "zuna-bot: runs a bot's account, and gives the bot's code an HTTP API on the same machine, shaped like Telegram's.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "vite-node src/main.ts --",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@zuna/core": "*",
+    "@zuna/crypto": "*",
+    "undici": "^7.30.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "grammy": "^1.46.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  }
+}
