@@ -374,6 +374,28 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("the viewer to close") { !viewer.exists }
     }
 
+    /// A short answer's time sits at its bubble's edge, on its last line, as in Telegram, though
+    /// its quote makes the bubble wider than its text, rather than straight after the text.
+    func testKeepsTheTimeAtTheBubblesEdgeUnderAWiderQuote() throws {
+        let alice = try Peer("alice")
+        let tag = UUID().uuidString.prefix(4)
+        let long = try alice.send(to: "user:\(bobId)", ["text": "A message long enough to fill a quote's line from side to side \(tag)"])
+        let short = try alice.send(to: "user:\(bobId)", ["text": "Short \(tag)", "replyTo": long])
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let row = message(short)
+        try toNewest(until: row)
+        let text = self.text(short), meta = zuna.element(A11y.Chat.meta(short))
+        XCTAssertTrue(meta.waitForExistence(timeout: 10))
+        zuna.screenshot("64-time-at-the-bubbles-edge")
+        // At the bubble's edge, by the space beside it, far from where the text ends, and on its line.
+        XCTAssertGreaterThan(meta.frame.minX, text.frame.maxX + 40, "\(meta.frame) after \(text.frame)")
+        XCTAssertGreaterThan(meta.frame.maxX, row.frame.maxX - 80, "\(meta.frame) in \(row.frame)")
+        XCTAssertLessThan(abs(meta.frame.maxY - text.frame.maxY), 10, "\(meta.frame) beside \(text.frame)")
+    }
+
     /// A video plays in the viewer as it comes, as in Telegram, rather than once all of it is
     /// here: one as big as a phone's screen recording, too big to download with no tap, with its
     /// index at its end, as a phone writes it. It plays from a place dragged to, Share comes once

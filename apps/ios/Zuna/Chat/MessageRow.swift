@@ -120,6 +120,15 @@ private struct SwipeToReply: ViewModifier {
     }
 }
 
+extension VerticalAlignment {
+    /// The bottom of a message's text, which the time beside its last line sits on.
+    private enum LastTextLine: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat { context[.bottom] }
+    }
+
+    static let lastTextLine = VerticalAlignment(LastTextLine.self)
+}
+
 /// One message in the list, with the day's separator above it when a new day starts.
 struct MessageRow: View {
     @Environment(AppModel.self) private var model
@@ -396,6 +405,11 @@ private struct MessageItem: View {
             }
             content
         }
+        // The time at the end of the text goes to the bubble's edge, which can be further out than
+        // the text's, as when a reply's quote or a picture makes the bubble wider, as in Telegram.
+        .overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextLine)) {
+            if metaInText && jumbo == 0 { meta.offset(y: 2) }
+        }
         .padding(.horizontal, jumbo > 0 || onlyMedia || onlyRound ? 0 : 12)
         .padding(.top, jumbo > 0 || onlyMedia || onlyRound ? 0 : 6)
         .padding(.bottom, jumbo > 0 || onlyMedia || onlyRound ? 0 : 7)
@@ -466,9 +480,7 @@ private struct MessageItem: View {
                 MessageBodyView(message: message, style: style, server: server, reserveMeta: metaInText ? metaWidth : nil, revealed: revealed, actions: actions) {
                     revealed.insert($0)
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    if metaInText { meta.offset(y: 2) }
-                }
+                .alignmentGuide(.lastTextLine) { $0[.bottom] }
             }
             if let preview = message.preview {
                 LinkCard(preview: preview, own: own, messageId: message.id)
