@@ -107,8 +107,6 @@ pub struct Root {
     focus: gpui::FocusHandle,
     /// Whether a dialog or settings was open last frame, to give focus back when they close.
     covered: bool,
-    /// Where the pointer last moved to in the window, so one that didn't move isn't taken for input.
-    pointer_at: Option<gpui::Point<gpui::Pixels>>,
 }
 
 impl Root {
@@ -158,7 +156,7 @@ impl Root {
             root.update(cx, |root, cx| root.key_with_selection(&event.keystroke, window, cx)).ok();
         })
         .detach();
-        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false, pointer_at: None }
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
     }
 
 }
@@ -431,15 +429,10 @@ impl Render for Root {
                     root.text_selection_changed(cx);
                 }
             }))
-            // Input to the window, which says the person is here where the system can't (`quiet_ms`).
+            // Input to the window, which says the person is here where the system can't (`quiet_ms`):
+            // a key, a click or the wheel, as Telegram's `Application::eventFilter` counts its own.
             .capture_key_down(cx.listener(|root, _: &gpui::KeyDownEvent, _, cx| root.note_input(cx)))
             .on_scroll(cx.listener(|root, _: &gpui::ScrollEvent, _, cx| root.note_input(cx)))
-            .on_mouse_move(cx.listener(|root, event: &MouseMoveEvent, _, cx| {
-                // Only a pointer that went somewhere: one that stays put as what's under it moves isn't the person.
-                if root.pointer_at.replace(event.position) != Some(event.position) {
-                    root.note_input(cx);
-                }
-            }))
 
             .flex()
             .flex_col()
