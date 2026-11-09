@@ -151,6 +151,48 @@ describe("presence and read state", () => {
       phone.client.stop();
     }
   });
+
+  it("tells an app closed while someone went offline when they were last seen, and counts sending as being seen", async () => {
+    const phone = await new TestApp("heidi-phone").open();
+    await phone.register(invite, "heidi");
+    // Past the margin an app asks for changes with, so heidi as she is now isn't among them.
+    await sleep(5_500);
+    const viewer = await new TestApp("ivan").open();
+    await viewer.register(invite, "ivan");
+    const heidiId = phone.userId;
+    const heidi = (app: TestApp) => app.session.getUsers().find((user) => user.id === heidiId);
+    try {
+      await waitFor(() => heidi(viewer) !== undefined && heidi(alice) !== undefined, "ivan and alice to see heidi");
+      expect(heidi(viewer)!.lastSeenAt).toBeNull();
+
+      // Ivan's app is closed while heidi comes and goes, which changes nothing else about her.
+      viewer.client.stop();
+      phone.client.setActive(true);
+      await waitFor(() => heidi(alice)?.online === true, "heidi online");
+      const left = Date.now();
+      phone.client.setActive(false, true);
+      await waitFor(() => heidi(alice)?.online === false, "heidi offline");
+      await viewer.restart();
+      expect(heidi(viewer)!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
+      expect(heidi(viewer)!.lastSeenAt).toBeLessThan(left + 1000);
+
+      // Writing from a notification, the app never on screen: online for the linger, last seen when it went.
+      await sleep(50);
+      const sent = Date.now();
+      phone.session.sendMessage(`user:${alice.userId}`, { text: "from the lock screen" });
+      await waitFor(() => heidi(alice)?.online === true, "heidi online for writing");
+      await waitFor(() => heidi(alice)?.online === false, "heidi offline after the linger", PRESENCE_LINGER * 4);
+      expect(heidi(alice)!.lastSeenAt).toBeGreaterThanOrEqual(sent - 1000);
+      expect(heidi(alice)!.lastSeenAt).toBeLessThan(sent + PRESENCE_LINGER / 2);
+      // Kept for when the app opens again, before it has caught up.
+      await waitFor(() => (heidi(viewer)?.lastSeenAt ?? 0) >= sent - 1000, "ivan to hear it too");
+      const cached = (viewer.session as any).db.get("SELECT data FROM users WHERE id = ?", [heidiId]);
+      expect((viewer.session as any).openJson("user", heidiId, cached.data).lastSeenAt).toBe(heidi(viewer)!.lastSeenAt);
+    } finally {
+      phone.client.stop();
+      viewer.client.stop();
+    }
+  });
 });
 
 describe("verification", () => {

@@ -109,6 +109,8 @@ impl SidePanel {
                 card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
             }
             if !is_self {
+                let showing = !peer.deleted && !peer.online;
+                crate::ui::components::redraw_last_seen(&mut self.last_seen_tick, peer.last_seen_at.filter(|_| showing), peer.hides_last_seen, cx);
                 card = card.child(
                     div()
                         .text_size(px(12.5))

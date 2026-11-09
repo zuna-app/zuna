@@ -152,6 +152,7 @@ pub struct ChatView {
     /// When the message just sent here lets the next go in slow mode, before the core says.
     sent_until: f64,
     slow_tick: Option<Task<()>>,
+    last_seen_tick: Option<crate::ui::components::LastSeenTick>,
     /// Whether messages were being picked when last drawn: rows change width when it changes.
     was_selecting: bool,
     /// Files are being dragged over the chat, so "Drop to send" is shown.
@@ -383,6 +384,7 @@ impl ChatView {
             link_task: None,
             sent_until: 0.,
             slow_tick: None,
+            last_seen_tick: None,
             was_selecting: false,
             focus: cx.focus_handle(),
             inline_editor,
@@ -501,6 +503,10 @@ impl Render for ChatView {
         self.sync_inline_editor(&conversation, window, cx);
         self.sync_composer_editing(&conversation, window, cx);
         let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
+        // The header's last seen, while it shows one, is kept true as the minutes pass.
+        let last_seen = conversation.peer_id.as_ref().filter(|_| conversation.kind == "dm").and_then(|id| self.state.read(cx).servers.get(&self.server_id)?.users.get(id)).filter(|peer| !peer.online && !peer.deleted && !peer.banned && !peer.is_self).map(|peer| (peer.last_seen_at, peer.hides_last_seen));
+        let (seen_at, seen_hidden) = last_seen.unwrap_or((None, true));
+        crate::ui::components::redraw_last_seen(&mut self.last_seen_tick, seen_at, seen_hidden, cx);
         let (call, call_expanded) = if is_channel { (None, false) } else { self.call_area(&conversation, cx) };
         let state = self.state.read(cx);
         let panel = state.panel;

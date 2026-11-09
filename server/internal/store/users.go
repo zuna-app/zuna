@@ -326,6 +326,38 @@ func (d *DB) SetHideLastSeen(ctx context.Context, userID string, hide bool) erro
 	return err
 }
 
+// HidesLastSeen reports whether someone hides when they were last seen, and so their presence.
+func (d *DB) HidesLastSeen(ctx context.Context, userID string) (bool, error) {
+	var hide int
+	err := d.sql.QueryRowContext(ctx, `SELECT hide_last_seen FROM users WHERE id = ?`, userID).Scan(&hide)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	return hide != 0, err
+}
+
+// LastSeenSince is when each person was last seen, of those last seen after since
+// (Unix ms), leaving out those who hide it. Last seen moves without the rest of
+// someone changing, so it isn't in what Users finds changed.
+func (d *DB) LastSeenSince(ctx context.Context, since int64) (map[string]int64, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT id, last_seen_at FROM users WHERE last_seen_at > ? AND hide_last_seen = 0 AND deleted_at IS NULL`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		seen[id] = at
+	}
+	return seen, rows.Err()
+}
+
 // TouchLastSeen records when someone was last seen, on which device, unless
 // their account was deleted meanwhile.
 func (d *DB) TouchLastSeen(ctx context.Context, userID string, deviceID string, at int64) error {

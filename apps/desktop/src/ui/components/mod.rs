@@ -377,3 +377,32 @@ pub fn bounds_probe() -> (std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>, gp
     let seen = bounds.clone();
     (bounds, gpui::canvas(move |area, _, _| seen.set(area), |_, _, _, _| {}).absolute().inset_0())
 }
+
+/// The wait for a last seen a view shows to change its words (`redraw_last_seen`).
+pub struct LastSeenTick {
+    at: f64,
+    due: f64,
+    _wait: gpui::Task<()>,
+}
+
+/// Draws a view again when the last seen it shows next changes its words, as "just now" turning
+/// into "1 min ago", which nothing else would. Called as the view is drawn, with what it shows, or
+/// None while it shows none, it waits for one change at a time, and that drawing waits for the next.
+pub fn redraw_last_seen<V: 'static>(tick: &mut Option<LastSeenTick>, at_ms: Option<f64>, hidden: bool, cx: &mut gpui::Context<V>) {
+    let (Some(at), Some(wait)) = (at_ms, crate::format::last_seen_changes_in(at_ms, hidden)) else {
+        *tick = None;
+        return;
+    };
+    let now = crate::format::now_ms();
+    if tick.as_ref().is_some_and(|tick| tick.at == at && tick.due > now + 20.) {
+        return;
+    }
+    *tick = Some(LastSeenTick {
+        at,
+        due: now + wait.as_millis() as f64,
+        _wait: cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(wait).await;
+            view.update(cx, |_, cx| cx.notify()).ok();
+        }),
+    });
+}

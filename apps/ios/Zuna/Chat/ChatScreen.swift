@@ -741,11 +741,14 @@ private struct ChatHeader: View {
                 }
             }
             .accessibilityIdentifier(A11y.Chat.title)
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(online ? Theme.green : Theme.text2)
-                .lineLimit(1)
-                .accessibilityIdentifier(A11y.Chat.status)
+            // Drawn again as the minutes pass, so a last seen stays true.
+            TimelineView(.periodic(from: Format.lastSeenTurn(peer.flatMap { live.lastSeenAt($0) }), by: 60)) { _ in
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(online ? Theme.green : Theme.text2)
+                    .lineLimit(1)
+                    .accessibilityIdentifier(A11y.Chat.status)
+            }
         }
     }
 

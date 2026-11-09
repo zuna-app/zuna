@@ -286,6 +286,10 @@ func (s *Server) Wait(ctx context.Context) {
 	case <-done:
 	case <-ctx.Done():
 	}
+	// Even once the wait is over, before the database closes.
+	seeOff, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	s.hub.seeOff(seeOff)
 }
 
 // Handler returns the server's complete HTTP handler.

@@ -145,6 +145,14 @@ pub fn format_last_seen(at_ms: Option<f64>, hidden: bool) -> String {
     format!("last seen {}", local(at).format("%b %-d"))
 }
 
+/// How long until `format_last_seen`'s words can next change, or None if they never do: at the
+/// turn of a minute since then, so never more than one.
+pub fn last_seen_changes_in(at_ms: Option<f64>, hidden: bool) -> Option<std::time::Duration> {
+    let at = at_ms.filter(|_| !hidden)?;
+    let since = (now_ms() - at).max(0.);
+    Some(std::time::Duration::from_millis((60_000. - since % 60_000.) as u64 + 50))
+}
+
 pub fn format_bytes(bytes: f64) -> String {
     if bytes < 1024.0 {
         return format!("{} B", bytes as u64);

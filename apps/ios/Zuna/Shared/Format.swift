@@ -88,6 +88,16 @@ enum Format {
         return "last seen \(date.formatted(.dateTime.month(.abbreviated).day()))"
     }
 
+    /// The last turn of a minute since someone was last seen, from which `lastSeen`'s words can
+    /// change each minute: what a `TimelineView(.periodic(from:by: 60))` starts from to keep
+    /// them true as the minutes pass, so "just now" turns into "1 min ago" on time.
+    static func lastSeenTurn(_ milliseconds: Int?, now: Date = .now) -> Date {
+        guard let milliseconds else { return now }
+        let date = Date(milliseconds: milliseconds)
+        let minutes = (max(0, now.timeIntervalSince(date)) / 60).rounded(.down)
+        return date.addingTimeInterval(minutes * 60)
+    }
+
     static func bytes(_ count: Int) -> String {
         if count < 1024 { return "\(count) B" }
         let units = ["KB", "MB", "GB", "TB"]

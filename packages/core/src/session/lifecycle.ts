@@ -416,8 +416,9 @@ export abstract class SessionLifecycle extends SessionServer {
   protected onPresence(data: { user_id: string; online: boolean; last_seen_at?: number }): void {
     if (data.online) this.online.add(data.user_id);
     else this.online.delete(data.user_id);
+    this.presenceWhileListing?.set(data.user_id, data.online);
+    if (data.last_seen_at) this.noteLastSeen(data.user_id, data.last_seen_at);
     const user = this.users.get(data.user_id);
-    if (user && data.last_seen_at) user.lastSeenAt = data.last_seen_at;
     this.emit({
       type: "presence",
       serverId: this.serverId,

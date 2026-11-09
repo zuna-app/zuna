@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): sealing what's kept on this device, the locks MLS work runs under, and what's known of each user.
 
 import * as wasm from "@zuna/crypto";
-import { decode, type ApiChannel, type ApiSound, type ApiUser } from "../api";
+import { decode, type Api, type ApiChannel, type ApiSound, type ApiUser } from "../api";
 import { openProfile, openProfileAtGeneration, parseCertificate } from "../crypto";
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
 import type { TrustManifest } from "../manifest";
@@ -134,11 +134,23 @@ export abstract class SessionLocal extends SessionBase {
   // --- Users ---
 
   protected async syncUsers(): Promise<void> {
-    const response = await this.api.users(this.usersCursor);
+    const live = new Map<string, boolean>();
+    this.presenceWhileListing = live;
+    let response: Awaited<ReturnType<Api["users"]>>;
+    try {
+      response = await this.api.users(this.usersCursor);
+    } finally {
+      if (this.presenceWhileListing === live) this.presenceWhileListing = null;
+    }
     this.online = new Set(response.online);
+    for (const [id, online] of live) {
+      if (online) this.online.add(id);
+      else this.online.delete(id);
+    }
     // One transaction for the page: a new device on a big server would otherwise commit thousands.
     this.db.transaction(() => {
       for (const user of response.users) this.applyUser(user);
+      for (const [id, at] of Object.entries(response.seen)) this.noteLastSeen(id, at);
     });
     for (const user of response.users) {
       if (user.id !== this.account.userId && user.key_generation > this.headGeneration(user.id)) await this.followChain(user.id);
@@ -146,6 +158,18 @@ export abstract class SessionLocal extends SessionBase {
     this.usersCursor = response.now - 5000;
     this.setKv("users_cursor", this.usersCursor);
     this.emit({ type: "users", serverId: this.serverId });
+  }
+
+  /**
+   * When someone was last seen, as the server says now, kept for the next time the app
+   * opens. It only moves on: what the server listed a moment ago can be older than what
+   * came live meanwhile.
+   */
+  protected noteLastSeen(userId: string, at: number): void {
+    const user = this.users.get(userId);
+    if (!user || at <= (user.lastSeenAt ?? 0)) return;
+    user.lastSeenAt = at;
+    this.persistUser(user);
   }
 
   protected sealPin(userId: string, key: Uint8Array): Uint8Array {
@@ -279,7 +303,8 @@ export abstract class SessionLocal extends SessionBase {
       identityKey,
       hpkeKey: head?.hpke ?? decode(api.hpke_key),
       profile: api.deleted ? DELETED_PROFILE : (opened ?? previous?.profile ?? emptyProfile(api.username)),
-      lastSeenAt: api.last_seen_at,
+      // Hidden, or the account gone, it's nothing. Otherwise it only moves on, as in noteLastSeen.
+      lastSeenAt: api.last_seen_at === null ? null : Math.max(api.last_seen_at, previous?.lastSeenAt ?? 0),
       hidesLastSeen: api.hide_last_seen,
       banned: api.banned,
       deleted: api.deleted,

@@ -324,9 +324,13 @@ struct ConversationDetails: View {
             }
             if let peer, !isSelf {
                 WithPresence(serverId: server.entry.id, user: peer) { online in
-                    Text(online ? "online" : Format.lastSeen(model.live(server.entry.id).lastSeenAt(peer), hidden: peer.hidesLastSeen))
-                        .font(.footnote)
-                        .foregroundStyle(online ? Theme.green : Theme.text3)
+                    let lastSeen = model.live(server.entry.id).lastSeenAt(peer)
+                    // Drawn again as the minutes pass, so a last seen stays true.
+                    TimelineView(.periodic(from: Format.lastSeenTurn(lastSeen), by: 60)) { _ in
+                        Text(online ? "online" : Format.lastSeen(lastSeen, hidden: peer.hidesLastSeen))
+                            .font(.footnote)
+                            .foregroundStyle(online ? Theme.green : Theme.text3)
+                    }
                 }
             }
             DetailsActions(actions: actions(server, conversation, peer: peer, isSelf: isSelf))

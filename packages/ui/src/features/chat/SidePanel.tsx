@@ -31,7 +31,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Field, PopupMenu, Switch, Tooltip, useAction } from "@/components/ui";
 import { timerEntries, timerText } from "@/lib/disappearing";
-import { formatFull, formatLastSeen, formatListTime, nameColor } from "@/lib/format";
+import { formatFull, formatListTime, nameColor } from "@/lib/format";
+import { LastSeen } from "@/lib/last-seen";
 import { prepareAvatar } from "@/lib/media";
 import { muteEntries, mutedUntilText } from "@/lib/mute";
 import { REPORT_REASON_LABELS } from "@/lib/report";
@@ -197,7 +198,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         {peer && !peer.deleted && <p className="muted">@{peer.username}</p>}
         {peer && !isSelf && (
           <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
-            {peer.deleted ? "Deleted their account" : peer.online ? "online" : formatLastSeen(peer.lastSeenAt, peer.hidesLastSeen)}
+            {peer.deleted ? "Deleted their account" : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} />}
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}

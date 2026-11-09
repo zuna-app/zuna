@@ -53,6 +53,7 @@ pub struct SidePanel {
     shown: Option<Panel>,
     /// What `conversation` gives, until the state changes.
     snapshot: std::cell::RefCell<Option<(std::rc::Rc<ServerState>, std::rc::Rc<ConversationView>)>>,
+    last_seen_tick: Option<crate::ui::components::LastSeenTick>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -96,6 +97,7 @@ impl SidePanel {
             edit_description,
             shown: None,
             snapshot: std::cell::RefCell::new(None),
+            last_seen_tick: None,
             _subscriptions: subscriptions,
         }
     }

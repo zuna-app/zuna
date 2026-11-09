@@ -407,7 +407,7 @@ export class Api {
 
   // Users and devices
   users = (since = 0) =>
-    this.request<{ users: ApiUser[]; online: string[]; now: number }>("GET", at`/api/users?since=${since}`);
+    this.request<{ users: ApiUser[]; online: string[]; seen: Record<string, number>; now: number }>("GET", at`/api/users?since=${since}`);
   user = (id: string) => this.request<ApiUser>("GET", at`/api/users/${id}`);
   updateMe = (body: { profile?: Uint8Array; profile_sig?: Uint8Array; avatar_file?: string | null; hide_last_seen?: boolean }) =>
     this.request("PATCH", "/api/me", body);

@@ -37,7 +37,8 @@ func seenByOthers(user *store.PublicUser) *store.PublicUser {
 // --- Users and devices ---
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	users, err := s.db.Users(r.Context(), queryInt(r, "since", 0))
+	since := queryInt(r, "since", 0)
+	users, err := s.db.Users(r.Context(), since)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -47,9 +48,19 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store
 			users[i] = seenByOthers(user)
 		}
 	}
+	// Who was last seen since, which an app that missed them going offline knows nothing of,
+	// as last seen changes nobody. All of it is in users when they all come.
+	seen := map[string]int64{}
+	if since > 0 {
+		if seen, err = s.db.LastSeenSince(r.Context(), since-s.hub.lastSeenLag()); err != nil {
+			writeFailure(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"users":  users,
 		"online": s.hub.Online(),
+		"seen":   seen,
 		"now":    store.Now(),
 	})
 }

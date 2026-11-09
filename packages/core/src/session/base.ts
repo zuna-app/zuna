@@ -32,6 +32,8 @@ export abstract class SessionBase {
   protected users = new Map<string, CachedUser>();
   protected groups = new Map<string, CachedGroup>();
   protected online = new Set<string>();
+  /** Presence that came while the people were being listed, which is newer than the list's. */
+  protected presenceWhileListing: Map<string, boolean> | null = null;
   protected prefs: Preferences = { pinned: [], hidden: [], muted: [], sendReadReceipts: true };
   /** Whether the person is using this device, and another of theirs, as the server last said. */
   protected active = false;

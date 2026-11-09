@@ -5,7 +5,8 @@ import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/
 import { copyText } from "@/lib/clipboard";
 import { useEscape } from "@/lib/escape";
 import { timerText } from "@/lib/disappearing";
-import { formatFull, formatLastSeen } from "@/lib/format";
+import { formatFull } from "@/lib/format";
+import { LastSeen } from "@/lib/last-seen";
 import { muteEntries } from "@/lib/mute";
 import { activeServerNow, listIdFor, useActiveField, useActiveServer, useApp } from "@/state/store";
 import { useShallow } from "zustand/react/shallow";
@@ -50,7 +51,11 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   if (peer?.deleted) return <span key="status" className={statusClass}>Deleted their account</span>;
   if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
   if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
-  return <span key="status" className={statusClass}>{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
+  return (
+    <span key="status" className={statusClass}>
+      <LastSeen at={peer?.lastSeenAt ?? null} hidden={peer?.hidesLastSeen ?? false} />
+    </span>
+  );
 }
 
 /** Whether a call can be started here: a direct message with someone else, or a group still had. */
