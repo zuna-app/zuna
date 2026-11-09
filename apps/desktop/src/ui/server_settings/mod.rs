@@ -4,6 +4,7 @@
 mod general;
 mod members;
 mod account;
+mod bots;
 
 use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window, div, img, prelude::*, px};
 use serde_json::json;
@@ -35,6 +36,7 @@ pub struct ServerSettings {
     focus: gpui::FocusHandle,
     soundboard: Option<Entity<super::server_voice::ServerSoundboard>>,
     screen_rules: Option<Entity<super::server_voice::ServerScreenRules>>,
+    bots: Option<Entity<bots::ServerBots>>,
     /// Who was reported, read each time Reports is opened, or nothing while it's read.
     reports: Option<Vec<ReportView>>,
     /// Who is banned, read each time Bans is opened and whenever who is changes, or nothing while it's read.
@@ -100,6 +102,7 @@ impl ServerSettings {
             focus,
             soundboard: None,
             screen_rules: None,
+            bots: None,
             reports: None,
             bans: None,
             banned_seen: Vec::new(),
@@ -120,8 +123,11 @@ impl ServerSettings {
         self.state.update(cx, |state, cx| state.set_overlay(None, cx));
     }
 
-    /// Escape says no to a ban or deleting the account being asked about, and otherwise closes the settings.
+    /// Escape says no to a ban, or to deleting a bot or the account, being asked about, and otherwise closes the settings.
     fn escape(&mut self, cx: &mut Context<Self>) {
+        if self.bots.as_ref().is_some_and(|bots| bots.update(cx, |bots, cx| bots.cancel_delete(cx))) {
+            return;
+        }
         if self.banning.is_some() || self.deleting {
             self.banning = None;
             self.deleting = false;
@@ -201,6 +207,11 @@ impl Render for ServerSettings {
                 ("screen", "Screen sharing", "monitor-up"),
             ]);
         }
+        // Bots are there for admins, for members where the server lets them make bots, and for whoever has one.
+        let has_bots = is_admin || server.info.as_ref().is_some_and(|info| info.allow_member_bots) || server.users.values().any(|user| !user.deleted && user.bot.as_ref().is_some_and(|bot| bot.owner_id == server.self_id()));
+        if has_bots {
+            sections.push(("bots", "Bots", "bot"));
+        }
         sections.push(("leave", "Sign out", "log-out"));
         sections.push(("delete", "Delete account", "trash"));
         let page = match self.section.as_str() {
@@ -231,6 +242,20 @@ impl Render for ServerSettings {
                     None => {
                         let page = cx.new(|cx| super::server_voice::ServerScreenRules::new(state, window, cx));
                         self.screen_rules = Some(page.clone());
+                        page
+                    }
+                };
+                vec![page.into_any_element()]
+            }
+            "bots" if has_bots => {
+                let state = self.state.clone();
+                let page = match &self.bots {
+                    Some(page) => page.clone(),
+                    None => {
+                        let page = cx.new(|cx| bots::ServerBots::new(state, cx));
+                        // Its question before a bot is deleted is drawn here, over everything.
+                        self._subscriptions.push(cx.observe(&page, |_, _, cx| cx.notify()));
+                        self.bots = Some(page.clone());
                         page
                     }
                 };
@@ -283,7 +308,7 @@ impl Render for ServerSettings {
                     .child(icon(icon_name, 17., color))
                     .child(label.to_string())
             }));
-        let confirm = self.ban_confirm(cx).or_else(|| self.delete_confirm(&server.entry.name, cx));
+        let confirm = self.ban_confirm(cx).or_else(|| self.delete_confirm(&server.entry.name, cx)).or_else(|| self.bots.clone().and_then(|bots| bots.update(cx, |bots, cx| bots.delete_confirm(cx))));
         div()
             .id("server-settings-layer")
             .relative()

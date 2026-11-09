@@ -277,6 +277,8 @@ macro_rules! host_fn {
 fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) -> Result<()> {
     let object = Object::new(ctx.clone())?;
     object.set("testHooks", test_hooks)?;
+    // The app lists bots in a tab of their own, so the core gives it one nobody has written to yet.
+    object.set("listsBots", true)?;
 
     host_fn!(object, ctx, host, "log", |c, h, a| {
         let level = string_arg(&a, 0);

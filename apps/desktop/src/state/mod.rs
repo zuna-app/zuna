@@ -50,6 +50,14 @@ impl ServerState {
         self.me.as_ref().is_some_and(|me| me.role == "owner" || me.role == "admin")
     }
 
+    /// Whether this person may add someone to a group, which only a bot may say no to: its owner
+    /// always may, and for a listed bot whoever its owner chose (`mayAddBot`). The server holds
+    /// everyone to it, and the bot itself does too.
+    pub fn may_add(&self, user: &UserView) -> bool {
+        let Some(bot) = &user.bot else { return true };
+        bot.owner_id == self.self_id() || (bot.listed && (bot.add == "anyone" || (bot.add == "admins" && self.is_admin())))
+    }
+
     pub fn find_conversation(&self, key: &str) -> Option<&ConversationView> {
         self.conversations
             .iter()

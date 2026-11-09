@@ -205,12 +205,17 @@ impl ChatView {
 
     // --- Voice and video messages ---
 
-    /// The ":" or "@" just before the caret, what follows it, and where it starts.
+    /// The ":" or "@" just before the caret, what follows it, and where it starts, or the "/" at
+    /// the very start, for the commands of the bots in this chat.
     pub(super) fn current_trigger(&self, cx: &gpui::App) -> Option<(char, String, usize)> {
         static TRIGGER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$").unwrap());
+        static COMMAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/([A-Za-z0-9_]{0,32})$").unwrap());
         let input = self.composer.read(cx);
         let text = input.text();
         let caret = input.cursor().min(text.len());
+        if let Some(found) = COMMAND.captures(text.get(..caret)?) {
+            return Some(('/', found[1].to_lowercase(), 0));
+        }
         let found = TRIGGER.captures(text.get(..caret)?)?;
         let kind = found[1].chars().next()?;
         let query = found[2].to_lowercase();
@@ -254,6 +259,25 @@ impl ChatView {
                         hint: (!emote.owner.is_empty()).then(|| format!("by {}", emote.owner)),
                         insert: format!("{} ", emote.name),
                         what: Suggested::Emote(emote.clone()),
+                    })
+                    .collect()
+            }
+            Some(('/', query, _)) => {
+                // The bots in this chat: the one a direct message is with, or the ones among its members.
+                let ids: Vec<&String> = if conversation.kind == "dm" { conversation.peer_id.iter().collect() } else { conversation.members.iter().map(|member| &member.user_id).collect() };
+                let bots: Vec<&UserView> = ids.into_iter().filter_map(|id| server.users.get(id)).filter(|user| user.bot.is_some() && !user.deleted && !user.banned).collect();
+                let several = bots.len() > 1;
+                bots.iter()
+                    .flat_map(|bot| bot.commands.iter().map(move |command| (*bot, command)))
+                    .filter(|(_, command)| command.command.starts_with(query.as_str()))
+                    .take(MAX_SUGGESTIONS)
+                    .map(|(bot, command)| Suggestion {
+                        key: format!("{}/{}", bot.id, command.command),
+                        label: format!("/{}", command.command),
+                        hint: Some(command.description.clone()),
+                        // Whose it is, where more than one bot could answer.
+                        insert: if several { format!("/{}@{} ", command.command, bot.username) } else { format!("/{} ", command.command) },
+                        what: Suggested::Person(bot.clone()),
                     })
                     .collect()
             }

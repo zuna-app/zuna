@@ -239,6 +239,8 @@ impl Render for MemberList {
 }
 
 /// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
+/// A bot only reads the channels it was given, so the bots listed are the ones in the channel
+/// that's open, in a group of their own.
 fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::App) -> AnyElement {
     let theme = theme(cx);
     let state = state_entity.read(cx);
@@ -246,11 +248,14 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
     // Each name lowercased once rather than at every comparison, and sorted before being copied.
     let mut users: Vec<&UserView> = server.users.values().filter(|user| !user.banned && !user.deleted).collect();
     users.sort_by_cached_key(|user| user.display_name.to_lowercase());
+    let in_channel: std::collections::HashSet<&String> = server.active_key.as_deref().and_then(|key| server.find_conversation(key)).map(|chat| chat.members.iter().map(|member| &member.user_id).collect()).unwrap_or_default();
+    let (bots, users): (Vec<&UserView>, Vec<&UserView>) = users.into_iter().partition(|user| user.bot.is_some());
+    let bots: Vec<UserView> = bots.into_iter().filter(|bot| in_channel.contains(&bot.id)).cloned().collect();
     let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().cloned().partition(|user| user.online || user.is_self);
     let server_id = server_id.to_string();
     let members_scroll = scroll_handle("member-list");
     let mut list = div().id("member-list").size_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
-    for (title, people, here) in [("Online", online, true), ("Offline", offline, false)] {
+    for (title, people, here) in [("Bots", bots, true), ("Online", online, true), ("Offline", offline, false)] {
         if people.is_empty() {
             continue;
         }
@@ -286,8 +291,9 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
                         }
                         super::menu::open_menu(event.position, entries, false, cx);
                     })
-                    .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: here && !user.is_self || user.online, rounded: false, dot_border: theme.bg1 }, cx))
+                    .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: user.bot.is_none() && (here && !user.is_self || user.online), rounded: false, dot_border: theme.bg1 }, cx))
                     .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
+                    .when(user.bot.is_some(), |el| el.child(div().flex_none().ml(px(-4.)).child(bot_badge(cx))))
                     .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip("Server owner", Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
             );
         }

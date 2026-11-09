@@ -46,6 +46,9 @@ impl ConversationList {
             title = title.child(icon("users-round", 13., theme.text3));
         }
         title = title.child(div().min_w_0().one_line().child(item.title.clone()));
+        if item.bot {
+            title = title.child(bot_badge(cx));
+        }
         if let Some(peer) = &peer {
             if peer.trust == "verified" {
                 title = title.child(icon("badge-check", 14., theme.text2));

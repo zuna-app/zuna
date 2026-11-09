@@ -251,7 +251,16 @@ impl SidePanel {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(div().flex().min_w_0().font_weight(FontWeight::MEDIUM).child(div().min_w_0().one_line().child(name)).when(is_me, |el| el.child(div().flex_none().text_color(theme.text3).child("\u{a0}(you)"))))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .min_w_0()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(div().min_w_0().one_line().child(name))
+                                    .when(user.as_ref().is_some_and(|user| user.bot.is_some()), |el| el.child(div().flex_none().ml(px(6.)).child(bot_badge(cx))))
+                                    .when(is_me, |el| el.child(div().flex_none().text_color(theme.text3).child("\u{a0}(you)"))),
+                            )
                             .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(detail)),
                     )
                     .when(member.not_on_roster == Some(true), |el| el.child(icon("shield-alert", 14., theme.amber)))

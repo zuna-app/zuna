@@ -108,7 +108,14 @@ impl SidePanel {
             if !peer.deleted {
                 card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
             }
-            if !is_self {
+            if let (Some(bot), false) = (&peer.bot, peer.deleted) {
+                // Nobody is using a bot, so it's never online and was never last seen. Whose it is
+                // and what it reads stand there instead.
+                let whose = if bot.owner_id == server.self_id() { "Your bot".to_string() } else { format!("{}'s bot", server.users.get(&bot.owner_id).map(|owner| owner.display_name.clone()).unwrap_or_else(|| "Someone".into())) };
+                card = card
+                    .child(div().mt(px(2.)).child(bot_badge(cx)))
+                    .child(div().mt(px(4.)).text_size(px(12.5)).text_color(theme.text3).child(format!("{whose}. A program runs it, and reads everything said in the chats it's in.")));
+            } else if !is_self {
                 let showing = !peer.deleted && !peer.online;
                 crate::ui::components::redraw_last_seen(&mut self.last_seen_tick, peer.last_seen_at.filter(|_| showing), peer.hides_last_seen, cx);
                 card = card.child(
@@ -210,7 +217,15 @@ impl SidePanel {
                                 .min_w_0()
                                 .flex()
                                 .flex_col()
-                                .child(div().one_line().font_weight(FontWeight::MEDIUM).child(if is_me { format!("{name} (you)") } else { name }))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(6.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .child(div().min_w_0().one_line().child(if is_me { format!("{name} (you)") } else { name }))
+                                        .when(user.as_ref().is_some_and(|u| u.bot.is_some()), |el| el.child(bot_badge(cx))),
+                                )
                                 .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(if member.no_keys == Some(true) {
                                     "No device in this chat yet".to_string()
                                 } else {

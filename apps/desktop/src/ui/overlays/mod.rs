@@ -164,6 +164,8 @@ pub struct Dialog {
     people_search: Entity<TextInput>,
     selected: BTreeSet<String>,
     history: bool,
+    /// Asking what adding the bots picked means, before they're added.
+    asking: bool,
     check: Option<SafetyCheck>,
     invite_link: Option<String>,
     busy: bool,
@@ -248,7 +250,7 @@ impl Dialog {
             people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
             people_search.focus_handle(cx).focus(window, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, _subscriptions: subscriptions };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -404,7 +406,7 @@ impl Dialog {
 
 impl Render for Dialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match &self.kind {
+        let dialog = match &self.kind {
             DialogKind::AddServer(flow) => {
                 let flow = flow.clone();
                 self.modal(None, 420., vec![flow.into_any_element()], None, cx)
@@ -432,6 +434,10 @@ impl Render for Dialog {
                 let (server_id, group_id, ids) = (server_id.clone(), group_id.clone(), ids.clone());
                 self.forward(server_id, group_id, ids, cx)
             }
+        };
+        match self.bot_question(cx) {
+            Some(question) => div().absolute().inset_0().child(dialog).child(question).into_any_element(),
+            None => dialog,
         }
     }
 }

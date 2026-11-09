@@ -29,6 +29,7 @@ enum Filter {
     All,
     Channels,
     People,
+    Bots,
     Groups,
     Unread,
 }
@@ -262,10 +263,13 @@ impl Render for ConversationList {
             }
             match filter {
                 Filter::Channels => false,
-                Filter::People => item.kind == "dm",
+                // The list of people stays the list of people: bots have a tab of their own, and one
+                // somebody has written to is among the chats like any other.
+                Filter::People => item.kind == "dm" && !item.bot,
+                Filter::Bots => item.bot,
                 Filter::Groups => item.kind == "group",
-                Filter::Unread => item.unread > 0. || item.marked_unread,
-                Filter::All => true,
+                Filter::Unread => (item.unread > 0. || item.marked_unread) && (!item.bot || item.group_id.is_some() || !query.is_empty()),
+                Filter::All => !item.bot || item.group_id.is_some() || !query.is_empty(),
             }
         };
         let filtered: Vec<&ConversationView> = server.conversations.iter().filter(|item| matches(item)).collect();
@@ -375,8 +379,14 @@ impl Render for ConversationList {
         if shows_channels {
             filters.push((Filter::Channels, "Channels"));
         }
-        filters.extend([(Filter::People, "People"), (Filter::Groups, "Groups"), (Filter::Unread, "Unread")]);
-        let tabs = div().flex().flex_none().gap(px(16.)).px(px(14.)).border_b_1().border_color(theme.line).children(filters.into_iter().map(|(id, label)| {
+        filters.push((Filter::People, "People"));
+        if server.conversations.iter().any(|item| item.bot) {
+            filters.push((Filter::Bots, "Bots"));
+        }
+        filters.extend([(Filter::Groups, "Groups"), (Filter::Unread, "Unread")]);
+        // All six only fit the list at the width it starts with when they stand closer (`.is-tight`).
+        let (gap, edge) = if filters.len() > 5 { (11., 12.) } else { (16., 14.) };
+        let tabs = div().flex().flex_none().gap(px(gap)).px(px(edge)).border_b_1().border_color(theme.line).children(filters.into_iter().map(|(id, label)| {
             let active = self.filter == id;
             div()
                 .id(label)

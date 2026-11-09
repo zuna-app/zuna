@@ -293,6 +293,25 @@ pub trait OneLine: Styled + Sized {
 
 impl<T: Styled> OneLine for T {}
 
+/// Marks a bot, wherever its name shows: an account a program runs, which reads the chats it's
+/// in (`.bot-badge`).
+pub fn bot_badge(cx: &App) -> Div {
+    let theme = theme(cx);
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .h(px(15.))
+        .px(px(5.))
+        .rounded(px(4.))
+        .text_size(px(9.5))
+        .line_height(px(15.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .bg(theme.accent_soft)
+        .text_color(theme.accent_text)
+        .child("BOT")
+}
+
 /// A line of information in a soft box, with its icon (`.notice`).
 pub fn notice(icon_name: &str, text: impl Into<SharedString>, cx: &App) -> Div {
     let theme = theme(cx);

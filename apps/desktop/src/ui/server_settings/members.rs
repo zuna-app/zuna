@@ -106,7 +106,8 @@ impl ServerSettings {
                 self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx))
             });
             let mut entries = Vec::new();
-            if self_role == "owner" {
+            // A bot is never one of the server's admins.
+            if self_role == "owner" && user.bot.is_none() {
                 let (state, id, admin) = (self.state.clone(), user.id.clone(), user.role == "admin");
                 entries.push(MenuEntry::new(if admin { "Remove admin" } else { "Make admin" }, "crown", move |_, cx| {
                     state.update(cx, |state, cx| state.act("setServerRole", vec![json!(id), json!(if admin { "member" } else { "admin" })], cx))
@@ -150,7 +151,7 @@ impl ServerSettings {
                         }
                     })
                     .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 36., online: user.online, rounded: false, dot_border: theme.bg2 }, cx))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::MEDIUM).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().flex().items_center().gap(px(6.)).child(div().min_w_0().one_line().font_weight(FontWeight::MEDIUM).child(user.display_name.clone())).when(user.bot.is_some(), |el| el.child(bot_badge(cx)))).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
                     .when(user.role != "member", |el| el.child(chip(if user.role == "owner" { "Owner".into() } else { "Admin".into() }))),
             );
         }

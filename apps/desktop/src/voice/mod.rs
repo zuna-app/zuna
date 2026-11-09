@@ -316,7 +316,8 @@ pub fn incoming_calls(state: &AppState, in_server: Option<&str>, in_room: Option
 /// Whether a call can be started here: a direct message with someone else, or a group still had.
 pub fn can_call(conversation: &ConversationView, self_id: &str, peer_banned: bool) -> bool {
     match conversation.kind.as_str() {
-        "dm" => conversation.peer_id.as_deref().is_some_and(|peer| peer != self_id) && !conversation.blocked && !peer_banned && !conversation.removed,
+        // A bot stays out of calls.
+        "dm" => conversation.peer_id.as_deref().is_some_and(|peer| peer != self_id) && !conversation.bot && !conversation.blocked && !peer_banned && !conversation.removed,
         "group" => !conversation.removed,
         _ => false,
     }

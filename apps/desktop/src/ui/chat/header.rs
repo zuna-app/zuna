@@ -34,6 +34,9 @@ impl ChatView {
             div().text_color(theme.text3).child("Deleted their account").into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.banned) {
             div().text_color(theme.text3).child("Removed from this server").into_any_element()
+        } else if peer.as_ref().is_some_and(|p| p.bot.is_some()) {
+            // Nobody is using a bot, so it's never online, and was never last seen.
+            div().text_color(theme.text3).child("bot").into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.online) {
             div().text_color(theme.green).child("online").into_any_element()
         } else {
@@ -61,6 +64,9 @@ impl ChatView {
             .into_any_element()
         };
         let mut title = div().flex().items_center().gap(px(5.)).text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).line_height(gpui::relative(1.3)).child(div().one_line().child(conversation.title.clone()));
+        if conversation.bot {
+            title = title.child(bot_badge(cx));
+        }
         if peer.as_ref().is_some_and(|p| p.trust == "verified") && !is_saved {
             title = title.child(icon("badge-check", 14., theme.text2));
         }

@@ -137,7 +137,9 @@ pub(super) fn name_of(context: &ChatContext, id: &str) -> String {
 pub(super) fn system_text(message: &MessageView, context: &ChatContext) -> String {
     let system = message.system.as_ref().unwrap();
     let actor = system.actor_id.as_deref().map(|id| name_of(context, id)).unwrap_or_else(|| "Someone".into());
-    let targets = system.target_ids.clone().unwrap_or_default().iter().map(|id| name_of(context, id)).collect::<Vec<_>>().join(", ");
+    // The line that says a bot was added names it as one.
+    let named = |id: &String| if system.kind == "member_added" && context.users.get(id).is_some_and(|user| user.bot.is_some()) { format!("the bot {}", name_of(context, id)) } else { name_of(context, id) };
+    let targets = system.target_ids.clone().unwrap_or_default().iter().map(named).collect::<Vec<_>>().join(", ");
     match system.kind.as_str() {
         "group_created" => format!("{actor} created this group"),
         "member_added" => format!("{actor} added {targets}"),
@@ -151,6 +153,50 @@ pub(super) fn system_text(message: &MessageView, context: &ChatContext) -> Strin
         "timer_changed" => timer_change_text(&actor, system.seconds.unwrap_or(0.)),
         _ => String::new(),
     }
+}
+
+/// The rows of buttons under a bot's message (`MessageButtons.tsx`). One with a link opens it, as
+/// a link in a message does. One with data sends that back to the bot: a press goes to the whole
+/// chat, as a chat's messages do, and nobody's app shows it.
+pub(super) fn message_buttons(message: &MessageView, context: &ChatContext, theme: &Theme) -> Option<gpui::Div> {
+    if message.buttons.is_empty() || message.deleted_at.is_some() {
+        return None;
+    }
+    let (bg, hover) = (theme.bg3, theme.bg4);
+    let mut rows = div().flex().flex_col().gap(px(3.)).mt(px(4.)).min_w(px(180.)).max_w(px(420.));
+    for (row_index, row) in message.buttons.iter().enumerate() {
+        let mut line = div().flex().gap(px(3.));
+        for (column, button) in row.iter().enumerate() {
+            let mut cell = div()
+                .id(SharedString::from(format!("msg-button-{}-{row_index}-{column}", message.id)))
+                .flex_1()
+                .min_w_0()
+                .h(px(32.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(4.))
+                .rounded(RADIUS_S)
+                .bg(bg)
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme.text1)
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover))
+                .child(div().min_w_0().one_line().child(button.text.clone()));
+            if let Some(url) = button.url.clone() {
+                cell = cell.child(icon("arrow-up-right", 12., theme.text3)).on_click(move |_, _, cx| cx.open_url(&url));
+            } else if message.status == "sent" {
+                let state = context.state.clone();
+                let (group_id, message_id) = (message.group_id.clone(), message.id.clone());
+                cell = cell.on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("pressButton", vec![json!(group_id), json!(message_id), json!(row_index), json!(column)], cx)));
+            }
+            line = line.child(cell);
+        }
+        rows = rows.child(line);
+    }
+    Some(rows)
 }
 
 fn pill(text: String, theme: &Theme) -> gpui::Div {
@@ -300,7 +346,8 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
 
     if !own && context.is_group && !grouped && !bare {
         let name = context.users.get(&message.sender_id).map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
-        bubble = bubble.child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).mb(px(1.)).line_height(px(18.)).text_color(theme::css(name_color(&message.sender_id))).child(name));
+        let is_bot = context.users.get(&message.sender_id).is_some_and(|user| user.bot.is_some());
+        bubble = bubble.child(div().flex().items_center().gap(px(5.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).mb(px(1.)).line_height(px(18.)).text_color(theme::css(name_color(&message.sender_id))).child(name).when(is_bot, |el| el.child(bot_badge(cx))));
     }
 
     if placeholder {
@@ -433,6 +480,9 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     let mut stack = div().flex().flex_col().min_w_0().max_w(relative(0.74)).child(bubble);
     if own {
         stack = stack.items_end();
+    }
+    if !placeholder {
+        stack = stack.children(message_buttons(message, context, &theme));
     }
     if message.status == "failed" {
         let state = context.state.clone();

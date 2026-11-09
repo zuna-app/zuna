@@ -66,6 +66,8 @@
 .search-wrap .input { height: 32px; font-size: 13.5px; }
 
 .filter-tabs { display: flex; gap: 16px; padding: 0 14px; flex: none; border-bottom: 1px solid var(--line); }
+/* All six, with Bots among them, only fit the list at the width it starts with when they stand closer. */
+.filter-tabs.is-tight { gap: 11px; padding: 0 12px; }
 .filter-tab {
   position: relative; padding: 5px 0 8px; font-size: 13px; font-weight: 500; color: var(--text-3);
   transition: color 0.1s;

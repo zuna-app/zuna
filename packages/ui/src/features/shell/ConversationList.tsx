@@ -394,7 +394,7 @@ export function ConversationList() {
         </div>
       </div>
 
-      <div className="filter-tabs" role="tablist">
+      <div className={`filter-tabs${filters.length > 5 ? " is-tight" : ""}`} role="tablist">
         {filters.map((item) => (
           <button key={item.id} role="tab" aria-selected={filter === item.id} className={`filter-tab${filter === item.id ? " is-active" : ""}`} onClick={() => setFilter(item.id)}>
             {item.label}

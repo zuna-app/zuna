@@ -3,12 +3,107 @@
 
 use super::*;
 
+/// What someone is told before they add a bot to a group (`BOT_READS`).
+const BOT_READS: &str = "A bot is a program. It reads everything said here from now on, on whichever machine runs it, and gets nothing from before.";
+
 impl Dialog {
+    /// The bots among the people picked.
+    fn picked_bots(&self, cx: &App) -> Vec<crate::models::UserView> {
+        let Some(server) = self.state.read(cx).active() else { return Vec::new() };
+        let mut bots: Vec<_> = self.selected.iter().filter_map(|id| server.users.get(id)).filter(|user| user.bot.is_some()).cloned().collect();
+        bots.sort_by_cached_key(|bot| bot.display_name.to_lowercase());
+        bots
+    }
+
+    /// What adding a bot means, asked before it's added, each time one is (`AddBotConfirm`).
+    pub(super) fn bot_question(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.asking {
+            return None;
+        }
+        let bots = self.picked_bots(cx);
+        let names = bots.iter().map(|bot| bot.display_name.clone()).collect::<Vec<_>>().join(", ");
+        let one = bots.len() == 1;
+        let (cancel, add) = (cx.entity().downgrade(), cx.entity().downgrade());
+        Some(confirm(
+            if one { format!("Add the bot {names}?") } else { format!("Add the bots {names}?") },
+            if one { "Add the bot" } else { "Add the bots" },
+            BOT_READS.into(),
+            move |_, cx| {
+                cancel
+                    .update(cx, |dialog, cx| {
+                        dialog.asking = false;
+                        cx.notify();
+                    })
+                    .ok();
+            },
+            move |_, cx| {
+                add.update(cx, |dialog, cx| {
+                    dialog.asking = false;
+                    match dialog.kind {
+                        DialogKind::NewGroup => dialog.create_group(cx),
+                        DialogKind::AddMembers(ref group_id) => {
+                            let group_id = group_id.clone();
+                            dialog.add_picked(group_id, cx);
+                        }
+                        _ => {}
+                    }
+                    cx.notify();
+                })
+                .ok();
+            },
+            cx,
+        ))
+    }
+
+    /// Makes the group, or asks first when a bot is among the people picked.
+    fn create_group_or_ask(&mut self, cx: &mut Context<Self>) {
+        if self.picked_bots(cx).is_empty() {
+            self.create_group(cx);
+        } else {
+            self.asking = true;
+        }
+        cx.notify();
+    }
+
+    fn create_group(&mut self, cx: &mut Context<Self>) {
+        self.busy = true;
+        let members: Vec<String> = self.selected.iter().cloned().collect();
+        let name = self.name.read(cx).text().trim().to_string();
+        let history = self.history;
+        self.state.update(cx, |state, cx| {
+            let server = state.active_server.clone();
+            state.call(server.as_deref(), "createGroup", vec![json!(name), json!(members), json!(history)], cx, |state, result, cx| match result {
+                Ok(value) => {
+                    let group = value.as_str().unwrap_or_default().to_string();
+                    state.overlay = None;
+                    state.select_conversation(Some(format!("group:{group}")), cx);
+                    if let Some(server) = state.active_server.clone() {
+                        state.refresh_conversations(&server, cx);
+                    }
+                }
+                Err(error) => state.toast(error.message, ToastKind::Error, cx),
+            });
+        });
+    }
+
+    fn add_picked(&mut self, group_id: String, cx: &mut Context<Self>) {
+        self.busy = true;
+        let ids: Vec<String> = self.selected.iter().cloned().collect();
+        self.state.update(cx, |state, cx| {
+            let server = state.active_server.clone();
+            state.call(server.as_deref(), "addMembers", vec![json!(group_id), json!(ids)], cx, |state, result, cx| match result {
+                Ok(_) => state.set_overlay(None, cx),
+                Err(error) => state.toast(error.message, ToastKind::Error, cx),
+            });
+        });
+    }
+
     pub(super) fn new_group(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
         let query = self.people_search.read(cx).text().trim().to_lowercase();
-        let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned && !user.deleted).cloned().collect();
+        // Of the bots, only the ones this person may add.
+        let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned && !user.deleted && server.may_add(user)).cloned().collect();
         users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let filtered: Vec<_> = users.into_iter().filter(|user| query.is_empty() || user.display_name.to_lowercase().contains(&query) || user.username.to_lowercase().contains(&query)).collect();
         let people_scroll = scroll_handle("new-group-people");
@@ -45,7 +140,15 @@ impl Dialog {
                         cx.notify();
                     }))
                     .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 36., online: user.online, rounded: false, dot_border: row_bg }, cx))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().flex().items_center().gap(px(6.)).child(div().min_w_0().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).when(user.bot.is_some(), |el| el.child(bot_badge(cx))))
+                            .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))),
+                    )
                     .child(
                         div()
                             .size(px(18.))
@@ -114,28 +217,7 @@ impl Dialog {
             .child(
                 button("create", ButtonKind::Primary, ButtonSize::Normal, name.is_empty() || busy, cx)
                     .child(if count > 0 { format!("Create with {} people", count + 1) } else { "Create".to_string() })
-                    .when(!name.is_empty() && !busy, |el| {
-                        el.on_click(cx.listener(move |dialog, _, _, cx| {
-                            dialog.busy = true;
-                            let members: Vec<String> = dialog.selected.iter().cloned().collect();
-                            let name = name.clone();
-                            let history = dialog.history;
-                            dialog.state.update(cx, |state, cx| {
-                                let server = state.active_server.clone();
-                                state.call(server.as_deref(), "createGroup", vec![json!(name), json!(members), json!(history)], cx, |state, result, cx| match result {
-                                    Ok(value) => {
-                                        let group = value.as_str().unwrap_or_default().to_string();
-                                        state.overlay = None;
-                                        state.select_conversation(Some(format!("group:{group}")), cx);
-                                        if let Some(server) = state.active_server.clone() {
-                                            state.refresh_conversations(&server, cx);
-                                        }
-                                    }
-                                    Err(error) => state.toast(error.message, ToastKind::Error, cx),
-                                });
-                            });
-                        }))
-                    }),
+                    .when(!name.is_empty() && !busy, |el| el.on_click(cx.listener(|dialog, _, _, cx| dialog.create_group_or_ask(cx)))),
             )
             .into_any_element();
         self.modal(Some("New group".into()), 440., body, Some(footer), cx)
@@ -286,7 +368,15 @@ impl Dialog {
                         cx.notify();
                     }))
                     .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 36., online: user.online, rounded: false, dot_border: row_bg }, cx))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().flex().items_center().gap(px(6.)).child(div().min_w_0().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).when(user.bot.is_some(), |el| el.child(bot_badge(cx))))
+                            .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))),
+                    )
                     .child(
                         div()
                             .size(px(18.))
@@ -330,7 +420,8 @@ impl Dialog {
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
         let conversation = server.conversations.iter().find(|item| item.group_id.as_deref() == Some(group_id.as_str())).cloned();
         let members: std::collections::HashSet<String> = conversation.as_ref().map(|c| c.members.iter().map(|member| member.user_id.clone()).collect()).unwrap_or_default();
-        let mut users: Vec<_> = server.users.values().filter(|user| !members.contains(&user.id) && !user.banned && !user.deleted).cloned().collect();
+        // Of the bots, only the ones this person may add.
+        let mut users: Vec<_> = server.users.values().filter(|user| !members.contains(&user.id) && !user.banned && !user.deleted && server.may_add(user)).cloned().collect();
         users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let mut body = Vec::new();
         if conversation.as_ref().is_some_and(|c| c.history_visible) {
@@ -349,16 +440,12 @@ impl Dialog {
             .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
             .child(button("add", ButtonKind::Primary, ButtonSize::Normal, count == 0 || busy, cx).child(if busy { "Adding…" } else { "Add" }).when(count > 0 && !busy, |el| {
                 el.on_click(cx.listener(move |dialog, _, _, cx| {
-                    dialog.busy = true;
-                    let ids: Vec<String> = dialog.selected.iter().cloned().collect();
-                    let group = group_id.clone();
-                    dialog.state.update(cx, |state, cx| {
-                        let server = state.active_server.clone();
-                        state.call(server.as_deref(), "addMembers", vec![json!(group), json!(ids)], cx, |state, result, cx| match result {
-                            Ok(_) => state.set_overlay(None, cx),
-                            Err(error) => state.toast(error.message, ToastKind::Error, cx),
-                        });
-                    });
+                    // A bot among them is asked about first, each time.
+                    if dialog.picked_bots(cx).is_empty() {
+                        dialog.add_picked(group_id.clone(), cx);
+                    } else {
+                        dialog.asking = true;
+                    }
                     cx.notify();
                 }))
             }));

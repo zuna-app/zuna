@@ -302,6 +302,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: sender.clone() }), cx)))
                             .child(name.clone())
                     })
+                    .when(context.users.get(&message.sender_id).is_some_and(|user| user.bot.is_some()), |el| el.child(div().ml(px(6.)).child(bot_badge(cx))))
                     .child(
                         div()
                             .id(SharedString::from(format!("cmsg-time-{}", message.id)))
@@ -417,6 +418,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             body = body.child(super::message::location_card(&message.id, location, own, true, &theme));
         }
     }
+    body = body.children(super::message::message_buttons(message, context, &theme));
     if !message.reactions.is_empty() {
         let mut reactions = div().mt(px(4.)).flex().flex_wrap().items_center().gap(px(4.));
         for reaction in &message.reactions {

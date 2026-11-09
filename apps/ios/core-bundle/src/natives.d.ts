@@ -4,6 +4,8 @@
 declare const __zunaHost: {
   /** True only in Debug builds of the host, which turn on the test hooks. */
   testHooks?: boolean;
+  /** True where the app lists bots in a section of their own, which the native desktop app does. One that doesn't is given no chat with a bot nobody has written to yet. */
+  listsBots?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;
