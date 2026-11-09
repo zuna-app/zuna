@@ -135,6 +135,7 @@ export class ZunaClient {
   /** Sessions `reload()` put away, whose late events nobody should hear. */
   private replaced = new WeakSet<ServerSession>();
   private active = false;
+  private shownServer: string | null = null;
   private previews = new Map<string, Promise<LinkPreview | null>>();
 
   constructor(private readonly options: ZunaClientOptions) {}
@@ -179,10 +180,20 @@ export class ZunaClient {
     }
   }
 
-  /** Whether the person is using this device right now, for every server (see ServerSession.setActive). */
-  setActive(active: boolean): void {
+  /**
+   * Whether the person is using this device right now (see ServerSession.setActive), and
+   * which server's chats they're looking at. As in Telegram, where only the account in the
+   * window in front is online (`Application::hasActiveWindow`), only that server counts;
+   * without one, as on a device with one server, every server does.
+   */
+  setActive(active: boolean, shownServer: string | null = null): void {
     this.active = active;
-    for (const session of this.sessions.values()) session.setActive(active);
+    this.shownServer = shownServer;
+    for (const [serverId, session] of this.sessions) session.setActive(this.activeOn(serverId));
+  }
+
+  private activeOn(serverId: string): boolean {
+    return this.active && (this.shownServer === null || this.shownServer === serverId);
   }
 
   private serverKey(serverId: string): Uint8Array {
@@ -224,7 +235,7 @@ export class ZunaClient {
       index.run("UPDATE servers SET account = ? WHERE id = ?", [sealed, serverId]);
     };
     if (this.options.web) session.linkPreview = (url) => this.linkPreview(url);
-    session.setActive(this.active);
+    session.setActive(this.activeOn(serverId));
     this.sessions.set(serverId, session);
     return session;
   }
@@ -494,7 +505,15 @@ export class ZunaClient {
     await this.open();
   }
 
+  /**
+   * Stops for good, as when the app quits: the person shows as offline at once, rather than
+   * after the server's linger for a connection lost, as Telegram's desktop app says so before
+   * it quits (`Updates::isQuitPrevent`).
+   */
   stop(): void {
-    for (const session of this.sessions.values()) session.stop();
+    for (const session of this.sessions.values()) {
+      session.setActive(false);
+      session.stop();
+    }
   }
 }

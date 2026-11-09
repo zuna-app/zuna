@@ -88,38 +88,6 @@ func (h *Hub) lastSeenLag() int64 {
 	return (h.linger + 10*time.Second).Milliseconds()
 }
 
-// spoke counts something someone sent as using, for a moment, the device it came
-// from, though the app isn't on screen there, as a reply typed into a notification:
-// they show as online for the linger, and were last seen when they sent it. Whether
-// they hide their presence is looked up, as the hub only knows it of those connected.
-func (s *Server) spoke(ctx context.Context, sess *store.Session) {
-	if s.hub.usingAnyNow(sess.UserID) {
-		return
-	}
-	hidden, err := s.db.HidesLastSeen(ctx, sess.UserID)
-	if err != nil {
-		return
-	}
-	s.hub.spoke(sess.UserID, sess.DeviceID, hidden)
-}
-
-func (h *Hub) usingAnyNow(userID string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.usingAny(userID)
-}
-
-func (h *Hub) spoke(userID, deviceID string, hidden bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closing || h.usingAny(userID) {
-		return
-	}
-	h.hidden[userID] = hidden
-	h.cameBack(userID)
-	h.wentAway(userID, deviceID, h.linger)
-}
-
 // seeOff records, as the server stops, when everyone showing as online was last
 // seen, which their way offline won't get to: when they left, for those away, or
 // now, for anyone still using a device.

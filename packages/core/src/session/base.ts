@@ -34,6 +34,11 @@ export abstract class SessionBase {
   protected online = new Set<string>();
   /** Presence that came while the people were being listed, which is newer than the list's. */
   protected presenceWhileListing: Map<string, boolean> | null = null;
+  /** Until when each person shows as online for something they did that this device saw (`madeAction`), in ms, and what ends it. */
+  protected actedUntil = new Map<string, number>();
+  protected actedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Waits to list the people again once older messages have moved their last seen on. */
+  protected lastSeenMoved: ReturnType<typeof setTimeout> | undefined;
   protected prefs: Preferences = { pinned: [], hidden: [], muted: [], sendReadReceipts: true };
   /** Whether the person is using this device, and another of theirs, as the server last said. */
   protected active = false;

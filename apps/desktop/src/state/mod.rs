@@ -257,8 +257,8 @@ pub struct AppState {
     /// Notifications waiting for their chat's photo, or behind one that is.
     waiting_notifications: VecDeque<WaitingNotification>,
     next_notification: u64,
-    /// Whether the core was last told this person is here (activity.ts).
-    reported_active: Option<bool>,
+    /// Whether the core was last told this person is here (activity.ts), and on which server.
+    reported_active: Option<(bool, Option<String>)>,
     _events: Option<Task<()>>,
     _activity: Option<Task<()>>,
 }
@@ -330,6 +330,18 @@ impl AppState {
                 }
             }
         });
+        // Quitting shows the person offline at once, rather than after the server's linger for a
+        // connection lost, as Telegram's desktop app says so before it quits (`Updates::isQuitPrevent`):
+        // the core says so as it stops, and the frame gets a moment to go, within GPUI's 200 ms.
+        cx.on_app_quit(|state, cx| {
+            let stopping = state.core.call(None, "stop", vec![]);
+            let flushed = cx.background_executor().timer(std::time::Duration::from_millis(150));
+            async move {
+                let _ = stopping.await;
+                flushed.await;
+            }
+        })
+        .detach();
         AppState {
             core,
             phase: Phase::Booting,
@@ -475,6 +487,7 @@ impl AppState {
                 state.overlay = None;
                 state.refresh_conversations(&server_id, cx);
                 state.refresh_users(&server_id, cx);
+                state.report_activity(cx);
                 cx.notify();
             })
             .ok();
@@ -502,6 +515,7 @@ impl AppState {
         }
         self.panel = None;
         self.overlay = None;
+        self.report_activity(cx);
         cx.notify();
     }
 
@@ -512,6 +526,8 @@ impl AppState {
         if let Some((id, key)) = leaving {
             self.close_list(&id, &key);
         }
+        // Online on the server now shown, and no longer on the one left.
+        self.report_activity(cx);
         cx.notify();
     }
 

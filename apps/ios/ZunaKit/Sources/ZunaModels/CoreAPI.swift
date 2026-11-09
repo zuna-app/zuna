@@ -36,8 +36,8 @@ extension CoreConnection {
     /// Reads everything again and reconnects, after the share extension used this device's data.
     public func reload() async throws { try await call("reload") }
     /// Whether the person is using this device: while they are, their other devices keep quiet and nothing is pushed.
-    /// They show as online while they are, and offline at once when they aren't.
-    public func setActive(_ active: Bool) async throws { try await call("setActive", [active]) }
+    /// They show as online while they are, on `shownServer` alone, as Telegram is only in the account shown, and offline at once when they aren't.
+    public func setActive(_ active: Bool, shownServer: String?) async throws { try await call("setActive", [active, shownServer]) }
 
     /// The first link in a draft that can have a preview.
     public func findLink(_ text: String) async throws -> String? { try await call("findLink", [text]) }

@@ -20,12 +20,15 @@ export function watchActivity(): () => void {
   let lastInput = Date.now();
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Online only on the server shown, as Telegram is only in the account shown.
+  let reportedServer: string | null = null;
   const report = (active: boolean) => {
-    const { core } = useApp.getState();
-    if (!core || active === current) return;
+    const { core, activeServerId } = useApp.getState();
+    if (!core || (active === current && activeServerId === reportedServer)) return;
     current = active;
+    reportedServer = activeServerId;
     useApp.setState({ personHere: active });
-    void core.client.setActive(active);
+    void core.client.setActive(active, activeServerId);
   };
 
   // While they're here, it looks again as 30 s without input run out, the only way
@@ -57,6 +60,7 @@ export function watchActivity(): () => void {
       current = null;
       check();
     }
+    if (state.activeServerId !== previous.activeServerId) check();
     if (state.windowFocused === previous.windowFocused) return;
     if (state.windowFocused) lastInput = Date.now();
     check();

@@ -279,19 +279,21 @@ impl AppState {
         system.min(since(self.last_input)).min(since(self.in_front_since))
     }
 
-    /// Tells the core whether the person is here (`person_here`), if that changed. While they are,
-    /// they show as online, and as soon as they aren't, offline, as Telegram's desktop app tells its
-    /// server (`Updates::updateOnline`); their other devices hold notifications back meanwhile
-    /// (activity.ts). Once they're back, the open chat reads what came while they were away.
+    /// Tells the core whether the person is here (`person_here`), and which server they're looking
+    /// at, if either changed. While they're here they show as online on that server alone, as
+    /// Telegram is only in the account shown (`Application::hasActiveWindow`), and as soon as they
+    /// aren't, offline, as Telegram's desktop app tells its server (`Updates::updateOnline`); their
+    /// other devices hold notifications back meanwhile (activity.ts). Once they're back, the open
+    /// chat reads what came while they were away.
     pub fn report_activity(&mut self, cx: &mut Context<Self>) {
         // Nothing to tell before the core is up, which `watch_activity` waits for.
         if self._activity.is_none() {
             return;
         }
-        let here = self.person_here();
-        if self.reported_active != Some(here) {
-            self.reported_active = Some(here);
-            self.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
+        let now = (self.person_here(), self.active_server.clone());
+        if self.reported_active.as_ref() != Some(&now) {
+            self.call(None, "setActive", vec![json!(now.0), json!(now.1)], cx, |_, _, _| {});
+            self.reported_active = Some(now);
             cx.notify();
         }
     }

@@ -326,16 +326,6 @@ func (d *DB) SetHideLastSeen(ctx context.Context, userID string, hide bool) erro
 	return err
 }
 
-// HidesLastSeen reports whether someone hides when they were last seen, and so their presence.
-func (d *DB) HidesLastSeen(ctx context.Context, userID string) (bool, error) {
-	var hide int
-	err := d.sql.QueryRowContext(ctx, `SELECT hide_last_seen FROM users WHERE id = ?`, userID).Scan(&hide)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, ErrNotFound
-	}
-	return hide != 0, err
-}
-
 // LastSeenSince is when each person was last seen, of those last seen after since
 // (Unix ms), leaving out those who hide it. Last seen moves without the rest of
 // someone changing, so it isn't in what Users finds changed.

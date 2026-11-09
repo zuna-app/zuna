@@ -532,9 +532,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	if created {
-		s.spoke(r.Context(), sess)
-	}
 	// A message sent again, or a server without push, has no phones to wake.
 	if created && len(s.cfg.PushRelays) > 0 {
 		if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil {
@@ -563,7 +560,6 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	s.spoke(r.Context(), sess)
 	writeJSON(w, http.StatusOK, message)
 }
 
@@ -640,7 +636,6 @@ func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	s.spoke(r.Context(), sess)
 	writeJSON(w, http.StatusOK, message)
 }
 

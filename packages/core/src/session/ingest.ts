@@ -209,6 +209,9 @@ export abstract class SessionIngest extends SessionChanges {
 
     const view = this.toMessageView(row, storedValue ? readStoredBody(row, storedValue) : undefined);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
+    // A message new here shows its sender online for a while after it was sent, as on Telegram
+    // (`History::newItemAdded`), or moves their last seen on to it when it's older.
+    if (isNew && message.deleted_at === null && message.sender_user !== this.account.userId) this.madeAction(message.sender_user, message.created_at);
     if (expiresAt !== null && expiresAt < this.nextExpiry) this.expireMessages();
     // The first message in a new chat often beats its welcome, and only opens once that's in.
     const ref = `${message.group_id}/${message.id}`;

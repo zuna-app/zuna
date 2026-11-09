@@ -4,6 +4,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { notifyTiming } from "../src/notify";
 import { previewPush } from "../src/push";
+import { presenceTiming } from "../src/presence";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv, createHmac } from "node:crypto";
 import { FakeRelay, TestApp, sleep, waitFor } from "./helpers";
@@ -111,6 +112,15 @@ describe("presence and read state", () => {
       await sleep(500);
       expect(grace()!.online).toBe(false);
 
+      // On screen with another server's chats shown: online only there, as Telegram is only in the account shown.
+      phone.client.setActive(true, "another-server");
+      await sleep(500);
+      expect(grace()!.online).toBe(false);
+      phone.client.setActive(true, phone.serverId);
+      await waitFor(() => grace()?.online === true, "grace online with this server shown");
+      phone.client.setActive(false);
+      await waitFor(() => grace()?.online === false, "grace offline again");
+
       // Leaving, as a phone locked or a window left: offline at once, as on Telegram.
       phone.client.setActive(true);
       await waitFor(() => grace()?.online === true, "grace online");
@@ -120,15 +130,22 @@ describe("presence and read state", () => {
       expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
       expect(grace()!.lastSeenAt).toBeLessThan(left + 1000);
 
-      // Back on screen and then gone outright, as a connection lost: online until the linger is up.
+      // Back on screen and then the connection gone, without a word: online until the linger is up.
       phone.client.setActive(true);
       await waitFor(() => grace()?.online === true, "grace online again");
       const closed = Date.now();
-      phone.client.stop();
+      phone.client.suspend();
       await sleep(PRESENCE_LINGER / 2);
       expect(grace()!.online).toBe(true);
-      await waitFor(() => grace()?.online === false, "grace offline once closed", PRESENCE_LINGER * 4);
+      await waitFor(() => grace()?.online === false, "grace offline once the connection was gone", PRESENCE_LINGER * 4);
       expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(closed - 1000);
+
+      // Quitting while on screen: offline at once, as Telegram's says before it quits.
+      await phone.restart();
+      phone.client.setActive(true);
+      await waitFor(() => grace()?.online === true, "grace online once more");
+      phone.client.stop();
+      await waitFor(() => grace()?.online === false, "grace offline as soon as she quit", PRESENCE_LINGER / 2);
 
       // Hiding it shows nobody as online, even while they use the app.
       await phone.restart();
@@ -142,7 +159,7 @@ describe("presence and read state", () => {
     }
   });
 
-  it("tells an app closed while someone went offline when they were last seen, and counts sending as being seen", async () => {
+  it("tells an app closed while someone went offline when they were last seen, and keeps it", async () => {
     const phone = await new TestApp("heidi-phone").open();
     await phone.register(invite, "heidi");
     // Past the margin an app asks for changes with, so heidi as she is now isn't among them.
@@ -166,21 +183,53 @@ describe("presence and read state", () => {
       expect(heidi(viewer)!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
       expect(heidi(viewer)!.lastSeenAt).toBeLessThan(left + 1000);
 
-      // Writing from a notification, the app never on screen: online for the linger, last seen when it went.
-      await sleep(50);
-      const sent = Date.now();
-      phone.session.sendMessage(`user:${alice.userId}`, { text: "from the lock screen" });
-      await waitFor(() => heidi(alice)?.online === true, "heidi online for writing");
-      await waitFor(() => heidi(alice)?.online === false, "heidi offline after the linger", PRESENCE_LINGER * 4);
-      expect(heidi(alice)!.lastSeenAt).toBeGreaterThanOrEqual(sent - 1000);
-      expect(heidi(alice)!.lastSeenAt).toBeLessThan(sent + PRESENCE_LINGER / 2);
-      // Kept for when the app opens again, before it has caught up.
-      await waitFor(() => (heidi(viewer)?.lastSeenAt ?? 0) >= sent - 1000, "ivan to hear it too");
+      // What the server says of her is kept for when the app opens again, before it has caught up.
+      phone.client.setActive(true);
+      await waitFor(() => heidi(viewer)?.online === true, "ivan to see heidi online");
+      phone.client.setActive(false);
+      await waitFor(() => heidi(viewer)?.online === false, "ivan to see her go");
       const cached = (viewer.session as any).db.get("SELECT data FROM users WHERE id = ?", [heidiId]);
       expect((viewer.session as any).openJson("user", heidiId, cached.data).lastSeenAt).toBe(heidi(viewer)!.lastSeenAt);
     } finally {
       phone.client.stop();
       viewer.client.stop();
+    }
+  });
+
+  it("shows someone online for a while to whoever sees them write, type or read their messages, as Telegram does", async () => {
+    Object.assign(presenceTiming, { actedOnlineMs: 1_500 });
+    const phone = await new TestApp("judy-phone").open();
+    await phone.register(invite, "judy");
+    const judyId = phone.userId;
+    const judy = (app: TestApp) => app.session.getUsers().find((user) => user.id === judyId);
+    try {
+      await waitFor(() => judy(alice) !== undefined && judy(carol) !== undefined, "alice and carol to see judy");
+      // A message to alice, the app never on screen, as a reply from a notification.
+      const sent = Date.now();
+      phone.session.sendMessage(`user:${alice.userId}`, { text: "from the lock screen" });
+      await waitFor(() => judy(alice)?.online === true, "alice to see judy online for writing");
+      // Carol isn't in their chat, and the server says nothing of it.
+      expect(judy(carol)!.online).toBe(false);
+      await waitFor(() => judy(alice)?.online === false, "and offline after a while", 8_000);
+      expect(judy(alice)!.lastSeenAt).toBeGreaterThanOrEqual(sent);
+      expect(judy(alice)!.lastSeenAt).toBeLessThan(sent + 1_500 + 3_000);
+      expect(judy(carol)!.lastSeenAt).toBeNull();
+
+      // Typing.
+      const groupId = phone.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;
+      phone.session.sendTyping(groupId);
+      await waitFor(() => judy(alice)?.online === true, "alice to see judy online for typing");
+      await waitFor(() => judy(alice)?.online === false, "and offline after", 8_000);
+
+      // Reading alice's messages in their direct message.
+      alice.session.sendMessage(`user:${judyId}`, { text: "read me" });
+      await waitFor(() => phone.texts(`user:${alice.userId}`).includes("read me"), "judy to have alice's message");
+      const { messages } = await phone.session.loadMessages(groupId);
+      await phone.session.markRead(groupId, messages[messages.length - 1]!.seq!);
+      await waitFor(() => judy(alice)?.online === true, "alice to see judy online for reading");
+    } finally {
+      Object.assign(presenceTiming, { actedOnlineMs: 30_000 });
+      phone.client.stop();
     }
   });
 });

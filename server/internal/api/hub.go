@@ -21,11 +21,12 @@ const (
 	pingInterval   = 25 * time.Second
 	// presenceLinger is how long someone still shows as online after the
 	// connection of the device they were using drops, as it can for a moment
-	// without a network, or after they send something from a device they aren't
-	// using (spoke). Using one is the desktop's window in front with input in the
-	// last 30 s, or the phone app on screen, as in Telegram; an app saying they
+	// without a network. Using one is the desktop's window in front with input in
+	// the last 30 s, or the phone app on screen, as in Telegram; an app saying they
 	// stopped takes them offline at once (SetActive). A device that's only
-	// connected, as a phone woken for a push or a window in the tray is, doesn't count.
+	// connected, as a phone woken for a push or a window in the tray is, doesn't
+	// count. Someone sending something shows as online to whoever sees it for a
+	// while, in their apps alone (madeAction in the core), as in Telegram.
 	presenceLinger = 5 * time.Second
 	maxClientFrame = 64 << 10
 	// More than anyone has devices, even with a few reconnecting at once.

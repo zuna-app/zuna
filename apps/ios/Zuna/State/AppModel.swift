@@ -143,8 +143,13 @@ final class AppModel {
     private(set) var order: [String] = []
     /// The server whose chats are open, remembered for the next launch, as Mail remembers its mailbox.
     var activeServerId: String? {
-        didSet { AppSettings.lastServer = activeServerId }
+        didSet {
+            AppSettings.lastServer = activeServerId
+            if activeServerId != oldValue { onActiveServerChanged?() }
+        }
     }
+    /// The person is online on the server shown alone, as Telegram is only in the account shown.
+    @ObservationIgnored var onActiveServerChanged: (() -> Void)?
     var tab: Tab = .chats
     /// The welcome screens: until the first server is joined, and again if none are left.
     private(set) var onboarding = false

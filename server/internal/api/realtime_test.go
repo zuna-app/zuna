@@ -231,6 +231,37 @@ func TestALostConnectionLingers(t *testing.T) {
 	}
 }
 
+// A page closed, as a browser closes a tab's connection saying it's going away, takes
+// its person offline at once, as quitting does: only a connection lost lingers.
+func TestClosingAPageGoesOfflineAtOnce(t *testing.T) {
+	const linger = 2 * time.Second
+	h := newHarness(t, func(cfg *api.Config) { cfg.PresenceLinger = linger })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	bobSocket := bob.connect()
+	presence := func(want bool) map[string]any {
+		t.Helper()
+		got := bobSocket.waitFor("presence")
+		if got["user_id"] != owner.userID || got["online"] != want {
+			t.Fatalf("presence %v, want the owner online %v", got, want)
+		}
+		return got
+	}
+
+	page := owner.connect()
+	page.setActive(true)
+	presence(true)
+	left := store.Now()
+	page.ws.Close(websocket.StatusGoingAway, "")
+	went := presence(false)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited > linger/2 {
+		t.Fatalf("offline %v after the page closed, as if it lingered", waited)
+	}
+	if at := int64(went["last_seen_at"].(float64)); at < left-1000 || at > left+1000 {
+		t.Fatalf("last seen at %d, but the page closed at %d", at, left)
+	}
+}
+
 // Last seen changes nothing else about someone, so an app that wasn't connected
 // as they went offline learns when they were last seen the next time it asks who
 // changed, unless they hide it.
@@ -279,63 +310,6 @@ func TestLastSeenReachesAppsThatMissedIt(t *testing.T) {
 	h.mustDo("GET", fmt.Sprintf("/api/users?since=%d", store.Now()+int64(time.Hour/time.Millisecond)), bob.token, nil, &again)
 	if len(again.Seen) != 0 {
 		t.Fatalf("seen since the future: %v", again.Seen)
-	}
-}
-
-// Sending something from a device counts as using it for a moment, as a reply
-// typed into a notification does: online for the linger, last seen when it went.
-// Someone hiding their presence still shows nothing, though only the database
-// knows they hide it while they have no connection.
-func TestSendingCountsAsBeingSeen(t *testing.T) {
-	const linger = 300 * time.Millisecond
-	h := newHarness(t, func(cfg *api.Config) { cfg.PresenceLinger = linger })
-	owner := h.owner()
-	bob := h.register("bob", owner.newInvite())
-	group := owner.dm(bob.userID)
-	owner.commit(group.ID, 0, nil)
-	bobSocket := bob.connect()
-	presence := func(want bool) map[string]any {
-		t.Helper()
-		got := bobSocket.waitFor("presence")
-		if got["user_id"] != owner.userID || got["online"] != want {
-			t.Fatalf("presence %v, want the owner online %v", got, want)
-		}
-		return got
-	}
-
-	// No connection at all, as a phone answering from its lock screen may have.
-	sent := store.Now()
-	owner.send(group.ID, 1, store.NewID())
-	presence(true)
-	went := presence(false)
-	if waited := time.Duration(store.Now()-sent) * time.Millisecond; waited < linger {
-		t.Fatalf("offline %v after sending, sooner than the linger", waited)
-	}
-	if at := int64(went["last_seen_at"].(float64)); at < sent-1000 || at > sent+int64(linger/time.Millisecond)/2 {
-		t.Fatalf("last seen at %d, but they sent it at %d", at, sent)
-	}
-
-	// While using the app, sending changes nothing, and they go as they leave it.
-	ownerSocket := owner.connect()
-	ownerSocket.setActive(true)
-	presence(true)
-	owner.send(group.ID, 1, store.NewID())
-	bobSocket.ping()
-	ownerSocket.setActive(false)
-	presence(false)
-
-	h.mustDo("PATCH", "/api/me", owner.token, map[string]any{"hide_last_seen": true}, nil)
-	ownerSocket.ws.CloseNow()
-	time.Sleep(100 * time.Millisecond)
-	owner.send(group.ID, 1, store.NewID())
-	// Anything it set off went out before it answered, so before the pong.
-	bobSocket.write(map[string]any{"t": "ping"})
-	for {
-		if kind := bobSocket.next(); kind == "pong" {
-			break
-		} else if kind == "presence" {
-			t.Fatal("someone hiding their presence showed as online for sending a message")
-		}
 	}
 }
 

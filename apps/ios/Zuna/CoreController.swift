@@ -191,6 +191,7 @@ final class CoreController {
             try await runtime.pushPreview(serverId: serverId, groupId: groupId, messageId: messageId, pictures: true)
         }
         model.onServersChanged = { Task { await notifications.refresh() } }
+        model.onActiveServerChanged = { [weak self] in self?.reportActivity() }
         model.onNotify = { serverId, groupId, messageId in
             Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId) }
         }
@@ -302,7 +303,7 @@ final class CoreController {
         guard let connection else { return }
         Task {
             let active = UIApplication.shared.applicationState == .active
-            try? await connection.setActive(active)
+            try? await connection.setActive(active, shownServer: model?.activeServerId)
         }
     }
 

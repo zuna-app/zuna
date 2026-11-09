@@ -6,6 +6,7 @@ import { openProfile, openProfileAtGeneration, parseCertificate } from "../crypt
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
 import type { TrustManifest } from "../manifest";
 import { parseProfile } from "../validate";
+import { presenceTiming } from "../presence";
 import type { EmoteSet, Preferences, PushSettings, Role, ServerInfo, TrustState, UserView } from "../types";
 import { DB_LABEL, ROTATION_INTENT, type CachedDevice, type RotationIntent, type CachedUser, type CachedGroup, emptyProfile, DELETED_PROFILE } from "./shared";
 import { SessionBase } from "./base";
@@ -170,6 +171,58 @@ export abstract class SessionLocal extends SessionBase {
     if (!user || at <= (user.lastSeenAt ?? 0)) return;
     user.lastSeenAt = at;
     this.persistUser(user);
+  }
+
+  /**
+   * Someone did something this device saw: sent a message, typed, or read this person's
+   * messages in a direct message. As Telegram's desktop app shows it (`UserData::madeAction`),
+   * they show as online here until `when` and `actedOnlineMs` after, then as last seen then,
+   * or "recently" if they hide it, which tells nothing the action didn't. Only whoever saw
+   * it sees it, and the server knows nothing of it. An older action only moves last seen on.
+   */
+  protected madeAction(userId: string, when: number): void {
+    const user = this.users.get(userId);
+    if (!user || userId === this.account.userId || user.deleted || user.banned || this.isBlocked(userId)) return;
+    const till = when + presenceTiming.actedOnlineMs;
+    const now = Date.now();
+    if (till <= (this.actedUntil.get(userId) ?? 0) || (till <= now && till <= (user.lastSeenAt ?? 0))) return;
+    this.actedUntil.set(userId, till);
+    clearTimeout(this.actedTimers.get(userId));
+    this.actedTimers.delete(userId);
+    if (till <= now) {
+      // Catching up on older messages moves last seen on quietly, and the people are listed again once, after.
+      this.lastSeenMoved ??= setTimeout(() => {
+        this.lastSeenMoved = undefined;
+        this.emit({ type: "users", serverId: this.serverId });
+      }, 1_000);
+      return;
+    }
+    this.actedTimers.set(
+      userId,
+      setTimeout(() => {
+        this.actedTimers.delete(userId);
+        this.emitPresence(userId);
+      }, till - now + 50),
+    );
+    this.emitPresence(userId);
+  }
+
+  /** Whether someone shows as online: as the server says, or for a while after something they did here (`madeAction`). */
+  protected shownOnline(userId: string): boolean {
+    return this.online.has(userId) || (this.actedUntil.get(userId) ?? 0) > Date.now();
+  }
+
+  /** When someone was last seen, as the server says or as something they did here says, whichever is later, and nothing while they hide it. */
+  protected shownLastSeen(user: CachedUser): number | null {
+    if (user.hidesLastSeen) return null;
+    const acted = this.actedUntil.get(user.id);
+    return acted === undefined ? user.lastSeenAt : Math.max(user.lastSeenAt ?? 0, acted);
+  }
+
+  /** Tells the interface how someone shows now. */
+  protected emitPresence(userId: string): void {
+    const user = this.users.get(userId);
+    this.emit({ type: "presence", serverId: this.serverId, userId, online: this.shownOnline(userId), lastSeenAt: user ? this.shownLastSeen(user) : null });
   }
 
   protected sealPin(userId: string, key: Uint8Array): Uint8Array {
@@ -363,8 +416,8 @@ export abstract class SessionLocal extends SessionBase {
       displayName: user.profile.displayName || user.username,
       bio: user.profile.bio ?? "",
       avatar: user.profile.avatar ?? null,
-      online: this.online.has(user.id),
-      lastSeenAt: user.lastSeenAt,
+      online: this.shownOnline(user.id),
+      lastSeenAt: this.shownLastSeen(user),
       hidesLastSeen: user.hidesLastSeen,
       banned: user.banned,
       deleted: user.deleted,

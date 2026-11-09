@@ -69,7 +69,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer s.hub.remove(c)
 
 	go s.writeLoop(ctx, ws, c)
-	s.readLoop(ctx, ws, c)
+	// A page closed says it's going away, as a browser does for a tab: its person left,
+	// rather than lost the connection, so they go offline at once, as on quitting.
+	if err := s.readLoop(ctx, ws, c); websocket.CloseStatus(err) == websocket.StatusGoingAway {
+		s.hub.SetActive(c, false)
+	}
 }
 
 func (s *Server) authenticateSocket(ctx context.Context, ws *websocket.Conn) (*store.Session, bool) {
@@ -131,7 +135,8 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 	}
 }
 
-func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
+// readLoop handles what the app sends until the connection ends, and says why it ended.
+func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) error {
 	// Typing and pings are worth nothing when there's too much of them. Whether someone's
 	// using their device and where they are in voice are state, which a dropped frame would
 	// leave wrong, so they have a limit of their own, far past anything an app sends, and
@@ -141,7 +146,7 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 	for {
 		_, data, err := ws.Read(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		var frame clientFrame
 		if err := json.Unmarshal(data, &frame); err != nil {

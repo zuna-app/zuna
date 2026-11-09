@@ -30,6 +30,10 @@ export abstract class SessionLifecycle extends SessionServer {
   stop(): void {
     this.stopped = true;
     this.socket.stop();
+    for (const timer of this.actedTimers.values()) clearTimeout(timer);
+    this.actedTimers.clear();
+    clearTimeout(this.lastSeenMoved);
+    this.lastSeenMoved = undefined;
     clearTimeout(this.flushRetry);
     clearTimeout(this.missingTimer);
     clearTimeout(this.muteTimer);
@@ -399,6 +403,9 @@ export abstract class SessionLifecycle extends SessionServer {
     const seq = data.user_id === this.account.userId ? group.ownRead : (group.readBy[data.user_id] ?? 0);
     this.emit({ type: "read", serverId: this.serverId, groupId: data.group_id, userId: data.user_id, seq });
     if (data.user_id === this.account.userId) this.emitConversations();
+    // Reading this person's messages in a direct message shows them online for a while, as on
+    // Telegram (`updateReadHistoryOutbox`, for a chat with one person only).
+    else if (group.kind === "dm") this.madeAction(data.user_id, Date.now());
   }
 
   protected onLiveTyping(data: { group_id: string; user_id: string; data: string }): void {
@@ -411,6 +418,8 @@ export abstract class SessionLifecycle extends SessionServer {
     const at = opened.ok ? opened.value?.at : undefined;
     if (typeof at !== "number" || Math.abs(Date.now() - at) > TYPING_FRESH_MS) return;
     this.emit({ type: "typing", serverId: this.serverId, groupId: data.group_id, userId: data.user_id });
+    // Typing shows them online for a while, as on Telegram (`SendActionManager::registerFor`).
+    this.madeAction(data.user_id, Date.now());
   }
 
   protected onPresence(data: { user_id: string; online: boolean; last_seen_at?: number }): void {
@@ -418,13 +427,6 @@ export abstract class SessionLifecycle extends SessionServer {
     else this.online.delete(data.user_id);
     this.presenceWhileListing?.set(data.user_id, data.online);
     if (data.last_seen_at) this.noteLastSeen(data.user_id, data.last_seen_at);
-    const user = this.users.get(data.user_id);
-    this.emit({
-      type: "presence",
-      serverId: this.serverId,
-      userId: data.user_id,
-      online: data.online,
-      lastSeenAt: user?.lastSeenAt ?? null,
-    });
+    this.emitPresence(data.user_id);
   }
 }
