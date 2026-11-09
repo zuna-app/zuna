@@ -276,6 +276,41 @@ private struct SystemRow: View {
     }
 }
 
+/// A bubble's outline, as in Telegram and on the desktop: one person's messages share a
+/// tighter inner edge, and the last of them ends in a tail, which reaches out past the frame.
+private struct BubbleShape: Shape {
+    let own: Bool
+    /// Follows a message from the same sender, so its inner top corner is tight too.
+    let grouped: Bool
+    let tail: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let inner: CGFloat = 5, radius: CGFloat = 17
+        let bubble = UnevenRoundedRectangle(
+            topLeadingRadius: !own && grouped ? inner : radius,
+            bottomLeadingRadius: own ? radius : inner,
+            bottomTrailingRadius: own ? inner : radius,
+            topTrailingRadius: own && grouped ? inner : radius,
+            style: .continuous
+        ).path(in: rect)
+        guard tail else { return bubble }
+        // The web's, `.msg.is-last .bubble::before`: 10 points up the bubble's inner edge, out to a
+        // tip 6 points past its bottom corner, and back in over the corner, so no gap shows between them.
+        let edge = own ? rect.maxX : rect.minX, out: CGFloat = own ? 1 : -1
+        var tail = Path()
+        tail.move(to: CGPoint(x: edge, y: rect.maxY - 10))
+        tail.addCurve(
+            to: CGPoint(x: edge + 6 * out, y: rect.maxY),
+            control1: CGPoint(x: edge + out, y: rect.maxY - 6),
+            control2: CGPoint(x: edge + 3 * out, y: rect.maxY - 2)
+        )
+        tail.addLine(to: CGPoint(x: edge - 8 * out, y: rect.maxY))
+        tail.addLine(to: CGPoint(x: edge - 8 * out, y: rect.maxY - 10))
+        tail.closeSubpath()
+        return bubble.union(tail)
+    }
+}
+
 /// A message bubble, laid out like Telegram's: yours on the right in the
 /// accent's color, others on the left, the time tucked into the last line.
 private struct MessageItem: View {
@@ -385,14 +420,9 @@ private struct MessageItem: View {
 
     private var bubble: some View {
         let accent = model.settings.accent
-        let small: CGFloat = 4, grouped: CGFloat = 5, radius: CGFloat = 17
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: !own && context.grouped ? grouped : radius,
-            bottomLeadingRadius: !own && context.lastInGroup ? small : radius,
-            bottomTrailingRadius: own && context.lastInGroup ? small : radius,
-            topTrailingRadius: own && context.grouped ? grouped : radius,
-            style: .continuous
-        )
+        let bare = jumbo > 0 || onlyRound
+        // Not on pictures alone, which fill the bubble to its corner, nor under a failed one's outline.
+        let shape = BubbleShape(own: own, grouped: context.grouped, tail: context.lastInGroup && !bare && !onlyMedia && message.status != .failed)
         return VStack(alignment: .leading, spacing: 4) {
             if !own, context.isGroup, !context.grouped, jumbo == 0 {
                 Text(server.users[message.senderId]?.displayName ?? "Unknown")
@@ -413,9 +443,10 @@ private struct MessageItem: View {
         .padding(.horizontal, jumbo > 0 || onlyMedia || onlyRound ? 0 : 12)
         .padding(.top, jumbo > 0 || onlyMedia || onlyRound ? 0 : 6)
         .padding(.bottom, jumbo > 0 || onlyMedia || onlyRound ? 0 : 7)
-        .frame(minWidth: jumbo > 0 || onlyRound ? 0 : 64, alignment: .leading)
-        .background(jumbo > 0 || onlyRound ? .clear : own ? accent.bubbleOwn : Theme.bubbleOther, in: shape)
+        .frame(minWidth: bare ? 0 : 64, alignment: .leading)
+        // Before the bubble is drawn behind it, whose tail reaches out past this.
         .clipShape(onlyMedia ? AnyShape(shape) : AnyShape(Rectangle()))
+        .background(bare ? .clear : own ? accent.bubbleOwn : Theme.bubbleOther, in: shape)
         .overlay {
             if message.status == .failed { shape.stroke(Theme.red) }
         }
