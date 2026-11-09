@@ -1,11 +1,13 @@
+import AVFoundation
 import ImageIO
 import UIKit
 import ZunaModels
 
-/// Pictures on the whole screen, as in Telegram: swipe sideways between a chat's pictures, pinch
-/// or double tap to zoom, drag one around once it's bigger than the screen, and drag it up or
-/// down to close, the chat showing through as it goes. Above it, Close, who sent it and when,
-/// and Share. A tap hides or shows them, the status bar and the shade behind them.
+/// Pictures and videos on the whole screen, as in Telegram: swipe sideways between a chat's
+/// pictures and videos, pinch or double tap to zoom, drag one around once it's bigger than the
+/// screen, and drag it up or down to close, the chat showing through as it goes. Above it, Close,
+/// who sent it and when, and Share; under a video, play and where it's at. A tap hides or shows
+/// them, the status bar and the shade behind them. A video plays as it comes (`VideoStream`).
 @MainActor
 final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
     private let items: [Item]
@@ -19,6 +21,7 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
     private let nameLabel = UILabel()
     private let badge = UIImageView(image: UIImage(systemName: "checkmark.seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
     private let dateLabel = UILabel()
+    private let videoControls = VideoControls()
     private var chromeHidden = false
     /// The decrypted files under their own names, for Share. Removed when the viewer closes.
     private var opened: [URL] = []
@@ -30,27 +33,43 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         var date: String
     }
 
-    /// A picture the viewer can show, opened once it's shown or next to the one that is.
+    /// A picture or video the viewer can show, opened once it's shown or next to the one that is.
     struct Item {
         let name: String
         let caption: Caption
-        /// What it shows until the picture's made: the bubble's copy, or the message's blurred preview.
+        /// What it shows until the picture's made or the video's first frame comes: the bubble's copy, or the message's blurred preview.
         let placeholder: UIImage?
-        /// The decrypted file under its own name.
+        /// The decrypted file under its own name. A video's comes once all of it has, as it plays.
         let open: @MainActor () async throws -> URL
+        /// For a video, how it plays before all of it is here.
+        let video: Video?
     }
 
-    /// Whether an attachment opens here, rather than in QuickLook.
-    static func shows(_ attachment: Attachment) -> Bool {
-        attachment.mime.hasPrefix("image/") && !attachment.fileId.isEmpty
+    struct Video {
+        /// What plays at once, as it comes. Nil for one that plays once `open` has all of it.
+        let play: @MainActor () -> AVURLAsset?
+        /// Called as it goes off screen: what isn't asked for stops coming.
+        let stop: @MainActor () -> Void
     }
+
+    /// Whether an attachment opens here, rather than in QuickLook: a picture, or a video that isn't a video message.
+    static func shows(_ attachment: Attachment) -> Bool {
+        guard !attachment.fileId.isEmpty else { return false }
+        return attachment.mime.hasPrefix("image/") || (attachment.mime.hasPrefix("video/") && attachment.round != true)
+    }
+
+    /// The viewer on screen, or coming up.
+    private static weak var shown: PhotoViewer?
 
     /// Shows `items[index]` over whatever is on screen, the others a swipe away, oldest on the left.
+    /// Another tap as it comes up does nothing, so there's one viewer to close.
     static func show(_ items: [Item], at index: Int) {
+        if let shown, shown.presentingViewController != nil { return }
         guard items.indices.contains(index), let top = topViewController() else { return }
         let viewer = PhotoViewer(items: items, index: index)
         viewer.modalPresentationStyle = .overFullScreen
         viewer.modalTransitionStyle = .crossDissolve
+        shown = viewer
         top.present(viewer, animated: true)
     }
 
@@ -101,6 +120,8 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         configure(closeButton, symbol: "xmark", label: "Close", action: #selector(close))
         configure(shareButton, symbol: "square.and.arrow.up", label: "Share", action: #selector(share))
         configureTitle()
+        videoControls.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(videoControls)
         let centered = titleView.centerXAnchor.constraint(equalTo: view.centerXAnchor)
         centered.priority = .defaultHigh
         NSLayoutConstraint.activate([
@@ -116,6 +137,9 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
             titleView.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
             titleView.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 10),
             titleView.trailingAnchor.constraint(lessThanOrEqualTo: shareButton.leadingAnchor, constant: -10),
+            videoControls.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            videoControls.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            videoControls.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
         ])
         showCurrent()
 
@@ -126,8 +150,14 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
 
     // MARK: Pages
 
-    private func page(_ index: Int) -> PhotoPage {
-        let page = PhotoPage(index: index, item: items[index])
+    private func page(_ index: Int) -> ViewerPage {
+        let item = items[index]
+        let page: ViewerPage
+        if let video = item.video {
+            page = VideoPage(index: index, item: item, video: video)
+        } else {
+            page = PhotoPage(index: index, item: item)
+        }
         page.onTap = { [weak self] in self?.toggleChrome() }
         page.onOpened = { [weak self] file in
             self?.opened.append(file)
@@ -136,15 +166,15 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         return page
     }
 
-    private var current: PhotoPage? { pages.viewControllers?.first as? PhotoPage }
+    private var current: ViewerPage? { pages.viewControllers?.first as? ViewerPage }
 
     func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
-        guard let shown = viewController as? PhotoPage, shown.index > 0 else { return nil }
+        guard let shown = viewController as? ViewerPage, shown.index > 0 else { return nil }
         return page(shown.index - 1)
     }
 
     func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
-        guard let shown = viewController as? PhotoPage, shown.index + 1 < items.count else { return nil }
+        guard let shown = viewController as? ViewerPage, shown.index + 1 < items.count else { return nil }
         return page(shown.index + 1)
     }
 
@@ -154,7 +184,7 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         showCurrent()
     }
 
-    /// The title and Share for the picture on show.
+    /// The title and Share for the picture or video on show, and a video's controls.
     private func showCurrent() {
         let caption = items[index].caption
         nameLabel.text = caption.name
@@ -164,6 +194,9 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         dateLabel.text = [caption.date, place].compactMap { $0 }.joined(separator: " · ")
         titleView.accessibilityLabel = [caption.name, caption.verified ? "Verified" : nil, caption.date, place].compactMap { $0 }.joined(separator: ", ")
         shareButton.isEnabled = current?.file != nil
+        let player = (current as? VideoPage)?.player
+        videoControls.attach(player)
+        videoControls.isHidden = player == nil
     }
 
     // MARK: Dragging to close
@@ -179,6 +212,11 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
     /// The picture's and the pages' own drags, which give way once this one begins.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         other.view is UIScrollView
+    }
+
+    /// Not a drag on a button or along a video's bar.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(touch.view is UIControl)
     }
 
     /// The scroll view that moves between pages.
@@ -289,6 +327,7 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
             self.closeButton.alpha = hidden ? 0 : 1
             self.titleView.alpha = hidden ? 0 : 1
             self.shareButton.alpha = hidden ? 0 : 1
+            self.videoControls.alpha = hidden ? 0 : 1
         }
     }
 
@@ -319,7 +358,7 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
     // MARK: Helpers
 
     /// A capsule of Liquid Glass, as Telegram's title is, or of a dark blur before iOS 26.
-    private static func glass() -> UIVisualEffectView {
+    static func glass() -> UIVisualEffectView {
         if #available(iOS 26.0, *) {
             let view = UIVisualEffectView(effect: UIGlassEffect())
             view.cornerConfiguration = .capsule()
@@ -353,24 +392,26 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
 
 @MainActor
 extension PhotoViewer.Item {
-    /// A chat's picture, opened through the image store.
+    /// A chat's picture or video, opened through the image store.
     init(_ attachment: Attachment, of message: MessageView, server: AppModel.ServerState?, images: ImageStore) {
         let serverId = server?.entry.id ?? ""
+        let isVideo = attachment.mime.hasPrefix("video/")
         name = attachment.name
         caption = .init(message, server: server)
-        placeholder = images.cachedAttachment(attachment) ?? attachment.thumb.flatMap { ImageStore.thumbnail($0) }
+        placeholder = (isVideo ? images.cachedVideoFrame(attachment) : images.cachedAttachment(attachment)) ?? attachment.thumb.flatMap { ImageStore.thumbnail($0) }
         open = { try await images.openable(attachment, serverId: serverId) }
+        video = isVideo ? PhotoViewer.Video(play: { images.videoAsset(attachment, serverId: serverId) }, stop: { images.stopFetching(attachment) }) : nil
     }
 
-    /// The pictures among messages, in the order given, and which of them is `attachment`, of `message`.
-    static func pictures(in messages: [MessageView], showing attachment: Attachment, of message: MessageView, server: AppModel.ServerState?, images: ImageStore) -> (items: [PhotoViewer.Item], index: Int) {
+    /// The pictures and videos among messages, in the order given, and which of them is `attachment`, of `message`.
+    static func media(in messages: [MessageView], showing attachment: Attachment, of message: MessageView, server: AppModel.ServerState?, images: ImageStore) -> (items: [PhotoViewer.Item], index: Int) {
         var items: [PhotoViewer.Item] = []
         var index: Int?
         // Someone blocked's are left out, as their messages are hidden.
         for message in messages where message.deletedAt == nil && server?.isBlocked(message.senderId) != true {
-            for picture in message.attachments where PhotoViewer.shows(picture) {
-                if picture.fileId == attachment.fileId { index = items.count }
-                items.append(PhotoViewer.Item(picture, of: message, server: server, images: images))
+            for shown in message.attachments where PhotoViewer.shows(shown) {
+                if shown.fileId == attachment.fileId { index = items.count }
+                items.append(PhotoViewer.Item(shown, of: message, server: server, images: images))
             }
         }
         // One that isn't among them opens alone.
@@ -390,10 +431,21 @@ extension PhotoViewer.Caption {
     }
 }
 
+/// A page of the viewer: a picture, or a video.
+@MainActor
+protocol ViewerPage: UIViewController {
+    var index: Int { get }
+    /// The decrypted file, once it's opened, for Share.
+    var file: URL? { get }
+    var zoomed: Bool { get }
+    var onTap: () -> Void { get set }
+    var onOpened: (URL) -> Void { get set }
+}
+
 /// One picture in the viewer, fitted to the screen, which zooms on its own. It shows its
 /// placeholder until the picture's opened and made.
 @MainActor
-private final class PhotoPage: UIViewController, UIScrollViewDelegate {
+private final class PhotoPage: UIViewController, UIScrollViewDelegate, ViewerPage {
     let index: Int
     private let item: PhotoViewer.Item
     /// The decrypted file, once it's opened, for Share.

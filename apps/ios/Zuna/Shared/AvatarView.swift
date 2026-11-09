@@ -15,6 +15,12 @@ final class ImageStore {
     /// these is never too small, however large it's shown.
     @ObservationIgnored private var whole: Set<String> = []
     @ObservationIgnored private let core: CoreConnection
+    /// Files decrypted while the app runs, by file ID, so a video's frame, playing it and Share
+    /// use one download. They're in the core's decrypted cache, which is emptied as the app starts.
+    @ObservationIgnored private var decryptedFiles: [String: URL] = [:]
+    @ObservationIgnored private var decrypting: [String: Task<URL, Error>] = [:]
+    /// Videos playing as they come, by file ID: kept, as their assets only hold them weakly.
+    @ObservationIgnored private var videoStreams: [String: VideoStream] = [:]
     /// Bumped when a server's icon changes, so the views showing it load it again.
     private(set) var iconVersion = 0
 
@@ -36,17 +42,16 @@ final class ImageStore {
 
     /// A picture sent in a message, decrypted by the core.
     func attachment(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
-        await load("file:\(attachment.fileId)", size: size) { [core] in
-            let file = try await core.session(serverId).downloadFile(attachment)
-            return try Data(contentsOf: URL(fileURLWithPath: file.path))
+        await load("file:\(attachment.fileId)", size: size) { [self] in
+            try Data(contentsOf: try await decrypted(attachment, serverId: serverId))
         }
     }
 
     /// A frame from a video sent in a message, taken once the core has decrypted it.
     func videoFrame(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
-        await load("frame:\(attachment.fileId)", size: size) { [core] in
-            let file = try await core.session(serverId).downloadFile(attachment)
-            let asset = AVURLAsset(url: URL(fileURLWithPath: file.path), options: [AVURLAssetOverrideMIMETypeKey: attachment.mime])
+        await load("frame:\(attachment.fileId)", size: size) { [self] in
+            let file = try await decrypted(attachment, serverId: serverId)
+            let asset = AVURLAsset(url: file, options: [AVURLAssetOverrideMIMETypeKey: attachment.mime])
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: 720, height: 720)
@@ -63,15 +68,46 @@ final class ImageStore {
 
     /// The decrypted file under its own name, for QuickLook and the share sheet.
     func openable(_ attachment: Attachment, serverId: String) async throws -> URL {
-        let file = try await core.session(serverId).downloadFile(attachment)
-        let folder = URL(fileURLWithPath: file.path).deletingLastPathComponent()
+        let file = try await decrypted(attachment, serverId: serverId)
+        let folder = file.deletingLastPathComponent()
             .appendingPathComponent("open", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let safeName = attachment.name.replacingOccurrences(of: "/", with: "_")
-        let target = folder.appendingPathComponent(safeName.isEmpty ? URL(fileURLWithPath: file.path).lastPathComponent : safeName)
-        try FileManager.default.linkItem(at: URL(fileURLWithPath: file.path), to: target)
+        let target = folder.appendingPathComponent(safeName.isEmpty ? file.lastPathComponent : safeName)
+        try FileManager.default.linkItem(at: file, to: target)
         return target
+    }
+
+    /// All of a file, decrypted, once while the app runs: a video playing as it comes gives it once it has all come.
+    private func decrypted(_ attachment: Attachment, serverId: String) async throws -> URL {
+        let id = attachment.fileId
+        if let file = decryptedFiles[id], FileManager.default.fileExists(atPath: file.path) { return file }
+        if let task = decrypting[id] { return try await task.value }
+        let task = Task { [core, stream = videoStreams[id]] in
+            if let stream { return try await stream.whole() }
+            return URL(fileURLWithPath: try await core.session(serverId).downloadFile(attachment).path)
+        }
+        decrypting[id] = task
+        defer { decrypting[id] = nil }
+        let file = try await task.value
+        decryptedFiles[id] = file
+        return file
+    }
+
+    /// A video to play at once: from its file once all of it is here, otherwise as it comes, a few
+    /// chunks ahead of where it plays. Nil for one that can't play as it comes, which plays once it's all here.
+    func videoAsset(_ attachment: Attachment, serverId: String) -> AVURLAsset? {
+        if let file = decryptedFiles[attachment.fileId] { return AVURLAsset(url: file, options: [AVURLAssetOverrideMIMETypeKey: attachment.mime]) }
+        if let stream = videoStreams[attachment.fileId] { return stream.asset() }
+        guard let stream = VideoStream(attachment, session: core.session(serverId)) else { return nil }
+        videoStreams[attachment.fileId] = stream
+        return stream.asset()
+    }
+
+    /// Done with a video for now: what AVPlayer isn't waiting for stops coming.
+    func stopFetching(_ attachment: Attachment) {
+        videoStreams[attachment.fileId]?.pause()
     }
 
     /// After an admin changes the server's picture, the next look fetches it again.

@@ -539,19 +539,31 @@ export abstract class SessionSending extends SessionConversations {
 
   /** Decrypts a file, verifying that every chunk is present and in order. */
   async downloadFile(ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }, onProgress?: (loaded: number, total: number) => void): Promise<Blob> {
-    const key = fromBase64(ref.key);
-    const prefix = fromBase64(ref.prefix);
     const parts: Uint8Array[] = new Array(ref.chunks);
     let done = 0;
     await eachLimited(Array.from({ length: ref.chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
-      const sealed = await this.api.downloadChunk(ref.fileId, index);
-      // The server's limit plus a little: this is all held in memory.
-      if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
-      parts[index] = wasm.streamOpen(key, prefix, index, index === ref.chunks - 1, sealed);
+      parts[index] = await this.openChunk(ref, index);
       done++;
       onProgress?.(done, ref.chunks);
     });
     return this.files.assemble(parts, ref.mime ?? "application/octet-stream");
+  }
+
+  /**
+   * One chunk of a file, decrypted, as a file of its own: for a video that plays as it comes,
+   * rather than once all of it has. Each chunk is sealed for its place in the file, so none
+   * can be passed off as another, and only the last says it's the last.
+   */
+  async downloadChunk(ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }, index: number): Promise<Blob> {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= ref.chunks) throw new Error("This file has no such part.");
+    return this.files.assemble([await this.openChunk(ref, index)], ref.mime ?? "application/octet-stream");
+  }
+
+  protected async openChunk(ref: { fileId: string; key: string; prefix: string; chunks: number }, index: number): Promise<Uint8Array> {
+    const sealed = await this.api.downloadChunk(ref.fileId, index);
+    // The server's limit plus a little: this is all held in memory.
+    if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
+    return wasm.streamOpen(fromBase64(ref.key), fromBase64(ref.prefix), index, index === ref.chunks - 1, sealed);
   }
 
   /**

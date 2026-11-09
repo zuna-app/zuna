@@ -604,6 +604,14 @@ describe("attachments", () => {
 
     const shortened = { ...attachment, chunks: 2 };
     await expect(bob.session.downloadFile(shortened)).rejects.toThrow();
+
+    // One chunk at a time, as a video plays while it comes: each only opens in its own place.
+    const middle = new Uint8Array(await (await bob.session.downloadChunk(attachment, 1)).arrayBuffer());
+    expect(middle).toEqual(content.subarray(1 << 20, 2 << 20));
+    const last = new Uint8Array(await (await bob.session.downloadChunk(attachment, 2)).arrayBuffer());
+    expect(last).toEqual(content.subarray(2 << 20));
+    await expect(bob.session.downloadChunk(shortened, 1)).rejects.toThrow();
+    await expect(bob.session.downloadChunk(attachment, 3)).rejects.toThrow();
   });
 
   it("takes out where, when and on what a photo was taken, unless the sender's settings keep it", async () => {

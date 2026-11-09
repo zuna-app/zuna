@@ -319,6 +319,8 @@ public struct SessionCalls: Sendable {
     /// Decrypts an attachment or avatar into the app's protected cache.
     public func downloadFile(_ attachment: Attachment) async throws -> WireFile { try await call("downloadFile", [attachment]) }
     public func downloadFile(_ avatar: AvatarRef) async throws -> WireFile { try await call("downloadFile", [avatar]) }
+    /// One chunk of a file, decrypted, as a file of its own: for a video that plays as it comes.
+    public func downloadChunk(_ attachment: Attachment, index: Int) async throws -> WireFile { try await call("downloadChunk", [attachment, index]) }
 }
 
 /// Server settings an admin can change, named as the server's API names them.

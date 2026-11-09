@@ -348,16 +348,16 @@ struct ChatScreen: View {
         let actions = ChatActions(
             jump: { id in Task { await model.jumpToMessage(serverId, groupId: listId, messageId: id) } },
             open: { attachment, message in
-                // Pictures open in a viewer that goes between the chat's pictures and closes with a drag, as
-                // in Telegram; other files in QuickLook.
+                // Pictures and videos open in a viewer that goes between the chat's pictures and videos and
+                // closes with a drag, as in Telegram; other files in QuickLook.
                 if PhotoViewer.shows(attachment) {
-                    let gallery = PhotoViewer.Item.pictures(in: list.items, showing: attachment, of: message, server: model.servers[serverId], images: images)
+                    let gallery = PhotoViewer.Item.media(in: list.items, showing: attachment, of: message, server: model.servers[serverId], images: images)
                     PhotoViewer.show(gallery.items, at: gallery.index)
                     return
                 }
                 Task {
                     do {
-                        FilePreview.show(try await images.openable(attachment, serverId: serverId))
+                        try await FilePreview.open { try await images.openable(attachment, serverId: serverId) }
                     } catch {
                         model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
                     }

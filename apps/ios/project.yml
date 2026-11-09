@@ -217,6 +217,7 @@ targets:
       - path: Zuna/Shared/ShareMailbox.swift
       - path: Zuna/Shared/ShareSuggestions.swift
       - path: Zuna/Shared/SharedStorage.swift
+      - path: Zuna/Shared/VideoStream.swift
       - path: Zuna/State/AppSettings.swift
       - path: Zuna/Theme/Theme.swift
     dependencies:

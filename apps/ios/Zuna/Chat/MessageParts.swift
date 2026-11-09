@@ -6,8 +6,8 @@ import ZunaModels
 // MARK: Attachments
 
 /// Pictures two to a row, videos with their picture, then audio and
-/// other files as cards. Pictures open in the photo viewer, everything else in
-/// QuickLook, decrypted into the protected cache.
+/// other files as cards. Pictures and videos open in the photo viewer, a video
+/// playing as it comes, everything else in QuickLook, decrypted into the protected cache.
 struct AttachmentsView: View {
     let message: MessageView
     let serverId: String

@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 import XCTest
 
@@ -371,6 +372,95 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("the status bar and the shade to come back") { let top = self.topBand(); return top.statusBar && top.shaded }
         close.tap()
         try waitFor("the viewer to close") { !viewer.exists }
+    }
+
+    /// A video plays in the viewer as it comes, as in Telegram, rather than once all of it is
+    /// here: one as big as a phone's screen recording, too big to download with no tap, with its
+    /// index at its end, as a phone writes it. It plays from a place dragged to, Share comes once
+    /// all of it has, and taps as it opens don't stack viewers up.
+    func testPlaysAVideoAsItComes() throws {
+        let alice = try Peer("alice")
+        let name = "recording-\(UUID().uuidString.prefix(4)).mp4"
+        let file = try Self.noiseVideo(seconds: 8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let size = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int)
+        XCTAssertGreaterThan(size, 21 << 20, "not past what downloads with no tap")
+        // By its path, which the orchestrator on this Mac reads, rather than through the control channel.
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [["blob": ["$file": ["path": file.path, "type": "video/mp4"]], "name": name, "mime": "video/mp4", "width": 1280, "height": 720, "duration": 8]],
+            ["text": ""],
+        ])
+
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let tile = zuna.element(A11y.Chat.attachment(name))
+        try toNewest(until: tile)
+        // Tapped again as it opens, it still opens once, with one viewer to close.
+        tile.doubleTap()
+        let viewer = zuna.element(A11y.Chat.photoViewer)
+        XCTAssertTrue(viewer.waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.element(A11y.Chat.videoPage).waitForExistence(timeout: 5))
+        let position = zuna.element(A11y.Chat.videoPosition)
+        let play = zuna.element(A11y.Chat.videoPlay)
+        let seconds = { () -> Int? in
+            guard let value = position.value as? String, let now = value.split(separator: " ").first else { return nil }
+            let parts = now.split(separator: ":").compactMap { Int($0) }
+            return parts.count == 2 ? parts[0] * 60 + parts[1] : nil
+        }
+        try waitFor("it to play", timeout: 20) { (seconds() ?? 0) >= 1 && play.label == "Pause" }
+        zuna.screenshot("63d-video-playing")
+
+        // Dragged most of the way, it plays on from there.
+        position.adjust(toNormalizedSliderPosition: 0.75)
+        try waitFor("it to play from where it was dragged to", timeout: 20) { (seconds() ?? 0) >= 6 && play.label == "Pause" }
+
+        // Share, once all of it is on the phone.
+        let share = zuna.app.buttons["Share"]
+        try waitFor("all of it to come", timeout: 60) { share.isEnabled }
+        zuna.app.buttons["Close"].tap()
+        try waitFor("the viewer to close") { !viewer.exists }
+        XCTAssertTrue(tile.isHittable)
+    }
+
+    /// A video of noise, which doesn't compress, so it's about as big as a phone's screen
+    /// recording: 1280 by 720 at 30 Mbit/s, with its index at its end, as the camera writes it.
+    private static func noiseVideo(seconds: Int) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 1280,
+            AVVideoHeightKey: 720,
+            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 30_000_000, AVVideoMaxKeyFrameIntervalKey: 30],
+        ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 1280,
+            kCVPixelBufferHeightKey as String: 720,
+        ])
+        writer.add(input)
+        XCTAssertTrue(writer.startWriting(), writer.error.map { "\($0)" } ?? "")
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0 ..< seconds * 30 {
+            while !input.isReadyForMoreMediaData { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, try XCTUnwrap(adaptor.pixelBufferPool), &buffer)
+            let pixels = try XCTUnwrap(buffer)
+            CVPixelBufferLockBaseAddress(pixels, [])
+            arc4random_buf(CVPixelBufferGetBaseAddress(pixels), CVPixelBufferGetDataSize(pixels))
+            CVPixelBufferUnlockBaseAddress(pixels, [])
+            adaptor.append(pixels, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 30))
+        }
+        input.markAsFinished()
+        let done = XCTestExpectation(description: "the video to be written")
+        writer.finishWriting { done.fulfill() }
+        XCTAssertEqual(XCTWaiter.wait(for: [done], timeout: 60), .completed)
+        XCTAssertEqual(writer.status, .completed, writer.error.map { "\($0)" } ?? "")
+        return url
     }
 
     /// What shows in the band the status bar sits in, over the screenshot's red top, its first hundred points.

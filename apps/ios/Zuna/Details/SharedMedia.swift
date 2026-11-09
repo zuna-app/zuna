@@ -382,7 +382,7 @@ private struct MediaTile: View {
 
     private func open() {
         // Oldest on the left, as in the chat.
-        let gallery = PhotoViewer.Item.pictures(in: others.reversed(), showing: attachment, of: message, server: model.servers[serverId], images: images)
+        let gallery = PhotoViewer.Item.media(in: others.reversed(), showing: attachment, of: message, server: model.servers[serverId], images: images)
         PhotoViewer.show(gallery.items, at: gallery.index)
     }
 }
