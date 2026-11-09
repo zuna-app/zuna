@@ -111,13 +111,23 @@ static int takes_nv12(const zuna_encoder *e) {
     return is_family(e, "mf");
 }
 
-// NVENC's AV1 in CBR spends all of its bitrate whatever the picture, a still screen too,
-// where its H.264 sends filler that h264.rs takes out. So AV1 goes in VBR, held to the same
-// bitrate at most, which looked better at every bitrate in examples/codec-bench.rs and sent
-// a little less. The others' AV1 hasn't run, so it stays as their H.264 is.
+// NVENC goes in VBR, held to the bitrate at most. Its AV1 in CBR spends all of its bitrate
+// whatever the picture, a still screen too, and VBR looked better at every bitrate in
+// examples/codec-bench.rs and sent a little less. Its H.264 sends the same in either, which on
+// a screen is far less than it's asked for, the rest filler that h264.rs takes out, and VBR
+// is where it takes a target quality (H264_TARGET_QUALITY). The others haven't run with
+// either, so they stay in CBR.
 static int is_capped_vbr(const zuna_encoder *e) {
-    return is_av1(e) && is_family(e, "nvenc");
+    return is_family(e, "nvenc");
 }
+
+// What NVENC's H.264 aims for in VBR, as a QP. Without one it codes what's new on a screen
+// coarsely, and carries it from frame to frame as it was first coded. In examples/codec-bench.rs,
+// run through the share's pipeline at 1080p, text scrolling came out 1.7 to 3.1 dB sharper for
+// the same bits from 2 to 16 Mbit/s, and 0.6 to 1.2 at 1440p, nothing else lost anything, and the
+// bitrate held as before; keyframes came out about half as large again, a little over the VBV.
+// 14 and 20 held a video's quality back at 16 Mbit/s, and 8 didn't.
+#define H264_TARGET_QUALITY "8"
 
 // AV1's options are H.264's where the encoder has the same, and its profile is Main, the
 // one there is for 8-bit 4:2:0, which each takes by itself. A forced keyframe has to be a
@@ -130,7 +140,10 @@ static void set_low_latency_options(zuna_encoder *e) {
         av_opt_set(options, "preset", quality == ZUNA_QUALITY_SPEED ? "p1" : quality == ZUNA_QUALITY_BEST ? "p7" : "p4", 0);
         av_opt_set(options, "tune", "ull", 0);
         av_opt_set(options, "rc", is_capped_vbr(e) ? "vbr" : "cbr", 0);
-        if (!av1) av_opt_set(options, "profile", "high", 0);
+        if (!av1) {
+            av_opt_set(options, "profile", "high", 0);
+            av_opt_set(options, "cq", H264_TARGET_QUALITY, 0);
+        }
         av_opt_set_int(options, "zerolatency", 1, 0);
         av_opt_set_int(options, "delay", 0, 0);
         av_opt_set_int(options, "forced-idr", 1, 0);

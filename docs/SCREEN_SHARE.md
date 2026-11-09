@@ -113,7 +113,7 @@ A native share that can't do what was chosen doesn't start, and the app says why
 | macOS | ScreenCaptureKit, which captures it no larger than asked |
 | The web app | `height: { max }` in `getDisplayMedia` |
 
-**The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27. AV1 goes through the same four, as `av1_nvenc`, `av1_amf`, `av1_mf` and `av1_vaapi`, with the same choice of encoder in Settings, and `av1_metadata` in place of `h264_metadata`.
+**The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27. AV1 goes through the same four, as `av1_nvenc`, `av1_amf`, `av1_mf` and `av1_vaapi`, with the same choice of encoder in Settings, and `av1_metadata` in place of `h264_metadata`. NVENC encodes in VBR held to the bitrate, H.264 with a target quality ([Getting more out of H.264](#getting-more-out-of-h264)), and the others in CBR.
 
 ## Sharing from a Mac
 
@@ -221,7 +221,7 @@ Once it has had to fall, a rise is a guess. libwebrtc lets its estimate run to h
 
 Otherwise a keyframe only goes when it's needed: when libwebrtc asks for one, for someone who joins or can't decode, at a new size, and with a new bitrate. There's no regular one, as each is a burst someone watching waits for, of up to a quarter of a second of the bitrate, and nothing needs it. The encoder's own come at most every minute's worth of frames. The legacy desktop app still asks for one, every 10 seconds unless it's set otherwise, with `--keyframe-seconds`, counted from the last keyframe of any kind.
 
-How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv_size` in `native/encoder.c`). Measured with NVENC on an RTX 5080, on 2560x1440 of code that stood still and then scrolled, a keyframe took 128 ms of the bitrate at 15 Mbit/s and 107 ms at 40. A tenth of a second made those 78 and 75 ms, but cost a keyframe 4 to 5 dB of PSNR at 15 Mbit/s, which blurs text, so it stays a quarter.
+How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv_size` in `native/encoder.c`). Measured with NVENC on an RTX 5080, on 2560x1440 of code that stood still and then scrolled, a keyframe took 128 ms of the bitrate at 15 Mbit/s and 107 ms at 40. A tenth of a second made those 78 and 75 ms, but cost a keyframe 4 to 5 dB of PSNR at 15 Mbit/s, which blurs text, so it stays a quarter. NVENC's H.264 with its target quality goes a little over it: in `codec-bench.rs` its keyframes took 109 to 124% of the VBV, where they'd taken 73 to 78% before.
 
 ## AV1
 
@@ -260,24 +260,51 @@ H.264 leaves its SPS, PPS and NAL headers out of the encryption, so a decoder wi
 
 ### Against H.264
 
-`screenshare/examples/codec-bench.rs` encodes the same 10 seconds in both through the share's own encoder, at several bitrates, and measures what comes out against what went in, with the FFmpeg the repository pins. The scene is drawn by the program, the same each time, as a screen looks: code in an editor that scrolls for 3 seconds, stands still for 2 with its caret blinking, has a video playing in a corner for 3 and a window dragged across it for 2. What's counted is what a share sends: H.264 after `h264.rs` has taken out NVENC's filler and SEI, and AV1 without the temporal delimiters and padding LiveKit takes out. PSNR and SSIM are in luma, on the picture the encoder was given made 4:2:0 with the matrix the streams say they're in, since in RGB what 4:2:0 loses of coloured text, the same for both, held both under 32 dB at any bitrate. On the same machine, with NVENC at the effort Balanced (`p4`), the default:
+`screenshare/examples/codec-bench.rs` encodes the same scene in both through the share's own encoder, at several bitrates, and measures what comes out against what went in, with the FFmpeg the repository pins. The scene is drawn by the program, the same each time, as a screen looks: code in an editor that scrolls for a quarter of it, stands still for a sixth or so with its caret blinking, has a video playing in a corner, has a window dragged across it, and last is a full screen game, a detailed landscape that the camera pans across. What's counted is what a share sends: H.264 after `h264.rs` has taken out NVENC's filler and SEI, and AV1 without the temporal delimiters and padding LiveKit takes out. PSNR and SSIM are in luma, on the picture the encoder was given made 4:2:0 with the matrix the streams say they're in, since in RGB what 4:2:0 loses of coloured text, the same for both, held both under 32 dB at any bitrate.
 
-| 1920x1080, 60 fps | Sent | Luma PSNR | Encoding a frame | First keyframe |
+With `--through pipeline` it runs the encoder as a share does, through `pipeline.rs` at the frame rate, its bitrate starting at 3 Mbit/s and following an estimate of the network that's always the most it may send. On the same machine, for 40 seconds at 1920x1080 and 60 fps, with NVENC at the effort Balanced (`p4`), the default, and H.264 with its target quality ([Getting more out of H.264](#getting-more-out-of-h264)):
+
+| The most it may send | H.264 sent | Luma PSNR | AV1 sent | Luma PSNR |
 |---|---|---|---|---|
-| H.264, 1 Mbit/s asked for | 0.90 Mbit/s | 32.8 dB | 2.66 ms | 26 KB |
-| AV1, 1 Mbit/s | 0.97 Mbit/s | 36.2 dB | 2.32 ms | 17 KB |
-| H.264, 4 Mbit/s | 1.94 Mbit/s | 43.6 dB | 2.63 ms | 92 KB |
-| AV1, 4 Mbit/s | 3.26 Mbit/s | 49.0 dB | 2.34 ms | 101 KB |
-| H.264, 16 Mbit/s | 6.94 Mbit/s | 58.2 dB | 2.73 ms | 211 KB |
-| AV1, 16 Mbit/s | 11.6 Mbit/s | 62.4 dB | 2.35 ms | 256 KB |
+| 2 Mbit/s | 2.55 Mbit/s | 33.1 dB | 1.79 Mbit/s | 37.2 dB |
+| 4 Mbit/s | 2.32 Mbit/s | 36.8 dB | 3.42 Mbit/s | 38.7 dB |
+| 8 Mbit/s | 3.76 Mbit/s | 39.0 dB | 6.89 Mbit/s | 40.9 dB |
+| 16 Mbit/s | 8.49 Mbit/s | 42.7 dB | 12.6 Mbit/s | 43.9 dB |
 
-- **At the same bitrate asked for,** as a share asks for the most it may send, AV1 looks better throughout: 3.4 to 5.6 dB more at 1080p from 1 to 16 Mbit/s, 1.7 to 5.5 dB at 2560x1440 from 2 to 32 Mbit/s, and 3.6 to 6.2 at 1080p with the effort Best. Mostly because it sends more of what it's allowed.
-- **NVENC's H.264 sends far less than it's asked for** on a screen, the rest filler that `h264.rs` takes out: asked for 8 Mbit/s, it sent 2.35 at 1080p, and asked for 32, 8.6 at 1440p. The same in a share, where a still screen or text leaves the link's bitrate unused. Over a video, as `testsrc2` is, it sends what it's asked for.
-- **No rate control of NVENC's H.264 makes it spend more.** With 8 Mbit/s asked for at 1080p, VBR held to the bitrate, two passes at a quarter or the full size, the tunes `ll` and `hq`, and a lowest QP of 0 all sent the same 2.35 Mbit/s at the same 50.8 dB, and spatial AQ sent 3.1 at 48.6. NVENC carries what's still, and text moved by whole pixels, from frame to frame as it was first coded, and codes what's new too coarsely: at a constant QP of 20 the scene took 1.31 Mbit/s for 51.3 dB. A highest QP, which FFmpeg only passes to NVENC in VBR, is what helps: VBR held to the bitrate with QP no higher than 20 sent 2.33 Mbit/s at 55.7 dB, and with 16 at 16 Mbit/s, 4.9 at 60.2 dB where CBR sent 6.9 at 58.2, better for each bit than AV1 here. But a highest QP outranks the bitrate and the VBV: asked for 1 Mbit/s with 16, it sent 1.8, and every keyframe came out at the size the QP made it, 281 KB with 20 and 398 KB with 16, whatever the bitrate, which is over a second of a 2 Mbit/s link. So it isn't used: it would need a ceiling worked out from the bitrate and the picture's size, checked live with video and games on the screen.
-- **For each bit sent, which is better depends on what's shown.** Averaged over the qualities both reached (Bjøntegaard's measure), AV1 needed 73% fewer bits than H.264 for the video and 33% fewer for the window dragged at 1080p, and 61% fewer for the video at 1440p, but 21% more for the scrolling code at 1080p and 59% more at 1440p, and 9% more for the window at 1440p; with the effort Best, 75% fewer for the video, 45% fewer for the window and only 6% more for the code.
-- **AV1 spends its bitrate on a still screen.** With only the caret blinking, H.264 sent 0.04 to 0.5 Mbit/s and AV1 most of what it was allowed, to make the screen all but perfect (55 to 65 dB against 43 to 65). A share encodes at the full frame rate while anything changes, so a caret blinking keeps AV1 at its bitrate. In CBR it was worse: AV1 spent all of its bitrate whatever the picture, which is why `av1_nvenc` goes in VBR, held to the same bitrate at most (`is_capped_vbr` in `native/encoder.c`). That was better than CBR at every bitrate, by 0.2 to 1.6 dB at 1080p, and sent a little less.
-- **AV1 encodes about an eighth faster** on this card: 2.35 ms a frame against 2.67 at 1080p, 4.14 against 4.80 at 1440p, and 3.5 against 4.2 with the effort Best. Its first keyframe is smaller at low bitrates and larger at high ones.
+The game holds the whole scene's PSNR down. Each part, at 8 Mbit/s:
+
+| At 8 Mbit/s | H.264 | AV1 |
+|---|---|---|
+| Scrolling code | 1.81 Mbit/s, 43.6 dB | 5.75 Mbit/s, 45.9 dB |
+| Still, its caret blinking | 0.34 Mbit/s, 57.3 dB | 6.78 Mbit/s, 68.1 dB |
+| A video in a corner | 3.74 Mbit/s, 56.4 dB | 7.08 Mbit/s, 62.1 dB |
+| A window dragged | 1.97 Mbit/s, 56.8 dB | 6.35 Mbit/s, 66.5 dB |
+| A full screen game | 8.01 Mbit/s, 34.2 dB | 8.07 Mbit/s, 36.0 dB |
+
+- **At the same limit,** as a share asks for the most it may send, AV1 looks better throughout: 1.2 to 4.1 dB more at 1080p from 2 to 16 Mbit/s, and 1.1 to 4.2 dB at 2560x1440 from 4 to 32 Mbit/s. Mostly because it sends more of what it's allowed, above 2 Mbit/s half as much again or more, where H.264 sends what the picture needs.
+- **For each bit sent, the two come out about even** over the scene: AV1 needed 3 to 4% more than H.264 for the same quality, averaged over the qualities both reached (Bjøntegaard's measure). AV1 needed 31 to 35% fewer bits for the game, and 40% fewer for the video at 1080p and 8% at 1440p; H.264 needed fewer for the scrolling code, 12% at 1080p and 24% at 1440p, and for the window dragged.
+- **AV1 spends its bitrate on a still screen,** to make it all but perfect, where H.264 sent 0.03 to 0.7 Mbit/s. A share encodes at the full frame rate while anything changes, so a caret blinking keeps AV1 at its bitrate.
+- **Neither can hold a game at too low a limit.** H.264's busiest second sent 4.4 times what it may at 2 Mbit/s at 1080p, and 2.8 times at 4 Mbit/s at 1440p, as even its coarsest quantizer can't make the picture smaller; AV1's, with a far finer range, 1.6 and 1.3 times. Above those, H.264's busiest second went 4 to 7% past the limit, and AV1's 12 to 39%.
+- **H.264's keyframes are larger:** 109 to 124% of the VBV, where AV1's were 49 to 81%.
+- **AV1 encodes faster** on this card: 2.7 ms a frame through the pipeline against 3.1 at 1080p, and 5.0 against 5.7 at 1440p.
 - **Watching costs more:** the native app decodes both in software on Windows, and AV1 more slowly (the table above).
+
+Straight to the encoder, at the bitrate asked for from the start, on the scene as it was before the game was added, for 10 seconds: NVENC's H.264 in CBR sent far less than it was asked for on a screen, the rest filler: asked for 8 Mbit/s, it sent 2.35 at 1080p, and asked for 32, 8.6 at 1440p. AV1 in CBR spent all of its bitrate whatever the picture, a still screen too, which is why `av1_nvenc` goes in VBR held to the bitrate (`is_capped_vbr` in `native/encoder.c`), better than CBR at every bitrate, by 0.2 to 1.6 dB at 1080p, and sending a little less. AV1 encoded about an eighth faster, 2.35 ms a frame against 2.67 at 1080p.
+
+### Getting more out of H.264
+
+NVENC's H.264 codes what's new on a screen coarsely, and carries what's still, and text moved by whole pixels, from frame to frame as it was first coded: at a constant QP of 20 the scene above (before the game) took 1.31 Mbit/s for 51.3 dB, where CBR asked for 8 sent 2.35 for 50.8. So it goes in VBR held to the bitrate, with a target quality of 8 (`H264_TARGET_QUALITY` in `native/encoder.c`). Through the pipeline, against H.264 as it was, in CBR:
+
+| Scrolling code, luma PSNR | 2 Mbit/s | 4 Mbit/s | 8 Mbit/s | 16 Mbit/s | 32 Mbit/s |
+|---|---|---|---|---|---|
+| 1920x1080, before | 37.5 dB | 39.5 dB | 40.9 dB | 41.2 dB | |
+| 1920x1080, now | 40.0 dB | 41.3 dB | 43.6 dB | 44.3 dB | |
+| 2560x1440, before | | 35.8 dB | 37.4 dB | 37.9 dB | 37.9 dB |
+| 2560x1440, now | | 36.3 dB | 38.4 dB | 39.0 dB | 39.1 dB |
+
+For the same bits: the scroll sent the same, and the still screen, the video and the window came out 2.4 to 2.9 dB better at 2 Mbit/s and the same above it, as did the game. The busiest second was as before from 4 Mbit/s up; at 2 Mbit/s at 1080p, where neither holds the game, it sent 4.4 times the limit against 3.4. Keyframes came out about half as large again, a little over the VBV. A target of 14 or 20 held the video back at 16 Mbit/s, and 8 didn't.
+
+What didn't help, with 8 Mbit/s asked for at 1080p straight to the encoder: VBR held to the bitrate by itself, two passes at a quarter or the full size, the tunes `ll` and `hq` and a lowest QP of 0 all sent the same for the same, temporal AQ sent 14% more for 0.3 dB more, and spatial AQ 3.1 Mbit/s for 48.6 dB. A highest QP, which FFmpeg only passes to NVENC in VBR, did the most for text, 55.7 dB on 2.33 Mbit/s with QP no higher than 20, but it outranks the bitrate and the VBV: through the pipeline, a highest QP of 22 had the game send 2.8 times the limit at 8 Mbit/s and 11 times at 2, with keyframes 2.7 to 4 times the VBV. One that followed what the share sent, coming down a step while it sent under 60% of its bitrate and going back up as soon as it sent more, was worse than none: FFmpeg can't change NVENC's QP range without opening it again, and each new encoder's keyframe threw away what H.264 had sharpened over the frames before, while the game, coming under a low ceiling, sent 2.3 times the limit for a second before it backed off.
 
 ## What the proof of concept measured
 
@@ -353,3 +380,4 @@ Inside the app, Windows and Linux with NVENC have run so far, and macOS through 
 - **The computer's sound on Windows** has run from the app in the Electron app's `win-sound-check.mjs`, since removed, on Windows 11 (build 26300), beside a native share and one through the browser: everything but Zuna, with Zuna's own tone 46 dB under another app's, one app alone, the picker's apps, and a window starting with its app's. Its tones are at -60 dBFS, so that nobody hears them, and told apart by frequency. They play to the default output, and an app playing to another hasn't been tried.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality. How the bitrate follows a real link with no regular keyframes, and rises that wait longer after each that was too much, has only run against the tests' model of libwebrtc's estimate, not in a call.
 - **AV1** has only run on Windows 11 with an RTX 5070 Ti, through NVENC in `codec-check.mjs`, `key-log-check.mjs` and `codec-bench.rs`, and through NVIDIA's Media Foundation encoder in `key-log-check.mjs` ([AV1](#av1)). Its row in Settings and a share from the app into a voice channel in AV1 haven't been seen, nor has anyone watching one in the app on macOS, which goes through the same patched `webrtc-sys`. Linux's AV1 has only been type-checked, and AMF's, VA-API's and Intel's AV1 have never run. A share in AV1 through a real network, where it would send more than H.264 at the same limit, hasn't run either.
+- **NVENC's H.264 with its target quality** has run on Windows 11 with an RTX 5070 Ti, in `codec-bench.rs` and `codec-check.mjs`. On Linux it's the same options, and hasn't run there, nor on other NVIDIA cards.
