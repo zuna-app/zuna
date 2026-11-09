@@ -148,11 +148,17 @@ try {
       close() {}
     }
     window.Notification = Kept as unknown as typeof Notification;
-    // Someone at the computer, moving the pointer every second, or not.
+    // Someone at the computer, moving the pointer every second, or not. Each move goes
+    // somewhere new, as the app takes one that stays put for the page moving under the pointer.
     let timer: ReturnType<typeof setInterval> | undefined;
+    let at = 0;
     w.__input = (on) => {
       clearInterval(timer);
-      if (on) timer = setInterval(() => window.dispatchEvent(new PointerEvent("pointermove")), 1000);
+      const move = () => window.dispatchEvent(new PointerEvent("pointermove", { screenX: ++at, screenY: at }));
+      if (on) {
+        move();
+        timer = setInterval(move, 1000);
+      }
     };
   });
   await page.goto(desktop.url);
@@ -254,8 +260,10 @@ try {
   judge("so does the desktop", await onDesktop(a.text), a.sent, "waited");
 
   // --- In front, with nobody touching it ---
+  // Coming in front counts as input, so it's in use for 30 s, and no longer.
   await focusDesktop();
-  await sleep(8_000);
+  await waitFor(() => activeElsewhere(), "the server to hear the desktop came in front", 15_000);
+  await sleep(WAIT + 2_000);
   check("in front, but with no input for a while, the desktop isn't in use", !activeElsewhere());
 
   // --- B: at the desktop ---
