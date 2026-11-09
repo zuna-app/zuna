@@ -123,6 +123,84 @@ final class ChatReadingTests: XCTestCase {
         }
     }
 
+    /// Copies of an animated emote that came at different times play on one clock, as a browser
+    /// plays them, so each shows the frame the others do.
+    func testCopiesOfAnAnimatedEmoteMoveTogether() throws {
+        let alice = try Peer("alice")
+        let first = try alice.sendWithEmotes(to: "user:\(bobId)", "zunaDance")
+
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        let toBottom = zuna.element(A11y.Chat.toBottom)
+        try waitFor("the first copy", timeout: 20) {
+            if self.text(first).exists { return true }
+            if toBottom.exists { toBottom.tap() }
+            return false
+        }
+        // The second starts part of the way through the first's loop of three 120 ms frames.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        let second = try alice.sendWithEmotes(to: "user:\(bobId)", "zunaDance")
+        XCTAssertTrue(text(second).waitForExistence(timeout: 10))
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        try assertInStep(first, second)
+        zuna.screenshot("136-emotes-in-step")
+
+        // Back from the background, they still move, and together.
+        XCUIDevice.shared.press(.home)
+        try waitFor("the app to leave the screen") { self.zuna.app.state != .runningForeground }
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        zuna.app.activate()
+        XCTAssertTrue(text(second).waitForExistence(timeout: 10))
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        try assertInStep(first, second)
+    }
+
+    /// Screenshots of two messages that start with the test emote show it on one frame in
+    /// each, and on more than one frame over all of them.
+    private func assertInStep(_ first: String, _ second: String) throws {
+        let firstFrame = text(first).frame, secondFrame = text(second).frame
+        var shown = Set<Int>()
+        for sample in 0..<12 {
+            let screen = XCUIScreen.main.screenshot()
+            let one = try frameShown(in: screen, firstFrame), other = try frameShown(in: screen, secondFrame)
+            XCTAssertEqual(one, other, "sample \(sample): the copies show frames \(one) and \(other)")
+            shown.insert(one)
+        }
+        XCTAssertGreaterThan(shown.count, 1, "the emote didn't move")
+    }
+
+    /// Which of the test emote's frames, red, green or blue, shows at the start of a message's
+    /// text: the channel its colourful pixels lean to.
+    private func frameShown(in screen: XCUIScreenshot, _ text: CGRect) throws -> Int {
+        let image = try XCTUnwrap(screen.image.cgImage)
+        let scale = CGFloat(image.width) / zuna.app.frame.width
+        let square = CGRect(x: text.minX, y: text.minY, width: min(text.width, text.height), height: text.height)
+        let crop = try XCTUnwrap(image.cropping(to: CGRect(
+            x: square.minX * scale, y: square.minY * scale, width: square.width * scale, height: square.height * scale
+        ).integral))
+        var bytes = [UInt8](repeating: 0, count: crop.width * crop.height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: crop.width, height: crop.height, bitsPerComponent: 8,
+                bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        var sums = [0, 0, 0], colourful = 0
+        for pixel in stride(from: 0, to: bytes.count, by: 4) {
+            let rgb = [Int(bytes[pixel]), Int(bytes[pixel + 1]), Int(bytes[pixel + 2])]
+            guard rgb.max()! - rgb.min()! > 60 else { continue }
+            colourful += 1
+            for channel in 0..<3 { sums[channel] += rgb[channel] }
+        }
+        XCTAssertGreaterThan(colourful, 100, "no emote at \(text)")
+        return sums.indices.max { sums[$0] < sums[$1] }!
+    }
+
     func testOwnMessagesShowSentAndThenRead() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
