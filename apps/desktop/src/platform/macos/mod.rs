@@ -110,6 +110,11 @@ pub fn flash_main() {
     send(Command::Flash);
 }
 
+/// Whether `idle_ms` says how long since anyone touched the computer, which macOS always does.
+pub fn idle_known() -> bool {
+    true
+}
+
 /// How long since anyone touched the computer, in milliseconds. Asking needs no permission.
 pub fn idle_ms() -> u32 {
     // kCGAnyInputEventType, ~0.

@@ -57,6 +57,14 @@ pub fn main_visible() -> bool {
     main_hwnd().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() })
 }
 
+/// Whether the main window is the one in front of the person: Windows' foreground window, shown and
+/// not minimized. GPUI's word comes from the window's own thread (`GetActiveWindow`), which can still
+/// name it while another app is in front, as when Windows wouldn't bring it forward and flashed it
+/// instead, and from activation messages it may not pass on.
+pub fn main_in_front() -> bool {
+    main_hwnd().is_some_and(|hwnd| unsafe { GetForegroundWindow() == hwnd && IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() })
+}
+
 /// Out of sight but still running, in the tray.
 pub fn hide_main() {
     if let Some(hwnd) = main_hwnd() {
@@ -88,6 +96,11 @@ pub fn flash_main() {
         let info = FLASHWINFO { cbSize: std::mem::size_of::<FLASHWINFO>() as u32, hwnd, dwFlags: FLASHW_TRAY | FLASHW_TIMERNOFG, uCount: 0, dwTimeout: 0 };
         let _ = FlashWindowEx(&info);
     }
+}
+
+/// Whether `idle_ms` says how long since anyone touched the computer, which Windows always does.
+pub fn idle_known() -> bool {
+    true
 }
 
 /// How long since anyone touched the computer, in milliseconds.

@@ -42,6 +42,15 @@ export function watchActivity(): () => void {
     lastInput = Date.now();
     if (current !== true) check();
   };
+  // A browser sends a move when what's under a resting pointer moves, as new messages scroll
+  // the chat under it: only one that went somewhere is the person.
+  let pointerAt = "";
+  const onPointerMove = (event: PointerEvent) => {
+    const at = `${event.screenX},${event.screenY}`;
+    if (at === pointerAt) return;
+    pointerAt = at;
+    onInput();
+  };
   const unsubscribe = useApp.subscribe((state, previous) => {
     // A new core hasn't been told anything yet.
     if (state.core !== previous.core) {
@@ -52,13 +61,15 @@ export function watchActivity(): () => void {
     if (state.windowFocused) lastInput = Date.now();
     check();
   });
-  const inputs = ["keydown", "pointerdown", "pointermove", "wheel"] as const;
+  const inputs = ["keydown", "pointerdown", "wheel"] as const;
   for (const event of inputs) window.addEventListener(event, onInput, { passive: true });
+  window.addEventListener("pointermove", onPointerMove, { passive: true });
   check();
 
   return () => {
     clearTimeout(idleTimer);
     unsubscribe();
     for (const event of inputs) window.removeEventListener(event, onInput);
+    window.removeEventListener("pointermove", onPointerMove);
   };
 }

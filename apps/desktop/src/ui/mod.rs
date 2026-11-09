@@ -107,6 +107,8 @@ pub struct Root {
     focus: gpui::FocusHandle,
     /// Whether a dialog or settings was open last frame, to give focus back when they close.
     covered: bool,
+    /// Where the pointer last moved to in the window, so one that didn't move isn't taken for input.
+    pointer_at: Option<gpui::Point<gpui::Pixels>>,
 }
 
 impl Root {
@@ -156,7 +158,7 @@ impl Root {
             root.update(cx, |root, cx| root.key_with_selection(&event.keystroke, window, cx)).ok();
         })
         .detach();
-        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false, pointer_at: None }
     }
 
 }
@@ -184,6 +186,12 @@ impl Root {
     /// no other field has it (`focusComposer` and `onKeyDown` in lib/focus.ts).
     fn composer_may_focus(&self, window: &Window, cx: &App) -> bool {
         self.overlay.is_none() && self.settings.is_none() && !menu::is_open(cx) && !picker::is_open(cx) && !text_input::any_focused(window)
+    }
+
+    /// The person did something in the window, which says they're here where the system can't
+    /// (`quiet_ms` in `state/notify.rs`). Nothing is drawn for it.
+    fn note_input(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| state.last_input = Some(std::time::Instant::now()));
     }
 
     /// Gives the message box focus again once a click or the window coming back has settled,
@@ -418,8 +426,18 @@ impl Render for Root {
             .capture_any_mouse_up(cx.listener(|root, _: &MouseUpEvent, window, cx| root.refocus_composer(window, cx)))
             // A press anywhere lets go of selected text, and one on a message's text starts anew.
             .capture_any_mouse_down(cx.listener(|root, event: &gpui::MouseDownEvent, _, cx| {
+                root.note_input(cx);
                 if event.button == MouseButton::Left && selection::clear() {
                     root.text_selection_changed(cx);
+                }
+            }))
+            // Input to the window, which says the person is here where the system can't (`quiet_ms`).
+            .capture_key_down(cx.listener(|root, _: &gpui::KeyDownEvent, _, cx| root.note_input(cx)))
+            .on_scroll(cx.listener(|root, _: &gpui::ScrollEvent, _, cx| root.note_input(cx)))
+            .on_mouse_move(cx.listener(|root, event: &MouseMoveEvent, _, cx| {
+                // Only a pointer that went somewhere: one that stays put as what's under it moves isn't the person.
+                if root.pointer_at.replace(event.position) != Some(event.position) {
+                    root.note_input(cx);
                 }
             }))
 

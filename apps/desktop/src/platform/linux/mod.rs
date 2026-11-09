@@ -26,7 +26,7 @@ use gpui::{AnyWindowHandle, App, AsyncApp};
 
 pub use awake::keep_screen_on;
 pub use frame::{own_frame, title_button, title_drag, window_frame};
-pub use idle::idle_ms;
+pub use idle::{idle_known, idle_ms};
 pub use settings::animations_off;
 pub use sound::play_notification_sound;
 

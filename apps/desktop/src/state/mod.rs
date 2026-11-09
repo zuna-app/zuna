@@ -223,6 +223,8 @@ pub struct AppState {
     /// When the window last came in front, which counts as input (`person_here`), as Telegram
     /// counts the app being activated.
     pub in_front_since: Option<std::time::Instant>,
+    /// When the person last pressed a key, clicked, scrolled or moved the pointer in the main window.
+    pub last_input: Option<std::time::Instant>,
     pub reply_to: HashMap<String, MessageView>,
     /// What was written in each chat and not sent, by its key, for as long as the app runs.
     pub drafts: HashMap<String, String>,
@@ -342,6 +344,7 @@ impl AppState {
             settings,
             window_focused: false,
             in_front_since: None,
+            last_input: None,
             reply_to: HashMap::new(),
             drafts: HashMap::new(),
             selection: None,

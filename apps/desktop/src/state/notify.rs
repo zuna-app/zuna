@@ -252,9 +252,14 @@ impl AppState {
     }
 
     /// Whether the window is in front: focused, and on screen, as GPUI can still think a minimized
-    /// window focused. Only then does a chat open in it hold its notifications back.
+    /// window focused. On Windows, Windows' own foreground window says so, as GPUI's can name the
+    /// window while another app is in front (`main_in_front`). Only then does a chat open in it hold
+    /// its notifications back.
     pub fn window_in_front(&self) -> bool {
-        self.window_focused && crate::platform::main_visible()
+        #[cfg(windows)]
+        return crate::platform::main_in_front();
+        #[cfg(not(windows))]
+        return self.window_focused && crate::platform::main_visible();
     }
 
     /// Whether the person is here, as Telegram's desktop app counts it: the window in front and
@@ -265,10 +270,13 @@ impl AppState {
         self.window_in_front() && self.quiet_ms() < crate::platform::AWAY_AFTER_MS as u64
     }
 
-    /// How long since the person last touched the computer, or brought the window in front.
+    /// How long since the person last touched the computer, or brought the window in front. Where
+    /// the system can't say, as under a Wayland compositor without its idle protocol, only input to
+    /// the app counts (`last_input`): never the window being in front alone.
     fn quiet_ms(&self) -> u64 {
-        let since_in_front = self.in_front_since.map_or(u64::MAX, |at| at.elapsed().as_millis() as u64);
-        (crate::platform::idle_ms() as u64).min(since_in_front)
+        let since = |at: Option<std::time::Instant>| at.map_or(u64::MAX, |at| at.elapsed().as_millis() as u64);
+        let system = if crate::platform::idle_known() { crate::platform::idle_ms() as u64 } else { u64::MAX };
+        system.min(since(self.last_input)).min(since(self.in_front_since))
     }
 
     /// Tells the core whether the person is here (`person_here`), if that changed. While they are,
