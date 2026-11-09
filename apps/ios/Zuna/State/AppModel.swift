@@ -438,8 +438,10 @@ final class AppModel {
         case let .connection(serverId, state):
             servers[serverId]?.connection = state
             if state == .online { checkCaughtUp(serverId) }
-        case let .conversations(serverId), let .read(serverId, _, _, _):
+        case let .conversations(serverId):
             refresh("conversations", serverId)
+        case let .read(serverId, groupId, userId, seq):
+            readMoved(serverId, groupId: groupId, userId: userId, seq: seq)
         case let .channels(serverId):
             refresh("conversations", serverId)
             refresh("voice", serverId)
@@ -546,6 +548,16 @@ final class AppModel {
             activeServerId = order.first
         }
         if order.isEmpty { onboarding = true }
+    }
+
+    /// Someone else reading on only moves the ticks in one conversation, so it's set there,
+    /// rather than every conversation and channel fetched again for each receipt, as the web's
+    /// and the native app's are. This person's own comes with `.conversations` too, for what's unread.
+    private func readMoved(_ serverId: String, groupId: String, userId: String, seq: Int) {
+        guard let server = servers[serverId], userId != server.me?.userId,
+              let index = server.conversations.firstIndex(where: { $0.groupId == groupId }),
+              server.conversations[index].readBy[userId] ?? 0 < seq else { return }
+        servers[serverId]?.conversations[index].readBy[userId] = seq
     }
 
     /// Coalesces bursts of events into one refresh, like the desktop's `debounced`.
