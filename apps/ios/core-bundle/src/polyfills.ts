@@ -285,6 +285,10 @@ class ResponsePolyfill {
     this.ok = status >= 200 && status < 300;
     this.headers = new HeadersPolyfill(headers);
   }
+  /** Another for the same body, which reading this one leaves as it is, as api.ts reads a 401 twice. */
+  clone(): ResponsePolyfill {
+    return new ResponsePolyfill(this.body, this.status, this.headers.toObject());
+  }
   async arrayBuffer(): Promise<ArrayBuffer> {
     return this.body.slice().buffer;
   }

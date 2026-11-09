@@ -406,6 +406,21 @@ describe("an iOS client with a desktop client", () => {
     laptop.client.stop();
   });
 
+  it("takes the server's time for what it signs when its clock is an hour off", async () => {
+    // The server refuses the stale proof with its own time, which the core reads from a copy
+    // of the response before trying again.
+    await alice.session.updateServerSettings({ allow_member_invites: true });
+    await phone.evaluate("__zunaTest.setClockOffset(-3600000)");
+    try {
+      expect(await phone.session.createInvite(0, 0)).toBeTruthy();
+      const offset = Number(await phone.evaluate("__zunaTest.client().sessions.values().next().value.api.clockOffset"));
+      expect(Math.abs(offset - 3600_000)).toBeLessThan(60_000);
+    } finally {
+      await phone.evaluate("__zunaTest.setClockOffset(0); __zunaTest.client().sessions.values().next().value.api.clockOffset = 0");
+      await alice.session.updateServerSettings({ allow_member_invites: false });
+    }
+  });
+
   it("signs out when its device was removed while it was closed", async () => {
     // The server refuses the socket with close code 4401, which must reach the core.
     const tablet = others[0]!;
