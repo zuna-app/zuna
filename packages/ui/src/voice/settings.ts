@@ -2,15 +2,10 @@
 // and how loud are about the room it's in.
 
 import type { Role, ScreenRules } from "@zuna/core";
+import { SCREEN_DEFAULT_FPS } from "@zuna/core/voice";
 import { keepKnown, readSaved } from "@/lib/saved";
 
 export type NoiseSuppression = "zuna" | "standard" | "off";
-/** What a share is mostly of, which encoders tune themselves for. */
-export type ScreenContent = "detail" | "text" | "motion";
-/** What gives first when the network can't keep up. */
-export type ScreenPriority = "sharp" | "smooth" | "balanced";
-// LiveKit has no end-to-end encryption for AV1, so a share in it would show nothing.
-export type ScreenCodec = "auto" | "h264" | "vp8" | "vp9";
 
 export interface VoiceSettings {
   inputDevice: string;
@@ -37,22 +32,14 @@ export interface VoiceSettings {
   sounds: boolean;
   /** Whether to come in muted. */
   startMuted: boolean;
-  /** A share's frame rate, or null for what the server suggests. */
-  screenFps: number | null;
-  /** Most a share may send, in kbit/s, or null for what the server suggests. */
+  /** A share's frame rate. */
+  screenFps: number;
+  /** Most a share may send, in kbit/s, or null to leave it to the app. */
   screenBitrate: number | null;
-  /** The tallest a share's picture may be, 0 for the screen's own size, or null for what the server suggests. */
-  screenHeight: number | null;
-  screenContent: ScreenContent;
-  screenPriority: ScreenPriority;
+  /** The tallest a share's picture may be, or 0 for the screen's own size. */
+  screenHeight: number;
   /** A share starts with the sound the browser offers with it. */
   screenSoundByDefault: boolean;
-  /** Most a share's sound may send, in kbit/s. */
-  screenSoundKbps: number;
-  /** What a share is encoded with. */
-  screenCodec: ScreenCodec;
-  /** A share also sends a smaller copy, for those on a slow connection. */
-  screenLayers: boolean;
   /** How loud others' shares are, from 0 to 2. */
   screenVolume: number;
   /** A screen someone starts sharing fills the stage. */
@@ -81,48 +68,36 @@ export const VOICE_DEFAULTS: VoiceSettings = {
   autoGain: true,
   sounds: true,
   startMuted: false,
-  screenFps: null,
+  screenFps: SCREEN_DEFAULT_FPS,
   screenBitrate: null,
-  screenHeight: null,
-  screenContent: "detail",
-  screenPriority: "sharp",
+  screenHeight: 0,
   screenSoundByDefault: true,
-  screenSoundKbps: 128,
-  screenCodec: "auto",
-  screenLayers: false,
   screenVolume: 1,
   screenFocus: true,
   soundboardVolume: 0.6,
 };
 
-export const SCREEN_HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
-export const SCREEN_RATES = [5, 10, 15, 24, 30, 45, 60, 75, 90, 120, 144, 165, 240];
-export const SCREEN_BITRATES = [1_000, 2_000, 3_000, 4_500, 6_000, 8_000, 10_000, 12_000, 15_000, 20_000, 25_000, 30_000, 40_000, 50_000, 60_000, 80_000, 100_000];
-export const SCREEN_SOUND_BITRATES = [64, 96, 128, 160, 192, 256, 320];
+export const SCREEN_HEIGHTS = [2160, 1440, 1080, 720, 480];
+export const SCREEN_RATES = [15, 30, 60, 90, 120, 144, 165, 240];
+export const SCREEN_BITRATES = [2_000, 4_000, 6_000, 8_000, 12_000, 20_000, 30_000, 50_000];
+/** What a server may hold shares to, which goes higher than anyone needs to choose. */
+export const SCREEN_LIMIT_BITRATES = [...SCREEN_BITRATES, 100_000];
 
-export const heightName = (height: number): string => (height === 0 ? "The screen's own" : height === 2160 ? "4K (2160p)" : `${height}p`);
+export const heightName = (height: number): string => (height === 0 ? "Native" : height === 2160 ? "4K" : `${height}p`);
 export const rateName = (fps: number): string => `${fps} fps`;
-export const bitrateName = (kbps: number): string => (kbps >= 1000 ? `${kbps / 1000} Mbit/s` : `${kbps} kbit/s`);
+export const bitrateName = (kbps: number): string => (kbps >= 1000 ? `${kbps / 1000} Mbps` : `${kbps} kbps`);
 
 /** What a server holds someone's shares to, in words, or null if it doesn't. */
 export function screenLimitsText(rules: ScreenRules | undefined, role: Role | undefined): string | null {
   if (!rules || (rules.admins_exempt && (role === "owner" || role === "admin"))) return null;
-  const limits = [
-    rules.max_height > 0 && heightName(rules.max_height),
-    rules.max_fps > 0 && rateName(rules.max_fps),
-    rules.max_kbps > 0 && bitrateName(rules.max_kbps),
-    rules.max_sound_kbps > 0 && `${bitrateName(rules.max_sound_kbps)} of sound`,
-  ].filter(Boolean);
-  return limits.length ? `This server holds shares to ${limits.join(", ")}.` : null;
+  const limits = [rules.max_height > 0 && heightName(rules.max_height), rules.max_fps > 0 && rateName(rules.max_fps), rules.max_kbps > 0 && bitrateName(rules.max_kbps)].filter(Boolean);
+  return limits.length ? `This server limits screen shares to ${limits.join(", ")}.` : null;
 }
 
 export function loadVoiceSettings(): VoiceSettings {
   return keepKnown(VOICE_DEFAULTS, readSaved(KEY), {
     inputMode: ["voice", "ptt"],
     noiseSuppression: ["zuna", "standard", "off"],
-    screenContent: ["detail", "text", "motion"],
-    screenPriority: ["sharp", "smooth", "balanced"],
-    screenCodec: ["auto", "h264", "vp8", "vp9"],
   });
 }
 

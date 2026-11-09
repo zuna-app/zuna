@@ -35,7 +35,6 @@ import type { VideoTile } from "@/voice/room";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
 import { screenRefusal } from "@zuna/core/voice";
 import { ChatView } from "@/features/chat/ChatView";
-import { ScreenPicker } from "./ScreenPicker";
 import { SoundboardButton } from "./Soundboard";
 // With what it measures, which needs LiveKit, only once someone opens it.
 const StreamStatsPanel = lazy(() => import("./StreamStatsPanel").then((module) => ({ default: module.StreamStatsPanel })));
@@ -311,7 +310,9 @@ function Controls({
   const toggleCamera = useVoice((state) => state.toggleCamera);
   const stopScreen = useVoice((state) => state.stopScreen);
   const leave = useVoice((state) => state.leave);
-  const [picking, setPicking] = useState(false);
+  const startScreen = useVoice((state) => state.startScreen);
+  // The browser asks what to share, and offers its sound when this asks for that.
+  const shareSound = useVoice((state) => state.settings.screenSoundByDefault);
   const [deviceMenu, setDeviceMenu] = useState<{ kind: "audioinput" | "audiooutput"; x: number; y: number } | null>(null);
   const micOff = muted || deafened || serverMuted || noMic;
   const showDevices = (kind: "audioinput" | "audiooutput") => (event: React.MouseEvent) => {
@@ -346,7 +347,7 @@ function Controls({
         </button>
       </Tooltip>
       <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
-        <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+        <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
           {screen ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
         </button>
       </Tooltip>
@@ -364,7 +365,6 @@ function Controls({
           <PhoneOff size={20} />
         </button>
       </Tooltip>
-      {picking && <ScreenPicker onClose={() => setPicking(false)} />}
       {deviceMenu && <DeviceMenu kind={deviceMenu.kind} x={deviceMenu.x} y={deviceMenu.y} onClose={() => setDeviceMenu(null)} />}
     </div>
   );

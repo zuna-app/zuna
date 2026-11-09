@@ -51,7 +51,7 @@ func (f *fakeLiveKit) allowed(t *testing.T) string {
 }
 
 func screenRules(changes map[string]any) map[string]any {
-	rules := map[string]any{"who": "everyone", "sound": true, "default_fps": 60, "default_kbps": 20000}
+	rules := map[string]any{"who": "everyone", "sound": true}
 	for name, value := range changes {
 		rules[name] = value
 	}
@@ -80,7 +80,7 @@ func TestScreenRulesAreForMembersAndOnlyAdminsChangeThem(t *testing.T) {
 	var info map[string]any
 	h.mustDo("GET", "/api/info", member.token, nil, &info)
 	rules := info["screen_share"].(map[string]any)
-	if rules["who"] != "everyone" || rules["sound"] != true || rules["default_fps"] != float64(60) || rules["default_kbps"] != float64(20000) {
+	if rules["who"] != "everyone" || rules["sound"] != true || rules["max_kbps"] != float64(0) {
 		t.Fatalf("what a server starts with: %+v", rules)
 	}
 	var public map[string]any
@@ -93,15 +93,12 @@ func TestScreenRulesAreForMembersAndOnlyAdminsChangeThem(t *testing.T) {
 		t.Fatalf("a member changing the rules got %d", status)
 	}
 	for name, bad := range map[string]map[string]any{
-		"an unknown who":          {"who": "robots"},
-		"a negative limit":        {"max_per_channel": -1},
-		"too many in a channel":   {"max_per_channel": 100},
-		"a tiny picture":          {"max_height": 1},
-		"a huge frame rate":       {"max_fps": 1000},
-		"no suggested frame rate": {"default_fps": 0},
-		"a tiny bitrate":          {"max_kbps": 1},
-		"a suggestion over":       {"max_fps": 30, "default_fps": 60},
-		"a suggested size over":   {"max_height": 720, "default_height": 1080},
+		"an unknown who":        {"who": "robots"},
+		"a negative limit":      {"max_per_channel": -1},
+		"too many in a channel": {"max_per_channel": 100},
+		"a tiny picture":        {"max_height": 1},
+		"a huge frame rate":     {"max_fps": 1000},
+		"a tiny bitrate":        {"max_kbps": 1},
 	} {
 		if status, _ := h.do("PATCH", "/api/admin/settings", owner.token, screenRules(bad), nil); status != http.StatusBadRequest {
 			t.Fatalf("%s got %d", name, status)
@@ -109,7 +106,7 @@ func TestScreenRulesAreForMembersAndOnlyAdminsChangeThem(t *testing.T) {
 	}
 
 	ws := member.connect()
-	owner.setScreenRules(map[string]any{"who": "admins", "max_fps": 30, "default_fps": 30, "max_height": 1080})
+	owner.setScreenRules(map[string]any{"who": "admins", "max_fps": 30, "max_height": 1080})
 	told := ws.waitFor("settings")["screen_share"].(map[string]any)
 	if told["who"] != "admins" || told["max_fps"] != float64(30) || told["max_height"] != float64(1080) {
 		t.Fatalf("everyone heard %+v", told)

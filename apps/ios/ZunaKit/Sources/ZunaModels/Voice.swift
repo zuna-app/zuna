@@ -51,24 +51,24 @@ public struct VoiceIdentity: Equatable, Sendable {
     }
 }
 
-/// What someone has chosen for their shares, with nil where they've left it to the server. Mirrors `ScreenChoices`.
+/// What someone has chosen for their shares. Mirrors `ScreenChoices`.
 public struct ScreenChoices: Equatable, Sendable {
-    public var height: Int?
-    public var fps: Int?
+    /// The tallest the picture may be, or 0 for the screen's own.
+    public var height: Int
+    public var fps: Int
+    /// The most it may send, or nil to leave it to the app.
     public var kbps: Int?
-    public var soundKbps: Int
 
-    public init(height: Int? = nil, fps: Int? = nil, kbps: Int? = nil, soundKbps: Int = 128) {
+    public init(height: Int = 0, fps: Int = Voice.screenDefaultFps, kbps: Int? = nil) {
         self.height = height
         self.fps = fps
         self.kbps = kbps
-        self.soundKbps = soundKbps
     }
 }
 
 /// What a share will really use, once what someone chose has met what their server allows. Mirrors `ScreenTerms`.
 public struct ScreenTerms: Equatable, Sendable {
-    public enum Limit: String, Sendable { case height, fps, kbps, soundKbps }
+    public enum Limit: String, Sendable { case height, fps, kbps }
 
     /// The tallest the picture may be, or 0 for the screen's own.
     public var height: Int
@@ -91,8 +91,15 @@ public struct ScreenTerms: Equatable, Sendable {
 }
 
 extension Voice {
-    /// What a share uses: what someone chose, or what the server suggests, held to the server's limits
-    /// unless it leaves admins out of them. As `screenTerms` in packages/core/src/voice.ts.
+    /// What a share sends, at most, when it's left to the app (`SCREEN_AUTO_KBPS`).
+    public static let screenAutoKbps = 20_000
+    /// A share's frame rate unless someone chooses another (`SCREEN_DEFAULT_FPS`).
+    public static let screenDefaultFps = 60
+    /// What a share's sound sends (`SCREEN_SOUND_KBPS`).
+    public static let screenSoundKbps = 128
+
+    /// What a share uses: what someone chose, held to the server's limits unless it leaves admins
+    /// out of them, with the bitrate left to the app within them. As `screenTerms` in packages/core/src/voice.ts.
     public static func screenTerms(_ choices: ScreenChoices, rules: ScreenRules?, role: Role?) -> ScreenTerms {
         let rules = rules ?? .defaults
         let exempt = rules.adminsExempt && (role == .owner || role == .admin)
@@ -102,17 +109,17 @@ extension Voice {
             held.append(name)
             return limit
         }
-        let wantedHeight = choices.height ?? rules.defaultHeight
         // The screen's own size could be any height, so it's only known to fit without a limit.
-        var height = atMost(.height, wantedHeight, rules.maxHeight)
-        if wantedHeight == 0, !exempt, rules.maxHeight > 0 {
+        var height = atMost(.height, choices.height, rules.maxHeight)
+        if choices.height == 0, !exempt, rules.maxHeight > 0 {
             height = rules.maxHeight
             held.append(.height)
         }
-        let fps = atMost(.fps, choices.fps ?? rules.defaultFps, rules.maxFps)
-        let kbps = atMost(.kbps, choices.kbps ?? rules.defaultKbps, rules.maxKbps)
-        let soundKbps = atMost(.soundKbps, choices.soundKbps, rules.maxSoundKbps)
-        return ScreenTerms(height: height, fps: fps, kbps: kbps, soundKbps: soundKbps, sound: rules.sound, held: held)
+        // Left to the app, it's whichever is lower, which nobody chose to go past.
+        let limit = exempt ? 0 : rules.maxKbps
+        let kbps = choices.kbps.map { atMost(.kbps, $0, rules.maxKbps) } ?? (limit > 0 ? min(limit, screenAutoKbps) : screenAutoKbps)
+        let fps = atMost(.fps, choices.fps, rules.maxFps)
+        return ScreenTerms(height: height, fps: fps, kbps: kbps, soundKbps: screenSoundKbps, sound: rules.sound, held: held)
     }
 
     /// Why someone can't share a screen at all right now, or nil if they may try. As `screenRefusal`.

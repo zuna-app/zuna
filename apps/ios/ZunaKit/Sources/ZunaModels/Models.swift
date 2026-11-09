@@ -85,12 +85,8 @@ public struct ScreenRules: Codable, Sendable, Hashable {
     public var maxHeight: Int
     public var maxFps: Int
     public var maxKbps: Int
-    public var maxSoundKbps: Int
-    public var defaultHeight: Int
-    public var defaultFps: Int
-    public var defaultKbps: Int
 
-    public init(who: String, sound: Bool, adminsExempt: Bool, maxPerChannel: Int, maxPerServer: Int, maxHeight: Int, maxFps: Int, maxKbps: Int, maxSoundKbps: Int, defaultHeight: Int, defaultFps: Int, defaultKbps: Int) {
+    public init(who: String, sound: Bool, adminsExempt: Bool, maxPerChannel: Int, maxPerServer: Int, maxHeight: Int, maxFps: Int, maxKbps: Int) {
         self.who = who
         self.sound = sound
         self.adminsExempt = adminsExempt
@@ -99,14 +95,10 @@ public struct ScreenRules: Codable, Sendable, Hashable {
         self.maxHeight = maxHeight
         self.maxFps = maxFps
         self.maxKbps = maxKbps
-        self.maxSoundKbps = maxSoundKbps
-        self.defaultHeight = defaultHeight
-        self.defaultFps = defaultFps
-        self.defaultKbps = defaultKbps
     }
 
     /// What a server's rules come to before its admins have said anything. Mirrors `DEFAULT_SCREEN_RULES`.
-    public static let defaults = ScreenRules(who: "everyone", sound: true, adminsExempt: false, maxPerChannel: 0, maxPerServer: 0, maxHeight: 0, maxFps: 0, maxKbps: 0, maxSoundKbps: 0, defaultHeight: 0, defaultFps: 60, defaultKbps: 20_000)
+    public static let defaults = ScreenRules(who: "everyone", sound: true, adminsExempt: false, maxPerChannel: 0, maxPerServer: 0, maxHeight: 0, maxFps: 0, maxKbps: 0)
 
     enum CodingKeys: String, CodingKey {
         case who, sound
@@ -116,10 +108,6 @@ public struct ScreenRules: Codable, Sendable, Hashable {
         case maxHeight = "max_height"
         case maxFps = "max_fps"
         case maxKbps = "max_kbps"
-        case maxSoundKbps = "max_sound_kbps"
-        case defaultHeight = "default_height"
-        case defaultFps = "default_fps"
-        case defaultKbps = "default_kbps"
     }
 }
 

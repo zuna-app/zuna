@@ -49,7 +49,7 @@ A share's sound goes out over the device's own connection, beside the picture, w
 
 `Sound::start` in `screenshare/src/sound/mod.rs` takes everything playing apart from the app's own process and those it started, or only one app's, by the id `sound::apps` or `sound::window_app` gives it. `pid:N` is a process and those it started.
 
-What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `sound::window_app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. macOS's picker only says which window once Share is pressed, so a window starts with no sound there too. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
+What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `sound::window_app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. macOS's picker only says which window once Share is pressed, so a window starts with no sound there too. Settings' "Include audio" turns all of it off, and whatever's chosen in the picker holds until another source is.
 
 On Linux, PipeWire has no stream of everything but one program, so the app makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Zuna's own sound plays from the app's process, so it's left out, and nobody in the call hears themselves back. The links belong to the share's own connection to PipeWire, and go when it closes.
 
@@ -61,11 +61,11 @@ On Windows an app is the first process of its program, found by walking up from 
 
 The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays, and on macOS while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
 
-What to make of the picture is in `Options` (`screenshare/src/capture/mod.rs`): the frame rate, the most it may send, the tallest it may be, the pointer, the encoder and the effort each frame gets, on Linux a screen or a window, which the portal's dialog offers, and on Windows the screen at a point on the desktop or a window's HWND.
+What to make of the picture is in `Options` (`screenshare/src/capture/mod.rs`): the frame rate, the most it may send, the tallest it may be, the pointer, the encoder and the effort each frame gets, which the app leaves at Balanced, on Linux a screen or a window, which the portal's dialog offers, and on Windows the screen at a point on the desktop or a window's HWND.
 
 ## What a server says, and what a device chooses
 
-Everything a share uses comes from three places, in this order: what the person chose on this device (Settings, Screen sharing, and the picker), or otherwise what the server suggests, and then the server's limits over either. `screenTerms` in `packages/core/src/voice.ts` works it out, and the stream stats window says which limits it was held to.
+Everything a share uses comes from what the person chose on this device, in Settings, Screen sharing, held to the server's limits. Resolution starts at the screen's own and the frame rate at 60. The bitrate is left to the app unless someone picks one: up to 20 Mbit/s (`SCREEN_AUTO_KBPS`), or the server's limit where that's lower, and the share sends less whenever the picture or the network needs less ([Bitrate and keyframes](#bitrate-and-keyframes)). The sound goes at 128 kbit/s. `screenTerms` in `packages/core/src/voice.ts` works it out, and the stream stats window says which limits it was held to. Servers used to suggest a size, frame rate and bitrate, and limit the sound's bitrate, and devices chose the sound's bitrate, what a share was showing and what gave first, until 2026-11-09: nobody could tell those apart, so the apps pick them.
 
 **Server settings, Screen sharing,** for its admins. These are kept together in the `screen_share` setting and reach every app as part of `ServerInfo`:
 
@@ -75,9 +75,8 @@ Everything a share uses comes from three places, in this order: what the person 
 | Whether sound can go with a share | The media server |
 | How many can share at once, in a voice channel and on the server | The server, then the media server |
 | Each voice channel's own say, when it's edited: off, or how many at once | The server, then the media server |
-| The largest picture, frame rate, bitrate and sound bitrate | The apps |
-| What's suggested for size, frame rate and bitrate | The apps |
-| Whether admins are held to the limits and to how many at once | Both of those |
+| The max resolution, frame rate and bitrate | The apps |
+| Whether admins bypass the limits and how many at once | Both of those |
 
 The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is LiveKit told to let that device's own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked. Only `user.device` comes into a room: there's no participant of a share's own, as the desktop's separate program was until 2026-11-09, and the apps let none in.
 
@@ -89,16 +88,14 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 
 | Setting | Native | The web app |
 |---|---|---|
-| Size, frame rate, most it may send | yes | yes |
-| Sound: starting with it on, its quality | Captured beside the share by the app | yes, where the browser's picker gives sound |
-| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux, macOS and Windows | |
-| How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
-| Capturing on the graphics card at all | yes | |
-| Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured on Windows, so it isn't offered |
-| Encoder, effort per frame | yes | |
-| What it's mostly showing, what gives first when the connection can't keep up | | yes |
-| Codec | H.264, or AV1 as an experiment on Windows and Linux ([AV1](#av1)) | yes |
-| Sending a smaller copy | No: one layer, since it arrives already encoded | yes |
+| Resolution, frame rate, max bitrate | yes | yes |
+| Include audio | Captured beside the share by the app | yes, where the browser's picker gives audio |
+| Whose audio: everything but Zuna, or one app, starting from what's shared | In the picker, on Linux, macOS and Windows | |
+| Screen share volume, and whether one opens when it starts | Those are for whoever's watching, however it was sent | |
+| Show cursor | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured on Windows, so it isn't offered |
+| Encoder and codec, under Advanced | On Windows and Linux: H.264, or AV1 as an experiment ([AV1](#av1)) | |
+
+The rest is fixed. Native shares encode at the effort Balanced (`p4` on NVENC), in one layer, since they arrive already encoded. The web app has no picker of its own: Share opens the browser's, which asks what to share and whether with its audio. It sends H.264 where the browser can and VP8 otherwise, tells the browser it's showing detail (`contentHint`), keeps its resolution when the connection can't keep up, and sends one layer.
 
 A native share that can't do what was chosen doesn't start, and the app says why.
 
@@ -132,7 +129,7 @@ Before iOS 27, only an extension can see past the app. It's a process of its own
 
 On iOS 27 the extension is still there for a broadcast started from Control Center, but the button uses ScreenCaptureKit. The `screen-capture` background mode keeps that capture going while another app is on screen, and `audio` keeps the call going.
 
-The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). It always goes at the screen's own size, unless the server's admins hold shares to less, where the limit holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. The most it may send is chosen in Voice and video's settings, from the desktop's choices, or left to the server. Its frame rate is the server's suggestion: ScreenCaptureKit on iOS picks its own, so that only holds the encoder.
+The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). It always goes at the screen's own size, unless the server's admins hold shares to less, where the limit holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. Its max bitrate is chosen in Voice and video's settings, from the desktop's choices, or left to the app, as on the desktop. Its frame rate is 60, or the server's limit: ScreenCaptureKit on iOS picks its own, so that only holds the encoder.
 
 Sound doesn't go with it. LiveKit's Swift SDK mixes a share's sound into the microphone's track, so it would go out whether the server allows a share's sound or not, at the person's own volume rather than a share's, and stop when they mute. So the app asks for a share without sound.
 
@@ -372,7 +369,7 @@ Inside the app, Windows and Linux with NVENC have run so far, and macOS through 
 - **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
 - **VA-API and AMF** have never run. **Media Foundation** has only run on NVIDIA's own encoder for it, on an RTX 5070 Ti: from the app in `voice-check.mjs` with `VOICE_ENCODER=h264_mf`, a screen at 60 fps over TLS, under a new key, and a window at 60 fps, until that run was stopped partway; by itself, a screen made smaller, a window dragged, and colours within 2 of 255 of what was drawn, as NVENC's are. Intel's and other GPUs' haven't, nor has one of a laptop's two GPUs.
 - **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core, and on Linux with NVENC from DMA-BUFs through the OpenGL blit, at 1280x720 from 1920x1080 and 60 fps, 1.4 ms a frame and 4% of a core. VA-API's `scale_vaapi` has never run.
-- **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
+- **Effort per frame** is Balanced since 2026-11-09, when it stopped being a setting. Its other two were run at each end on Windows with NVENC, where they cost little at these sizes, and nobody compared the pictures.
 - **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows 11 it works too: with the pointer still over text, a frame encoded by NVENC showed its I-beam with the pointer on, and not with `--no-cursor`.
 - **Sharing a window natively** has run on Linux with KWin, in the app on Arch with an RTX 5080: a 908x634 window at 60 fps from DMA-BUFs, the one app's sound chosen for it reaching someone watching, its picture following it to 1288x534 at once, and the share ending quietly as it closed. GNOME, wlroots compositors and Hyprland haven't run it. One that kept a window's stream at one size and marked the window in it as `SPA_META_VideoCrop` would need that read, which the program doesn't ask for. On Windows 11 with an RTX 5070 Ti it has run from the app in `voice-check.mjs`: a 222x181 window at 60 fps over TLS, decoded at 60 by someone watching. By itself, to a file: a window that grew, at once and while dragged, made smaller to 360 lines, and the program leaving as it closed.
 - **The computer's sound on Linux** has run from the app beside a share through the browser, in the Electron app's `sound-check.mjs`, since removed, on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share, one app's sound has run with a window shared through KDE's portal, and the entire system's beside a native screen in `voice-check.mjs`. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.

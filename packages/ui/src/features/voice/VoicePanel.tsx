@@ -1,12 +1,11 @@
 import { Camera, CameraOff, Headphones, HeadphoneOff, Lock, Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, Settings as SettingsIcon, Signal, SignalLow, SignalMedium } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
 import { keyName } from "@/voice/settings";
 import { conversationOfGroup, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
-import { ScreenPicker } from "./ScreenPicker";
 
 function QualityIcon() {
   const quality = useVoice((state) => state.quality);
@@ -44,7 +43,9 @@ export function VoicePanel() {
   const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, isCall ? 0 : server?.channels.find((item) => item.id === channelId)?.screenLimit);
   const selectServer = useApp((state) => state.selectServer);
   const setOverlay = useApp((state) => state.setOverlay);
-  const [picking, setPicking] = useState(false);
+  const startScreen = useVoice((state) => state.startScreen);
+  // The browser asks what to share, and offers its sound when this asks for that.
+  const shareSound = useVoice((state) => state.settings.screenSoundByDefault);
 
   // Leaves cleanly when the page goes, instead of being left in the channel for a while.
   useEffect(() => {
@@ -99,7 +100,7 @@ export function VoicePanel() {
           </button>
         </Tooltip>
         <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
-          <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+          <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
             {screen ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
           </button>
         </Tooltip>
@@ -127,7 +128,6 @@ export function VoicePanel() {
           </button>
         </Tooltip>
       </div>
-      {picking && <ScreenPicker onClose={() => setPicking(false)} />}
     </div>
   );
 }

@@ -280,26 +280,39 @@ struct VoiceSettingsView: View {
     @Environment(VoiceModel.self) private var voice
 
     /// What the desktop offers, in kbit/s (SCREEN_BITRATES in packages/ui/src/voice/settings.ts).
-    static let bitrates = [1_000, 2_000, 3_000, 4_500, 6_000, 8_000, 10_000, 12_000, 15_000, 20_000, 25_000, 30_000, 40_000, 50_000, 60_000, 80_000, 100_000]
+    static let bitrates = [2_000, 4_000, 6_000, 8_000, 12_000, 20_000, 30_000, 50_000]
+    /// What a server may hold shares to, which goes higher than anyone needs to choose (SCREEN_LIMIT_BITRATES).
+    static let limitBitrates = bitrates + [100_000]
 
     static func bitrateName(_ kbps: Int) -> String {
-        kbps < 1000 ? "\(kbps) kbit/s" : "\((Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))) Mbit/s"
+        kbps < 1000 ? "\(kbps) kbps" : "\((Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))) Mbps"
+    }
+
+    static func heightName(_ height: Int) -> String {
+        height == 0 ? "Native" : height == 2160 ? "4K" : "\(height)p"
+    }
+
+    /// What a server holds someone's shares to, in words, or nil if it doesn't (screenLimitsText).
+    static func limitsText(_ rules: ScreenRules?, role: Role?) -> String? {
+        guard let rules, !(rules.adminsExempt && (role == .owner || role == .admin)) else { return nil }
+        let limits = [rules.maxHeight > 0 ? heightName(rules.maxHeight) : nil, rules.maxFps > 0 ? "\(rules.maxFps) fps" : nil, rules.maxKbps > 0 ? bitrateName(rules.maxKbps) : nil].compactMap { $0 }
+        return limits.isEmpty ? nil : "This server limits screen shares to \(limits.joined(separator: ", "))."
     }
 
     var body: some View {
         @Bindable var voice = voice
         List {
             Section {
-                Toggle("Come in muted", isOn: $voice.settings.startMuted)
+                Toggle("Join muted", isOn: $voice.settings.startMuted)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("Starts every voice channel with your microphone off.")
+                Text("Your microphone starts off in every voice channel.")
             }
             Section {
-                Toggle("Sounds", isOn: $voice.settings.sounds)
+                Toggle("Sound effects", isOn: $voice.settings.sounds)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("When people come and go, and when you mute.")
+                Text("When people join or leave, and when you mute.")
             }
             Section {
                 VStack(alignment: .leading, spacing: 6) {
@@ -312,24 +325,24 @@ struct VoiceSettingsView: View {
                         .accessibilityLabel("Soundboard volume")
                 }
             } footer: {
-                Text("All the way down, no sounds from the soundboard play for you.")
+                Text("At 0, soundboard sounds don't play for you.")
             }
             Section {
-                Toggle("Open a share when it starts", isOn: $voice.settings.screenFocus)
+                Toggle("Open screen shares automatically", isOn: $voice.settings.screenFocus)
                     .tint(model.settings.accent.switchTint)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("How loud shares are")
+                        Text("Screen share volume")
                         Spacer()
                         Text("\(Int((voice.settings.screenVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
                     }
                     Slider(value: $voice.settings.screenVolume, in: 0...2)
-                        .accessibilityLabel("How loud shares are")
+                        .accessibilityLabel("Screen share volume")
                 }
             } header: {
-                Text("Screens")
+                Text("Watching")
             } footer: {
-                Text("A screen someone starts sharing fills the call, unless you're already looking at something.")
+                Text("A screen share fills the call when it starts, unless you're watching something else.")
             }
             if voice.canShareScreen {
                 sharing($voice.settings.screenBitrate)
@@ -347,27 +360,29 @@ struct VoiceSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// The most a share from this phone may send, as it would go out on the server open now.
+    /// The most a share from this phone may send, within what the server open now allows.
     private func sharing(_ bitrate: Binding<Int?>) -> some View {
         let server = model.activeServerId.flatMap { model.servers[$0] }
-        let terms = VoiceModel.shareTerms(voice.settings, server: server)
-        var suggestion = voice.settings
-        suggestion.screenBitrate = nil
-        let suggested = VoiceModel.shareTerms(suggestion, server: server).kbps
-        let size = terms.held.contains(.height) ? "This server holds shares to \(terms.height)p across." : "Your screen goes out at its own size."
-        let rate = terms.held.contains(.kbps) ? "It's sent at up to \(Self.bitrateName(terms.kbps)), which is this server's limit." : "It sends less when your connection or the screen doesn't need that much."
+        let rules = server?.info?.screenShare
+        let role = server?.me?.role
+        let exempt = (rules?.adminsExempt ?? false) && (role == .owner || role == .admin)
+        let limit = exempt ? 0 : (rules?.maxKbps ?? 0)
+        var automatic = voice.settings
+        automatic.screenBitrate = nil
+        let auto = VoiceModel.shareTerms(automatic, server: server).kbps
+        let hint = "It sends less when the picture or your connection needs less. Lower it if your upload is slow."
         return Section {
-            Picker("Most it may send", selection: bitrate) {
-                Text("Server's choice (\(Self.bitrateName(suggested)))").tag(Int?.none)
-                ForEach(Self.bitrates, id: \.self) { kbps in
+            Picker("Max bitrate", selection: bitrate) {
+                Text("Automatic (\(Self.bitrateName(auto)))").tag(Int?.none)
+                ForEach(Self.bitrates.filter { limit <= 0 || $0 <= limit }, id: \.self) { kbps in
                     Text(Self.bitrateName(kbps)).tag(Int?.some(kbps))
                 }
             }
             .accessibilityIdentifier(A11y.Settings.screenBitrate)
         } header: {
-            Text("Sharing your screen")
+            Text("Screen sharing")
         } footer: {
-            Text("\(rate) \(size)")
+            Text([hint, Self.limitsText(rules, role: role)].compactMap { $0 }.joined(separator: " "))
         }
     }
 }

@@ -574,9 +574,9 @@ export const useVoice = create<VoiceState>((set, get) => {
       if (!current || !channelId || !serverId || get().screen) return;
       const server = app.servers[serverId];
       const session = app.session(serverId);
-      const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate, soundKbps: settings.screenSoundKbps }, server?.info?.screen_share, server?.self?.role);
+      const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate }, server?.info?.screen_share, server?.self?.role);
       const wantsSound = choice.audio && terms.sound;
-      const held = terms.held.map((name) => ({ height: heightName(terms.height), fps: rateName(terms.fps), kbps: bitrateName(terms.kbps), soundKbps: `${bitrateName(terms.soundKbps)} of sound` })[name]);
+      const held = terms.held.map((name) => ({ height: heightName(terms.height), fps: rateName(terms.fps), kbps: bitrateName(terms.kbps) })[name]);
       const asked = { name: "Your screen", fps: terms.fps, bitrateKbps: terms.kbps, height: terms.height, held };
       try {
         const access = await session.voiceScreenAccess(channelId, { sound: wantsSound }).catch((error) => {
@@ -589,10 +589,6 @@ export const useVoice = create<VoiceState>((set, get) => {
           height: terms.height,
           sound: access.sound,
           soundKbps: terms.soundKbps,
-          content: settings.screenContent,
-          priority: settings.screenPriority,
-          codec: settings.screenCodec,
-          layers: settings.screenLayers,
         });
         set({ screen: asked });
         announce();

@@ -219,21 +219,20 @@ final class SettingsTests: XCTestCase {
         for _ in 0..<5 where !link.exists { zuna.app.swipeUp() }
         link.tap()
 
-        // Admins only, without sound, and at most 8 Mbit/s, as a desktop's core then has it.
+        // Admins only, without audio, and at most 8 Mbps, as a desktop's core then has it.
         let admins = zuna.app.buttons["Admins"]
         XCTAssertTrue(admins.waitForExistence(timeout: 5))
         admins.tap()
         zuna.app.switches[A11y.Settings.screenSound].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         zuna.element(A11y.Settings.screenMaxKbps).tap()
-        let rate = zuna.app.buttons["8 Mbit/s"]
+        let rate = zuna.app.buttons["8 Mbps"]
         XCTAssertTrue(rate.waitForExistence(timeout: 5))
         rate.tap()
         zuna.screenshot("93c-screen-rules")
         zuna.element(A11y.Settings.save).tap()
         try waitFor("carol to see the new rules", timeout: 20) {
             let now = try rules()
-            // What's suggested comes down to what's allowed.
-            return now["who"] as? String == "admins" && now["sound"] as? Bool == false && now["max_kbps"] as? Int == 8000 && now["default_kbps"] as? Int == 8000
+            return now["who"] as? String == "admins" && now["sound"] as? Bool == false && now["max_kbps"] as? Int == 8000
         }
 
         // Back as they were, for the other tests.

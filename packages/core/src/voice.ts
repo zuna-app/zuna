@@ -58,18 +58,22 @@ export const DEFAULT_SCREEN_RULES: ScreenRules = {
   max_height: 0,
   max_fps: 0,
   max_kbps: 0,
-  max_sound_kbps: 0,
-  default_height: 0,
-  default_fps: 60,
-  default_kbps: 20_000,
 };
 
-/** What someone has chosen for their shares, with null where they've left it to the server. */
+/** The most a share sends when it's left to the app, or the server's limit if that's lower. */
+export const SCREEN_AUTO_KBPS = 20_000;
+/** A share's frame rate until someone chooses another. */
+export const SCREEN_DEFAULT_FPS = 60;
+/** A share's sound, in stereo, which is too little beside its picture to be worth choosing. */
+export const SCREEN_SOUND_KBPS = 128;
+
+/** What someone has chosen for their shares. */
 export interface ScreenChoices {
-  height: number | null;
-  fps: number | null;
+  /** The tallest the picture may be, or 0 for the screen's own. */
+  height: number;
+  fps: number;
+  /** The most it may send, or null to leave it to the app (`SCREEN_AUTO_KBPS`). */
   kbps: number | null;
-  soundKbps: number;
 }
 
 /** What a share will really use, once what someone chose has met what their server allows. */
@@ -82,7 +86,7 @@ export interface ScreenTerms {
   /** Sound may go with it. */
   sound: boolean;
   /** Which of those the server's limits brought down. */
-  held: ("height" | "fps" | "kbps" | "soundKbps")[];
+  held: ("height" | "fps" | "kbps")[];
 }
 
 /** Why someone can't share a screen at all right now, or null if they may try. */
@@ -101,19 +105,14 @@ export function screenTerms(choices: ScreenChoices, rules: ScreenRules = DEFAULT
     held.push(name);
     return limit;
   };
-  const wantedHeight = choices.height ?? rules.default_height;
   // The screen's own size could be any height, so it's only known to fit without a limit.
-  let height = atMost("height", wantedHeight, rules.max_height);
-  if (wantedHeight === 0 && !exempt && rules.max_height > 0) {
+  let height = atMost("height", choices.height, rules.max_height);
+  if (choices.height === 0 && !exempt && rules.max_height > 0) {
     height = rules.max_height;
     held.push("height");
   }
-  return {
-    height,
-    fps: atMost("fps", choices.fps ?? rules.default_fps, rules.max_fps),
-    kbps: atMost("kbps", choices.kbps ?? rules.default_kbps, rules.max_kbps),
-    soundKbps: atMost("soundKbps", choices.soundKbps, rules.max_sound_kbps),
-    sound: rules.sound,
-    held,
-  };
+  // Left to the app, it's whichever is lower, which nobody chose to go past.
+  const limit = exempt ? 0 : rules.max_kbps;
+  const kbps = choices.kbps === null ? (limit > 0 ? Math.min(limit, SCREEN_AUTO_KBPS) : SCREEN_AUTO_KBPS) : atMost("kbps", choices.kbps, rules.max_kbps);
+  return { height, fps: atMost("fps", choices.fps, rules.max_fps), kbps, soundKbps: SCREEN_SOUND_KBPS, sound: rules.sound, held };
 }

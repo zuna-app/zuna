@@ -20,7 +20,7 @@ struct VoiceSettings: Codable, Equatable, Sendable {
     var screenVolume = 1.0
     /// A screen someone starts sharing fills the stage.
     var screenFocus = true
-    /// The most this device's shares may send, in kbit/s, or nil for what the server suggests.
+    /// The most this device's shares may send, in kbit/s, or nil to leave it to the app.
     var screenBitrate: Int?
     /// How loud sounds from the soundboard are, from 0 to 1. At 0 none of them plays.
     var soundboardVolume = 0.6
@@ -969,7 +969,7 @@ final class VoiceModel {
 
     /// What a share from this device goes out with on a server: the size is always the screen's own.
     static func shareTerms(_ settings: VoiceSettings, server: AppModel.ServerState?) -> ScreenTerms {
-        Voice.screenTerms(ScreenChoices(height: 0, kbps: settings.screenBitrate), rules: server?.info?.screenShare, role: server?.me?.role)
+        Voice.screenTerms(ScreenChoices(height: 0, fps: Voice.screenDefaultFps, kbps: settings.screenBitrate), rules: server?.info?.screenShare, role: server?.me?.role)
     }
 
     /// Stops sharing this device's screen, or asking to, and gives its place back.

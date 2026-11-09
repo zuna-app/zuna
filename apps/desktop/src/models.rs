@@ -41,15 +41,11 @@ pub struct ScreenRules {
     pub max_height: u32,
     pub max_fps: u32,
     pub max_kbps: u32,
-    pub max_sound_kbps: u32,
-    pub default_height: u32,
-    pub default_fps: u32,
-    pub default_kbps: u32,
 }
 
 impl Default for ScreenRules {
     fn default() -> Self {
-        ScreenRules { who: "everyone".into(), sound: true, admins_exempt: false, max_per_channel: 0, max_per_server: 0, max_height: 0, max_fps: 0, max_kbps: 0, max_sound_kbps: 0, default_height: 0, default_fps: 60, default_kbps: 20_000 }
+        ScreenRules { who: "everyone".into(), sound: true, admins_exempt: false, max_per_channel: 0, max_per_server: 0, max_height: 0, max_fps: 0, max_kbps: 0 }
     }
 }
 

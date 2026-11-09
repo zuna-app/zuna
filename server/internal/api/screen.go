@@ -22,16 +22,14 @@ const (
 	maxScreenFPS       = 240
 	minScreenKbps      = 100
 	maxScreenKbps      = 1_000_000
-	minSoundKbps       = 16
-	maxSoundKbps       = 510
 )
 
 func validScreenLimit(limit int) bool { return limit >= screenLimitOff && limit <= maxScreenLimit }
 
 // ScreenRules is what a server's admins say about sharing a screen. Who may share, with
 // sound, and how many at once hold whatever an app does, since LiveKit won't take a
-// source it wasn't told to allow. The rest describes media this server can't see, so
-// the apps keep to it themselves, and a modified app could send more.
+// source it wasn't told to allow. The limits describe media this server can't see, so
+// the apps keep to them themselves, and a modified app could send more.
 type ScreenRules struct {
 	// Who is "everyone", "admins" or "nobody".
 	Who string `json:"who"`
@@ -43,18 +41,13 @@ type ScreenRules struct {
 	MaxPerChannel int `json:"max_per_channel"`
 	MaxPerServer  int `json:"max_per_server"`
 	// The most a share may use, or 0 for no limit.
-	MaxHeight    int `json:"max_height"`
-	MaxFPS       int `json:"max_fps"`
-	MaxKbps      int `json:"max_kbps"`
-	MaxSoundKbps int `json:"max_sound_kbps"`
-	// What a share uses until someone chooses otherwise. A height of 0 is the screen's own.
-	DefaultHeight int `json:"default_height"`
-	DefaultFPS    int `json:"default_fps"`
-	DefaultKbps   int `json:"default_kbps"`
+	MaxHeight int `json:"max_height"`
+	MaxFPS    int `json:"max_fps"`
+	MaxKbps   int `json:"max_kbps"`
 }
 
 func defaultScreenRules() ScreenRules {
-	return ScreenRules{Who: "everyone", Sound: true, DefaultFPS: 60, DefaultKbps: 20_000}
+	return ScreenRules{Who: "everyone", Sound: true}
 }
 
 // problem says what's wrong with a set of rules, or nothing if they can be kept to.
@@ -68,18 +61,12 @@ func (rules ScreenRules) problem() string {
 		return fmt.Sprintf("A channel can have up to %d shares at once.", maxScreenLimit)
 	case !inRange(rules.MaxPerServer, 0, maxSharesPerServer):
 		return fmt.Sprintf("A server can have up to %d shares at once.", maxSharesPerServer)
-	case !limit(rules.MaxHeight, minScreenHeight, maxScreenHeight) || !limit(rules.DefaultHeight, minScreenHeight, maxScreenHeight):
+	case !limit(rules.MaxHeight, minScreenHeight, maxScreenHeight):
 		return fmt.Sprintf("A picture can be from %d to %d lines tall.", minScreenHeight, maxScreenHeight)
-	case !limit(rules.MaxFPS, 1, maxScreenFPS) || !inRange(rules.DefaultFPS, 1, maxScreenFPS):
+	case !limit(rules.MaxFPS, 1, maxScreenFPS):
 		return fmt.Sprintf("A frame rate can be from 1 to %d.", maxScreenFPS)
-	case !limit(rules.MaxKbps, minScreenKbps, maxScreenKbps) || !inRange(rules.DefaultKbps, minScreenKbps, maxScreenKbps):
+	case !limit(rules.MaxKbps, minScreenKbps, maxScreenKbps):
 		return fmt.Sprintf("A bitrate can be from %d to %d kbit/s.", minScreenKbps, maxScreenKbps)
-	case !limit(rules.MaxSoundKbps, minSoundKbps, maxSoundKbps):
-		return fmt.Sprintf("Sound can be from %d to %d kbit/s.", minSoundKbps, maxSoundKbps)
-	case rules.MaxHeight > 0 && rules.DefaultHeight > rules.MaxHeight,
-		rules.MaxFPS > 0 && rules.DefaultFPS > rules.MaxFPS,
-		rules.MaxKbps > 0 && rules.DefaultKbps > rules.MaxKbps:
-		return "What's suggested can't be more than the limit."
 	}
 	return ""
 }

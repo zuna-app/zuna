@@ -3,6 +3,13 @@
 
 use crate::models::ScreenRules;
 
+/// What a share sends, at most, when it's left to the app (`SCREEN_AUTO_KBPS`).
+pub const SCREEN_AUTO_KBPS: u32 = 20_000;
+/// A share's frame rate unless someone chooses another (`SCREEN_DEFAULT_FPS`).
+pub const SCREEN_DEFAULT_FPS: u32 = 60;
+/// What a share's sound sends (`SCREEN_SOUND_KBPS`).
+pub const SCREEN_SOUND_KBPS: u32 = 128;
+
 /// Why someone can't share a screen at all right now, or None if they may try.
 pub fn screen_refusal(rules: Option<&ScreenRules>, role: &str, channel_limit: f64) -> Option<&'static str> {
     let defaults = ScreenRules::default();
@@ -19,12 +26,13 @@ pub fn screen_refusal(rules: Option<&ScreenRules>, role: &str, channel_limit: f6
     None
 }
 
-/// What someone has chosen for their shares, with None where they've left it to the server.
+/// What someone has chosen for their shares.
 pub struct ScreenChoices {
-    pub height: Option<u32>,
-    pub fps: Option<u32>,
+    /// The tallest the picture may be, or 0 for the screen's own.
+    pub height: u32,
+    pub fps: u32,
+    /// The most it may send, or None to leave it to the app.
     pub kbps: Option<u32>,
-    pub sound_kbps: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,7 +40,6 @@ pub enum Held {
     Height,
     Fps,
     Kbps,
-    SoundKbps,
 }
 
 /// What a share will really use, once what someone chose has met what their server allows.
@@ -49,6 +56,15 @@ pub struct ScreenTerms {
     pub held: Vec<Held>,
 }
 
+/// What a share sends at most when it's left to the app: whichever is lower of the app's own
+/// ceiling and the server's limit, which nobody chose to go past.
+pub fn automatic_kbps(rules: Option<&ScreenRules>, role: &str) -> u32 {
+    let defaults = ScreenRules::default();
+    let rules = rules.unwrap_or(&defaults);
+    let exempt = rules.admins_exempt && (role == "owner" || role == "admin");
+    if exempt || rules.max_kbps == 0 { SCREEN_AUTO_KBPS } else { rules.max_kbps.min(SCREEN_AUTO_KBPS) }
+}
+
 pub fn screen_terms(choices: &ScreenChoices, rules: Option<&ScreenRules>, role: &str) -> ScreenTerms {
     let defaults = ScreenRules::default();
     let rules = rules.unwrap_or(&defaults);
@@ -61,17 +77,18 @@ pub fn screen_terms(choices: &ScreenChoices, rules: Option<&ScreenRules>, role: 
         held.push(name);
         limit
     };
-    let wanted_height = choices.height.unwrap_or(rules.default_height);
     // The screen's own size could be any height, so it's only known to fit without a limit.
-    let mut height = at_most(Held::Height, wanted_height, rules.max_height);
-    let fps = at_most(Held::Fps, choices.fps.unwrap_or(rules.default_fps), rules.max_fps);
-    let kbps = at_most(Held::Kbps, choices.kbps.unwrap_or(rules.default_kbps), rules.max_kbps);
-    let sound_kbps = at_most(Held::SoundKbps, choices.sound_kbps, rules.max_sound_kbps);
-    if wanted_height == 0 && !exempt && rules.max_height > 0 {
+    let mut height = at_most(Held::Height, choices.height, rules.max_height);
+    let fps = at_most(Held::Fps, choices.fps, rules.max_fps);
+    let kbps = match choices.kbps {
+        Some(kbps) => at_most(Held::Kbps, kbps, rules.max_kbps),
+        None => automatic_kbps(Some(rules), role),
+    };
+    if choices.height == 0 && !exempt && rules.max_height > 0 {
         height = rules.max_height;
         held.insert(0, Held::Height);
     }
-    ScreenTerms { height, fps, kbps, sound_kbps, sound: rules.sound, held }
+    ScreenTerms { height, fps, kbps, sound_kbps: SCREEN_SOUND_KBPS, sound: rules.sound, held }
 }
 
 #[cfg(test)]
@@ -80,12 +97,25 @@ mod tests {
 
     #[test]
     fn holds_a_share_to_the_server_s_limits() {
-        let rules = ScreenRules { max_height: 1080, max_fps: 30, ..ScreenRules::default() };
-        let terms = screen_terms(&ScreenChoices { height: None, fps: Some(60), kbps: None, sound_kbps: 128 }, Some(&rules), "member");
-        assert_eq!((terms.height, terms.fps, terms.kbps), (1080, 30, 20_000));
-        assert!(terms.held.contains(&Held::Height) && terms.held.contains(&Held::Fps));
-        let exempt = ScreenRules { admins_exempt: true, ..rules };
-        assert_eq!(screen_terms(&ScreenChoices { height: None, fps: Some(60), kbps: None, sound_kbps: 128 }, Some(&exempt), "admin").fps, 60);
+        let rules = ScreenRules { max_height: 1080, max_fps: 30, max_kbps: 8_000, ..ScreenRules::default() };
+        let terms = screen_terms(&ScreenChoices { height: 0, fps: 60, kbps: Some(12_000) }, Some(&rules), "member");
+        assert_eq!((terms.height, terms.fps, terms.kbps), (1080, 30, 8_000));
+        assert_eq!(terms.held, vec![Held::Height, Held::Fps, Held::Kbps]);
+        let exempt = ScreenRules { admins_exempt: true, ..rules.clone() };
+        let theirs = screen_terms(&ScreenChoices { height: 0, fps: 60, kbps: None }, Some(&exempt), "admin");
+        assert_eq!((theirs.height, theirs.fps, theirs.kbps), (0, 60, SCREEN_AUTO_KBPS));
+        assert!(theirs.held.is_empty());
         assert_eq!(screen_refusal(Some(&ScreenRules { who: "admins".into(), ..ScreenRules::default() }), "member", 0.), Some("Only admins can share a screen on this server"));
+    }
+
+    #[test]
+    fn leaves_the_bitrate_to_the_app_within_the_limit() {
+        let free = screen_terms(&ScreenChoices { height: 0, fps: SCREEN_DEFAULT_FPS, kbps: None }, None, "member");
+        assert_eq!((free.kbps, free.sound_kbps), (SCREEN_AUTO_KBPS, SCREEN_SOUND_KBPS));
+        assert!(free.held.is_empty());
+        let low = ScreenRules { max_kbps: 6_000, ..ScreenRules::default() };
+        assert_eq!(screen_terms(&ScreenChoices { height: 0, fps: 60, kbps: None }, Some(&low), "member").kbps, 6_000);
+        let high = ScreenRules { max_kbps: 50_000, ..ScreenRules::default() };
+        assert_eq!(screen_terms(&ScreenChoices { height: 0, fps: 60, kbps: None }, Some(&high), "member").kbps, SCREEN_AUTO_KBPS);
     }
 }

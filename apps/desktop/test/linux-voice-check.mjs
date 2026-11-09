@@ -321,7 +321,6 @@ try {
   // KDE's chooser for the browser: the KWin's one screen. The share fills the stage as it
   // starts, and a stage made again on coming back from another chat drew it at the least size.
   await page.getByRole("button", { name: "Share your screen" }).first().click();
-  await page.getByRole("button", { name: "Share", exact: true }).click();
   await sleep(3000);
   await drive({ do: "click", x: 700, y: 290 });
   await page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });

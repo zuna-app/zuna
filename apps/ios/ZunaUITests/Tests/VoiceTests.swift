@@ -134,7 +134,7 @@ final class VoiceTests: XCTestCase {
         try waitFor("his screen off his stage") { !ownScreen.exists }
 
         // Once the server only lets admins share, he's told why, and nothing goes out.
-        let rules: [String: Any] = ["who": "admins", "sound": true, "admins_exempt": false, "max_per_channel": 0, "max_per_server": 0, "max_height": 0, "max_fps": 0, "max_kbps": 0, "max_sound_kbps": 0, "default_height": 0, "default_fps": 60, "default_kbps": 20_000]
+        let rules: [String: Any] = ["who": "admins", "sound": true, "admins_exempt": false, "max_per_channel": 0, "max_per_server": 0, "max_height": 0, "max_fps": 0, "max_kbps": 0]
         try alice.call("updateServerSettings", [["screen_share": rules]])
         share.tap()
         XCTAssertTrue(zuna.toast(startingWith: "Only admins can share a screen").waitForExistence(timeout: 10))
@@ -232,16 +232,16 @@ final class VoiceTests: XCTestCase {
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
 
-        // At most 2 Mbit/s, where the server suggests 20.
+        // At most 2 Mbps, where it would send up to 20 left to itself.
         zuna.tab("Settings").tap()
         let voiceSettings = zuna.element(A11y.Settings.voice)
         XCTAssertTrue(voiceSettings.waitForExistence(timeout: 10))
         voiceSettings.tap()
         let bitrate = zuna.element(A11y.Settings.screenBitrate)
         XCTAssertTrue(bitrate.waitForExistence(timeout: 5))
-        XCTAssertTrue(zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Your screen goes out at its own size")).firstMatch.exists)
+        XCTAssertTrue(zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "It sends less when the picture")).firstMatch.exists)
         bitrate.tap()
-        let choice = zuna.app.buttons["2 Mbit/s"]
+        let choice = zuna.app.buttons["2 Mbps"]
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
         zuna.screenshot("99-voice-share-settings")

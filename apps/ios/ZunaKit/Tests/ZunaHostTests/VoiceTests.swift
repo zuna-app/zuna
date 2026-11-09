@@ -26,33 +26,30 @@ final class VoiceTests: XCTestCase {
 
     // What a share uses, as packages/core/test/channels.test.ts has it.
 
-    private let nothing = ScreenChoices()
+    private let automatic = ScreenChoices()
     private var limits: ScreenRules {
         var rules = ScreenRules.defaults
         rules.maxHeight = 1080
         rules.maxFps = 30
         rules.maxKbps = 8000
-        rules.maxSoundKbps = 96
-        rules.defaultHeight = 720
-        rules.defaultFps = 24
-        rules.defaultKbps = 4000
         return rules
     }
 
-    func testSharesWithWhatTheServerSuggestsUntilSomeoneChooses() {
-        XCTAssertEqual(Voice.screenTerms(nothing, rules: nil, role: .member), ScreenTerms(height: 0, fps: 60, kbps: 20_000, soundKbps: 128, sound: true, held: []))
-        var noSoundLimit = limits
-        noSoundLimit.maxSoundKbps = 0
-        XCTAssertEqual(Voice.screenTerms(nothing, rules: noSoundLimit, role: .member), ScreenTerms(height: 720, fps: 24, kbps: 4000, soundKbps: 128, sound: true, held: []))
+    func testLeavesTheBitrateToTheAppWithinTheLimit() {
+        XCTAssertEqual(Voice.screenTerms(automatic, rules: nil, role: .member), ScreenTerms(height: 0, fps: 60, kbps: 20_000, soundKbps: 128, sound: true, held: []))
+        XCTAssertEqual(Voice.screenTerms(automatic, rules: limits, role: .member).kbps, 8000)
+        var high = ScreenRules.defaults
+        high.maxKbps = 50_000
+        XCTAssertEqual(Voice.screenTerms(automatic, rules: high, role: .member).kbps, 20_000)
     }
 
     func testSharesWithWhatSomeoneChoseAsFarAsTheLimitsAllow() {
-        let under = Voice.screenTerms(ScreenChoices(height: 480, fps: 15, kbps: 2000, soundKbps: 64), rules: limits, role: .member)
-        XCTAssertEqual([under.height, under.fps, under.kbps, under.soundKbps], [480, 15, 2000, 64])
+        let under = Voice.screenTerms(ScreenChoices(height: 480, fps: 15, kbps: 2000), rules: limits, role: .member)
+        XCTAssertEqual([under.height, under.fps, under.kbps, under.soundKbps], [480, 15, 2000, 128])
         XCTAssertEqual(under.held, [])
-        let over = Voice.screenTerms(ScreenChoices(height: 2160, fps: 144, kbps: 50_000, soundKbps: 320), rules: limits, role: .member)
-        XCTAssertEqual([over.height, over.fps, over.kbps, over.soundKbps], [1080, 30, 8000, 96])
-        XCTAssertEqual(Set(over.held), [.height, .fps, .kbps, .soundKbps])
+        let over = Voice.screenTerms(ScreenChoices(height: 2160, fps: 144, kbps: 50_000), rules: limits, role: .member)
+        XCTAssertEqual([over.height, over.fps, over.kbps], [1080, 30, 8000])
+        XCTAssertEqual(Set(over.held), [.height, .fps, .kbps])
     }
 
     func testCountsTheScreensOwnSizeAsOverALimitOnSize() {
@@ -65,13 +62,13 @@ final class VoiceTests: XCTestCase {
     }
 
     func testLeavesAdminsOutOfTheLimitsOnlyIfTheServerSaysSo() {
-        let wanted = ScreenChoices(height: 0, fps: 144, kbps: 50_000, soundKbps: 320)
-        XCTAssertEqual(Voice.screenTerms(wanted, rules: limits, role: .admin).held.count, 4)
+        let wanted = ScreenChoices(height: 0, fps: 144, kbps: 50_000)
+        XCTAssertEqual(Voice.screenTerms(wanted, rules: limits, role: .admin).held.count, 3)
         var exempt = limits
         exempt.adminsExempt = true
-        XCTAssertEqual(Voice.screenTerms(wanted, rules: exempt, role: .owner), ScreenTerms(height: 0, fps: 144, kbps: 50_000, soundKbps: 320, sound: true, held: []))
-        XCTAssertEqual(Voice.screenTerms(wanted, rules: exempt, role: .admin).held, [])
-        XCTAssertEqual(Voice.screenTerms(wanted, rules: exempt, role: .member).held.count, 4)
+        XCTAssertEqual(Voice.screenTerms(wanted, rules: exempt, role: .owner), ScreenTerms(height: 0, fps: 144, kbps: 50_000, soundKbps: 128, sound: true, held: []))
+        XCTAssertEqual(Voice.screenTerms(automatic, rules: exempt, role: .admin).kbps, 20_000)
+        XCTAssertEqual(Voice.screenTerms(wanted, rules: exempt, role: .member).held.count, 3)
     }
 
     func testSaysWhySomeoneCantShareAtAll() {

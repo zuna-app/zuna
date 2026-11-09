@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::models::ScreenRules;
+use crate::voice::rules::SCREEN_DEFAULT_FPS;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -34,16 +35,18 @@ pub struct VoiceSettings {
     /// Sounds for people coming and going, and for muting.
     pub sounds: bool,
     pub start_muted: bool,
-    pub screen_fps: Option<u32>,
-    pub screen_bitrate: Option<u32>,
-    pub screen_height: Option<u32>,
+    /// The tallest a share's picture may be, or 0 for the screen's own size.
+    pub screen_resolution: u32,
+    pub screen_frame_rate: u32,
+    /// The most a share may send, in kbit/s, or None to leave it to the app.
+    pub screen_max_bitrate: Option<u32>,
     pub screen_cursor: bool,
+    /// A share starts with the sound of what's shared.
     pub screen_sound_by_default: bool,
-    pub screen_sound_kbps: u32,
     /// "h264", or "av1", which is experimental: only the native app opens it under encryption.
     pub screen_codec: String,
+    /// "auto", or one encoder by name, for when the one picked for this computer misbehaves.
     pub screen_encoder: String,
-    pub screen_effort: String,
     /// How loud others' shares are, from 0 to 2.
     pub screen_volume: f32,
     /// A screen someone starts sharing fills the stage.
@@ -70,15 +73,13 @@ impl Default for VoiceSettings {
             auto_gain: true,
             sounds: true,
             start_muted: false,
-            screen_fps: None,
-            screen_bitrate: None,
-            screen_height: None,
+            screen_resolution: 0,
+            screen_frame_rate: SCREEN_DEFAULT_FPS,
+            screen_max_bitrate: None,
             screen_cursor: true,
             screen_sound_by_default: true,
-            screen_sound_kbps: 128,
             screen_codec: "h264".into(),
             screen_encoder: "auto".into(),
-            screen_effort: "balanced".into(),
             screen_volume: 1.,
             screen_focus: true,
             soundboard_volume: 0.6,
@@ -131,15 +132,16 @@ pub fn save_volumes(volumes: &HashMap<String, f32>, stream: bool) {
     save(if stream { "voice-stream-volumes.json" } else { "voice-volumes.json" }, volumes);
 }
 
-pub const SCREEN_HEIGHTS: [u32; 6] = [2160, 1440, 1080, 720, 480, 360];
-pub const SCREEN_RATES: [u32; 13] = [5, 10, 15, 24, 30, 45, 60, 75, 90, 120, 144, 165, 240];
-pub const SCREEN_BITRATES: [u32; 17] = [1_000, 2_000, 3_000, 4_500, 6_000, 8_000, 10_000, 12_000, 15_000, 20_000, 25_000, 30_000, 40_000, 50_000, 60_000, 80_000, 100_000];
-pub const SCREEN_SOUND_BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
+pub const SCREEN_HEIGHTS: [u32; 5] = [2160, 1440, 1080, 720, 480];
+pub const SCREEN_RATES: [u32; 8] = [15, 30, 60, 90, 120, 144, 165, 240];
+pub const SCREEN_BITRATES: [u32; 8] = [2_000, 4_000, 6_000, 8_000, 12_000, 20_000, 30_000, 50_000];
+/// What a server may hold shares to, which goes higher than anyone needs to choose.
+pub const SCREEN_LIMIT_BITRATES: [u32; 9] = [2_000, 4_000, 6_000, 8_000, 12_000, 20_000, 30_000, 50_000, 100_000];
 
 pub fn height_name(height: u32) -> String {
     match height {
-        0 => "The screen's own".into(),
-        2160 => "4K (2160p)".into(),
+        0 => "Native".into(),
+        2160 => "4K".into(),
         _ => format!("{height}p"),
     }
 }
@@ -151,9 +153,9 @@ pub fn rate_name(fps: u32) -> String {
 pub fn bitrate_name(kbps: u32) -> String {
     if kbps >= 1000 {
         let mbit = kbps as f64 / 1000.;
-        if mbit.fract() == 0. { format!("{} Mbit/s", mbit as u32) } else { format!("{mbit} Mbit/s") }
+        if mbit.fract() == 0. { format!("{} Mbps", mbit as u32) } else { format!("{mbit} Mbps") }
     } else {
-        format!("{kbps} kbit/s")
+        format!("{kbps} kbps")
     }
 }
 
@@ -173,10 +175,7 @@ pub fn screen_limits_text(rules: Option<&ScreenRules>, role: &str) -> Option<Str
     if rules.max_kbps > 0 {
         limits.push(bitrate_name(rules.max_kbps));
     }
-    if rules.max_sound_kbps > 0 {
-        limits.push(format!("{} of sound", bitrate_name(rules.max_sound_kbps)));
-    }
-    (!limits.is_empty()).then(|| format!("This server holds shares to {}.", limits.join(", ")))
+    (!limits.is_empty()).then(|| format!("This server limits screen shares to {}.", limits.join(", ")))
 }
 
 /// What a key is called, from its `KeyboardEvent.code`.

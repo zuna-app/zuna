@@ -27,7 +27,7 @@ import {
 } from "livekit-client";
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
-import type { ScreenCodec, ScreenContent, ScreenPriority, VoiceSettings } from "./settings";
+import type { VoiceSettings } from "./settings";
 import type { StatsRoom, StatsStream } from "./stats";
 
 /**
@@ -64,7 +64,6 @@ class MemberKeys extends BaseKeyProvider {
 
 export type VideoSource = "camera" | "screen";
 
-const DEGRADATION: Record<ScreenPriority, RTCDegradationPreference> = { sharp: "maintain-resolution", smooth: "maintain-framerate", balanced: "balanced" };
 
 /** How to share through the browser's own capture. */
 export interface BrowserShare {
@@ -74,10 +73,6 @@ export interface BrowserShare {
   height: number;
   sound: boolean;
   soundKbps: number;
-  content: ScreenContent;
-  priority: ScreenPriority;
-  codec: ScreenCodec;
-  layers: boolean;
 }
 
 /** One video someone is sending. */
@@ -474,16 +469,20 @@ export class VoiceRoom {
     });
   }
 
-  /** Shares through the browser's own capture. */
+  /**
+   * Shares through the browser's own capture, tuned for what's on a screen: kept sharp, at
+   * the cost of frames when the connection can't keep up, as text blurred is text lost.
+   */
   async startBrowserScreen(share: BrowserShare): Promise<void> {
     const canSend = (name: string) => RTCRtpSender.getCapabilities("video")?.codecs.some((codec) => codec.mimeType.toLowerCase() === `video/${name}`);
-    // Hardware encoders are mostly for H.264, which is what keeps a share from taking up the CPU.
-    const videoCodec = share.codec !== "auto" && canSend(share.codec) ? share.codec : canSend("h264") ? "h264" : "vp8";
+    // Hardware encoders are mostly for H.264, which is what keeps a share from taking up the CPU,
+    // and everyone watching plays it.
+    const videoCodec = canSend("h264") ? "h264" : "vp8";
     await this.room.localParticipant.setScreenShareEnabled(
       true,
       {
         audio: share.sound ? SYSTEM_AUDIO : false,
-        contentHint: share.content,
+        contentHint: "detail",
         // The screen's own size, which LiveKit takes as no constraints at all and so leaves out
         // the frame rate with it. Browsers then capture at their default of about 30.
         resolution: ScreenSharePresets.original.resolution,
@@ -494,9 +493,10 @@ export class VoiceRoom {
       },
       {
         videoCodec,
-        simulcast: share.layers,
+        // One layer: a smaller copy costs the sender's CPU, as the browser encodes both.
+        simulcast: false,
         screenShareEncoding: { maxBitrate: share.bitrateKbps * 1000, maxFramerate: share.fps },
-        degradationPreference: DEGRADATION[share.priority],
+        degradationPreference: "maintain-resolution",
         audioPreset: { maxBitrate: share.soundKbps * 1000 },
         dtx: false,
         red: false,

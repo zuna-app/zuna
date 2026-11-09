@@ -181,7 +181,7 @@ function CameraPreview({ deviceId }: { deviceId: string }) {
         <video ref={video} autoPlay playsInline muted />
       ) : (
         <button className="btn" onClick={() => setOn(true)}>
-          <Camera size={15} /> Try your camera
+          <Camera size={15} /> Preview camera
         </button>
       )}
     </div>
@@ -189,8 +189,8 @@ function CameraPreview({ deviceId }: { deviceId: string }) {
 }
 
 const NOISE_CHOICES: { id: NoiseSuppression; label: string; hint: string }[] = [
-  { id: "zuna", label: "Noise cancelling", hint: "Takes out fans, keyboards and traffic, right on this device." },
-  { id: "standard", label: "Standard", hint: "Your browser's own, lighter and less thorough." },
+  { id: "zuna", label: "Enhanced", hint: "Removes fans, keyboards and traffic, on this device." },
+  { id: "standard", label: "Standard", hint: "Your browser's own, lighter." },
   { id: "off", label: "Off", hint: "For a good microphone in a quiet room." },
 ];
 
@@ -208,35 +208,20 @@ export function VoiceSettingsSection() {
   return (
     <>
       <h1>Voice and video</h1>
-      <p className="settings-lead">These are for this device. Everything said in a voice channel is encrypted before it leaves it.</p>
 
-      <DeviceSelect devices={devices} kind="audioinput" value={settings.inputDevice} onChange={(id) => update({ inputDevice: id })} label="Microphone" />
+      <h3 className="settings-subhead">Input</h3>
+      <DeviceSelect devices={devices} kind="audioinput" value={settings.inputDevice} onChange={(id) => update({ inputDevice: id })} label="Input device" />
       <label className="field">
         <span className="field-label">
-          Microphone volume <b style={{ fontWeight: 500 }}>{Math.round(settings.inputVolume * 100)}%</b>
+          Input volume <b style={{ fontWeight: 500 }}>{Math.round(settings.inputVolume * 100)}%</b>
         </span>
         <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={settings.inputVolume} onChange={(event) => update({ inputVolume: Number(event.target.value) })} />
       </label>
-      <DeviceSelect devices={devices} kind="audiooutput" value={settings.outputDevice} onChange={(id) => update({ outputDevice: id })} label="Speakers or headphones" />
-      <label className="field">
-        <span className="field-label">
-          Volume <b style={{ fontWeight: 500 }}>{Math.round(settings.outputVolume * 100)}%</b>
-        </span>
-        <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={settings.outputVolume} onChange={(event) => update({ outputVolume: Number(event.target.value) })} />
-      </label>
-      <label className="field">
-        <span className="field-label">
-          Soundboard volume <b style={{ fontWeight: 500 }}>{settings.soundboardVolume === 0 ? "off" : `${Math.round(settings.soundboardVolume * 100)}%`}</b>
-        </span>
-        <input className="voice-slider" type="range" min={0} max={1} step={0.01} value={settings.soundboardVolume} onChange={(event) => update({ soundboardVolume: Number(event.target.value) })} />
-        <span className="setting-hint">All the way down, no sounds from the soundboard play for you.</span>
-      </label>
-
       <div className="field">
-        <span className="field-label">When sound goes out</span>
+        <span className="field-label">Input mode</span>
         <div className="segmented voice-mode">
           <button className={settings.inputMode === "voice" ? "is-active" : ""} onClick={() => update({ inputMode: "voice" })}>
-            <Mic size={14} /> When you talk
+            <Mic size={14} /> Voice activity
           </button>
           <button className={settings.inputMode === "ptt" ? "is-active" : ""} onClick={() => update({ inputMode: "ptt" })}>
             <MicOff size={14} /> Push to talk
@@ -246,13 +231,13 @@ export function VoiceSettingsSection() {
 
       {settings.inputMode === "voice" ? (
         <>
-          <SettingRow title="Work out what's speech" hint="Listens for speech itself, so you don't have to pick a level.">
-            <Switch on={settings.autoSensitivity} onChange={(value) => update({ autoSensitivity: value })} label="Work out what's speech" />
+          <SettingRow title="Automatic sensitivity" hint="Detects when you're talking, so you don't have to set a level.">
+            <Switch on={settings.autoSensitivity} onChange={(value) => update({ autoSensitivity: value })} label="Automatic sensitivity" />
           </SettingRow>
           {!settings.autoSensitivity && (
             <label className="field">
               <span className="field-label">
-                Only sounds louder than <b style={{ fontWeight: 500 }}>{settings.sensitivity} dB</b>
+                Sensitivity <b style={{ fontWeight: 500 }}>{settings.sensitivity} dB</b>
               </span>
               <span className="mic-sensitivity">
                 <InputMeter onReady={(setter) => (listener.current = setter)} />
@@ -263,12 +248,12 @@ export function VoiceSettingsSection() {
         </>
       ) : (
         <>
-          <SettingRow title="Key to hold" hint="Works while this window is in front.">
+          <SettingRow title="Push-to-talk key" hint="Works while this window is in front.">
             <KeyBinder />
           </SettingRow>
           <label className="field">
             <span className="field-label">
-              Keep going after you let go <b style={{ fontWeight: 500 }}>{settings.pttRelease} ms</b>
+              Release delay <b style={{ fontWeight: 500 }}>{settings.pttRelease} ms</b>
             </span>
             <input className="voice-slider" type="range" min={0} max={1000} step={10} value={settings.pttRelease} onChange={(event) => update({ pttRelease: Number(event.target.value) })} />
           </label>
@@ -277,22 +262,39 @@ export function VoiceSettingsSection() {
 
       {(settings.inputMode !== "voice" || settings.autoSensitivity) && (
         <div className="field">
-          <span className="field-label">How your microphone sounds</span>
+          <span className="field-label">Input level</span>
           <InputMeter onReady={(setter) => (listener.current = setter)} />
         </div>
       )}
       {!inCall && (
         <div className="row" style={{ gap: 8 }}>
           <button className="btn" onClick={() => void test.start()}>
-            {test.testing ? "Stop" : "Test your microphone"}
+            {test.testing ? "Stop test" : "Test microphone"}
           </button>
-          {test.testing && <span className="faint" style={{ fontSize: 12.5 }}>You're hearing what others would.</span>}
-          {!live && <span className="faint" style={{ fontSize: 12.5 }}>Use headphones, or you'll hear yourself twice.</span>}
+          {test.testing && <span className="faint" style={{ fontSize: 12.5 }}>You're hearing what others hear.</span>}
+          {!live && <span className="faint" style={{ fontSize: 12.5 }}>Use headphones to avoid hearing yourself twice.</span>}
         </div>
       )}
 
+      <h3 className="settings-subhead">Output</h3>
+      <DeviceSelect devices={devices} kind="audiooutput" value={settings.outputDevice} onChange={(id) => update({ outputDevice: id })} label="Output device" />
+      <label className="field">
+        <span className="field-label">
+          Output volume <b style={{ fontWeight: 500 }}>{Math.round(settings.outputVolume * 100)}%</b>
+        </span>
+        <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={settings.outputVolume} onChange={(event) => update({ outputVolume: Number(event.target.value) })} />
+      </label>
+      <label className="field">
+        <span className="field-label">
+          Soundboard volume <b style={{ fontWeight: 500 }}>{settings.soundboardVolume === 0 ? "off" : `${Math.round(settings.soundboardVolume * 100)}%`}</b>
+        </span>
+        <input className="voice-slider" type="range" min={0} max={1} step={0.01} value={settings.soundboardVolume} onChange={(event) => update({ soundboardVolume: Number(event.target.value) })} />
+        <span className="setting-hint">At 0, soundboard sounds don't play for you.</span>
+      </label>
+
+      <h3 className="settings-subhead">Voice processing</h3>
       <div className="field">
-        <span className="field-label">Background noise</span>
+        <span className="field-label">Noise suppression</span>
         <div className="voice-noise">
           {NOISE_CHOICES.map((choice) => (
             <button key={choice.id} className={settings.noiseSuppression === choice.id ? "is-active" : ""} onClick={() => update({ noiseSuppression: choice.id })} aria-pressed={settings.noiseSuppression === choice.id}>
@@ -302,21 +304,23 @@ export function VoiceSettingsSection() {
           ))}
         </div>
       </div>
-      <SettingRow title="Echo cancellation" hint="Stops others hearing themselves through your speakers.">
+      <SettingRow title="Echo cancellation" hint="Keeps your speakers out of your microphone.">
         <Switch on={settings.echoCancellation} onChange={(value) => update({ echoCancellation: value })} label="Echo cancellation" />
       </SettingRow>
-      <SettingRow title="Automatic volume" hint="Keeps your voice at about the same level.">
-        <Switch on={settings.autoGain} onChange={(value) => update({ autoGain: value })} label="Automatic volume" />
+      <SettingRow title="Automatic gain control" hint="Keeps your voice at a steady level.">
+        <Switch on={settings.autoGain} onChange={(value) => update({ autoGain: value })} label="Automatic gain control" />
       </SettingRow>
 
+      <h3 className="settings-subhead">Video</h3>
       <DeviceSelect devices={devices} kind="videoinput" value={settings.cameraDevice} onChange={(id) => update({ cameraDevice: id })} label="Camera" />
       <CameraPreview deviceId={settings.cameraDevice} />
 
-      <SettingRow title="Sounds" hint="When people come and go, and when you mute.">
-        <Switch on={settings.sounds} onChange={(value) => update({ sounds: value })} label="Sounds" />
+      <h3 className="settings-subhead">Voice channels</h3>
+      <SettingRow title="Sound effects" hint="When people join or leave, and when you mute.">
+        <Switch on={settings.sounds} onChange={(value) => update({ sounds: value })} label="Sound effects" />
       </SettingRow>
-      <SettingRow title="Come in muted" hint="Starts every voice channel with your microphone off.">
-        <Switch on={settings.startMuted} onChange={(value) => update({ startMuted: value })} label="Come in muted" />
+      <SettingRow title="Join muted" hint="Your microphone starts off in every voice channel.">
+        <Switch on={settings.startMuted} onChange={(value) => update({ startMuted: value })} label="Join muted" />
       </SettingRow>
     </>
   );

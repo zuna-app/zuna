@@ -522,8 +522,7 @@ struct StorageView: View {
 }
 
 /// What people on the server can share from their screens, for its admins, as the
-/// desktop's ServerScreenSection: who, with sound, how many at once, the limits on
-/// each share, and what a share uses until someone chooses.
+/// desktop's ServerScreenSection: who, with audio, how many at once, and the quality limits.
 struct ScreenRulesView: View {
     let serverId: String
 
@@ -533,13 +532,8 @@ struct ScreenRulesView: View {
     @State private var busy = false
 
     // As the desktop offers them (packages/ui/src/voice/settings.ts).
-    private static let heights = [2160, 1440, 1080, 720, 480, 360]
-    private static let rates = [5, 10, 15, 24, 30, 45, 60, 75, 90, 120, 144, 165, 240]
-    private static let soundBitrates = [64, 96, 128, 160, 192, 256, 320]
-
-    private static func heightName(_ height: Int) -> String {
-        height == 0 ? "The screen's own" : height == 2160 ? "4K (2160p)" : "\(height)p"
-    }
+    private static let heights = [2160, 1440, 1080, 720, 480]
+    private static let rates = [15, 30, 60, 90, 120, 144, 165, 240]
 
     private static func rateName(_ fps: Int) -> String { "\(fps) fps" }
 
@@ -553,43 +547,33 @@ struct ScreenRulesView: View {
                     Text("Nobody").tag("nobody")
                 }
                 .pickerStyle(.segmented)
-                Toggle("Let sound go with a share", isOn: $rules.sound)
+                Toggle("Allow audio", isOn: $rules.sound)
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.screenSound)
                 Stepper(value: $rules.maxPerChannel, in: 0...99) {
-                    LabeledContent("Shares at once in a voice channel", value: Self.count(rules.maxPerChannel))
+                    LabeledContent("Max shares per voice channel", value: Self.count(rules.maxPerChannel))
                 }
                 Stepper(value: $rules.maxPerServer, in: 0...1000) {
-                    LabeledContent("Shares at once on this server", value: Self.count(rules.maxPerServer))
+                    LabeledContent("Max shares on the server", value: Self.count(rules.maxPerServer))
                 }
             } header: {
-                Text("Who and how many")
+                Text("Permissions")
             } footer: {
-                Text("Changing who can share, or turning sound off, stops any share it no longer allows. Each voice channel can allow fewer at once when you edit it. The media server enforces all of these, whichever app someone uses.")
+                Text("Changing who can share, or turning audio off, stops shares it no longer allows. Each voice channel can set its own limit.")
             }
             Section {
-                limit("Largest picture", $rules.maxHeight, Self.heights, name: Self.heightName)
-                limit("Highest frame rate", $rules.maxFps, Self.rates, name: Self.rateName)
-                limit("Most a share may send", $rules.maxKbps, VoiceSettingsView.bitrates, name: VoiceSettingsView.bitrateName)
+                limit("Max resolution", $rules.maxHeight, Self.heights, name: VoiceSettingsView.heightName)
+                limit("Max frame rate", $rules.maxFps, Self.rates, name: Self.rateName)
+                limit("Max bitrate", $rules.maxKbps, VoiceSettingsView.limitBitrates, name: VoiceSettingsView.bitrateName)
                     .accessibilityIdentifier(A11y.Settings.screenMaxKbps)
-                limit("Most a share's sound may send", $rules.maxSoundKbps, Self.soundBitrates, name: VoiceSettingsView.bitrateName)
-                Toggle("Admins aren't held to the limits", isOn: $rules.adminsExempt)
+                Toggle("Admins bypass limits", isOn: $rules.adminsExempt)
                     .tint(model.settings.accent.switchTint)
             } header: {
-                Text("Limits")
-            } footer: {
-                Text("What a share may send is what each person watching it costs your media server. Admins who aren't held to the limits can go past these and past how many can share at once, though sharing being off still goes for them. Zuna's apps keep to these, and a share already going keeps what it started with. The picture is encrypted, so the media server can't check it, and a modified app could send more.")
-            }
-            Section {
-                suggestion("Size", $rules.defaultHeight, [0] + Self.heights, limit: rules.maxHeight, name: Self.heightName)
-                suggestion("Frame rate", $rules.defaultFps, Self.rates, limit: rules.maxFps, name: Self.rateName)
-                suggestion("Most it may send", $rules.defaultKbps, VoiceSettingsView.bitrates, limit: rules.maxKbps, name: VoiceSettingsView.bitrateName)
-            } header: {
-                Text("Suggested")
+                Text("Quality limits")
             } footer: {
                 Text(voice
-                    ? "What a share uses until someone chooses for themselves."
-                    : "What a share uses until someone chooses for themselves. This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit.")
+                    ? "Each viewer costs your media server up to the max bitrate. Quality limits and share counts don't apply to admins who bypass them. Each app keeps to the quality limits itself, since the media server can't see encrypted video."
+                    : "Each viewer costs your media server up to the max bitrate. Quality limits and share counts don't apply to admins who bypass them. This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -625,27 +609,8 @@ struct ScreenRulesView: View {
         }
     }
 
-    /// What a share uses until someone chooses, which can't be more than what's allowed.
-    private func suggestion(_ title: String, _ value: Binding<Int>, _ options: [Int], limit: Int, name: @escaping (Int) -> String) -> some View {
-        let allowed = options.filter { limit <= 0 || $0 <= limit }
-        return Picker(title, selection: value) {
-            ForEach(allowed.contains(value.wrappedValue) ? allowed : allowed + [value.wrappedValue], id: \.self) { option in
-                Text(name(option)).tag(option)
-            }
-        }
-    }
-
-    /// What's suggested can't be more than what's allowed, as the desktop saves it.
-    private var fitted: ScreenRules {
-        var fitted = rules
-        if rules.maxHeight > 0, rules.defaultHeight > rules.maxHeight { fitted.defaultHeight = rules.maxHeight }
-        if rules.maxFps > 0 { fitted.defaultFps = min(rules.defaultFps, rules.maxFps) }
-        if rules.maxKbps > 0 { fitted.defaultKbps = min(rules.defaultKbps, rules.maxKbps) }
-        return fitted
-    }
-
     private func save() {
-        let changes = ServerSettingsChanges(screenShare: fitted)
+        let changes = ServerSettingsChanges(screenShare: rules)
         busy = true
         Task {
             defer { busy = false }

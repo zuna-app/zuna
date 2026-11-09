@@ -311,7 +311,6 @@ try {
 
   // --- The desktop's screen on the phone ---
   await page.getByRole("button", { name: "Share your screen" }).first().click();
-  await page.getByRole("button", { name: "Share", exact: true }).click();
   await sleep(5000);
   const screen = await fromDana("screenShareVideo");
   check("the desktop's shared screen reaches the phone and decodes", (screen?.frames ?? 0) > 10, screen ? `${screen.frames} frames at ${screen.width}x${screen.height}` : "none");

@@ -64,7 +64,7 @@ impl Voice {
         let rules = server.info.as_ref().and_then(|info| info.screen_share.clone());
         let role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
         let settings = self.settings.clone();
-        let terms = screen_terms(&ScreenChoices { height: settings.screen_height, fps: settings.screen_fps, kbps: settings.screen_bitrate, sound_kbps: settings.screen_sound_kbps }, rules.as_ref(), &role);
+        let terms = screen_terms(&ScreenChoices { height: settings.screen_resolution, fps: settings.screen_frame_rate, kbps: settings.screen_max_bitrate }, rules.as_ref(), &role);
         let wants_sound = choice.audio && terms.sound;
         let held = terms
             .held
@@ -73,7 +73,6 @@ impl Voice {
                 Held::Height => height_name(terms.height),
                 Held::Fps => rate_name(terms.fps),
                 Held::Kbps => bitrate_name(terms.kbps),
-                Held::SoundKbps => format!("{} of sound", bitrate_name(terms.sound_kbps)),
             })
             .collect::<Vec<_>>();
         let share = ShareInfo { name: choice.source.name.clone(), fps: terms.fps, kbps: terms.kbps, height: terms.height, held, info: None };
@@ -89,18 +88,13 @@ impl Voice {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
     fn start_screen_native(&mut self, choice: ScreenChoice, terms: crate::voice::rules::ScreenTerms, share: ShareInfo, core: crate::host::Core, room: Arc<VoiceRoom>, server_id: String, channel_id: String, wants_sound: bool, settings: &crate::voice::settings::VoiceSettings, cx: &mut Context<Self>) {
-        use zuna_screenshare::{Codec, Event, Options, Quality, Share, Source};
+        use zuna_screenshare::{Codec, Event, Options, Share, Source};
         let encoder = settings.screen_encoder.as_str();
         let codec = if settings.screen_codec == "av1" { Codec::Av1 } else { Codec::H264 };
         let options = Options {
             codec,
             // The encoder's family, which goes for either codec.
             encoder: if ["auto", "h264_nvenc", "h264_amf", "h264_mf", "h264_vaapi"].contains(&encoder) { encoder.into() } else { "auto".into() },
-            quality: match settings.screen_effort.as_str() {
-                "speed" => Quality::Speed,
-                "best" => Quality::Best,
-                _ => Quality::Balanced,
-            },
             fps: terms.fps.max(1),
             bitrate_kbps: terms.kbps.max(1) as u64,
             // A screen, or where the system's own dialog picks, a window.

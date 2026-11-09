@@ -28,8 +28,8 @@ export interface ServerInfo {
 
 /**
  * What a server's admins say about sharing a screen. Who may share, with sound, and how
- * many at once hold whatever an app does. The rest is about media the server can't see,
- * so apps keep to it themselves.
+ * many at once hold whatever an app does. The limits are about media the server can't see,
+ * so apps keep to them themselves.
  */
 export interface ScreenRules {
   who: "everyone" | "admins" | "nobody";
@@ -43,11 +43,6 @@ export interface ScreenRules {
   max_height: number;
   max_fps: number;
   max_kbps: number;
-  max_sound_kbps: number;
-  /** What a share uses until someone chooses otherwise. A height of 0 is the screen's own. */
-  default_height: number;
-  default_fps: number;
-  default_kbps: number;
 }
 
 export interface InvitePreview {

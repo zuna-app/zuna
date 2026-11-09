@@ -314,33 +314,36 @@ describe("who can be in a channel", () => {
 });
 
 describe("what a screen share uses", () => {
-  const nothing = { height: null, fps: null, kbps: null, soundKbps: 128 };
-  const limits = { ...DEFAULT_SCREEN_RULES, max_height: 1080, max_fps: 30, max_kbps: 8000, max_sound_kbps: 96, default_height: 720, default_fps: 24, default_kbps: 4000 };
+  const automatic = { height: 0, fps: 60, kbps: null };
+  const limits = { ...DEFAULT_SCREEN_RULES, max_height: 1080, max_fps: 30, max_kbps: 8000 };
 
-  it("is what the server suggests until someone chooses", () => {
-    expect(screenTerms(nothing, undefined, "member")).toEqual({ height: 0, fps: 60, kbps: 20_000, soundKbps: 128, sound: true, held: [] });
-    expect(screenTerms(nothing, { ...limits, max_sound_kbps: 0 }, "member")).toEqual({ height: 720, fps: 24, kbps: 4000, soundKbps: 128, sound: true, held: [] });
+  it("leaves the bitrate to the app, up to the server's limit", () => {
+    expect(screenTerms(automatic, undefined, "member")).toEqual({ height: 0, fps: 60, kbps: 20_000, soundKbps: 128, sound: true, held: [] });
+    expect(screenTerms(automatic, { ...limits, max_height: 0, max_fps: 0 }, "member")).toEqual({ height: 0, fps: 60, kbps: 8000, soundKbps: 128, sound: true, held: [] });
+    // A higher limit isn't a reason to send more.
+    expect(screenTerms(automatic, { ...DEFAULT_SCREEN_RULES, max_kbps: 50_000 }, "member").kbps).toBe(20_000);
   });
 
   it("goes by what someone chose, as far as the limits allow", () => {
-    expect(screenTerms({ height: 480, fps: 15, kbps: 2000, soundKbps: 64 }, limits, "member")).toMatchObject({ height: 480, fps: 15, kbps: 2000, soundKbps: 64, held: [] });
-    const over = screenTerms({ height: 2160, fps: 144, kbps: 50_000, soundKbps: 320 }, limits, "member");
-    expect(over).toMatchObject({ height: 1080, fps: 30, kbps: 8000, soundKbps: 96 });
-    expect(over.held.sort()).toEqual(["fps", "height", "kbps", "soundKbps"]);
+    expect(screenTerms({ height: 480, fps: 15, kbps: 2000 }, limits, "member")).toMatchObject({ height: 480, fps: 15, kbps: 2000, held: [] });
+    const over = screenTerms({ height: 2160, fps: 144, kbps: 50_000 }, limits, "member");
+    expect(over).toMatchObject({ height: 1080, fps: 30, kbps: 8000 });
+    expect(over.held.sort()).toEqual(["fps", "height", "kbps"]);
   });
 
   it("counts the screen's own size as over a limit on size", () => {
-    expect(screenTerms({ ...nothing, height: 0 }, limits, "member")).toMatchObject({ height: 1080, held: expect.arrayContaining(["height"]) });
-    expect(screenTerms({ ...nothing, height: 0 }, undefined, "member")).toMatchObject({ height: 0, held: [] });
+    expect(screenTerms(automatic, limits, "member")).toMatchObject({ height: 1080, held: expect.arrayContaining(["height"]) });
+    expect(screenTerms(automatic, undefined, "member")).toMatchObject({ height: 0, held: [] });
   });
 
   it("leaves admins out of the limits only if the server says so", () => {
-    const wanted = { height: 0, fps: 144, kbps: 50_000, soundKbps: 320 };
-    expect(screenTerms(wanted, limits, "admin").held).toHaveLength(4);
+    const wanted = { height: 0, fps: 144, kbps: 50_000 };
+    expect(screenTerms(wanted, limits, "admin").held).toHaveLength(3);
     const exempt = { ...limits, admins_exempt: true };
-    expect(screenTerms(wanted, exempt, "owner")).toMatchObject({ height: 0, fps: 144, kbps: 50_000, soundKbps: 320, held: [] });
+    expect(screenTerms(wanted, exempt, "owner")).toMatchObject({ height: 0, fps: 144, kbps: 50_000, held: [] });
     expect(screenTerms(wanted, exempt, "admin").held).toEqual([]);
-    expect(screenTerms(wanted, exempt, "member").held).toHaveLength(4);
+    expect(screenTerms(wanted, exempt, "member").held).toHaveLength(3);
+    expect(screenTerms(automatic, exempt, "owner").kbps).toBe(20_000);
   });
 
   it("says why someone can't share at all", () => {
@@ -461,7 +464,7 @@ describe("voice channels", () => {
     expect(await bob.session.voiceScreenAccess(id, withSound)).toEqual({ sound: true });
     await bob.session.voiceScreenStop(id);
 
-    const rules = { ...DEFAULT_SCREEN_RULES, who: "admins" as const, max_fps: 30, default_fps: 30, max_height: 1080 };
+    const rules = { ...DEFAULT_SCREEN_RULES, who: "admins" as const, max_fps: 30, max_height: 1080 };
     await alice.session.updateServerSettings({ screen_share: rules });
     await waitFor(() => bob.session.getInfo()?.screen_share?.who === "admins", "bob to hear the rules");
     expect(bob.session.getInfo()?.screen_share).toMatchObject({ max_fps: 30, max_height: 1080 });

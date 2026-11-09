@@ -8,12 +8,12 @@ use gpui::{AnyElement, App, Context, Entity, FontWeight, IntoElement, ParentElem
 use serde_json::json;
 
 use super::components::*;
-use super::screen_picker::number_select;
 use super::text_input::{InputEvent, TextInput};
+use super::voice_settings::number_select;
 use crate::models::{ScreenRules, SoundView};
 use crate::state::{AppState, ToastKind};
 use crate::theme::{RADIUS_M, RADIUS_S};
-use crate::voice::settings::{SCREEN_BITRATES, SCREEN_HEIGHTS, SCREEN_RATES, SCREEN_SOUND_BITRATES, bitrate_name, height_name, rate_name};
+use crate::voice::settings::{SCREEN_HEIGHTS, SCREEN_LIMIT_BITRATES, SCREEN_RATES, bitrate_name, height_name, rate_name};
 
 /// How many sounds a server's soundboard holds.
 const MAX_SOUNDS: usize = 50;
@@ -367,16 +367,6 @@ impl ServerScreenRules {
         let mut rules = self.rules.clone();
         rules.max_per_channel = count(self.per_channel.read(cx).text()).min(99);
         rules.max_per_server = count(self.per_server.read(cx).text()).min(1000);
-        // What's suggested can't be more than what's allowed.
-        if rules.max_height > 0 && rules.default_height > rules.max_height {
-            rules.default_height = rules.max_height;
-        }
-        if rules.max_fps > 0 {
-            rules.default_fps = rules.default_fps.min(rules.max_fps);
-        }
-        if rules.max_kbps > 0 {
-            rules.default_kbps = rules.default_kbps.min(rules.max_kbps);
-        }
         let Some(server) = self.state.read(cx).active_server.clone() else { return };
         let call = self.state.read(cx).core.call(Some(&server), "updateServerSettings", vec![json!({ "screen_share": rules })]);
         self.busy = true;
@@ -433,36 +423,29 @@ impl Render for ServerScreenRules {
         let sound = rules.sound;
         let exempt = rules.admins_exempt;
         let (sound_me, exempt_me) = (me.clone(), me.clone());
-        let mut parts = vec![heading("Screen sharing"), lead("What people on this server can share. It's all encrypted, so the server never sees what's on anyone's screen.", cx)];
+        let mut parts = vec![heading("Screen sharing"), lead("Screen shares are end-to-end encrypted, so the server never sees them.", cx)];
         if !voice_ready {
             parts.push(div().text_size(px(13.)).text_color(theme.amber).bg(theme.amber_soft).rounded(RADIUS_M).px(px(10.)).py(px(8.)).child("This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit (see SELF_HOSTING.md).").into_any_element());
         }
-        parts.push(subhead("Who and how many"));
-        parts.push(row("Who can share", Some("Changing this stops any share it no longer allows."), who.into_any_element()));
-        parts.push(row("Let sound go with a share", Some("Turning this off stops any share that has sound."), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
+        parts.push(subhead("Permissions"));
+        parts.push(row("Who can share", Some("Changing this stops shares it no longer allows."), who.into_any_element()));
+        parts.push(row("Allow audio", Some("Turning it off stops shares with audio."), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
             view.rules.sound = !sound;
             cx.notify();
         })).into_any_element()));
-        parts.push(field(Some("Shares at once in a voice channel"), self.per_channel.clone(), None, Some("0 is no limit. Each channel can say otherwise when you edit it.".into()), false, None, cx).into_any_element());
-        parts.push(field(Some("Shares at once on this server"), self.per_server.clone(), None, Some("0 is no limit.".into()), false, None, cx).into_any_element());
-        parts.push(note("The media server enforces all of these, whichever app someone uses."));
+        parts.push(field(Some("Max shares per voice channel"), self.per_channel.clone(), None, Some("0 for no limit. Each voice channel can set its own.".into()), false, None, cx).into_any_element());
+        parts.push(field(Some("Max shares on the server"), self.per_server.clone(), None, Some("0 for no limit.".into()), false, None, cx).into_any_element());
         let with_zero = |options: &[u32]| -> Vec<u32> { std::iter::once(0).chain(options.iter().copied()).collect() };
-        parts.push(subhead("Limits"));
-        parts.push(number_select("max-height", "Largest picture", Some(rules.max_height), &with_zero(&SCREEN_HEIGHTS), |value| if value == 0 { "No limit".into() } else { height_name(value) }, None, 0, self.change(|rules, value| rules.max_height = value.unwrap_or(0), cx), cx));
-        parts.push(number_select("max-fps", "Highest frame rate", Some(rules.max_fps), &with_zero(&SCREEN_RATES), |value| if value == 0 { "No limit".into() } else { rate_name(value) }, None, 0, self.change(|rules, value| rules.max_fps = value.unwrap_or(0), cx), cx));
-        parts.push(number_select("max-kbps", "Most a share may send", Some(rules.max_kbps), &with_zero(&SCREEN_BITRATES), |value| if value == 0 { "No limit".into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_kbps = value.unwrap_or(0), cx), cx));
-        parts.push(note("This is what each person watching costs your media server in bandwidth."));
-        parts.push(number_select("max-sound", "Most a share's sound may send", Some(rules.max_sound_kbps), &with_zero(&SCREEN_SOUND_BITRATES), |value| if value == 0 { "No limit".into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_sound_kbps = value.unwrap_or(0), cx), cx));
-        parts.push(row("Admins aren't held to the limits", Some("They can go past these and past how many can share at once. Sharing being off still goes for them."), switch("rules-exempt", exempt, cx).on_click(move |_, _, cx| exempt_me.update(cx, |view, cx| {
+        parts.push(subhead("Quality limits"));
+        parts.push(number_select("max-height", "Max resolution", Some(rules.max_height), &with_zero(&SCREEN_HEIGHTS), |value| if value == 0 { "No limit".into() } else { height_name(value) }, None, 0, self.change(|rules, value| rules.max_height = value.unwrap_or(0), cx), cx));
+        parts.push(number_select("max-fps", "Max frame rate", Some(rules.max_fps), &with_zero(&SCREEN_RATES), |value| if value == 0 { "No limit".into() } else { rate_name(value) }, None, 0, self.change(|rules, value| rules.max_fps = value.unwrap_or(0), cx), cx));
+        parts.push(number_select("max-kbps", "Max bitrate", Some(rules.max_kbps), &with_zero(&SCREEN_LIMIT_BITRATES), |value| if value == 0 { "No limit".into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_kbps = value.unwrap_or(0), cx), cx));
+        parts.push(div().mt(px(-8.)).child(note("Each viewer costs your media server up to this much bandwidth.")).into_any_element());
+        parts.push(row("Admins bypass limits", Some("Quality limits and share counts don't apply to admins."), switch("rules-exempt", exempt, cx).on_click(move |_, _, cx| exempt_me.update(cx, |view, cx| {
             view.rules.admins_exempt = !exempt;
             cx.notify();
         })).into_any_element()));
-        parts.push(note("Zuna's apps keep to these, and a share already going keeps what it started with. The picture is encrypted, so the media server can't check it, and a modified app could send more."));
-        parts.push(subhead("Suggested"));
-        parts.push(note("What a share uses until someone chooses for themselves."));
-        parts.push(number_select("default-height", "Size", Some(rules.default_height), &with_zero(&SCREEN_HEIGHTS), height_name, None, rules.max_height, self.change(|rules, value| rules.default_height = value.unwrap_or(0), cx), cx));
-        parts.push(number_select("default-fps", "Frame rate", Some(rules.default_fps), &SCREEN_RATES, rate_name, None, rules.max_fps, self.change(|rules, value| rules.default_fps = value.unwrap_or(60), cx), cx));
-        parts.push(number_select("default-kbps", "Most it may send", Some(rules.default_kbps), &SCREEN_BITRATES, bitrate_name, None, rules.max_kbps, self.change(|rules, value| rules.default_kbps = value.unwrap_or(20_000), cx), cx));
+        parts.push(note("Each app keeps to the quality limits itself, since the media server can't see encrypted video. A share already going keeps what it started with."));
         let busy = self.busy;
         parts.push(div().flex().child(button("save-screen-rules", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { spinner(15., theme.on_accent).into_any_element() } else { div().child("Save changes").into_any_element() }).when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.save(cx))))).into_any_element());
         div().flex().flex_col().gap(px(14.)).children(parts)

@@ -313,10 +313,9 @@ final class StreamStats {
         let held: [String] = share.map { share in
             share.terms.held.map { limit -> String in
                 switch limit {
-                case .height: share.terms.height == 0 ? "The screen's own" : share.terms.height == 2160 ? "4K (2160p)" : "\(share.terms.height)p"
+                case .height: VoiceSettingsView.heightName(share.terms.height)
                 case .fps: "\(share.terms.fps) fps"
                 case .kbps: VoiceSettingsView.bitrateName(share.terms.kbps)
-                case .soundKbps: "\(VoiceSettingsView.bitrateName(share.terms.soundKbps)) of sound"
                 }
             }
         } ?? []
