@@ -33,6 +33,8 @@ import { EmotePicker } from "./EmotePicker";
 import { useServerField } from "./use-server-field";
 import { SystemMessage, ForwardedFrom, ReactionChip, ReadTicks, openProfile, ChannelReply, InlineEditor } from "./MessageDetails";
 import { Attachments, LinkCard, LocationCard } from "./MessageAttachments";
+import { MessageButtons } from "@/features/bots/MessageButtons";
+import { BotBadge } from "@/components/ui";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
@@ -72,6 +74,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const toast = useApp((state) => state.toast);
   const serverId = useApp((state) => state.activeServerId) ?? "";
   const senderName = useServerField((server) => server.users[message.senderId]?.displayName ?? "Unknown", "Unknown");
+  const senderIsBot = useServerField((server) => !!server.users[message.senderId]?.bot, false);
   const senderAvatar = useServerField((server) => server.users[message.senderId]?.avatar ?? null, null);
   const replyName = useServerField((server) => {
     const id = message.reply?.senderId;
@@ -381,6 +384,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                 <button className="cmsg-author" style={{ color: nameColor(message.senderId) }} onClick={() => openProfile(message.senderId)}>
                   {senderName}
                 </button>
+                {senderIsBot && <BotBadge />}
                 <time className="cmsg-time" title={formatFull(message.createdAt)}>
                   {formatStamp(message.createdAt)}
                 </time>
@@ -402,6 +406,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   )}
                   {message.preview && <LinkCard preview={message.preview} />}
                   {message.location && <LocationCard location={message.location} />}
+                  <MessageButtons message={message} />
                 </>
               ))}
             {hasReactions && (
@@ -501,6 +506,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           {!own && isGroup && !grouped && !jumbo && (
             <span className="msg-author" style={{ color: nameColor(message.senderId) }}>
               {senderName}
+              {senderIsBot && <> <BotBadge /></>}
             </span>
           )}
           {placeholder ?? (
@@ -535,6 +541,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             !metaInText && meta
           )}
         </div>
+        {!placeholder && <MessageButtons message={message} />}
         {message.status === "failed" && (
           <button className="msg-retry" onClick={() => void run(() => session().retryMessage(message.groupId, message.id))}>
             <AlertCircle size={13} /> Not sent. Try again

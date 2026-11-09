@@ -174,7 +174,7 @@ The first methods, by Telegram's names:
 
 ## Stages
 
-Built so far: B0, in the server (`server/internal/api/bots.go`, `server/internal/store/bots.go`) and the core (`// --- Bots ---` in `packages/core/src/session/server.ts`, tested in `packages/core/test/bots.test.ts`), the core's part of B3: commands in a bot's profile, buttons under its messages, and the press that goes back to it, and B1: `zuna-bot` in `apps/bot`, which grammY's echo bot runs on unchanged (`apps/bot/test/bot.test.ts`).
+Built so far: B0, in the server (`server/internal/api/bots.go`, `server/internal/store/bots.go`) and the core (`// --- Bots ---` in `packages/core/src/session/server.ts`, tested in `packages/core/test/bots.test.ts`), the core's part of B3: commands in a bot's profile, buttons under its messages, and the press that goes back to it, B1: `zuna-bot` in `apps/bot`, which grammY's echo bot runs on unchanged (`apps/bot/test/bot.test.ts`), and B2 and B3 in the web app (`packages/ui/src/features/bots`). [BOTS.md](BOTS.md) is the guide for people.
 
 | Stage | What | Shows it works |
 |---|---|---|

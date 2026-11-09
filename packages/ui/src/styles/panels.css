@@ -103,6 +103,12 @@
 .segmented button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .device-list { display: flex; flex-direction: column; gap: 3px; }
+/* A server's bots, in its settings. */
+.bot-entry { display: flex; flex-direction: column; }
+.bot-settings, .bot-form, .bot-setup { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--radius-m); background: var(--bg-2); border: 1px solid var(--line); }
+.bot-settings { margin: 3px 0 6px; }
+.bot-channels { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.bot-channel { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; max-width: 220px; cursor: pointer; }
 .device-row { width: 100%; display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: var(--radius-m); background: var(--bg-2); text-align: left; font-size: 13.5px; --dot-border: var(--bg-2); }
 .device-row b { font-weight: 500; }
 .device-row.is-button:hover { background: var(--bg-3); --dot-border: var(--bg-3); }

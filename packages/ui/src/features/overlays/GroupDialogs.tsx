@@ -4,8 +4,19 @@
 import type { UserView } from "@zuna/core";
 import { Check, Search, UsersRound } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Avatar, Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
+import { Avatar, BotBadge, Confirm, Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
+import { BOT_READS, mayAddBot } from "@/lib/bots";
 import { useActiveServer, useApp } from "@/state/store";
+
+/** What adding a bot means, asked before it's added, each time one is. */
+function AddBotConfirm({ bots, onCancel, onConfirm }: { bots: UserView[]; onCancel: () => void; onConfirm: () => void }) {
+  const names = bots.map((bot) => bot.displayName).join(", ");
+  return (
+    <Confirm title={bots.length === 1 ? `Add the bot ${names}?` : `Add the bots ${names}?`} action={bots.length === 1 ? "Add the bot" : "Add the bots"} onCancel={onCancel} onConfirm={onConfirm}>
+      {BOT_READS}
+    </Confirm>
+  );
+}
 
 /**
  * Where to forward a message: any chat on any server, this one first. Picking
@@ -88,7 +99,7 @@ function PeoplePicker({ users, selected, onToggle }: { users: UserView[]; select
           <button key={user.id} className={`person-row${selected.has(user.id) ? " is-selected" : ""}`} onClick={() => onToggle(user.id)} role="checkbox" aria-checked={selected.has(user.id)}>
             <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={36} online={user.online} />
             <span className="grow">
-              <span className="truncate" style={{ display: "block", fontWeight: 550 }}>{user.displayName}</span>
+              <span className="truncate" style={{ display: "block", fontWeight: 550 }}>{user.displayName}{user.bot && <> <BotBadge /></>}</span>
               <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>@{user.username}</span>
             </span>
             <span className="person-check">{selected.has(user.id) && <Check size={13} strokeWidth={3} />}</span>
@@ -107,11 +118,15 @@ export function NewGroup({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [selected, setSelected] = useState(new Set<string>());
   const [history, setHistory] = useState(false);
+  const [asking, setAsking] = useState(false);
   const { busy, run } = useAction();
   const selfId = server?.self?.userId;
+  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  // Of the bots, only the ones this person may add.
   const users = Object.values(server?.users ?? {})
-    .filter((user) => user.id !== selfId && !user.banned && !user.deleted)
+    .filter((user) => user.id !== selfId && !user.banned && !user.deleted && mayAddBot(user, selfId, isAdmin))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const bots = users.filter((user) => user.bot && selected.has(user.id));
 
   const create = () =>
     run(async () => {
@@ -127,7 +142,7 @@ export function NewGroup({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={!name.trim() || busy} onClick={create}>
+          <button className="btn btn-primary" disabled={!name.trim() || busy} onClick={() => (bots.length > 0 ? setAsking(true) : void create())}>
             {busy ? <Spinner /> : `Create${selected.size ? ` with ${selected.size + 1} people` : ""}`}
           </button>
         </>
@@ -154,6 +169,16 @@ export function NewGroup({ onClose }: { onClose: () => void }) {
         </span>
         <Switch on={history} onChange={setHistory} label="New members can read earlier messages" />
       </div>
+      {asking && (
+        <AddBotConfirm
+          bots={bots}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            void create();
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -162,12 +187,22 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
   const server = useActiveServer();
   const session = useApp((state) => state.session);
   const [selected, setSelected] = useState(new Set<string>());
+  const [asking, setAsking] = useState(false);
   const { busy, run } = useAction();
   const conversation = server?.conversations.find((item) => item.groupId === groupId);
   const memberIds = new Set(conversation?.members.map((member) => member.userId));
+  const selfId = server?.self?.userId;
+  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  // Of the bots, only the ones this person may add.
   const users = Object.values(server?.users ?? {})
-    .filter((user) => !memberIds.has(user.id) && !user.banned && !user.deleted)
+    .filter((user) => !memberIds.has(user.id) && !user.banned && !user.deleted && mayAddBot(user, selfId, isAdmin))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const bots = users.filter((user) => user.bot && selected.has(user.id));
+  const add = () =>
+    run(async () => {
+      await session().addMembers(groupId, [...selected]);
+      onClose();
+    });
 
   return (
     <Modal
@@ -179,12 +214,7 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
           <button
             className="btn btn-primary"
             disabled={selected.size === 0 || busy}
-            onClick={() =>
-              run(async () => {
-                await session().addMembers(groupId, [...selected]);
-                onClose();
-              })
-            }
+            onClick={() => (bots.length > 0 ? setAsking(true) : void add())}
           >
             {busy ? <Spinner /> : "Add"}
           </button>
@@ -194,8 +224,18 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
       {conversation?.historyVisible && (
         <div className="notice">
           <UsersRound size={15} />
-          <span>This group shares its history, so they'll be able to read earlier messages.</span>
+          <span>This group shares its history, so they'll be able to read earlier messages. A bot never gets them.</span>
         </div>
+      )}
+      {asking && (
+        <AddBotConfirm
+          bots={bots}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            void add();
+          }}
+        />
       )}
       {users.length === 0 ? (
         <p className="muted" style={{ textAlign: "center", padding: 16 }}>Everyone on this server is already here.</p>

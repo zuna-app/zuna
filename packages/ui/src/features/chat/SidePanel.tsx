@@ -29,7 +29,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Field, PopupMenu, Switch, Tooltip, useAction } from "@/components/ui";
+import { Avatar, BotBadge, Field, PopupMenu, Switch, Tooltip, useAction } from "@/components/ui";
 import { timerEntries, timerText } from "@/lib/disappearing";
 import { formatFull, formatListTime, nameColor } from "@/lib/format";
 import { LastSeen } from "@/lib/last-seen";
@@ -198,7 +198,12 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         {peer && !peer.deleted && <p className="muted">@{peer.username}</p>}
         {peer && !isSelf && (
           <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
-            {peer.deleted ? "Deleted their account" : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} full />}
+            {peer.deleted ? "Deleted their account" : peer.bot ? <BotBadge /> : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} full />}
+          </p>
+        )}
+        {peer?.bot && !peer.deleted && (
+          <p className="faint" style={{ fontSize: 12.5, textAlign: "center" }}>
+            {peer.bot.ownerId === server?.self?.userId ? "Your bot" : `${server?.users[peer.bot.ownerId]?.displayName ?? "Someone"}'s bot`}. A program runs it, and reads everything said in the chats it's in.
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}
@@ -454,6 +459,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
               <span className="grow">
                 <span className="truncate" style={{ display: "block", fontWeight: 550 }}>
                   {name}
+                  {user?.bot && <> <BotBadge /></>}
                   {member.userId === selfId && <span className="faint"> (you)</span>}
                 </span>
                 <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>

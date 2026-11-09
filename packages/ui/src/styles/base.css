@@ -238,6 +238,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .modal-body { padding: 10px 20px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 16px; }
 
+/* Marks a bot wherever its name shows. */
+.bot-badge {
+  display: inline-flex; align-items: center; flex: none; height: 15px; padding: 0 5px; border-radius: 4px; vertical-align: 1px;
+  font-size: 9.5px; line-height: 1; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+
 .notice {
   display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius-m);
   background: var(--bg-2); color: var(--text-2); font-size: 13px;

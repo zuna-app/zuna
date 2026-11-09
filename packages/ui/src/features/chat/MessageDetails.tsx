@@ -25,7 +25,9 @@ export function SystemMessage({ message, highlighted, channel }: { message: Mess
       return server.users[id]?.displayName ?? "Someone";
     };
     const system = message.system!;
-    const targets = (system.targetIds ?? []).map(name).join(", ");
+    // The line that says a bot was added names it as one.
+    const added = (id: string) => (server.users[id]?.bot ? `the bot ${name(id)}` : name(id));
+    const targets = (system.targetIds ?? []).map(system.type === "member_added" ? added : name).join(", ");
     switch (system.type) {
       case "group_created":
         return `${name(system.actorId)} created this group`;

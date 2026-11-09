@@ -148,6 +148,20 @@
 .msg-tick.is-failed { color: #f4bcbe; }
 .msg-pinned { transform: rotate(35deg); }
 
+/* The rows of buttons under a bot's message, as wide as the message. */
+.msg-buttons { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; min-width: 180px; max-width: 420px; }
+.msg-button-row { display: flex; gap: 3px; }
+.msg-button {
+  flex: 1 1 0; min-width: 0; height: 32px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; position: relative;
+  border-radius: var(--radius-s); background: var(--bg-3); color: var(--text-1); font-size: 13px; font-weight: 500; text-decoration: none;
+  transition: background 0.12s var(--ease-out), opacity 0.12s var(--ease-out);
+}
+.msg-button:hover:not(:disabled) { background: var(--bg-4); }
+.msg-button:disabled { cursor: default; }
+.msg-button.is-pressing { opacity: 0.55; }
+.msg-button-link { flex: none; color: var(--text-3); }
+.msg.is-channel .msg-buttons { margin-top: 6px; }
+
 .msg-retry { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--red); }
 .msg-retry:hover { text-decoration: underline; }
 

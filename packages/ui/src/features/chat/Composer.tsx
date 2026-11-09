@@ -7,6 +7,7 @@ import { AnimatePresence } from "motion/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Tooltip } from "@/components/ui";
+import { commandsFor } from "@/lib/bots";
 import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { useGrowWithText } from "@/lib/grow";
@@ -182,9 +183,12 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
 
   useImperativeHandle(ref, () => ({ addFiles: (incoming) => void addFiles(incoming) }), [addFiles]);
 
-  // Autocomplete: ":name" for emotes, from the ":" on, and "@name" for people.
+  // Autocomplete: ":name" for emotes, from the ":" on, "@name" for people, and "/" at the
+  // very start for the commands of the bots in this chat.
   const trigger = useMemo(() => {
     const before = text.slice(0, caret);
+    const command = before.match(/^\/([a-z0-9_]{0,32})$/i);
+    if (command) return { kind: "/" as const, query: command[1]!.toLowerCase(), start: 0 };
     const match = before.match(/(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$/u);
     if (!match || (match[1] === "@" && !match[2])) return null;
     return { kind: match[1] as ":" | "@", query: match[2]!.toLowerCase(), start: caret - match[2]!.length - 1 };
@@ -193,7 +197,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   // arrows or Tab pick an emote, so nothing is picked to begin with.
   const tentative = trigger?.kind === ":" && trigger.query.length < 2;
   // The people, for suggesting one, only while a name is being typed, so presence doesn't redraw the composer.
-  const users = useActiveField((server) => (trigger?.kind === "@" ? server.users : null), null) ?? NO_USERS;
+  const users = useActiveField((server) => (trigger?.kind === "@" || trigger?.kind === "/" ? server.users : null), null) ?? NO_USERS;
   const emoteSuggestion = (emote: ServerEmote): Suggestion => ({
     key: emote.id,
     label: emote.name,
@@ -216,6 +220,17 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       }
       return [...starts, ...contains].slice(0, MAX_SUGGESTIONS).map(emoteSuggestion);
     }
+    if (trigger.kind === "/") {
+      return commandsFor(conversation, users, trigger.query)
+        .slice(0, MAX_SUGGESTIONS)
+        .map((command) => ({
+          key: `${command.bot.id}/${command.command}`,
+          label: `/${command.command}`,
+          hint: command.description,
+          insert: command.insert,
+          render: <Avatar name={command.bot.displayName} seed={command.bot.id} avatar={command.bot.avatar} size={24} />,
+        }));
+    }
     // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
     const members = conversation.kind === "group" ? conversation.members.map((member) => member.userId) : Object.keys(users);
     return members
@@ -230,7 +245,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         insert: `@${user.username} `,
         render: <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={24} />,
       }));
-  }, [trigger, emotes, users, serverUrl, conversation.kind, conversation.members]);
+  }, [trigger, emotes, users, serverUrl, conversation]);
 
   useEffect(() => setSelected(tentative ? -1 : 0), [trigger?.query, trigger?.kind]);
 

@@ -29,7 +29,7 @@ import {
 import { AnimatePresence } from "motion/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Avatar, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
+import { Avatar, BotBadge, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
 import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
@@ -39,7 +39,7 @@ import { ReadTicks, readUpToOf } from "@/features/chat/MessageDetails";
 import { ChannelSections } from "@/features/voice/ChannelList";
 import { useActiveServer, useApp } from "@/state/store";
 
-type Filter = "all" | "channels" | "people" | "groups" | "unread";
+type Filter = "all" | "channels" | "people" | "bots" | "groups" | "unread";
 
 function previewFor(message: MessageView | null, users: Record<string, UserView>, selfId: string, kind: string): string {
   if (!message) return "";
@@ -118,6 +118,7 @@ const ConversationRow = memo(function ConversationRow({
           <span className="conv-title truncate">
             {item.kind === "group" && <UsersRound size={13} className="conv-kind" />}
             <span className="truncate">{item.title}</span>
+            {item.bot && <BotBadge />}
             {peer?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" />}
             {peer?.trust === "changed" && <ShieldAlert size={14} className="conv-warning" />}
             {item.muted && <BellOff size={12} className="conv-muted" />}
@@ -246,7 +247,11 @@ export function ConversationList() {
         if (!item.title.toLowerCase().includes(needle) && !username?.includes(needle)) return false;
       }
       if (filter === "channels") return false;
-      if (filter === "people") return item.kind === "dm";
+      // The list of people stays the list of people: bots have a tab of their own, and one
+      // somebody has written to is among the chats like any other.
+      if (filter === "people") return item.kind === "dm" && !item.bot;
+      if (filter === "bots") return item.bot;
+      if (item.bot && !item.groupId && !needle) return false;
       if (filter === "groups") return item.kind === "group";
       if (filter === "unread") return item.unread > 0 || item.markedUnread;
       return true;
@@ -310,6 +315,7 @@ export function ConversationList() {
     { id: "all", label: "All" },
     ...(showsChannels ? [{ id: "channels" as const, label: "Channels" }] : []),
     { id: "people", label: "People" },
+    ...(conversations.some((item) => item.bot) ? [{ id: "bots" as const, label: "Bots" }] : []),
     { id: "groups", label: "Groups" },
     { id: "unread", label: "Unread" },
   ];

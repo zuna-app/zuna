@@ -5,6 +5,8 @@
 //
 //   npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit] [moz-firefox]
 //
+// With zuna-bot built too (npm run build:bot), it makes a bot, sets it up and talks to it.
+//
 // Needs Playwright's browsers: npx playwright-core install chromium firefox webkit
 // Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder"), so moz-firefox runs
 // the Firefox installed from Mozilla instead, through WebDriver BiDi.
@@ -195,6 +197,7 @@ async function runIn(name) {
   let fresh;
   let leaver;
   let bots;
+  let botProgram;
   const errors = [];
   try {
     await waitFor(server.output, "/invite/", "the server");
@@ -771,7 +774,103 @@ async function runIn(name) {
     await again.locator(".settings-nav-item", { hasText: "Members" }).click();
     await again.locator(".device-row.is-button", { hasText: "Lee Leaving" }).waitFor({ timeout: 10_000 });
     check("an unban takes them off Bans and back onto Members", true);
-    await again.keyboard.press("Escape");
+
+    // A bot: made in the server's settings, set up by zuna-bot with the link shown once, and then a chat like any other.
+    const zunaBot = join(root, "dist", "bot", "zuna-bot.mjs");
+    if (!existsSync(zunaBot)) {
+      notes.push(`${name}: bots weren't checked, as zuna-bot isn't built (npm run build:bot)`);
+      await again.keyboard.press("Escape");
+    } else {
+      await again.locator(".settings-nav-item", { hasText: "Bots" }).click();
+      await again.getByRole("button", { name: "New bot" }).click();
+      await fill(again.getByLabel("Name", { exact: true }), "Check Bot");
+      await fill(again.getByLabel("Username"), "check.bot");
+      await again.getByRole("switch", { name: "List it for everyone" }).click();
+      await again.getByRole("button", { name: "Make the bot" }).click();
+      const command = await again.locator(".bot-setup .invite-link span").innerText({ timeout: 10_000 });
+      const setupLink = /^zuna-bot init "(.+)"$/.exec(command)?.[1] ?? "";
+      check("a new bot's setup link is shown, as the command to run", setupLink.includes("#k=") && setupLink.includes("&bot="), command.slice(0, 50));
+      await sleep(300);
+      await again.screenshot({ path: prefix("08c-bot-link") });
+      // zuna-bot, as its owner runs it on the bot's machine, and a call to its API as the bot's code makes one.
+      const botData = mkdtempSync(join(tmpdir(), "zuna-web-bot-"));
+      execFileSync(process.execPath, [zunaBot, "init", setupLink, "--data", botData], { stdio: "pipe" });
+      const botPort = randomPort();
+      botProgram = start(process.execPath, [zunaBot, "run", "--data", botData, "--port", String(botPort)]);
+      await waitFor(botProgram.output, "API is at", "zuna-bot");
+      const botToken = readFileSync(join(botData, "token"), "utf8").trim();
+      const botApi = async (method, params = {}) =>
+        (await fetch(`http://127.0.0.1:${botPort}/bot${botToken}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) })).json();
+      await again.getByRole("button", { name: "Done" }).click();
+      const botEntry = again.locator(".bot-entry", { hasText: "Check Bot" });
+      await botEntry.locator(".role-chip", { hasText: "Listed" }).waitFor({ timeout: 30_000 });
+      check("the bot is listed once its program has signed up", true);
+      await botApi("setMyCommands", { commands: [{ command: "start", description: "Say hello" }] });
+      await botEntry.locator(".device-row").click();
+      await again.locator(".bot-settings").getByRole("button", { name: "Message" }).click();
+      const botHead = again.locator(".chat-head");
+      await botHead.locator(".chat-status", { hasText: /^bot$/ }).waitFor({ timeout: 10_000 });
+      check("its chat says it's a bot, with its key checked against its link", (await botHead.locator(".bot-badge").count()) === 1 && (await botHead.locator(".conv-verified, [aria-label='Verified']").count()) >= 1);
+      // Typing "/" offers its commands, and what it's sent reaches its code.
+      await again.locator(".composer-input").click();
+      await again.keyboard.type("/");
+      const offered = again.locator(".suggestion", { hasText: "/start" });
+      await offered.waitFor({ timeout: 10_000 });
+      check("typing / offers the bot's commands", (await offered.innerText()).includes("Say hello"));
+      await again.keyboard.press("Enter");
+      await again.keyboard.press("Enter");
+      let heard;
+      for (let i = 0; i < 100 && !heard; i++) {
+        heard = (await botApi("getUpdates")).result.find((update) => update.message?.text === "/start");
+        if (!heard) await sleep(100);
+      }
+      check("the bot's code gets the command, marked as one", heard?.message.entities?.[0]?.type === "bot_command" && heard.message.from.username === "alex", JSON.stringify(heard?.message ?? null).slice(0, 120));
+      // Its answer comes with buttons: one that goes back to it, and one that's a link.
+      await botApi("sendMessage", {
+        chat_id: heard.message.chat.id,
+        text: "<b>Pick</b> one",
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "Yes", callback_data: "yes" }, { text: "Docs", url: "https://example.com/docs" }]] },
+      });
+      const answer = again.locator(".msg", { hasText: "Pick one" });
+      await answer.locator(".msg-button").first().waitFor({ timeout: 15_000 });
+      const linkButton = answer.locator("a.msg-button");
+      check(
+        "a bot's message comes with its buttons, a link opening as a link does",
+        (await answer.locator(".msg-button").count()) === 2 && (await linkButton.getAttribute("href")) === "https://example.com/docs" && (await linkButton.getAttribute("rel")) === "noreferrer noopener" && (await answer.locator("strong").innerText()) === "Pick",
+      );
+      await sleep(300);
+      await again.screenshot({ path: prefix("08c-bot-chat") });
+      const before = await again.locator(".msg").count();
+      await answer.locator("button.msg-button", { hasText: "Yes" }).click();
+      let pressed;
+      for (let i = 0; i < 100 && !pressed; i++) {
+        pressed = (await botApi("getUpdates", { offset: heard.update_id + 1 })).result.find((update) => update.callback_query);
+        if (!pressed) await sleep(100);
+      }
+      check("a press goes back to the bot's code, and shows nothing in the chat", pressed?.callback_query.data === "yes" && pressed.callback_query.from.username === "alex" && (await again.locator(".msg").count()) === before);
+      // It has a tab of its own in the list, and isn't one of the people.
+      await again.getByRole("tab", { name: "People" }).click();
+      const amongPeople = await again.locator(".conv-row", { hasText: "Check Bot" }).count();
+      await again.getByRole("tab", { name: "Bots" }).click();
+      check("bots have a tab of their own, apart from people", amongPeople === 0 && (await again.locator(".conv-row", { hasText: "Check Bot" }).locator(".bot-badge").count()) === 1);
+      await again.getByRole("tab", { name: "All" }).click();
+      // Deleting it signs its program out, and says so wherever it was.
+      await again.locator(".server-title").click();
+      await again.getByRole("menuitem", { name: "Server settings" }).click();
+      await again.locator(".settings-nav-item", { hasText: "Bots" }).click();
+      await again.locator(".bot-entry", { hasText: "Check Bot" }).locator(".device-row").click();
+      await again.getByRole("button", { name: "Delete bot" }).click();
+      await again.locator(".modal").getByRole("button", { name: "Delete bot" }).click();
+      await again.getByText("No bots yet.").waitFor({ timeout: 15_000 });
+      await waitFor(botProgram.output, "ended this bot's session", "zuna-bot hearing its bot is gone");
+      check("deleting a bot takes it off the list and signs its program out", true);
+      await again.keyboard.press("Escape");
+      stop(botProgram);
+      botProgram = undefined;
+      await sleep(200);
+      rmSync(botData, { recursive: true, force: true });
+    }
     await gone.getByRole("button", { name: "Remove from this device" }).click();
     await gone.getByRole("button", { name: "Sign in", exact: true }).click();
     await fill(gone.getByLabel("Server address"), serverUrl);
@@ -820,6 +919,7 @@ async function runIn(name) {
     await fresh?.close().catch(() => undefined);
     await leaver?.close().catch(() => undefined);
     stop(bots);
+    stop(botProgram);
     stop(web);
     stop(server);
     stop(liveKit);

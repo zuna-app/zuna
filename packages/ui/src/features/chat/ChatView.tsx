@@ -14,6 +14,7 @@ import { VoiceStage } from "@/features/voice/VoiceStage";
 import { useVoice } from "@/voice/store";
 import { Composer, type ComposerHandle } from "./Composer";
 import { MemberList } from "./MemberList";
+import { BotBadge } from "@/components/ui";
 import { MessageList } from "./MessageList";
 import { SidePanel } from "./SidePanel";
 
@@ -50,6 +51,8 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   if (conversation.peerId === server?.self?.userId) return <span key="status" className={statusClass}>Notes to yourself</span>;
   if (peer?.deleted) return <span key="status" className={statusClass}>Deleted their account</span>;
   if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
+  // Nobody is using a bot, so it's never online, and was never last seen.
+  if (peer?.bot) return <span key="status" className={statusClass}>bot</span>;
   if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
   return (
     <span key="status" className={statusClass}>
@@ -60,7 +63,8 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
 
 /** Whether a call can be started here: a direct message with someone else, or a group still had. */
 function canCall(conversation: ConversationView, selfId: string | undefined, peerGone: boolean): boolean {
-  if (conversation.kind === "dm") return !!conversation.peerId && conversation.peerId !== selfId && !conversation.blocked && !peerGone && !conversation.removed;
+  // A bot stays out of calls.
+  if (conversation.kind === "dm") return !!conversation.peerId && conversation.peerId !== selfId && !conversation.bot && !conversation.blocked && !peerGone && !conversation.removed;
   return conversation.kind === "group" && !conversation.removed;
 }
 
@@ -413,6 +417,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
               <span className="chat-names">
                 <span className="chat-title truncate">
                   {conversation.title}
+                  {conversation.bot && <> <BotBadge /></>}
                   {peer?.trust === "verified" && !isSaved && (
                     <Tooltip text="Security key verified">
                       <BadgeCheck size={14} className="conv-verified" />
@@ -504,7 +509,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         {isChannel && <ChannelTyping conversation={conversation} />}
       </div>
 
-      {panel ? <SidePanel conversation={conversation} /> : isChannel && !voice && showMembers && <MemberList />}
+      {panel ? <SidePanel conversation={conversation} /> : isChannel && !voice && showMembers && <MemberList members={conversation.members} />}
 
       {dragging && (
         <div

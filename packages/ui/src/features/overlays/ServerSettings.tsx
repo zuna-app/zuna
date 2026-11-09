@@ -1,8 +1,9 @@
 import type { BanView, ReportView, UserView } from "@zuna/core";
-import { AudioLines, Ban, Crown, Flag, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
+import { AudioLines, Ban, Bot, Crown, Flag, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
-import { Avatar, Confirm, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
+import { Avatar, BotBadge, Confirm, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
+import { BotsSection } from "@/features/bots/BotsSection";
 import { formatFull } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
 import { REPORT_REASON_LABELS } from "@/lib/report";
@@ -277,7 +278,7 @@ function MembersSection() {
           >
             <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={36} online={user.online} />
             <span className="grow">
-              <span style={{ display: "block", fontWeight: 500 }}>{user.displayName}</span>
+              <span style={{ display: "block", fontWeight: 500 }}>{user.displayName}{user.bot && <> <BotBadge /></>}</span>
               <span className="faint" style={{ fontSize: 12 }}>@{user.username}</span>
             </span>
             {user.role !== "member" && (
@@ -294,7 +295,8 @@ function MembersSection() {
           y={menu.y}
           onClose={() => setMenu(null)}
           entries={[
-            ...(selfRole === "owner"
+            // A bot is never one of the server's admins.
+            ...(selfRole === "owner" && !target.bot
               ? [{
                   label: target.role === "admin" ? "Remove admin" : "Make admin",
                   icon: <Crown size={15} />,
@@ -527,6 +529,8 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
 export function ServerSettings({ initialSection, onClose }: { initialSection?: string; onClose: () => void }) {
   const server = useActiveServer();
   const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  // For whoever may make a bot, and whoever has one already.
+  const hasBots = isAdmin || !!server?.info?.allow_member_bots || Object.values(server?.users ?? {}).some((user) => user.bot?.ownerId === server?.self?.userId && !user.deleted);
   const [section, setSection] = useState(initialSection ?? (isAdmin ? "overview" : "leave"));
   const sections = [
     ...(isAdmin
@@ -542,6 +546,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
           { id: "screen", label: "Screen sharing", icon: MonitorUp },
         ]
       : []),
+    ...(hasBots ? [{ id: "bots", label: "Bots", icon: Bot }] : []),
     { id: "leave", label: "Sign out", icon: LogOut, danger: true },
     { id: "delete", label: "Delete account", icon: Trash2, danger: true },
   ];
@@ -556,6 +561,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
       {section === "soundboard" && <ServerSoundboardSection />}
       {section === "storage" && <StorageSection />}
       {section === "screen" && <ServerScreenSection />}
+      {section === "bots" && <BotsSection />}
       {section === "leave" && <LeaveSection onClose={onClose} />}
       {section === "delete" && <DeleteAccountSection onClose={onClose} />}
     </SettingsFrame>

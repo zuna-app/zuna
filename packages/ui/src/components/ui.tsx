@@ -140,6 +140,11 @@ export function ConfirmPasswordField({
   );
 }
 
+/** Marks a bot, wherever its name shows: an account a program runs, which reads the chats it's in. */
+export function BotBadge() {
+  return <span className="bot-badge">Bot</span>;
+}
+
 export function Switch({ on, onChange, label }: { on: boolean; onChange: (value: boolean) => void; label?: string }) {
   return (
     <button role="switch" aria-checked={on} aria-label={label} className={`switch${on ? " is-on" : ""}`} onClick={() => onChange(!on)}>

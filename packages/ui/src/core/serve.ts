@@ -76,6 +76,7 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
       const client = new ZunaClient({
         channels: true,
         calls: true,
+        bots: true,
         db,
         deviceKey: boot.deviceKey,
         deviceName: boot.deviceName,
