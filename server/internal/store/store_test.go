@@ -444,6 +444,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE group_members DROP COLUMN history_wanted;
 		ALTER TABLE push_registrations DROP COLUMN filters;
 		ALTER TABLE push_registrations DROP COLUMN call_handle;
+		ALTER TABLE push_registrations DROP COLUMN notified;
 		DROP TABLE sounds;
 		ALTER TABLE vault_items DROP COLUMN version;
 		ALTER TABLE users DROP COLUMN deleted_at;

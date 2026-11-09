@@ -504,4 +504,9 @@ CREATE TABLE bot_channels (
 	channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
 	PRIMARY KEY (bot_id, channel_id)
 );
+`, `
+-- The groups a phone was sent a notification for and hasn't been told to clear,
+-- comma-separated. They were only kept in memory, so after a restart a chat read
+-- elsewhere left its notification on the phone.
+ALTER TABLE push_registrations ADD COLUMN notified TEXT NOT NULL DEFAULT '';
 `}

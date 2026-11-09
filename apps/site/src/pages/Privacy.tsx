@@ -54,7 +54,7 @@ export function Privacy() {
             first with Apple through a silent push with nothing in it, and hands both back sealed with its own key, as a different handle for each of your
             servers, and keeps no list of them. Servers only ever see the handles, and can't tell that theirs are for the same phone.
           </li>
-          <li>When a server sends a push, a handle and a payload that the server sealed for your phone, holding nothing but a conversation's and a message's IDs.</li>
+          <li>When a server sends a push, a handle and a payload that the server sealed for your phone, holding nothing but a conversation's and a message's IDs, or, to clear a notification, which conversation was read on another device and when.</li>
         </ul>
         <h3>What it can tell</h3>
         <p>

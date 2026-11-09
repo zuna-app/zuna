@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ type relayPush struct {
 	Type       string            `json:"type"`
 	Data       map[string]string `json:"data"`
 	CollapseID string            `json:"collapse_id"`
+	// When it reached the relay.
+	at time.Time
 }
 
 // fakeRelay records pushes, answering 410 Gone while gone is set.
@@ -34,6 +37,11 @@ type fakeRelay struct {
 	*httptest.Server
 	pushes chan relayPush
 	gone   atomic.Bool
+	// busy is how many pushes it still answers 503, refused whether it answers 400,
+	// and slow how long it takes over each, in ns.
+	busy    atomic.Int32
+	refused atomic.Bool
+	slow    atomic.Int64
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
@@ -44,12 +52,19 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		push.at = time.Now()
 		relay.pushes <- push
-		if relay.gone.Load() {
+		time.Sleep(time.Duration(relay.slow.Load()))
+		switch {
+		case relay.gone.Load():
 			w.WriteHeader(http.StatusGone)
-			return
+		case relay.refused.Load():
+			w.WriteHeader(http.StatusBadRequest)
+		case relay.busy.Add(-1) >= 0:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusOK)
 		}
-		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(relay.Close)
 	return relay
@@ -395,4 +410,189 @@ func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
 	relay.none(t)
 	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
 	relay.none(t)
+}
+
+// notifiedChats is what a phone is told it's still counted as showing.
+func (c *client) notifiedChats() []string {
+	c.h.t.Helper()
+	var listed struct {
+		Groups []string `json:"groups"`
+	}
+	c.h.mustDo("GET", "/api/push/notified", c.token, nil, &listed)
+	return listed.Groups
+}
+
+func TestAPhoneInUseIsClearedOfWhatItShowedItself(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	key := bytesOf(32, 5)
+	bob.registerPush(relay.URL, "bob-phone", key, store.NewID(), nil)
+	if listed := bob.notifiedChats(); len(listed) != 0 {
+		t.Fatalf("notified about %v before anything was sent", listed)
+	}
+
+	// In use, the phone shows the message itself, and nothing is pushed.
+	phoneSocket := bob.connect()
+	phoneSocket.setActive(true)
+	phoneSocket.waitFor("activity")
+	before := store.Now()
+	owner.send(group.ID, 1, store.NewID())
+	relay.none(t)
+	waitUntil(t, "the phone to count as showing it", func() bool { return fmt.Sprint(bob.notifiedChats()) == fmt.Sprint([]string{group.ID}) })
+	if listed := laptop.notifiedChats(); len(listed) != 0 {
+		t.Fatalf("a device that isn't a phone is counted as showing %v", listed)
+	}
+
+	// Read at the laptop, it goes from the phone as one pushed would, with when it was read.
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	read := relay.next(t)
+	fields := openPush(t, key, read)
+	if read.Type != "background" || fields["t"] != "read" || fields["g"] != group.ID {
+		t.Fatalf("read push: %+v %v", read, fields)
+	}
+	if at, _ := strconv.ParseInt(fields["a"], 10, 64); at < before || at > store.Now() {
+		t.Fatalf("read at %q, between %d and %d", fields["a"], before, store.Now())
+	}
+	if listed := bob.notifiedChats(); len(listed) != 0 {
+		t.Fatalf("still counted as showing %v", listed)
+	}
+}
+
+func TestWhatPhonesWereNotifiedAboutOutlastsARestart(t *testing.T) {
+	relay := newFakeRelay(t)
+	configure := func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} }
+	h := newHarness(t, configure)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	key := bytesOf(32, 5)
+	registration := store.NewID()
+	bob.registerPush(relay.URL, "bob-phone", key, registration, nil)
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	// Registering again, as the app does each time it connects, forgets nothing.
+	bob.registerPush(relay.URL, "bob-phone", key, registration, nil)
+
+	// The server starts again, with the same database.
+	cfg := api.Config{DataDir: h.dir, PublicURL: "http://test", Version: "test"}
+	configure(&cfg)
+	again := httptest.NewServer(api.New(cfg, h.db).Handler())
+	t.Cleanup(func() {
+		again.CloseClientConnections()
+		again.Close()
+	})
+	h.url = again.URL
+	if listed := bob.notifiedChats(); fmt.Sprint(listed) != fmt.Sprint([]string{group.ID}) {
+		t.Fatalf("after a restart the phone counts as showing %v", listed)
+	}
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	if read := relay.next(t); read.Type != "background" || openPush(t, key, read)["t"] != "read" {
+		t.Fatalf("read push: %+v", read)
+	}
+
+	// Turning notifications off forgets them.
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	h.mustDo("DELETE", "/api/push", bob.token, nil, nil)
+	if listed := bob.notifiedChats(); len(listed) != 0 {
+		t.Fatalf("with notifications off, still counted as showing %v", listed)
+	}
+}
+
+func TestHeldPushesGoOutAsTheServerStops(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.PushRelays = []string{relay.URL}
+		cfg.PushWait = time.Minute
+	})
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	key := bytesOf(32, 5)
+	bob.registerPush(relay.URL, "bob-phone", key, store.NewID(), nil)
+	laptopSocket := laptop.connect()
+	laptopSocket.setActive(true)
+	laptopSocket.waitFor("activity")
+
+	id := store.NewID()
+	owner.send(group.ID, 1, id)
+	relay.none(t)
+
+	// Nothing would send it after a restart, so it goes now.
+	h.srv.CloseSockets()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h.srv.Wait(ctx)
+	select {
+	case push := <-relay.pushes:
+		if push.Type != "alert" || openPush(t, key, push)["m"] != id {
+			t.Fatalf("pushed %+v", push)
+		}
+	default:
+		t.Fatal("the server stopped without sending what it held back")
+	}
+}
+
+func TestAPushTheRelayDoesntTakeIsSentAgain(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	key := bytesOf(32, 5)
+	bob.registerPush(relay.URL, "bob-phone", key, store.NewID(), nil)
+
+	// Busy for a moment, the relay is asked again, for the same notification.
+	relay.busy.Store(1)
+	id := store.NewID()
+	owner.send(group.ID, 1, id)
+	first := relay.next(t)
+	second := relay.next(t)
+	if openPush(t, key, second)["m"] != id || second.CollapseID != first.CollapseID || second.at.Sub(first.at) < 500*time.Millisecond {
+		t.Fatalf("sent again as %+v, after %+v", second, first)
+	}
+	relay.none(t)
+
+	// Refused, it isn't.
+	relay.refused.Store(true)
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	select {
+	case push := <-relay.pushes:
+		t.Fatalf("a push the relay refused was sent again: %+v", push)
+	case <-time.After(1500 * time.Millisecond):
+	}
+}
+
+func TestAPhonesPushesArriveInTheOrderTheyWereMade(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	bob.registerPush(relay.URL, "bob-phone", bytesOf(32, 5), store.NewID(), nil)
+
+	// A chat read while its notification is still on its way to the relay: the phone has
+	// to hear of the message first, or it clears nothing and then shows it for good.
+	const slow = 400 * time.Millisecond
+	relay.slow.Store(int64(slow))
+	owner.send(group.ID, 1, store.NewID())
+	alert := relay.next(t)
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	read := relay.next(t)
+	if alert.Type != "alert" || read.Type != "background" || read.at.Sub(alert.at) < slow-50*time.Millisecond {
+		t.Fatalf("the read left %v after the message's push reached the relay, which took %v over it", read.at.Sub(alert.at), slow)
+	}
 }

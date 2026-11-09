@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -153,11 +154,16 @@ type Server struct {
 	stopping bool
 
 	pushClient *http.Client
-	pushQueue  chan pushJob
+	// One queue for each sender, and a phone's pushes always in the same one.
+	pushQueues [pushConcurrency]chan pushJob
 	pushers    sync.Once
-	notified   notifiedChats
-	waiting    waitingPushes
-	rings      ringPushes
+	// How many pushes are waiting or on their way, and until when (Unix ms) one the
+	// relay doesn't take is given up at once.
+	pushing     atomic.Int64
+	pushTrouble atomic.Int64
+	notified    notifiedChats
+	waiting     waitingPushes
+	rings       ringPushes
 }
 
 // New makes a server. A trusted proxy that can't be read is a mistake in the
@@ -217,12 +223,15 @@ func New(cfg Config, db *store.DB) *Server {
 		soundLimiter:      ratelimit.NewKeyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
 		liveKit:           &http.Client{Timeout: liveKitTimeout},
 		pushClient:        &http.Client{Timeout: pushTimeout},
-		pushQueue:         make(chan pushJob, pushQueueLength),
 
 		reportLimiter:       ratelimit.NewKeyed(rate.Every(time.Hour), 10),
 		reportTargetLimiter: ratelimit.NewKeyed(rate.Every(24*time.Hour), 1),
 	}
+	for i := range s.pushQueues {
+		s.pushQueues[i] = make(chan pushJob, pushQueueLength)
+	}
 	s.restoreSignInAttempts(context.Background())
+	s.restoreNotified(context.Background())
 	return s
 }
 
@@ -294,6 +303,9 @@ func (s *Server) Wait(ctx context.Context) {
 	case <-ctx.Done():
 	}
 	// Even once the wait is over, before the database closes.
+	pushes, sent := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer sent()
+	s.finishPushes(pushes)
 	seeOff, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	s.hub.seeOff(seeOff)
@@ -335,6 +347,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/devices/{id}", s.withDevice(s.proven(s.handleRevokeDevice)))
 	mux.HandleFunc("PUT /api/push", s.withDevice(s.handleSetPush))
 	mux.HandleFunc("DELETE /api/push", s.withDevice(s.handleDeletePush))
+	mux.HandleFunc("GET /api/push/notified", s.withDevice(s.handleNotified))
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))
 	mux.HandleFunc("POST /api/key-packages", s.withDevice(s.handleAddKeyPackages))
 	mux.HandleFunc("POST /api/users/{id}/key-packages/claim", s.withDevice(s.handleClaimKeyPackages))

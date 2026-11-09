@@ -79,6 +79,31 @@ func (d *DB) DeletePushRegistration(ctx context.Context, deviceID, handle string
 	return err
 }
 
+// SetPushNotified keeps the groups a device was sent a notification for and hasn't
+// been told to clear, for as long as it's registered.
+func (d *DB) SetPushNotified(ctx context.Context, deviceID string, groupIDs []string) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE push_registrations SET notified = ? WHERE device_id = ?`, strings.Join(groupIDs, ","), deviceID)
+	return err
+}
+
+// PushNotified lists those groups for every registered device that has any.
+func (d *DB) PushNotified(ctx context.Context) (map[string][]string, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT device_id, notified FROM push_registrations WHERE notified != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	notified := map[string][]string{}
+	for rows.Next() {
+		var deviceID, groups string
+		if err := rows.Scan(&deviceID, &groups); err != nil {
+			return nil, err
+		}
+		notified[deviceID] = strings.Split(groups, ",")
+	}
+	return notified, rows.Err()
+}
+
 // PushTargets lists the registered devices to wake for a new message in a
 // group: the other members' devices that are signed in and haven't muted it.
 // With onlyFiltering, only those whose app hides what it shouldn't show.

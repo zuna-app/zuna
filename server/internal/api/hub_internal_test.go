@@ -15,7 +15,10 @@ func TestASlowRelayDoesntPileUpWork(t *testing.T) {
 	relay := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
 	defer relay.Close()
 	defer close(release)
-	s := &Server{pushClient: relay.Client(), pushQueue: make(chan pushJob, 8)}
+	s := &Server{pushClient: relay.Client()}
+	for i := range s.pushQueues {
+		s.pushQueues[i] = make(chan pushJob, 8)
+	}
 	target := store.PushRegistration{Relay: relay.URL, Key: make([]byte, 32)}
 	before := runtime.NumGoroutine()
 	for range 5000 {

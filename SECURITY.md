@@ -32,7 +32,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Channels** | That each exists, who made it, whether it's for text or voice, its place in the list, and its rules, such as how many fit and its slow mode | Its name, topic, heading and audio quality, and everything said in it |
 | **Soundboard** | How many sounds there are, who added each and how big its file is, and when someone played one | What each is called and sounds like, and which was played |
 | **Presence** | Online status, last seen, and which of your devices you're using and when you last used each | Hidden from other members if you choose, but not from the server. As on Telegram, whoever sees you write, type or read their messages sees you online for 30 seconds after, in their own app |
-| **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, and that a chat was read | What a push is about |
+| **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, which chats each phone was notified about since they were last read, and that a chat was read | What a push is about |
 | **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |

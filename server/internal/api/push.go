@@ -11,9 +11,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"hash/fnv"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +35,10 @@ import (
 // chat is still unread and the message still there. When a chat is read or a
 // message deleted, a silent push tells the phones that showed a notification
 // for it to clear it.
+//
+// iOS delivers a silent push when it likes, or never, as to an app its person
+// closed, so each phone can also ask which chats it's still counted as showing
+// (handleNotified) and clear the rest, whenever something does wake it.
 
 const (
 	maxPushHandle   = 4096
@@ -42,6 +48,12 @@ const (
 	// Past this a relay is far behind, and a notification is the one thing here that
 	// can go missing: the message itself is waiting on the server.
 	pushQueueLength = 4096
+	// A relay restarting, or a request lost on the way, takes a push a moment later. One
+	// that waited this long for an answer already isn't sent again: it may have arrived.
+	pushRetryWithin = 10 * time.Second
+	// After a push the relay didn't take however often it was sent, the ones behind it
+	// are sent once each for this long, so they don't all wait as it did.
+	pushTroubleFor = 30 * time.Second
 	// Telegram's online_cloud_timeout_ms: being on another device this recently
 	// still holds a device's notifications back.
 	elsewhereRecently = 5 * time.Minute
@@ -114,7 +126,16 @@ func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *
 		writeFailure(w, err)
 		return
 	}
+	s.notified.forget(sess.DeviceID)
 	writeOK(w)
+}
+
+// handleNotified lists the chats this phone still counts as showing a notification
+// for: those it was pushed one for, or left to show one itself, and hasn't been
+// told to clear. Whatever it shows for another chat was read elsewhere since, which
+// the silent push that never reached it would have said.
+func (s *Server) handleNotified(w http.ResponseWriter, _ *http.Request, sess *store.Session) {
+	writeJSON(w, http.StatusOK, map[string]any{"groups": s.notified.list(sess.DeviceID)})
 }
 
 // pushMessage wakes the other members' phones for a new message, in the
@@ -137,6 +158,8 @@ func (s *Server) pushMessage(groupID string, channel bool, message *store.Messag
 		for _, target := range targets {
 			wait, inUse := s.hub.pushWait(target.UserID, target.DeviceID, s.pushWait())
 			if inUse {
+				// It shows the message itself, which a read elsewhere clears as it would one pushed.
+				s.notified.add(target.DeviceID, groupID)
 				continue
 			}
 			send := func() {
@@ -144,7 +167,10 @@ func (s *Server) pushMessage(groupID string, channel bool, message *store.Messag
 				s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, collapseID(target.Key, message.ID))
 			}
 			if wait == 0 {
-				send()
+				// Read in the moment it took to find whom to push, there's nothing to say.
+				if !s.waiting.readSince(groupID, target.UserID, sent) {
+					send()
+				}
 				continue
 			}
 			s.waiting.hold(groupID, target.UserID, message.ID, sent, wait, func() {
@@ -176,12 +202,14 @@ func collapseID(key []byte, messageID string) string {
 
 // pushRead tells someone's other phones that a chat was read, so they clear
 // its notifications. Only phones that showed one for it are told. What was
-// waiting for it isn't sent.
+// waiting for it isn't sent. The push says when, by this server's clock, as a
+// message's time is: iOS may hand a silent push over late, after a newer message's
+// notification, which is then left alone.
 func (s *Server) pushRead(userID, readingDevice, groupID string) {
 	s.waiting.read(groupID, userID)
 	// The phone that read it has cleared its own, so the next read elsewhere needn't wake it.
 	s.notified.remove(readingDevice, groupID)
-	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID}, true)
+	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID, "a": strconv.FormatInt(store.Now(), 10)}, true)
 }
 
 // pushDeletion tells the members' phones that showed a notification for the
@@ -230,53 +258,102 @@ type pushJob struct {
 	collapseID string
 }
 
+// push sends one in the background. A phone's pushes go one after another, in the order
+// they were made, so that a chat read right after its message arrived is cleared once
+// the notification is there, not before. Phones share the senders between them.
 func (s *Server) push(target store.PushRegistration, kind pushKind, fields map[string]string, collapseID string) {
 	s.pushers.Do(func() {
-		for range pushConcurrency {
+		for _, queue := range s.pushQueues {
 			go func() {
-				for job := range s.pushQueue {
-					s.sendPush(job.target, job.kind, job.fields, job.collapseID)
+				for job := range queue {
+					s.sendPush(job)
+					s.pushing.Add(-1)
 				}
 			}()
 		}
 	})
+	device := fnv.New32a()
+	device.Write([]byte(target.DeviceID))
+	s.pushing.Add(1)
 	select {
-	case s.pushQueue <- pushJob{target, kind, fields, collapseID}:
+	case s.pushQueues[device.Sum32()%pushConcurrency] <- pushJob{target, kind, fields, collapseID}:
 	default:
+		s.pushing.Add(-1)
 		slog.Warn("too many notifications waiting, so one was dropped", "relay", target.Relay)
 	}
 }
 
-func (s *Server) sendPush(target store.PushRegistration, kind pushKind, fields map[string]string, collapseID string) {
-	sealed, err := sealPush(target.Key, target.Registration, fields)
+// How long a push the relay didn't take waits before it's sent again, each time.
+var pushRetries = []time.Duration{time.Second, 3 * time.Second}
+
+func (s *Server) sendPush(job pushJob) {
+	target := job.target
+	sealed, err := sealPush(target.Key, target.Registration, job.fields)
 	if err != nil {
 		slog.Warn("sealing a push", "error", err)
 		return
 	}
 	body, _ := json.Marshal(map[string]any{
 		"handle":      target.Handle,
-		"type":        kind,
+		"type":        job.kind,
 		"data":        map[string]string{"r": target.Registration, "p": base64.StdEncoding.EncodeToString(sealed)},
-		"collapse_id": collapseID,
+		"collapse_id": job.collapseID,
 	})
+	started := time.Now()
+	for attempt := 0; ; attempt++ {
+		status, err := s.postPush(target.Relay, body)
+		if err == nil && status == http.StatusGone {
+			// The relay says the phone can't be reached any more, such as after the app was deleted.
+			s.notified.forget(target.DeviceID)
+			if err := s.db.DeletePushRegistration(context.Background(), target.DeviceID, target.Handle); err != nil {
+				slog.Warn("forgetting a phone that's gone", "error", err)
+			}
+			return
+		}
+		if err == nil && status < 300 {
+			s.pushTrouble.Store(0)
+			return
+		}
+		// Busy, restarting or out of reach, it may take it in a moment. Refused, it won't.
+		passing := err != nil || status == http.StatusTooManyRequests || status >= 500
+		if !passing || attempt == len(pushRetries) || time.Since(started) > pushRetryWithin || time.Now().UnixMilli() < s.pushTrouble.Load() {
+			// The relay's own log only has what reached it and Apple then refused.
+			slog.Warn("a push wasn't taken", "relay", target.Relay, "kind", job.kind, "status", status, "error", err, "tries", attempt+1)
+			if passing {
+				s.pushTrouble.Store(time.Now().Add(pushTroubleFor).UnixMilli())
+			}
+			return
+		}
+		time.Sleep(pushRetries[attempt])
+	}
+}
+
+// postPush hands a push to a relay, and says what it answered.
+func (s *Server) postPush(relay string, body []byte) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Relay+"/v1/push", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, relay+"/v1/push", bytes.NewReader(body))
 	if err != nil {
-		return
+		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := s.pushClient.Do(request)
 	if err != nil {
-		slog.Warn("sending a push", "relay", target.Relay, "error", err)
-		return
+		return 0, err
 	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusGone {
-		// The relay says the phone can't be reached any more, such as after the app was deleted.
-		s.notified.forget(target.DeviceID)
-		if err := s.db.DeletePushRegistration(context.Background(), target.DeviceID, target.Handle); err != nil {
-			slog.Warn("forgetting a phone that's gone", "error", err)
+	response.Body.Close()
+	return response.StatusCode, nil
+}
+
+// finishPushes sends what was held back for people at another device, which nothing
+// would send after a restart, and waits until ctx ends for every push on its way.
+func (s *Server) finishPushes(ctx context.Context) {
+	s.waiting.release()
+	for s.pushing.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Millisecond):
 		}
 	}
 }
@@ -300,18 +377,65 @@ func sealPush(key []byte, registration string, fields map[string]string) ([]byte
 	return aead.Seal(nonce, nonce, plaintext, pushLabel(registration)), nil
 }
 
-// notifiedChats remembers which chats each phone was sent a notification for
-// since it last cleared them, so silent pushes only go where there's
-// something to clear. It's kept in memory: after a restart, a phone may keep a
-// notification until it opens the app.
+// notifiedChats remembers which chats each phone was sent a notification for, or
+// left to show one for itself, since it last cleared them, so silent pushes only go
+// where there's something to clear. A change is written to the database before
+// anything acts on it, so a restart forgets none.
 type notifiedChats struct {
 	mu    sync.Mutex
 	chats map[string]map[string]struct{}
+	// save keeps a device's chats in the database.
+	save func(deviceID string, groupIDs []string)
+}
+
+// restoreNotified reads which chats each phone was notified about before the server
+// last stopped, and has every change after written down.
+func (s *Server) restoreNotified(ctx context.Context) {
+	kept, err := s.db.PushNotified(ctx)
+	if err != nil {
+		slog.Warn("loading which chats phones were notified about", "error", err)
+	}
+	s.notified.restore(kept)
+	s.notified.save = func(deviceID string, groupIDs []string) {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		if err := s.db.SetPushNotified(ctx, deviceID, groupIDs); err != nil {
+			slog.Warn("keeping which chats a phone was notified about", "error", err)
+		}
+	}
+}
+
+// restore takes what the database kept, as the server starts.
+func (n *notifiedChats) restore(kept map[string][]string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.chats = map[string]map[string]struct{}{}
+	for deviceID, groupIDs := range kept {
+		n.chats[deviceID] = map[string]struct{}{}
+		for _, groupID := range groupIDs {
+			n.chats[deviceID][groupID] = struct{}{}
+		}
+	}
+}
+
+// keep writes a device's chats down. The caller holds n.mu, so they're written in the order they changed.
+func (n *notifiedChats) keep(deviceID string) {
+	if n.save == nil {
+		return
+	}
+	groupIDs := make([]string, 0, len(n.chats[deviceID]))
+	for groupID := range n.chats[deviceID] {
+		groupIDs = append(groupIDs, groupID)
+	}
+	n.save(deviceID, groupIDs)
 }
 
 func (n *notifiedChats) add(deviceID, groupID string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if _, ok := n.chats[deviceID][groupID]; ok {
+		return
+	}
 	if n.chats == nil {
 		n.chats = map[string]map[string]struct{}{}
 	}
@@ -319,6 +443,7 @@ func (n *notifiedChats) add(deviceID, groupID string) {
 		n.chats[deviceID] = map[string]struct{}{}
 	}
 	n.chats[deviceID][groupID] = struct{}{}
+	n.keep(deviceID)
 }
 
 func (n *notifiedChats) has(deviceID, groupID string) bool {
@@ -328,17 +453,33 @@ func (n *notifiedChats) has(deviceID, groupID string) bool {
 	return ok
 }
 
+// list is a device's chats, in no order.
+func (n *notifiedChats) list(deviceID string) []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	groupIDs := make([]string, 0, len(n.chats[deviceID]))
+	for groupID := range n.chats[deviceID] {
+		groupIDs = append(groupIDs, groupID)
+	}
+	return groupIDs
+}
+
 func (n *notifiedChats) remove(deviceID, groupID string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if _, ok := n.chats[deviceID][groupID]; !ok {
+		return
+	}
 	delete(n.chats[deviceID], groupID)
 	if len(n.chats[deviceID]) == 0 {
 		delete(n.chats, deviceID)
 	}
+	n.keep(deviceID)
 }
 
 // forget drops what was sent to devices that are gone: signed out, removed,
-// banned, or no longer reachable through their relay.
+// banned, or no longer reachable through their relay. Their registrations, which
+// keep it in the database, went with them.
 func (n *notifiedChats) forget(deviceIDs ...string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -349,7 +490,7 @@ func (n *notifiedChats) forget(deviceIDs ...string) {
 
 // waitingPushes are notifications held back while someone is on another
 // device. Reading the chat or deleting the message lets them go unsent. They're
-// kept in memory: after a restart, one held then isn't sent.
+// kept in memory, so a server that's stopping sends them as it goes (release).
 type waitingPushes struct {
 	mu sync.Mutex
 	// By group, then by user.
@@ -366,6 +507,7 @@ const readsKept = time.Minute
 type waitingPush struct {
 	messageID string
 	timer     *time.Timer
+	send      func()
 }
 
 // hold sends a push for a message sent at a time after a while, unless the chat
@@ -382,13 +524,20 @@ func (w *waitingPushes) hold(groupID, userID, messageID string, sent time.Time, 
 	if w.chats[groupID] == nil {
 		w.chats[groupID] = map[string][]*waitingPush{}
 	}
-	push := &waitingPush{messageID: messageID}
+	push := &waitingPush{messageID: messageID, send: send}
 	push.timer = time.AfterFunc(wait, func() {
 		if w.take(groupID, userID, push) {
 			send()
 		}
 	})
 	w.chats[groupID][userID] = append(w.chats[groupID][userID], push)
+}
+
+// readSince reports whether someone read a chat after a time, of those read lately.
+func (w *waitingPushes) readSince(groupID, userID string, sent time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.reads[groupID+"|"+userID].After(sent)
 }
 
 // take removes a push whose time has come, reporting whether it was still waiting.
@@ -439,6 +588,28 @@ func (w *waitingPushes) deleted(groupID, messageID string) {
 			push.timer.Stop()
 			return true
 		}))
+	}
+}
+
+// release sends everything that's waiting now, rather than when its time comes.
+func (w *waitingPushes) release() {
+	w.mu.Lock()
+	var held []*waitingPush
+	for groupID, users := range w.chats {
+		for userID, waiting := range users {
+			// One whose time came this moment is being sent already, and stays for that.
+			w.set(groupID, userID, slices.DeleteFunc(waiting, func(push *waitingPush) bool {
+				if !push.timer.Stop() {
+					return false
+				}
+				held = append(held, push)
+				return true
+			}))
+		}
+	}
+	w.mu.Unlock()
+	for _, push := range held {
+		push.send()
 	}
 }
 
