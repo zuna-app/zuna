@@ -112,9 +112,16 @@ public final class CoreConnection: @unchecked Sendable {
     }
 
     /// Reads what kind of message came, and hands a reply over whole, for `call` to decode
-    /// its value from in one pass, or decodes an event, also in one pass.
+    /// its value from in one pass, or decodes an event, also in one pass. What kind it is
+    /// comes from its first bytes where the core wrote them as it always does, as reading
+    /// the envelope parses all of it: 2.2 ms for 530 conversations, and half of a small event.
     private func receive(_ json: String) {
         let data = Data(json.utf8)
+        if let id = Self.succeededReply(data) {
+            lock.withLock { pending.removeValue(forKey: id) }?.resume(returning: data)
+            return
+        }
+        if data.starts(with: Self.eventStart) { return event(data) }
         guard let envelope = try? Self.decoder.decode(Envelope.self, from: data) else { return }
         switch envelope.kind {
         case "reply":
@@ -129,20 +136,47 @@ public final class CoreConnection: @unchecked Sendable {
                 ))
             }
         case "event":
-            do {
-                let decoded = try Self.decoder.decode(EventMessage.self, from: data).event
-                #if DEBUG
-                if let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let event = message["event"],
-                   let eventData = try? JSONSerialization.data(withJSONObject: event) {
-                    report(Drift.missing(in: eventData, decodedAs: decoded), from: "event")
-                }
-                #endif
-                onEvent(decoded)
-            } catch {
-                logger.error("Couldn't decode an event: \(String(describing: error), privacy: .public)")
-            }
+            event(data)
         default:
             break
+        }
+    }
+
+    private func event(_ data: Data) {
+        do {
+            let decoded = try Self.decoder.decode(EventMessage.self, from: data).event
+            #if DEBUG
+            if let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let event = message["event"],
+               let eventData = try? JSONSerialization.data(withJSONObject: event) {
+                report(Drift.missing(in: eventData, decodedAs: decoded), from: "event")
+            }
+            #endif
+            onEvent(decoded)
+        } catch {
+            logger.error("Couldn't decode an event: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static let replyStart = Array(#"{"kind":"reply","id":"#.utf8)
+    private static let succeeded = Array(#","ok":true"#.utf8)
+    private static let eventStart = Array(#"{"kind":"event","#.utf8)
+
+    /// The id of a reply that went well, read from the start rpc.ts gives it,
+    /// `{"kind":"reply","id":7,"ok":true,...}`, or nil for anything else.
+    static func succeededReply(_ data: Data) -> Int? {
+        data.withUnsafeBytes { raw -> Int? in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            guard bytes.starts(with: replyStart) else { return nil }
+            var index = replyStart.count
+            var id = 0
+            while index < bytes.count, index - replyStart.count < 15, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[index]) {
+                id = id * 10 + Int(bytes[index] - UInt8(ascii: "0"))
+                index += 1
+            }
+            let end = index + succeeded.count
+            guard index > replyStart.count, end < bytes.count, bytes[index..<end].elementsEqual(succeeded),
+                  bytes[end] == UInt8(ascii: ",") || bytes[end] == UInt8(ascii: "}") else { return nil }
+            return id
         }
     }
 

@@ -38,6 +38,19 @@ final class CoreConnectionTests: XCTestCase {
         }
     }
 
+    func testReadsWhichCallAReplyIsForFromItsStart() {
+        let reply = { (json: String) in CoreConnection.succeededReply(Data(json.utf8)) }
+        XCTAssertEqual(reply(#"{"kind":"reply","id":7,"ok":true,"value":[1,2]}"#), 7)
+        XCTAssertEqual(reply(#"{"kind":"reply","id":1234,"ok":true}"#), 1234)
+        // Anything else is read whole.
+        XCTAssertNil(reply(#"{"kind":"reply","id":7,"ok":false,"error":{"message":"no"}}"#))
+        XCTAssertNil(reply(#"{"kind":"reply","id":7,"ok":truer}"#))
+        XCTAssertNil(reply(#"{"kind":"reply","id":,"ok":true}"#))
+        XCTAssertNil(reply(#"{"kind":"reply","ok":true,"id":7}"#))
+        XCTAssertNil(reply(#"{"kind":"event","event":{"type":"users","serverId":"s"}}"#))
+        XCTAssertNil(reply(#"{"kind":"reply","id":7"#))
+    }
+
     func testCallsFromSeveralTasksGetTheirOwnReplies() async throws {
         let connection = connection!
         try await withThrowingTaskGroup(of: Int.self) { group in
