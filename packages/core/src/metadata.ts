@@ -17,7 +17,6 @@ export interface ByteSource {
 }
 
 const VIDEO_NAMES = /\.(mp4|m4v|mov|3gp|3g2|webm|mkv)$/i;
-
 const SVG_LIMIT = 32 << 20;
 
 /** The file as it's sent: without its metadata when it's a kind this knows. */

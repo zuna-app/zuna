@@ -50,7 +50,6 @@ const EXPIRY_OPTIONS = [
   { label: "30 days", seconds: 2_592_000 },
   { label: "Never", seconds: 0 },
 ];
-
 const USE_OPTIONS = [
   { label: "1 use", value: 1 },
   { label: "5 uses", value: 5 },

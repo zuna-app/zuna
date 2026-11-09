@@ -19,11 +19,9 @@ const EDITOR_NAMESPACES = [
   "http://web.resource.org/cc/",
   "adobe:ns:meta/",
 ];
-
 const isEditorNamespace = (uri: string) => EDITOR_NAMESPACES.includes(uri) || uri.startsWith("http://ns.adobe.com/");
 
 const encoder = new TextEncoder();
-
 const decoder = new TextDecoder();
 
 /** Comments, metadata, and whatever drawing programs add for themselves go. The drawing stays as written. */

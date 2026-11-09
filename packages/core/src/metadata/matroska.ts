@@ -5,13 +5,9 @@ import { check, Reader, Output, Patches } from "./bytes";
 // --- Matroska and WebM ---
 
 const EBML_SEGMENT = 0x18538067;
-
 const EBML_INFO = 0x1549a966;
-
 const EBML_TAGS = 0x1254c367;
-
 const EBML_DATE = 0x4461;
-
 const EBML_TITLE = 0x7ba9;
 
 interface Element {

@@ -6,7 +6,6 @@ import { unreadable, check, ascii, asciiBytes, Reader, Output, Patches, orientat
 // --- HEIF, MP4 and QuickTime ---
 
 const HEIF_BRANDS = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "avif", "avis"]);
-
 /** How a QuickTime file with no type box can start. */
 export const QUICKTIME_FIRST = new Set(["moov", "mdat", "wide", "free", "skip"]);
 
@@ -167,7 +166,6 @@ async function samplesOf(reader: Reader, mediaBoxes: Box[]): Promise<[number, nu
 }
 
 const META_LIMIT = 16 << 20;
-
 const XMP_TYPES = new Set(["application/rdf+xml", "application/xmp+xml", "text/xml", "application/xml"]);
 
 /** A HEIF picture keeps its Exif and XMP as items of their own: they're written over in place. */
