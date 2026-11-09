@@ -287,6 +287,7 @@ final class CoreController {
         guard let connection else { return }
         inTurn { [self] in
             await wakeUp()
+            model?.catchUpChatOnScreen()
             try? await connection.nudge()
         }
     }

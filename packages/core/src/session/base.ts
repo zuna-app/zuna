@@ -230,6 +230,7 @@ export abstract class SessionBase {
   protected abstract onFrame(frame: SocketFrame): void;
   protected abstract rescheduleAffectedByDeviceChange(userId: string): void;
   protected abstract ingest(message: ApiMessage, live: boolean): void;
+  protected abstract readableNow(message: ApiMessage): boolean;
   protected abstract disappearAfter(group: CachedGroup | undefined): number;
   protected abstract noteTimerChange(groupId: string, actorId: string, seconds: number): void;
   protected abstract retryUndecryptable(groupId: string): void;

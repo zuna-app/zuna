@@ -108,6 +108,8 @@ Sync is state-based. `GET /api/groups/{id}/changes?after=N` returns the current 
 
 The socket carries the same rows live. A client applies an item if it's the next number; otherwise it fetches the feed to fill the gap. Message rows are applied either way, because that's safe. Commits only apply in order.
 
+An app coming back from the background catches up on the account's keys, its vault and who everyone is before any group, which on a phone's network takes most of a second. So while it does, an iPhone fetches the feed of a chat it opens, or of the one on screen, first, and applies it at once only if it holds nothing but messages it can open and check with what it has, as if they'd come live. Anything else waits for its turn.
+
 ## Staying reliable
 
 MLS state can go wrong: a crash mid-commit, a lost database, a bug. Zuna treats this as normal:

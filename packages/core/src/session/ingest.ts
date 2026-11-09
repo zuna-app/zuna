@@ -56,6 +56,20 @@ export abstract class SessionIngest extends SessionChanges {
     return [...grouped.values()];
   }
 
+  /**
+   * Whether a message would be stored as it is with what this device holds now: there, opening,
+   * from a device it knows, and one that could have been sent then. One that isn't is left for
+   * when the keys and people it may depend on have been caught up on (`catchUpFirst`).
+   */
+  protected readableNow(message: ApiMessage): boolean {
+    if (!validApiMessage(message) || message.deleted_at !== null || !message.envelope || !this.couldBeSent(message)) return false;
+    const key = this.epochKey(message.group_id, message.epoch);
+    const device = this.users.get(message.sender_user)?.devices.get(message.sender_device);
+    if (!key || !device) return false;
+    const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, decode(message.envelope), { userId: message.sender_user, deviceId: message.sender_device });
+    return opened.ok && namesItsSender(opened.value, message.sender_user, message.sender_device) && parseMessageBody(opened.value) !== null;
+  }
+
   /** Stores a message's current state, decrypting it if the keys are available. */
   protected ingest(message: ApiMessage, live: boolean): void {
     if (!validApiMessage(message)) {

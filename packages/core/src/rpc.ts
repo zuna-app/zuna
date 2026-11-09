@@ -56,7 +56,7 @@ const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   stop: true, suspend: true
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
-  addMembers: true, addSound: true, banUser: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
+  addMembers: true, addSound: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
   declineCall: true, deleteMessage: true, deleteMessages: true, deleteSound: true, discardMessage: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
   flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getCalls: true, getChannels: true, getConnectionState: true, getConversations: true,
   getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getBans: true, getReports: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, invites: true,

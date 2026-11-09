@@ -145,6 +145,7 @@ struct ChatScreen: View {
             }
         }
         .task(id: listId) {
+            if let groupId = conversation.groupId { model.catchUpFirst(serverId: serverId, groupId: groupId) }
             await model.loadList(serverId, listId, groupId: conversation.groupId)
         }
         // Files dragged onto the chat go into the composer, as on the desktop.

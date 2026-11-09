@@ -57,6 +57,10 @@ final class NotificationTests: XCTestCase {
         let title = zuna.element(A11y.Chat.title)
         XCTAssertTrue(title.waitForExistence(timeout: 15))
         XCTAssertTrue(title.label.contains("alice"), title.label)
+        // What it was about is in the chat, fetched ahead of catching up on everything else.
+        let message = zuna.app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'chat.text.' AND label BEGINSWITH %@", "Are you coming tonight?")).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
         zuna.screenshot("102-opened-from-notification")
     }
 

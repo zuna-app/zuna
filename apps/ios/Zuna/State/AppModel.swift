@@ -183,6 +183,19 @@ final class AppModel {
         }
     }
 
+    /// While the app catches up, as it comes back from the background, a chat that opens fetches its
+    /// new messages first, rather than after the account's keys and who everyone is: from the list, from
+    /// a notification, or the one on screen as the app comes back. Once caught up, the core asks nothing.
+    func catchUpFirst(serverId: String, groupId: String) {
+        Task { try? await core.session(serverId).catchUpFirst(groupId) }
+    }
+
+    func catchUpChatOnScreen() {
+        guard let serverId = activeServerId, tab != .settings, case let .chat(key)? = chatPath.last,
+              let groupId = servers[serverId]?.conversation(key)?.groupId else { return }
+        catchUpFirst(serverId: serverId, groupId: groupId)
+    }
+
     /// More than one server: an iPad lists them beside the chats, as Mail lists
     /// its mailboxes, and Settings asks which one it's for.
     var hasServerList: Bool {

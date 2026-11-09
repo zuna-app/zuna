@@ -47,6 +47,38 @@ export abstract class SessionChanges extends SessionJoining {
     });
   }
 
+  /**
+   * Catches one chat up ahead of the rest, for the one in front as an app comes back, as from a
+   * notification. Catching up on everything goes through the account's keys and who everyone is
+   * before any chat, a dozen round trips that take most of a second on a phone's network. What
+   * came meanwhile is taken now only if it's messages this device can open and check with what it
+   * holds, as it would if they'd come live. Anything else, such as a change to the group or a
+   * message from a device it doesn't know yet, waits for its turn, after what it may depend on.
+   * Online, there's nothing to fetch: what came has come live.
+   */
+  async catchUpFirst(groupId: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (this.stopped || this.connection === "online" || !group || group.removedAt || group.doubtful || !this.hasMlsGroup(groupId) || this.syncing.has(groupId)) return;
+    await this.withLock(groupId, async () => {
+      let more = true;
+      while (more && !this.stopped) {
+        const after = this.syncedSeq(groupId);
+        const page = await this.api.changes(groupId, after);
+        if (this.stopped || page.events.length > 0 || !page.messages.every((message) => this.readableNow(message))) return;
+        const messages = page.messages.sort((a, b) => a.updated_seq - b.updated_seq);
+        if (messages.length > 0) this.db.transaction(() => messages.forEach((message) => this.ingest(message, false)));
+        if (page.cursor > after) this.setSyncedSeq(groupId, page.cursor);
+        const current = this.groups.get(groupId);
+        if (messages.length > 0 && current) {
+          this.refreshGroupSecrets(current);
+          this.persistGroup(current);
+          this.emitConversations();
+        }
+        more = page.has_more;
+      }
+    });
+  }
+
   /** Catches up while already holding the group's lock. */
   protected async pullChanges(groupId: string): Promise<void> {
     while (await this.pullPage(groupId)) {

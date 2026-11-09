@@ -483,6 +483,37 @@ describe("devices and recovery", () => {
     expect(bob.texts(`user:${alice.userId}`)).toContain("while suspended");
   });
 
+  it("catches one chat up first on resuming, with only what it can read as it is", async () => {
+    const key = `user:${alice.userId}`;
+    const groupId = bob.session.getConversations().find((item) => item.key === key)!.groupId!;
+    // The socket stays down, so nothing but the chat itself catches up.
+    const socket = (bob.session as any).socket;
+    const start = socket.start;
+    socket.start = () => undefined;
+    try {
+      bob.client.suspend();
+      alice.session.sendMessage(`user:${bob.userId}`, { text: "first, while away" });
+      await waitFor(() => alice.texts(`user:${bob.userId}`).includes("first, while away"), "alice's send");
+      bob.client.resume();
+      await bob.session.catchUpFirst(groupId);
+      expect(bob.texts(key)).toContain("first, while away");
+
+      // A change to the group waits for catching up on everything, and so does what came after it.
+      bob.client.suspend();
+      await (alice.session as any).withLock(groupId, () => (alice.session as any).commitWithRetry(groupId, async () => ({ kind: "update" })));
+      alice.session.sendMessage(`user:${bob.userId}`, { text: "after a change" });
+      await waitFor(() => alice.texts(`user:${bob.userId}`).includes("after a change"), "alice's second send");
+      bob.client.resume();
+      await bob.session.catchUpFirst(groupId);
+      expect(bob.texts(key)).not.toContain("after a change");
+    } finally {
+      socket.start = start;
+    }
+    socket.start();
+    await bob.online();
+    await waitFor(() => bob.texts(key).includes("after a change"), "bob to catch up on the rest");
+  });
+
   it("repairs itself when a device's group state is lost", async () => {
     const session = bob.session as any;
     const groupId = bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;

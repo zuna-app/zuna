@@ -90,6 +90,8 @@ public struct SessionCalls: Sendable {
     /// The page after `after`, oldest first, for reading on from a message jumped to; with no more, the newest.
     public func loadNewer(_ groupId: String, after: Int) async throws -> MessagePage { try await call("loadNewer", [groupId, after]) }
     public func messageById(_ groupId: String, id: String) async throws -> MessageView? { try await call("messageById", [groupId, id]) }
+    /// Fetches what a chat got while the app was away ahead of catching up on everything else, where it can be read as it is.
+    public func catchUpFirst(_ groupId: String) async throws { try await run("catchUpFirst", [groupId]) }
     /// The messages in a group after `after` that mention you or reply to you, oldest first, leaving out those already jumped to.
     public func unreadMentions(_ groupId: String, after: Int) async throws -> [MessagePlace] { try await call("unreadMentions", [groupId, after]) }
     /// A mention that was jumped to, which no longer counts as waiting.
