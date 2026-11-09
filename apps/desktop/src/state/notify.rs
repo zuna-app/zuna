@@ -56,7 +56,7 @@ impl AppState {
         if self.settings.notification_sound && system.sound {
             crate::platform::play_notification_sound();
         }
-        crate::platform::later(cx, crate::platform::flash_main);
+        ask_to_look(cx);
         if !system.show {
             return;
         }
@@ -138,7 +138,7 @@ impl AppState {
         if !self.settings.notifications {
             return;
         }
-        crate::platform::later(cx, crate::platform::flash_main);
+        ask_to_look(cx);
         let system = crate::platform::notification_state();
         if !system.show {
             return;
@@ -293,4 +293,14 @@ impl AppState {
     }
 
     // --- Pictures ---
+}
+
+/// Asks the person to look at the main window, as for a new message, unless one of the app's
+/// windows is already in front of them, as the picture viewer can be, over the whole screen.
+/// KWin lets an app in front bring up another of its windows, so asking for the main one
+/// then would put it over the viewer.
+fn ask_to_look(cx: &App) {
+    if cx.active_window().is_none() {
+        crate::platform::later(cx, crate::platform::flash_main);
+    }
 }

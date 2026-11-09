@@ -265,9 +265,21 @@ try {
   const shade = [viewed.at(12, 12), viewed.at(1388, 450), viewed.at(700, 885)];
   check("the picture is fitted to the screen, in its middle", !!fitted && Math.abs(fitted.width - 1320) <= 3 && Math.abs(fitted.height - 742) <= 3 && Math.abs(fitted.middle.x - 700) <= 2 && Math.abs(fitted.middle.y - 450) <= 2, JSON.stringify(fitted));
   check("on a dark shade over what's behind", shade.every((color) => Math.max(...color) < 40), JSON.stringify(shade));
+  // A message coming in while it's open is notified, and leaves it in front: asking for the
+  // chat's window then brought it over the viewer, as KWin lets an app in front do.
+  const whileViewing = events.length;
+  peer.stdin.write(`${JSON.stringify({ send: "While the picture is open" })}\n`);
+  const noticed = await heardEvent((event) => event.notified, 15_000, whileViewing);
+  await sleep(1500);
+  const after = (await drive({ do: "windows" })).windows.filter((window) => window.appId === "zuna");
+  const stillViewing = after.find((window) => window.fullscreen);
+  check("a message coming in while it's open is notified, and leaves it in front of the chat's window", !!noticed && !!stillViewing?.active && !after.some((window) => !window.fullscreen && window.active), JSON.stringify({ notified: !!noticed, windows: after.map(({ fullscreen, active }) => ({ fullscreen, active })) }));
+  await shot("10i-message-over-viewer");
   await drive({ do: "key", key: "escape" });
   check("Escape closes it", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
   check("leaving the chat's window, in front again", !!(await until(async () => ((await windowOf())?.active ? true : null), "the chat's window to be in front", 5_000).catch(() => null)));
+  // Where the message that came is read, and its badge goes, before the next chat's.
+  await heardEvent((event) => event.badge?.count === 0, 10_000, whileViewing);
   if (tile && (await openTile())) {
     await drive({ do: "click", x: 20, y: 450 });
     check("a click on the shade closes it too", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
