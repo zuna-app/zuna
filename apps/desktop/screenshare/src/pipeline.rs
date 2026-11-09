@@ -7,13 +7,15 @@ use std::{
 };
 
 use crate::{
+    capture::Codec,
     cpu,
     encoder::{Encoder, Input, Result},
     h264::Rewriter,
 };
 
-/// An encoded frame of H.264, ready to go out.
+/// An encoded frame, ready to go out.
 pub struct EncodedFrame<'a> {
+    pub codec: Codec,
     pub data: &'a [u8],
     /// On the wall clock, in microseconds.
     pub timestamp_us: i64,
@@ -194,6 +196,8 @@ pub struct Pipeline {
     output: Box<dyn Output>,
     /// Hears how it's going, once a second.
     report: Box<dyn FnMut(serde_json::Value) + Send>,
+    codec: Codec,
+    /// H.264's alone: AV1 goes out as the encoder made it, as LiveKit takes it.
     rewriter: Rewriter,
     prepared: Vec<u8>,
     width: u32,
@@ -225,6 +229,7 @@ impl Pipeline {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         encoder: Encoder,
+        codec: Codec,
         output: Box<dyn Output>,
         report: Box<dyn FnMut(serde_json::Value) + Send>,
         width: u32,
@@ -233,7 +238,6 @@ impl Pipeline {
         bitrate_now: u64,
         bitrate_cap: u64,
         keyframe_every: Option<Duration>,
-        fix_idr: bool,
     ) -> Self {
         let now = Instant::now();
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -241,7 +245,9 @@ impl Pipeline {
             encoder,
             output,
             report,
-            rewriter: Rewriter::new(fix_idr),
+            codec,
+            // Keyframes are rewritten for LiveKit's frame cryptor (h264.rs).
+            rewriter: Rewriter::new(true),
             prepared: Vec::with_capacity(1 << 20),
             width,
             height,
@@ -387,14 +393,17 @@ impl Pipeline {
                 Some(packet) => {
                     got_one = true;
                     self.prepared.clear();
-                    self.rewriter.prepare(packet.data, &mut self.prepared);
+                    match self.codec {
+                        Codec::H264 => self.rewriter.prepare(packet.data, &mut self.prepared),
+                        Codec::Av1 => self.prepared.extend_from_slice(packet.data),
+                    }
                     self.window.bytes += self.prepared.len() as u64;
                     self.window.keys += packet.key as u64;
                     // Asked for or not, as an encoder's first frame is.
                     if packet.key {
                         self.last_key = Some(Instant::now());
                     }
-                    let frame = EncodedFrame { data: &self.prepared, timestamp_us: self.started_wall_us + packet.pts, key: packet.key, width: self.width, height: self.height };
+                    let frame = EncodedFrame { codec: self.codec, data: &self.prepared, timestamp_us: self.started_wall_us + packet.pts, key: packet.key, width: self.width, height: self.height };
                     self.window.rejected += !self.output.send(&frame) as u64;
                 }
                 None if got_one || began.elapsed() >= PACKET_WAIT => return Ok(()),
@@ -462,6 +471,7 @@ impl Pipeline {
             "allKeyRequests": self.totals.key_requests + window.key_requests,
             "allBitrateChanges": self.totals.bitrate_changes + window.bitrate_changes,
             "rejected": window.rejected,
+            "codec": self.codec.name(),
             "idrRewritten": self.rewriter.idr_rewritten,
             "idrLeftAlone": self.rewriter.idr_left_alone,
             "cpuCores": (cpu_now - self.cpu_at_window_start).as_secs_f64() / seconds,

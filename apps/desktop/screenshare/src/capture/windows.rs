@@ -45,7 +45,7 @@ use windows::{
     },
 };
 
-use super::{even, fitted, Options};
+use super::{even, family, fitted, Codec, Options};
 use crate::{
     encoder::{Config, Encoder, Input, Pixel, Result, Stream, INPUT_CPU, INPUT_D3D11},
     pipeline::Pipeline,
@@ -111,27 +111,28 @@ fn adapter_name(desc: &DXGI_ADAPTER_DESC1) -> String {
     String::from_utf16_lossy(&desc.Description[..end])
 }
 
-/// Picks the GPU and its encoder: the one asked for, or the one driving the monitor.
-fn choose_adapter(encoder: &str, monitor: HMONITOR) -> Result<(IDXGIAdapter1, String, String)> {
+/// Picks the GPU and its encoder for the codec: the one asked for, or the one driving the monitor.
+fn choose_adapter(encoder: &str, codec: Codec, monitor: HMONITOR) -> Result<(IDXGIAdapter1, String, String)> {
     let list = adapters()?;
-    let wanted_vendor = match encoder {
-        "auto" | "h264_mf" => None,
-        "h264_nvenc" => Some(VENDOR_NVIDIA),
-        "h264_amf" => Some(VENDOR_AMD),
-        other => return Err(format!("There's no {other} on Windows: use h264_nvenc, h264_amf or h264_mf")),
+    let family = family(encoder);
+    let wanted_vendor = match family {
+        "auto" | "mf" => None,
+        "nvenc" => Some(VENDOR_NVIDIA),
+        "amf" => Some(VENDOR_AMD),
+        other => return Err(format!("There's no {other} on Windows: use nvenc, amf or mf")),
     };
     let (adapter, desc) = list
         .iter()
         .find(|(adapter, desc)| wanted_vendor.map_or_else(|| drives_monitor(adapter, monitor), |vendor| desc.VendorId == vendor))
         .ok_or_else(|| format!("No GPU found for {encoder}"))?;
-    let codec = match (encoder, desc.VendorId) {
-        ("h264_mf", _) => "h264_mf",
-        (_, VENDOR_NVIDIA) => "h264_nvenc",
-        (_, VENDOR_AMD) => "h264_amf",
+    let family = match (family, desc.VendorId) {
+        ("mf", _) => "mf",
+        (_, VENDOR_NVIDIA) => "nvenc",
+        (_, VENDOR_AMD) => "amf",
         // Intel's, and any other GPU's, through the encoder its driver gives Media Foundation.
-        _ => "h264_mf",
+        _ => "mf",
     };
-    Ok((adapter.clone(), codec.to_owned(), adapter_name(desc)))
+    Ok((adapter.clone(), codec.encoder(family), adapter_name(desc)))
 }
 
 fn window_title(window: HWND) -> String {
@@ -195,7 +196,7 @@ impl Capture {
             }
         };
 
-        let (adapter, codec, gpu) = choose_adapter(&options.encoder, monitor)?;
+        let (adapter, codec, gpu) = choose_adapter(&options.encoder, options.codec, monitor)?;
 
         let (mut device, mut context) = (None, None);
         unsafe {

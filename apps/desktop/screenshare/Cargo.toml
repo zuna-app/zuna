@@ -67,3 +67,11 @@ objc2-audio-toolbox = "0.3"
 
 [build-dependencies]
 cc = "1"
+
+[features]
+# The encoder itself, for examples/codec-bench.rs alone, which `cargo test` would otherwise build.
+bench = []
+
+[[example]]
+name = "codec-bench"
+required-features = ["bench"]

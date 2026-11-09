@@ -75,8 +75,14 @@ struct zuna_encoder {
 #endif
 };
 
-static int is_codec(const zuna_encoder *e, const char *name) {
-    return strcmp(e->codec_name, name) == 0;
+// Which encoder it is, whatever it encodes: h264_nvenc and av1_nvenc are both "nvenc".
+static int is_family(const zuna_encoder *e, const char *family) {
+    const char *underscore = strchr(e->codec_name, '_');
+    return underscore && strcmp(underscore + 1, family) == 0;
+}
+
+static int is_av1(const zuna_encoder *e) {
+    return strncmp(e->codec_name, "av1_", 4) == 0;
 }
 
 static enum AVPixelFormat sw_format_of(int pixel) {
@@ -102,46 +108,66 @@ static int is_scaling(const zuna_encoder *e) {
 // Media Foundation's encoders, which is how Windows reaches Intel's and any other GPU's
 // own, only take NV12. NVENC and AMF take the capture's BGRA as it is.
 static int takes_nv12(const zuna_encoder *e) {
-    return is_codec(e, "h264_mf");
+    return is_family(e, "mf");
 }
 
+// NVENC's AV1 in CBR spends all of its bitrate whatever the picture, a still screen too,
+// where its H.264 sends filler that h264.rs takes out. So AV1 goes in VBR, held to the same
+// bitrate at most, which looked better at every bitrate in examples/codec-bench.rs and sent
+// a little less. The others' AV1 hasn't run, so it stays as their H.264 is.
+static int is_capped_vbr(const zuna_encoder *e) {
+    return is_av1(e) && is_family(e, "nvenc");
+}
+
+// AV1's options are H.264's where the encoder has the same, and its profile is Main, the
+// one there is for 8-bit 4:2:0, which each takes by itself. A forced keyframe has to be a
+// KEY_FRAME with its sequence header, rather than an intra frame nobody can start from.
 static void set_low_latency_options(zuna_encoder *e) {
     void *options = e->codec->priv_data;
     int quality = e->config.quality;
-    if (is_codec(e, "h264_nvenc")) {
+    int av1 = is_av1(e);
+    if (is_family(e, "nvenc")) {
         av_opt_set(options, "preset", quality == ZUNA_QUALITY_SPEED ? "p1" : quality == ZUNA_QUALITY_BEST ? "p7" : "p4", 0);
         av_opt_set(options, "tune", "ull", 0);
-        av_opt_set(options, "rc", "cbr", 0);
-        av_opt_set(options, "profile", "high", 0);
+        av_opt_set(options, "rc", is_capped_vbr(e) ? "vbr" : "cbr", 0);
+        if (!av1) av_opt_set(options, "profile", "high", 0);
         av_opt_set_int(options, "zerolatency", 1, 0);
         av_opt_set_int(options, "delay", 0, 0);
         av_opt_set_int(options, "forced-idr", 1, 0);
         av_opt_set_int(options, "rc-lookahead", 0, 0);
-    } else if (is_codec(e, "h264_amf")) {
+    } else if (is_family(e, "amf")) {
         av_opt_set(options, "usage", "ultralowlatency", 0);
         av_opt_set(options, "quality", quality == ZUNA_QUALITY_SPEED ? "speed" : quality == ZUNA_QUALITY_BEST ? "quality" : "balanced", 0);
         av_opt_set(options, "rc", "cbr", 0);
-        av_opt_set(options, "profile", "high", 0);
-        av_opt_set(options, "header_insertion_mode", "idr", 0);
         av_opt_set_int(options, "forced_idr", 1, 0);
-        av_opt_set_int(options, "latency", 1, 0);
         av_opt_set_int(options, "enforce_hrd", 1, 0);
-        av_opt_set_int(options, "frame_skipping", 0, 0);
         av_opt_set_int(options, "filler_data", 0, 0);
         av_opt_set_int(options, "async_depth", 1, 0);
-    } else if (is_codec(e, "h264_mf")) {
-        e->codec->profile = AV_PROFILE_H264_HIGH;
+        if (av1) {
+            av_opt_set(options, "header_insertion_mode", "gop", 0);
+            av_opt_set(options, "latency", "lowest_latency", 0);
+            av_opt_set_int(options, "skip_frame", 0, 0);
+        } else {
+            av_opt_set(options, "profile", "high", 0);
+            av_opt_set(options, "header_insertion_mode", "idr", 0);
+            av_opt_set_int(options, "latency", 1, 0);
+            av_opt_set_int(options, "frame_skipping", 0, 0);
+        }
+    } else if (is_family(e, "mf")) {
+        e->codec->profile = av1 ? AV_PROFILE_AV1_MAIN : AV_PROFILE_H264_HIGH;
         av_opt_set(options, "rate_control", "cbr", 0);
         av_opt_set(options, "scenario", "display_remoting", 0);
         av_opt_set_int(options, "quality", quality == ZUNA_QUALITY_SPEED ? 0 : quality == ZUNA_QUALITY_BEST ? 100 : 50, 0);
         // Media Foundation has encoders in software too, which are what this avoids.
         av_opt_set_int(options, "hw_encoding", 1, 0);
-    } else if (is_codec(e, "h264_vaapi")) {
+    } else if (is_family(e, "vaapi")) {
         av_opt_set(options, "rc_mode", "CBR", 0);
-        av_opt_set(options, "profile", "high", 0);
         av_opt_set_int(options, "async_depth", 1, 0);
-        av_opt_set_int(options, "sei", 0, 0);
-        av_opt_set_int(options, "aud", 0, 0);
+        if (!av1) {
+            av_opt_set(options, "profile", "high", 0);
+            av_opt_set_int(options, "sei", 0, 0);
+            av_opt_set_int(options, "aud", 0, 0);
+        }
     }
 }
 
@@ -160,6 +186,7 @@ static int open_codec(zuna_encoder *e) {
     c->framerate = (AVRational){e->config.fps, 1};
     c->bit_rate = e->config.bitrate;
     c->rc_buffer_size = vbv_size(e->config.bitrate);
+    if (is_capped_vbr(e)) c->rc_max_rate = e->config.bitrate;
     c->gop_size = e->config.gop;
     c->max_b_frames = 0;
     c->flags |= AV_CODEC_FLAG_LOW_DELAY;
@@ -183,9 +210,10 @@ static int open_codec(zuna_encoder *e) {
 }
 
 // Media Foundation's encoders say nothing of what colours the stream is in, which leaves
-// whoever's watching to guess, so each SPS is told what the video processor made it.
+// whoever's watching to guess, so each SPS, or AV1's sequence header, is told what the
+// video processor made it.
 static int open_tagger(zuna_encoder *e) {
-    const AVBitStreamFilter *filter = av_bsf_get_by_name("h264_metadata");
+    const AVBitStreamFilter *filter = av_bsf_get_by_name(is_av1(e) ? "av1_metadata" : "h264_metadata");
     if (!filter) return AVERROR_BSF_NOT_FOUND;
     int result = av_bsf_alloc(filter, &e->tagger);
     if (result < 0) return result;
@@ -193,11 +221,18 @@ static int open_tagger(zuna_encoder *e) {
     if (result < 0) return result;
     e->tagger->time_base_in = e->codec->time_base;
     void *options = e->tagger->priv_data;
-    av_opt_set_int(options, "video_format", 5, 0);
-    av_opt_set_int(options, "video_full_range_flag", 0, 0);
-    av_opt_set_int(options, "colour_primaries", AVCOL_PRI_BT709, 0);
-    av_opt_set_int(options, "transfer_characteristics", AVCOL_TRC_BT709, 0);
-    av_opt_set_int(options, "matrix_coefficients", AVCOL_SPC_BT709, 0);
+    if (is_av1(e)) {
+        av_opt_set_int(options, "color_primaries", AVCOL_PRI_BT709, 0);
+        av_opt_set_int(options, "transfer_characteristics", AVCOL_TRC_BT709, 0);
+        av_opt_set_int(options, "matrix_coefficients", AVCOL_SPC_BT709, 0);
+        av_opt_set(options, "color_range", "tv", 0);
+    } else {
+        av_opt_set_int(options, "video_format", 5, 0);
+        av_opt_set_int(options, "video_full_range_flag", 0, 0);
+        av_opt_set_int(options, "colour_primaries", AVCOL_PRI_BT709, 0);
+        av_opt_set_int(options, "transfer_characteristics", AVCOL_TRC_BT709, 0);
+        av_opt_set_int(options, "matrix_coefficients", AVCOL_SPC_BT709, 0);
+    }
     return av_bsf_init(e->tagger);
 }
 
@@ -586,9 +621,10 @@ int zuna_encoder_set_bitrate(zuna_encoder *e, int64_t bitrate) {
     e->config.bitrate = bitrate;
     // NVENC reconfigures itself on its next frame, with a keyframe. The others take
     // their bitrate only when opened.
-    if (is_codec(e, "h264_nvenc")) {
+    if (is_family(e, "nvenc")) {
         e->codec->bit_rate = bitrate;
         e->codec->rc_buffer_size = vbv_size(bitrate);
+        if (is_capped_vbr(e)) e->codec->rc_max_rate = bitrate;
         return 0;
     }
     return open_codec(e);
@@ -612,16 +648,16 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
     if (result >= 0 && config->input == ZUNA_INPUT_D3D11 && (is_scaling(e) || takes_nv12(e))) result = open_scaler(e);
 #endif
 #ifdef ZUNA_VAAPI
-    if (result >= 0 && is_codec(e, "h264_vaapi")) {
+    if (result >= 0 && is_family(e, "vaapi")) {
         result = open_vaapi_devices(e);
         if (result >= 0) result = open_graph(e);
     }
 #endif
 #ifdef __linux__
-    if (result >= 0 && is_codec(e, "h264_nvenc") && config->input == ZUNA_INPUT_DMABUF) result = open_cuda(e);
+    if (result >= 0 && is_family(e, "nvenc") && config->input == ZUNA_INPUT_DMABUF) result = open_cuda(e);
 #endif
     if (result >= 0) result = open_codec(e);
-    if (result >= 0 && is_codec(e, "h264_mf")) result = open_tagger(e);
+    if (result >= 0 && is_family(e, "mf")) result = open_tagger(e);
     if (result < 0) {
         zuna_encoder_close(e);
         return result;

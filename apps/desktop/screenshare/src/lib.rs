@@ -26,13 +26,26 @@ use std::{
 
 #[cfg(not(target_os = "macos"))]
 use capture::Capture;
-pub use capture::{Options, Source};
+pub use capture::{Codec, Options, Source};
 #[cfg(target_os = "linux")]
 pub use encoder::check_dmabuf;
 use encoder::Stream;
 pub use encoder::{Quality, Result};
 pub use pipeline::{EncodedFrame, Output};
 use pipeline::Pipeline;
+
+/// The encoder itself, for examples/codec-bench.rs alone, which compares H.264 with AV1.
+#[cfg(all(feature = "bench", not(target_os = "macos")))]
+pub mod bench {
+    pub use crate::encoder::{Config, Encoder, Input, Packet, Pixel, Quality, Stream, INPUT_CPU};
+    /// What a share does to H.264 before it goes out, without NVENC's filler and SEI.
+    pub use crate::h264::Rewriter;
+}
+
+/// The CPU time this process has used so far, as the stats count it.
+pub fn process_cpu_time() -> Duration {
+    cpu::time_used()
+}
 
 /// What's being shared, once it's been opened.
 #[derive(Clone, Debug)]
@@ -41,6 +54,8 @@ pub struct Ready {
     pub description: String,
     /// `screen` or `window`.
     pub source: &'static str,
+    /// What it's encoded in, which the track it goes out on has to say.
+    pub codec: Codec,
     /// What it's encoded at.
     pub width: u32,
     pub height: u32,
@@ -121,7 +136,7 @@ fn run(options: &Options, stop: &AtomicBool, outputs: &mpsc::Receiver<Box<dyn Ou
     // Not never, as what AMF and the others take for that is unknown.
     let gop = options.fps * 60;
     let encoder = capture.open_encoder(Stream { width, height, fps: options.fps, gop, bitrate, quality: options.quality })?;
-    events(Event::Ready(Ready { description: capture.description.clone(), source: capture.source, width, height }));
+    events(Event::Ready(Ready { description: capture.description.clone(), source: capture.source, codec: options.codec, width, height }));
 
     let output = loop {
         if stop.load(Ordering::Relaxed) {
@@ -134,7 +149,7 @@ fn run(options: &Options, stop: &AtomicBool, outputs: &mpsc::Receiver<Box<dyn Ou
         }
     };
     let report = Box::new(move |stats| events(Event::Stats(stats)));
-    let mut pipeline = Pipeline::new(encoder, output, report, width, height, options.fps, bitrate, bitrate_cap, None, true);
+    let mut pipeline = Pipeline::new(encoder, options.codec, output, report, width, height, options.fps, bitrate, bitrate_cap, None);
     log::info!("screen share encoding with {}", pipeline.encoder_name());
     capture.run(&mut pipeline, stop)
 }

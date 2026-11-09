@@ -25,10 +25,45 @@ pub enum Source {
     Window,
 }
 
+/// What the picture is encoded in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Codec {
+    #[default]
+    H264,
+    /// Experimental: under encryption, only the native app opens it (docs/SCREEN_SHARE.md).
+    Av1,
+}
+
+impl Codec {
+    /// FFmpeg's encoder for this codec in an encoder's family: `nvenc`, `amf`, `mf` or `vaapi`.
+    pub fn encoder(self, family: &str) -> String {
+        match self {
+            Codec::H264 => format!("h264_{family}"),
+            Codec::Av1 => format!("av1_{family}"),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Codec::H264 => "H.264",
+            Codec::Av1 => "AV1",
+        }
+    }
+}
+
+/// The family an encoder's name asks for, whatever its codec: `nvenc` from `h264_nvenc` or
+/// `av1_nvenc`, or `auto`.
+pub fn family(encoder: &str) -> &str {
+    encoder.strip_prefix("h264_").or_else(|| encoder.strip_prefix("av1_")).unwrap_or(encoder)
+}
+
 /// What to capture and how to encode it.
 #[derive(Clone, Debug)]
 pub struct Options {
-    /// `auto`, or an FFmpeg encoder's name: `h264_nvenc`, `h264_amf`, `h264_mf` or `h264_vaapi`.
+    /// What it's encoded in.
+    pub codec: Codec,
+    /// `auto`, or an encoder's family, by itself or in an FFmpeg encoder's name: `nvenc`, `amf`
+    /// and `mf` on Windows, `nvenc` and `vaapi` on Linux, as in `h264_nvenc`. `codec` says which.
     pub encoder: String,
     /// How much work each frame gets.
     pub quality: Quality,
@@ -58,6 +93,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Options {
+            codec: Codec::H264,
             encoder: "auto".into(),
             quality: Quality::default(),
             fps: 60,
@@ -92,7 +128,17 @@ pub fn fitted((width, height): (u32, u32), max_height: Option<u32>) -> (u32, u32
 
 #[cfg(test)]
 mod tests {
-    use super::fitted;
+    use super::{family, fitted, Codec};
+
+    #[test]
+    fn an_encoder_is_asked_for_by_its_family_whatever_its_codec() {
+        assert_eq!(family("h264_nvenc"), "nvenc");
+        assert_eq!(family("av1_amf"), "amf");
+        assert_eq!(family("vaapi"), "vaapi");
+        assert_eq!(family("auto"), "auto");
+        assert_eq!(Codec::Av1.encoder(family("h264_mf")), "av1_mf");
+        assert_eq!(Codec::H264.encoder("vaapi"), "h264_vaapi");
+    }
 
     #[test]
     fn a_picture_keeps_its_shape_and_stays_even() {

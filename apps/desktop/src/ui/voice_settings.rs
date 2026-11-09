@@ -519,6 +519,17 @@ impl Render for ScreenSettingsPage {
             })
             .collect();
         parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("If this one can't be used, your share doesn't start, and says why."), cx));
+        // Encoded here on Windows and Linux; macOS hands VideoToolbox H.264.
+        #[cfg(not(target_os = "macos"))]
+        {
+            let codec_voice = self.voice.clone();
+            parts.push(SettingsView::row(
+                "Codec",
+                Some("AV1 is experimental, and needs a graphics card that encodes it. It looks sharper within the same limit, as it uses more of it. Only people watching in Zuna's desktop app can see it: the web app and the iPhone and iPad app can't open AV1 that's end to end encrypted."),
+                segmented("screen-codec", &settings.screen_codec, &[("h264", "H.264"), ("av1", "AV1")], &[], Rc::new(move |codec, cx| codec_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_codec = codec.into(), cx))), cx),
+                &theme,
+            ));
+        }
         let effort_voice = self.voice.clone();
         parts.push(SettingsView::row("Effort per frame", Some("More effort looks better at the same bitrate, and can drop frames at large sizes."), segmented("screen-effort", &settings.screen_effort, &[("speed", "Fastest"), ("balanced", "Balanced"), ("best", "Best picture")], &[], Rc::new(move |effort, cx| effort_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_effort = effort.into(), cx))), cx), &theme));
         parts.push(subhead("Watching"));

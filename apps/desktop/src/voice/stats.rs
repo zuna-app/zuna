@@ -309,6 +309,7 @@ impl Reader {
                     row("Sent through", Some("This app, on the graphics card".into()), false),
                     row("Sharing", Some(share.name.clone()), false),
                     row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
+                    row("Codec", share.info.as_ref().and_then(|info| info.get("codec")).and_then(serde_json::Value::as_str).map(|codec| if codec == "AV1" { "AV1, experimental: only the desktop app opens it".to_string() } else { codec.to_string() }), false),
                     row("Picture", size(number("width"), number("height")), false),
                     row("Tallest asked for", (share.height > 0).then(|| format!("{} lines", share.height)), false),
                     row("Held to the server's limits", (!share.held.is_empty()).then(|| share.held.join(", ")), false),

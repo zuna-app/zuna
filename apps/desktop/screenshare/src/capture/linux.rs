@@ -17,10 +17,10 @@ use ashpd::desktop::{
 };
 
 use super::{
-    even, fitted,
+    even, family, fitted,
     pipewire::{self, c_string, Api, CoreMethods, Opaque, PwBuffer, RegistryEvents, RegistryMethods, SpaHook, StreamEvents},
     pod::{self, Value},
-    Options, Source,
+    Codec, Options, Source,
 };
 use crate::{
     encoder::{self, Config, DmaBuf, Encoder, Input, Pixel, Result, Stream, INPUT_CPU, INPUT_DMABUF},
@@ -291,22 +291,22 @@ static STREAM_EVENTS: StreamEvents = StreamEvents {
 // It's only function pointers, which is safe to share, though the compiler can't tell.
 unsafe impl Sync for StreamEvents {}
 
-/// NVENC when the NVIDIA driver is here, and otherwise VA-API.
-fn choose_encoder(requested: &str) -> Result<String> {
-    match requested {
+/// NVENC when the NVIDIA driver is here, and otherwise VA-API, for the codec.
+fn choose_encoder(requested: &str, codec: Codec) -> Result<String> {
+    match family(requested) {
         "auto" => {
             let nvidia = unsafe { libloading::Library::new("libnvidia-encode.so.1") }.is_ok();
-            Ok(if nvidia { "h264_nvenc" } else { "h264_vaapi" }.to_owned())
+            Ok(codec.encoder(if nvidia { "nvenc" } else { "vaapi" }))
         }
-        "h264_nvenc" | "h264_vaapi" => Ok(requested.to_owned()),
-        other => Err(format!("This proof of concept doesn't do {other} on Linux: use h264_nvenc or h264_vaapi")),
+        family @ ("nvenc" | "vaapi") => Ok(codec.encoder(family)),
+        other => Err(format!("There's no {other} on Linux: use nvenc or vaapi")),
     }
 }
 
 /// VA-API maps linear DMA-BUFs straight onto its surfaces. NVENC takes whatever EGL can
 /// import, which dmabuf_cuda.c copies into CUDA memory without leaving the GPU.
 fn dmabuf_modifiers(codec: &str, render_node: &str, format: u32) -> Vec<u64> {
-    if codec == "h264_vaapi" {
+    if family(codec) == "vaapi" {
         return vec![DRM_FORMAT_MOD_LINEAR];
     }
     let Some((_, drm_format)) = describe_format(format) else { return Vec::new() };
@@ -387,7 +387,7 @@ pub struct Capture {
 
 impl Capture {
     pub fn open(options: &Options) -> Result<Self> {
-        let codec = choose_encoder(&options.encoder)?;
+        let codec = choose_encoder(&options.encoder, options.codec)?;
         let api = pipewire::load()?;
         // The portal runs on the app's async-io, as its other D-Bus connections do, so any executor waits on it.
         let portal = futures_executor::block_on(ask_the_portal(options.cursor, options.source)).map_err(|error| format!("Asking the portal for the screen: {error}"))?;

@@ -486,8 +486,10 @@ impl VoiceRoom {
 
     /// Sends a screen share's picture from this connection, as a browser sends one: H.264 in one
     /// layer, at the server's terms. On Windows and Linux it comes already encoded on the GPU
-    /// (`zuna-screenshare`), and on macOS VideoToolbox encodes it, as Chromium did there.
-    pub async fn start_share_video(&self, width: u32, height: u32, fps: u32, kbps: u32) -> Result<NativeVideoSource, String> {
+    /// (`zuna-screenshare`), in H.264 or AV1, and on macOS VideoToolbox encodes it in H.264, as
+    /// Chromium did there. AV1 goes out under encryption in an envelope of OBUs that only the
+    /// native app opens (patches/webrtc-sys.patch).
+    pub async fn start_share_video(&self, width: u32, height: u32, fps: u32, kbps: u32, codec: VideoCodec) -> Result<NativeVideoSource, String> {
         #[cfg(target_os = "macos")]
         let (source, encoder) = (NativeVideoSource::new(VideoResolution { width, height }, true), livekit::options::VideoEncoderBackend::VideoToolbox);
         #[cfg(not(target_os = "macos"))]
@@ -497,7 +499,7 @@ impl VoiceRoom {
         let track = LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source.clone()));
         let options = TrackPublishOptions {
             source: TrackSource::Screenshare,
-            video_codec: VideoCodec::H264,
+            video_codec: codec,
             simulcast: false,
             video_encoding: Some(VideoEncoding { max_bitrate: kbps as u64 * 1000, max_framerate: fps as f64 }),
             video_encoder: encoder,

@@ -40,6 +40,8 @@ pub struct VoiceSettings {
     pub screen_cursor: bool,
     pub screen_sound_by_default: bool,
     pub screen_sound_kbps: u32,
+    /// "h264", or "av1", which is experimental: only the native app opens it under encryption.
+    pub screen_codec: String,
     pub screen_encoder: String,
     pub screen_effort: String,
     /// How loud others' shares are, from 0 to 2.
@@ -74,6 +76,7 @@ impl Default for VoiceSettings {
             screen_cursor: true,
             screen_sound_by_default: true,
             screen_sound_kbps: 128,
+            screen_codec: "h264".into(),
             screen_encoder: "auto".into(),
             screen_effort: "balanced".into(),
             screen_volume: 1.,

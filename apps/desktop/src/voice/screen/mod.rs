@@ -40,7 +40,10 @@ impl zuna_screenshare::Output for LiveKitOutput {
         use livekit::webrtc::video_frame::{EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame};
         use livekit::webrtc::video_source::VideoResolution;
         self.0.capture_encoded_frame(&EncodedVideoFrame {
-            codec: EncodedVideoCodec::H264,
+            codec: match frame.codec {
+                zuna_screenshare::Codec::H264 => EncodedVideoCodec::H264,
+                zuna_screenshare::Codec::Av1 => EncodedVideoCodec::AV1,
+            },
             payload: frame.data,
             timestamp_us: frame.timestamp_us,
             frame_type: if frame.key { EncodedFrameType::Key } else { EncodedFrameType::Delta },

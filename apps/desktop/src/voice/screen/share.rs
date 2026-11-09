@@ -89,9 +89,12 @@ impl Voice {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
     fn start_screen_native(&mut self, choice: ScreenChoice, terms: crate::voice::rules::ScreenTerms, share: ShareInfo, core: crate::host::Core, room: Arc<VoiceRoom>, server_id: String, channel_id: String, wants_sound: bool, settings: &crate::voice::settings::VoiceSettings, cx: &mut Context<Self>) {
-        use zuna_screenshare::{Event, Options, Quality, Share, Source};
+        use zuna_screenshare::{Codec, Event, Options, Quality, Share, Source};
         let encoder = settings.screen_encoder.as_str();
+        let codec = if settings.screen_codec == "av1" { Codec::Av1 } else { Codec::H264 };
         let options = Options {
+            codec,
+            // The encoder's family, which goes for either codec.
             encoder: if ["auto", "h264_nvenc", "h264_amf", "h264_mf", "h264_vaapi"].contains(&encoder) { encoder.into() } else { "auto".into() },
             quality: match settings.screen_effort.as_str() {
                 "speed" => Quality::Speed,
@@ -148,6 +151,8 @@ impl Voice {
                 Ok(ready) => ready,
                 Err(problem) => {
                     native.stop();
+                    // FFmpeg's word for a card without AV1 says nothing of what to do about it.
+                    let problem = if codec == Codec::Av1 && problem.starts_with("Opening av1_") { format!("This graphics card may not encode AV1, so try H.264 in Settings, Screen sharing. {problem}") } else { problem };
                     this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
                     return;
                 }
@@ -159,7 +164,11 @@ impl Voice {
             }
             let publishing = room.clone();
             let (width, height, fps, kbps) = (ready.width, ready.height, terms.fps, terms.kbps);
-            let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
+            let track_codec = match ready.codec {
+                Codec::H264 => livekit::options::VideoCodec::H264,
+                Codec::Av1 => livekit::options::VideoCodec::AV1,
+            };
+            let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps, track_codec).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
             match source {
                 Ok(source) => native.publish(Box::new(LiveKitOutput(source))),
                 Err(problem) => {
@@ -169,7 +178,7 @@ impl Voice {
                 }
             }
             // A window's title is in the description, and could be anything.
-            let info = json!({ "description": ready.description, "source": ready.source, "width": width, "height": height, "fps": fps, "e2ee": room.encrypted(), "idrFix": true });
+            let info = json!({ "description": ready.description, "source": ready.source, "codec": ready.codec.name(), "width": width, "height": height, "fps": fps, "e2ee": room.encrypted(), "idrFix": ready.codec == Codec::H264 });
             let ok = this
                 .update(cx, |voice, cx| {
                     if voice.room.as_ref().is_none_or(|current| !Arc::ptr_eq(current, &room)) {
@@ -272,7 +281,7 @@ impl Voice {
             };
             let publishing = room.clone();
             let (fps, kbps) = (terms.fps, terms.kbps);
-            let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
+            let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps, livekit::options::VideoCodec::H264).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
             let source = match source {
                 Ok(source) => source,
                 Err(problem) => {

@@ -236,7 +236,7 @@ impl Encoder {
         let api = api()?;
         let stream = config.stream;
         let scaling = (stream.width, stream.height) != (config.source_width, config.source_height);
-        if scaling && config.input == INPUT_CPU && config.codec != "h264_vaapi" {
+        if scaling && config.input == INPUT_CPU && !config.codec.ends_with("_vaapi") {
             return Err("This encoder can only make the picture smaller on the GPU, and these frames are in CPU memory".into());
         }
         let codec = CString::new(config.codec).unwrap();

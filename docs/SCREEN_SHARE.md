@@ -1,6 +1,6 @@
 # Native screen sharing
 
-The desktop app shares a whole screen or one window natively on every system, in its own process, from its own connection to the room. On Windows and Linux its `zuna-screenshare` crate (`apps/desktop/screenshare`) captures and encodes on the GPU, and LiveKit only carries the result. On macOS the app captures through ScreenCaptureKit, picked in macOS's own picker, and VideoToolbox encodes it. Viewers decode in the app, or in the web app's browser.
+The desktop app shares a whole screen or one window natively on every system, in its own process, from its own connection to the room. On Windows and Linux its `zuna-screenshare` crate (`apps/desktop/screenshare`) captures and encodes on the GPU, in H.264, or in AV1 as an experiment ([AV1](#av1)), and LiveKit only carries the result. On macOS the app captures through ScreenCaptureKit, picked in macOS's own picker, and VideoToolbox encodes it. Viewers decode in the app, or in the web app's browser.
 
 ```
 Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF, Media Foundation ─┐
@@ -12,11 +12,11 @@ macOS's picker ─ ScreenCaptureKit ─ IOSurfaces ─ VideoToolbox ─ the app'
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [What the proof of concept measured](#what-the-proof-of-concept-measured) has the numbers. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Only the web app goes through the browser's capture. The native app has no browser to fall back on: where a share can't start, it says why. It doesn't run under X11 at all. On Macs the crate only takes the computer's sound, beside the app's own capture, as [Sharing from a Mac](#sharing-from-a-mac) says. Every share looks the same to whoever is watching. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
+Only the web app goes through the browser's capture. The native app has no browser to fall back on: where a share can't start, it says why. It doesn't run under X11 at all. On Macs the crate only takes the computer's sound, beside the app's own capture, as [Sharing from a Mac](#sharing-from-a-mac) says. Every share in H.264 looks the same to whoever is watching, and one in AV1 only the native app can open. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
 
 ## How the app runs it
 
-Once the server has made room for the share, the app starts it on a thread of its own (`Share` in `apps/desktop/screenshare/src/lib.rs`, started from `apps/desktop/src/voice/screen/`), with what to make of the picture in `Options`. It opens the capture and the encoder, which on Linux waits for the portal's dialog, and says what it's capturing and at what size. The app then publishes an H.264 track of that size from its own connection, in LiveKit's pre-encoded mode, and hands the share an `Output` (`LiveKitOutput`), which takes each encoded frame to LiveKit and brings LiveKit's requests for keyframes and its estimate of the network back to the encoder. It reports how it's going once a second, and stops when the app stops it, or by itself when what was shared goes, with what went wrong if anything did. If it doesn't start, the app says why. The stream stats window, the button at the top of a voice channel, has everything the share reports once it's going, frame by frame, for whoever is sending and whoever is watching.
+Once the server has made room for the share, the app starts it on a thread of its own (`Share` in `apps/desktop/screenshare/src/lib.rs`, started from `apps/desktop/src/voice/screen/`), with what to make of the picture in `Options`. It opens the capture and the encoder, which on Linux waits for the portal's dialog, and says what it's capturing and at what size. The app then publishes an H.264 or AV1 track of that size from its own connection, in LiveKit's pre-encoded mode, and hands the share an `Output` (`LiveKitOutput`), which takes each encoded frame to LiveKit and brings LiveKit's requests for keyframes and its estimate of the network back to the encoder. It reports how it's going once a second, and stops when the app stops it, or by itself when what was shared goes, with what went wrong if anything did. If it doesn't start, the app says why. The stream stats window, the button at the top of a voice channel, has everything the share reports once it's going, frame by frame, for whoever is sending and whoever is watching.
 
 The track goes out under the device's own key, as its microphone does, so it follows the room's keys with the rest of what the device sends, and viewers open it with no more help than that. It's named `screen`, which tells them it came from the desktop app: a browser's and the iPhone's are `screen_share`. A crash in a graphics driver or in FFmpeg now takes the app with it, where it used to end only the share.
 
@@ -97,7 +97,8 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 | Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured on Windows, so it isn't offered |
 | Encoder, effort per frame | yes | |
 | What it's mostly showing, what gives first when the connection can't keep up | | yes |
-| Codec, and sending a smaller copy | No: H.264, one layer, since it arrives already encoded | yes |
+| Codec | H.264, or AV1 as an experiment on Windows and Linux ([AV1](#av1)) | yes |
+| Sending a smaller copy | No: one layer, since it arrives already encoded | yes |
 
 A native share that can't do what was chosen doesn't start, and the app says why.
 
@@ -112,7 +113,7 @@ A native share that can't do what was chosen doesn't start, and the app says why
 | macOS | ScreenCaptureKit, which captures it no larger than asked |
 | The web app | `height: { max }` in `getDisplayMedia` |
 
-**The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27.
+**The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27. AV1 goes through the same four, as `av1_nvenc`, `av1_amf`, `av1_mf` and `av1_vaapi`, with the same choice of encoder in Settings, and `av1_metadata` in place of `h264_metadata`.
 
 ## Sharing from a Mac
 
@@ -139,9 +140,9 @@ The simulator can't share at all, so the button isn't there. It has no ScreenCap
 
 ## Building it
 
-It's built with the app, as a crate of the app's workspace (`apps/desktop/screenshare`), and needs nothing beyond what the app does. On Windows and Linux its build script compiles the encoder, `native/encoder.c`, as a library of its own against the FFmpeg the repository pins, and gathers it with FFmpeg's libraries into `lib` beside the app, from where the app loads it and the packages carry it (`npm run dist:windows`, `npm run dist:linux`). The app's scripts fetch that FFmpeg and check its SHA-256 before building, as `node scripts/ffmpeg.mjs` does by itself, into `apps/desktop/.deps` (`FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`).
+It's built with the app, as a crate of the app's workspace (`apps/desktop/screenshare`), and needs nothing beyond what the app does. On Windows and Linux its build script compiles the encoder, `native/encoder.c`, as a library of its own against the FFmpeg the repository pins, and gathers it with FFmpeg's libraries into `lib` beside the app, from where the app loads it and the packages carry it (`npm run dist:windows`, `npm run dist:linux`). The app's scripts fetch that FFmpeg and check its SHA-256 before building, as `node scripts/ffmpeg.mjs` does by itself, into `apps/desktop/.deps` (`FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`). They fetch LiveKit's `webrtc-sys` there too, with the patch AV1 needs ([AV1](#av1)), as `node scripts/webrtc-sys.mjs` does, without which the app's workspace won't load.
 
-The crate needs neither LiveKit nor GPUI, so its Linux and macOS code can be checked from any system, as long as the target's standard library is there (`rustup target add`):
+The crate needs neither LiveKit nor GPUI, so its Linux and macOS code can be checked from any system, as long as the target's standard library is there (`rustup target add`), and the patched `webrtc-sys` has been fetched for the workspace:
 
 ```bash
 cd apps/desktop && ZUNA_CHECK_ONLY=1 cargo check -p zuna-screenshare --target x86_64-unknown-linux-gnu
@@ -167,7 +168,7 @@ or on Arch:
 sudo pacman -S clang pkgconf glib2 libva
 ```
 
-`apps/desktop/test/key-log-check.mjs` shares the first screen, or a window, through the crate and LiveKit with someone watching, in `examples/share-check.rs`, and fails unless they decoded what was shared, as well as if the key turns up in the log.
+`apps/desktop/test/key-log-check.mjs` shares the first screen, or a window, through the crate and LiveKit with someone watching, in `examples/share-check.rs`, and fails unless they decoded what was shared, as well as if the key turns up in the log. `ZUNA_SHARE_CODEC=av1` has it share in AV1. `apps/desktop/test/codec-check.mjs` runs the same in H.264 and then in AV1, with watchers from the start, late, with another key and without encryption, and compares them, and `screenshare/examples/codec-bench.rs` compares their pictures on a scene of its own ([AV1](#av1)).
 
 ## Watching
 
@@ -180,7 +181,7 @@ Whoever's watching in the native app decodes through LiveKit's libwebrtc, and on
 | VP9 | 1.1 ms | 1.1 ms |
 | AV1 | 0.4 ms | 0.9 ms |
 
-Windows decodes in hardware without being asked, through D3D11. On Windows 11 with an RTX 5070 Ti, `voice-check.mjs` saw H.264 and VP9 decoded by `D3D11VideoDecoder`. Intel and AMD GPUs on Linux haven't been checked here. macOS does too, through VideoToolbox, measured on Apple silicon: H.264, H.265 and VP9 in hardware, and VP8, which Macs have no hardware for, and AV1, which only M3 and later do, in software.
+Windows decodes in hardware without being asked, through D3D11. On Windows 11 with an RTX 5070 Ti, `voice-check.mjs` saw H.264 and VP9 decoded by `D3D11VideoDecoder`. The native app's libwebrtc decodes in software on Windows: H.264 through its own FFmpeg and AV1 through dav1d, which at 1602x932 and 60 fps took 1.1 and 1.5 ms a frame, and 13 and 18% of a core of a Ryzen 7 9800X3D, in `codec-check.mjs` ([AV1](#av1)). Intel and AMD GPUs on Linux haven't been checked here. macOS does too, through VideoToolbox, measured on Apple silicon: H.264, H.265 and VP9 in hardware, and VP8, which Macs have no hardware for, and AV1, which only M3 and later do, in software.
 
 On macOS a share through the browser is encoded on the GPU as well, through VideoToolbox, but only in H.264's Baseline profile: Chromium hands Constrained Baseline, which LiveKit takes by default, to OpenH264 in software, even at 720p. So LiveKit is set to take Baseline too (`LIVEKIT_CONFIG` in `scripts/lib.mjs`, and the same in `deploy/`), which Chromium offers first. Those watching who only declare Constrained Baseline, as the iPhone app does, get the same stream, which they decode. Sending a smaller copy as well, or layers in time, goes back to OpenH264, as Chromium won't encode H.264 simulcast on VideoToolbox. A server set up by hand without that, or not updated since, sends shares from a Mac in software, and the stream stats window says so. Cameras on the desktop go out in VP8, in software everywhere, as their three layers would lose hardware in H.264 too.
 
@@ -221,6 +222,61 @@ Once it has had to fall, a rise is a guess. libwebrtc lets its estimate run to h
 Otherwise a keyframe only goes when it's needed: when libwebrtc asks for one, for someone who joins or can't decode, at a new size, and with a new bitrate. There's no regular one, as each is a burst someone watching waits for, of up to a quarter of a second of the bitrate, and nothing needs it. The encoder's own come at most every minute's worth of frames. The legacy desktop app still asks for one, every 10 seconds unless it's set otherwise, with `--keyframe-seconds`, counted from the last keyframe of any kind.
 
 How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv_size` in `native/encoder.c`). Measured with NVENC on an RTX 5080, on 2560x1440 of code that stood still and then scrolled, a keyframe took 128 ms of the bitrate at 15 Mbit/s and 107 ms at 40. A tenth of a second made those 78 and 75 ms, but cost a keyframe 4 to 5 dB of PSNR at 15 Mbit/s, which blurs text, so it stays a quarter.
+
+## AV1
+
+AV1 is an experiment, chosen in Settings, Screen sharing, Codec, on Windows and Linux. The share's own encoders encode it ([What a server says, and what a device chooses](#what-a-server-says-and-what-a-device-chooses)), where the graphics card has AV1, and where it doesn't, the share doesn't start and says to try H.264. Only the native app can watch it: the web app and the iPhone and iPad app can't open AV1 under encryption, so a share in AV1 shows them nothing. A Mac can't send it, as VideoToolbox has no AV1 encoder, but the app there should open one, through the same patched `webrtc-sys`.
+
+### Under encryption
+
+LiveKit's frame cryptor encrypts every byte of an AV1 frame, where it leaves H.264's NAL headers and VP8's first bytes out, and libwebrtc's AV1 packetizer then reads that ciphertext as OBUs. Most frames don't parse and are dropped, and the first byte of the rest is rewritten on the way, so they don't decrypt. Nor does anything ever see a keyframe: libwebrtc marks one only where a sequence header comes first, and LiveKit's server only where a frame header after that says so (`IsAV1KeyFrame` in LiveKit's `mediatransportutil`), and the server forwards a share to someone who comes later only from a keyframe. LiveKit's JS SDK refuses AV1 under encryption for this.
+
+So the app builds LiveKit's `webrtc-sys` with a patch of Zuna's (`apps/desktop/patches/webrtc-sys.patch`, applied by `scripts/webrtc-sys.mjs`), which for AV1 alone puts what the cryptor makes inside OBUs of its own once it's encrypted, and takes it back out before the cryptor opens it:
+
+```
+keyframe   [sequence header] [frame header] [metadata 30: the ciphertext]
+otherwise  [metadata 30: the ciphertext]
+```
+
+The first two are markers with nothing of the picture in them, which say only that it's a keyframe, as RTP's own header does. Every OBU carries its size, so the packetizer and the depacketizer take them apart and put them back as they were. The cryptor, its keys and how it encrypts are LiveKit's own, unchanged, and other codecs pass the envelope by. An app without the patch, as every browser and the iPhone are, can't open it.
+
+`codec-check.mjs` shares the same window in each codec through LiveKit, with a native watcher in a process of its own. On Windows 11 with an RTX 5070 Ti and a Ryzen 7 9800X3D, from a release build, sharing FFmpeg's moving `testsrc2` in a 1602x932 window at 60 fps with up to 8 Mbit/s, for 30 seconds:
+
+| | H.264 | AV1 |
+|---|---|---|
+| Encoder | `h264_nvenc` | `av1_nvenc` |
+| Sent | 59.9 fps, 7.73 Mbit/s | 60.0 fps, 7.74 Mbit/s |
+| Encoding a frame | 1.73 ms | 1.52 ms |
+| The sender's CPU | 4.8% of a core | 4.0% of a core |
+| The watcher's decoder | libwebrtc's FFmpeg, in software | dav1d, in software |
+| Decoding a frame | 1.12 ms | 1.46 ms |
+| The watcher's CPU | 12.9% of a core | 18.0% of a core |
+| Freezes, keyframes asked for | none | none |
+| A watcher 3 seconds late | decoded | decoded |
+| A watcher with another key | nothing | nothing |
+| A watcher without encryption, as the media server is | 8 frames of what it couldn't open | nothing |
+
+H.264 leaves its SPS, PPS and NAL headers out of the encryption, so a decoder without the key makes a few frames of what it can't open, flat in one run and noise in another; nothing of AV1 is left out, and nothing comes of it. Media Foundation's `av1_mf`, NVIDIA's own, has run the same way, made smaller to 720 lines on the GPU on the way.
+
+### Against H.264
+
+`screenshare/examples/codec-bench.rs` encodes the same 10 seconds in both through the share's own encoder, at several bitrates, and measures what comes out against what went in, with the FFmpeg the repository pins. The scene is drawn by the program, the same each time, as a screen looks: code in an editor that scrolls for 3 seconds, stands still for 2 with its caret blinking, has a video playing in a corner for 3 and a window dragged across it for 2. What's counted is what a share sends: H.264 after `h264.rs` has taken out NVENC's filler and SEI, and AV1 without the temporal delimiters and padding LiveKit takes out. PSNR and SSIM are in luma, on the picture the encoder was given made 4:2:0 with the matrix the streams say they're in, since in RGB what 4:2:0 loses of coloured text, the same for both, held both under 32 dB at any bitrate. On the same machine, with NVENC at the effort Balanced (`p4`), the default:
+
+| 1920x1080, 60 fps | Sent | Luma PSNR | Encoding a frame | First keyframe |
+|---|---|---|---|---|
+| H.264, 1 Mbit/s asked for | 0.90 Mbit/s | 32.8 dB | 2.66 ms | 26 KB |
+| AV1, 1 Mbit/s | 0.97 Mbit/s | 36.2 dB | 2.32 ms | 17 KB |
+| H.264, 4 Mbit/s | 1.94 Mbit/s | 43.6 dB | 2.63 ms | 92 KB |
+| AV1, 4 Mbit/s | 3.26 Mbit/s | 49.0 dB | 2.34 ms | 101 KB |
+| H.264, 16 Mbit/s | 6.94 Mbit/s | 58.2 dB | 2.73 ms | 211 KB |
+| AV1, 16 Mbit/s | 11.6 Mbit/s | 62.4 dB | 2.35 ms | 256 KB |
+
+- **At the same bitrate asked for,** as a share asks for the most it may send, AV1 looks better throughout: 3.4 to 5.6 dB more at 1080p from 1 to 16 Mbit/s, 1.7 to 5.5 dB at 2560x1440 from 2 to 32 Mbit/s, and 3.6 to 6.2 at 1080p with the effort Best. Mostly because it sends more of what it's allowed.
+- **NVENC's H.264 sends far less than it's asked for** on a screen, the rest filler that `h264.rs` takes out: asked for 8 Mbit/s, it sent 2.35 at 1080p, and asked for 32, 8.6 at 1440p. The same in a share, where a still screen or text leaves the link's bitrate unused. Over a video, as `testsrc2` is, it sends what it's asked for.
+- **For each bit sent, which is better depends on what's shown.** Averaged over the qualities both reached (Bjøntegaard's measure), AV1 needed 73% fewer bits than H.264 for the video and 33% fewer for the window dragged at 1080p, and 61% fewer for the video at 1440p, but 21% more for the scrolling code at 1080p and 59% more at 1440p, and 9% more for the window at 1440p; with the effort Best, 75% fewer for the video, 45% fewer for the window and only 6% more for the code.
+- **AV1 spends its bitrate on a still screen.** With only the caret blinking, H.264 sent 0.04 to 0.5 Mbit/s and AV1 most of what it was allowed, to make the screen all but perfect (55 to 65 dB against 43 to 65). A share encodes at the full frame rate while anything changes, so a caret blinking keeps AV1 at its bitrate. In CBR it was worse: AV1 spent all of its bitrate whatever the picture, which is why `av1_nvenc` goes in VBR, held to the same bitrate at most (`is_capped_vbr` in `native/encoder.c`). That was better than CBR at every bitrate, by 0.2 to 1.6 dB at 1080p, and sent a little less.
+- **AV1 encodes about an eighth faster** on this card: 2.35 ms a frame against 2.67 at 1080p, 4.14 against 4.80 at 1440p, and 3.5 against 4.2 with the effort Best. Its first keyframe is smaller at low bitrates and larger at high ones.
+- **Watching costs more:** the native app decodes both in software on Windows, and AV1 more slowly (the table above).
 
 ## What the proof of concept measured
 
@@ -295,3 +351,4 @@ Inside the app, Windows and Linux with NVENC have run so far, and macOS through 
 - **The computer's sound on macOS** has run from the app beside a share through the browser, in the Electron app's `mac-sound-check.mjs`, since removed, on macOS 27 on Apple silicon: everything but Zuna, one app alone, and the picker's apps. In the native app, picked in macOS's picker on 2026-11-08: a real 3600x2338 screen at 60 fps with the entire system's sound, and QuickTime Player's window with its own, another program's left out. A whole screen with one app's sound hasn't run. The program by itself has also taken another program's speech while leaving out the app that started it, and its tone, and Apple's converter has taken 44.1 kHz to 48 kHz in a test. An output at another rate, and a change of output during a share, haven't run.
 - **The computer's sound on Windows** has run from the app in the Electron app's `win-sound-check.mjs`, since removed, on Windows 11 (build 26300), beside a native share and one through the browser: everything but Zuna, with Zuna's own tone 46 dB under another app's, one app alone, the picker's apps, and a window starting with its app's. Its tones are at -60 dBFS, so that nobody hears them, and told apart by frequency. They play to the default output, and an app playing to another hasn't been tried.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality. How the bitrate follows a real link with no regular keyframes, and rises that wait longer after each that was too much, has only run against the tests' model of libwebrtc's estimate, not in a call.
+- **AV1** has only run on Windows 11 with an RTX 5070 Ti, through NVENC in `codec-check.mjs`, `key-log-check.mjs` and `codec-bench.rs`, and through NVIDIA's Media Foundation encoder in `key-log-check.mjs` ([AV1](#av1)). Its row in Settings and a share from the app into a voice channel in AV1 haven't been seen, nor has anyone watching one in the app on macOS, which goes through the same patched `webrtc-sys`. Linux's AV1 has only been type-checked, and AMF's, VA-API's and Intel's AV1 have never run. A share in AV1 through a real network, where it would send more than H.264 at the same limit, hasn't run either.
