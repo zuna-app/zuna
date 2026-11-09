@@ -125,7 +125,7 @@ The database can only be open in one tab, and two cores on one device would comp
 
 ### Tab title
 
-- `Zuna` normally, `(n) Zuna` when chats have unread messages. `n` is the desktop's badge count (`updateBadge` in `store.ts`): unread messages in chats that aren't muted, on every server.
+- `Zuna` normally, `(n) Zuna` when chats have unread messages. `n` is the desktop's badge count (`updateBadge` in `state/events.ts`): unread messages in chats that aren't muted, on every server.
 - It changes as soon as a chat is read, and while the tab is in the background.
 - No blinking and no favicon dot.
 
