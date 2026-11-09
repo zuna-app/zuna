@@ -58,8 +58,32 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Only this task touches it until it's delivered.
         nonisolated(unsafe) let content = mutable
         Task {
-            finish(await fill(content, for: push, messageId: messageId, settings: settings))
+            let clearing = Self.clearRead(serverId: push.serverId)
+            nonisolated(unsafe) let filled = await fill(content, for: push, messageId: messageId, settings: settings)
+            finish(await Self.counted(filled, after: clearing))
         }
+    }
+
+    /// While the message is fetched, the server is asked which chats it still counts this phone as showing a
+    /// notification for, and what it shows for any other goes: they were read on another device, and the
+    /// silent push that says so came late or not at all, as it never does to an app its person closed. The
+    /// extension runs for every message pushed, whatever state the app is in.
+    private static func clearRead(serverId: String) -> Task<Int, Never>? {
+        guard let runtime = makeRuntime() else { return nil }
+        let asked = Date()
+        return Task {
+            guard let notified = try? await runtime.stillNotified(serverId: serverId) else { return 0 }
+            return await PushStore.clearRead(serverId: serverId, stillNotified: notified, shownBefore: asked)
+        }
+    }
+
+    /// The notification with the badge as it is once the read chats' notifications have gone, which the
+    /// message isn't kept waiting for long.
+    private static func counted(_ content: UNNotificationContent, after clearing: Task<Int, Never>?) async -> UNNotificationContent {
+        guard let clearing, let cleared = await result(of: clearing, within: 1), cleared > 0, content.badge != nil,
+              let counted = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        counted.badge = NSNumber(value: PushStore.badge)
+        return counted
     }
 
     override func serviceExtensionTimeWillExpire() {

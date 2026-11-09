@@ -4,7 +4,7 @@
 // (packages/ui/src/core/serve.ts).
 
 import "./polyfills";
-import { ZunaClient, previewCall, previewPush } from "@zuna/core";
+import { ZunaClient, notifiedChats, previewCall, previewPush } from "@zuna/core";
 import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
@@ -140,6 +140,13 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
 g.__zunaPreviewCall = (deviceKey: Uint8Array, serverId: string, groupId: string, callerId: string, done: (error: string | null, json: string | null) => void) => {
   previewCall({ db: nativeDbProvider, deviceKey }, serverId, groupId, callerId).then(
     (preview) => done(null, JSON.stringify(preview)),
+    (error: Error) => done(error?.stack ?? String(error), null),
+  );
+};
+
+g.__zunaNotifiedChats = (deviceKey: Uint8Array, serverId: string, done: (error: string | null, json: string | null) => void) => {
+  notifiedChats({ db: nativeDbProvider, deviceKey }, serverId).then(
+    (groups) => done(null, JSON.stringify(groups)),
     (error: Error) => done(error?.stack ?? String(error), null),
   );
 };

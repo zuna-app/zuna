@@ -192,8 +192,8 @@ final class CoreController {
         }
         model.onServersChanged = { Task { await notifications.refresh() } }
         model.onActiveServerChanged = { [weak self] in self?.reportActivity() }
-        model.onNotify = { serverId, groupId, messageId in
-            Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId) }
+        model.onNotify = { serverId, groupId, messageId, inUse in
+            Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId, inUse: inUse) }
         }
         // What a silent push would clear, when the app hears of it itself.
         model.onCaughtUp = { serverId in
@@ -275,6 +275,33 @@ final class CoreController {
         await inTurn { [self] in await wakeUp() }.value
         await notifications?.respond(to: response)
         if UIApplication.shared.applicationState != .active { suspendNow() }
+    }
+
+    /// A silent push said a chat was read, or a message deleted, on another device, and what it names is
+    /// cleared already. iOS hands such pushes over when it likes, so this one may be the first of several
+    /// to arrive: the server is asked which chats it still counts this device as showing, and the rest go
+    /// too. And the notification it's about may still be with the extension, fetching its message, as when
+    /// a chat is read the moment a message comes, so what it names is cleared again a little later.
+    func clearedElsewhere(_ push: PushStore.Message) async {
+        let rest = Task { await clearRead(serverId: push.serverId) }
+        for wait in [2, 3] {
+            try? await Task.sleep(for: .seconds(wait))
+            await Notifications.clear(push)
+        }
+        // Woken for a push, the app only has so long.
+        _ = await result(of: rest, within: 10)
+    }
+
+    /// Clears the notifications of a server's chats that it no longer counts this device as showing one for,
+    /// and says how many went. Without the device's key, as before the phone is first unlocked, none.
+    @discardableResult
+    func clearRead(serverId: String) async -> Int {
+        guard let runtime else { return 0 }
+        let asked = Date()
+        guard let notified = try? await runtime.stillNotified(serverId: serverId) else { return 0 }
+        let cleared = await PushStore.clearRead(serverId: serverId, stillNotified: notified, shownBefore: asked)
+        if cleared > 0 { try? await UNUserNotificationCenter.current().setBadgeCount(PushStore.badge) }
+        return cleared
     }
 
     /// Back on screen: reconnect right away and catch up.
@@ -561,6 +588,10 @@ final class CoreController {
             return StreamStats.asText(voice.readStats(reader))
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
+        case "clearRead":
+            // Asks the server at `path` which chats it still counts this device as showing, and clears the rest, as a silent push has the app do.
+            guard let server = model?.servers.values.first(where: { $0.entry.url == path }) else { return "no-server" }
+            return String(await clearRead(serverId: server.entry.id))
         case "clearNotifications":
             // So a test sees only its own notifications.
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()

@@ -11,7 +11,7 @@ import ZunaModels
 @Observable
 final class Notifications {
     /// The category of message notifications, with Reply and Mark as read.
-    static let messageCategory = "message"
+    static let messageCategory = PushStore.messageCategory
     static let replyAction = "reply"
     static let markReadAction = "markRead"
     /// The category of a call ringing where the system doesn't ring it, with Answer and Decline.
@@ -132,7 +132,9 @@ final class Notifications {
                 Task { await refresh() }
             }
         }
-        PushStore.keep(servers: model.order)
+        // By where it's signed in, not what's loaded: a server that couldn't be loaded for a moment
+        // would lose its key, and its pushes, which nothing here could open, would show without a word.
+        PushStore.keep(servers: model.signedIn)
         guard let relay = Self.relay else { return }
         let wanted = settings.enabled && allowed
         var handles: [String: RelayHandles.ForServer] = [:]
@@ -322,13 +324,18 @@ final class Notifications {
 
     /// A new message while the app runs, once the core's wait is over (as
     /// Telegram's, while the person is on another device). The server doesn't
-    /// push to a phone that's in use, so the app shows it itself, laid out as
-    /// the extension would; a banner, unless that chat is on screen. Out of
-    /// sight, as during a call, what the server pushes here is left to the push.
+    /// push to a phone it takes to be in use, so the app shows it itself, laid
+    /// out as the extension would; a banner, unless that chat is on screen.
+    /// What the server does push here is left to the push. Which it was is the
+    /// server's word (`inUse`), not where the app is now: the two differ for a
+    /// moment as the app leaves the screen, when going by the app would show
+    /// nothing at all, and while another server's chats are open, when it would
+    /// show the message twice.
     @discardableResult
-    func showLive(serverId: String, groupId: String, messageId: String) async -> Bool {
+    func showLive(serverId: String, groupId: String, messageId: String, inUse: Bool) async -> Bool {
         guard settings.enabled, allowed, let preview else { return false }
-        if UIApplication.shared.applicationState == .background, pushes(serverId: serverId, groupId: groupId) { return false }
+        let pushed = pushes(serverId: serverId, groupId: groupId)
+        if pushed, !inUse { return false }
         do {
             let message = try await preview(serverId, groupId, messageId)
             guard !message.hidden, !message.muted else { return false }
@@ -339,6 +346,8 @@ final class Notifications {
             base.categoryIdentifier = Self.messageCategory
             base.userInfo["groupId"] = groupId
             base.userInfo["messageId"] = messageId
+            // The server counts this device as showing it, as it would one it pushed (`PushStore.clearRead`).
+            if pushed { base.userInfo["counted"] = true }
             let content = await MessageNotification.content(for: message, settings: settings, base: base)
             try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: messageId, content: content, trigger: nil))
             return true
@@ -360,7 +369,10 @@ final class Notifications {
             guard (info["groupId"] as? String ?? opened?.groupId) == push.groupId else { return false }
             // A call that stopped ringing takes its notification away, and nothing else.
             if push.kind == .callEnd { return notification.request.content.categoryIdentifier == callCategory }
-            return push.kind == .read || (info["messageId"] as? String ?? opened?.messageId) == push.messageId
+            guard push.kind == .read else { return (info["messageId"] as? String ?? opened?.messageId) == push.messageId }
+            // iOS may hand a silent push over late: a message that came after the chat was read keeps its notification.
+            if let readAt = push.readAt, let sentAt = info["sentAt"] as? Int, sentAt > readAt { return false }
+            return true
         }.map(\.request.identifier)
         Logger(subsystem: "chat.zuna", category: "notifications")
             .info("A chat was \(push.kind.rawValue, privacy: .public) elsewhere: clearing \(stale.count) of \(delivered.count) notifications")

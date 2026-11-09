@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Task {
             if push.kind == .callEnd { core.voice.callEndedByPush(serverId: push.serverId, groupId: push.groupId) }
             await Notifications.clear(push)
+            if push.kind != .callEnd { await core.clearedElsewhere(push) }
             completionHandler(.newData)
         }
     }

@@ -117,6 +117,30 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
+    /// The chats a server still counts this device as showing a notification for, as a JSON list of their
+    /// groups' IDs (`notifiedChats` in the core). Like a preview, it needs no client: nothing connects but
+    /// the one request, and nothing is written.
+    public func notifiedChats(serverId: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            queue.async { [self] in
+                do {
+                    if context == nil { try load() }
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let done: @convention(block) (JSValue, JSValue) -> Void = { error, json in
+                    if error.isNull || error.isUndefined {
+                        continuation.resume(returning: json.toString() ?? "")
+                    } else {
+                        continuation.resume(throwing: CoreError(description: error.toString() ?? "The server couldn't be asked."))
+                    }
+                }
+                call("__zunaNotifiedChats", [options.deviceKey, serverId, JSValue(object: done, in: context) as Any])
+            }
+        }
+    }
+
     /// What a phone shows for a call it was woken to ring for, as JSON (`CallPreview` in the core), from what's on
     /// the device alone. For the notification extension and for PushKit, which wants a call reported at once.
     public func previewCall(serverId: String, groupId: String, callerId: String) async throws -> String {

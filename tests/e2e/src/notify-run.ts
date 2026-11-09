@@ -329,6 +329,22 @@ try {
   judge("in use, the phone shows it at once", gOnPhone, g.sent, "now");
   judge("read there, the desktop never shows it", await onDesktop(g.text), g.sent, "never");
   judge("nor is the other phone pushed", pushedAt("ipad", g.id), g.sent, "never");
+
+  // --- H: what the server no longer counts the phone as showing ---
+  // A silent push says a chat was read elsewhere, and iOS hands those over when it likes, so the app also asks
+  // the server which chats it still counts it as showing, and clears the rest. The simulator gets no silent
+  // push, and a read elsewhere reaches an app that's running over its socket, so here the server is made to
+  // stop counting by turning its pushes off, and the app is asked to look, as a silent push has it do.
+  log("what the server no longer counts");
+  const h = send(chats.Left!, "Still on your screen?");
+  await waitFor(async () => (await onPhone(h.id)) !== undefined, "the phone to show it", 15_000).catch(() => undefined);
+  check("in use, the phone shows it itself", (await onPhone(h.id)) !== undefined);
+  check("counted by the server as shown, it stays", (await thePhone.hostCommand("clearRead", { path: server.url })) === "0" && (await onPhone(h.id)) !== undefined);
+  const shownNow = async () => (JSON.parse(await thePhone.hostCommand("notifications")) as unknown[]).length;
+  const before = await shownNow();
+  await thePhone.session.setPush(null);
+  const cleared = Number(await thePhone.hostCommand("clearRead", { path: server.url }));
+  check("no longer counted, what it showed and what it was pushed are cleared", cleared > 0 && cleared === before && (await shownNow()) === 0, `cleared ${cleared} of ${before}`);
   await page.screenshot({ path: join(shots, "desktop.png") });
 } catch (error) {
   check("the run finished", false, error instanceof Error ? error.message.split("\n")[0] : String(error));

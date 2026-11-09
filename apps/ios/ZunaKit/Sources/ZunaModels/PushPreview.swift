@@ -20,6 +20,8 @@ public struct PushPreview: Decodable, Sendable, Equatable {
     public let group: Group?
     /// The message alone, without the sender's name in front.
     public let text: String?
+    /// When the server took the message, by its clock (ms), if it could be fetched: a chat read after that has read it.
+    public let sentAt: Int?
 
     public struct Person: Decodable, Sendable, Equatable {
         public let id: String
@@ -38,6 +40,13 @@ extension CoreRuntime {
     public func pushPreview(serverId: String, groupId: String, messageId: String, pictures: Bool = false) async throws -> PushPreview {
         let json = try await previewPush(serverId: serverId, groupId: groupId, messageId: messageId, pictures: pictures)
         return try JSONDecoder().decode(PushPreview.self, from: Data(json.utf8))
+    }
+
+    /// The chats a server still counts this device as showing a notification for, by their groups' IDs: it
+    /// pushed one, or left the app to show one, and the chat hasn't been read on any device since.
+    public func stillNotified(serverId: String) async throws -> Set<String> {
+        let json = try await notifiedChats(serverId: serverId)
+        return Set(try JSONDecoder().decode([String].self, from: Data(json.utf8)))
     }
 }
 

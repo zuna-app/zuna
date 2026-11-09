@@ -13,6 +13,8 @@ import ZunaModels
 enum MessageNotification {
     static func content(for preview: PushPreview, settings: NotificationSettings, base: UNMutableNotificationContent) async -> UNNotificationContent {
         base.userInfo["serverId"] = preview.serverId
+        // A chat read elsewhere before this was sent doesn't take it away.
+        if let sentAt = preview.sentAt { base.userInfo["sentAt"] = sentAt }
         if let key = preview.conversationKey {
             base.threadIdentifier = "\(preview.serverId)/\(key)"
             base.userInfo["conversationKey"] = key

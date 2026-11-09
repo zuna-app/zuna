@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import UserNotifications
 
 /// What the app and its notification extension share about pushes, in the
 /// App Group: each server's registration, the notification settings and the
@@ -11,6 +12,9 @@ enum PushStore {
         var serverId: String
         var key: Data
     }
+
+    /// The category of message notifications, which the relay gives a message's push too.
+    static let messageCategory = "message"
 
     /// Hiding a notification needs Apple's notification filtering entitlement.
     /// Until it's granted, servers are told which chats are muted instead.
@@ -71,6 +75,8 @@ enum PushStore {
         /// For a call: who started it, and when, which says which call it is.
         var callerId: String? = nil
         var startedAt: Int? = nil
+        /// For a chat read elsewhere: when, by the server's clock (ms), as its messages' times are.
+        var readAt: Int? = nil
     }
 
     static func open(_ userInfo: [AnyHashable: Any]) -> Message? {
@@ -83,7 +89,34 @@ enum PushStore {
               let fields = try? JSONDecoder().decode([String: String].self, from: plaintext),
               let kind = Message.Kind(rawValue: fields["t"] ?? "message"),
               let groupId = fields["g"] else { return nil }
-        return Message(kind: kind, serverId: registration.serverId, groupId: groupId, messageId: fields["m"], callerId: fields["c"], startedAt: fields["s"].flatMap { Int($0) })
+        return Message(
+            kind: kind, serverId: registration.serverId, groupId: groupId, messageId: fields["m"],
+            callerId: fields["c"], startedAt: fields["s"].flatMap { Int($0) }, readAt: fields["a"].flatMap { Int($0) }
+        )
+    }
+
+    /// Clears a server's message notifications for the chats it no longer counts this device as showing one
+    /// for, which were read on another device since, and says how many went. The push that says a chat was
+    /// read is silent, and iOS hands those over late, or never, as to an app its person closed or a phone
+    /// saving power, so whatever does wake the app or its extension asks the server and clears the rest. Only
+    /// what the server counts is looked at: what it pushed, and what the app showed itself while in use. What
+    /// was shown since the server was asked stays, as it may not have counted it yet.
+    static func clearRead(serverId: String, stillNotified: Set<String>, shownBefore: Date) async -> Int {
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.deliveredNotifications().filter { notification in
+            let content = notification.request.content
+            let info = content.userInfo
+            let pushed = open(info)
+            guard content.categoryIdentifier == messageCategory, notification.date < shownBefore,
+                  pushed?.kind == .message || info["counted"] as? Bool == true,
+                  (info["serverId"] as? String ?? pushed?.serverId) == serverId,
+                  let groupId = info["groupId"] as? String ?? pushed?.groupId else { return false }
+            return !stillNotified.contains(groupId)
+        }.map(\.request.identifier)
+        guard !stale.isEmpty else { return 0 }
+        center.removeDeliveredNotifications(withIdentifiers: stale)
+        badge -= stale.count
+        return stale.count
     }
 
     /// The badge on the app's icon: the app sets it to the unread count, and
@@ -91,6 +124,35 @@ enum PushStore {
     static var badge: Int {
         get { defaults.integer(forKey: "zuna-badge") }
         set { defaults.set(max(0, newValue), forKey: "zuna-badge") }
+    }
+}
+
+/// A task's value if it comes within a while, and nil if it doesn't, when the task is left to finish by itself.
+/// What wakes for a push has only so long, and what it asks a server may take longer.
+func result<T: Sendable>(of task: Task<T, Never>, within seconds: Double) async -> T? {
+    let once = Once()
+    return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+        Task {
+            let value = await task.value
+            if once.take() { continuation.resume(returning: value) }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            if once.take() { continuation.resume(returning: nil) }
+        }
+    }
+}
+
+/// Something only the first to ask may do.
+private final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+
+    func take() -> Bool {
+        lock.withLock {
+            defer { taken = true }
+            return !taken
+        }
     }
 }
 

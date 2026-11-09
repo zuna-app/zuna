@@ -141,6 +141,8 @@ final class AppModel {
 
     private(set) var servers: [String: ServerState] = [:]
     private(set) var order: [String] = []
+    /// Every server this device is signed in to, whether or not it could be loaded just now.
+    @ObservationIgnored private(set) var signedIn: [String] = []
     /// The server whose chats are open, remembered for the next launch, as Mail remembers its mailbox.
     var activeServerId: String? {
         didSet {
@@ -252,8 +254,9 @@ final class AppModel {
     let voice: VoiceModel
     /// Called when servers are added or removed, so notifications can follow.
     @ObservationIgnored var onServersChanged: (() -> Void)?
-    /// Called for a new message the person should hear about while the app runs: server, group and message.
-    @ObservationIgnored var onNotify: ((String, String, String) -> Void)?
+    /// Called for a new message the person should hear about while the app runs: server, group and message,
+    /// and whether the server took this device to be in use when it came, when it pushes it nothing.
+    @ObservationIgnored var onNotify: ((String, String, String, Bool) -> Void)?
     /// Called when a message was deleted, so its notification goes too: server, group and message.
     @ObservationIgnored var onMessageGone: ((String, String, String) -> Void)?
     /// Called when a server's conversations are up to date: caught up with the server, and no refresh on its way.
@@ -316,6 +319,7 @@ final class AppModel {
             for state in liveStates.values { state.forgetPresence() }
             prefetchEmotesSoon()
             let previous = order
+            signedIn = entries.map(\.id)
             order = entries.map(\.id).filter { loaded[$0] != nil }
             if order != previous { onServersChanged?() }
             if activeServerId.map({ servers[$0] == nil }) ?? true {
@@ -525,8 +529,8 @@ final class AppModel {
             servers[serverId]?.entry.signedOut = nil
         case let .security(_, _, message):
             toast(message, .security)
-        case let .notify(serverId, _, _, _, groupId, messageId):
-            onNotify?(serverId, groupId, messageId)
+        case let .notify(serverId, _, _, _, groupId, messageId, inUse):
+            onNotify?(serverId, groupId, messageId, inUse)
         case .activity:
             // The core already holds notifications back while the person is on another device.
             break
@@ -563,6 +567,7 @@ final class AppModel {
         savedPositions = savedPositions.filter { !$0.key.hasPrefix(prefix) }
         readsWanted = readsWanted.filter { !$0.key.hasPrefix(prefix) }
         order.removeAll { $0 == serverId }
+        signedIn.removeAll { $0 == serverId }
         if activeServerId == serverId {
             closeChats()
             activeServerId = order.first
