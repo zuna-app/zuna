@@ -72,7 +72,7 @@ The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the th
 
 **One client core, four hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app (`packages/ui/src/core/serve.ts`, started by `apps/web/src/worker.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
-**The native desktop app draws its own interface.** `apps/desktop/src/ui` follows `packages/ui`'s styles in GPUI, with its state in `state.rs`, and asks the system for anything else in `apps/desktop/src/platform` (`docs/WINDOWS_APP.md`).
+**The native desktop app draws its own interface.** `apps/desktop/src/ui` follows `packages/ui`'s styles in GPUI, with its state in `state/`, and asks the system for anything else in `apps/desktop/src/platform` (`docs/WINDOWS_APP.md`).
 
 **The web app's interface is `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` the web app passes to `startApp` (`packages/ui/src/platform.ts`, given by `apps/web/src/platform.ts`).
 
@@ -141,12 +141,12 @@ Rules the core depends on:
 | Replacing an account's keys: links, slots, seal keys | `docs/ACCOUNT_KEY_ROTATION.md`, `packages/core/src/generations.ts`, `server/internal/api/generations.go` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/host/web.rs`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
-| Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session/channels.ts`, `server/internal/api/channels.go`, `channel_message.rs`, `voice_stage.rs` and `voice.rs` in `apps/desktop/src/ui`, `packages/ui/src/features/voice` |
+| Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session/channels.ts`, `server/internal/api/channels.go`, `channel_message.rs`, `voice_stage/` and `voice.rs` in `apps/desktop/src/ui`, `packages/ui/src/features/voice` |
 | Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `apps/desktop/src/voice`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
-| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen.rs`, which starts it, or on macOS captures in the app through `apps/desktop/src/platform/macos/screen_capture.rs` |
+| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen/`, which starts it, or on macOS captures in the app through `apps/desktop/src/platform/macos/screen_capture.rs` |
 | The native app's host: the core in QuickJS, storage, network, device key | `apps/desktop/src/host` |
-| The native app's state and screens | `apps/desktop/src/state.rs`, `apps/desktop/src/ui` |
-| Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications.rs`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs`, `apps/desktop/src/platform/macos/notifications.rs`, `apps/desktop/src/platform/macos/icons.rs` |
+| The native app's state and screens | `apps/desktop/src/state/`, `apps/desktop/src/ui` |
+| Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications/`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs`, `apps/desktop/src/platform/macos/notifications.rs`, `apps/desktop/src/platform/macos/icons.rs` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Web UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |

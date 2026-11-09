@@ -16,7 +16,7 @@ Only the web app goes through the browser's capture. The native app has no brows
 
 ## How the app runs it
 
-The native app starts the program with `--control` (`apps/desktop/src/voice/screen.rs`). Its address, token and keys go over its standard input, one line of JSON at a time, since anything else on the computer could read a command line.
+The native app starts the program with `--control` (`apps/desktop/src/voice/screen/`). Its address, token and keys go over its standard input, one line of JSON at a time, since anything else on the computer could read a command line.
 
 | Message | Means |
 |---|---|
@@ -63,7 +63,7 @@ What a share starts with follows what's shared: a screen, everything but Zuna, a
 
 On Linux, PipeWire has no stream of everything but one program, so the program makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Chromium plays Zuna's sound from a process under the app's, so it's left out, and nobody in the call hears themselves back. The links belong to the program, and go when it does.
 
-The native app runs it (`start_sound` in `apps/desktop/src/voice/screen.rs`). It writes one line of JSON once it's listening, and then only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays, which the app hands to the published track. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
+The native app runs it (`start_sound` in `apps/desktop/src/voice/screen/mod.rs`). It writes one line of JSON once it's listening, and then only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays, which the app hands to the published track. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
 
 On macOS Core Audio's process taps take everything but a list of processes, or a mix of a few. The program reads one through a private aggregate device clocked by the output, and Apple's converter takes it to 48 kHz where the output runs at another rate. A process that starts later isn't in a tap, and macOS won't change one that's being read, so the program makes a new one when Zuna's processes, the chosen app's, or the output change, which misses a moment of sound at most. The first capture asks the person whether Zuna may record the computer's sound (`NSAudioCaptureUsageDescription`), and macOS asks about the app that started the program, so starting waits up to two minutes for the answer. Without permission, macOS hands over silence rather than an error. An app is the process macOS holds responsible for another, so a browser's helpers go with it, and it's named after its bundle. Only Apple silicon is built for; on an Intel Mac a share's sound isn't offered.
 
@@ -126,7 +126,7 @@ A native share that can't do what was chosen doesn't start, and the app says why
 
 ## Sharing from a Mac
 
-On macOS the app shares by itself, with no program and no Screen Recording permission (`apps/desktop/src/platform/macos/screen_capture.rs`, `start_screen_here` in `apps/desktop/src/voice/screen.rs`). macOS's own picker chooses a screen or a window, ScreenCaptureKit captures it on the GPU into IOSurfaces in NV12, already no larger than asked, and each frame goes to LiveKit as it was captured for VideoToolbox to encode, from the device's own connection rather than a participant of its own. Only Apple silicon, from macOS 14.2, is built for. The share's sound still comes from `zuna-screenshare`, as [The computer's sound](#the-computers-sound) says, and video that arrives is decoded by VideoToolbox and drawn from its buffer. A test build can share moving bars in place of a screen, past the picker, with `ZUNA_FAKE_SCREEN`, which `apps/desktop/test/mac-voice-check.mjs` uses.
+On macOS the app shares by itself, with no program and no Screen Recording permission (`apps/desktop/src/platform/macos/screen_capture.rs`, `start_screen_here` in `apps/desktop/src/voice/screen/share.rs`). macOS's own picker chooses a screen or a window, ScreenCaptureKit captures it on the GPU into IOSurfaces in NV12, already no larger than asked, and each frame goes to LiveKit as it was captured for VideoToolbox to encode, from the device's own connection rather than a participant of its own. Only Apple silicon, from macOS 14.2, is built for. The share's sound still comes from `zuna-screenshare`, as [The computer's sound](#the-computers-sound) says, and video that arrives is decoded by VideoToolbox and drawn from its buffer. A test build can share moving bars in place of a screen, past the picker, with `ZUNA_FAKE_SCREEN`, which `apps/desktop/test/mac-voice-check.mjs` uses.
 
 ## From an iPhone or iPad
 
