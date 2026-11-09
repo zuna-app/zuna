@@ -16,6 +16,7 @@ import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "../../../scripts/ffmpeg.mjs";
+import { ensureWebrtcSys } from "../../../scripts/webrtc-sys.mjs";
 import { bundleCore, ensureLiveKit, env, msvcToolchain, root } from "../../../scripts/lib.mjs";
 
 if (process.platform !== "win32" && process.platform !== "linux") {
@@ -62,6 +63,7 @@ if (!(await listening(7880))) {
 
 bundleCore();
 await ensureFfmpeg(nativeAppDeps);
+await ensureWebrtcSys(nativeAppDeps);
 const target = isWindows ? join(process.env.LOCALAPPDATA, "zuna-windows-target") : join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
 const room = `key-log-check-${randomBytes(4).toString("hex")}`;
 const args = [

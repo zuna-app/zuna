@@ -16,6 +16,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, r
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
@@ -29,6 +30,8 @@ bundleCore();
 // The FFmpeg the repository pins, which the app's media links to and the screen share's encoder
 // builds against (FFMPEG_DIR in apps/desktop/.cargo/config.toml).
 await ensureFfmpeg(nativeAppDeps);
+// LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
+await ensureWebrtcSys(nativeAppDeps);
 
 const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed

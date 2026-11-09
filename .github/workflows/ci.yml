@@ -179,4 +179,6 @@ jobs:
           restore-keys: desktop-cargo-
       - run: npm ci
       - run: node apps/desktop/core-bundle/build.mjs
+      # LiveKit's webrtc-sys with Zuna's patch, which apps/desktop/Cargo.toml builds with.
+      - run: node scripts/webrtc-sys.mjs
       - run: cargo check --manifest-path apps/desktop/Cargo.toml

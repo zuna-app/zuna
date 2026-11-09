@@ -18,6 +18,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install"]);
@@ -32,6 +33,8 @@ bundleCore();
 // The FFmpeg the repository pins, which the screen share's encoder builds against (FFMPEG_DIR in
 // apps/desktop/.cargo/config.toml), and whose libraries go beside the app in `lib`.
 await ensureFfmpeg(nativeAppDeps);
+// LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
+await ensureWebrtcSys(nativeAppDeps);
 
 const cargo = [`+${msvcToolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};

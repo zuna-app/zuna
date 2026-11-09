@@ -5,3 +5,5 @@ apps/ios/ZunaKit/Tests/ZunaHostTests/Fixtures/*.json text eol=lf
 apps/ios/Zuna/Resources/emoji.json text eol=lf
 # Byte for byte: the metadata tests compare what the files are, line endings and all.
 packages/core/test/fixtures/** -text
+# Applied to a crate whose files end their lines in LF (scripts/webrtc-sys.mjs).
+apps/desktop/patches/*.patch -text

@@ -31,6 +31,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "dist", "bundle"]);
@@ -298,6 +299,8 @@ checkMetal();
 // The FFmpeg the app's media links to (FFMPEG_DIR in apps/desktop/.cargo/config.toml), built
 // from its pinned source the first time.
 const ffmpeg = await ensureFfmpeg(nativeAppDeps);
+// LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
+await ensureWebrtcSys(nativeAppDeps);
 bundleCore();
 
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];

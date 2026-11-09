@@ -172,6 +172,12 @@ share-check = []
 name = "share-check"
 required-features = ["share-check"]
 
+# LiveKit's webrtc-sys with Zuna's patch, which lets AV1 go out end to end encrypted
+# (patches/webrtc-sys.patch). scripts/webrtc-sys.mjs fetches it into .deps, as the app's scripts do
+# first, at the version Cargo.lock had for it from crates.io.
+[patch.crates-io]
+webrtc-sys = { path = ".deps/webrtc-sys" }
+
 [profile.dev]
 # The core's argon2 and MLS are far too slow unoptimized.
 [profile.dev.package."*"]

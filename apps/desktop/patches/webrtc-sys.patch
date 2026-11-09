@@ -1,0 +1,270 @@
+--- a/include/livekit/frame_cryptor.h
++++ b/include/livekit/frame_cryptor.h
+@@ -168,6 +168,9 @@
+   const rust::String participant_id_;
+   mutable webrtc::Mutex mutex_;
+   webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
++  // Zuna: the cryptor with AV1's envelope beside it for video (Av1Envelope in
++  // frame_cryptor.cpp), or the cryptor alone for audio.
++  webrtc::scoped_refptr<webrtc::FrameTransformerInterface> cryptor_transformer_;
+   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
+   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
+   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
+--- a/src/frame_cryptor.cpp
++++ b/src/frame_cryptor.cpp
+@@ -16,19 +16,209 @@
+ 
+ #include "livekit/frame_cryptor.h"
+ 
++#include <map>
+ #include <memory>
++#include <optional>
++#include <span>
++#include <vector>
+ 
+ #include "absl/types/optional.h"
+ #include "api/make_ref_counted.h"
+ #include "livekit/peer_connection.h"
+ #include "livekit/peer_connection_factory.h"
+ #include "livekit/packet_trailer.h"
++#include "livekit/packet_trailer_av1.h"
+ #include "livekit/webrtc.h"
++#include "rtc_base/synchronization/mutex.h"
+ #include "rtc_base/thread.h"
+ #include "webrtc-sys/src/frame_cryptor.rs.h"
+ 
+ namespace livekit_ffi {
+ 
++// --- Zuna: AV1 under end-to-end encryption ---
++//
++// The frame cryptor encrypts all of an AV1 frame, and libwebrtc's AV1
++// packetizer then reads that ciphertext as OBUs: most frames don't parse and
++// are dropped, the first byte of the rest is rewritten on the way, and none
++// is ever marked a keyframe, by libwebrtc or by LiveKit's server, which both
++// look for a sequence header first. So for AV1 alone, what the cryptor makes
++// goes out inside OBUs of its own, and comes back out of them before the
++// cryptor opens it:
++//
++//   keyframe  [sequence header] [frame header] [metadata 30: the ciphertext]
++//   otherwise [metadata 30: the ciphertext]
++//
++// The first two are markers with nothing of the picture in them, which only
++// say it's a keyframe, as the RTP header does anyway. Every OBU carries its
++// size, so the packetizer and depacketizer take them apart and put them back
++// as they were. Apps without this can't open AV1 sent with it, and couldn't
++// open encrypted AV1 without it either.
++namespace {
++
++constexpr uint8_t kObuHasSize = 0b0000'0010;
++constexpr uint8_t kObuHasExtension = 0b0000'0100;
++constexpr uint8_t kObuForbidden = 0b1000'0000;
++constexpr uint8_t kObuSequenceHeader = 1;
++constexpr uint8_t kObuFrameHeader = 3;
++constexpr uint8_t kObuMetadata = 5;
++// Unregistered user private, as LiveKit's packet trailer (31) is.
++constexpr uint64_t kMetadataEncryptedAv1 = 30;
++
++void AppendLeb128(uint64_t value, std::vector<uint8_t>& out) {
++  while (value >= 0x80) {
++    out.push_back(static_cast<uint8_t>((value & 0x7F) | 0x80));
++    value >>= 7;
++  }
++  out.push_back(static_cast<uint8_t>(value));
++}
++
++bool ReadLeb128(std::span<const uint8_t> data, size_t& pos, uint64_t& value) {
++  value = 0;
++  for (int i = 0; i < 8; ++i) {
++    if (pos >= data.size()) {
++      return false;
++    }
++    const uint8_t byte = data[pos++];
++    value |= static_cast<uint64_t>(byte & 0x7F) << (7 * i);
++    if ((byte & 0x80) == 0) {
++      return true;
++    }
++  }
++  return false;
++}
++
++void AppendObu(uint8_t type,
++               std::span<const uint8_t> prefix,
++               std::span<const uint8_t> payload,
++               std::vector<uint8_t>& out) {
++  out.push_back(static_cast<uint8_t>((type << 3) | kObuHasSize));
++  AppendLeb128(prefix.size() + payload.size(), out);
++  out.insert(out.end(), prefix.begin(), prefix.end());
++  out.insert(out.end(), payload.begin(), payload.end());
++}
++
++std::vector<uint8_t> WrapAv1(std::span<const uint8_t> ciphertext,
++                             bool keyframe) {
++  std::vector<uint8_t> out;
++  out.reserve(ciphertext.size() + 16);
++  if (keyframe) {
++    // libwebrtc marks a frame a keyframe only when a sequence header comes
++    // first, and LiveKit's server only when a frame header after it says
++    // show_existing_frame 0 and frame_type KEY_FRAME, in its first bits.
++    const uint8_t sequence_header[] = {0};
++    const uint8_t frame_header[] = {0b0001'0000};
++    AppendObu(kObuSequenceHeader, {}, sequence_header, out);
++    AppendObu(kObuFrameHeader, {}, frame_header, out);
++  }
++  std::vector<uint8_t> metadata_type;
++  AppendLeb128(kMetadataEncryptedAv1, metadata_type);
++  AppendObu(kObuMetadata, metadata_type, ciphertext, out);
++  return out;
++}
++
++// The ciphertext inside, or nothing where the frame came without an envelope.
++std::optional<std::span<const uint8_t>> UnwrapAv1(
++    std::span<const uint8_t> data) {
++  size_t pos = 0;
++  while (pos < data.size()) {
++    const uint8_t header = data[pos++];
++    if (header & kObuForbidden) {
++      return std::nullopt;
++    }
++    if (header & kObuHasExtension) {
++      if (pos >= data.size()) {
++        return std::nullopt;
++      }
++      ++pos;
++    }
++    size_t size = data.size() - pos;
++    if (header & kObuHasSize) {
++      uint64_t declared = 0;
++      if (!ReadLeb128(data, pos, declared) || declared > data.size() - pos) {
++        return std::nullopt;
++      }
++      size = static_cast<size_t>(declared);
++    }
++    const size_t end = pos + size;
++    if (((header >> 3) & 0x0F) == kObuMetadata) {
++      size_t at = pos;
++      uint64_t metadata_type = 0;
++      if (ReadLeb128(data.first(end), at, metadata_type) &&
++          metadata_type == kMetadataEncryptedAv1) {
++        return data.subspan(at, end - at);
++      }
++    }
++    pos = end;
++  }
++  return std::nullopt;
++}
++
++class Av1Envelope : public webrtc::FrameTransformerInterface {
++ public:
++  explicit Av1Envelope(bool sending) : sending_(sending) {}
++
++  void Transform(
++      std::unique_ptr<webrtc::TransformableFrameInterface> frame) override {
++    if (av1::IsAv1Frame(*frame)) {
++      std::span<const uint8_t> data = frame->GetData();
++      if (sending_) {
++        // An AV1 frame is always a video frame.
++        const bool keyframe =
++            static_cast<webrtc::TransformableVideoFrameInterface*>(frame.get())
++                ->IsKeyFrame();
++        std::vector<uint8_t> wrapped = WrapAv1(data, keyframe);
++        frame->SetData(wrapped);
++      } else if (auto ciphertext = UnwrapAv1(data)) {
++        // A copy, as SetData may let go of what the span points into.
++        std::vector<uint8_t> unwrapped(ciphertext->begin(), ciphertext->end());
++        frame->SetData(unwrapped);
++      }
++    }
++    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback;
++    {
++      webrtc::MutexLock lock(&mutex_);
++      auto sink = sinks_.find(frame->GetSsrc());
++      callback = sink != sinks_.end() ? sink->second : callback_;
++    }
++    if (callback) {
++      callback->OnTransformedFrame(std::move(frame));
++    }
++  }
++
++  void RegisterTransformedFrameCallback(
++      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback)
++      override {
++    webrtc::MutexLock lock(&mutex_);
++    callback_ = callback;
++  }
++
++  void RegisterTransformedFrameSinkCallback(
++      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
++      uint32_t ssrc) override {
++    webrtc::MutexLock lock(&mutex_);
++    sinks_[ssrc] = callback;
++  }
++
++  void UnregisterTransformedFrameCallback() override {
++    webrtc::MutexLock lock(&mutex_);
++    callback_ = nullptr;
++  }
++
++  void UnregisterTransformedFrameSinkCallback(uint32_t ssrc) override {
++    webrtc::MutexLock lock(&mutex_);
++    sinks_.erase(ssrc);
++  }
++
++ private:
++  const bool sending_;
++  webrtc::Mutex mutex_;
++  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
++  std::map<uint32_t, webrtc::scoped_refptr<webrtc::TransformedFrameCallback>>
++      sinks_;
++};
++
++}  // namespace
++
+ class ChainedFrameTransformer : public webrtc::FrameTransformerInterface,
+                                 public webrtc::TransformedFrameCallback {
+  public:
+@@ -139,7 +329,13 @@
+       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
+                                           participant_id, mediaType, algorithm,
+                                           key_provider_));
+-  sender->SetEncoderToPacketizerFrameTransformer(e2ee_transformer_);
++  // Zuna: AV1 is wrapped once it's encrypted (Av1Envelope).
++  cryptor_transformer_ = e2ee_transformer_;
++  if (mediaType == webrtc::FrameCryptorTransformer::MediaType::kVideoFrame) {
++    cryptor_transformer_ = webrtc::make_ref_counted<ChainedFrameTransformer>(
++        e2ee_transformer_, webrtc::make_ref_counted<Av1Envelope>(true));
++  }
++  sender->SetEncoderToPacketizerFrameTransformer(cryptor_transformer_);
+   e2ee_transformer_->SetEnabled(false);
+ }
+ 
+@@ -161,7 +357,13 @@
+       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
+                                           participant_id, mediaType, algorithm,
+                                           key_provider_));
+-  receiver->SetDepacketizerToDecoderFrameTransformer(e2ee_transformer_);
++  // Zuna: AV1 is unwrapped before it's decrypted (Av1Envelope).
++  cryptor_transformer_ = e2ee_transformer_;
++  if (mediaType == webrtc::FrameCryptorTransformer::MediaType::kVideoFrame) {
++    cryptor_transformer_ = webrtc::make_ref_counted<ChainedFrameTransformer>(
++        webrtc::make_ref_counted<Av1Envelope>(false), e2ee_transformer_);
++  }
++  receiver->SetDepacketizerToDecoderFrameTransformer(cryptor_transformer_);
+   e2ee_transformer_->SetEnabled(false);
+ }
+ 
+@@ -198,12 +400,13 @@
+ 
+   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> first;
+   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> second;
++  // Zuna: the trailer goes outside AV1's envelope, where it finds OBUs.
+   if (sender_) {
+-    first = e2ee_transformer_;
++    first = cryptor_transformer_;
+     second = timestamp_transformer;
+   } else if (receiver_) {
+     first = timestamp_transformer;
+-    second = e2ee_transformer_;
++    second = cryptor_transformer_;
+   } else {
+     return;
+   }
