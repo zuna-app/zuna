@@ -40,6 +40,8 @@ pub mod bench {
     pub use crate::encoder::{Config, Encoder, Input, Packet, Pixel, Quality, Stream, INPUT_CPU};
     /// What a share does to H.264 before it goes out, without NVENC's filler and SEI.
     pub use crate::h264::Rewriter;
+    /// The share's own pipeline, to run the encoder as a share runs it.
+    pub use crate::pipeline::{starting_bitrate, Pipeline};
 }
 
 /// The CPU time this process has used so far, as the stats count it.
