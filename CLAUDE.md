@@ -110,7 +110,7 @@ Rules the core depends on:
 | The web's markup (`lib/markup.tsx` in `packages/ui`) | `apps/desktop/src/markup.rs` and its tests, `ZunaModels/Markup.swift`, and the golden file, which checks Swift against the web but not Rust: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
 | The emoji list (`packages/ui/src/lib/emoji-data.ts`) | `apps/desktop/src/emoji_data.rs`, written by `node apps/desktop/scripts/emoji.mjs` |
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
-| A database schema | Add to the end of `migrations` in `server/internal/store/store.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
+| A database schema | Add to the end of `migrations` in `server/internal/store/migrations.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` and `apps/desktop/src/host/web.rs` |
 | The proxy sites `deploy/install.sh` writes, or what a proxy needs | The Caddy and nginx examples in `docs/SELF_HOSTING.md` and `docs/LINUX.md` |
