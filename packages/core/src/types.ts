@@ -670,4 +670,9 @@ export type CoreEvent =
   | { type: "security"; serverId: string; userId: string; message: string }
   /** For a bot: someone pressed a button under one of its messages. `id` is the press's own, which is new each time. */
   | { type: "button"; serverId: string; groupId: string; messageId: string; userId: string; data: string; id: string }
-  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string };
+  /**
+   * A new message to tell the person about. `inUse` is whether the server took this device to
+   * be in use when the message came, which is when it pushes a phone nothing: the phone shows
+   * it itself then, and leaves it to the push otherwise.
+   */
+  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string; inUse: boolean };

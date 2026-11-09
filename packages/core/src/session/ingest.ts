@@ -524,12 +524,17 @@ export abstract class SessionIngest extends SessionChanges {
   }
 
   protected maybeNotify(view: MessageView): void {
-    const notification = this.notification(view);
+    // The server's frames come in the order it made them, so what it last said is what it
+    // went by for this message: it pushes nothing to a phone it takes to be in use.
+    const inUse = this.seenInUse;
+    const notification = this.notification(view, inUse);
     if (!notification) return;
     // As in Telegram, a notification waits while the person is on another device,
-    // and doesn't show if they read the chat there, or here, meanwhile.
+    // and doesn't show if they read the chat there, or here, meanwhile. A device the
+    // server still took to be in use shows it as one in use, though its person just left:
+    // their other devices wait as for one, and a phone has no push coming.
     const delay = notificationDelay({
-      here: this.active,
+      here: this.active || inUse,
       leftHereAt: this.leftHereAt,
       elsewhereNow: this.activeElsewhere,
       usedElsewhereAt: this.usedElsewhereAt,
@@ -544,14 +549,14 @@ export abstract class SessionIngest extends SessionChanges {
       const ownRead = this.groups.get(view.groupId)?.ownRead ?? Infinity;
       if (!row || row.deleted_at !== null || row.seq === null || row.seq <= ownRead) return;
       // Muted or edited meanwhile, it's as it is now.
-      const event = this.notification(this.toMessageView(row));
+      const event = this.notification(this.toMessageView(row), inUse);
       if (event) this.emit(event);
     }, delay);
     this.waitingNotifications.add(timer);
   }
 
   /** The notification for a new message from someone else, or null if it shouldn't notify. */
-  protected notification(view: MessageView): Extract<CoreEvent, { type: "notify" }> | null {
+  protected notification(view: MessageView, inUse: boolean): Extract<CoreEvent, { type: "notify" }> | null {
     const group = this.groups.get(view.groupId);
     if (!group) return null;
     if (this.isBlocked(view.senderId)) return null;
@@ -565,7 +570,7 @@ export abstract class SessionIngest extends SessionChanges {
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
     const groupName = group.kind === "channel" ? `#${this.channels.get(group.id)?.details?.name ?? "channel"}` : group.meta.name;
     const { title, body } = notificationText(group.kind, groupName, senderName, view);
-    return { type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id };
+    return { type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id, inUse };
   }
 
   previewText(view: Pick<MessageView, "text" | "attachments"> & { location?: MessageView["location"] }): string {

@@ -277,6 +277,7 @@ export abstract class SessionLifecycle extends SessionServer {
         break;
       case "activity": {
         const elsewhere = (data.active_devices as string[]).some((id) => id !== this.account.deviceId);
+        this.seenInUse = (data.active_devices as string[]).includes(this.account.deviceId);
         // How long ago the person used their other devices, of those used lately.
         const recent = Object.entries(data.recent_devices as Record<string, number>).filter(([id]) => id !== this.account.deviceId);
         this.usedElsewhereAt = Math.max(0, ...recent.map(([, ago]) => Date.now() - ago));

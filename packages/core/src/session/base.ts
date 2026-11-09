@@ -43,6 +43,11 @@ export abstract class SessionBase {
   /** Whether the person is using this device, and another of theirs, as the server last said. */
   protected active = false;
   protected activeElsewhere = false;
+  /**
+   * Whether the server takes this device to be in use, as it last said. It follows `active` a
+   * moment behind, and it's what the server goes by when it pushes a phone nothing.
+   */
+  protected seenInUse = false;
   /** When the person last stopped using this device, and last used another one that isn't in use now (ms). */
   protected leftHereAt = 0;
   protected usedElsewhereAt = 0;
@@ -196,6 +201,7 @@ export abstract class SessionBase {
         this.setConnection("offline");
         // Unknown until the server says again; better to notify than to miss something.
         this.usedElsewhereAt = 0;
+        this.seenInUse = false;
         if (this.activeElsewhere) {
           this.activeElsewhere = false;
           this.emit({ type: "activity", serverId: this.serverId, elsewhere: false });
