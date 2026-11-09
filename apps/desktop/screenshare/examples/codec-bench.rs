@@ -10,7 +10,7 @@
 //! difference: in RGB, neither got past 32 dB at any bitrate.
 //!
 //!   cargo run --release -p zuna-screenshare --features bench --example codec-bench -- \
-//!     [--size 1920x1080] [--fps 60] [--seconds 10] [--kbps 1000,2000,4000,8000] [--encoder nvenc] [--effort balanced]
+//!     [--size 1920x1080] [--fps 60] [--seconds 10] [--kbps 1000,2000,4000,8000] [--encoder nvenc] [--effort balanced] [--codecs h264,av1]
 //!
 //! The scene is drawn here, the same every time: code in an editor that scrolls, then stands still
 //! with its caret blinking, then has a video playing in a corner, then has a window dragged across
@@ -54,6 +54,7 @@ mod bench {
         encoder: String,
         effort: Quality,
         render_node: String,
+        codecs: Vec<Codec>,
     }
 
     fn args() -> Args {
@@ -66,6 +67,7 @@ mod bench {
             encoder: "nvenc".into(),
             effort: Quality::Balanced,
             render_node: "/dev/dri/renderD128".into(),
+            codecs: vec![Codec::H264, Codec::Av1],
         };
         let mut seconds = 10.0;
         let given: Vec<String> = std::env::args().skip(1).collect();
@@ -84,6 +86,7 @@ mod bench {
                 "--kbps" => args.kbps = value.split(',').map(|kbps| kbps.parse().unwrap()).collect(),
                 "--encoder" => args.encoder = value.clone(),
                 "--render-node" => args.render_node = value.clone(),
+                "--codecs" => args.codecs = value.split(',').map(|codec| if codec == "av1" { Codec::Av1 } else { Codec::H264 }).collect(),
                 "--effort" => {
                     args.effort = match value.as_str() {
                         "speed" => Quality::Speed,
@@ -587,7 +590,7 @@ mod bench {
         println!("{:<12} {:>7} {:>8} {:>9} {:>9} {:>8} {:>7} {:>7} {:>8}", "encoder", "asked", "sent", "encode", "95%", "key", "PSNR", "YUV", "SSIM");
         println!("{:<12} {:>7} {:>8} {:>9} {:>9} {:>8} {:>7} {:>7} {:>8}", "", "kbit/s", "kbit/s", "ms", "ms", "KB", "dB", "dB", "dB");
         let mut curves: Vec<(Codec, Vec<Point>)> = Vec::new();
-        for codec in [Codec::H264, Codec::Av1] {
+        for &codec in &args.codecs {
             let mut points = Vec::new();
             for &kbps in &args.kbps {
                 let encoded = match encode(&args, &scene, codec, kbps, &dir) {
