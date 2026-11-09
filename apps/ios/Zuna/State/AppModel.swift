@@ -480,9 +480,11 @@ final class AppModel {
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)
-        case let .message(serverId, message, _):
+        case let .message(serverId, message, isNew):
             upsert(serverId, message)
             if message.deletedAt != nil { onMessageGone?(serverId, message.groupId, message.id) }
+            // A message from someone ends their typing, instead of leaving it up for seconds.
+            if isNew { liveState(serverId).endTyping(message.senderId, in: message.groupId) }
         case let .messageRemoved(serverId, groupId, id):
             remove(serverId, groupId: groupId, id: id)
             onMessageGone?(serverId, groupId, id)

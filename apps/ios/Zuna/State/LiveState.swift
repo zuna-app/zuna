@@ -68,6 +68,12 @@ final class LiveState {
         guard let box = typing[groupId], let until = box.until[userId], until <= Date() else { return }
         box.until[userId] = nil
     }
+
+    /// Their message came, which ends their typing at once, as on the desktop.
+    func endTyping(_ userId: String, in groupId: String) {
+        guard let box = typing[groupId], box.until[userId] != nil else { return }
+        box.until[userId] = nil
+    }
 }
 
 /// Who's typing in one group: user to when it stops showing.
