@@ -57,6 +57,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var input: Input?
     private var contexts: [String: MessageRowContext] = [:]
+    /// Each message's `Markup.jumboSize`, kept while its text and emotes stay the same, as
+    /// working it out for every loaded message on every update took 7 ms for a thousand.
+    private var jumboSizes: [String: JumboSize] = [:]
     /// What every row shows apart from its own message, when the rows were last drawn.
     private var rowEnvironment: RowEnvironment?
     private var atBottom = true
@@ -256,12 +259,21 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         // Each message's day, worked out once rather than for each pair it's compared in.
         let days = items.map { Format.day($0.createdAt) }
         var result: [String: MessageRowContext] = [:]
+        var sizes: [String: JumboSize] = [:]
+        sizes.reserveCapacity(items.count)
         for (index, message) in items.enumerated() {
             let showDay = index == 0 || days[index - 1] != days[index]
             // The unread line starts a run of its own, under its name, as Telegram's does.
             let continues = !showDay && message.id != bridge.unreadLine && Self.continues(items[index - 1], message)
             let continued = index + 1 < items.count && days[index + 1] == days[index] && items[index + 1].id != bridge.unreadLine && Self.continues(message, items[index + 1])
             let own = message.senderId == selfId
+            var jumbo = 0
+            if message.attachments.isEmpty, message.deletedAt == nil {
+                let known = jumboSizes[message.id].flatMap { $0.text == message.text && $0.emotes == message.emotes ? $0 : nil }
+                let size = known ?? JumboSize(text: message.text, emotes: message.emotes, size: Markup.jumboSize(message.text, emotes: message.emotes))
+                sizes[message.id] = size
+                jumbo = size.size
+            }
             result[message.id] = MessageRowContext(
                 message: message,
                 showDay: showDay,
@@ -280,10 +292,17 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 channel: channel,
                 startOfChat: index == 0 && !input.hasMore,
                 editing: input.editing == message.id,
-                jumbo: message.attachments.isEmpty && message.deletedAt == nil ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
+                jumbo: jumbo
             )
         }
         contexts = result
+        jumboSizes = sizes
+    }
+
+    private struct JumboSize {
+        let text: String
+        let emotes: [String: EmoteRef]
+        let size: Int
     }
 
     /// A message continues the one before it, on the same day: same sender, within five minutes.
