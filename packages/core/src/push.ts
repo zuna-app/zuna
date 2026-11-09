@@ -36,6 +36,8 @@ export interface PushPreview {
   group?: { name: string; picture?: string };
   /** The message alone, without the sender's name in front. */
   text?: string;
+  /** When the server took the message, by its clock (ms), if it could be fetched: a chat read after that has read it. */
+  sentAt?: number;
 }
 
 /** Pictures are small; anything bigger isn't worth a notification extension's time. */
@@ -99,6 +101,7 @@ export async function previewPush(
     return `#${name ?? "channel"}`;
   };
   const groupName = group?.kind === "channel" ? channelName() : group?.meta.name || "Group";
+  let sentAt: number | undefined;
   const preview = (fields: Partial<PushPreview>): PushPreview => ({
     serverId,
     conversationKey,
@@ -108,6 +111,7 @@ export async function previewPush(
     decrypted: false,
     muted: false,
     hidden: false,
+    sentAt,
     ...fields,
   });
 
@@ -115,6 +119,7 @@ export async function previewPush(
   api.token = account.token;
   const message = await api.message(groupId, messageId).catch(() => null);
   if (!message) return preview({});
+  if (Number.isSafeInteger(message.created_at)) sentAt = message.created_at;
   if (message.deleted_at || !message.envelope || message.sender_user === account.userId) return preview({ hidden: true });
 
   const sender = user(message.sender_user);
@@ -191,6 +196,24 @@ export async function previewPush(
     group: group.kind === "dm" ? undefined : { name: groupName, picture: group.kind === "group" ? await picture(group.meta.avatar) : undefined },
     text: previewText(content),
   });
+}
+
+/**
+ * The chats the server still counts this phone as showing a notification for: it was pushed
+ * one, or left to show one itself, and none of the person's devices has read the chat since.
+ * A phone asks whenever something wakes it, and clears what it shows for any other chat. iOS
+ * hands a silent push over when it likes, or never, as to an app its person closed, so the
+ * push that says a chat was read can't be all that clears its notifications. Like a preview,
+ * it needs no session and writes nothing.
+ */
+export async function notifiedChats(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string): Promise<string[]> {
+  const { account } = await openServer(options, serverId);
+  const api = new Api(account.serverUrl);
+  api.token = account.token;
+  const groups: unknown = await api.pushNotified();
+  // Anything else would have the phone clear everything it shows.
+  if (!Array.isArray(groups) || groups.some((id) => typeof id !== "string")) throw new Error("The server didn't say which chats this device was notified about.");
+  return groups as string[];
 }
 
 /** What a phone shows for a call it was woken to ring for. */

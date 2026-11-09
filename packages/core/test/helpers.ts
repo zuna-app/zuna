@@ -430,7 +430,7 @@ export async function waitFor(condition: () => boolean | Promise<boolean>, what:
 /** A push relay that records what servers send it, for tests. */
 export class FakeRelay {
   url = "";
-  readonly pushes: { handle: string; data: { r: string; p: string }; collapse_id: string }[] = [];
+  readonly pushes: { handle: string; type: string; data: { r: string; p: string }; collapse_id: string }[] = [];
   private server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));

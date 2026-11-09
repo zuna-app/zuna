@@ -3,7 +3,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { notifyTiming } from "../src/notify";
-import { previewPush } from "../src/push";
+import { notifiedChats, previewPush } from "../src/push";
 import { presenceTiming } from "../src/presence";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv, createHmac } from "node:crypto";
@@ -428,6 +428,83 @@ describe("notifications from a push", () => {
     await waitFor(() => bob.texts(dm).includes("anyone?"), "delivery to bob");
     await sleep(300);
     expect(relay.pushes.length).toBe(quiet);
+  });
+
+  it("tells a phone whether the server left a message for it to show, and which chats it still counts as showing", async () => {
+    const key = new Uint8Array(32).fill(7);
+    const registration = "b".repeat(32);
+    await bob.session.setPush({ relay: relay.url, handle: "bob-phone", key, registration, sendMuted: true });
+    const open = (push: FakeRelay["pushes"][number]): Record<string, string> | null => {
+      if (push.data.r !== registration) return null;
+      const sealed = Buffer.from(push.data.p, "base64");
+      const decipher = createDecipheriv("aes-256-gcm", key, sealed.subarray(0, 12));
+      decipher.setAAD(Buffer.from(`zuna/push/v1|${registration}`));
+      decipher.setAuthTag(sealed.subarray(sealed.length - 16));
+      return JSON.parse(Buffer.concat([decipher.update(sealed.subarray(12, sealed.length - 16)), decipher.final()]).toString());
+    };
+    const pushed = (kind: string, find: (fields: Record<string, string>) => boolean) => relay.pushes.some((push) => push.type === kind && find(open(push) ?? {}));
+    const groupId = await alice.session.createGroup("Hand or pocket", [bob.userId], false);
+    const chat = `group:${groupId}`;
+    await waitFor(() => bob.session.getConversations().some((item) => item.key === chat), "bob to have the group");
+    const notify = (text: string) => bob.events.find((event): event is Extract<CoreEvent, { type: "notify" }> => event.type === "notify" && event.body === `alice: ${text}`);
+    // What the server last told bob's device it takes it for.
+    const seenInUse = () => (bob.session as unknown as { seenInUse: boolean }).seenInUse;
+    const laptop = await new TestApp("bob-laptop").open();
+    try {
+      await laptop.login(server.url, "bob");
+      await waitFor(() => laptop.session.getConversations().some((item) => item.key === chat), "the laptop to have the group");
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([]);
+
+      // Put away, the server pushes it the message, and the app leaves it to the push.
+      bob.client.setActive(false);
+      await waitFor(() => !seenInUse(), "the server to take the phone as put away");
+      const pocket = alice.session.sendMessage(chat, { text: "in your pocket" });
+      await waitFor(() => !!notify("in your pocket"), "the phone to hear of the message");
+      expect(notify("in your pocket")!.inUse).toBe(false);
+      await waitFor(() => pushed("alert", (fields) => fields.m === pocket.id), "its push");
+      expect(await previewPush(extension(bob), bob.serverId, groupId, pocket.id)).toMatchObject({ sentAt: received(bob, "in your pocket").createdAt });
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([groupId]);
+
+      // Read at the laptop, the phone is told to clear it, with when it was read, and no longer counts as showing it.
+      const before = Date.now();
+      await waitFor(() => laptop.texts(chat).includes("in your pocket"), "delivery to the laptop");
+      await laptop.session.markRead(groupId, received(laptop, "in your pocket").seq!);
+      await waitFor(() => pushed("background", (fields) => fields.t === "read" && fields.g === groupId), "the push that clears it");
+      const read = relay.pushes.map(open).find((fields) => fields?.t === "read" && fields.g === groupId)!;
+      expect(Number(read.a)).toBeGreaterThanOrEqual(received(bob, "in your pocket").createdAt);
+      expect(Math.abs(Number(read.a) - before)).toBeLessThan(5_000);
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([]);
+
+      // In hand, nothing is pushed: it's the app's to show, and counts as shown all the same.
+      bob.client.setActive(true);
+      await waitFor(() => seenInUse(), "the server to take the phone as in use");
+      const hand = alice.session.sendMessage(chat, { text: "in your hand" });
+      await waitFor(() => !!notify("in your hand"), "the phone to hear of the message");
+      expect(notify("in your hand")!.inUse).toBe(true);
+      await waitFor(async () => (await notifiedChats(extension(bob), bob.serverId)).includes(groupId), "the phone to count as showing it");
+      expect(pushed("alert", (fields) => fields.m === hand.id)).toBe(false);
+
+      // Put away as a message comes, before the server hears of it: it went by what it knew
+      // and pushed nothing, so the app shows it, at once, though its person has left.
+      // With someone at the laptop too, that's a moment's wait, as for a device in use, not the
+      // half minute of one put away, which the app wouldn't be running for.
+      laptop.client.setActive(true);
+      await waitFor(() => bob.session.isActiveElsewhere(), "the phone to hear the laptop is in use");
+      const session = bob.session as unknown as { active: boolean; leftHereAt: number };
+      session.active = false;
+      session.leftHereAt = Date.now();
+      const leaving = alice.session.sendMessage(chat, { text: "as you leave" });
+      await waitFor(() => bob.texts(chat).includes("as you leave"), "delivery to the phone");
+      await waitFor(() => !!notify("as you leave"), "the phone to show it itself", notifyTiming.bothDelay + 2_000);
+      expect(notify("as you leave")!.inUse).toBe(true);
+      await sleep(300);
+      expect(pushed("alert", (fields) => fields.m === leaving.id)).toBe(false);
+    } finally {
+      bob.client.setActive(false);
+      await waitFor(() => !seenInUse(), "the server to take the phone as put away");
+      await bob.session.setPush(null);
+      laptop.client.stop();
+    }
   });
 
   it("holds notifications back while the person is on another device, as Telegram does", async () => {
