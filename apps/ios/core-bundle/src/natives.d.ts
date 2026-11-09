@@ -41,8 +41,14 @@ declare const __zunaCrypto: {
 
 declare const __zunaDb: {
   open(name: string): number;
-  run(handle: number, sql: string, params: unknown[]): void;
-  all(handle: number, sql: string, params: unknown[]): any[];
+  /** Runs one or more statements without parameters, such as a migration. */
+  run(handle: number, sql: string): void;
+  /** Prepares one statement, kept until `drop` or its database closes, and gives its number. */
+  prepare(handle: number, sql: string): number;
+  query(statement: number, params: unknown[]): any[];
+  exec(statement: number, params: unknown[]): void;
+  /** Finalizes every statement prepared for a database. */
+  drop(handle: number): void;
   close(handle: number): void;
   remove(name: string): void;
 };

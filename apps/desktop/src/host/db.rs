@@ -18,6 +18,10 @@ struct Databases {
     open: HashMap<u32, Connection>,
     names: HashMap<String, u32>,
     next: u32,
+    /// The statements the core prepared, by number: each one's database and SQL, which
+    /// rusqlite's own cache keeps compiled, so the SQL needn't cross over for each call.
+    statements: HashMap<u32, (u32, String)>,
+    next_statement: u32,
 }
 
 /// A database's name as a file name: the core's names are its own, but a name is never a path.
@@ -52,8 +56,8 @@ fn to_sql(value: &Value<'_>) -> SqlValue {
     SqlValue::Null
 }
 
-fn params(args: &[Value<'_>]) -> Vec<SqlValue> {
-    args.get(2)
+fn params(args: &[Value<'_>], index: usize) -> Vec<SqlValue> {
+    args.get(index)
         .and_then(|value| value.as_array())
         .map(|array| array.iter::<Value>().filter_map(|item| item.ok()).map(|item| to_sql(&item)).collect())
         .unwrap_or_default()
@@ -77,7 +81,14 @@ fn value_of<'js>(ctx: &Ctx<'js>, value: ValueRef<'_>) -> Result<Value<'js>> {
 
 pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
     std::fs::create_dir_all(&dir).ok();
-    let state = Rc::new(RefCell::new(Databases { dir, open: HashMap::new(), names: HashMap::new(), next: 1 }));
+    let state = Rc::new(RefCell::new(Databases {
+        dir,
+        open: HashMap::new(),
+        names: HashMap::new(),
+        next: 1,
+        statements: HashMap::new(),
+        next_statement: 1,
+    }));
     let db = Object::new(ctx.clone())?;
 
     {
@@ -111,15 +122,8 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
             Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
                 let state = state.borrow();
                 let connection = state.open.get(&(number_arg(&a, 0) as u32)).ok_or_else(|| fail(&c, "That database isn't open."))?;
-                let sql = string_arg(&a, 1);
-                let values = params(&a);
-                if values.is_empty() {
-                    // Several statements at once, such as a migration, or BEGIN and COMMIT.
-                    connection.execute_batch(&sql).map_err(|error| fail(&c, error.to_string()))?;
-                } else {
-                    let mut statement = connection.prepare_cached(&sql).map_err(|error| fail(&c, error.to_string()))?;
-                    statement.execute(params_from_iter(values.iter())).map_err(|error| fail(&c, error.to_string()))?;
-                }
+                // One or more statements without parameters, such as a migration.
+                connection.execute_batch(&string_arg(&a, 1)).map_err(|error| fail(&c, error.to_string()))?;
                 Ok(Value::new_undefined(c))
             })?,
         )?;
@@ -127,13 +131,46 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
     {
         let state = state.clone();
         db.set(
-            "all",
+            "prepare",
+            Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
+                let mut state = state.borrow_mut();
+                let handle = number_arg(&a, 0) as u32;
+                let sql = string_arg(&a, 1);
+                let connection = state.open.get(&handle).ok_or_else(|| fail(&c, "That database isn't open."))?;
+                // Compiled now, so a mistake shows here, as it does on iOS.
+                connection.prepare_cached(&sql).map_err(|error| fail(&c, error.to_string()))?;
+                let id = state.next_statement;
+                state.next_statement += 1;
+                state.statements.insert(id, (handle, sql));
+                Ok(number(&c, id as f64))
+            })?,
+        )?;
+    }
+    {
+        let state = state.clone();
+        db.set(
+            "exec",
             Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
                 let state = state.borrow();
-                let connection = state.open.get(&(number_arg(&a, 0) as u32)).ok_or_else(|| fail(&c, "That database isn't open."))?;
-                let sql = string_arg(&a, 1);
-                let values = params(&a);
-                let mut statement = connection.prepare_cached(&sql).map_err(|error| fail(&c, error.to_string()))?;
+                let (handle, sql) = state.statements.get(&(number_arg(&a, 0) as u32)).ok_or_else(|| fail(&c, "That statement was let go."))?;
+                let connection = state.open.get(handle).ok_or_else(|| fail(&c, "That database isn't open."))?;
+                let values = params(&a, 1);
+                let mut statement = connection.prepare_cached(sql).map_err(|error| fail(&c, error.to_string()))?;
+                statement.execute(params_from_iter(values.iter())).map_err(|error| fail(&c, error.to_string()))?;
+                Ok(Value::new_undefined(c))
+            })?,
+        )?;
+    }
+    {
+        let state = state.clone();
+        db.set(
+            "query",
+            Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
+                let state = state.borrow();
+                let (handle, sql) = state.statements.get(&(number_arg(&a, 0) as u32)).ok_or_else(|| fail(&c, "That statement was let go."))?;
+                let connection = state.open.get(handle).ok_or_else(|| fail(&c, "That database isn't open."))?;
+                let values = params(&a, 1);
+                let mut statement = connection.prepare_cached(sql).map_err(|error| fail(&c, error.to_string()))?;
                 let names: Vec<String> = statement.column_names().map(|name| name.to_string()).collect();
                 let mut rows = statement.query(params_from_iter(values.iter())).map_err(|error| fail(&c, error.to_string()))?;
                 let result = Array::new(c.clone())?;
@@ -154,12 +191,24 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
     {
         let state = state.clone();
         db.set(
+            "drop",
+            Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
+                let handle = number_arg(&a, 0) as u32;
+                state.borrow_mut().statements.retain(|_, (of, _)| *of != handle);
+                Ok(Value::new_undefined(c))
+            })?,
+        )?;
+    }
+    {
+        let state = state.clone();
+        db.set(
             "close",
             Function::new(ctx.clone(), move |c: Ctx<'js>, Rest(a): Rest<Value<'js>>| -> Result<Value<'js>> {
                 let mut state = state.borrow_mut();
                 let handle = number_arg(&a, 0) as u32;
                 state.open.remove(&handle);
                 state.names.retain(|_, open| *open != handle);
+                state.statements.retain(|_, (of, _)| *of != handle);
                 Ok(Value::new_undefined(c))
             })?,
         )?;
@@ -173,6 +222,7 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
                 let mut state = state.borrow_mut();
                 if let Some(handle) = state.names.remove(&name) {
                     state.open.remove(&handle);
+                    state.statements.retain(|_, (of, _)| *of != handle);
                 }
                 let base = file_for(&state.dir, &name);
                 for suffix in ["", "-wal", "-shm", "-journal"] {
