@@ -3,22 +3,16 @@ name = "zuna-screenshare"
 version = "0.10.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "Native screen capture and GPU encoding, published through LiveKit."
+description = "The native app's screen capture, GPU encoding and a share's sound, which it runs in its own process."
 publish = false
 
-[features]
-default = ["livekit"]
-# Without this it can only write to a file, which also builds without a C++ compiler.
-livekit = ["dep:livekit", "dep:livekit-api"]
+# A crate of its own, rather than modules of the app, so that its Linux and macOS code can be
+# checked from any system (`cargo check --target …` with ZUNA_CHECK_ONLY set, see build.rs): it
+# needs neither LiveKit nor GPUI, whose builds need that system's own tools. The app hands each
+# encoded frame to LiveKit itself, through `Output`.
 
 [dependencies]
-# Without a TLS feature it can't reach a wss:// address, which is every real server. The
-# system's roots, so that a server behind a private certificate authority works as it does in Chromium.
-livekit = { version = "=0.10.0", features = ["rustls-tls-native-roots"], optional = true }
-livekit-api = { version = "=0.10.0", default-features = false, features = ["access-token"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "signal", "time"] }
 log = "0.4"
-env_logger = { version = "0.11", default-features = false }
 libloading = "0.8"
 serde_json = "1"
 
@@ -56,9 +50,11 @@ features = [
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# The ScreenCast portal over the app's own async-io, as GPUI's portals and the app's location go:
+# ashpd and zbus take tokio over async-io for every connection in the process where either asks for it.
 [target.'cfg(target_os = "linux")'.dependencies]
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "screencast"] }
-futures-util = "0.3"
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "screencast"] }
+futures-executor = "0.3"
 
 # Core Audio's process taps, for the computer's sound, and its converter for 48 kHz.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -71,9 +67,3 @@ objc2-audio-toolbox = "0.3"
 
 [build-dependencies]
 cc = "1"
-
-[profile.release]
-opt-level = 3
-# Line tables made 90 MB of the 124 MB program on Linux, which keeps them in the binary
-# itself. Symbols stay, so a backtrace still names its functions.
-strip = "debuginfo"

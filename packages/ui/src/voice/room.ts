@@ -536,7 +536,7 @@ export class VoiceRoom {
       if (!parsed) return;
       for (const publication of participant.trackPublications.values()) {
         const track = publication.track as LocalTrack | RemoteTrack | undefined;
-        if (track) streams.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, local, source: publication.source, native: !!parsed.screen, track, publication });
+        if (track) streams.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, local, source: publication.source, native: !!parsed.screen || (publication.source === Track.Source.ScreenShare && publication.trackName === "screen"), track, publication });
       }
     };
     add(this.room.localParticipant, true);

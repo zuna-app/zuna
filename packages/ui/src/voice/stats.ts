@@ -368,7 +368,7 @@ export class StreamStats {
       kind: "video",
       headline: { fps: decoded, label: "decoded", wanted: null, history: this.history(stream.key, decoded) },
       rows: rows([
-        row("Sent through", stream.source === Track.Source.ScreenShare ? (stream.native ? "Native program, on their graphics card" : "Their browser") : null),
+        row("Sent through", stream.source === Track.Source.ScreenShare ? (stream.native ? "Their desktop app, on their graphics card" : "Their browser") : null),
         row("Receiving", fps(perSecond("framesReceived"))),
         row("Decoding", fps(decoded)),
         row("Painting", fps(this.paintedRate(element))),

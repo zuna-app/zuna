@@ -30,7 +30,8 @@ pub struct Sample {
     pub local: bool,
     pub video: bool,
     pub source: Source,
-    /// Sent by a native program, as a participant of its own.
+    /// A share sent from the desktop app, whose track is named `screen`, where a browser's and the
+    /// iPhone's are `screen_share`.
     pub native: bool,
     pub encrypted: bool,
     pub muted: bool,
@@ -168,7 +169,7 @@ impl VoiceRoom {
                 if connection.round_trip.is_none() && found.round_trip.is_some() {
                     connection = found;
                 }
-                samples.push(Sample { key: format!("{identity}/{sid}"), user_id: user.clone(), local: false, video: publication.kind() == TrackKind::Video, source: source_of(publication.source()), native, encrypted: publication.encryption_type() != livekit::e2ee::EncryptionType::None, muted: publication.is_muted(), numbers, texts });
+                samples.push(Sample { key: format!("{identity}/{sid}"), user_id: user.clone(), local: false, video: publication.kind() == TrackKind::Video, source: source_of(publication.source()), native: native || (publication.source() == TrackSource::Screenshare && publication.name() == "screen"), encrypted: publication.encryption_type() != livekit::e2ee::EncryptionType::None, muted: publication.is_muted(), numbers, texts });
             }
         }
         (samples, connection)
@@ -305,7 +306,7 @@ impl Reader {
                 audio: false,
                 headline: Some(Headline { fps: sent, label: "sent", wanted: Some(share.fps), history }),
                 rows: [
-                    row("Sent through", Some("Native program, on the graphics card".into()), false),
+                    row("Sent through", Some("This app, on the graphics card".into()), false),
                     row("Sharing", Some(share.name.clone()), false),
                     row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
                     row("Picture", size(number("width"), number("height")), false),
@@ -402,7 +403,7 @@ impl Reader {
                         audio: false,
                         headline: Some(Headline { fps: decoded, label: "decoded", wanted: None, history }),
                         rows: [
-                            row("Sent through", (sample.source == Source::Screen).then(|| if sample.native { "Native program, on their graphics card".to_string() } else { "Their browser".to_string() }), false),
+                            row("Sent through", (sample.source == Source::Screen).then(|| if sample.native { "Their desktop app, on their graphics card".to_string() } else { "Their browser".to_string() }), false),
                             row("Receiving", fps(per_second("frames_received")), false),
                             row("Decoding", fps(decoded), false),
                             row("Frames dropped", joined(&[count(get("frames_dropped")), dropped.filter(|value| *value > 0.).map(|value| format!("{value:.1} a second"))]), dropped.unwrap_or(0.) > 0.),

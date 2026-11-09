@@ -55,7 +55,7 @@ pub struct ShareInfo {
     pub height: u32,
     /// Which of those the server's limits brought down, in words.
     pub held: Vec<String>,
-    /// What the native program said once it started.
+    /// What the capture said once it started.
     pub info: Option<Value>,
 }
 

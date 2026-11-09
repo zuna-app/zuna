@@ -30,8 +30,8 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
-import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
+import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "dist", "bundle"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
@@ -48,9 +48,6 @@ if (command === "dist" && !developerId) {
   console.error("There's no Developer ID Application identity in the keychain to sign a release with. Import its certificate with the private key, from a .p12, first.");
   process.exit(1);
 }
-
-// The bundle carries the share's sound program from apps/screenshare/dist, so an old one would go in after a pull.
-ensureNativeScreenCurrent();
 
 /** GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once asked. */
 function checkMetal() {
@@ -116,8 +113,8 @@ function entitlements(name, value) {
 }
 
 /**
- * Wraps the program in an app bundle, with the screen capture beside it once it's built, and
- * signs it, with the Developer ID when it's given and the Apple Development identity otherwise.
+ * Wraps the program in an app bundle, with the media library beside it, and signs it, with the
+ * Developer ID when it's given and the Apple Development identity otherwise.
  */
 function bundle(program, media, out, { name, id, developerId = null }) {
   const app = join(out, `${name}.app`);
@@ -128,9 +125,6 @@ function bundle(program, media, out, { name, id, developerId = null }) {
   mkdirSync(resources, { recursive: true });
   copyFileSync(program, join(macos, "zuna"));
   chmodSync(join(macos, "zuna"), 0o755);
-  const screenshare = join(root, "apps", "screenshare", "dist", "zuna-screenshare");
-  if (existsSync(screenshare)) copyFileSync(screenshare, join(macos, "zuna-screenshare"));
-  else if (name === "Zuna") console.warn("> no native screen capture to put in: npm run build:screenshare first, or this build's shares have no sound");
   // The media library and FFmpeg's libraries, which name each other through @rpath.
   const frameworks = join(app, "Contents", "Frameworks");
   mkdirSync(frameworks, { recursive: true });
@@ -175,21 +169,19 @@ function bundle(program, media, out, { name, id, developerId = null }) {
   // team for the runtime to check the libraries the app loads against, so it goes without.
   const options = signer ? ["--options", "runtime", developerId ? "--timestamp" : "--timestamp=none"] : ["--timestamp=none"];
   const debuggable = developerId ? {} : { "com.apple.security.get-task-allow": true };
+  // Audio input for the microphone, and for a share's sound, read from a tap's aggregate device.
   const appRights = entitlements("zuna", {
     "com.apple.security.device.audio-input": true,
     "com.apple.security.device.camera": true,
     "com.apple.security.personal-information.location": true,
     ...debuggable,
   });
-  // The share's sound program reads the computer's sound as input, from a tap's aggregate device.
-  const soundRights = entitlements("zuna-screenshare", { "com.apple.security.device.audio-input": true, ...debuggable });
   const sign = (path, rights) => {
     const signed = spawnSync("codesign", ["--force", "--sign", signer ?? "-", ...options, ...(signer && rights ? ["--entitlements", rights] : []), path], { stdio: ["ignore", "ignore", "inherit"] });
     if (signed.status !== 0) throw new Error(`codesign couldn't sign ${path}`);
   };
   // What's inside first, then the bundle, which seals them.
   for (const name of linked) sign(join(frameworks, name));
-  if (existsSync(join(macos, "zuna-screenshare"))) sign(join(macos, "zuna-screenshare"), soundRights);
   sign(app, appRights);
   return app;
 }
@@ -305,7 +297,7 @@ async function packages(app, dist) {
 checkMetal();
 // The FFmpeg the app's media links to (FFMPEG_DIR in apps/desktop/.cargo/config.toml), built
 // from its pinned source the first time.
-const ffmpeg = await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
+const ffmpeg = await ensureFfmpeg(nativeAppDeps);
 bundleCore();
 
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];

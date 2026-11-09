@@ -192,16 +192,16 @@ pub struct Source {
 }
 
 impl Source {
-    /// Where on the desktop the screen is, a pixel in from its corner, for `--monitor-at`.
+    /// Where on the desktop the screen is, a pixel in from its corner, which says which to capture.
     pub fn monitor_at(&self) -> Option<(i32, i32)> {
         let corner = self.id.strip_prefix("screen:")?.split(':').nth(1)?;
         let (x, y) = corner.split_once(',')?;
         Some((x.parse::<i32>().ok()? + 1, y.parse::<i32>().ok()? + 1))
     }
 
-    /// The window's HWND, for `--window`.
-    pub fn window(&self) -> Option<String> {
-        Some(self.id.strip_prefix("window:")?.split(':').next()?.to_string())
+    /// The window's HWND, which says which to capture.
+    pub fn window(&self) -> Option<u64> {
+        self.id.strip_prefix("window:")?.split(':').next()?.parse().ok()
     }
 
     /// Where the system's own dialog picks which, once Share is pressed, as under Wayland:

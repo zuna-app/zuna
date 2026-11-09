@@ -32,5 +32,4 @@ Every commit from this review says what it couldn't build or run. Together:
 - **With PostgreSQL:** the server's and the core's tests with `ZUNA_TEST_POSTGRES`. CI's new `postgres` job does this from the next `v*` tag, without holding a release back until it's seen passing.
 - **In CI, on the next `v*` tag:** the wasm-bindgen action, the actions' new majors, the cargo audits of the desktop's crates, the web image built from the release's own web build, and the `desktop` job, which also doesn't hold a release back yet.
 - **In Firefox and WebKit:** the web check, which only ran in Chromium. Playwright's Firefox didn't start on that Windows machine, and its WebKit there can't start the core.
-- **With the test server stopped:** `node apps/screenshare/test/key-log-check.mjs`, which needs port 7880 for its own LiveKit.
 - **Not from these changes:** on Windows, `packages/core/test/share-extension.test.ts` fails as its `afterAll` deletes its folder (EPERM, a database still open), though both its tests pass.

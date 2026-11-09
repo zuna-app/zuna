@@ -10,7 +10,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { ensureFfmpeg } from "../../../scripts/ffmpeg.mjs";
+import { ensureFfmpeg, nativeAppDeps } from "../../../scripts/ffmpeg.mjs";
 
 export const here = dirname(fileURLToPath(import.meta.url));
 export const crate = join(here, "..");
@@ -33,7 +33,7 @@ export async function outside(script) {
   }
   execFileSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", cwd: root });
   // The FFmpeg the app's media links to, as scripts/linux-app.mjs makes sure of.
-  await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
+  await ensureFfmpeg(nativeAppDeps);
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
   const server = join(tmpdir(), "zuna-linux-check-server");

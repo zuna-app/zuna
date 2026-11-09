@@ -202,11 +202,7 @@ struct Shared {
     sending: Mutex<i32>,
     /// Bumped with each new key, so a delayed switch that's been overtaken does nothing.
     key_serial: AtomicU64,
-    /// Told each room key this device starts sending under, for a native share to follow.
-    on_send_key: Mutex<Option<SendKeyHook>>,
 }
-
-pub type SendKeyHook = Arc<dyn Fn(&[u8], i32) + Send + Sync>;
 
 pub struct VoiceRoom {
     room: Arc<Room>,
@@ -214,8 +210,7 @@ pub struct VoiceRoom {
     mic: Mutex<Option<(NativeAudioSource, LocalTrackPublication)>>,
     camera: Mutex<Option<(LocalTrackPublication, crate::media::record::Camera, Feed)>>,
     share_sound: Mutex<Option<(NativeAudioSource, LocalTrackPublication)>>,
-    /// On macOS a share's picture goes from this connection, as a browser's does.
-    #[cfg(target_os = "macos")]
+    /// A share's picture, which goes from this connection, as a browser's does.
     share_video: Mutex<Option<(NativeVideoSource, LocalTrackPublication)>>,
     pub server_muted: AtomicBool,
     pub url: String,
@@ -254,7 +249,6 @@ impl VoiceRoom {
             provider,
             sending: Mutex::new(index),
             key_serial: AtomicU64::new(0),
-            on_send_key: Mutex::new(None),
         });
         let room = Arc::new(room);
         // Those already here, and everything they send.
@@ -268,7 +262,7 @@ impl VoiceRoom {
         }
         let (sender, receiver) = unbounded();
         tokio_spawn(watch(room.clone(), shared.clone(), events, sender));
-        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), #[cfg(target_os = "macos")] share_video: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
+        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), share_video: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
     }
 
     /// LiveKit's room, for reading its statistics.
@@ -315,10 +309,6 @@ impl VoiceRoom {
             shared.provider.set_key(&ParticipantIdentity(shared.identity.clone()), index, sender_key(&room_key, &shared.identity));
             *shared.sending.lock() = index;
             shared.apply_sending_index(&room);
-            let hook = shared.on_send_key.lock().clone();
-            if let Some(hook) = hook {
-                hook(&room_key, index);
-            }
         };
         if first {
             switch();
@@ -330,15 +320,6 @@ impl VoiceRoom {
         }
     }
 
-    /// Hears each new room key this device sends under, or stops hearing with None.
-    pub fn set_send_key_hook(&self, hook: Option<SendKeyHook>) {
-        *self.shared.on_send_key.lock() = hook;
-    }
-
-    /// The room's key now, for a native screen share: (index, key).
-    pub fn current_key(&self) -> Option<(i32, Vec<u8>)> {
-        self.shared.keys.lock().first().map(|(index, key, _)| (*index, key.clone()))
-    }
 
     // --- Microphone ---
 
@@ -488,7 +469,7 @@ impl VoiceRoom {
 
     // --- A share's sound ---
 
-    /// Sends the computer's sound beside a native share, which only captures pictures: stereo at 48 kHz.
+    /// Sends the computer's sound beside a share's picture: stereo at 48 kHz.
     pub async fn start_share_sound(&self, kbps: u64) -> Result<NativeAudioSource, String> {
         let source = NativeAudioSource::new(AudioSourceOptions { echo_cancellation: false, noise_suppression: false, auto_gain_control: false }, RATE, 2, 0);
         let track = LocalAudioTrack::create_audio_track("screen-audio", RtcAudioSource::Native(source.clone()));
@@ -506,29 +487,34 @@ impl VoiceRoom {
         }
     }
 
-    // --- A share's picture, on macOS ---
+    // --- A share's picture ---
 
-    /// Sends a screen share's picture from this connection, as the Electron app sent
-    /// Chromium's on macOS: H.264 from VideoToolbox, in one layer, at the server's terms.
-    #[cfg(target_os = "macos")]
+    /// Sends a screen share's picture from this connection, as a browser sends one: H.264 in one
+    /// layer, at the server's terms. On Windows and Linux it comes already encoded on the GPU
+    /// (`zuna-screenshare`), and on macOS VideoToolbox encodes it, as Chromium did there.
     pub async fn start_share_video(&self, width: u32, height: u32, fps: u32, kbps: u32) -> Result<NativeVideoSource, String> {
-        let source = NativeVideoSource::new(VideoResolution { width, height }, true);
+        #[cfg(target_os = "macos")]
+        let (source, encoder) = (NativeVideoSource::new(VideoResolution { width, height }, true), livekit::options::VideoEncoderBackend::VideoToolbox);
+        #[cfg(not(target_os = "macos"))]
+        let (source, encoder) = (NativeVideoSource::new_encoded(VideoResolution { width, height }), livekit::options::VideoEncoderBackend::PreEncoded);
+        // Named `screen`, which tells those watching it came from the desktop app: a browser's and
+        // the iPhone's are `screen_share`.
         let track = LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source.clone()));
         let options = TrackPublishOptions {
             source: TrackSource::Screenshare,
             video_codec: VideoCodec::H264,
             simulcast: false,
             video_encoding: Some(VideoEncoding { max_bitrate: kbps as u64 * 1000, max_framerate: fps as f64 }),
-            video_encoder: livekit::options::VideoEncoderBackend::VideoToolbox,
+            video_encoder: encoder,
             ..Default::default()
         };
         let publication = self.room.local_participant().publish_track(LocalTrack::Video(track), options).await.map_err(|error| error.to_string())?;
+        // The frame cryptor comes with publishing, and starts at the first key otherwise.
         self.shared.apply_sending_index(&self.room);
         *self.share_video.lock() = Some((source.clone(), publication));
         Ok(source)
     }
 
-    #[cfg(target_os = "macos")]
     pub async fn stop_share_video(&self) {
         let taken = self.share_video.lock().take();
         if let Some((_, publication)) = taken {

@@ -34,16 +34,17 @@ fn main() {
     }
 }
 
-/// On Linux, where FFmpeg's libraries are found: beside the screen capture once packaged, and
-/// in a debug build where the repository pins them too. An old-style rpath, since they need
-/// each other, and the new kind only reaches the program's own.
+/// On Linux, where FFmpeg's libraries are found: in `lib` beside the program, where the screen
+/// share's build gathers them (screenshare/build.rs) and the packages carry them, and in a debug
+/// build where the repository pins them too. An old-style rpath, since they need each other, and
+/// the new kind only reaches the program's own.
 fn link_ffmpeg() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/screenshare");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/lib");
     if std::env::var("PROFILE").as_deref() == Ok("debug") {
         if let Ok(ffmpeg) = std::env::var("FFMPEG_DIR") {
             println!("cargo:rustc-link-arg=-Wl,-rpath,{ffmpeg}/lib");

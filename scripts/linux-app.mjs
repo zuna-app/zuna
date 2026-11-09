@@ -4,7 +4,7 @@
 //
 //   node scripts/linux-app.mjs run [--release] [-- app args]   build and start it
 //   node scripts/linux-app.mjs build                            a release build in dist/linux, with
-//                                                               the screen capture and FFmpeg beside it
+//                                                               the screen share's encoder and FFmpeg in lib
 //   node scripts/linux-app.mjs dist                             that, as a .deb, an .rpm, a pacman
 //                                                               package, an AppImage and a .tar.gz
 //
@@ -15,8 +15,8 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ensureFfmpeg } from "./ffmpeg.mjs";
-import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, parseAppArgs, root, run } from "./lib.mjs";
+import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
@@ -25,11 +25,10 @@ const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the Windows build's is, and kept between checkouts.
 const target = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
 
-// A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
-ensureNativeScreenCurrent();
 bundleCore();
-// The FFmpeg the screen capture pins, which the app's media links to (FFMPEG_DIR in .cargo/config.toml).
-await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
+// The FFmpeg the repository pins, which the app's media links to and the screen share's encoder
+// builds against (FFMPEG_DIR in apps/desktop/.cargo/config.toml).
+await ensureFfmpeg(nativeAppDeps);
 
 const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
@@ -41,14 +40,11 @@ if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
   mkdirSync(dist, { recursive: true });
   copyFileSync(join(target, "release", "zuna"), join(dist, "zuna"));
-  // The screen capture and FFmpeg's libraries, which the program finds at $ORIGIN/screenshare.
-  const screenshare = join(root, "apps", "screenshare", "dist");
-  if (!existsSync(join(screenshare, "zuna-screenshare"))) {
-    run(process.execPath, [join(root, "scripts", "build-screenshare.mjs")]);
-  }
-  rmSync(join(dist, "screenshare"), { recursive: true, force: true });
-  cpSync(screenshare, join(dist, "screenshare"), { recursive: true });
-  console.log(`> wrote ${join(dist, "zuna")}, with the screen capture in ${join(dist, "screenshare")}`);
+  // The screen share's encoder and FFmpeg's libraries, which the build gathered and the program
+  // finds at $ORIGIN/lib.
+  rmSync(join(dist, "lib"), { recursive: true, force: true });
+  cpSync(join(target, "release", "lib"), join(dist, "lib"), { recursive: true });
+  console.log(`> wrote ${join(dist, "zuna")}, with its libraries in ${join(dist, "lib")}`);
   if (command === "dist") await packages(dist);
 }
 
@@ -87,7 +83,7 @@ async function packages(dist) {
   run("desktop-file-validate", [desktop]);
   const contents = [
     { src: join(dist, "zuna"), dst: "/usr/lib/zuna/zuna", file_info: { mode: 0o755 } },
-    { src: join(dist, "screenshare"), dst: "/usr/lib/zuna/screenshare", type: "tree" },
+    { src: join(dist, "lib"), dst: "/usr/lib/zuna/lib", type: "tree" },
     { src: "/usr/lib/zuna/zuna", dst: "/usr/bin/zuna", type: "symlink" },
     { src: desktop, dst: "/usr/share/applications/zuna.desktop", file_info: { mode: 0o644 } },
     { src: join(root, "LICENSE"), dst: "/usr/share/licenses/zuna/LICENSE", file_info: { mode: 0o644 } },
@@ -146,7 +142,7 @@ async function packages(dist) {
   rmSync(appDir, { recursive: true, force: true });
   mkdirSync(join(appDir, "usr", "lib", "zuna"), { recursive: true });
   copyFileSync(join(dist, "zuna"), join(appDir, "usr", "lib", "zuna", "zuna"));
-  cpSync(join(dist, "screenshare"), join(appDir, "usr", "lib", "zuna", "screenshare"), { recursive: true });
+  cpSync(join(dist, "lib"), join(appDir, "usr", "lib", "zuna", "lib"), { recursive: true });
   symlinkSync("usr/lib/zuna/zuna", join(appDir, "AppRun"));
   // The runtime's own .desktop file and icon, for tools that look; the app writes its own as it starts.
   writeFileSync(join(appDir, "zuna.desktop"), entry("zuna", "zuna"));
@@ -160,13 +156,13 @@ async function packages(dist) {
   rmSync(squashfs);
   rmSync(appDir, { recursive: true, force: true });
 
-  // --- The .tar.gz: the program and its screen capture in one folder ---
+  // --- The .tar.gz: the program and its libraries in one folder ---
   const folder = `zuna-${version}`;
   const staged = join(dist, folder);
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged);
   copyFileSync(join(dist, "zuna"), join(staged, "zuna"));
-  cpSync(join(dist, "screenshare"), join(staged, "screenshare"), { recursive: true });
+  cpSync(join(dist, "lib"), join(staged, "lib"), { recursive: true });
   run("tar", ["-czf", join(out, `Zuna-${version}-x64.tar.gz`), "-C", dist, folder]);
   rmSync(staged, { recursive: true, force: true });
   console.log(`> wrote ${readdirSync(out).join(", ")} in ${out}`);

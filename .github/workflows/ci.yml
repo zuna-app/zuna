@@ -58,9 +58,9 @@ jobs:
         run: npm audit --omit=dev
       - run: cargo install cargo-audit --locked --version 0.22.2
       # Each with its own .cargo/audit.toml of advisories that don't reach what's built, where it has any.
-      - name: The crates of the encryption core, the native app, its media library and the screen capture
+      - name: The crates of the encryption core, the native app with its screen share, and its media library
         run: |
-          for crate in crypto apps/desktop apps/desktop/media-ffmpeg apps/screenshare; do
+          for crate in crypto apps/desktop apps/desktop/media-ffmpeg; do
             echo "> cargo audit in $crate"
             (cd "$crate" && cargo audit)
           done

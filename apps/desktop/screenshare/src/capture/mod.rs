@@ -10,9 +10,11 @@ pub mod pod;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::{list_monitors, Capture};
+pub use linux::Capture;
 #[cfg(windows)]
-pub use windows::{list_monitors, Capture};
+pub use windows::Capture;
+
+use crate::encoder::Quality;
 
 /// What the person may choose from in Linux's portal. Windows is told which window instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -23,28 +25,52 @@ pub enum Source {
     Window,
 }
 
-/// What to capture and how to encode it, from the command line.
-#[derive(Clone, Debug, Default)]
+/// What to capture and how to encode it.
+#[derive(Clone, Debug)]
 pub struct Options {
-    /// `auto`, or an FFmpeg encoder's name such as `h264_nvenc`.
+    /// `auto`, or an FFmpeg encoder's name: `h264_nvenc`, `h264_amf`, `h264_mf` or `h264_vaapi`.
     pub encoder: String,
+    /// How much work each frame gets.
+    pub quality: Quality,
     pub fps: u32,
+    /// The most it may send.
+    pub bitrate_kbps: u64,
+    /// Linux: what the portal's dialog offers.
     #[cfg_attr(windows, allow(dead_code))]
     pub source: Source,
-    pub monitor: usize,
+    /// Windows: the monitor at this point on the desktop, or else the first.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub monitor_at: Option<(i32, i32)>,
     /// Windows: the window to capture, by its HWND, rather than a monitor.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub window: Option<u64>,
-    pub crop: Option<(u32, u32)>,
     /// Hand the encoder frames from CPU memory, even where it could take GPU textures.
     pub cpu_input: bool,
     /// Draw the pointer into the picture.
     pub cursor: bool,
     /// The tallest the picture may be when it's encoded.
     pub max_height: Option<u32>,
+    /// Linux: VA-API's device.
     #[cfg_attr(windows, allow(dead_code))]
     pub render_node: String,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            encoder: "auto".into(),
+            quality: Quality::default(),
+            fps: 60,
+            bitrate_kbps: 20_000,
+            source: Source::Any,
+            monitor_at: None,
+            window: None,
+            cpu_input: false,
+            cursor: true,
+            max_height: None,
+            render_node: "/dev/dri/renderD128".into(),
+        }
+    }
 }
 
 /// H.264 can't encode an odd width or height.

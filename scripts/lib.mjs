@@ -61,23 +61,6 @@ export function ensureBuilt() {
   }
 }
 
-/**
- * Keeps native screen capture current, if it's been built here. The first build is
- * long and needs tools of its own, so that stays something to ask for, though without
- * it the native app can't share a screen on Windows or Linux, and a share from a Mac
- * has no sound. The folder is made anew by each build.
- */
-export function ensureNativeScreenCurrent() {
-  const crate = join(root, "apps", "screenshare");
-  const dist = join(crate, "dist");
-  if (!existsSync(dist)) return;
-  const sources = ["src", "native", "build.rs", "Cargo.toml", "Cargo.lock"].map((name) => join(crate, name));
-  if (lastChanged(sources) <= statSync(dist).mtimeMs) return;
-  console.log("Native screen capture changed, so it's being rebuilt...");
-  const result = spawnSync(process.execPath, [join(root, "scripts", "build-screenshare.mjs")], { stdio: "inherit", env, cwd: root });
-  if (result.status !== 0) console.warn("\nCouldn't rebuild native screen capture, so the app keeps using its last build.\n");
-}
-
 /** The LiveKit server voice channels use. Update this, the image in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `LIVEKIT_VERSION` in `deploy/update.sh` together. */
 export const LIVEKIT_TAG = "v1.13.11";
 

@@ -198,7 +198,7 @@ impl State {
         }
     }
 
-    /// A link this program owns, so that it goes when this does.
+    /// A link this connection to PipeWire owns, so that it goes when the connection closes.
     fn link(&self, output_node: u32, output_port: u32, input_node: u32, input_port: u32) -> *mut Opaque {
         let pairs = [
             ("link.output.node", output_node.to_string()),

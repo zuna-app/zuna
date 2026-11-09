@@ -505,7 +505,7 @@ final class VoiceRoom {
             guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity) else { continue }
             for publication in participant.trackPublications.values {
                 guard let track = publication.track else { continue }
-                streams.append(StatsRoom.Stream(key: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, local: local, source: publication.source, native: parsed.screen, track: track, publication: publication))
+                streams.append(StatsRoom.Stream(key: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, local: local, source: publication.source, native: parsed.screen || (publication.source == .screenShareVideo && publication.name == "screen"), track: track, publication: publication))
             }
         }
         // A native share comes from a participant of its own, who isn't another person.

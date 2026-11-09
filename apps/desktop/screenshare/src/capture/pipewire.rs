@@ -264,7 +264,13 @@ pub struct Api {
     pub stream_queue_buffer: unsafe extern "C" fn(*mut Opaque, *mut PwBuffer) -> c_int,
 }
 
+/// PipeWire's functions, loaded the first time a share asks.
 pub fn load() -> Result<&'static Api, String> {
+    static API: std::sync::OnceLock<Result<Api, String>> = std::sync::OnceLock::new();
+    API.get_or_init(load_api).as_ref().map_err(Clone::clone)
+}
+
+fn load_api() -> Result<Api, String> {
     let library = unsafe { Library::new("libpipewire-0.3.so.0") }.map_err(|error| format!("Loading PipeWire: {error}"))?;
     macro_rules! get {
         ($name:literal) => {
@@ -297,7 +303,7 @@ pub fn load() -> Result<&'static Api, String> {
     };
     // The function pointers outlive this, so the library stays loaded for good.
     std::mem::forget(library);
-    Ok(Box::leak(Box::new(api)))
+    Ok(api)
 }
 
 pub fn c_string(text: &str) -> CString {

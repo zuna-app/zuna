@@ -10,6 +10,14 @@ publish = false
 name = "zuna"
 path = "src/main.rs"
 
+# The screen share's capture, encoding and sound is a crate of its own (screenshare/Cargo.toml says
+# why), with this lockfile and target folder, and its tests run with the app's. The media library
+# on macOS and the Linux checks' driver are built apart, each with a lockfile of its own.
+[workspace]
+members = ["screenshare"]
+default-members = [".", "screenshare"]
+exclude = ["media-ffmpeg", "test/driver"]
+
 [dependencies]
 # GPUI from Zed's v1.27.0 release with Zuna's changes on top, from the `zuna/v1.27.0` branch of
 # SocketByte/zed, pinned to a commit. Its ZUNA.md lists the changes and how to move to a newer
@@ -51,11 +59,12 @@ smallvec = "1"
 dirs = "6"
 raw-window-handle = "0.6"
 
-# Voice channels and calls: LiveKit, as the native screen share uses it, whose frame
-# encryption opens the desktop's, and RNNoise for the microphone. The sound devices are
-# below, by system.
+# Voice channels, calls and screen shares: LiveKit, whose frame encryption opens the web's and
+# the iPhone's, and RNNoise for the microphone. The sound devices are below, by system.
 livekit = { version = "=0.10.0", features = ["rustls-tls-native-roots"] }
 nnnoiseless = { version = "0.5", default-features = false }
+# Capturing a screen and encoding it on the GPU, and a share's sound, in this process.
+zuna-screenshare = { path = "screenshare" }
 
 # What the app asks of Linux: D-Bus for notifications and the badge, the Secret Service for the
 # device key (as GPUI's own credentials use it), the tray's StatusNotifierItem, the location
@@ -77,8 +86,8 @@ wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"
 # Media: reading and writing voice and video messages, videos and sound files, through the
-# FFmpeg the repository pins for the screen capture (FFMPEG_DIR in .cargo/config.toml). On
-# macOS the same code is built into a library of its own (media-ffmpeg).
+# FFmpeg the repository pins (FFMPEG_DIR in .cargo/config.toml), which the screen share encodes
+# through too. On macOS the same code is built into a library of its own (media-ffmpeg).
 ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 
 # Notifications' initials on Linux and macOS, drawn with the resvg GPUI already has.
@@ -155,6 +164,13 @@ embed-resource = "3"
 # For the checks alone (apps/desktop/test): the app takes input and gives screenshots of its
 # window over a socket of its own (`test_control.rs`). Never in a build anyone uses.
 test-control = ["gpui/test-support", "gpui_platform/test-support"]
+# The screen share through LiveKit with someone watching, for test/key-log-check.mjs, which
+# `cargo test` would otherwise build each time.
+share-check = []
+
+[[example]]
+name = "share-check"
+required-features = ["share-check"]
 
 [profile.dev]
 # The core's argon2 and MLS are far too slow unoptimized.

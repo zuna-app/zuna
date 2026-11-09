@@ -1,10 +1,10 @@
 # Native screen sharing
 
-The desktop app shares a whole screen or one window natively on every system. On Windows and Linux a small program of its own, `zuna-screenshare`, captures and encodes on the GPU and only uses LiveKit to carry the result. On macOS the app captures through ScreenCaptureKit, picked in macOS's own picker, and VideoToolbox encodes it on the app's own connection. Viewers decode in the app, or in the web app's browser.
+The desktop app shares a whole screen or one window natively on every system, in its own process, from its own connection to the room. On Windows and Linux its `zuna-screenshare` crate (`apps/desktop/screenshare`) captures and encodes on the GPU, and LiveKit only carries the result. On macOS the app captures through ScreenCaptureKit, picked in macOS's own picker, and VideoToolbox encodes it. Viewers decode in the app, or in the web app's browser.
 
 ```
 Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF, Media Foundation ─┐
-                          ├─ zuna-screenshare ────┤                                ├─ LiveKit SDK ─ encrypted ─ media server ─ viewers
+                          ├─ zuna-screenshare ────┤                                ├─ the app's own LiveKit connection ─ encrypted ─ media server ─ viewers
 xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ────────────────┘   (pre-encoded mode)
 
 macOS's picker ─ ScreenCaptureKit ─ IOSurfaces ─ VideoToolbox ─ the app's own LiveKit connection ─ encrypted ─ media server ─ viewers
@@ -12,39 +12,29 @@ macOS's picker ─ ScreenCaptureKit ─ IOSurfaces ─ VideoToolbox ─ the app'
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [What the proof of concept measured](#what-the-proof-of-concept-measured) has the numbers. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Only the web app goes through the browser's capture. The native app has no browser to fall back on: where a share can't start, it says why. It doesn't run under X11 at all. On Macs the program only takes the computer's sound, beside the app's own capture, as [Sharing from a Mac](#sharing-from-a-mac) says. Every share looks the same to whoever is watching. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
+Only the web app goes through the browser's capture. The native app has no browser to fall back on: where a share can't start, it says why. It doesn't run under X11 at all. On Macs the crate only takes the computer's sound, beside the app's own capture, as [Sharing from a Mac](#sharing-from-a-mac) says. Every share looks the same to whoever is watching. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
 
 ## How the app runs it
 
-The native app starts the program with `--control` (`apps/desktop/src/voice/screen/`). Its address, token and keys go over its standard input, one line of JSON at a time, since anything else on the computer could read a command line.
+Once the server has made room for the share, the app starts it on a thread of its own (`Share` in `apps/desktop/screenshare/src/lib.rs`, started from `apps/desktop/src/voice/screen/`), with what to make of the picture in `Options`. It opens the capture and the encoder, which on Linux waits for the portal's dialog, and says what it's capturing and at what size. The app then publishes an H.264 track of that size from its own connection, in LiveKit's pre-encoded mode, and hands the share an `Output` (`LiveKitOutput`), which takes each encoded frame to LiveKit and brings LiveKit's requests for keyframes and its estimate of the network back to the encoder. It reports how it's going once a second, and stops when the app stops it, or by itself when what was shared goes, with what went wrong if anything did. If it doesn't start, the app says why. The stream stats window, the button at the top of a voice channel, has everything the share reports once it's going, frame by frame, for whoever is sending and whoever is watching.
 
-| Message | Means |
-|---|---|
-| `{"type":"start","url":…,"token":…,"key":…,"key_index":…}` | The first line: where to publish, and under what key |
-| `{"type":"key","key":…,"key_index":…}` | The group moved on, so frames go under this from now on |
-| `{"type":"stop"}` | Leave. Its standard input closing means the same, so it can't outlive the app |
-
-It says `{"type":"ready",…}` on its standard output once it's publishing, `{"type":"stats",…}` once a second after that, and what's wrong on its standard error if it can't. If it doesn't start, the app says why. The stream stats window, the button at the top of a voice channel, has everything the share reports once it's going, frame by frame, for whoever is sending and whoever is watching.
-
-It reaches the media server over TLS through rustls, trusting the system's certificates as Chromium does, so a server behind a private certificate authority works the same. `apps/desktop/test/linux-voice-check.mjs` runs its media server behind TLS for this reason: plain `ws://` works without any TLS in the program at all.
-
-It joins the room as a participant of its own, `<user>.<device>.screen`, whose token only comes once the server's rules have said yes, can only publish a screen, and can't subscribe to anything. Like everyone else, it has a key of its own, derived from the room's key and that identity, so viewers can open what it sends with no help from it.
+The track goes out under the device's own key, as its microphone does, so it follows the room's keys with the rest of what the device sends, and viewers open it with no more help than that. It's named `screen`, which tells them it came from the desktop app: a browser's and the iPhone's are `screen_share`. A crash in a graphics driver or in FFmpeg now takes the app with it, where it used to end only the share.
 
 The computer's sound can't come with its pictures. The app captures it apart and publishes it alongside, as [The computer's sound](#the-computers-sound) says.
 
 ## Choosing what to share on Linux
 
-Under Wayland, nothing but the portal's dialog can say what there is to share, so the picker in the app offers one of each kind the ScreenCast portal says it shares, which the app asks the portal itself (`apps/desktop/src/platform/linux/screens.rs`), a screen or a window, with an icon in place of a picture, and the portal's own dialog picks once Share is pressed, as the program starts capturing. Where there's no portal, there's nothing to offer.
+Under Wayland, nothing but the portal's dialog can say what there is to share, so the picker in the app offers one of each kind the ScreenCast portal says it shares, which the app asks the portal itself (`apps/desktop/src/platform/linux/screens.rs`), a screen or a window, with an icon in place of a picture, and the portal's own dialog picks once Share is pressed, as the share starts capturing. Where there's no portal, there's nothing to offer.
 
-The portal only says whether a screen or a window was chosen, and the program says the same once it's publishing. A window can change size: PipeWire settles on the new size, and the program opens another encoder at it, keeping to the tallest that was asked, with a keyframe, so someone watching sees it at its new size at once. When the window closes, the compositor takes its PipeWire node away, which the program hears from PipeWire's registry, the same on every compositor, and it leaves, so the share ends without a word.
+The portal only says whether a screen or a window was chosen, and the share says the same once it's capturing. A window can change size: PipeWire settles on the new size, and the share opens another encoder at it, keeping to the tallest that was asked, with a keyframe, so someone watching sees it at its new size at once. When the window closes, the compositor takes its PipeWire node away, which the share hears from PipeWire's registry, the same on every compositor, and it stops, so it ends without a word.
 
 ## Sharing a window on Windows
 
-The picker lists windows itself on Windows (`apps/desktop/src/platform/windows/screens.rs`), with ids of the form `window:<HWND>:0`, and the program is given that HWND with `--window`. Windows.Graphics.Capture captures it from `CreateForWindow`, with its menus and popups from Windows 11 24H2, and the GPU is the one driving the screen it's mostly on.
+The picker lists windows itself on Windows (`apps/desktop/src/platform/windows/screens.rs`), with ids of the form `window:<HWND>:0`, and the share is given that HWND in `Options`. Windows.Graphics.Capture captures it from `CreateForWindow`, with its menus and popups from Windows 11 24H2, and the GPU is the one driving the screen it's mostly on.
 
 It follows a window's size as Linux does: another encoder at the new size, keeping to the tallest that was asked, with a keyframe. A frame fills its pool's textures from the top left, so the pool is made as large as the window's screen, and only needs making again when a window grows past that. Dragging a window's edge then changes the size on almost every frame, and each goes out at its own size: measured with NVENC, a new encoder takes about 4 ms, and 28 of 30 fps went out while dragging. A screen whose resolution changes is followed the same way, where it used to end the share.
 
-When the window closes, the program leaves and the share ends without a word. `GraphicsCaptureItem.Closed` never fires for a window here, since the program has no dispatcher queue, so it looks for the window itself while it waits for frames.
+When the window closes, the share stops and ends without a word. `GraphicsCaptureItem.Closed` never fires for a window here, since the share's thread has no dispatcher queue, so it looks for the window itself while it waits for frames.
 
 ## The computer's sound
 
@@ -52,26 +42,26 @@ A share's sound goes out over the device's own connection, beside the picture, w
 
 | | Captured by | What can be chosen |
 |---|---|---|
-| Windows | This program, through process loopback (`src/sound/windows.rs`): everything but Zuna's processes, or one app's | Everything but Zuna, or one app |
-| Linux | This program, from PipeWire (`src/sound/linux.rs`) | Everything but Zuna, or one app |
-| macOS, on Apple silicon | This program, through Core Audio's process taps (`src/sound/macos.rs`), from macOS 14.2 | Everything but Zuna, or one app |
+| Windows | The app, through process loopback (`screenshare/src/sound/windows.rs`): everything but Zuna's processes, or one app's | Everything but Zuna, or one app |
+| Linux | The app, from PipeWire (`screenshare/src/sound/linux.rs`) | Everything but Zuna, or one app |
+| macOS, on Apple silicon | The app, through Core Audio's process taps (`screenshare/src/sound/macos.rs`), from macOS 14.2 | Everything but Zuna, or one app |
 | The web | The browser | Whatever its own picker offers |
 
-`--sound` writes everything playing apart from the process `--exclude-pid` names and those it started, and `--sound-from ID` only one app's, by the id `--sound-apps` or `--window-app` gives it. `pid:N` is a process and those it started.
+`Sound::start` in `screenshare/src/sound/mod.rs` takes everything playing apart from the app's own process and those it started, or only one app's, by the id `sound::apps` or `sound::window_app` gives it. `pid:N` is a process and those it started.
 
-What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `--window-app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. macOS's picker only says which window once Share is pressed, so a window starts with no sound there too. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
+What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `sound::window_app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, on any compositor, and the Electron app got no title or icon for a window chosen through it either (seen on KDE: `window:1:0:s`, with no name). So there a window starts with no sound, and the picker says to choose the app whose sound goes with it, from those playing now and the one chosen last. macOS's picker only says which window once Share is pressed, so a window starts with no sound there too. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
 
-On Linux, PipeWire has no stream of everything but one program, so the program makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Chromium plays Zuna's sound from a process under the app's, so it's left out, and nobody in the call hears themselves back. The links belong to the program, and go when it does.
+On Linux, PipeWire has no stream of everything but one program, so the app makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Zuna's own sound plays from the app's process, so it's left out, and nobody in the call hears themselves back. The links belong to the share's own connection to PipeWire, and go when it closes.
 
-The native app runs it (`start_sound` in `apps/desktop/src/voice/screen/mod.rs`). It writes one line of JSON once it's listening, and then only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays, which the app hands to the published track. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
+The app starts it (`start_sound` in `apps/desktop/src/voice/screen/mod.rs`), on a thread of its own, which says once it's listening and then hands over only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays, which the app hands to the published track 10 ms at a time. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
 
-On macOS Core Audio's process taps take everything but a list of processes, or a mix of a few. The program reads one through a private aggregate device clocked by the output, and Apple's converter takes it to 48 kHz where the output runs at another rate. A process that starts later isn't in a tap, and macOS won't change one that's being read, so the program makes a new one when Zuna's processes, the chosen app's, or the output change, which misses a moment of sound at most. The first capture asks the person whether Zuna may record the computer's sound (`NSAudioCaptureUsageDescription`), and macOS asks about the app that started the program, so starting waits up to two minutes for the answer. Without permission, macOS hands over silence rather than an error. An app is the process macOS holds responsible for another, so a browser's helpers go with it, and it's named after its bundle. Only Apple silicon is built for; on an Intel Mac a share's sound isn't offered.
+On macOS Core Audio's process taps take everything but a list of processes, or a mix of a few. The app reads one through a private aggregate device clocked by the output, and Apple's converter takes it to 48 kHz where the output runs at another rate. A process that starts later isn't in a tap, and macOS won't change one that's being read, so it makes a new one when Zuna's processes, the chosen app's, or the output change, which misses a moment of sound at most. The first capture asks the person whether Zuna may record the computer's sound (`NSAudioCaptureUsageDescription`), and the app waits 10 seconds for the answer before the share goes on without its sound. Without permission, macOS hands over silence rather than an error. An app is the process macOS holds responsible for another, so a browser's helpers go with it, and it's named after its bundle. Only Apple silicon is built for; on an Intel Mac a share's sound isn't offered.
 
 On Windows an app is the first process of its program, found by walking up from the one with sound while the parent is the same program, so a browser's sound, which comes from a process it started, goes with it. Everything but Zuna is the same process loopback the other way round: all that plays apart from Zuna's processes, which Chromium's own audio comes from. Process loopback needs Windows 10 version 2004 or later, and before that a share goes without sound and says so.
 
 The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays, and on macOS while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
 
-It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality`, on Linux `--source screen` or `--source window`, which the portal's dialog offers, and on Windows `--window` with a window's HWND.
+What to make of the picture is in `Options` (`screenshare/src/capture/mod.rs`): the frame rate, the most it may send, the tallest it may be, the pointer, the encoder and the effort each frame gets, on Linux a screen or a window, which the portal's dialog offers, and on Windows the screen at a point on the desktop or a window's HWND.
 
 ## What a server says, and what a device chooses
 
@@ -89,7 +79,7 @@ Everything a share uses comes from three places, in this order: what the person 
 | What's suggested for size, frame rate and bitrate | The apps |
 | Whether admins are held to the limits and to how many at once | Both of those |
 
-The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is it given a token for the native program, or LiveKit is told to let its own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked.
+The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is LiveKit told to let that device's own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked. The server can still hand out a token for a participant of a share's own, `<user>.<device>.screen`, which the desktop's separate program used before the share moved into the app, and which no app asks for now.
 
 So a share ends when it's stopped, when the device leaves the channel or makes a new connection, when an admin stops it, and when the rules stop allowing it. Limits on how many only hold for those starting after them.
 
@@ -100,7 +90,7 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 | Setting | Native | The web app |
 |---|---|---|
 | Size, frame rate, most it may send | yes | yes |
-| Sound: starting with it on, its quality | Captured beside the share by the program | yes, where the browser's picker gives sound |
+| Sound: starting with it on, its quality | Captured beside the share by the app | yes, where the browser's picker gives sound |
 | Whose sound: everything but Zuna, or one app, starting from what's shared | Linux, macOS and Windows | |
 | How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
 | Capturing on the graphics card at all | yes | |
@@ -126,7 +116,7 @@ A native share that can't do what was chosen doesn't start, and the app says why
 
 ## Sharing from a Mac
 
-On macOS the app shares by itself, with no program and no Screen Recording permission (`apps/desktop/src/platform/macos/screen_capture.rs`, `start_screen_here` in `apps/desktop/src/voice/screen/share.rs`). macOS's own picker chooses a screen or a window, ScreenCaptureKit captures it on the GPU into IOSurfaces in NV12, already no larger than asked, and each frame goes to LiveKit as it was captured for VideoToolbox to encode, from the device's own connection rather than a participant of its own. Only Apple silicon, from macOS 14.2, is built for. The share's sound still comes from `zuna-screenshare`, as [The computer's sound](#the-computers-sound) says, and video that arrives is decoded by VideoToolbox and drawn from its buffer. A test build can share moving bars in place of a screen, past the picker, with `ZUNA_FAKE_SCREEN`, which `apps/desktop/test/mac-voice-check.mjs` uses.
+On macOS the app shares through the system, with no Screen Recording permission (`apps/desktop/src/platform/macos/screen_capture.rs`, `start_screen_here` in `apps/desktop/src/voice/screen/share.rs`). macOS's own picker chooses a screen or a window, ScreenCaptureKit captures it on the GPU into IOSurfaces in NV12, already no larger than asked, and each frame goes to LiveKit as it was captured for VideoToolbox to encode, from the device's own connection, as on Windows and Linux. Only Apple silicon, from macOS 14.2, is built for. The share's sound comes from `zuna-screenshare`, as on Windows and Linux, as [The computer's sound](#the-computers-sound) says, and video that arrives is decoded by VideoToolbox and drawn from its buffer. A test build can share moving bars in place of a screen, past the picker, with `ZUNA_FAKE_SCREEN`, which `apps/desktop/test/mac-voice-check.mjs` uses.
 
 ## From an iPhone or iPad
 
@@ -149,13 +139,15 @@ The simulator can't share at all, so the button isn't there. It has no ScreenCap
 
 ## Building it
 
+It's built with the app, as a crate of the app's workspace (`apps/desktop/screenshare`), and needs nothing beyond what the app does. On Windows and Linux its build script compiles the encoder, `native/encoder.c`, as a library of its own against the FFmpeg the repository pins, and gathers it with FFmpeg's libraries into `lib` beside the app, from where the app loads it and the packages carry it (`npm run dist:windows`, `npm run dist:linux`). The app's scripts fetch that FFmpeg and check its SHA-256 before building, as `node scripts/ffmpeg.mjs` does by itself, into `apps/desktop/.deps` (`FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`).
+
+The crate needs neither LiveKit nor GPUI, so its Linux and macOS code can be checked from any system, as long as the target's standard library is there (`rustup target add`):
+
 ```bash
-npm run build:screenshare
+cd apps/desktop && ZUNA_CHECK_ONLY=1 cargo check -p zuna-screenshare --target x86_64-unknown-linux-gnu
 ```
 
-On Windows and Linux this fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/screenshare/dist`, which the native app's packages carry (`npm run dist:windows`, `npm run dist:linux`). Without it, the app can't share a screen there. Once it's built, the native app's scripts (`npm run dev:windows`, `dev:linux`, `dev:macos` and the rest) rebuild it whenever its code changes, but the first build is always something to ask for.
-
-**macOS** builds only the computer's sound, for Apple silicon, without FFmpeg or LiveKit, and needs Xcode's command line tools. Zuna isn't built for Intel Macs.
+**macOS** builds only the computer's sound, for Apple silicon, without FFmpeg. Zuna isn't built for Intel Macs.
 
 **Windows** needs Visual Studio's C++ build tools and a Rust MSVC toolchain:
 
@@ -175,7 +167,7 @@ or on Arch:
 sudo pacman -S clang pkgconf glib2 libva
 ```
 
-A development build of the app finds the program in that same `dist` folder, or wherever `ZUNA_SCREENSHARE` says.
+`apps/desktop/test/key-log-check.mjs` shares the first screen, or a window, through the crate and LiveKit with someone watching, in `examples/share-check.rs`, and fails unless they decoded what was shared, as well as if the key turns up in the log.
 
 ## Watching
 
@@ -222,7 +214,7 @@ Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps i
 
 ## Bitrate and keyframes
 
-libwebrtc estimates what the network takes, and the program follows it up to the bitrate asked for, starting at 3 Mbit/s. Every change costs a keyframe, as FFmpeg resets NVENC to make it and the other encoders only take a bitrate when opened, and someone watching waits for each keyframe. So `Bitrate::follow` in `src/pipeline.rs` ignores changes under a quarter. A fall goes 2 seconds after the last change, or at once if it's to 60% or less. A rise goes 2 seconds after the last while the bitrate is first climbing, since libwebrtc only raises its estimate a little past what's sent.
+libwebrtc estimates what the network takes, and the share follows it up to the bitrate asked for, starting at 3 Mbit/s. Every change costs a keyframe, as FFmpeg resets NVENC to make it and the other encoders only take a bitrate when opened, and someone watching waits for each keyframe. So `Bitrate::follow` in `src/pipeline.rs` ignores changes under a quarter. A fall goes 2 seconds after the last change, or at once if it's to 60% or less. A rise goes 2 seconds after the last while the bitrate is first climbing, since libwebrtc only raises its estimate a little past what's sent.
 
 Once it has had to fall, a rise is a guess. libwebrtc lets its estimate run to half as much again as what's sent, so it goes on offering more than the link has just taken: a share from Windows that had fallen to 32 Mbit/s was offered 47. Rising after each pause, a share from Windows at a 40 Mbit/s cap changed its bitrate 24 times in about two minutes, and rising with the next regular keyframe instead, within 10 seconds, someone watching saw its picture stop for about half a second, often. So a rise now waits 30 seconds after the last change, and twice as long again after each one that had to fall back within 30 seconds, up to 4 minutes, until one holds. On a link that takes 40 Mbit/s, with a 100 Mbit/s cap and an estimate that behaves so, the tests count 17 keyframes in ten minutes and 10 seconds of sending more than the link takes, where that rule made 105 and 98.
 
@@ -232,7 +224,7 @@ How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv
 
 ## What the proof of concept measured
 
-The program began as a proof of concept, with a test window as the scene and the Electron app of the time as the viewer, which is in git history under `poc/screenshare`. A clock drawn in pixels at the test window's top left was read back out of the received video, which gave the real delay from screen to decoded frame, and colour swatches beside it were compared with what was drawn.
+The native share began as a proof of concept, with a test window as the scene and the Electron app of the time as the viewer, which is in git history under `poc/screenshare`. A clock drawn in pixels at the test window's top left was read back out of the received video, which gave the real delay from screen to decoded frame, and colour swatches beside it were compared with what was drawn.
 
 On Windows 11, with an RTX 5070 Ti and a Ryzen 7 9800X3D, using NVENC, with encryption on unless it says otherwise. The publisher, LiveKit and the viewer all ran on one machine, so this is over loopback. Each row leaves out the first 10 seconds of its run.
 
@@ -274,7 +266,7 @@ On Windows 11, with an RTX 5070 Ti and a Ryzen 7 9800X3D, using NVENC, with encr
 
 ### What it found
 
-- **LiveKit's static libwebrtc contains a private copy of FFmpeg,** with the same symbol names, so ours can't link into the same program. The encoder wrapper is a shared library loaded at runtime for this reason, and on Linux it's opened with `RTLD_DEEPBIND` so that it can't bind to the other copy.
+- **LiveKit's static libwebrtc contains a private copy of FFmpeg,** with the same symbol names, so ours can't link into the same program as it. The encoder wrapper is a shared library loaded at runtime for this reason, and on Linux it's opened with `RTLD_DEEPBIND` so that it can't bind to the other copy.
 - **FFmpeg resets NVENC and forces a keyframe on every bitrate change,** and the other encoders only take a bitrate when opened. libwebrtc revises its estimate several times a second, so `pipeline.rs` ignores changes under 25% and paces the rest. Even so, the climb costs 6 or 7 extra keyframes. Calling NVENC's API directly would avoid them.
 - **The bitrate climbs slowly,** at about 1 Mbit/s each second after a quick start: about 7 Mbit/s after 3 seconds, and 20 Mbit/s after 12 to 21. A 40 Mbit/s limit wasn't reached in 30 seconds. The first seconds are the softest part of a share.
 - **A viewer who can't decrypt asks for keyframes without end,** and the sender can only answer by sending them to everyone. That made 22 keyframes in 12 seconds, against 11 in 45 seconds normally. A key change during a call needs thought for this reason.
@@ -289,7 +281,9 @@ On Windows 11, with an RTX 5070 Ti and a Ryzen 7 9800X3D, using NVENC, with encr
 
 ## What hasn't been checked
 
-Inside the app, Windows and Linux with NVENC have run so far, and macOS through ScreenCaptureKit and VideoToolbox (`mac-voice-check.mjs`, and a real screen and a window by hand):
+Inside the app, Windows and Linux with NVENC have run so far, and macOS through ScreenCaptureKit and VideoToolbox (`mac-voice-check.mjs`, and a real screen and a window by hand). Most of what follows ran while Windows and Linux shared through a program of their own, `zuna-screenshare`, as a participant of its own:
+
+- **The share in the app's own process,** from its own connection, has only run on Windows 11 with an RTX 5070 Ti (2026-11-09): through `key-log-check.mjs`, a 626x352 window encoded by NVENC at the frame rate it drew, decoded by someone watching under the shared key, and stopped when asked, with the key nowhere in libwebrtc's log; and the computer's sound, everything but Zuna and one process's, at the full 48 kHz in stereo. And from the app, into a voice channel on the test server: that window shared, NVENC following LiveKit's estimate from 3 to 5.7 Mbit/s, the computer's sound published beside it, the stream stats window's rows, stopping it, and the share ending by itself as the window closed. Nobody watched that one, so someone watching a share from the app in another app is unchecked since. Linux and macOS have only been type-checked since.
 
 - **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
 - **VA-API and AMF** have never run. **Media Foundation** has only run on NVIDIA's own encoder for it, on an RTX 5070 Ti: from the app in `voice-check.mjs` with `VOICE_ENCODER=h264_mf`, a screen at 60 fps over TLS, under a new key, and a window at 60 fps, until that run was stopped partway; by itself, a screen made smaller, a window dragged, and colours within 2 of 255 of what was drawn, as NVENC's are. Intel's and other GPUs' haven't, nor has one of a laptop's two GPUs.

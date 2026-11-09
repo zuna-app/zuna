@@ -17,7 +17,8 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { appVersion as version, bundleCore, devNativeAppData, env, ensureNativeScreenCurrent, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
+import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install"]);
 const packaging = command === "dist" || command === "install";
@@ -27,9 +28,10 @@ const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
 const target = join(process.env.LOCALAPPDATA ?? root, "zuna-windows-target");
 
-// A development build loads the screen capture from apps/screenshare/dist, so an old one would run after a pull.
-ensureNativeScreenCurrent();
 bundleCore();
+// The FFmpeg the repository pins, which the screen share's encoder builds against (FFMPEG_DIR in
+// apps/desktop/.cargo/config.toml), and whose libraries go beside the app in `lib`.
+await ensureFfmpeg(nativeAppDeps);
 
 const cargo = [`+${msvcToolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
@@ -44,24 +46,20 @@ if (command === "build" || packaging) {
 
 if (packaging) {
   const dist = join(root, "dist", "windows");
-  // What's installed: the app, and the desktop's native screen capture beside it, where it's been built.
+  // What's installed: the app, with the screen share's encoder and FFmpeg's libraries in `lib`
+  // beside it, where the build put them.
   const staged = join(dist, "Zuna");
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(staged, "Zuna.exe"));
-  const screenshare = join(root, "apps", "screenshare", "dist");
-  if (existsSync(join(screenshare, "zuna-screenshare.exe"))) {
-    cpSync(screenshare, join(staged, "screenshare"), { recursive: true });
-  } else {
-    console.warn("> no native screen capture to put in: npm run build:screenshare first, or this installer can't share a screen");
-  }
+  cpSync(join(target, "release", "lib"), join(staged, "lib"), { recursive: true });
   // Signed with the release's certificate where it's given: only a signed build updates itself,
-  // and only from an update signed the same.
+  // and only from an update signed the same. The encoder is the app's own code, which it loads.
   const require = createRequire(join(root, "package.json"));
   const signer = await signing(require);
   if (signer) {
     signer(join(staged, "Zuna.exe"));
-    if (existsSync(join(staged, "screenshare", "zuna-screenshare.exe"))) signer(join(staged, "screenshare", "zuna-screenshare.exe"));
+    signer(join(staged, "lib", "zuna_encoder.dll"));
   }
   const icon = join(dist, "zuna.ico");
   writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));

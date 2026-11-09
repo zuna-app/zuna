@@ -2,6 +2,8 @@
 
 The Electron app this plan compares with was removed on 2026-11-08: its files, and what `packages/ui` did only for it, are in git history.
 
+`zuna-screenshare`, which this plan has the app start as a program of its own, has been a crate the app links since 2026-11-09 (`apps/desktop/screenshare`): a share goes out from the app's own connection, and the encoder and FFmpeg's libraries are in `lib` beside the app. [SCREEN_SHARE.md](SCREEN_SHARE.md) has how it works now.
+
 Status: L0 to L5 built: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app in a nested KWin, and the five packages, of which the AppImage and the .tar.gz are checked running. The pacman package is installed and checked in the real Plasma session: starting it, its icon and badge, the tray, notifications and their click, a `zuna://` link and push to talk. Screen sharing and location from the installed copy are still to check there (2026-11-07). Since 2026-11-08 `linux-voice-check.mjs` has the web app in Chromium as the other side, where the Electron app was, and hasn't run that way yet.
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
@@ -131,7 +133,7 @@ GeoClue, through the location portal with `ashpd`, which works outside a sandbox
 
 cpal 0.16's only Linux backend is ALSA (it's the only one in `Cargo.lock`), which reaches PipeWire through its ALSA plugin. That plays and records, but its list of devices is ALSA's: "default", "pipewire", "sysdefault:CARD=…", "front:CARD=…,DEV=0", and opening one of the hardware ones takes the card away from PipeWire. Settings can't offer that as a list of microphones and speakers.
 
-So on Linux the sound devices go through PipeWire itself: devices listed by their `node.description`, chosen by `node.name`, and streams opened with `target.object`. `apps/screenshare/src/capture/pipewire.rs` already loads `libpipewire-0.3.so.0` at run time and binds the part it needs, which can move into a small crate both programs use. cpal stays on Windows, behind the same `voice/audio.rs` functions. A first step can play and record through cpal's "default" with no choice of device, so that voice works before the device lists do.
+So on Linux the sound devices go through PipeWire itself: devices listed by their `node.description`, chosen by `node.name`, and streams opened with `target.object`. `apps/desktop/screenshare/src/capture/pipewire.rs` already loads `libpipewire-0.3.so.0` at run time and binds the part it needs, which can move into a small crate both programs use. cpal stays on Windows, behind the same `voice/audio.rs` functions. A first step can play and record through cpal's "default" with no choice of device, so that voice works before the device lists do.
 
 WebRTC's echo canceller hears the mixed output inside the app, as now, so it doesn't depend on what's underneath. The app's sound comes from its own process, so `zuna-screenshare --exclude-pid` keeps it out of a share's sound, as it keeps Chromium's out.
 
@@ -143,7 +145,7 @@ On Linux this goes through the FFmpeg that `scripts/ffmpeg.mjs` pins for `zuna-s
 
 - **Reading:** `libavformat` for MP4 and the other containers a sound or video file comes in, `libavcodec` to decode, `libswresample` to 48 kHz in one channel, and `libswscale` to BGRA.
 - **Writing:** AAC in MP4 for a voice message, and H.264 Baseline (`libopenh264`) and AAC in MP4 for a video message, the same as Windows writes. Chromium on Linux writes Opus there, since it has no AAC encoder, which costs AVFoundation an eighth of a voice message and hasn't been tried in a video message on the iPhone, so AAC avoids both.
-- **Binding it:** `ffmpeg-next`, generated against the pinned headers, which `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml` points `ffmpeg-sys-next` at. The libraries are found by an rpath of `$ORIGIN/screenshare`, and in a debug build where they're pinned. Being shared libraries, they keep their Opus apart from the copy linked into libwebrtc, as the program exports none of its own symbols (`nm -D` lists 20, none of them Opus).
+- **Binding it:** `ffmpeg-next`, generated against the pinned headers, which `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml` points `ffmpeg-sys-next` at. The libraries are found by an rpath of `$ORIGIN/lib`, and in a debug build where they're pinned. Being shared libraries, they keep their Opus apart from the copy linked into libwebrtc, as the program exports none of its own symbols (`nm -D` lists 20, none of them Opus).
 - **Recording and playing sound** go through the app's own sound output and microphone (Sound devices) rather than waveIn and waveOut.
 - **A soundboard sound** is read the same way, from anything FFmpeg reads.
 
@@ -173,7 +175,7 @@ None on Linux, as for the Electron app (`updates.ts` returns on Linux): packages
 The same five as the Electron app: a `.deb`, an `.rpm`, a pacman package, an AppImage and a `.tar.gz`, for x64.
 
 - **Made with nfpm** for the three packages, from one file of its settings, run with `go run` at a pinned version, since Go is already needed for the server; the AppImage as AppImage's own runtime, a tagged release pinned by its hash, with the program's folder appended as SquashFS by `mksquashfs`, which is what `appimagetool` does; and the `.tar.gz` by the script.
-- **Laid out as:** `/usr/lib/zuna/zuna`, `/usr/lib/zuna/screenshare/` with the screen capture and FFmpeg's libraries, `/usr/bin/zuna` linking to the program, `/usr/share/applications/zuna.desktop`, and the icons in hicolor from `apps/desktop/resources/icons`.
+- **Laid out as:** `/usr/lib/zuna/zuna`, `/usr/lib/zuna/lib/` with the screen share's encoder and FFmpeg's libraries, `/usr/bin/zuna` linking to the program, `/usr/share/applications/zuna.desktop`, and the icons in hicolor from `apps/desktop/resources/icons`.
 - **What they depend on:** `libxkbcommon`, `wayland`, `vulkan-icd-loader` and a Vulkan driver, `fontconfig`, `freetype2`, `pipewire`, `xdg-desktop-portal` with a backend for the session, and a color emoji font such as Noto Color Emoji. Recommended: a Secret Service and `geoclue`.
 - **Built here, for now:** `npm run dist:linux` makes them. The release workflow has no job for the native app yet.
 - **glibc:** the program needs the glibc it was built against or newer. Packages built on this machine need Arch's, which is fine here. Once they're published, they'll have to be built in an old enough container, such as Debian 12's or Ubuntu 22.04's.

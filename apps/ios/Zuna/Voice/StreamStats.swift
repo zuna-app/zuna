@@ -371,7 +371,7 @@ final class StreamStats {
         let dropping = moved.perSecond(\.framesDropped) ?? 0
         let loss = lossOf(moved.change(\.packetsLost), moved.change(\.packetsReceived))
         let rows: [StatRow?] = [
-            row("Sent through", stream.source == .screenShareVideo && stream.native ? "Native program, on their graphics card" : nil),
+            row("Sent through", stream.source == .screenShareVideo && stream.native ? "Their desktop app, on their graphics card" : nil),
             row("Receiving", fps(moved.perSecond(\.framesReceived))),
             row("Decoding", fps(decoded)),
             row("Frames dropped", joined(count(rtp.framesDropped), dropping > 0 ? "\(decimal(dropping, 1)) a second" : nil), warn: dropping > 0),

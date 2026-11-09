@@ -2,7 +2,7 @@
 //! 14.2 or later: everything but the app's own processes, or one app's. An app is the
 //! process macOS holds responsible for another, so a browser's sound, which plays from a
 //! helper, goes with it. The first capture asks the person to let the app record the
-//! computer's sound, which macOS attributes to the app that started this.
+//! computer's sound (`NSAudioCaptureUsageDescription`).
 //!
 //! A tap is read through a private aggregate device clocked by the output, at the
 //! output's rate, which Apple's converter takes to 48 kHz where it differs.

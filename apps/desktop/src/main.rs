@@ -36,16 +36,22 @@ fn main() {
         std::env::set_var("DISABLE_MANGOHUD", "1");
     }
     // With where each line came from: GPUI logs errors it swallowed, and their message alone rarely says enough.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format(|out, record| {
-            use std::io::Write;
-            let place = match (record.file(), record.line()) {
-                (Some(file), Some(line)) => format!("{file}:{line}"),
-                _ => record.target().to_string(),
-            };
-            writeln!(out, "[{} {} {place}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), record.level(), record.args())
-        })
-        .init();
+    let mut logger = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    logger.format(|out, record| {
+        use std::io::Write;
+        let place = match (record.file(), record.line()) {
+            (Some(file), Some(line)) => format!("{file}:{line}"),
+            _ => record.target().to_string(),
+        };
+        writeln!(out, "[{} {} {place}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), record.level(), record.args())
+    });
+    // libwebrtc's logs stay off whatever RUST_LOG says, since its frame cryptor has been reported
+    // to log key material (webrtc-sdk/webrtc#308), and logs end up in bug reports. ZUNA_WEBRTC_LOG
+    // lets them through, which is how test/key-log-check.mjs looks for that.
+    if std::env::var_os("ZUNA_WEBRTC_LOG").is_none() {
+        logger.filter_module("libwebrtc", log::LevelFilter::Off);
+    }
+    logger.init();
     let args: Vec<String> = std::env::args().collect();
     if let Some(code) = checks(&args) {
         std::process::exit(code);
@@ -231,8 +237,9 @@ fn quit(cx: &mut App) {
 }
 
 /// Checks of the hosted core with no window, for development:
-/// `zuna --core-eval <script>...` and `zuna --core-check <method> [args as JSON...]`, and on
-/// macOS `zuna --write-notification-sound <path>` as the bundle is made.
+/// `zuna --core-eval <script>...` and `zuna --core-check <method> [args as JSON...]`, on
+/// macOS `zuna --write-notification-sound <path>` as the bundle is made, and on Linux
+/// `zuna --check-dmabuf [render node]`.
 fn checks(args: &[String]) -> Option<i32> {
     match args.get(1).map(String::as_str) {
         // The notification sound, which scripts/macos-app.mjs puts in the bundle.
@@ -241,6 +248,18 @@ fn checks(args: &[String]) -> Option<i32> {
             let path = args.get(2)?;
             Some(if std::fs::write(path, platform::notification_wav()).is_ok() { 0 } else { 1 })
         }
+        // Whether DMA-BUFs of every modifier EGL offers reach NVENC, without a compositor.
+        #[cfg(target_os = "linux")]
+        Some("--check-dmabuf") => match zuna_screenshare::check_dmabuf(args.get(2).map_or("/dev/dri/renderD128", String::as_str)) {
+            Ok(report) => {
+                print!("{report}");
+                Some(0)
+            }
+            Err(problem) => {
+                eprintln!("{problem}");
+                Some(1)
+            }
+        },
         Some("--core-eval") => {
             let dir = host::data_dir();
             let key = host::device_key::load(&dir).expect("a device key");

@@ -5088,6 +5088,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6948501a91121d6399b79abaa33a8aa4ea7857fe019f341b8c23ad6e81b79b08"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
+ "dispatch2",
  "libc",
  "objc2 0.6.5",
  "objc2-core-audio",
@@ -5156,10 +5158,13 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1eebcea8b0dbff5f7c8504f3107c68fc061a3eb44932051c8cf8a68d969c3b2"
 dependencies = [
+ "block2 0.6.2",
  "dispatch2",
+ "libc",
  "objc2 0.6.5",
  "objc2-core-audio-types",
  "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]
@@ -10082,6 +10087,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "zuna-screenshare"
+version = "0.10.0"
+dependencies = [
+ "ashpd",
+ "cc",
+ "futures-executor",
+ "libc",
+ "libloading",
+ "log",
+ "objc2 0.6.5",
+ "objc2-audio-toolbox",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "serde_json",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+]
+
+[[package]]
 name = "zuna-windows"
 version = "0.10.0"
 dependencies = [
@@ -10147,6 +10173,7 @@ dependencies = [
  "x509-parser",
  "zbus",
  "zuna-crypto",
+ "zuna-screenshare",
 ]
 
 [[package]]

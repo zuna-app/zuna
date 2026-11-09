@@ -1,13 +1,21 @@
-// Fetches a pinned FFmpeg build, checked against its SHA-256. Native screen sharing
-// encodes through it, and the native app's media on Linux and macOS. Update a version and its
-// hash together. BtbN publishes no build for macOS, so there it's built from FFmpeg's own
-// source tarball, whose hash is the one the release signing key signed (`.asc` beside it).
+// Fetches a pinned FFmpeg build, checked against its SHA-256. The native app's screen share
+// encodes through it on Windows and Linux, and its media goes through it on Linux and macOS.
+// Update a version and its hash together. BtbN publishes no build for macOS, so there it's built
+// from FFmpeg's own source tarball, whose hash is the one the release signing key signed (`.asc`
+// beside it).
+//
+//   node scripts/ffmpeg.mjs     fetches it into apps/desktop/.deps, where the native app's build
+//                               looks (apps/desktop/.cargo/config.toml), as its scripts do first
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { pathToFileURL } from "node:url";
+
+/** Where the native app's build finds it, in `ffmpeg` inside. */
+export const nativeAppDeps = resolve(import.meta.dirname, "..", "apps", "desktop", ".deps");
 
 const tag = "autobuild-2026-10-31-12-59";
 const build = "ffmpeg-n8.1.3-27-g8dca1586f4";
@@ -108,4 +116,8 @@ export async function ensureFfmpeg(depsDir) {
   rmSync(unpacked, { recursive: true, force: true });
   writeFileSync(stamp, entry.sha256);
   return dir;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  console.log(`FFmpeg is in ${await ensureFfmpeg(nativeAppDeps)}`);
 }

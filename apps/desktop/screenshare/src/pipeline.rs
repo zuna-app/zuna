@@ -2,8 +2,6 @@
 //! how the network's feedback reaches the encoder. The capture modules drive this.
 
 use std::{
-    fs::File,
-    io::{BufWriter, Write},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -14,11 +12,25 @@ use crate::{
     h264::Rewriter,
 };
 
-#[cfg(feature = "livekit")]
-use livekit::webrtc::{
-    video_frame::{EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame},
-    video_source::{native::NativeVideoSource, VideoResolution},
-};
+/// An encoded frame of H.264, ready to go out.
+pub struct EncodedFrame<'a> {
+    pub data: &'a [u8],
+    /// On the wall clock, in microseconds.
+    pub timestamp_us: i64,
+    pub key: bool,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Where encoded frames go, and what the network says back: LiveKit, in the app.
+pub trait Output: Send {
+    /// Sends a frame, and says whether it was taken.
+    fn send(&mut self, frame: &EncodedFrame) -> bool;
+    /// Someone asked for a keyframe since this was last asked.
+    fn take_keyframe_request(&mut self) -> bool;
+    /// The bitrate the network wants now, in bits a second, if it's said since this was last asked.
+    fn take_target_bitrate(&mut self) -> Option<u64>;
+}
 
 /// A still screen gets this long at the full frame rate, for the encoder to sharpen
 /// it, and then only a trickle of frames to keep the stream alive. libwebrtc counts a
@@ -52,18 +64,13 @@ const BITRATE_URGENT_DROP: f64 = 0.6;
 /// keyframe, every 10 s, someone watching that share saw it stop for half a second, often.
 const BITRATE_RISE_GAP: Duration = Duration::from_secs(30);
 const BITRATE_RISE_GAP_MOST: Duration = Duration::from_secs(240);
-#[cfg_attr(not(feature = "livekit"), allow(dead_code))]
 const BITRATE_FLOOR: u64 = 500_000;
 
 /// libwebrtc starts low and probes upward, so a frame sized for the cap would only queue.
 const BITRATE_START: u64 = 3_000_000;
 
-pub fn starting_bitrate(cap: u64, publishing: bool) -> u64 {
-    if publishing {
-        cap.min(BITRATE_START)
-    } else {
-        cap
-    }
+pub fn starting_bitrate(cap: u64) -> u64 {
+    cap.min(BITRATE_START)
 }
 
 /// Whether a frame should be a keyframe: one someone asked for, though not straight after
@@ -126,12 +133,6 @@ impl Bitrate {
     }
 }
 
-pub enum Sink {
-    File { prepared: BufWriter<File>, raw: Option<BufWriter<File>> },
-    #[cfg(feature = "livekit")]
-    LiveKit(NativeVideoSource),
-}
-
 /// How far apart things happened, for the mean and how much they wander from it.
 #[derive(Default)]
 struct Gaps {
@@ -190,7 +191,9 @@ impl Window {
 
 pub struct Pipeline {
     encoder: Encoder,
-    sink: Sink,
+    output: Box<dyn Output>,
+    /// Hears how it's going, once a second.
+    report: Box<dyn FnMut(serde_json::Value) + Send>,
     rewriter: Rewriter,
     prepared: Vec<u8>,
     width: u32,
@@ -220,12 +223,24 @@ impl Pipeline {
     /// A regular keyframe, where there's to be one, is asked for `keyframe_every` after the
     /// last of any kind.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(encoder: Encoder, sink: Sink, width: u32, height: u32, fps: u32, bitrate_now: u64, bitrate_cap: u64, keyframe_every: Option<Duration>, fix_idr: bool) -> Self {
+    pub fn new(
+        encoder: Encoder,
+        output: Box<dyn Output>,
+        report: Box<dyn FnMut(serde_json::Value) + Send>,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate_now: u64,
+        bitrate_cap: u64,
+        keyframe_every: Option<Duration>,
+        fix_idr: bool,
+    ) -> Self {
         let now = Instant::now();
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         Self {
             encoder,
-            sink,
+            output,
+            report,
             rewriter: Rewriter::new(fix_idr),
             prepared: Vec::with_capacity(1 << 20),
             width,
@@ -379,7 +394,8 @@ impl Pipeline {
                     if packet.key {
                         self.last_key = Some(Instant::now());
                     }
-                    deliver(&mut self.sink, &self.prepared, packet.data, packet.key, self.started_wall_us + packet.pts, self.width, self.height, &mut self.window);
+                    let frame = EncodedFrame { data: &self.prepared, timestamp_us: self.started_wall_us + packet.pts, key: packet.key, width: self.width, height: self.height };
+                    self.window.rejected += !self.output.send(&frame) as u64;
                 }
                 None if got_one || began.elapsed() >= PACKET_WAIT => return Ok(()),
                 None => thread::sleep(Duration::from_micros(200)),
@@ -387,22 +403,16 @@ impl Pipeline {
         }
     }
 
-    #[cfg(feature = "livekit")]
     fn poll_feedback(&mut self) {
-        if let Sink::LiveKit(source) = &self.sink {
-            if source.take_keyframe_request() {
-                self.key_pending = true;
-                self.window.key_requests += 1;
-            }
-            // Zero means libwebrtc has paused sending, which isn't a bitrate to encode at.
-            if let Some(request) = source.take_rate_control_request().filter(|request| request.target_bitrate_bps > 0) {
-                self.bitrate_wanted = request.target_bitrate_bps.clamp(BITRATE_FLOOR.min(self.bitrate.cap), self.bitrate.cap);
-            }
+        if self.output.take_keyframe_request() {
+            self.key_pending = true;
+            self.window.key_requests += 1;
+        }
+        // Zero means libwebrtc has paused sending, which isn't a bitrate to encode at.
+        if let Some(target) = self.output.take_target_bitrate().filter(|&target| target > 0) {
+            self.bitrate_wanted = target.clamp(BITRATE_FLOOR.min(self.bitrate.cap), self.bitrate.cap);
         }
     }
-
-    #[cfg(not(feature = "livekit"))]
-    fn poll_feedback(&mut self) {}
 
     /// Gives the encoder the bitrate libwebrtc wants if that's worth a keyframe, and
     /// says whether it did.
@@ -429,30 +439,33 @@ impl Pipeline {
         let cpu_now = cpu::time_used();
         let (arrival_ms, arrival_jitter) = window.arrivals.mean_and_deviation();
         let (spacing_ms, spacing_jitter) = window.spacing.mean_and_deviation();
-        println!(
-            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"earlyFps\":{:.1},\"arrivalMs\":{arrival_ms:.2},\"arrivalJitterMs\":{arrival_jitter:.2},\"spacingMs\":{spacing_ms:.2},\"spacingJitterMs\":{spacing_jitter:.2},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"allKeys\":{},\"allKeyRequests\":{},\"allBitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
-            self.started.elapsed().as_secs_f64(),
-            self.width,
-            self.height,
-            window.frames as f64 / seconds,
-            window.repeats as f64 / seconds,
-            window.early as f64 / seconds,
-            window.bytes as f64 * 8.0 / seconds / 1000.0,
-            self.bitrate_wanted / 1000,
-            self.bitrate.now / 1000,
-            window.encode_time.as_secs_f64() * 1000.0 / encodes,
-            window.encode_time_max.as_secs_f64() * 1000.0,
-            window.keys,
-            window.key_requests,
-            window.bitrate_changes,
-            self.totals.keys + window.keys,
-            self.totals.key_requests + window.key_requests,
-            self.totals.bitrate_changes + window.bitrate_changes,
-            window.rejected,
-            self.rewriter.idr_rewritten,
-            self.rewriter.idr_left_alone,
-            (cpu_now - self.cpu_at_window_start).as_secs_f64() / seconds,
-        );
+        (self.report)(serde_json::json!({
+            "t": self.started.elapsed().as_secs_f64(),
+            "width": self.width,
+            "height": self.height,
+            "fps": window.frames as f64 / seconds,
+            "repeatFps": window.repeats as f64 / seconds,
+            "earlyFps": window.early as f64 / seconds,
+            "arrivalMs": arrival_ms,
+            "arrivalJitterMs": arrival_jitter,
+            "spacingMs": spacing_ms,
+            "spacingJitterMs": spacing_jitter,
+            "kbps": window.bytes as f64 * 8.0 / seconds / 1000.0,
+            "targetKbps": self.bitrate_wanted / 1000,
+            "encoderKbps": self.bitrate.now / 1000,
+            "encodeMsAvg": window.encode_time.as_secs_f64() * 1000.0 / encodes,
+            "encodeMsMax": window.encode_time_max.as_secs_f64() * 1000.0,
+            "keys": window.keys,
+            "keyRequests": window.key_requests,
+            "bitrateChanges": window.bitrate_changes,
+            "allKeys": self.totals.keys + window.keys,
+            "allKeyRequests": self.totals.key_requests + window.key_requests,
+            "allBitrateChanges": self.totals.bitrate_changes + window.bitrate_changes,
+            "rejected": window.rejected,
+            "idrRewritten": self.rewriter.idr_rewritten,
+            "idrLeftAlone": self.rewriter.idr_left_alone,
+            "cpuCores": (cpu_now - self.cpu_at_window_start).as_secs_f64() / seconds,
+        }));
         window.add_to(&mut self.totals);
         self.window_started = Instant::now();
         self.cpu_at_window_start = cpu_now;
@@ -460,41 +473,6 @@ impl Pipeline {
 
     pub fn encoder_name(&self) -> &str {
         &self.encoder.codec
-    }
-
-    #[cfg_attr(not(feature = "livekit"), allow(irrefutable_let_patterns))]
-    pub fn finish(&mut self) {
-        if let Sink::File { prepared, raw } = &mut self.sink {
-            let _ = prepared.flush();
-            if let Some(raw) = raw {
-                let _ = raw.flush();
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg_attr(not(feature = "livekit"), allow(unused_variables))]
-fn deliver(sink: &mut Sink, prepared: &[u8], raw_packet: &[u8], key: bool, timestamp_us: i64, width: u32, height: u32, window: &mut Window) {
-    match sink {
-        Sink::File { prepared: file, raw } => {
-            let _ = file.write_all(prepared);
-            if let Some(raw) = raw {
-                let _ = raw.write_all(raw_packet);
-            }
-        }
-        #[cfg(feature = "livekit")]
-        Sink::LiveKit(source) => {
-            let accepted = source.capture_encoded_frame(&EncodedVideoFrame {
-                codec: EncodedVideoCodec::H264,
-                payload: prepared,
-                timestamp_us,
-                frame_type: if key { EncodedFrameType::Key } else { EncodedFrameType::Delta },
-                resolution: VideoResolution { width, height },
-                frame_metadata: None,
-            });
-            window.rejected += !accepted as u64;
-        }
     }
 }
 

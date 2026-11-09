@@ -8,7 +8,7 @@
 ; UNINSTALLER and quits, which the build runs and signs, then as the installer, which carries
 ; that signed file.
 ;
-;   SOURCE       the folder with Zuna.exe and screenshare\
+;   SOURCE       the folder with Zuna.exe and lib\, the screen share's encoder and FFmpeg's libraries
 ;   OUTFILE      the installer to write, or the program that writes the uninstaller
 ;   VERSION      the version it installs
 ;   ICON         the app's icon
@@ -82,6 +82,8 @@ SectionEnd
 ; Electron app's were called Zuna.
 Section "Zuna"
   !insertmacro CloseRunning
+  ; Made anew, so that libraries a newer build no longer has, such as another FFmpeg's, don't stay.
+  RMDir /r "$INSTDIR\lib"
   SetOutPath "$INSTDIR"
   File /r "${SOURCE}\*.*"
   File "/oname=Uninstall Zuna.exe" "${UNINSTALLER}"

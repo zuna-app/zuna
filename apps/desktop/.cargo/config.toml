@@ -1,7 +1,8 @@
-# The FFmpeg the repository pins for the screen capture (scripts/ffmpeg.mjs), which the app
-# on Linux binds through ffmpeg-sys-next and links to, rather than whichever the system has.
+# The FFmpeg the repository pins (scripts/ffmpeg.mjs): the screen share's encoder on Windows and
+# Linux builds against it (screenshare/build.rs), and the app on Linux binds it through
+# ffmpeg-sys-next and links to it, rather than whichever the system has.
 [env]
-FFMPEG_DIR = { value = "../screenshare/.deps/ffmpeg", relative = true }
+FFMPEG_DIR = { value = ".deps/ffmpeg", relative = true }
 
 # LiveKit's prebuilt libwebrtc uses the static C runtime, so everything else does too.
 [target.x86_64-pc-windows-msvc]

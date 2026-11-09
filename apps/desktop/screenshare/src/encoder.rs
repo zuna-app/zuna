@@ -89,13 +89,15 @@ const LIBRARY: &str = "zuna_encoder.dll";
 #[cfg(not(windows))]
 const LIBRARY: &str = "libzuna_encoder.so";
 
+/// FFmpeg's libraries are beside it, where Windows only looks when it's told to.
 #[cfg(windows)]
 fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
-    unsafe { Library::new(path) }
+    use libloading::os::windows::{Library, LOAD_WITH_ALTERED_SEARCH_PATH};
+    unsafe { Library::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH) }.map(Into::into)
 }
 
-/// DEEPBIND has it look in its own FFmpeg first. Without that, libwebrtc's copy would
-/// win if this program ever exported it, and it's a different version of FFmpeg.
+/// DEEPBIND has it look in its own FFmpeg first. Without that, libwebrtc's copy, linked
+/// into the app, would win wherever the app exported it, and it's a different version.
 #[cfg(target_os = "linux")]
 fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
     let flags = libc::RTLD_NOW | libc::RTLD_LOCAL | libc::RTLD_DEEPBIND;
@@ -108,8 +110,18 @@ fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloadi
     unsafe { Library::new(path) }
 }
 
+/// Where the encoder is, with FFmpeg's libraries: in `lib` beside the app, where build.rs puts
+/// them in a build, and where its packages carry them, or beside the folder above, as cargo's
+/// examples and tests are in a folder below the app's.
+fn library_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let beside = exe.parent()?.join("lib").join(LIBRARY);
+    let above = exe.parent()?.parent().map(|dir| dir.join("lib").join(LIBRARY));
+    Some(above.filter(|above| !beside.exists() && above.exists()).unwrap_or(beside))
+}
+
 fn load_api() -> Result<Api> {
-    let path = std::env::current_exe().map_err(|error| error.to_string())?.with_file_name(LIBRARY);
+    let path = library_path().ok_or("Couldn't find where the app is")?;
     let library = open_library(&path).map_err(|error| format!("Loading {}: {error}", path.display()))?;
     macro_rules! get {
         ($name:literal) => {

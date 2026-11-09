@@ -140,7 +140,7 @@ impl ScreenPicker {
         self.window_app = Some((source.id.clone(), None));
         let id = source.id.clone();
         cx.spawn(async move |this, cx| {
-            let found = cx.background_executor().spawn(async move { crate::voice::screen::window_sound_app(&window) }).await;
+            let found = cx.background_executor().spawn(async move { crate::voice::screen::window_sound_app(window) }).await;
             this.update(cx, |picker, cx| {
                 if picker.window_app.as_ref().is_some_and(|(current, _)| current == &id) {
                     picker.window_app = Some((id, found));
@@ -200,9 +200,6 @@ impl Render for ScreenPicker {
         // What the limits leave out of the lists, which is nothing for someone they don't apply to.
         let limit = |value: u32| if limits.is_some() { value } else { 0 };
         let max_kbps = limit(rules.as_ref().map(|rules| rules.max_kbps).unwrap_or(0));
-        // On macOS the app captures the picture itself, and the program only takes the sound.
-        let has_program = crate::voice::screen::program_path().is_some();
-        let program = cfg!(target_os = "macos") || has_program;
         let source = self.source();
         let pick = self.sound_pick(source.as_ref(), settings.screen_sound_by_default);
 
@@ -289,11 +286,7 @@ impl Render for ScreenPicker {
                     let asks = if source.screen { "Your system asks which screen, once you press Share." } else { "Your system asks which window, once you press Share." };
                     body.push(div().text_size(px(12.5)).text_color(theme.text2).child(asks).into_any_element());
                 }
-                if program {
-                    body.push(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).text_color(theme.text2).child(icon("zap", 13., theme.text2)).child("Captured and encoded on your graphics card, so it stays light on your computer.").into_any_element());
-                } else {
-                    body.push(notice("triangle-alert", "This build came without native capture, so it can't share a screen.", cx).into_any_element());
-                }
+                body.push(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).text_color(theme.text2).child(icon("zap", 13., theme.text2)).child("Captured and encoded on your graphics card, so it stays light on your computer.").into_any_element());
             }
         }
         let qualities: Vec<_> = QUALITIES.iter().filter(|(kbps, _, _)| max_kbps == 0 || *kbps <= max_kbps).collect();
@@ -333,7 +326,7 @@ impl Render for ScreenPicker {
         if let Some(limits) = limits {
             body.push(div().text_size(px(12.5)).text_color(theme.text2).child(limits).into_any_element());
         }
-        if terms.sound && has_program {
+        if terms.sound {
             // Whose sound goes with the share: nobody's, everything but Zuna's, or one app's.
             let window_app = self.window_app.as_ref().filter(|(id, _)| Some(id) == self.chosen.as_ref()).and_then(|(_, app)| app.clone());
             let mut listed: Vec<(SoundApp, bool)> = Vec::new();
@@ -409,7 +402,7 @@ impl Render for ScreenPicker {
                 .child("More screen sharing settings")
                 .into_any_element(),
         );
-        let can_share = !self.starting && self.sources.is_some() && source.is_some() && program;
+        let can_share = !self.starting && self.sources.is_some() && source.is_some();
         let footer = div()
             .flex()
             .justify_end()

@@ -352,10 +352,6 @@ async fn ask_the_portal(show_cursor: bool, source: Source) -> ashpd::Result<Port
     Ok(PortalShare { proxy, session, remote, node, kind })
 }
 
-pub fn list_monitors() {
-    println!("{{\"type\":\"note\",\"message\":\"On Linux the portal's dialog asks what to share.\"}}");
-}
-
 fn open_encoder_for(negotiated: Negotiated, codec: &str, render_node: &str, stream: Stream) -> Result<Encoder> {
     let (pixel, _) = describe_format(negotiated.format).ok_or("PipeWire settled on a format this can't encode")?;
     Encoder::open(&Config {
@@ -390,10 +386,11 @@ pub struct Capture {
 }
 
 impl Capture {
-    pub fn open(options: &Options, runtime: &tokio::runtime::Runtime) -> Result<Self> {
+    pub fn open(options: &Options) -> Result<Self> {
         let codec = choose_encoder(&options.encoder)?;
         let api = pipewire::load()?;
-        let portal = runtime.block_on(ask_the_portal(options.cursor, options.source)).map_err(|error| format!("Asking the portal for the screen: {error}"))?;
+        // The portal runs on the app's async-io, as its other D-Bus connections do, so any executor waits on it.
+        let portal = futures_executor::block_on(ask_the_portal(options.cursor, options.source)).map_err(|error| format!("Asking the portal for the screen: {error}"))?;
         unsafe { (api.init)(ptr::null_mut(), ptr::null_mut()) };
 
         let name = c_string("zuna-capture");

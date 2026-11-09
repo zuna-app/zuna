@@ -64,8 +64,6 @@ fn error(doing: &str) -> impl Fn(windows::core::Error) -> String + '_ {
 struct Monitor {
     handle: HMONITOR,
     name: String,
-    rect: RECT,
-    primary: bool,
 }
 
 fn monitors() -> Vec<Monitor> {
@@ -75,36 +73,13 @@ fn monitors() -> Vec<Monitor> {
         info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
         if unsafe { GetMonitorInfoW(handle, &mut info.monitorInfo) }.as_bool() {
             let end = info.szDevice.iter().position(|&c| c == 0).unwrap_or(info.szDevice.len());
-            list.push(Monitor {
-                handle,
-                name: String::from_utf16_lossy(&info.szDevice[..end]),
-                rect: info.monitorInfo.rcMonitor,
-                primary: info.monitorInfo.dwFlags & 1 != 0,
-            });
+            list.push(Monitor { handle, name: String::from_utf16_lossy(&info.szDevice[..end]) });
         }
         true.into()
     }
     let mut list = Vec::new();
     let _ = unsafe { EnumDisplayMonitors(None, None, Some(add), LPARAM(&mut list as *mut _ as isize)) };
     list
-}
-
-pub fn list_monitors() {
-    for (index, monitor) in monitors().iter().enumerate() {
-        let rect = monitor.rect;
-        println!(
-            "{{\"type\":\"monitor\",\"index\":{index},\"name\":{:?},\"x\":{},\"y\":{},\"width\":{},\"height\":{},\"primary\":{}}}",
-            monitor.name,
-            rect.left,
-            rect.top,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            monitor.primary
-        );
-    }
-    for (_, desc) in adapters().unwrap_or_default() {
-        println!("{{\"type\":\"gpu\",\"name\":{:?},\"vendor\":\"{:#x}\"}}", adapter_name(&desc), desc.VendorId);
-    }
 }
 
 fn adapters() -> Result<Vec<(IDXGIAdapter1, DXGI_ADAPTER_DESC1)>> {
@@ -177,13 +152,12 @@ pub struct Capture {
     frame_arrived: HANDLE,
     /// What was shared has gone: a window that closed, or a monitor unplugged.
     ended: Arc<AtomicBool>,
-    /// The window shared, as a number, since the item doesn't say when one closes from a program
-    /// without a dispatcher queue, as this one is.
+    /// The window shared, as a number, since the item doesn't say when one closes to a thread
+    /// without a dispatcher queue, as the share's is.
     window: Option<isize>,
     /// What's taken from each frame, before it's made smaller.
     width: u32,
     height: u32,
-    crop: Option<(u32, u32)>,
     max_height: Option<u32>,
     /// What the encoder was opened for, so that another can be opened when the picture changes size.
     stream: Option<Stream>,
@@ -196,7 +170,7 @@ pub struct Capture {
 }
 
 impl Capture {
-    pub fn open(options: &Options, _runtime: &tokio::runtime::Runtime) -> Result<Self> {
+    pub fn open(options: &Options) -> Result<Self> {
         unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(error("Starting WinRT"))?;
 
         let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>().map_err(error("Starting capture"))?;
@@ -214,7 +188,7 @@ impl Capture {
                 let all = monitors();
                 let monitor = match options.monitor_at {
                     Some((x, y)) => unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONULL) },
-                    None => all.get(options.monitor).ok_or_else(|| format!("There's no monitor {}", options.monitor))?.handle,
+                    None => all.first().ok_or("There's no monitor")?.handle,
                 };
                 let name = all.iter().find(|m| m.handle == monitor).map_or("unknown monitor".to_owned(), |m| m.name.clone());
                 (unsafe { interop.CreateForMonitor(monitor) }.map_err(error("Capturing the monitor"))?, monitor, name, "screen")
@@ -289,7 +263,7 @@ impl Capture {
         session.StartCapture().map_err(error("Starting the capture"))?;
 
         let input = if options.cpu_input { "CPU memory" } else { "GPU textures" };
-        let mut capture = Self {
+        Ok(Self {
             device,
             context,
             winrt_device,
@@ -300,9 +274,8 @@ impl Capture {
             frame_arrived,
             ended,
             window: options.window.map(|window| window as isize),
-            width: 0,
-            height: 0,
-            crop: options.crop,
+            width: even(size.Width.max(0) as u32),
+            height: even(size.Height.max(0) as u32),
             max_height: options.max_height,
             stream: None,
             cpu_input: options.cpu_input,
@@ -310,18 +283,7 @@ impl Capture {
             description: format!("{name} at {}x{} on {gpu}, {codec} from {input}", size.Width, size.Height),
             codec,
             source,
-        };
-        (capture.width, capture.height) = capture.taken_from(size);
-        Ok(capture)
-    }
-
-    /// How much of a picture this size is taken: all of it, as even as H.264 needs, or less to crop it.
-    fn taken_from(&self, size: SizeInt32) -> (u32, u32) {
-        let (width, height) = (even(size.Width.max(0) as u32), even(size.Height.max(0) as u32));
-        match self.crop {
-            Some((crop_width, crop_height)) => (width.min(even(crop_width)), height.min(even(crop_height))),
-            None => (width, height),
-        }
+        })
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -398,7 +360,8 @@ impl Capture {
             self.pool_size = size;
             return Ok(());
         }
-        let size = self.taken_from(content);
+        // As even as H.264 needs.
+        let size = (even(content.Width as u32), even(content.Height as u32));
         if size != (self.width, self.height) {
             self.follow_size(size, pipeline)?;
         }
