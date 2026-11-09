@@ -61,9 +61,9 @@ struct ChannelEditor: View {
     /// How many may share a screen at once (SCREEN_LIMITS in ChannelDialog.tsx): 0 is the server's rules, -1 nobody.
     private static func screenLimitName(_ limit: Int) -> String {
         switch limit {
-        case 0: "As the server's rules say"
-        case -1: "Off in this channel"
-        case 1: "One at a time"
+        case 0: "Server default"
+        case -1: "Off"
+        case 1: "1 at a time"
         default: "Up to \(limit) at once"
         }
     }
@@ -227,7 +227,7 @@ struct ChannelEditor: View {
         } header: {
             Text("Voice")
         } footer: {
-            Text("Screen sharing can be held to fewer at once here than the server's rules allow, or be off. With the soundboard, anyone in the channel can play the server's sounds to everyone there.")
+            Text("Limit screen sharing to fewer at once than the server allows, or turn it off here. With the soundboard on, anyone in the channel can play the server's sounds.")
         }
     }
 

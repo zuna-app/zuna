@@ -155,8 +155,8 @@ impl Dialog {
                     }, cx))
                     .into_any_element(),
             );
-            let mut limits: Vec<(f64, String)> = vec![(0., "As the server's rules say".into()), (-1., "Off in this channel".into())];
-            limits.extend([1., 2., 3., 4., 5., 10.].iter().map(|limit| (*limit, if *limit == 1. { "One at a time".to_string() } else { format!("Up to {limit} at once") })));
+            let mut limits: Vec<(f64, String)> = vec![(0., "Server default".into()), (-1., "Off".into())];
+            limits.extend([1., 2., 3., 4., 5., 10.].iter().map(|limit| (*limit, if *limit == 1. { "1 at a time".to_string() } else { format!("Up to {limit} at once") })));
             if !limits.iter().any(|(limit, _)| *limit == form.screen_limit) {
                 limits.push((form.screen_limit, format!("Up to {} at once", form.screen_limit)));
             }

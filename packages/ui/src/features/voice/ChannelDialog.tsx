@@ -13,9 +13,9 @@ const AUDIO_QUALITIES = [
 ];
 
 const SCREEN_LIMITS = [
-  { limit: 0, label: "As the server's rules say" },
-  { limit: -1, label: "Off in this channel" },
-  ...[1, 2, 3, 4, 5, 10].map((limit) => ({ limit, label: limit === 1 ? "One at a time" : `Up to ${limit} at once` })),
+  { limit: 0, label: "Server default" },
+  { limit: -1, label: "Off" },
+  ...[1, 2, 3, 4, 5, 10].map((limit) => ({ limit, label: limit === 1 ? "1 at a time" : `Up to ${limit} at once` })),
 ];
 
 /** Text channels go by lowercase names with dashes, as in Discord, which also keeps them easy to mention. */

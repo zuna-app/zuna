@@ -348,7 +348,7 @@ final class ChannelsTests: XCTestCase {
         zuna.type("Studio", into: A11y.Channels.editorName)
         choose("Best (256 kbit/s)", in: A11y.Channels.editorBitrate)
         // The last menu brings the slider up from under the keyboard.
-        choose("One at a time", in: A11y.Channels.editorScreenLimit)
+        choose("1 at a time", in: A11y.Channels.editorScreenLimit)
         zuna.element(A11y.Channels.editorUserLimit).adjust(toNormalizedSliderPosition: 0.3)
         zuna.screenshot("93b-new-voice-channel")
         zuna.element(A11y.Channels.editorSave).tap()
@@ -368,7 +368,7 @@ final class ChannelsTests: XCTestCase {
         edit.tap()
         XCTAssertTrue(zuna.element(A11y.Channels.editor).waitForExistence(timeout: 5))
         choose("Usual (64 kbit/s)", in: A11y.Channels.editorBitrate)
-        choose("Off in this channel", in: A11y.Channels.editorScreenLimit)
+        choose("Off", in: A11y.Channels.editorScreenLimit)
         zuna.element(A11y.Channels.editorUserLimit).adjust(toNormalizedSliderPosition: 0)
         zuna.element(A11y.Channels.editorSave).tap()
         try waitFor("carol to see it changed", timeout: 30) {
