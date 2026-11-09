@@ -101,18 +101,28 @@ pub enum Event {
     Permissions,
 }
 
-/// A picture to show, BGRA, top row first.
+/// A picture to show.
 #[derive(Clone)]
 pub struct Frame {
     pub width: u32,
     pub height: u32,
-    pub bgra: Arc<Vec<u8>>,
+    /// BGRA, top row first, made into an image where it was decoded, so that a view drawing it
+    /// whole hands GPUI this one and copies nothing. `None` only with a `surface`.
+    pub image: Option<Arc<gpui::RenderImage>>,
     /// Counts up with each new frame, so a view knows when to draw again.
     pub serial: u64,
-    /// On macOS, what VideoToolbox decoded, as it is on the GPU, in place of `bgra`, which is
-    /// then empty: GPUI draws it from there, so it never passes through the CPU.
+    /// On macOS, what VideoToolbox decoded, as it is on the GPU, in place of `image`: GPUI
+    /// draws it from there, so it never passes through the CPU.
     #[cfg(target_os = "macos")]
     pub surface: Option<crate::platform::screen_capture::Picture>,
+}
+
+impl Frame {
+    /// A picture from BGRA pixels, top row first, which it keeps without copying.
+    fn of(width: u32, height: u32, bgra: Vec<u8>, serial: u64) -> Frame {
+        let image = image::RgbaImage::from_raw(width, height, bgra).map(|buffer| Arc::new(gpui::RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)])));
+        Frame { width, height, image, serial, #[cfg(target_os = "macos")] surface: None }
+    }
 }
 
 pub type Feed = Arc<Mutex<Option<Frame>>>;
@@ -439,14 +449,16 @@ impl VoiceRoom {
         let sending = source.clone();
         let preview = feed.clone();
         let serial = AtomicU64::new(0);
-        let camera = crate::media::record::Camera::start_feed(device, 720, move |width, height, bgra| {
+        let camera = crate::media::record::Camera::start_feed(device, 720, move |width, height, mut bgra| {
             let mut buffer = I420Buffer::new(width, height);
             let (stride_y, stride_u, stride_v) = buffer.strides();
             let (y, u, v) = buffer.data_mut();
             livekit::webrtc::native::yuv_helper::argb_to_i420(&bgra, width * 4, y, stride_y, u, stride_u, v, stride_v, width as i32, height as i32);
             let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_micros() as i64).unwrap_or(0);
             sending.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: at, frame_metadata: None, buffer });
-            show(&preview, Frame { width, height, bgra: Arc::new(bgra), serial: serial.fetch_add(1, Ordering::Relaxed) + 1, #[cfg(target_os = "macos")] surface: None });
+            // Your own camera as you'd see yourself in a mirror, once it's gone out as it is.
+            crate::media::mirror(&mut bgra, width as usize);
+            show(&preview, Frame::of(width, height, bgra, serial.fetch_add(1, Ordering::Relaxed) + 1));
         })?;
         let track = LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(source));
         let options = TrackPublishOptions {

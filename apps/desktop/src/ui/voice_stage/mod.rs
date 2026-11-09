@@ -100,9 +100,10 @@ impl VoiceStage {
         cx.notify();
     }
 
-    /// A video's newest picture, made into an image once per frame. Covering a 16:9 tile, it's
-    /// cropped to 16:9 first: GPUI rounds a covering picture's corners past the tile's, where
-    /// they'd be cut off square.
+    /// A video's newest picture, as an image. Whole, it's the one made where the frame was
+    /// decoded, with nothing copied. Covering a 16:9 tile, it's cropped to 16:9 first, once per
+    /// frame: GPUI rounds a covering picture's corners past the tile's, where they'd be cut off
+    /// square. Your own camera comes mirrored already.
     fn picture(&mut self, tile: &VideoTile, cover: bool) -> Option<Arc<RenderImage>> {
         let frame = tile.feed.lock().clone()?;
         let key = if cover { format!("{}#cover", tile.key) } else { tile.key.clone() };
@@ -111,7 +112,8 @@ impl VoiceStage {
                 return Some(image.clone());
             }
         }
-        let (mut width, mut height) = (frame.width, frame.height);
+        let whole = frame.image?;
+        let (width, height) = (frame.width, frame.height);
         let shape = 16. / 9.;
         let (keep_width, keep_height) = if !cover || width == 0 || height == 0 {
             (width, height)
@@ -120,25 +122,20 @@ impl VoiceStage {
         } else {
             (width, ((width as f32 / shape).round() as u32).clamp(1, height))
         };
-        // Cropped by copying only the rows and columns kept, straight from the frame.
-        let mut bytes = if (keep_width, keep_height) != (width, height) {
+        let image = if (keep_width, keep_height) == (width, height) {
+            whole
+        } else {
+            // Cropped by copying only the rows and columns kept, straight from the frame.
+            let pixels = whole.as_bytes(0)?;
             let (left, top) = ((width - keep_width) / 2, (height - keep_height) / 2);
             let mut kept = Vec::with_capacity((keep_width * keep_height * 4) as usize);
             for row in top..top + keep_height {
                 let start = ((row * width + left) * 4) as usize;
-                kept.extend_from_slice(&frame.bgra[start..start + (keep_width * 4) as usize]);
+                kept.extend_from_slice(pixels.get(start..start + (keep_width * 4) as usize)?);
             }
-            (width, height) = (keep_width, keep_height);
-            kept
-        } else {
-            frame.bgra.as_ref().clone()
+            let buffer = image::RgbaImage::from_raw(keep_width, keep_height, kept)?;
+            Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]))
         };
-        // Your own camera as you'd see yourself in a mirror.
-        if tile.local && tile.source == VideoSource::Camera {
-            crate::media::mirror(&mut bytes, width as usize);
-        }
-        let buffer = image::RgbaImage::from_raw(width, height, bytes)?;
-        let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
         if let Some((_, old)) = self.images.insert(key, (frame.serial, image.clone())) {
             self.retired.push(old);
         }

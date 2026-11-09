@@ -79,10 +79,19 @@ impl Shared {
                                 log::debug!("video: decoded on the GPU at {width}×{height}, drawn from there");
                             }
                             serial += 1;
-                            show(&writing, Frame { width, height, bgra: Arc::new(Vec::new()), serial, surface: Some(picture) });
+                            show(&writing, Frame { width, height, image: None, serial, surface: Some(picture) });
                             continue;
                         }
-                        let i420 = frame.buffer.to_i420();
+                        // What a decoder hands over is I420 already, read where it is: to_i420
+                        // copies even that.
+                        let copied;
+                        let i420 = match frame.buffer.as_i420() {
+                            Some(i420) => i420,
+                            None => {
+                                copied = frame.buffer.to_i420();
+                                &copied
+                            }
+                        };
                         let (width, height) = (i420.width(), i420.height());
                         let (stride_y, stride_u, stride_v) = i420.strides();
                         let (y, u, v) = i420.data();
@@ -90,7 +99,7 @@ impl Shared {
                         // libyuv's ARGB is BGRA in memory, which is what GPUI draws.
                         livekit::webrtc::native::yuv_helper::i420_to_argb(y, stride_y, u, stride_u, v, stride_v, &mut bgra, width * 4, width as i32, height as i32);
                         serial += 1;
-                        show(&writing, Frame { width, height, bgra: Arc::new(bgra), serial, #[cfg(target_os = "macos")] surface: None });
+                        show(&writing, Frame::of(width, height, bgra, serial));
                     }
                 });
                 self.videos.lock().insert(sid, RemoteVideo { feed, task: task.abort_handle() });
