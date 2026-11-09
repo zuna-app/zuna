@@ -35,7 +35,7 @@ import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
 import { motionReduced } from "@/lib/motion";
 import { muteEntries } from "@/lib/mute";
-import { ReadTicks, readUpToOf } from "@/features/chat/MessageItem";
+import { ReadTicks, readUpToOf } from "@/features/chat/MessageDetails";
 import { ChannelSections } from "@/features/voice/ChannelList";
 import { useActiveServer, useApp } from "@/state/store";
 

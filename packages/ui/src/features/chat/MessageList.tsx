@@ -7,7 +7,8 @@ import { Spinner } from "@/components/ui";
 import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
 import { motionReduced } from "@/lib/motion";
 import { activeServerNow, isUnread, useApp } from "@/state/store";
-import { MessageItem, readUpToOf } from "./MessageItem";
+import { MessageItem } from "./MessageItem";
+import { readUpToOf } from "./MessageDetails";
 import { useDragPick } from "./use-drag-pick";
 
 function UndisplayableMessage() {

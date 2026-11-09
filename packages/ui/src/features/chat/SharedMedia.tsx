@@ -8,7 +8,7 @@ import { Avatar, PopupMenu, Spinner } from "@/components/ui";
 import { avatarColor, formatDuration, formatFull, nameColor } from "@/lib/format";
 import { loadsByItself, picturesAmong, useDecryptedUrl, useVideoFrame } from "@/lib/media";
 import { useActiveServer, useApp } from "@/state/store";
-import { AudioAttachment, FileAttachment, VoiceAttachment } from "./MessageItem";
+import { AudioAttachment, FileAttachment, VoiceAttachment } from "./MessageAttachments";
 
 /** What a chat's details list, in Telegram's order. GIFs aren't a kind of their own here. */
 export type SharedKind = MediaKind | "groups";
