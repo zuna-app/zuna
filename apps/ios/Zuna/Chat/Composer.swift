@@ -1,6 +1,14 @@
 import SwiftUI
 import ZunaModels
 
+/// The keyboard, whichever field it's typing into.
+@MainActor
+enum Keyboard {
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
 /// Writing a message, laid out like Telegram's: attach, the text growing up to
 /// six lines with the emoji button inside, and send. Above it: the message
 /// being answered or edited, files to send, and suggestions for `@` and `:`.

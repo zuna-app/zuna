@@ -77,6 +77,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     private var seenPending = false
     private var handledJump: Int?
     private var swiping: (cell: MessageCell, message: MessageView)?
+    /// A tap where there's no message, as above the first one.
+    private var backgroundTap: UITapGestureRecognizer?
     private let replyFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     private static let groupWindow = 5 * 60 * 1000
@@ -106,6 +108,13 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swipe.delegate = self
         collectionView.addGestureRecognizer(swipe)
+
+        // A tap on the chat where there's no message puts the keyboard away, as a tap beside one does (`MessageRow`).
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackground))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        collectionView.addGestureRecognizer(tap)
+        backgroundTap = tap
 
         let registration = UICollectionView.CellRegistration<MessageCell, String> { [weak self] cell, _, id in
             guard let self, let input, let context = contexts[id] else { return }
@@ -479,7 +488,15 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         }
     }
 
-    // MARK: Swipe to reply
+    // MARK: Taps and swipes
+
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        gesture !== backgroundTap || collectionView.indexPathForItem(at: touch.location(in: collectionView)) == nil
+    }
+
+    @objc private func tappedBackground() {
+        Keyboard.dismiss()
+    }
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         // Not while picking messages, where a tap picks one.

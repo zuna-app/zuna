@@ -128,10 +128,19 @@ struct MessageRow: View {
     let actions: ChatActions
 
     var body: some View {
-        if context.channel {
-            ChannelMessageRow(context: context, server: server, actions: actions)
-        } else {
-            bubbleRow
+        Group {
+            if context.channel {
+                ChannelMessageRow(context: context, server: server, actions: actions)
+            } else {
+                bubbleRow
+            }
+        }
+        // A tap on the chat beside a message puts the keyboard away, as in Telegram. Behind
+        // the row, so what's on it, the message and what opens from it, takes its own taps.
+        .background {
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture { Keyboard.dismiss() }
         }
     }
 

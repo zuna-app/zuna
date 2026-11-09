@@ -104,6 +104,22 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(zuna.element(A11y.Composer.input).value as? String, "Message alice")
     }
 
+    /// A tap on the chat beside a message puts the keyboard away, as in Telegram.
+    func testATapBesideAMessagePutsTheKeyboardAway() throws {
+        let alice = try Peer("alice")
+        let id = try alice.send(to: "user:\(bobId)", ["text": "Short \(UUID().uuidString.prefix(4))"])
+        try openAlice()
+        let text = zuna.element(A11y.Chat.text(id))
+        XCTAssertTrue(text.waitForExistence(timeout: 20))
+        zuna.element(A11y.Composer.input).tap()
+        let keyboard = zuna.app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        // Alice's message is on the left, so to the right of it is the chat itself.
+        let frame = text.frame
+        zuna.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.maxX + 60, dy: frame.midY)).tap()
+        try waitFor("the keyboard to go") { !keyboard.exists }
+    }
+
     func testRepliesEditsAndDeletes() throws {
         let alice = try Peer("alice")
         let tag = String(UUID().uuidString.prefix(4))

@@ -204,7 +204,7 @@ struct ChatScreen: View {
     /// message box its focus back on the way back, and the keyboard comes up over the
     /// chat before the chat has made room for it.
     private func openDetails(_ key: String) {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        Keyboard.dismiss()
         model.chatPath.append(.details(key))
     }
 
