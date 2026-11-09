@@ -35,6 +35,9 @@ let package = Package(
                 .define("SQLITE_DEFAULT_WAL_SYNCHRONOUS", to: "1"),
                 .define("SQLITE_OMIT_LOAD_EXTENSION"),
                 .define("SQLITE_OMIT_DEPRECATED"),
+                // Keeps a cached statement's plan when new values are bound, instead of
+                // compiling it again for those whose plan could depend on them (LIMIT ?).
+                .define("SQLITE_ENABLE_QPSG"),
             ]
         ),
         .target(
