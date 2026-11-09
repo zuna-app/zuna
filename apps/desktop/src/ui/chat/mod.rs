@@ -115,6 +115,7 @@ pub struct ChatView {
     center_on: Option<(String, bool)>,
     last_typing: f64,
     revealed: Rc<RefCell<HashSet<String>>>,
+    hovered_link: Rc<RefCell<Option<(SharedString, usize)>>>,
     side_panel: Option<Entity<SidePanel>>,
     /// When the member list came back as the side panel finished closing, to fade it in.
     members_back: Option<std::time::Instant>,
@@ -369,6 +370,7 @@ impl ChatView {
             center_on: None,
             last_typing: 0.,
             revealed: Rc::new(RefCell::new(HashSet::new())),
+            hovered_link: Rc::default(),
             side_panel: None,
             members_back: None,
             typed_in: RefCell::new(None),

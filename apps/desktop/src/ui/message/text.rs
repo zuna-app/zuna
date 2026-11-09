@@ -350,6 +350,19 @@ pub(super) fn interactive_text(message_id: &str, order: usize, block: usize, ric
             }
         })
         .collect();
+    let text_id = SharedString::from(format!("text-{message_id}-{order}"));
+    // The link under the pointer is underlined, as `a:hover`.
+    let mut runs = runs;
+    let hovered = context.hovered_link.borrow().as_ref().filter(|(id, _)| *id == text_id).map(|(_, target)| *target);
+    if let Some((range, Target::Link(_))) = hovered.and_then(|target| targets.get(target)) {
+        let mut position = 0;
+        for run in &mut runs {
+            if position >= range.start && position + run.len <= range.end {
+                run.underline = Some(UnderlineStyle { color: Some(run.color), thickness: px(1.), wavy: false });
+            }
+            position += run.len;
+        }
+    }
     let styled = StyledText::new(SharedString::from(rich.text.clone())).with_runs(runs);
     let layout = styled.layout().clone();
     let text = SharedString::from(rich.text[..len].to_string());
@@ -357,10 +370,11 @@ pub(super) fn interactive_text(message_id: &str, order: usize, block: usize, ric
         return div().whitespace_normal().child(selection::selectable(message_id, order, block, text, Some(layout), styled)).into_any_element();
     }
     let ranges: Vec<_> = targets.iter().map(|(range, _)| range.clone()).collect();
+    let links: Vec<_> = targets.iter().map(|(range, target)| matches!(target, Target::Link(_)).then(|| range.clone())).collect();
     let state = context.state.clone();
     let revealed = context.revealed.clone();
     let id = message_id.to_string();
-    let interactive = InteractiveText::new(SharedString::from(format!("text-{message_id}-{order}")), styled)
+    let interactive = InteractiveText::new(text_id.clone(), styled)
         .on_click(ranges, move |clicked, _window, cx| match &targets[clicked].1 {
             Target::Link(url) => cx.open_url(url),
             Target::User(user) => state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user.clone() }), cx)),
@@ -369,7 +383,36 @@ pub(super) fn interactive_text(message_id: &str, order: usize, block: usize, ric
                 state.update(cx, |_, cx| cx.notify());
             }
         });
-    selection::selectable(message_id, order, block, text, Some(layout), interactive).into_any_element()
+    // Which link the pointer is on, followed here rather than by the text's own hover, which
+    // isn't told when the pointer leaves, nor when it comes back to the character it left from.
+    let hovered_link = context.hovered_link.clone();
+    let left_link = context.hovered_link.clone();
+    let hover_layout = layout.clone();
+    let hover_id = text_id.clone();
+    div()
+        .id(SharedString::from(format!("links-{message_id}-{order}")))
+        .on_mouse_move(move |event, window, _cx| {
+            let index = hover_layout.index_for_position(event.position).ok();
+            let link = index.and_then(|index| links.iter().position(|range| range.as_ref().is_some_and(|range| range.contains(&index))));
+            let mut hovered = hovered_link.borrow_mut();
+            let current = hovered.as_ref().filter(|(id, _)| *id == hover_id).map(|(_, link)| *link);
+            if link != current {
+                match link {
+                    Some(link) => *hovered = Some((hover_id.clone(), link)),
+                    None => *hovered = None,
+                }
+                window.refresh();
+            }
+        })
+        .on_hover(move |inside, window, _cx| {
+            let mut hovered = left_link.borrow_mut();
+            if !*inside && hovered.as_ref().is_some_and(|(id, _)| *id == text_id) {
+                *hovered = None;
+                window.refresh();
+            }
+        })
+        .child(selection::selectable(message_id, order, block, text, Some(layout), interactive))
+        .into_any_element()
 }
 
 pub(super) enum Target {

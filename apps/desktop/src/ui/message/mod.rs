@@ -52,6 +52,9 @@ pub struct ChatContext {
     pub detached: bool,
     pub highlight: Option<String>,
     pub revealed: Rc<std::cell::RefCell<HashSet<String>>>,
+    /// The link under the pointer, as the id of the text it's in and its place among that
+    /// text's targets, underlined as `a:hover` underlines it.
+    pub hovered_link: Rc<std::cell::RefCell<Option<(SharedString, usize)>>>,
     pub images: HashMap<String, Arc<Image>>,
     pub avatars: HashMap<String, Arc<Image>>,
     /// Picking messages in this chat, and those picked.

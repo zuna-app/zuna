@@ -579,6 +579,7 @@ impl ChatView {
             detached: list.detached,
             highlight: self.highlight.as_ref().map(|(id, _)| id.clone()),
             revealed: self.revealed.clone(),
+            hovered_link: self.hovered_link.clone(),
             images,
             avatars,
             is_channel: conversation.kind == "channel",
