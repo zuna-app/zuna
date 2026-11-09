@@ -110,6 +110,12 @@ func (d *DB) GetOrCreateDM(ctx context.Context, creator, peer string) (*Group, b
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		// A private bot isn't there for someone it shares no chat with.
+		if seen, err := canSee(ctx, tx, creator, peer); err != nil {
+			return err
+		} else if !seen {
+			return ErrNotFound
+		}
 		var banned sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, peer).Scan(&banned); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {

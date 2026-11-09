@@ -147,6 +147,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Profile         []byte            `json:"profile"`
 		Slots           []store.Slot      `json:"slots"`
 		Items           []store.VaultItem `json:"items"`
+		// A bot's signature on its identity key, by the key its setup link held.
+		BotProof []byte `json:"bot_proof"`
 	}
 	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
@@ -162,7 +164,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.RecoveryAuthKey) != 32 ||
 		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || !validNewSlots(body.Slots) || len(body.VaultCore) == 0 ||
-		len(body.Items) > maxSignUpItems || !validVaultItems(body.Items) {
+		len(body.Items) > maxSignUpItems || !validVaultItems(body.Items) || (len(body.BotProof) != 0 && len(body.BotProof) != 64) {
 		writeError(w, http.StatusBadRequest, "bad_request", "The sign-up data is incomplete.")
 		return
 	}
@@ -198,6 +200,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Profile:      body.Profile,
 		Slots:        body.Slots,
 		VaultItems:   body.Items,
+		BotProof:     body.BotProof,
 	}, body.InviteCode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")
@@ -221,7 +224,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	s.hub.ToAll(Event{Type: "user", Data: user})
+	// To everyone, unless it's a private bot, which is only there for its owner so far.
+	s.broadcastUser(r, userID)
 	writeJSON(w, http.StatusCreated, map[string]any{"user_id": userID, "token": token, "role": user.Role})
 }
 
@@ -426,31 +430,15 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	s.signInSucceeded(r, sess.Username)
-	groups, err := s.db.UserGroupIDs(r.Context(), sess.UserID)
-	if err != nil {
+	// Their bots go with them.
+	if err := s.deleteBotsOf(r, sess.UserID); err != nil {
 		writeFailure(w, err)
 		return
 	}
-	// Said before taking them out of their groups, as a ban does. The device that
-	// asked has its answer already.
-	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "force_logout", Data: map[string]string{"reason": "account_deleted"}})
-	for _, groupID := range groups {
-		if err := s.removeFromRoster(r, groupID, sess.UserID, sess.UserID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeFailure(w, err)
-			return
-		}
-	}
-	avatar, err := s.db.DeleteAccount(r.Context(), sess.UserID)
-	if err != nil {
+	// The device that asked has its answer already.
+	if err := s.eraseAccount(r, sess.UserID, sess.DeviceID); err != nil {
 		writeFailure(w, err)
 		return
 	}
-	if avatar != "" {
-		s.removeFiles(r.Context(), []string{avatar})
-	}
-	s.endVoiceFor(r.Context(), sess.UserID, "account_deleted", true)
-	s.hub.EndPresence(sess.UserID)
-	s.hub.Disconnect(sess.UserID, "")
-	s.broadcastUser(r, sess.UserID)
 	writeOK(w)
 }

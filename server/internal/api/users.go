@@ -7,21 +7,24 @@ import (
 	"zuna/server/internal/store"
 )
 
+// broadcastUser tells an account's own devices, and everyone it's there for, how
+// it is now.
 func (s *Server) broadcastUser(r *http.Request, userID string) {
-	user, err := s.db.User(r.Context(), userID)
-	if err != nil {
-		return
-	}
-	s.hub.ToUsers([]string{userID}, Event{Type: "user", Data: user})
-	s.hub.ToAllExcept(userID, Event{Type: "user", Data: seenByOthers(user)})
+	s.tell(r.Context(), userID, s.hearersOf(r.Context(), userID))
 }
 
 // seenByOthers is what other people get to know about a user. When each of
 // their devices was last used is for them alone: it would give away the last
 // seen time they may have chosen to hide. So is when they removed one: others
-// only need to know that it's gone.
+// only need to know that it's gone. What shows a bot's key to be the one its
+// setup link made is for its owner alone.
 func seenByOthers(user *store.PublicUser) *store.PublicUser {
 	view := *user
+	if user.Bot != nil {
+		bot := *user.Bot
+		bot.Proof = nil
+		view.Bot = &bot
+	}
 	view.Devices = slices.Clone(user.Devices)
 	gone := int64(1)
 	for i := range view.Devices {
@@ -34,19 +37,30 @@ func seenByOthers(user *store.PublicUser) *store.PublicUser {
 	return &view
 }
 
+// seenFor is an account as one person gets to see it: all of it for themselves,
+// and for a bot's owner what shows its key to be the one its setup link made.
+func seenFor(user *store.PublicUser, viewer string) *store.PublicUser {
+	if user.ID == viewer {
+		return user
+	}
+	view := seenByOthers(user)
+	if user.Bot != nil && user.Bot.OwnerID == viewer {
+		view.Bot = user.Bot
+	}
+	return view
+}
+
 // --- Users and devices ---
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	since := queryInt(r, "since", 0)
-	users, err := s.db.Users(r.Context(), since)
+	users, err := s.db.Users(r.Context(), since, sess.UserID)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	for i, user := range users {
-		if user.ID != sess.UserID {
-			users[i] = seenByOthers(user)
-		}
+		users[i] = seenFor(user, sess.UserID)
 	}
 	// Who was last seen since, which an app that missed them going offline knows nothing of,
 	// as last seen changes nobody. All of it is in users when they all come.
@@ -66,15 +80,15 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store
 }
 
 func (s *Server) handleUser(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if !s.canSee(w, r, sess, r.PathValue("id")) {
+		return
+	}
 	user, err := s.db.User(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	if user.ID != sess.UserID {
-		user = seenByOthers(user)
-	}
-	writeJSON(w, http.StatusOK, user)
+	writeJSON(w, http.StatusOK, seenFor(user, sess.UserID))
 }
 
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *store.Session) {

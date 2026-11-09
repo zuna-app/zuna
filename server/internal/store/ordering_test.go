@@ -89,7 +89,7 @@ func TestAOneTimeKeyPackageIsHandedOutOnce(t *testing.T) {
 	errs := make(chan error, claims)
 	for range claims {
 		wg.Go(func() {
-			claimed, err := db.ClaimKeyPackages(ctx, user)
+			claimed, err := db.ClaimKeyPackages(ctx, user, user, "", false)
 			if err == nil && len(claimed) != 1 {
 				err = fmt.Errorf("%d packages for one device", len(claimed))
 			}

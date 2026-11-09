@@ -20,6 +20,10 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request, sess *stor
 }
 
 func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	// A bot is brought into chats. It never starts one, so it can't write to anyone first.
+	if refuseBot(w, sess) {
+		return
+	}
 	var body struct {
 		Kind           string `json:"kind"`
 		PeerID         string `json:"peer_id"`
@@ -199,6 +203,12 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	}
 	if len(body.Welcomes) > 0 {
 		s.hub.ToUsers(memberIDs(group), Event{Type: "welcome", Data: map[string]string{"group_id": groupID}})
+	}
+	// A private bot is there for everyone in the group from now on.
+	for _, user := range body.AddUsers {
+		if bot, err := s.db.BotRules(r.Context(), user); err == nil && bot != nil && !bot.Listed {
+			s.broadcastUser(r, user)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"seq": event.Seq, "epoch": event.Epoch})
 }
@@ -486,7 +496,15 @@ func (s *Server) broadcastMessage(r *http.Request, groupID string, message *stor
 
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 	groupID := r.PathValue("id")
-	if !s.messageLimiter.Allow(sess.UserID) {
+	// A bot has limits of its own, apart from people's: more in all, and a steady
+	// pace in each chat.
+	allowed := s.messageLimiter.Allow
+	if sess.Bot {
+		allowed = func(userID string) bool {
+			return s.botChatLimiter.Allow(userID+"/"+groupID) && s.botMessageLimiter.Allow(userID)
+		}
+	}
+	if !allowed(sess.UserID) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "You're sending messages too quickly.")
 		return
 	}
@@ -518,6 +536,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 			writeError(w, http.StatusBadRequest, "bad_request", "An attachment isn't valid.")
 			return
 		}
+	}
+	if len(body.FileIDs) > 0 && !s.botMaySendFiles(w, r, sess) {
+		return
 	}
 	message, created, err := s.db.CreateMessage(r.Context(), store.Message{
 		GroupID:      groupID,

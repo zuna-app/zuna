@@ -30,6 +30,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, sess *stor
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's a lot of reports. Please try again later.")
 		return
 	}
+	if !s.canSee(w, r, sess, body.UserID) {
+		return
+	}
 	if !s.reportTargetLimiter.Allow(sess.UserID + "/" + body.UserID) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "You've reported them already.")
 		return

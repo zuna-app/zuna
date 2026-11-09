@@ -371,7 +371,8 @@ func (s *Server) handleRing(w http.ResponseWriter, r *http.Request, sess *store.
 		return
 	}
 	groupID := r.PathValue("id")
-	members, err := s.db.GroupMemberIDs(r.Context(), groupID)
+	// A call rings people, never a bot.
+	members, err := s.db.GroupPeople(r.Context(), groupID)
 	if err != nil {
 		writeFailure(w, err)
 		return

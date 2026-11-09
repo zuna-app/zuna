@@ -108,7 +108,14 @@ func (s *Server) handleClaimKeyPackages(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many requests at once. Please wait a moment.")
 		return
 	}
-	claimed, err := s.db.ClaimKeyPackages(r.Context(), r.PathValue("id"))
+	// Which chat they're for, which says whether a bot's may be had.
+	var body struct {
+		GroupID string `json:"group_id"`
+	}
+	if r.ContentLength != 0 && !readJSON(w, r, &body) {
+		return
+	}
+	claimed, err := s.db.ClaimKeyPackages(r.Context(), r.PathValue("id"), sess.UserID, body.GroupID, isServerAdmin(sess))
 	if err != nil {
 		writeFailure(w, err)
 		return

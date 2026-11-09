@@ -60,6 +60,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send:     make(chan []byte, sendBufferSize),
 		close:    cancel,
 		bye:      make(chan struct{}),
+		quiet:    user.Bot != nil,
 	}
 	if !s.hub.add(c, user.HideLastSeen) {
 		ws.Close(websocket.StatusTryAgainLater, "too many connections")
@@ -163,7 +164,9 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) erro
 		case "typing":
 			s.relayTyping(ctx, c, frame)
 		case "active":
-			s.hub.SetActive(c, frame.Active)
+			if !c.quiet {
+				s.hub.SetActive(c, frame.Active)
+			}
 		case "voice":
 			s.updateVoice(ctx, c, frame)
 		case "ping":

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 
 	"zuna/server/internal/store"
 )
@@ -23,12 +24,21 @@ func validUserLimit(limit int) bool { return limit >= 0 && limit <= maxUserLimit
 
 func validSlowMode(seconds int) bool { return seconds >= 0 && seconds <= maxSlowMode }
 
-// handleChannels lists every channel, and who's in the voice channels.
-func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+// handleChannels lists every channel, and who's in the voice channels. A bot is
+// only listed the channels it was given, which are the ones it may join.
+func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	channels, err := s.db.Channels(r.Context())
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	if sess.Bot {
+		given, err := s.db.BotChannels(r.Context(), sess.UserID)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		channels = slices.DeleteFunc(channels, func(channel *store.Channel) bool { return !slices.Contains(given, channel.ID) })
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": s.voice.inChannels()})
 }
@@ -155,6 +165,19 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 	if !store.ValidID(id) || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
 		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a way into this channel.")
 		return
+	}
+	if sess.Bot {
+		given, err := s.botMayJoin(r.Context(), sess.UserID, id)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		if !given {
+			writeError(w, http.StatusForbidden, "bot", "This bot wasn't given that channel.")
+			return
+		}
+		// A bot gets nothing from before it came in.
+		body.WantHistory = false
 	}
 	// A channel's admins are the server's.
 	role := "member"

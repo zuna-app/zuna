@@ -180,6 +180,9 @@ func TestOnlineMeansInUse(t *testing.T) {
 	phoneSocket.setActive(true)
 	presence(true)
 	laptopSocket.setActive(true)
+	// The two are on connections of their own, so the server may get to them in either
+	// order: it has dealt with the laptop before the phone says it stopped.
+	laptopSocket.ping()
 	phoneSocket.setActive(false)
 	time.Sleep(linger / 4)
 	if !slices.Contains(online(), owner.userID) {

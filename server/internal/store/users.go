@@ -29,6 +29,8 @@ type PublicUser struct {
 	CreatedAt     int64    `json:"created_at"`
 	UpdatedAt     int64    `json:"updated_at"`
 	Devices       []Device `json:"devices"`
+	// Bot is set for an account a program runs: whose it is, and who may see and add it.
+	Bot *BotInfo `json:"bot,omitempty"`
 }
 
 // Device is one app install belonging to a user. The certificate is signed by
@@ -78,6 +80,8 @@ type NewUser struct {
 	// What the vault starts with, such as the manifest of what the account trusts,
 	// so that a new device never finds an account without one.
 	VaultItems []VaultItem
+	// A bot's signature on its identity key, by the key its setup link held.
+	BotProof []byte
 }
 
 // Credentials is the authentication material for one user.
@@ -96,11 +100,16 @@ type Credentials struct {
 }
 
 // CreateUser consumes the invite (if any) and creates the user atomically.
-// An empty inviteCode is only valid when open sign-ups are on.
+// An empty inviteCode is only valid when open sign-ups are on. An invite that
+// grants a bot makes the account of the bot waiting for it, under that bot's ID
+// and the username it was made with.
 func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (string, error) {
-	id := NewID()
+	fresh := NewID()
+	id := fresh
 	now := Now()
 	err := d.tx(ctx, func(tx handle) error {
+		id = fresh
+		bot := ""
 		role := "member"
 		if inviteCode != "" {
 			var grants string
@@ -122,6 +131,25 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 			if _, err := tx.ExecContext(ctx, `UPDATE invites SET uses = uses + 1 WHERE code = ?`, inviteCode); err != nil {
 				return err
 			}
+			if grants == "bot" {
+				var reserved string
+				err := tx.QueryRowContext(ctx, `SELECT id, username_key FROM bots WHERE invite_code = ? AND set_up_at IS NULL AND deleted_at IS NULL`,
+					inviteCode).Scan(&bot, &reserved)
+				if errors.Is(err, sql.ErrNoRows) || (err == nil && reserved != strings.ToLower(u.Username)) {
+					return ErrNotFound
+				}
+				if err != nil {
+					return err
+				}
+				// A bot is never one of the server's admins.
+				id, role = bot, "member"
+			}
+		}
+		// A waiting bot holds its username until it signs up with it.
+		if taken, err := usernameTaken(ctx, tx, strings.ToLower(u.Username), bot); err != nil {
+			return err
+		} else if taken {
+			return ErrConflict
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO users(
 			id, username, username_key, role, kdf_salt, kdf_memory, kdf_iterations, kdf_parallelism,
@@ -140,6 +168,11 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 		}
 		if err := d.insertSlots(ctx, tx, id, u.Slots); err != nil {
 			return err
+		}
+		if bot != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE bots SET set_up_at = ?, invite_code = NULL, setup_proof = ? WHERE id = ?`, now, u.BotProof, bot); err != nil {
+				return err
+			}
 		}
 		return putItems(ctx, tx, id, u.VaultItems)
 	})
@@ -162,8 +195,11 @@ func (d *DB) CredentialsByUsername(ctx context.Context, username string) (*Crede
 	return &c, err
 }
 
-const publicUserColumns = `id, username, role, identity_key, key_generation, identity_head, hpke_key, hpke_key_sig, profile, profile_sig,
-	last_seen_at, hide_last_seen, banned_at, deleted_at, created_at, updated_at`
+// publicUserColumns are read from publicUsers: an account, and its bot's row if it's one.
+const publicUserColumns = `u.id, u.username, u.role, u.identity_key, u.key_generation, u.identity_head, u.hpke_key, u.hpke_key_sig, u.profile, u.profile_sig,
+	u.last_seen_at, u.hide_last_seen, u.banned_at, u.deleted_at, u.created_at, u.updated_at, b.owner_id, b.listed, b.add_policy, b.setup_proof`
+
+const publicUsers = `users u LEFT JOIN bots b ON b.id = u.id`
 
 const deviceColumns = `id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at, seal_key, enroll_proof, seal_generation, seal_proof`
 
@@ -177,11 +213,16 @@ func scanDevice(row interface{ Scan(...any) error }) (Device, error) {
 
 func scanPublicUser(row interface{ Scan(...any) error }) (*PublicUser, error) {
 	var u PublicUser
-	var lastSeen, banned, deleted sql.NullInt64
+	var lastSeen, banned, deleted, listed sql.NullInt64
+	var owner, add sql.NullString
+	var proof []byte
 	var hide int
 	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.IdentityKey, &u.KeyGeneration, &u.IdentityHead, &u.HpkeKey, &u.HpkeKeySig, &u.Profile, &u.ProfileSig,
-		&lastSeen, &hide, &banned, &deleted, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&lastSeen, &hide, &banned, &deleted, &u.CreatedAt, &u.UpdatedAt, &owner, &listed, &add, &proof); err != nil {
 		return nil, err
+	}
+	if owner.Valid {
+		u.Bot = &BotInfo{OwnerID: owner.String, Listed: listed.Int64 != 0, Add: add.String, Proof: proof}
 	}
 	u.HideLastSeen = hide != 0
 	if !u.HideLastSeen {
@@ -193,10 +234,14 @@ func scanPublicUser(row interface{ Scan(...any) error }) (*PublicUser, error) {
 	return &u, nil
 }
 
-// Users returns users changed after `since` (Unix ms), with their active devices.
-func (d *DB) Users(ctx context.Context, since int64) ([]*PublicUser, error) {
+// Users returns the users there for `viewer` that changed after `since` (Unix ms),
+// with their active devices. A private bot is only there for its owner and for
+// whoever is in a chat with it.
+func (d *DB) Users(ctx context.Context, since int64, viewer string) ([]*PublicUser, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT `+publicUserColumns+` FROM users WHERE updated_at > ? ORDER BY username_key`, since)
+		`SELECT `+publicUserColumns+` FROM `+publicUsers+` WHERE u.updated_at > ?1
+			AND (b.id IS NULL OR b.listed = 1 OR b.owner_id = ?2 OR b.id = ?2 OR `+sharesChat+`?2))
+			ORDER BY u.username_key`, since, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +291,7 @@ func (d *DB) UserRole(ctx context.Context, id string) (string, bool, error) {
 }
 
 func (d *DB) User(ctx context.Context, id string) (*PublicUser, error) {
-	u, err := scanPublicUser(d.sql.QueryRowContext(ctx, `SELECT `+publicUserColumns+` FROM users WHERE id = ?`, id))
+	u, err := scanPublicUser(d.sql.QueryRowContext(ctx, `SELECT `+publicUserColumns+` FROM `+publicUsers+` WHERE u.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -268,9 +313,11 @@ func (d *DB) User(ctx context.Context, id string) (*PublicUser, error) {
 	return u, rows.Err()
 }
 
+// UserCount is how many people a server has. Bots don't count.
 func (d *DB) UserCount(ctx context.Context) (int, error) {
 	var n int
-	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE banned_at IS NULL AND deleted_at IS NULL`).Scan(&n)
+	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM users u WHERE u.banned_at IS NULL AND u.deleted_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM bots b WHERE b.id = u.id)`).Scan(&n)
 	return n, err
 }
 
@@ -517,6 +564,8 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			`DELETE FROM group_members WHERE user_id = ?`,
 			`DELETE FROM channel_sends WHERE user_id = ?`,
 			`DELETE FROM reports WHERE user_id = ?`,
+			// A bot's account going is the bot going.
+			`DELETE FROM bot_channels WHERE bot_id = ?`,
 		} {
 			if _, err := tx.ExecContext(ctx, statement, userID); err != nil {
 				return err
@@ -529,6 +578,9 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM sign_in_attempts WHERE account = ?`, name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE bots SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, userID); err != nil {
 			return err
 		}
 		if avatar.Valid {

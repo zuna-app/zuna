@@ -25,7 +25,9 @@ func (s *Server) handleInviteInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"setup":  invite.GrantsRole == "owner",
+		"setup": invite.GrantsRole == "owner",
+		// A bot's setup link, which only the bot it was made for signs up with.
+		"bot":    invite.GrantsRole == "bot",
 		"server": info,
 	})
 }
@@ -33,6 +35,10 @@ func (s *Server) handleInviteInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) canManageInvites(r *http.Request, sess *store.Session) (bool, error) {
 	if isServerAdmin(sess) {
 		return true, nil
+	}
+	// A bot never invites anyone.
+	if sess.Bot {
+		return false, nil
 	}
 	allowed, err := s.db.Setting(r.Context(), "allow_member_invites", "false")
 	return allowed == "true", err

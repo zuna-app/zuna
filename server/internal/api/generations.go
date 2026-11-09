@@ -341,7 +341,10 @@ func (s *Server) handleCertificate(w http.ResponseWriter, r *http.Request, sess 
 	writeOK(w)
 }
 
-func (s *Server) handleIdentityLinks(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleIdentityLinks(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if !s.canSee(w, r, sess, r.PathValue("id")) {
+		return
+	}
 	links, err := s.db.IdentityLinks(r.Context(), r.PathValue("id"), queryInt(r, "after", 0), maxLinksRead)
 	if err != nil {
 		writeFailure(w, err)

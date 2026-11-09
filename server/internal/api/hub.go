@@ -58,6 +58,9 @@ type conn struct {
 	// window in front with input in the last 30 s, the phone app on screen.
 	// Guarded by the hub's lock.
 	active bool
+	// quiet is a bot's connection: nobody is using it, so it never shows as online
+	// and has no last seen.
+	quiet bool
 }
 
 // Hub tracks live connections and fans events out to them.

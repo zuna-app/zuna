@@ -47,10 +47,11 @@ func (d *DB) ValidInvite(ctx context.Context, code string) (*Invite, error) {
 	return &inv, nil
 }
 
-// Invites lists the invites that can still be used. With createdBy set, only that person's.
+// Invites lists the invites people can still sign up with. With createdBy set, only that
+// person's. The one that claims the server, and those bots sign up with, aren't among them.
 func (d *DB) Invites(ctx context.Context, createdBy string) ([]Invite, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT code, created_by, grants_role, max_uses, uses, expires_at, created_at
-		FROM invites WHERE revoked_at IS NULL AND grants_role != 'owner'
+		FROM invites WHERE revoked_at IS NULL AND grants_role NOT IN ('owner', 'bot')
 		AND (expires_at IS NULL OR expires_at > ?1) AND (max_uses = 0 OR uses < max_uses)
 		AND (?2 = '' OR created_by = ?2)
 		ORDER BY created_at DESC`, Now(), createdBy)
@@ -75,7 +76,7 @@ func (d *DB) Invites(ctx context.Context, createdBy string) ([]Invite, error) {
 
 // RevokeInvite stops an invite working. With createdBy set, only if it's theirs.
 func (d *DB) RevokeInvite(ctx context.Context, code, createdBy string) error {
-	res, err := d.sql.ExecContext(ctx, `UPDATE invites SET revoked_at = ?1 WHERE code = ?2 AND (?3 = '' OR created_by = ?3)`, Now(), code, createdBy)
+	res, err := d.sql.ExecContext(ctx, `UPDATE invites SET revoked_at = ?1 WHERE code = ?2 AND grants_role != 'bot' AND (?3 = '' OR created_by = ?3)`, Now(), code, createdBy)
 	if err != nil {
 		return err
 	}

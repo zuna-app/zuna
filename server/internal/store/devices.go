@@ -132,11 +132,15 @@ type ClaimedKeyPackage struct {
 }
 
 // ClaimKeyPackages returns one key package per active device of the user.
-// One-time packages are consumed; the last-resort package is reused.
-func (d *DB) ClaimKeyPackages(ctx context.Context, userID string) ([]ClaimedKeyPackage, error) {
+// One-time packages are consumed; the last-resort package is reused. A bot's are
+// only for whoever may bring it into the chat they're for, which groupID names.
+func (d *DB) ClaimKeyPackages(ctx context.Context, userID, claimer, groupID string, serverAdmin bool) ([]ClaimedKeyPackage, error) {
 	var claimed []ClaimedKeyPackage
 	err := d.tx(ctx, func(tx handle) error {
 		claimed = []ClaimedKeyPackage{}
+		if err := mayClaim(ctx, tx, userID, claimer, groupID, serverAdmin); err != nil {
+			return err
+		}
 		rows, err := tx.QueryContext(ctx, `SELECT id FROM devices WHERE user_id = ? AND revoked_at IS NULL`, userID)
 		if err != nil {
 			return err

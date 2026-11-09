@@ -112,19 +112,22 @@ type Server struct {
 	emotes  *emotes.Service
 	callers *clientip.Resolver
 
-	authLimiter     *ratelimit.Keyed
-	messageLimiter  *ratelimit.Keyed
-	writeLimiter    *ratelimit.Keyed
-	readLimiter     *ratelimit.Keyed
-	emoteLimiter    *ratelimit.Keyed
-	socketLimiter   *ratelimit.Keyed
-	publicLimiter   *ratelimit.Keyed
-	pageLimiter     *ratelimit.Keyed
-	claimLimiter    *ratelimit.Keyed
-	targetLimiter   *ratelimit.Keyed
-	rotateLimiter   *ratelimit.Keyed
-	signInFailures  *ratelimit.Backoff
-	accountAttempts *ratelimit.Backoff
+	authLimiter    *ratelimit.Keyed
+	messageLimiter *ratelimit.Keyed
+	// What a bot may send: in all, and in each chat.
+	botMessageLimiter *ratelimit.Keyed
+	botChatLimiter    *ratelimit.Keyed
+	writeLimiter      *ratelimit.Keyed
+	readLimiter       *ratelimit.Keyed
+	emoteLimiter      *ratelimit.Keyed
+	socketLimiter     *ratelimit.Keyed
+	publicLimiter     *ratelimit.Keyed
+	pageLimiter       *ratelimit.Keyed
+	claimLimiter      *ratelimit.Keyed
+	targetLimiter     *ratelimit.Keyed
+	rotateLimiter     *ratelimit.Keyed
+	signInFailures    *ratelimit.Backoff
+	accountAttempts   *ratelimit.Backoff
 
 	// How many reports each person sends, and whom they've reported today, kept
 	// in memory alone.
@@ -182,6 +185,10 @@ func New(cfg Config, db *store.DB) *Server {
 		callers:        callers,
 		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
+		// As Telegram holds its bots to: thirty a second in all, and one a second in a chat,
+		// with room for a burst of answers.
+		botMessageLimiter: ratelimit.NewKeyed(rate.Limit(30), 90),
+		botChatLimiter:    ratelimit.NewKeyed(rate.Limit(1), 20),
 		// Far beyond what using the app needs, even while uploading a large file.
 		writeLimiter: ratelimit.NewKeyed(rate.Limit(50), 300),
 		// Reads too, some of which load every user and device, so that one person
@@ -435,6 +442,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/users/{id}/ban", s.admin(s.handleBan))
 	mux.HandleFunc("POST /api/admin/users/{id}/unban", s.admin(s.handleUnban))
 	mux.HandleFunc("GET /api/admin/bans", s.admin(s.handleBans))
+
+	// Bots: accounts a person here makes and owns, which a program of theirs runs
+	mux.HandleFunc("GET /api/bots", s.withDevice(s.handleBots))
+	mux.HandleFunc("POST /api/bots", s.withDevice(s.proven(s.handleCreateBot)))
+	mux.HandleFunc("PATCH /api/bots/{id}", s.withDevice(s.proven(s.handleUpdateBot)))
+	mux.HandleFunc("POST /api/bots/{id}/setup", s.withDevice(s.proven(s.handleBotSetup)))
+	mux.HandleFunc("DELETE /api/bots/{id}", s.withDevice(s.proven(s.handleDeleteBot)))
+	mux.HandleFunc("PUT /api/bots/{id}/channels", s.admin(s.handleBotChannels))
 
 	// Reporting someone to the server's admins
 	mux.HandleFunc("POST /api/reports", s.withDevice(s.handleReport))

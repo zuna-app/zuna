@@ -73,6 +73,14 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		}
 		now := Now()
 		var visibleFrom int64 = seq
+		senderAdmin := false
+		if len(c.AddUsers) > 0 {
+			var serverRole string
+			if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, c.SenderUser).Scan(&serverRole); err != nil {
+				return err
+			}
+			senderAdmin = serverRole == "owner" || serverRole == "admin"
+		}
 		for _, user := range c.AddUsers {
 			var banned sql.NullInt64
 			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, user).Scan(&banned); err != nil {
@@ -84,11 +92,29 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 			if banned.Valid {
 				return ErrForbidden
 			}
+			// A bot comes into a group only through someone its owner lets add it.
+			bot, err := botRules(ctx, tx, user)
+			if err != nil {
+				return err
+			}
+			if bot != nil {
+				if !bot.MayBeAddedBy(c.SenderUser, senderAdmin) {
+					return ErrForbidden
+				}
+				// Everyone in the group lists it from now on, a private one too.
+				if _, err := tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, now, user); err != nil {
+					return err
+				}
+			}
 			// New members can only see messages sent after they joined, unless
 			// an admin handed them the older epoch keys with a history grant.
+			// A bot never gets anything from before.
 			from := visibleFrom
 			for _, grant := range c.HistoryGrants {
 				if grant.UserID == user {
+					if bot != nil {
+						return ErrForbidden
+					}
 					from = 0
 				}
 			}

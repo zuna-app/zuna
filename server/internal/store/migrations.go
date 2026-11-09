@@ -474,4 +474,34 @@ CREATE TABLE group_infos (
 );
 INSERT INTO group_infos(group_id, info) SELECT id, group_info FROM groups WHERE group_info IS NOT NULL;
 ALTER TABLE groups DROP COLUMN group_info;
+`, `
+-- Bots: accounts someone here makes and owns, which a program of theirs runs. One is
+-- made waiting, with the username it will take and a one-use invite that grants it,
+-- and its ID becomes its account's when that program signs up. A private one is
+-- listed only for its owner and for whoever is in a chat with it. setup_proof is the
+-- bot's signature on its identity key, by a key only its setup link held, which its
+-- owner's app checks.
+CREATE TABLE bots (
+	id TEXT PRIMARY KEY,
+	owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	username TEXT NOT NULL,
+	username_key TEXT NOT NULL,
+	listed INTEGER NOT NULL DEFAULT 0,
+	add_policy TEXT NOT NULL DEFAULT 'owner',
+	files INTEGER NOT NULL DEFAULT 1,
+	invite_code TEXT,
+	setup_proof BLOB,
+	created_at INTEGER NOT NULL,
+	set_up_at INTEGER,
+	deleted_at INTEGER
+);
+CREATE INDEX bots_owner ON bots(owner_id);
+-- A waiting bot holds its username until it signs up with it.
+CREATE UNIQUE INDEX bots_waiting_username ON bots(username_key) WHERE set_up_at IS NULL;
+-- The channels a server admin gave a bot, which are the only ones it may join.
+CREATE TABLE bot_channels (
+	bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+	channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+	PRIMARY KEY (bot_id, channel_id)
+);
 `}

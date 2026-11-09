@@ -20,6 +20,8 @@ type Session struct {
 	DeviceID string
 	Username string
 	Role     string
+	// Bot says the account is one a program runs, which is held to a bot's rules.
+	Bot bool
 }
 
 const (
@@ -37,9 +39,11 @@ func (d *DB) SessionByToken(ctx context.Context, tokenHash []byte) (*Session, er
 	var s Session
 	var device sql.NullString
 	var createdAt, lastUsedAt int64
-	err := d.sql.QueryRowContext(ctx, `SELECT s.user_id, s.device_id, u.username, u.role, s.created_at, s.last_used_at
-		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND u.banned_at IS NULL`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role, &createdAt, &lastUsedAt)
+	var bot int
+	err := d.sql.QueryRowContext(ctx, `SELECT s.user_id, s.device_id, u.username, u.role, s.created_at, s.last_used_at,
+		CASE WHEN b.id IS NULL THEN 0 ELSE 1 END
+		FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN bots b ON b.id = u.id
+		WHERE s.token_hash = ? AND u.banned_at IS NULL`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role, &createdAt, &lastUsedAt, &bot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -56,6 +60,7 @@ func (d *DB) SessionByToken(ctx context.Context, tokenHash []byte) (*Session, er
 		}
 	}
 	s.DeviceID = device.String
+	s.Bot = bot != 0
 	return &s, nil
 }
 

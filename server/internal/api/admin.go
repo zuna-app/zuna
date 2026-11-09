@@ -28,10 +28,14 @@ type ServerInfo struct {
 	Registration       string `json:"registration"`
 	MaxUploadMB        int    `json:"max_upload_mb"`
 	AllowMemberInvites bool   `json:"allow_member_invites"`
-	RetentionDays      int    `json:"retention_days"`
-	EmoteSetID         string `json:"emote_set_id"`
-	EmoteSetName       string `json:"emote_set_name"`
-	UserCount          int    `json:"user_count"`
+	// AllowMemberBots lets everyone make private bots, which admins always may.
+	AllowMemberBots bool `json:"allow_member_bots"`
+	// MaxBots is how many bots one person may have.
+	MaxBots       int    `json:"max_bots"`
+	RetentionDays int    `json:"retention_days"`
+	EmoteSetID    string `json:"emote_set_id"`
+	EmoteSetName  string `json:"emote_set_name"`
+	UserCount     int    `json:"user_count"`
 	// Voice says this server has a media server for its voice channels, and without
 	// one they can't be joined.
 	Voice int `json:"voice,omitempty"`
@@ -94,6 +98,8 @@ func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	info.MaxUploadMB = number("max_upload_mb", defaultUploadMB)
 	info.RetentionDays = number("retention_days", 0)
 	info.AllowMemberInvites = setting("allow_member_invites", "false") == "true"
+	info.AllowMemberBots = setting("allow_member_bots", "false") == "true"
+	info.MaxBots = number("max_bots", defaultMaxBots)
 	info.EmoteSetID = setting("emote_set_id", emotes.DefaultSet)
 	info.EmoteSetName = setting("emote_set_name", "")
 	if info.UserCount, err = s.db.UserCount(ctx); err != nil {
@@ -223,6 +229,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 		MaxUploadMB        *int    `json:"max_upload_mb"`
 		RetentionDays      *int    `json:"retention_days"`
 		AllowMemberInvites *bool   `json:"allow_member_invites"`
+		AllowMemberBots    *bool   `json:"allow_member_bots"`
+		MaxBots            *int    `json:"max_bots"`
 		// All of them at once, so what's kept always makes sense together.
 		ScreenShare *ScreenRules `json:"screen_share"`
 	}
@@ -296,6 +304,16 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 	if body.AllowMemberInvites != nil {
 		changes["allow_member_invites"] = strconv.FormatBool(*body.AllowMemberInvites)
 	}
+	if body.AllowMemberBots != nil {
+		changes["allow_member_bots"] = strconv.FormatBool(*body.AllowMemberBots)
+	}
+	if body.MaxBots != nil {
+		if !validMaxBots(*body.MaxBots) {
+			writeError(w, http.StatusBadRequest, "bad_request", "One person can have up to 1,000 bots.")
+			return
+		}
+		changes["max_bots"] = formatMaxBots(*body.MaxBots)
+	}
 	if err := s.db.SetSettings(ctx, changes); err != nil {
 		writeFailure(w, err)
 		return
@@ -354,8 +372,14 @@ func (s *Server) handleSetEmoteSet(w http.ResponseWriter, r *http.Request, _ *st
 }
 
 // canModerate reports whether the actor may act on the target. The owner can
-// act on anyone; admins only on regular members.
+// act on anyone; admins only on regular members, which every bot is. A private bot
+// the actor shares no chat with doesn't exist for them.
 func (s *Server) canModerate(r *http.Request, sess *store.Session, targetID string) (bool, error) {
+	if seen, err := s.db.CanSee(r.Context(), sess.UserID, targetID); err != nil {
+		return false, err
+	} else if !seen {
+		return false, store.ErrNotFound
+	}
 	role, deleted, err := s.db.UserRole(r.Context(), targetID)
 	if err != nil {
 		return false, err
@@ -385,6 +409,13 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 	}
 	if !allowed || sess.Role != "owner" {
 		writeError(w, http.StatusForbidden, "forbidden", "Only the server owner can change roles.")
+		return
+	}
+	if bot, err := s.db.BotRules(r.Context(), targetID); err != nil {
+		writeFailure(w, err)
+		return
+	} else if bot != nil {
+		writeError(w, http.StatusForbidden, "bot", "A bot can't be one of the server's admins.")
 		return
 	}
 	if err := s.db.SetRole(r.Context(), targetID, body.Role); err != nil {
@@ -419,11 +450,18 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		writeFailure(w, err)
 		return
 	}
+	// Their bots go with them, for good.
+	if err := s.deleteBotsOf(r, targetID); err != nil {
+		writeFailure(w, err)
+		return
+	}
 	groups, err := s.db.UserGroupIDs(r.Context(), targetID)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
+	// Who hears of it, while a private bot is still in the chats that say.
+	to := s.hearersOf(r.Context(), targetID)
 	// Said before what taking them out of their groups sends them, which a device
 	// still busy with those might not get to the end of before the close.
 	s.hub.ToUsers([]string{targetID}, Event{Type: "force_logout", Data: map[string]string{"reason": "banned"}})
@@ -443,7 +481,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 	for _, device := range target.Devices {
 		s.notified.forget(device.ID)
 	}
-	s.broadcastUser(r, targetID)
+	s.tell(r.Context(), targetID, to)
 	writeOK(w)
 }
 

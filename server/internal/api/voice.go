@@ -321,6 +321,10 @@ func (s *Server) handleVoiceToken(call bool) memberHandler {
 			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
 			return
 		}
+		// Bots stay out of voice channels and calls.
+		if refuseBot(w, sess) {
+			return
+		}
 		if !s.voiceLimiter.Allow(sess.UserID) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
 			return
@@ -374,11 +378,12 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	}
 	var ring []string
 	if call && frame.Voice.Ring {
-		members, err := s.db.GroupMemberIDs(ctx, frame.GroupID)
+		// A call rings people, never a bot.
+		people, err := s.db.GroupPeople(ctx, frame.GroupID)
 		if err != nil {
 			return
 		}
-		ring = members
+		ring = people
 	}
 
 	s.voice.mu.Lock()
