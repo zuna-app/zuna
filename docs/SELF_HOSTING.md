@@ -260,6 +260,14 @@ By default a server uses 7TV's global emotes. To change the set, find one on [7t
 
 Your server needs outbound HTTPS access to `7tv.io` and `cdn.7tv.app`. If it can't reach them, chat works normally without emotes.
 
+## Bots
+
+People on your server can make bots: accounts a program runs, which answer in the chats they're added to. Under **Server settings → Bots** you choose whether members may make private ones, which is off by default, and how many each person may have, which is 5. Admins always can, and only admins make bots everyone sees. [BOTS.md](BOTS.md) covers making one, running it with `zuna-bot` and writing its code.
+
+- **A bot isn't part of the server.** `zuna-bot` is a program of its own, which signs in as any app does, so it runs anywhere that reaches your server, and the server needs nothing set for it.
+- **Whichever machine runs a bot can read that bot's chats.** That includes this machine, if you run one here. The server still can't read anything, but the bot beside it can, and so can whoever gets into the machine. Say so to the people on your server before you run one for them, and keep its data folder to the account that runs it.
+- **A bot's data folder is the bot.** Back it up as you would a key, or keep its `recovery-key.txt` somewhere else. If it's lost, delete the bot in Settings and make it again.
+
 ## Backups
 
 Everything lives in the data folder:

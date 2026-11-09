@@ -14,6 +14,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 - **It does see who talks to whom, and when.** Zuna hides content, not metadata. The table below lists what the server sees.
 - **Your password opens your history.** It never leaves your device, but anyone who learns it can read everything you can.
 - **The emoji check proves who you're talking to.** Until you compare emoji with someone, a malicious server could have given you a fake key for them from the start.
+- **A bot reads the chats it's in.** It's a member like any other, run by a program on a machine its owner chose, and it shows a badge wherever its name does.
 - **The installed apps are safer than the web app,** whose code comes from its host on every visit.
 
 ## What the server can and can't see
@@ -37,6 +38,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
 | **Reports** | Whom someone reported and why, and who sends a report as it arrives, which it doesn't keep | What was said |
+| **Bots** | That an account is a bot, whose it is, whether it's listed or private, who may add it, whether it may send files, the channels it was given, which chats it's in and when it's active, and that a message is one nobody is shown, as a button's press is | Its name, picture, description and commands, what it reads and what it sends, and which button was pressed |
 
 ## What you can do
 
@@ -88,6 +90,14 @@ A server can go by its IP address instead of a domain. No certificate authority 
 ### Channels
 
 Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What's said in them is encrypted as in any group. A newcomer gets a channel's history from a member's device, and a member with bad intentions could give them a wrong key for old messages, which then wouldn't open. Nothing sent from then on is at risk.
+
+### Bots
+
+A bot is an account with keys of its own, which a program runs on a machine its owner chose. It's a member of the chats it's in as a person is, so it reads everything said there from when it was added, on that machine. It gets nothing from before, even in a group that shares its history. A bot shows a badge wherever its name does, the app asks each time before one is added to a group, and the line in the chat says a bot was added. Nobody is in a chat with a bot without seeing it there.
+
+Its owner sets it up with a link that works once, for an hour. The bot's keys are made on its own machine, so not even its owner holds them, and the link carries a key the server never sees, which the bot signs its own with. The owner's app checks that, so it knows it's talking to the bot it set up, with nothing to compare. To everyone else a bot is like anyone they haven't compared emoji with: the first key they see for it is the one they keep, and they're warned if it changes.
+
+A private bot is hidden from everyone but its owner and the people in a chat with it, the server's other admins included. That's the server's doing, so it hides a bot from people, not from the server. Who may add a bot to a group is the owner's choice, which the server keeps and the bot keeps too: added by someone its owner didn't allow, it leaves. A bot can't start a chat, write to someone first, join voice or be one of the server's admins. [BOTS.md](docs/BOTS.md) says how to make and run one.
 
 ### Voice, video and calls
 
@@ -147,6 +157,7 @@ These need the server against you: its operator, someone who broke into it, or s
 - **With your old keys, it can fool a contact.** Someone with your old identity key and the server's help can show a contact a false change of your keys, if the contact hasn't seen the real one. The first a contact sees stays, a second gives a warning, and comparing emoji shows which is real.
 - **Someone removed from the server keeps the community key.** With a copy of the server's data, they could still read profiles and channel names. A server could also put someone banned back into its channels, where they'd get what's said from then on.
 - **It can see some emotes being fetched.** The apps fetch a server's whole emote set ahead, so showing one usually asks for nothing. An emote from outside the set, or any emote when nothing was fetched ahead, as when you've asked to save data or after an iPhone or iPad cleared space, is fetched when a message shows it. That tells the server which one, from which address, and roughly when.
+- **It can put a listed bot in any channel.** Which channels a bot was given is the server's to say. The bot would read what's said there, as everyone on the server may, and show among its members. A private bot stays out of channels whatever the server says, and no bot stays in a group it was added to by someone its owner didn't allow.
 - **It can take people out of a group,** as it decides who's listed in it, though everyone sees them go. Once it has taken out every one of a group's admins, whoever it makes the group's admin next is believed.
 - **The time shown comes from the server.** The sender's device signs its own time too, and the app flags a message when the two are far apart.
 - **A server you've left can still wake your iPhone for a while.** It keeps the push relay's handle for your phone, which works for up to 60 days after the app last renewed it. Its notifications say only that a message arrived, without a sound, and a call it rings ends at once, but the app can't hide them until Apple lets it filter notifications.
@@ -156,6 +167,8 @@ These need the server against you: its operator, someone who broke into it, or s
 
 - **Your password or recovery key opens your history.** Anyone who has either can read everything you had access to, by signing in or from a copy of the server's data. That's the cost of history on new devices.
 - **New keys only help once a stolen secret is changed.** Until you change a stolen password or recovery key, whoever has it can open your new keys too. What they already read, they keep.
+- **Whoever runs a bot reads what it reads.** A bot's chats are open on the machine that runs it: to its code, to whoever controls that machine, and to anyone who can read its data folder, where its keys are files. A bot running on the chat server's own machine puts its chats within that machine's reach, though nothing else. Its badge is there so you can decide what to say in front of it.
+- **A button's press goes to everyone in the chat.** It's a message like any other, which the apps show nowhere. Someone with a modified app could see who pressed which button under a bot's message.
 - **A member can hold up a group for a while.** The server can't check a change to a group's keys, so a member can send one nobody can apply. The apps undo it on their own, and make whoever sent it wait longer each time, but the same undoing lets a member make others wait. An admin can remove someone doing either, and a plain member can't undo an admin's change.
 - **A server's limits on a shared screen's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so nobody can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, though a modified app could reuse an earlier share's permission for the few minutes it lasts.
 - **A server without a domain is only as trusted as the first link to it.** The app trusts the key that link names. Someone who sends you a link to that address with a key of their own, and can get between you and it, could pose as the server, seeing what the server sees, though nothing it can't read. Once you're on the server, a link can't change its key.

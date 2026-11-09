@@ -121,6 +121,7 @@ npm test
 - [Hosting the web app](docs/WEB.md)
 - [Running Zuna on Linux without Docker](docs/LINUX.md)
 - [The push relay for phone notifications](docs/PUSH_RELAY.md)
+- [Bots: making, running and writing one](docs/BOTS.md)
 - [Security model](SECURITY.md)
 - [Architecture and protocol](docs/ARCHITECTURE.md)
 - [The iOS app: plan and decisions](docs/IOS_PLAN.md), and [how it's tested](docs/IOS_TESTING.md)
