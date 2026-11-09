@@ -1,0 +1,655 @@
+// ServerSession, in part (see base.ts): sending messages, and the files they carry.
+
+import * as wasm from "@zuna/crypto";
+import { ApiError } from "../api";
+import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
+import { equalBytes, fromBase64, toBase64, utf8 } from "../encoding";
+import { linkInText } from "../links";
+import { withoutMetadata, type ByteSource } from "../metadata";
+import type { Attachment, EarlierMessage, EmoteRef, MessageBody, MessageView } from "../types";
+import {
+  CHUNK_SIZE,
+  PREVIEW_WAIT_MS,
+  SEND_NOW_WAIT_MS,
+  UPLOAD_CONCURRENCY,
+  EPOCH_MAX_AGE_MS,
+  TYPING_THROTTLE_MS,
+  MAX_COMMIT_ATTEMPTS,
+  type CachedGroup,
+  type OutboxEntry,
+  MAX_SLOW_MODE,
+  eachLimited,
+  assertSendable,
+} from "./shared";
+import { SessionConversations } from "./conversations";
+
+export abstract class SessionSending extends SessionConversations {
+  // --- Sending ---
+
+  protected async groupIdForKey(key: string): Promise<string> {
+    if (key.startsWith("group:")) {
+      const groupId = key.slice(6);
+      return groupId;
+    }
+    const peerId = key.slice(5);
+    const existing = this.dmWith(peerId);
+    if (existing && existing.epoch > 0 && !existing.removedAt) return existing.id;
+    const created = await this.api.createDm(peerId);
+    // Whoever this message is for is who the person chose, whatever else the server says.
+    const people = new Set([this.account.userId, peerId]);
+    const listed = new Set(created.group.members.map((member) => member.user_id));
+    // A conversation this device already knows stays what it was, so naming one for someone else changes nothing.
+    const held = this.groups.get(created.group.id);
+    const elsewhere = !!held && (held.kind !== "dm" || held.peerId !== peerId);
+    if (created.group.kind !== "dm" || elsewhere || listed.size !== people.size || [...people].some((id) => !listed.has(id))) {
+      this.warnOnce(`dm-reply/${created.group.id}`, "The server answered with the wrong people for a new direct message, so nothing was sent.");
+      throw new Error("This message wasn't sent: the server's answer about this conversation doesn't hold together.");
+    }
+    this.applyGroup(created.group);
+    return created.group.id;
+  }
+
+  protected ensureLocalEcho(groupKey: string, id: string, body: MessageBody): MessageView {
+    const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
+    const now = Date.now();
+    this.db.run(
+      `INSERT OR IGNORE INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, status, body)
+       VALUES(?,?,NULL,0,?,?,0,?,?,?)`,
+      [groupId, id, this.account.userId, this.account.deviceId, now, "sending", this.sealJson("message", `${groupId}/${id}`, body)],
+    );
+    const view = this.toMessageView(this.messageRow(groupId, id)!);
+    this.emit({ type: "message", serverId: this.serverId, message: view, isNew: true });
+    // The chat list shows it as it's sent, not once the server has it.
+    this.emitConversations();
+    return view;
+  }
+
+  /** What a message says, to forward it: its text, emotes, files and preview, and whose it was. */
+  forwardable(groupId: string, id: string): MessageBody & { senderId: string } {
+    const row = this.messageRow(groupId, id);
+    const body = row ? this.storedBody(row) : null;
+    if (!row?.body || !body || row.status !== "sent" || row.deleted_at !== null) throw new Error("That message can't be forwarded.");
+    return {
+      text: body.text,
+      emotes: body.emotes,
+      attachments: body.attachments,
+      preview: body.preview,
+      forwarded: body.forwarded,
+      location: body.location,
+      senderId: row.sender_user,
+    };
+  }
+
+  /**
+   * Forwards a message to another conversation on this server, saying whose
+   * it was. Its files aren't uploaded again: the copy shares them.
+   */
+  forwardMessage(groupId: string, id: string, toKey: string): MessageView {
+    const { senderId, ...original } = this.forwardable(groupId, id);
+    const body: MessageBody = { ...original, forwarded: original.forwarded ?? { userId: senderId } };
+    const newId = randomId();
+    const view = this.ensureLocalEcho(toKey, newId, body);
+    this.enqueue(toKey, { kind: "message", id: newId, body, fileIds: body.attachments?.map((item) => item.fileId) });
+    return view;
+  }
+
+  /**
+   * Sends a message. It appears immediately and survives restarts until delivered.
+   * With `previewUrl`, a link whose preview isn't made yet, it waits a moment for
+   * that preview, so a link pasted and sent at once still gets one.
+   */
+  sendMessage(groupKey: string, body: MessageBody, options: { previewUrl?: string } = {}): MessageView {
+    assertSendable(body);
+    const id = randomId();
+    const view = this.ensureLocalEcho(groupKey, id, body);
+    this.enqueue(groupKey, { kind: "message", id, body, previewUrl: this.pendingPreview(body, options.previewUrl) });
+    return view;
+  }
+
+  protected pendingPreview(body: MessageBody, url: string | undefined): string | undefined {
+    return url && !body.preview && this.linkPreview && body.text?.includes(url) ? url : undefined;
+  }
+
+  /** Adds a preview that's ready within a few seconds to a message about to go, and shows it here too. */
+  protected async withPreview(groupKey: string, id: string, body: MessageBody, url: string): Promise<MessageBody> {
+    const made = this.linkPreview?.(url).catch(() => null) ?? Promise.resolve(null);
+    const preview = await Promise.race([made, new Promise<null>((resolve) => setTimeout(() => resolve(null), PREVIEW_WAIT_MS))]);
+    if (!preview || !body.text?.includes(preview.url)) return body;
+    const withPreview: MessageBody = { ...body, preview };
+    const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
+    this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, withPreview), groupId, id]);
+    const row = this.messageRow(groupId, id);
+    if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
+    return withPreview;
+  }
+
+  protected enqueue(groupKey: string, entry: OutboxEntry): void {
+    this.db.run("INSERT OR REPLACE INTO outbox(id, group_key, kind, payload, created_at) VALUES(?,?,?,?,?)", [
+      entry.id,
+      groupKey,
+      entry.kind,
+      this.sealJson("outbox", entry.id, entry),
+      Date.now(),
+    ]);
+    void this.flushOutbox();
+  }
+
+  flushOutbox(): Promise<void> {
+    if (this.flushing) return this.flushing;
+    this.flushing = this.runOutbox().finally(() => {
+      this.flushing = null;
+    });
+    return this.flushing;
+  }
+
+  protected async runOutbox(): Promise<void> {
+    clearTimeout(this.flushRetry);
+    for (;;) {
+      // A chat that slow mode holds back waits, with everything after it there, but no other chat does.
+      const now = Date.now();
+      for (const [key, until] of this.slowHeld) if (until <= now) this.slowHeld.delete(key);
+      for (const [key, until] of this.retryHeld) if (until <= now) this.retryHeld.delete(key);
+      const held = [...new Set([...this.slowHeld.keys(), ...this.retryHeld.keys()])];
+      const row = this.db.get<{ id: string; group_key: string; payload: Uint8Array }>(
+        `SELECT id, group_key, payload FROM outbox WHERE group_key NOT IN (${held.map(() => "?").join(",")}) ORDER BY created_at LIMIT 1`,
+        held,
+      );
+      if (!row || this.stopped) {
+        if (held.length > 0 && !this.stopped) this.flushRetry = setTimeout(() => void this.flushOutbox(), Math.min(...this.slowHeld.values(), ...this.retryHeld.values()) - now);
+        return;
+      }
+      let entry: OutboxEntry;
+      try {
+        entry = this.openJson<OutboxEntry>("outbox", row.id, row.payload);
+      } catch (error) {
+        // One that won't open can't be sent, and mustn't stand in front of everything after it.
+        console.warn("[zuna] something waiting to be sent couldn't be read", error);
+        this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
+        continue;
+      }
+      try {
+        await this.deliver(row.group_key, entry);
+        this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
+        this.retryDelay.delete(row.group_key);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "slow_mode") {
+          const wait = Number(error.body.wait_ms);
+          this.slowHeld.set(row.group_key, Date.now() + (Number.isFinite(wait) && wait > 0 ? Math.min(wait, MAX_SLOW_MODE * 1000) : 1000));
+          this.emitConversations();
+          continue;
+        }
+        if (error instanceof ApiError && error.retryable) {
+          const delay = Math.min((this.retryDelay.get(row.group_key) ?? 1250) * 2, 30_000);
+          this.retryDelay.set(row.group_key, delay);
+          this.retryHeld.set(row.group_key, Date.now() + delay);
+          continue;
+        }
+        console.warn("[zuna] sending failed", error);
+        this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
+        this.markFailed(row.group_key, entry.id);
+      }
+    }
+  }
+
+  protected markFailed(groupKey: string, id: string): void {
+    const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
+    this.db.run("UPDATE messages SET status = 'failed' WHERE group_id = ? AND id = ?", [groupId, id]);
+    const row = this.messageRow(groupId, id);
+    if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
+    this.emitConversations();
+  }
+
+  protected markStaleSendsFailed(): void {
+    // A send still marked in progress with nothing in the outbox was interrupted
+    // by a restart, for example during an upload.
+    this.db.run(
+      `UPDATE messages SET status = 'failed' WHERE status = 'sending' AND id NOT IN (SELECT id FROM outbox)`,
+    );
+  }
+
+  protected async deliver(groupKey: string, entry: OutboxEntry): Promise<void> {
+    if (entry.kind === "edit") {
+      await this.withLock(entry.groupId, () =>
+        this.sealAndRetry(entry.groupId, async (epoch, key) => {
+          const row = this.messageRow(entry.groupId, entry.id);
+          const held = row ? this.storedBody(row) : null;
+          // An edit says how long the message lasts as it first did, so it disappears all the same.
+          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body), this.signer);
+          this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
+        }),
+      );
+      return;
+    }
+    // Messages go in order, so the ones after it wait for its preview too.
+    const body = entry.previewUrl ? await this.withPreview(groupKey, entry.id, entry.body, entry.previewUrl) : entry.body;
+    const groupId = await this.groupIdForKey(groupKey);
+    await this.withLock(groupId, async () => {
+      await this.ensureReady(groupId);
+      await this.rotateIfOld(groupId);
+      this.moveLocalEcho(groupKey, groupId, entry.id);
+      await this.sealAndRetry(groupId, async (epoch, key) => {
+        const after = this.getKv<EarlierMessage>(`sent/${groupId}`) ?? undefined;
+        // It lasts as long as the chat says when it goes, whenever it was written.
+        const expiresIn = this.disappearAfter(this.groups.get(groupId)) || undefined;
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }), this.signer);
+        const saved = await this.api.sendMessage(groupId, {
+          id: entry.id,
+          epoch,
+          envelope,
+          file_ids: entry.fileIds?.length ? entry.fileIds : undefined,
+          expires_in: expiresIn,
+        });
+        this.setKv(`sent/${groupId}`, { id: entry.id, epoch, at: Date.now(), expiresIn } satisfies EarlierMessage);
+        this.ingest(saved, false);
+      });
+    });
+    this.emitConversations();
+  }
+
+  /**
+   * An edit's revision, worked out as it goes rather than when it was made, so
+   * it's after whatever arrived meanwhile. It's this device's time unless that's
+   * behind the last revision, so an edit from a device whose clock is behind still
+   * comes after, and one queued on a device offline comes after edits made since.
+   */
+  protected nextRevision(groupId: string, id: string): number {
+    const row = this.messageRow(groupId, id);
+    const held = row ? (this.storedBody(row)?.revision ?? 0) : 0;
+    return Math.max(held + 1, Date.now());
+  }
+
+  /** What goes under this device's signature: the message, when it was sent, and who's sending it. */
+  protected signedBody(body: MessageBody): MessageBody & { sentAt: number; by: { user: string; device: string } } {
+    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId } };
+  }
+
+  /** A DM's first message is echoed before its group exists; this moves it there. */
+  protected moveLocalEcho(groupKey: string, groupId: string, id: string): void {
+    const pending = `pending:${groupKey}`;
+    const row = this.messageRow(pending, id);
+    if (!row) return;
+    // Its body is sealed to where it was, so it's sealed again for where it goes.
+    const body = row.body && this.openLocal("message", `${pending}/${id}`, row.body);
+    this.db.run("UPDATE messages SET group_id = ?, body = ? WHERE group_id = ? AND id = ?", [groupId, body ? this.sealLocal("message", `${groupId}/${id}`, body) : null, pending, id]);
+    this.emit({
+      type: "message_moved",
+      serverId: this.serverId,
+      fromGroupId: pending,
+      message: this.toMessageView(this.messageRow(groupId, id)!),
+    });
+  }
+
+  /** Runs `send` with the current epoch's key, catching up and retrying if we were behind. */
+  protected async sealAndRetry(groupId: string, send: (epoch: number, key: Uint8Array) => Promise<void>): Promise<void> {
+    for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+      this.refuseDoubtful(groupId);
+      if (!this.hasMlsGroup(groupId)) await this.ensureReady(groupId);
+      await this.ensureTreeClean(groupId);
+      const epoch = this.rememberCurrentEpochKey(groupId);
+      const key = this.epochKey(groupId, epoch)!;
+      try {
+        await send(epoch, key);
+        return;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "stale_epoch") {
+          await this.pullChanges(groupId);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Couldn't catch up with this conversation. Please try again.");
+  }
+
+  protected async rotateIfOld(groupId: string): Promise<void> {
+    const epoch = this.mlsEpoch(groupId);
+    const row = this.db.get<{ created_at: number }>("SELECT created_at FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    // A leaf with an older certificate gets the new one in any commit, and that's
+    // how everyone sharing this group finds out about a rotation the server may be keeping from them.
+    const old = !!row && Date.now() - row.created_at >= EPOCH_MAX_AGE_MS;
+    if (!old && !this.leafIsBehind(groupId)) return;
+    await this.commitWithRetry(groupId, async () => ({ kind: "update" }));
+  }
+
+  protected leafIsBehind(groupId: string): boolean {
+    const groupBytes = utf8(groupId);
+    const own = this.mls.ownLeafIndex(groupBytes);
+    const members = this.mls.members(groupBytes) as { leafIndex: number; credential: Uint8Array }[];
+    const leaf = members.find((member) => member.leafIndex === own);
+    return !!leaf && !equalBytes(leaf.credential, this.account.certificate);
+  }
+
+  retryMessage(groupId: string, id: string): void {
+    const row = this.messageRow(groupId, id);
+    const body = row ? this.storedBody(row) : null;
+    if (!row || row.status !== "failed" || !row.body || !body) return;
+    // A file that never went up has nothing on the server for the message to point at.
+    if (body.attachments?.some((item) => !item.fileId)) throw new Error("Its files didn't upload. Attach them again to send this.");
+    const group = this.groups.get(groupId);
+    const key = group ? this.conversationKey(group) : groupId.replace(/^pending:/, "");
+    this.db.run("UPDATE messages SET status = 'sending' WHERE group_id = ? AND id = ?", [groupId, id]);
+    this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(groupId, id)!), isNew: false });
+    this.enqueue(key, {
+      kind: "message",
+      id,
+      body: {
+        text: body.text,
+        replyTo: body.replyTo,
+        emotes: body.emotes,
+        attachments: body.attachments,
+        mentions: body.mentions,
+        location: body.location,
+        forwarded: body.forwarded,
+        preview: body.preview && linkInText(body.preview.url, body.text ?? "") ? body.preview : undefined,
+      },
+      fileIds: body.attachments?.map((item) => item.fileId),
+    });
+  }
+
+  discardMessage(groupId: string, id: string): void {
+    this.db.run("DELETE FROM outbox WHERE id = ?", [id]);
+    this.db.run("DELETE FROM messages WHERE group_id = ? AND id = ? AND seq IS NULL", [groupId, id]);
+    this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
+  }
+
+  editMessage(groupId: string, id: string, text: string, emotes: Record<string, EmoteRef>, mentions: string[]): void {
+    const row = this.messageRow(groupId, id);
+    const previous = row ? this.storedBody(row) : null;
+    if (!row?.body || !previous) return;
+    const body: MessageBody = {
+      text,
+      emotes,
+      mentions,
+      replyTo: previous.replyTo,
+      attachments: previous.attachments,
+      // The preview stays while its link does; an edit doesn't fetch a new one.
+      preview: previous.preview && linkInText(previous.preview.url, text) ? previous.preview : undefined,
+      forwarded: previous.forwarded,
+      location: previous.location,
+    };
+    assertSendable(body);
+    this.db.run("UPDATE messages SET body = ?, edited_at = ? WHERE group_id = ? AND id = ?", [
+      this.sealJson("message", `${groupId}/${id}`, { ...previous, ...body }),
+      Date.now(),
+      groupId,
+      id,
+    ]);
+    this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(groupId, id)!), isNew: false });
+    const group = this.groups.get(groupId);
+    if (group) this.enqueue(this.conversationKey(group), { kind: "edit", id, groupId, body });
+  }
+
+  async deleteMessage(groupId: string, id: string): Promise<void> {
+    await this.deleteSigned(groupId, id);
+    this.emitConversations();
+  }
+
+  /** Deletes several messages for everyone, in order. */
+  async deleteMessages(groupId: string, ids: string[]): Promise<void> {
+    for (const id of ids) await this.deleteSigned(groupId, id);
+    this.emitConversations();
+  }
+
+  /** This device signs the deletion, so other members' apps can tell it from the server's word before erasing their copies. */
+  protected async deleteSigned(groupId: string, id: string): Promise<void> {
+    const { userId, deviceId, deviceSecret } = this.account;
+    await this.withLock(groupId, () =>
+      this.sealAndRetry(groupId, async (epoch, epochKey) => {
+        const deletion = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }, this.signer));
+        this.ingest(await this.api.deleteMessage(groupId, id, epoch, deletion), false);
+      }),
+    );
+  }
+
+  /** This device signs the pin, so other members' apps can tell it from the server's word. */
+  async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {
+    const { userId, deviceId, deviceSecret } = this.account;
+    await this.withLock(groupId, () =>
+      this.sealAndRetry(groupId, async (epoch, epochKey) => {
+        // After the pin this device holds, whatever its clock says, as with edits.
+        const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
+        const pin = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
+        this.ingest(await this.api.pin(groupId, id, pinned, epoch, pin), false);
+      }),
+    );
+  }
+
+  async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {
+    const { userId, deviceId, deviceSecret } = this.account;
+    const row = this.messageRow(groupId, messageId);
+    const current = row ? (this.storedBody(row)?.reactions ?? []) : [];
+    const already = current.some((item) => item.key === key && item.userIds.includes(userId));
+    await this.withLock(groupId, async () => {
+      if (already) {
+        // Another device may have made it, or two devices the same one, and only an open reaction says what it is.
+        const { reactions } = await this.api.message(groupId, messageId);
+        for (const reaction of reactions) {
+          if (reaction.user_id !== userId || this.openReaction(groupId, messageId, reaction)?.key !== key) continue;
+          this.ingest(await this.api.removeReaction(groupId, messageId, reaction.id), false);
+        }
+        return;
+      }
+      const id = randomId();
+      await this.sealAndRetry(groupId, async (epoch, epochKey) => {
+        const data = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
+        this.ingest(await this.api.addReaction(groupId, messageId, id, epoch, data), false);
+      });
+    });
+  }
+
+  sendTyping(groupId: string): void {
+    const now = Date.now();
+    if (now - (this.lastTypingSent.get(groupId) ?? 0) < TYPING_THROTTLE_MS) return;
+    if (!this.hasMlsGroup(groupId)) return;
+    this.lastTypingSent.set(groupId, now);
+    const epoch = this.rememberCurrentEpochKey(groupId);
+    const key = this.epochKey(groupId, epoch);
+    // Signed, so that a server can't show someone typing who isn't, and timed, so it can't send it on again later.
+    if (key) this.socket.sendTyping(groupId, frameSigned(this.account.deviceId, epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, this.account.userId, epoch, { at: now }, this.signer)));
+  }
+
+  async markRead(groupId: string, seq: number): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (!group || seq <= group.ownRead || !this.hasMlsGroup(groupId)) return;
+    group.readSent ??= group.ownRead;
+    group.ownRead = seq;
+    this.persistGroup(group);
+    this.emitConversations();
+    await this.sendRead(group);
+  }
+
+  /**
+   * Tells the server how far this person has read. One that doesn't arrive, as when
+   * the app closes or the network drops while it's on its way, goes again at the next
+   * sync, since the chat already looks read here and nothing else would send it.
+   */
+  protected async sendRead(group: CachedGroup): Promise<void> {
+    const seq = group.ownRead;
+    const epoch = this.rememberCurrentEpochKey(group.id);
+    const { userId, deviceId, deviceSecret, accountKey } = this.account;
+    let framed: Uint8Array;
+    // Nobody has read ticks in a channel, so where someone is stays their own.
+    if (this.prefs.sendReadReceipts && group.kind !== "channel") {
+      const key = this.epochKey(group.id, epoch);
+      if (!key) return;
+      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }, this.signer));
+    } else {
+      // The position is sealed to our own account key, so our other devices stay
+      // in sync while nobody else can read it.
+      const sealed = sealSignal(subkey(accountKey, "read"), "read", group.id, epoch, { seq });
+      framed = new Uint8Array(sealed.length + 1);
+      framed[0] = 1;
+      framed.set(sealed, 1);
+    }
+    try {
+      await this.api.setRead(group.id, framed);
+    } catch (error) {
+      console.warn("[zuna] read state", error);
+      // Refused for good, sending it again won't help. Signed out, it can go once signed back in.
+      if (!(error instanceof ApiError) || error.retryable || error.status === 401) return;
+    }
+    // The group may have been read in again from the server meanwhile.
+    const current = this.groups.get(group.id);
+    if (current && seq > (current.readSent ?? 0)) {
+      current.readSent = seq;
+      this.persistGroup(current);
+    }
+  }
+
+  /** Read positions that never reached the server. */
+  protected async sendUnsentReads(): Promise<void> {
+    for (const group of this.groups.values()) {
+      if (group.readSent !== undefined && group.ownRead > group.readSent && !group.removedAt && this.hasMlsGroup(group.id)) {
+        await this.sendRead(group).catch((error) => console.warn("[zuna] read state", error));
+      }
+    }
+  }
+
+  // --- Files ---
+
+  /** A file to upload, read as it is. */
+  protected whole(blob: Blob): ByteSource {
+    return { size: this.files.size(blob), read: (start, end) => this.files.read(blob, start, end) };
+  }
+
+  protected async uploadBlob(
+    source: ByteSource,
+    onProgress?: (loaded: number, total: number) => void,
+    attach = false,
+  ): Promise<{ fileId: string; key: string; prefix: string; chunks: number }> {
+    const key = wasm.randomBytes(32);
+    const prefix = wasm.randomBytes(15);
+    const size = source.size;
+    const chunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
+    const created = await this.api.createFile(chunks, size + chunks * 16);
+    let loaded = 0;
+    // A few chunks go at once, and once one fails the rest of a file given up on don't.
+    await eachLimited(Array.from({ length: chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
+      const start = index * CHUNK_SIZE;
+      const plain = await source.read(start, Math.min(start + CHUNK_SIZE, size));
+      const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
+      await this.api.uploadChunk(created.id, index, sealed);
+      loaded += plain.length;
+      onProgress?.(loaded, size);
+    });
+    await this.api.completeFile(created.id, attach);
+    return { fileId: created.id, key: toBase64(key), prefix: toBase64(prefix), chunks };
+  }
+
+  /** Decrypts a file, verifying that every chunk is present and in order. */
+  async downloadFile(ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }, onProgress?: (loaded: number, total: number) => void): Promise<Blob> {
+    const key = fromBase64(ref.key);
+    const prefix = fromBase64(ref.prefix);
+    const parts: Uint8Array[] = new Array(ref.chunks);
+    let done = 0;
+    await eachLimited(Array.from({ length: ref.chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
+      const sealed = await this.api.downloadChunk(ref.fileId, index);
+      // The server's limit plus a little: this is all held in memory.
+      if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
+      parts[index] = wasm.streamOpen(key, prefix, index, index === ref.chunks - 1, sealed);
+      done++;
+      onProgress?.(done, ref.chunks);
+    });
+    return this.files.assemble(parts, ref.mime ?? "application/octet-stream");
+  }
+
+  /**
+   * Uploads attachments, then sends the message. Progress shows on the local echo.
+   * What files say about where, when and on what they were made is taken out first,
+   * unless this device's settings keep it.
+   */
+  async sendWithAttachments(
+    groupKey: string,
+    files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string; round?: boolean }[],
+    body: MessageBody,
+    options: { previewUrl?: string; keepMetadata?: boolean } = {},
+  ): Promise<string> {
+    assertSendable(body);
+    const id = randomId();
+    const totalBytes = files.reduce((sum, file) => sum + this.files.size(file.blob), 0);
+    const placeholders: Attachment[] = files.map((file) => ({
+      fileId: "",
+      key: "",
+      prefix: "",
+      chunks: 0,
+      name: file.name,
+      mime: file.mime,
+      size: this.files.size(file.blob),
+      width: file.width,
+      height: file.height,
+      thumb: file.thumb,
+      duration: file.duration,
+      voice: file.voice,
+      waveform: file.waveform,
+      round: file.round,
+    }));
+    const echo = this.ensureLocalEcho(groupKey, id, { ...body, attachments: placeholders });
+    const groupId = echo.groupId;
+
+    const limitMb = this.info?.max_upload_mb ?? 100;
+    const tooBig = files.find((file) => this.files.size(file.blob) > limitMb * (1 << 20));
+    if (tooBig) {
+      this.markFailed(groupKey, id);
+      throw new Error(`${tooBig.name} is larger than this server's ${limitMb} MB limit.`);
+    }
+
+    try {
+      const attachments: Attachment[] = [];
+      let uploaded = 0;
+      for (const [index, file] of files.entries()) {
+        // A voice or video message is recorded by the app, so it holds nothing of the kind.
+        const source = options.keepMetadata || file.voice || file.round ? this.whole(file.blob) : await withoutMetadata(this.whole(file.blob), file.mime, file.name);
+        const ref = await this.uploadBlob(source, (loaded) => {
+          const current = this.messageRow(groupId, id);
+          if (!current) return;
+          this.emit({
+            type: "message",
+            serverId: this.serverId,
+            message: { ...this.toMessageView(current), uploadProgress: (uploaded + loaded) / Math.max(totalBytes, 1) },
+            isNew: false,
+          });
+        });
+        uploaded += this.files.size(file.blob);
+        attachments.push({ ...placeholders[index]!, size: source.size, ...ref });
+      }
+      const finalBody: MessageBody = { ...body, attachments };
+      this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, finalBody), groupId, id]);
+      this.enqueue(groupKey, {
+        kind: "message",
+        id,
+        body: finalBody,
+        fileIds: attachments.map((item) => item.fileId),
+        previewUrl: this.pendingPreview(finalBody, options.previewUrl),
+      });
+    } catch (error) {
+      this.markFailed(groupKey, id);
+      throw error;
+    }
+    return id;
+  }
+
+  /**
+   * Sends a message, with any files, and resolves once it's gone, for a
+   * process that stops straight after: the iOS share extension. One still
+   * waiting after a minute, as when the server can't be reached, stays in
+   * the outbox and goes when the app is next online, and this says so.
+   */
+  async sendNow(
+    groupKey: string,
+    files: Parameters<SessionSending["sendWithAttachments"]>[1],
+    body: MessageBody,
+    options: { previewUrl?: string; keepMetadata?: boolean } = {},
+  ): Promise<void> {
+    const id = files.length > 0 ? await this.sendWithAttachments(groupKey, files, body, options) : this.sendMessage(groupKey, body, options).id;
+    const deadline = Date.now() + SEND_NOW_WAIT_MS;
+    for (;;) {
+      // The ID is random and new, wherever the message has moved since, such as into a DM just started.
+      const status = this.db.get<{ status: string }>("SELECT status FROM messages WHERE id = ?", [id])?.status;
+      if (status === "sent") return;
+      if (status === "failed") throw new Error("This message couldn't be sent.");
+      if (Date.now() > deadline) throw new Error("This message is taking a while to send. It goes once Zuna is back online.");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
