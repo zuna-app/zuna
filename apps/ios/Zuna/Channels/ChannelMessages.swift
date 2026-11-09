@@ -609,6 +609,7 @@ struct ChannelTyping: View {
         HStack(spacing: 6) {
             if !names.isEmpty {
                 TypingDots()
+                    .foregroundStyle(Theme.text1)
                 Text(sentence)
                     .font(.footnote)
                     .foregroundStyle(Theme.text1)
@@ -629,25 +630,5 @@ struct ChannelTyping: View {
         case 3: return bold(names[0]) + AttributedString(", ") + bold(names[1]) + AttributedString(" and ") + bold(names[2]) + AttributedString(" are typing…")
         default: return AttributedString("Several people are typing…")
         }
-    }
-}
-
-/// Three dots that rise in turn.
-private struct TypingDots: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        TimelineView(.animation(paused: model.reduceMotion)) { timeline in
-            let phase = timeline.date.timeIntervalSinceReferenceDate * 3
-            HStack(spacing: 3) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Theme.text1)
-                        .frame(width: 5, height: 5)
-                        .opacity(0.4 + 0.6 * max(0, sin(phase - Double(index) * 0.8)))
-                }
-            }
-        }
-        .accessibilityHidden(true)
     }
 }

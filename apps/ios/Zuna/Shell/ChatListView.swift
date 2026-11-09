@@ -628,7 +628,11 @@ private struct ChatRow: View {
         let (author, body) = Format.preview(conversation.lastMessage, users: server.users, selfId: selfId, kind: conversation.kind)
         Group {
             if !typists.isEmpty {
-                Text(typing(typists)).foregroundStyle(Theme.link)
+                HStack(spacing: 4) {
+                    Text(typing(typists)).lineLimit(1)
+                    TypingDots()
+                }
+                .foregroundStyle(Theme.link)
             } else if conversation.groupId.flatMap({ server.calls[$0] }) != nil {
                 Label("In a call", systemImage: "phone.fill").foregroundStyle(Theme.green)
             } else if body.isEmpty, author == nil {
@@ -644,14 +648,14 @@ private struct ChatRow: View {
         .lineLimit(2)
     }
 
-    /// "typing…" in a direct message; in a group, who, as its title says it.
+    /// "typing" in a direct message; in a group, who, as its title says it. The dots follow.
     private func typing(_ typists: [String]) -> String {
-        guard conversation.kind != .dm else { return "typing…" }
+        guard conversation.kind != .dm else { return "typing" }
         let names = typists.sorted().map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
         switch names.count {
-        case 1: return "\(names[0]) is typing…"
-        case 2: return "\(names[0]) and \(names[1]) are typing…"
-        default: return "\(names.count) people are typing…"
+        case 1: return "\(names[0]) is typing"
+        case 2: return "\(names[0]) and \(names[1]) are typing"
+        default: return "\(names.count) people are typing"
         }
     }
 

@@ -743,11 +743,16 @@ private struct ChatHeader: View {
             .accessibilityIdentifier(A11y.Chat.title)
             // Drawn again as the minutes pass, so a last seen stays true.
             TimelineView(.periodic(from: Format.lastSeenTurn(peer.flatMap { live.lastSeenAt($0) }), by: 60)) { _ in
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(online ? Theme.green : Theme.text2)
-                    .lineLimit(1)
-                    .accessibilityIdentifier(A11y.Chat.status)
+                HStack(spacing: 5) {
+                    Text(status)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .accessibilityIdentifier(A11y.Chat.status)
+                    if !typingNames.isEmpty {
+                        TypingDots()
+                    }
+                }
+                .foregroundStyle(online ? Theme.green : Theme.text2)
             }
         }
     }
@@ -769,8 +774,8 @@ private struct ChatHeader: View {
     private var status: String {
         let typing = typingNames
         if !typing.isEmpty {
-            if conversation.kind == .dm { return "typing…" }
-            return typing.count == 1 ? "\(typing[0]) is typing…" : "\(typing.count) people are typing…"
+            if conversation.kind == .dm { return "typing" }
+            return typing.count == 1 ? "\(typing[0]) is typing" : "\(typing.count) people are typing"
         }
         if conversation.kind == .group {
             let count = conversation.members.count
