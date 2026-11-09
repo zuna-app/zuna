@@ -183,6 +183,8 @@ const MIGRATIONS: string[] = [
   // The few messages whose deletion is still to be proven, which each start would
   // otherwise find by reading every message there is.
   `CREATE INDEX messages_unproven ON messages(unproven_delete_at) WHERE unproven_delete_at IS NOT NULL;`,
+  // The messages that carried something to act on, which are shown nowhere and acted on once.
+  `CREATE TABLE signals (group_id TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (group_id, id));`,
 ];
 
 export function migrate(db: LocalDb): void {

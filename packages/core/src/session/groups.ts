@@ -145,10 +145,10 @@ export abstract class SessionGroups extends SessionRotation {
    * that nobody can use up someone's one-time packages. Past that, as when
    * adding the same person to many groups at once, it waits for the next one.
    */
-  protected async claimWithPatience(userId: string): Promise<{ device_id: string; data: string }[]> {
+  protected async claimWithPatience(userId: string, groupId: string): Promise<{ device_id: string; data: string }[]> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.api.claimKeyPackages(userId);
+        return await this.api.claimKeyPackages(userId, groupId);
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 429 || attempt >= CLAIM_ATTEMPTS) throw error;
         await new Promise((resolve) => setTimeout(resolve, CLAIM_WAIT_MS));
@@ -156,12 +156,15 @@ export abstract class SessionGroups extends SessionRotation {
     }
   }
 
-  /** Claims key packages for a user's devices, keeping only ones their identity key vouches for. */
-  protected async claimKeyPackages(userId: string, exceptDevice?: string): Promise<{ deviceId: string; data: Uint8Array }[]> {
+  /**
+   * Claims key packages for a user's devices, to bring them into the chat `groupId`,
+   * keeping only ones their identity key vouches for.
+   */
+  protected async claimKeyPackages(userId: string, groupId: string, exceptDevice?: string): Promise<{ deviceId: string; data: Uint8Array }[]> {
     const user = await this.ensureUser(userId, true);
     if (!user) return [];
     const pinned = this.pinnedIdentity(userId) ?? user.identityKey;
-    const claimed = await this.claimWithPatience(userId);
+    const claimed = await this.claimWithPatience(userId, groupId);
     const valid: { deviceId: string; data: Uint8Array }[] = [];
     for (const item of claimed) {
       if (item.device_id === exceptDevice) continue;

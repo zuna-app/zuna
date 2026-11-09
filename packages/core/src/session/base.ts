@@ -23,7 +23,7 @@ import { MEDIA_KINDS } from "../media";
 import { mediaTag } from "../search";
 import { Socket, type SocketFrame } from "../socket";
 import type { SignedRoster } from "../roster";
-import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
+import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
 import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex } from "./shared";
 
 export abstract class SessionBase {
@@ -157,6 +157,8 @@ export abstract class SessionBase {
   protected unreachableReplies = new Set<string>();
   /** How link previews are made on this device, if they are. */
   linkPreview: ((url: string) => Promise<LinkPreview | null>) | null = null;
+  /** What each bot of this person's signed to show its key is the one its setup link made, as the server gave it. */
+  protected botProofs = new Map<string, string>();
 
   constructor(
     readonly serverId: string,
@@ -170,6 +172,8 @@ export abstract class SessionBase {
     protected readonly channelsOn: boolean = false,
     /** The app has calls in direct messages and groups. One that doesn't hears nothing of them. */
     protected readonly callsOn: boolean = false,
+    /** The app lists bots in a section of their own. One that doesn't is given no chat with a bot nobody has written to yet. */
+    protected readonly botsOn: boolean = false,
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
@@ -254,4 +258,6 @@ export abstract class SessionBase {
   protected abstract noticeVoiceEpoch(): void;
   protected abstract forgetCall(groupId: string): void;
   protected abstract applySounds(list: ApiSound[], save?: boolean): void;
+  protected abstract takeSignal(message: ApiMessage, body: MessageBody): void;
+  abstract leaveGroup(groupId: string): Promise<void>;
 }

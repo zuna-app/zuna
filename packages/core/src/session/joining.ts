@@ -49,7 +49,46 @@ export abstract class SessionJoining extends SessionGroups {
     if (!(await this.adoptJoinedRoster(groupId))) return;
     await this.checkTree(groupId);
     this.setKnownMembers(groupId, this.treeUsers(groupId));
+    this.noteIfUnwanted(groupId);
     this.scheduleReconcile(groupId);
+  }
+
+  /**
+   * A bot keeps its owner's rules itself. Brought into a group by someone its owner
+   * doesn't let add it, which only a server that lies allows, it leaves. Whoever added
+   * it is whoever signed the roster it came in on, which nobody else can have.
+   */
+  protected noteIfUnwanted(groupId: string): void {
+    const group = this.groups.get(groupId);
+    if (!this.account.bot || group?.kind !== "group") return;
+    const by = this.rosterOf(group)?.roster.by.userId;
+    if (by && this.botMayBeAddedBy(by)) return;
+    // Once whatever holds the group's lock is done with it, as leaving takes it too.
+    setTimeout(() => {
+      if (!this.stopped) void this.leaveGroup(groupId).catch((error) => console.warn("[zuna] leaving a group this bot shouldn't be in", error));
+    }, 0);
+  }
+
+  /** Whether this account, a bot's, may be added to a group by someone: its owner always, and for a listed bot whoever its owner chose. */
+  protected botMayBeAddedBy(userId: string): boolean {
+    const rules = this.account.bot;
+    if (!rules || userId === rules.ownerId) return true;
+    if (!rules.listed) return false;
+    const role = this.users.get(userId)?.role;
+    return rules.add === "anyone" || (rules.add === "admins" && (role === "owner" || role === "admin"));
+  }
+
+  /**
+   * Whether this account hears what's said in a chat. Everyone does, but a private bot in
+   * a direct message: that's for its owner, and for people in a group with it. Anyone
+   * else got there through a server that showed them a bot that isn't theirs to see.
+   */
+  hearsChat(groupId: string): boolean {
+    const rules = this.account.bot;
+    const group = this.groups.get(groupId);
+    if (!rules || rules.listed || group?.kind !== "dm" || !group.peerId || group.peerId === rules.ownerId) return true;
+    const peer = group.peerId;
+    return [...this.groups.values()].some((other) => other.kind === "group" && !other.removedAt && other.members.some((member) => member.userId === peer));
   }
 
   /**
@@ -347,7 +386,7 @@ export abstract class SessionJoining extends SessionGroups {
     // Every device comes into a channel by itself, if its app shows channels at all.
     const packages: { deviceId: string; data: Uint8Array }[] = [];
     for (const userId of cached?.kind === "channel" ? [] : targets) {
-      packages.push(...(await this.claimKeyPackages(userId, this.account.deviceId)));
+      packages.push(...(await this.claimKeyPackages(userId, group.id, this.account.deviceId)));
     }
     const pending = this.mls.commitChanges(groupBytes, packages.map((item) => item.data) as unknown as any[], new Uint32Array(0)) as {
       commit: Uint8Array;

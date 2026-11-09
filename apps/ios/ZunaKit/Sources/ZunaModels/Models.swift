@@ -49,6 +49,10 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var registration: String
     public var maxUploadMb: Int
     public var allowMemberInvites: Bool
+    /// Whether everyone may make private bots. The server's admins always may, and only they make listed ones.
+    public var allowMemberBots: Bool?
+    /// How many bots one person may have.
+    public var maxBots: Int?
     public var retentionDays: Int
     public var emoteSetId: String
     public var emoteSetName: String
@@ -66,6 +70,8 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case hasIcon = "has_icon"
         case maxUploadMb = "max_upload_mb"
         case allowMemberInvites = "allow_member_invites"
+        case allowMemberBots = "allow_member_bots"
+        case maxBots = "max_bots"
         case retentionDays = "retention_days"
         case emoteSetId = "emote_set_id"
         case emoteSetName = "emote_set_name"
@@ -174,6 +180,52 @@ public struct UserView: Codable, Sendable, Equatable, Identifiable {
     public var deleted: Bool
     public var trust: TrustState
     public var isSelf: Bool
+    /// Set for a bot, which shows a badge wherever its name does, and never as online or last seen.
+    public var bot: BotInfo?
+    /// A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any.
+    public var commands: [BotCommand]?
+}
+
+/// A command a bot answers to: what's typed after the "/", and what it's for. Mirrors `BotCommand`.
+public struct BotCommand: Codable, Sendable, Equatable, Hashable {
+    public var command: String
+    public var description: String
+}
+
+/// A button under a bot's message. One with a link opens it, through the same question a link in a
+/// message asks. One with data sends that back to the bot when it's pressed. Mirrors `MessageButton`.
+public struct MessageButton: Codable, Sendable, Equatable, Hashable {
+    public var text: String
+    public var url: String?
+    public var data: String?
+}
+
+/// Who may add a bot to a group, as its owner chose. A private bot's is always its owner. Mirrors `BotAdd`.
+public enum BotAdd: String, Codable, Sendable { case owner, admins, anyone }
+
+/// What makes an account a bot's: one a program runs, which reads everything said in the chats it's in. Mirrors `BotInfo`.
+public struct BotInfo: Codable, Sendable, Equatable, Hashable {
+    public var ownerId: String
+    /// Everyone on the server sees it. A private one is only there for its owner and for whoever is in a chat with it.
+    public var listed: Bool
+    public var add: BotAdd
+}
+
+/// A bot as its owner manages it, or one of the server's admins a listed one. Mirrors `BotView`.
+public struct BotView: Codable, Sendable, Equatable, Identifiable {
+    /// Its account's ID, from when it's made.
+    public var id: String
+    public var username: String
+    public var ownerId: String
+    public var listed: Bool
+    public var add: BotAdd
+    /// Whether it may send files.
+    public var files: Bool
+    /// The channels a server admin gave it, which are the only ones it joins.
+    public var channels: [String]
+    /// Its program has signed up with its setup link. Until then it has no account.
+    public var setUp: Bool
+    public var createdAt: Int
 }
 
 public struct Attachment: Codable, Sendable, Equatable, Hashable {
@@ -339,6 +391,8 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var preview: LinkPreview?
     public var forwarded: ForwardInfo?
     public var location: SharedLocation?
+    /// Rows of buttons under a bot's message. Empty under anyone else's.
+    public var buttons: [[MessageButton]]?
     public var uploadProgress: Double?
     /// The time the sender's device signed is far from the server's.
     public var timeDiffers: Bool?
@@ -384,6 +438,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var mentionsOnly: Bool
     /// A direct message with someone you blocked.
     public var blocked: Bool
+    /// A direct message with a bot.
+    public var bot: Bool?
     public var members: [GroupMemberView]
     public var historyVisible: Bool
     public var readBy: [String: Int]

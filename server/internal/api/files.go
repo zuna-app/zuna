@@ -50,7 +50,8 @@ func (s *Server) diskIsFull(w http.ResponseWriter) bool {
 }
 
 // botMaySendFiles says whether the caller may send files, which every person may
-// and a bot only if its owner lets it. It writes the refusal itself.
+// and a bot only if its owner lets it. It writes the refusal itself. It's asked as a
+// message with files is sent: a bot that may send none can still upload its own picture.
 func (s *Server) botMaySendFiles(w http.ResponseWriter, r *http.Request, sess *store.Session) bool {
 	if !sess.Bot {
 		return true
@@ -73,9 +74,6 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 		TotalSize  int64 `json:"total_size"`
 	}
 	if !readJSON(w, r, &body) {
-		return
-	}
-	if !s.botMaySendFiles(w, r, sess) {
 		return
 	}
 	limit, err := s.maxUploadBytes(r)

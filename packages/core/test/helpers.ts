@@ -276,6 +276,8 @@ export class TestApp {
   channels = true;
   /** Whether this app has calls in direct messages and groups. */
   calls = true;
+  /** Whether this app lists bots in a section of their own, as every app with an interface does. */
+  bots = true;
   /** Whether this app can trust a server's own certificate by its pin, as a browser can't. */
   pinning = true;
   /** Each server it was asked to trust, and by which pin. */
@@ -299,6 +301,7 @@ export class TestApp {
       web: this.web,
       channels: this.channels,
       calls: this.calls,
+      bots: this.bots,
       pinServer: this.pinning
         ? async (url, pin) => {
             this.pinned.push([url, pin]);
@@ -323,6 +326,14 @@ export class TestApp {
   async register(link: string, username: string, password = "correct horse battery"): Promise<string> {
     const preview = await this.client.previewInvite(link);
     const result = await this.client.register(preview, username, password, { displayName: username });
+    this.serverId = result.serverId;
+    await this.online();
+    return result.recoveryKey;
+  }
+
+  /** Signs up as a bot through its setup link, as zuna-bot does on the machine that runs it. */
+  async registerBot(link: string): Promise<string> {
+    const result = await this.client.registerBot(link);
     this.serverId = result.serverId;
     await this.online();
     return result.recoveryKey;

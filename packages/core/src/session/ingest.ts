@@ -116,6 +116,10 @@ export abstract class SessionIngest extends SessionChanges {
         } else if (opened.ok) {
           this.keyProvedItself(message.group_id, message.epoch);
           const parsed = parseMessageBody(opened.value);
+          if (parsed?.signal) {
+            this.noteSignal(message, parsed, existing);
+            return;
+          }
           if (parsed && this.changedAfterLeaving(message, existing, parsed)) {
             status = "unverified";
             raw = envelope;
@@ -219,6 +223,21 @@ export abstract class SessionIngest extends SessionChanges {
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
     if (fresh && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
     if (body?.after) this.lookForEarlier(message, body);
+  }
+
+  /**
+   * A message that carries something to act on is shown nowhere, and acted on the first
+   * time it comes, however often the server sends it.
+   */
+  protected noteSignal(message: ApiMessage, body: MessageBody, existing: MessageRow | undefined): void {
+    if (existing) {
+      // It came before its keys did, and showed as a message that wouldn't open.
+      this.db.run("DELETE FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
+      this.emit({ type: "message_removed", serverId: this.serverId, groupId: message.group_id, id: message.id });
+    }
+    if (this.db.get("SELECT 1 FROM signals WHERE group_id = ? AND id = ?", [message.group_id, message.id])) return;
+    this.db.run("INSERT INTO signals(group_id, id, at) VALUES(?, ?, ?)", [message.group_id, message.id, Date.now()]);
+    this.takeSignal(message, body);
   }
 
   /**
@@ -584,6 +603,8 @@ export abstract class SessionIngest extends SessionChanges {
       preview: body.preview ?? null,
       forwarded: body.forwarded ?? null,
       location: body.location ?? null,
+      // Only a bot's messages come with buttons, whatever anyone else's say.
+      buttons: body.buttons && this.users.get(row.sender_user)?.bot ? body.buttons : [],
       expiresAt: row.expires_at,
     };
     if (body.sentAt !== undefined && Math.abs(body.sentAt - (row.edited_at ?? row.created_at)) > TIME_DIFFERS_MS) view.timeDiffers = true;

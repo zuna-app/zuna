@@ -384,7 +384,7 @@ describe("a Welcome delivered as being for another group (Z-46)", () => {
     const own = await attacker.session.createGroup("Otto's own", [], false);
     const session = sessionOf(attacker);
     const deviceId = sessionOf(victim).account.deviceId as string;
-    const packages = (await apiOf(attacker).claimKeyPackages(victim.userId)).filter((item) => item.device_id === deviceId).map((item) => decode(item.data));
+    const packages = (await apiOf(attacker).claimKeyPackages(victim.userId, own)).filter((item) => item.device_id === deviceId).map((item) => decode(item.data));
     // A group of the attacker's own with the shared group's ID, and a real commit for another carrying its Welcome.
     const forger = new wasm.MlsClient(session.account.devicePublic, session.account.deviceSecret, session.account.certificate, []);
     forger.createGroup(utf8(shared));

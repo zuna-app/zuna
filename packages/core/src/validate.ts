@@ -4,7 +4,7 @@
 
 import { plainName } from "./hidden";
 import { checkPreview } from "./links";
-import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
+import type { Attachment, AvatarRef, BotAdd, BotCommand, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, MessageButton, MessageSignal, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
 
 /** The longest message text anyone may send, and that clients agree to show. */
 export const MAX_TEXT_LENGTH = 100_000;
@@ -133,6 +133,88 @@ function parseLocation(value: unknown): SharedLocation | null {
   return location;
 }
 
+const BOT_ADD = new Set<string>(["owner", "admins", "anyone"]);
+
+/** As many buttons as Telegram lets a message have, and room in each for what its bots send. */
+const MAX_BUTTON_ROWS = 25;
+const MAX_BUTTONS_IN_ROW = 8;
+const MAX_BUTTON_TEXT = 128;
+const MAX_BUTTON_DATA = 256;
+const MAX_BUTTON_LINK = 2048;
+
+/** A link a button may open: an address on the web, and nothing an app would run. */
+function buttonLink(value: unknown): string | null {
+  if (!isString(value, MAX_BUTTON_LINK) || !/^https?:\/\//i.test(value)) return null;
+  try {
+    return new URL(value).href;
+  } catch {
+    return null;
+  }
+}
+
+/** A message's rows of buttons, or nothing if any of them isn't one: half a keyboard is worse than none. */
+export function parseButtons(value: unknown): MessageButton[][] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BUTTON_ROWS) return undefined;
+  const rows: MessageButton[][] = [];
+  for (const row of value) {
+    if (!Array.isArray(row) || row.length === 0 || row.length > MAX_BUTTONS_IN_ROW) return undefined;
+    const buttons: MessageButton[] = [];
+    for (const item of row) {
+      if (!isObject(item) || !isString(item.text, MAX_BUTTON_TEXT)) return undefined;
+      const text = plainName(item.text).trim();
+      const link = absent(item.url) ? null : buttonLink(item.url);
+      if (!text || (!absent(item.url) && !link)) return undefined;
+      if (link) buttons.push({ text, url: link });
+      else if (isString(item.data, MAX_BUTTON_DATA)) buttons.push({ text, data: item.data });
+      else return undefined;
+    }
+    rows.push(buttons);
+  }
+  return rows;
+}
+
+const COMMAND_NAME = /^[a-z0-9_]{1,32}$/;
+const MAX_COMMANDS = 100;
+const MAX_COMMAND_DESCRIPTION = 256;
+
+/** A bot's commands, or nothing if they aren't that. */
+export function parseCommands(value: unknown): BotCommand[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_COMMANDS) return undefined;
+  const commands: BotCommand[] = [];
+  for (const item of value) {
+    if (!isObject(item) || !isString(item.command, 32) || !COMMAND_NAME.test(item.command) || !isString(item.description, MAX_COMMAND_DESCRIPTION)) return undefined;
+    commands.push({ command: item.command, description: plainName(item.description) });
+  }
+  return commands;
+}
+
+/** What a message carries for apps to act on, holding only what's known and in the right shape, or null if it's nothing known. */
+function parseSignal(value: unknown): MessageSignal | null {
+  if (!isObject(value)) return null;
+  if (value.type === "bot_settings") {
+    const signal: Extract<MessageSignal, { type: "bot_settings" }> = { type: "bot_settings" };
+    if (typeof value.listed === "boolean") signal.listed = value.listed;
+    if (isString(value.add, 16) && BOT_ADD.has(value.add)) signal.add = value.add as BotAdd;
+    if (isObject(value.profile)) {
+      const profile: NonNullable<(typeof signal)["profile"]> = {};
+      if (isString(value.profile.displayName, MAX_NAME_LENGTH)) profile.displayName = plainName(value.profile.displayName);
+      if (isString(value.profile.bio, MAX_TEXT_LENGTH)) profile.bio = value.profile.bio;
+      if (value.profile.avatar === null) profile.avatar = null;
+      else if (value.profile.avatar !== undefined) {
+        const avatar = parseAvatarRef(value.profile.avatar);
+        if (avatar) profile.avatar = avatar;
+      }
+      signal.profile = profile;
+    }
+    return signal;
+  }
+  if (value.type === "button") {
+    if (!isString(value.message, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.message) || !isString(value.data, MAX_BUTTON_DATA)) return null;
+    return { type: "button", message: value.message, data: value.data };
+  }
+  return null;
+}
+
 function parseForwarded(value: unknown): ForwardInfo | null {
   if (!isObject(value)) return null;
   return isString(value.userId, MAX_ID_LENGTH) ? { userId: value.userId } : {};
@@ -200,6 +282,14 @@ export function parseMessageBody(value: unknown): MessageBody | null {
     if (!location) return null;
     body.location = location;
   }
+  const buttons = parseButtons(value.buttons);
+  if (buttons) body.buttons = buttons;
+  if (!absent(value.signal)) {
+    // Something to act on is all such a message is, so one that's nothing known can't be shown as a message either.
+    const signal = parseSignal(value.signal);
+    if (!signal) return null;
+    body.signal = signal;
+  }
   return body;
 }
 
@@ -240,6 +330,8 @@ export function parseProfile(value: unknown): Profile | null {
     if (!avatar) return null;
     profile.avatar = avatar;
   }
+  const commands = parseCommands(value.commands);
+  if (commands?.length) profile.commands = commands;
   return profile;
 }
 

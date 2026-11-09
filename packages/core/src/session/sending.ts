@@ -6,7 +6,7 @@ import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../cryp
 import { equalBytes, fromBase64, toBase64, utf8 } from "../encoding";
 import { linkInText } from "../links";
 import { withoutMetadata, type ByteSource } from "../metadata";
-import type { Attachment, EarlierMessage, EmoteRef, MessageBody, MessageView } from "../types";
+import type { Attachment, EarlierMessage, EmoteRef, MessageBody, MessageButton, MessageView } from "../types";
 import {
   CHUNK_SIZE,
   PREVIEW_WAIT_MS,
@@ -259,6 +259,32 @@ export abstract class SessionSending extends SessionConversations {
     return Math.max(held + 1, Date.now());
   }
 
+  /**
+   * Presses a button under a bot's message, which sends the data it holds back to the bot.
+   * It goes to the whole chat, as a chat's messages do, and only the bot acts on it.
+   */
+  async pressButton(groupId: string, messageId: string, row: number, column: number): Promise<void> {
+    const stored = this.messageRow(groupId, messageId);
+    const button = stored ? this.toMessageView(stored).buttons[row]?.[column] : undefined;
+    if (button?.data === undefined) throw new Error("That button isn't there anymore.");
+    await this.sendSignal(groupId, { type: "button", message: messageId, data: button.data });
+  }
+
+  /**
+   * Sends something for the apps of a chat's members to act on, which they show nowhere.
+   * To the server it's a message like any other, but one no phone is woken for.
+   */
+  protected async sendSignal(groupId: string, signal: NonNullable<MessageBody["signal"]>, fileIds?: string[]): Promise<void> {
+    const id = randomId();
+    await this.withLock(groupId, async () => {
+      await this.ensureReady(groupId);
+      await this.sealAndRetry(groupId, async (epoch, key) => {
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, id, epoch, this.signedBody({ signal }), this.signer);
+        this.ingest(await this.api.sendMessage(groupId, { id, epoch, envelope, file_ids: fileIds?.length ? fileIds : undefined, silent: true }), false);
+      });
+    });
+  }
+
   /** What goes under this device's signature: the message, when it was sent, and who's sending it. */
   protected signedBody(body: MessageBody): MessageBody & { sentAt: number; by: { user: string; device: string } } {
     return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId } };
@@ -353,7 +379,8 @@ export abstract class SessionSending extends SessionConversations {
     this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
   }
 
-  editMessage(groupId: string, id: string, text: string, emotes: Record<string, EmoteRef>, mentions: string[]): void {
+  /** `buttons` replaces a bot's message's buttons, or with null takes them away. Left out, they stay. */
+  editMessage(groupId: string, id: string, text: string, emotes: Record<string, EmoteRef>, mentions: string[], buttons?: MessageButton[][] | null): void {
     const row = this.messageRow(groupId, id);
     const previous = row ? this.storedBody(row) : null;
     if (!row?.body || !previous) return;
@@ -361,6 +388,7 @@ export abstract class SessionSending extends SessionConversations {
       text,
       emotes,
       mentions,
+      buttons: buttons === undefined ? previous.buttons : (buttons ?? undefined),
       replyTo: previous.replyTo,
       attachments: previous.attachments,
       // The preview stays while its link does; an edit doesn't fetch a new one.

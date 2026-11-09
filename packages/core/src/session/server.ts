@@ -1,15 +1,16 @@
 // ServerSession, in part (see base.ts): what everyone on the server shares: the soundboard, the emotes, and its administration.
 
-import { decode, type ApiSound } from "../api";
-import { inviteLink } from "../account";
+import * as wasm from "@zuna/crypto";
+import { decode, type ApiBot, type ApiMessage, type ApiSound } from "../api";
+import { botProofInput, botSetupLink, inviteLink } from "../account";
 import { frameSigned, openEnvelope, randomId, readSigned, sealEnvelope } from "../crypto";
-import { toBase64, toBase64Url } from "../encoding";
+import { fromBase64, toBase64, toBase64Url } from "../encoding";
 import { decodeFrameData } from "../socket";
 import { openSoundDetails, sealSoundDetails } from "../soundboard";
 import { prepareSound, readWav } from "../sounds";
 import { parseEmoteRef, parsePlay, parseSoundDetails } from "../validate";
-import type { BanView, Emote, EmoteRef, EmoteSet, Invite, SoundView } from "../types";
-import { PLAY_FRESH_MS, type CachedSound } from "./shared";
+import type { AvatarRef, BanView, BotAdd, BotView, Emote, EmoteRef, EmoteSet, Invite, MessageBody, MessageSignal, SoundView } from "../types";
+import { BOT_SETUPS, PLAY_FRESH_MS, type BotSetups, type CachedSound } from "./shared";
 import { SessionChannels } from "./channels";
 
 export abstract class SessionServer extends SessionChannels {
@@ -244,5 +245,195 @@ export abstract class SessionServer extends SessionChannels {
 
   serverUrl(): string {
     return this.account.serverUrl;
+  }
+
+  // --- Bots ---
+
+  protected botView(bot: ApiBot): BotView {
+    return {
+      id: bot.id,
+      username: bot.username,
+      ownerId: bot.owner_id,
+      listed: bot.listed,
+      add: bot.add === "admins" || bot.add === "anyone" ? bot.add : "owner",
+      files: bot.files,
+      channels: bot.channels ?? [],
+      setUp: bot.set_up,
+      createdAt: bot.created_at,
+    };
+  }
+
+  /** This person's bots, the ones still to be set up too, and for a server admin every listed bot. */
+  async getBots(): Promise<BotView[]> {
+    return (await this.api.bots()).map((bot) => this.botView(bot));
+  }
+
+  /**
+   * Makes a bot, and the link its program is set up with, on the machine that will run
+   * it: `zuna-bot init "<link>"`. The link works once, for an hour, and is the only
+   * time it's shown: it holds a key made for it alone, which this device keeps the
+   * other half of, to know the bot that signs up is the one the link made.
+   */
+  async createBot(input: { username: string; name?: string; listed?: boolean; add?: BotAdd; files?: boolean }): Promise<{ bot: BotView; link: string }> {
+    const listed = input.listed ?? false;
+    const created = await this.api.createBot({ username: input.username, listed, add: listed ? (input.add ?? "owner") : "owner", files: input.files ?? true });
+    if (created.bot.owner_id !== this.account.userId || created.bot.username.toLowerCase() !== input.username.toLowerCase()) {
+      throw new Error("The bot wasn't made: the server's answer doesn't hold together.");
+    }
+    return { bot: this.botView(created.bot), link: this.setupLinkFor(created.bot, created.code, input.name) };
+  }
+
+  /** A new setup link for a bot that hasn't been set up yet, which ends the one before. */
+  async newBotLink(botId: string): Promise<string> {
+    const renewed = await this.api.renewBotSetup(botId);
+    return this.setupLinkFor(renewed.bot, renewed.code);
+  }
+
+  protected setupLinkFor(bot: ApiBot, code: string, name?: string): string {
+    const keys = wasm.signingKeygen() as { publicKey: Uint8Array; secretKey: Uint8Array };
+    const setups = this.getKv<BotSetups>(BOT_SETUPS) ?? {};
+    const called = name?.trim() || setups[bot.id]?.name || bot.username;
+    setups[bot.id] = { key: toBase64(keys.publicKey), name: called };
+    this.setKv(BOT_SETUPS, setups);
+    const view = this.botView(bot);
+    return botSetupLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin, {
+      id: bot.id,
+      username: bot.username,
+      name: called,
+      secret: keys.secretKey,
+      ownerId: this.account.userId,
+      ownerKey: this.account.core.rootPublic,
+      listed: view.listed,
+      add: view.add,
+    });
+  }
+
+  /**
+   * Changes who may see and add a bot, and whether it sends files. The server keeps
+   * these, and the bot keeps the first two itself, so its owner's app tells it too.
+   */
+  async updateBot(botId: string, changes: { listed?: boolean; add?: BotAdd; files?: boolean }): Promise<BotView> {
+    const bot = this.botView(await this.api.updateBot(botId, changes));
+    if (bot.setUp && bot.ownerId === this.account.userId && (changes.listed !== undefined || changes.add !== undefined)) {
+      await this.tellBot(botId, { type: "bot_settings", listed: bot.listed, add: bot.add });
+    }
+    return bot;
+  }
+
+  /**
+   * Changes what a bot is called, what it says about itself, or its picture. A profile is
+   * sealed by the account it belongs to, so this asks the bot, in its owner's direct
+   * message with it, and the bot sets it: at once if it's running, or when it next is.
+   */
+  async updateBotProfile(botId: string, changes: { displayName?: string; bio?: string }, avatarBlob?: Blob | null): Promise<void> {
+    const profile: NonNullable<Extract<MessageSignal, { type: "bot_settings" }>["profile"]> = { ...changes };
+    let fileIds: string[] | undefined;
+    if (avatarBlob) {
+      // Uploaded as a file of that message's, so the bot may fetch it, and then keep its own copy.
+      const ref = await this.uploadBlob(this.whole(avatarBlob));
+      const avatar: AvatarRef = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
+      profile.avatar = avatar;
+      fileIds = [ref.fileId];
+    } else if (avatarBlob === null) {
+      profile.avatar = null;
+    }
+    await this.tellBot(botId, { type: "bot_settings", profile }, fileIds);
+  }
+
+  /** Says something to a bot as its owner, in their direct message, which is started if it has to be. */
+  protected async tellBot(botId: string, signal: MessageSignal, fileIds?: string[]): Promise<void> {
+    if (this.users.get(botId)?.bot?.ownerId !== this.account.userId) throw new Error("Only a bot's owner can change it.");
+    await this.sendSignal(await this.groupIdForKey(`user:${botId}`), signal, fileIds);
+  }
+
+  /** Deletes a bot for good: its owner's to do, and any server admin's for a listed one. It's taken out of all its chats. */
+  async deleteBot(botId: string): Promise<void> {
+    await this.api.deleteBot(botId);
+    const setups = this.getKv<BotSetups>(BOT_SETUPS) ?? {};
+    if (setups[botId]) {
+      delete setups[botId];
+      this.setKv(BOT_SETUPS, setups);
+    }
+  }
+
+  /** Gives a listed bot exactly these channels, for a server admin. It joins them by itself, and leaves any taken away. */
+  async setBotChannels(botId: string, channelIds: string[]): Promise<BotView> {
+    return this.botView(await this.api.setBotChannels(botId, channelIds));
+  }
+
+  /**
+   * Marks a bot this device made a setup link for as verified, once it has signed up with
+   * a key that link vouches for. The link held a key the server never saw, and the bot
+   * signed its identity key with it, so there's nothing to compare by eye. A bot that
+   * signed up with any other key isn't the one that was set up, and its owner is told.
+   */
+  protected async checkBotProofs(): Promise<void> {
+    const setups = this.getKv<BotSetups>(BOT_SETUPS);
+    if (!setups) return;
+    let verified = false;
+    for (const [botId, setup] of Object.entries(setups)) {
+      const proof = this.botProofs.get(botId);
+      const user = this.users.get(botId);
+      if (!proof || !user?.bot || user.bot.ownerId !== this.account.userId) continue;
+      if (!wasm.verify(fromBase64(setup.key), botProofInput(botId, user.identityKey), fromBase64(proof))) {
+        this.warnOnce(`bot-proof/${botId}`, `${setup.name} signed up with a key its setup link didn't make, so it may not be the bot you set up. Delete it and make it again.`, botId);
+        continue;
+      }
+      this.db.transaction(() => {
+        this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [botId, this.sealPin(botId, user.identityKey)]);
+        this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [botId, this.sealVerified(botId, user.identityKey)]);
+        this.noteUnsavedTrust({ verified: botId });
+        this.setVerifiedPosition(botId, this.headGeneration(botId));
+      });
+      this.refreshTrust(botId);
+      delete setups[botId];
+      verified = true;
+    }
+    if (!verified) return;
+    this.setKv(BOT_SETUPS, setups);
+    this.emit({ type: "users", serverId: this.serverId });
+    this.emitConversations();
+  }
+
+  /** Does what a message that's shown nowhere asks, if it's this device's to do. */
+  protected takeSignal(message: ApiMessage, body: MessageBody): void {
+    const signal = body.signal;
+    if (signal?.type === "bot_settings") {
+      // One at a time, in the order they came.
+      void this.withLock("bot-settings", () => this.obeyOwner(message, body.sentAt ?? message.created_at, signal)).catch((error) => console.warn("[zuna] taking on a bot's settings", error));
+    }
+    if (signal?.type === "button" && this.account.bot && this.hearsChat(message.group_id)) {
+      // Only for a button this bot's own message has, with the data that button holds.
+      const row = this.messageRow(message.group_id, signal.message);
+      const own = row?.sender_user === this.account.userId && row.deleted_at === null ? this.toMessageView(row).buttons : [];
+      if (!own.some((buttons) => buttons.some((button) => button.data === signal.data))) return;
+      this.emit({ type: "button", serverId: this.serverId, groupId: message.group_id, messageId: signal.message, userId: message.sender_user, data: signal.data, id: message.id });
+    }
+  }
+
+  /**
+   * A bot takes on what its owner's app asks of it, in its direct message with its owner
+   * and from nobody else: who may see and add it, which it keeps itself from then on, and
+   * its profile, which only it can seal. An older ask than the last one it took changes nothing.
+   */
+  protected async obeyOwner(message: ApiMessage, at: number, signal: Extract<MessageSignal, { type: "bot_settings" }>): Promise<void> {
+    const rules = this.account.bot;
+    const group = this.groups.get(message.group_id);
+    if (!rules || message.sender_user !== rules.ownerId || group?.kind !== "dm" || group.peerId !== rules.ownerId) return;
+    if (signal.listed !== undefined || signal.add !== undefined) {
+      if (at > (this.getKv<number>("bot_rules_at") ?? 0)) {
+        this.setKv("bot_rules_at", at);
+        const listed = signal.listed ?? rules.listed;
+        // A private bot is its owner's alone to add.
+        const add = listed ? (signal.add ?? rules.add) : "owner";
+        this.account = { ...this.account, bot: { ...rules, listed, add } };
+        this.onAccountChanged?.(this.account);
+      }
+    }
+    if (signal.profile && at > (this.getKv<number>("bot_profile_at") ?? 0)) {
+      this.setKv("bot_profile_at", at);
+      const { avatar, ...text } = signal.profile;
+      await this.updateProfile(text, avatar ? await this.downloadFile(avatar) : avatar);
+    }
   }
 }

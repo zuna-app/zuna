@@ -185,6 +185,7 @@ export abstract class SessionLifecycle extends SessionServer {
     await this.syncVault();
     this.checkManifestFloor();
     await this.syncUsers();
+    await this.checkBotProofs();
     await this.saveTrust();
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
@@ -292,7 +293,9 @@ export abstract class SessionLifecycle extends SessionServer {
         const user = data as ApiUser;
         const before = this.keysOf(user.id);
         this.applyUser(user);
-        void this.saveTrust().catch(() => undefined);
+        void this.checkBotProofs()
+          .then(() => this.saveTrust())
+          .catch(() => undefined);
         this.emit({ type: "users", serverId: this.serverId });
         this.emitConversations();
         // Only a change to who they are or which devices they have can change their groups' trees:

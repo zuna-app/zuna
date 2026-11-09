@@ -420,7 +420,11 @@ func TestWhatABotMayNotDo(t *testing.T) {
 	refused("listing invites", "GET", "/api/invites", nil)
 	refused("making a bot", "POST", "/api/bots", map[string]any{"username": "helper2"})
 	refused("changing the server's settings", "PATCH", "/api/admin/settings", map[string]any{"name": "Mine"})
-	refused("uploading a file it isn't allowed", "POST", "/api/files", map[string]any{"chunk_count": 1, "total_size": 10})
+	withFile := owner.dm(bot.userID)
+	owner.commit(withFile.ID, 0, nil)
+	refused("sending a file it isn't allowed", "POST", "/api/groups/"+withFile.ID+"/messages", map[string]any{
+		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{store.NewID()},
+	})
 
 	// Nor is it ever one of the server's admins.
 	if status, body := h.do("PUT", "/api/admin/users/"+bot.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil); status != http.StatusForbidden || body["error"] != "bot" {
@@ -456,9 +460,13 @@ func TestWhatABotMayNotDo(t *testing.T) {
 	bot.joinChannel(voice.ID, false)
 	refused("joining a voice channel's room", "POST", "/api/channels/"+voice.ID+"/voice", nil)
 
-	// Allowed files again, it may send them.
+	// Allowed files again, that's no longer what refuses it: the file just isn't there.
 	h.mustDo("PATCH", "/api/bots/"+bot.userID, owner.token, map[string]any{"files": true}, nil)
-	h.mustDo("POST", "/api/files", bot.token, map[string]any{"chunk_count": 1, "total_size": 10}, nil)
+	if status, body := h.do("POST", "/api/groups/"+withFile.ID+"/messages", bot.token, map[string]any{
+		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{store.NewID()},
+	}, nil); body["error"] == "bot" {
+		t.Fatalf("a bot allowed files sending one gave %d %v", status, body)
+	}
 
 	// A channel taken away is one it's out of, and a private bot is out of them all.
 	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", owner.token, map[string]any{"channels": []string{given.ID}}, nil)

@@ -82,6 +82,8 @@ export abstract class SessionChannels extends SessionManagement {
   }
 
   protected async joinMissingChannels(): Promise<void> {
+    // A private bot stays out of channels, whatever a server lists for it.
+    if (this.account.bot && !this.account.bot.listed) return;
     // Looks again each time, since more may be made meanwhile, and tries each once.
     const tried = new Set<string>();
     for (;;) {
@@ -101,7 +103,8 @@ export abstract class SessionChannels extends SessionManagement {
     const self = this.account.userId;
     const held = this.groups.get(id);
     if (!held || held.removedAt || !held.members.some((member) => member.userId === self)) {
-      const { group } = await this.api.joinChannel(id, channelProof(this.account.core.communityKey, id, self), true);
+      // A bot gets nothing from before it came in.
+      const { group } = await this.api.joinChannel(id, channelProof(this.account.core.communityKey, id, self), !this.account.bot);
       if (group.kind !== "channel" || group.id !== id) throw new Error("The server's answer about this channel doesn't hold together.");
       this.applyGroup(group);
     }

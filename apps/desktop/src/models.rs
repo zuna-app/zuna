@@ -16,6 +16,10 @@ pub struct ServerInfo {
     pub registration: String,
     pub max_upload_mb: f64,
     pub allow_member_invites: bool,
+    /// Whether everyone may make private bots. The server's admins always may, and only they make listed ones.
+    pub allow_member_bots: bool,
+    /// How many bots one person may have.
+    pub max_bots: f64,
     pub retention_days: f64,
     pub emote_set_id: String,
     pub emote_set_name: String,
@@ -96,6 +100,58 @@ pub struct UserView {
     pub deleted: bool,
     pub trust: String,
     pub is_self: bool,
+    /// Set for a bot, which shows a badge wherever its name does, and never as online or last seen.
+    pub bot: Option<BotInfo>,
+    /// A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any.
+    pub commands: Vec<BotCommand>,
+}
+
+/// A command a bot answers to: what's typed after the "/", and what it's for.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default)]
+pub struct BotCommand {
+    pub command: String,
+    pub description: String,
+}
+
+/// A button under a bot's message. One with a link opens it, through the same question a link in a
+/// message asks. One with data sends that back to the bot when it's pressed.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default)]
+pub struct MessageButton {
+    pub text: String,
+    pub url: Option<String>,
+    pub data: Option<String>,
+}
+
+/// What makes an account a bot's: one a program runs, which reads everything said in the chats it's in.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BotInfo {
+    pub owner_id: String,
+    /// Everyone on the server sees it. A private one is only there for its owner and for whoever is in a chat with it.
+    pub listed: bool,
+    /// Who may add it to a group: "owner", "admins" or "anyone".
+    pub add: String,
+}
+
+/// A bot as its owner manages it, or one of the server's admins a listed one.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BotView {
+    /// Its account's ID, from when it's made.
+    pub id: String,
+    pub username: String,
+    pub owner_id: String,
+    pub listed: bool,
+    pub add: String,
+    /// Whether it may send files.
+    pub files: bool,
+    /// The channels a server admin gave it, which are the only ones it joins.
+    pub channels: Vec<String>,
+    /// Its program has signed up with its setup link. Until then it has no account.
+    pub set_up: bool,
+    pub created_at: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
@@ -209,6 +265,8 @@ pub struct MessageView {
     pub preview: Option<LinkPreview>,
     pub forwarded: Option<ForwardInfo>,
     pub location: Option<SharedLocation>,
+    /// Rows of buttons under a bot's message. Empty under anyone else's.
+    pub buttons: Vec<Vec<MessageButton>>,
     pub upload_progress: Option<f64>,
     pub time_differs: Option<bool>,
     pub expires_at: Option<f64>,
@@ -246,6 +304,8 @@ pub struct ConversationView {
     pub marked_unread: bool,
     pub mentions_only: bool,
     pub blocked: bool,
+    /// A direct message with a bot.
+    pub bot: bool,
     pub members: Vec<GroupMemberView>,
     pub history_visible: bool,
     pub read_by: HashMap<String, f64>,

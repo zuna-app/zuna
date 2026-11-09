@@ -52,16 +52,17 @@ type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknow
 // someone has taken over. TypeScript checks that each is exactly the public methods.
 const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   deleteAccount: true, findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
-  previewInvite: true, recover: true, register: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
+  previewInvite: true, recover: true, register: true, registerBot: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
   stop: true, suspend: true
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   addMembers: true, addSound: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
+  createBot: true, deleteBot: true, getBots: true, newBotLink: true, setBotChannels: true, updateBot: true, updateBotProfile: true,
   declineCall: true, deleteMessage: true, deleteMessages: true, deleteSound: true, discardMessage: true, downloadChunk: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
   flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getCalls: true, getChannels: true, getConnectionState: true, getConversations: true,
-  getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getBans: true, getReports: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, invites: true,
+  getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getBans: true, getReports: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, hearsChat: true, invites: true,
   isActiveElsewhere: true, leaveGroup: true, linkForInvite: true, loadAround: true, loadMedia: true, loadMessages: true, loadNewer: true, loadPins: true, markChatRead: true, markRead: true,
-  markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, playSound: true, prepareCall: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
+  markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, playSound: true, prepareCall: true, prepareNewDevice: true, pressButton: true, previewText: true, refreshEmotes: true,
   regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, reportUser: true, resume: true, retryMessage: true, ringCall: true, revokeDevice: true, revokeInvite: true, rotate: true,
   safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendNow: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
   setActive: true, setBlocked: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,

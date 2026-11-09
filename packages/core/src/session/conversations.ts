@@ -111,9 +111,10 @@ export abstract class SessionConversations extends SessionIngest {
       out.push(this.conversationOf(group, now));
     }
 
-    // Everyone on the server is a conversation from the start.
+    // Everyone on the server is a conversation from the start. A bot is one once someone
+    // has written to it, and before that only for an app that lists bots by themselves.
     for (const user of this.users.values()) {
-      if (usersWithDm.has(user.id) || user.banned || user.deleted) continue;
+      if (usersWithDm.has(user.id) || user.banned || user.deleted || (user.bot && !this.botsOn)) continue;
       const key = `user:${user.id}`;
       out.push({
         key,
@@ -135,6 +136,7 @@ export abstract class SessionConversations extends SessionIngest {
         markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
         mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
         blocked: this.isBlocked(user.id),
+        bot: !!user.bot,
         members: [],
         historyVisible: false,
         readBy: {},
@@ -190,6 +192,7 @@ export abstract class SessionConversations extends SessionIngest {
       markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
       mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
       blocked: group.kind === "dm" && !!group.peerId && this.isBlocked(group.peerId),
+      bot: group.kind === "dm" && !!group.peerId && !!this.users.get(group.peerId)?.bot,
       members: this.membersWithKeys(group),
       historyVisible: group.kind === "channel" || this.sharesHistory(group),
       readBy: group.readBy,

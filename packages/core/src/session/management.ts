@@ -208,7 +208,7 @@ export abstract class SessionManagement extends SessionSending {
         // Someone the server lists but the roster doesn't was never let in, so they're added like anyone else.
         const missing = userIds.filter((id) => !group.members.some((member) => member.user_id === id) || !held.roster.members.includes(id));
         const packages: { deviceId: string; data: Uint8Array }[] = [];
-        for (const userId of missing) packages.push(...(await this.claimKeyPackages(userId)));
+        for (const userId of missing) packages.push(...(await this.claimKeyPackages(userId, groupId)));
         if (packages.length === 0) throw new Error("Those people have no devices available to add.");
         let grants: { user_id: string; data: Uint8Array }[] | undefined;
         if (this.sharesHistory(cached)) {
@@ -217,7 +217,8 @@ export abstract class SessionManagement extends SessionSending {
           const keys = this.allEpochKeys(groupId);
           for (const userId of missing) {
             const user = await this.ensureUser(userId, true);
-            if (!user) continue;
+            // A bot reads what's said from when it was added, and gets nothing from before.
+            if (!user || user.bot) continue;
             const apiUser = await this.api.user(userId);
             // A chain's newest link names this key itself, and was checked when it came.
             if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;

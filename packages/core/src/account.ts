@@ -19,7 +19,7 @@ import {
   type SignInTarget,
   type VaultCore,
 } from "./crypto";
-import { equalBytes, fromBase64, fromBase64Url, fromRecoveryText, toBase64, toBase64Url, toRecoveryText, utf8 } from "./encoding";
+import { concat, equalBytes, fromBase64, fromBase64Url, fromRecoveryText, fromUtf8, toBase64, toBase64Url, toRecoveryText, utf8 } from "./encoding";
 import {
   EMPTY_LINK_HASH,
   createSlot,
@@ -36,7 +36,7 @@ import {
   type SlotKind,
 } from "./generations";
 import { manifestParts } from "./manifest";
-import type { InvitePreview, Profile, Role } from "./types";
+import type { BotAdd, BotInfo, InvitePreview, Profile, Role } from "./types";
 
 /** Everything a device needs to act for its account. Stored encrypted at rest. */
 export interface AccountState {
@@ -58,6 +58,12 @@ export interface AccountState {
   sealOlder?: Uint8Array;
   /** The pin of a server that makes its own certificate, which the app trusts and nothing else. */
   pin?: string;
+  /**
+   * Set on the machine that runs a bot: whose it is, and who may see and add it. These are
+   * its owner's rules, from its setup link and from its owner since, which it keeps itself
+   * whatever a server says. `ownerKey` is its owner's identity key, as the link gave it.
+   */
+  bot?: BotInfo & { ownerKey?: string };
 }
 
 /** A device signed in, and whatever has to happen next, in one go, for it to count. */
@@ -73,7 +79,49 @@ export interface ParsedInvite {
   code: string;
   communityKey: string | null;
   pin: string | null;
+  /** What a bot's setup link carries besides, for the bot it was made for. */
+  bot: BotSetup | null;
 }
+
+/**
+ * What a bot's setup link carries for its program, in the part after the #, which never
+ * reaches the server: who the bot is, whose it is, and a key made for this link alone.
+ */
+export interface BotSetup {
+  /** The ID the bot's account will have. */
+  id: string;
+  username: string;
+  name: string;
+  /** Signs the bot's identity key, so that its owner's app knows the key is the one this link made. */
+  secret: Uint8Array;
+  ownerId: string;
+  /** Its owner's identity key, which the bot goes by from the start, whatever the server says it is. */
+  ownerKey: Uint8Array;
+  listed: boolean;
+  add: BotAdd;
+}
+
+const ACCOUNT_ID = /^[0-9a-f]{32}$/;
+
+function parseBotSetup(encoded: string | null): BotSetup | null {
+  if (!encoded) return null;
+  try {
+    const raw = JSON.parse(fromUtf8(fromBase64Url(encoded))) as Record<string, unknown>;
+    const { id, u, n, s, o, k, l, a } = raw;
+    if (typeof id !== "string" || !ACCOUNT_ID.test(id) || typeof o !== "string" || !ACCOUNT_ID.test(o)) return null;
+    if (typeof u !== "string" || typeof n !== "string" || typeof s !== "string" || typeof k !== "string") return null;
+    const secret = fromBase64Url(s);
+    const ownerKey = fromBase64Url(k);
+    if (secret.length < 32 || ownerKey.length !== 32) return null;
+    const listed = l === 1;
+    return { id, username: u, name: n, secret, ownerId: o, ownerKey, listed, add: listed && (a === "admins" || a === "anyone") ? a : "owner" };
+  } catch {
+    return null;
+  }
+}
+
+/** What a bot signs with its setup link's key: that this identity key is the account's the link was made for. */
+export const botProofInput = (botId: string, identityKey: Uint8Array): Uint8Array => concat(utf8(`zuna/bot-setup/v1|${botId}|`), identityKey);
 
 /** Understands https invite links, zuna:// deep links and bare server addresses with a code. */
 export function parseInviteLink(input: string): ParsedInvite | null {
@@ -96,7 +144,7 @@ export function parseInviteLink(input: string): ParsedInvite | null {
   const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ""));
   const pin = pinIn(parsed.hash);
   if (pin) checkPinnable(url);
-  return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k"), pin };
+  return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k"), pin, bot: parseBotSetup(fragment.get("bot")) };
 }
 
 /** A server's address, from what someone entered: the address itself, maybe with a pin, or any of its invite links. */
@@ -132,10 +180,14 @@ function linkIn(input: string): string | null {
 export async function previewInvite(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
   const parsed = parseInviteLink(link);
   if (!parsed) return previewOpenServer(link, pin);
+  if (parsed.bot) throw new Error(BOT_LINK_ELSEWHERE);
   if (parsed.pin) await pin(parsed.url, parsed.pin);
   const details = await new Api(parsed.url).inviteInfo(parsed.code);
+  if (details.bot) throw new Error(BOT_LINK_ELSEWHERE);
   return { ...parsed, setup: details.setup, server: details.server };
 }
+
+const BOT_LINK_ELSEWHERE = "That link sets up a bot. Give it to zuna-bot on the machine that will run the bot.";
 
 /** A plain server address works too, if that server has open sign-ups. */
 async function previewOpenServer(address: string, trust: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
@@ -161,6 +213,12 @@ async function previewOpenServer(address: string, trust: (url: string, pin: stri
 
 export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined): string =>
   `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}${pin ? `&pin=${pin}` : ""}`;
+
+/** A bot's setup link: its invite's, with who the bot is and the key that vouches for it after the #. */
+export function botSetupLink(serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, bot: BotSetup): string {
+  const carried = { id: bot.id, u: bot.username, n: bot.name, s: toBase64Url(bot.secret), o: bot.ownerId, k: toBase64Url(bot.ownerKey), l: bot.listed ? 1 : 0, a: bot.add };
+  return `${inviteLink(serverUrl, code, communityKey, pin)}&bot=${toBase64Url(utf8(JSON.stringify(carried)))}`;
+}
 
 /** Makes this device, and shows it came from someone who could open a slot. */
 async function createDevice(api: Api, core: VaultCore, userId: string, slotSign: Uint8Array) {
@@ -199,6 +257,8 @@ export interface RegisterInput {
   username: string;
   password: string;
   profile: Profile;
+  /** For a bot signing up through its setup link. */
+  bot?: BotSetup;
 }
 
 export interface RegisterResult {
@@ -269,7 +329,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     vault_core: sealVaultCore(accountKey, core),
     items: manifest.map(({ id, data, version }) => ({ id, data: sealVaultItem(accountKey, id, data, 0), version })),
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
+    bot_proof: input.bot ? wasm.sign(input.bot.secret, botProofInput(input.bot.id, core.identityPublic)) : undefined,
   });
+  if (input.bot && created.user_id !== input.bot.id) throw new Error("The server made another account than the one this link is for. Not continuing.");
   api.token = created.token;
 
   const device = await createDevice(api, core, created.user_id, passwordSlot.secrets.sign);
@@ -283,9 +345,32 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       ...device,
       accountKey,
       core,
+      ...(input.bot ? { bot: { ownerId: input.bot.ownerId, listed: input.bot.listed, add: input.bot.add, ownerKey: toBase64(input.bot.ownerKey) } } : {}),
     },
     recoveryKey: toRecoveryText(recoveryKey),
   };
+}
+
+/**
+ * Signs a bot up through its setup link, on the machine that will run it. Its password
+ * is 32 random bytes nobody ever sees, so there's none to guess: whoever holds its data
+ * is the bot, and its recovery key is the only way back if that's lost.
+ */
+export async function registerBot(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<RegisterResult & { pin: string | null }> {
+  const parsed = parseInviteLink(link);
+  if (!parsed?.bot || !parsed.communityKey) throw new Error("That isn't a bot's setup link. Copy it again from Settings, Bots, with everything after the #.");
+  if (parsed.pin) await pin(parsed.url, parsed.pin);
+  const details = await new Api(parsed.url).inviteInfo(parsed.code);
+  if (!details.bot) throw new Error("That link isn't for setting up a bot.");
+  const result = await register({
+    invite: { ...parsed, setup: false, server: details.server },
+    serverUrl: parsed.url,
+    username: parsed.bot.username,
+    password: toBase64(wasm.randomBytes(32)),
+    profile: { displayName: parsed.bot.name || parsed.bot.username },
+    bot: parsed.bot,
+  });
+  return { ...result, pin: parsed.pin };
 }
 
 interface OpenedAccount {

@@ -7,6 +7,7 @@ import {
   previewInvite,
   recover,
   register,
+  registerBot,
   type AccountState,
 } from "./account";
 import { serverAddress, Api, ApiError } from "./api";
@@ -74,6 +75,8 @@ export interface ZunaClientOptions {
   channels?: boolean;
   /** The app has calls in direct messages and groups. One that doesn't hears nothing of them. */
   calls?: boolean;
+  /** The app lists bots in a section of their own. One that doesn't is given no chat with a bot nobody has written to yet. */
+  bots?: boolean;
   /**
    * Trusts the certificate of a server that makes its own by the pin from its
    * links, and no other certificate for that server, until the app closes. It's
@@ -222,6 +225,7 @@ export class ZunaClient {
       this.options.files,
       this.options.channels ?? false,
       this.options.calls ?? false,
+      this.options.bots ?? false,
     );
     // Nothing is erased on the server's word: that's for the person to decide.
     session.onSignedOut = (reason) => {
@@ -320,6 +324,16 @@ export class ZunaClient {
     if (invite.pin) await this.pin(invite.url, invite.pin);
     const result = await register({ invite, serverUrl: invite.url, username, password, profile });
     const serverId = await this.addAccount(withPin(result.account, invite.pin), true);
+    return { serverId, recoveryKey: result.recoveryKey };
+  }
+
+  /**
+   * Signs a bot up through its setup link, on the machine that runs it. What comes back
+   * with it is its recovery key, the only way back in if its data is lost.
+   */
+  async registerBot(link: string): Promise<{ serverId: string; recoveryKey: string }> {
+    const result = await registerBot(link, (url, pin) => this.pin(url, pin));
+    const serverId = await this.addAccount(withPin(result.account, result.pin), true);
     return { serverId, recoveryKey: result.recoveryKey };
   }
 

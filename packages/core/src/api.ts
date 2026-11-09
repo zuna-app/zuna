@@ -47,6 +47,21 @@ export interface ApiUser {
   created_at: number;
   updated_at: number;
   devices: ApiDevice[];
+  /** Set for a bot. The proof is its signature on its identity key, by the key its setup link held, and comes to its owner alone. */
+  bot?: { owner_id: string; listed: boolean; add: string; proof?: string | null } | null;
+}
+
+/** A bot as the server lists it for its owner, and a listed one for the server's admins. */
+export interface ApiBot {
+  id: string;
+  owner_id: string;
+  username: string;
+  listed: boolean;
+  add: string;
+  files: boolean;
+  channels: string[];
+  set_up: boolean;
+  created_at: number;
 }
 
 /** Someone reported to the server's admins, why and when. Who reported them isn't kept. */
@@ -390,7 +405,7 @@ export class Api {
   // Server
   info = () => this.request<ServerInfo>("GET", "/api/info");
   inviteInfo = (code: string) =>
-    this.request<{ setup: boolean; server: ServerInfo }>("GET", at`/api/invites/${code}`);
+    this.request<{ setup: boolean; bot?: boolean; server: ServerInfo }>("GET", at`/api/invites/${code}`);
 
   // Accounts
   prelogin = (username: string) => this.request<ApiKdf>("POST", "/api/auth/prelogin", { username });
@@ -419,11 +434,12 @@ export class Api {
   keyPackageStatus = () => this.request<{ count: number; last_resort_at: number }>("GET", "/api/key-packages/status");
   addKeyPackages = (keyPackages: Uint8Array[], lastResort?: Uint8Array) =>
     this.request("POST", "/api/key-packages", { key_packages: keyPackages, last_resort: lastResort });
-  claimKeyPackages = async (userId: string) =>
+  /** For the chat `groupId`, which says whether a bot's may be had. */
+  claimKeyPackages = async (userId: string, groupId: string) =>
     (await this.request<{ key_packages: { user_id: string; device_id: string; data: string }[] }>(
       "POST",
       at`/api/users/${userId}/key-packages/claim`,
-      {},
+      { group_id: groupId },
     )).key_packages;
 
   // Vault
@@ -524,7 +540,8 @@ export class Api {
     return (await this.request<{ messages: ApiMessage[] }>("GET", `${at`/api/groups/${groupId}/messages`}?${query}`)).messages;
   };
   message = (groupId: string, id: string) => this.request<ApiMessage>("GET", at`/api/groups/${groupId}/messages/${id}`);
-  sendMessage = (groupId: string, body: { id: string; epoch: number; envelope: Uint8Array; file_ids?: string[]; expires_in?: number }) =>
+  /** `silent` is for a message apps show nowhere, which no phone is woken for. */
+  sendMessage = (groupId: string, body: { id: string; epoch: number; envelope: Uint8Array; file_ids?: string[]; expires_in?: number; silent?: boolean }) =>
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
   editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
     this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
@@ -569,6 +586,14 @@ export class Api {
   createSound = (id: string, details: Uint8Array, fileId: string) => this.request<{ sound: ApiSound }>("POST", "/api/sounds", { id, details, file_id: fileId });
   updateSound = (id: string, details: Uint8Array) => this.request("PATCH", at`/api/sounds/${id}`, { details });
   deleteSound = (id: string) => this.request("DELETE", at`/api/sounds/${id}`);
+
+  // Bots
+  bots = async () => (await this.request<{ bots: ApiBot[] }>("GET", "/api/bots")).bots;
+  createBot = (body: { username: string; listed: boolean; add: string; files: boolean }) => this.request<{ bot: ApiBot; code: string }>("POST", "/api/bots", body);
+  updateBot = async (id: string, body: { listed?: boolean; add?: string; files?: boolean }) => (await this.request<{ bot: ApiBot }>("PATCH", at`/api/bots/${id}`, body)).bot;
+  renewBotSetup = (id: string) => this.request<{ bot: ApiBot; code: string }>("POST", at`/api/bots/${id}/setup`, {});
+  deleteBot = (id: string) => this.request("DELETE", at`/api/bots/${id}`);
+  setBotChannels = async (id: string, channels: string[]) => (await this.request<{ bot: ApiBot }>("PUT", at`/api/bots/${id}/channels`, { channels })).bot;
 
   // Administration
   invites = async () => (await this.request<{ invites: Invite[] }>("GET", "/api/invites")).invites;

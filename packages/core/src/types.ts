@@ -13,6 +13,10 @@ export interface ServerInfo {
   registration: "invite" | "open";
   max_upload_mb: number;
   allow_member_invites: boolean;
+  /** Whether everyone may make private bots. The server's admins always may, and only they make listed ones. */
+  allow_member_bots: boolean;
+  /** How many bots one person may have. */
+  max_bots: number;
   retention_days: number;
   emote_set_id: string;
   emote_set_name: string;
@@ -77,10 +81,56 @@ export interface Profile {
   displayName: string;
   bio?: string;
   avatar?: AvatarRef | null;
+  /** A bot's commands, which typing "/" in a chat it's in offers. */
+  commands?: BotCommand[];
+}
+
+/** A command a bot answers to: what's typed after the "/", and what it's for. */
+export interface BotCommand {
+  command: string;
+  description: string;
+}
+
+/**
+ * A button under a bot's message. One with a link opens it, through the same question
+ * a link in a message asks. One with data sends that back to the bot when it's pressed.
+ */
+export interface MessageButton {
+  text: string;
+  url?: string;
+  data?: string;
 }
 
 /** How far a contact's identity key has been checked. */
 export type TrustState = "unverified" | "verified" | "changed";
+
+/** Who may add a bot to a group, as its owner chose: only them, the server's admins too, or anyone. A private bot's is always its owner. */
+export type BotAdd = "owner" | "admins" | "anyone";
+
+/** What makes an account a bot's: one a program runs, which reads everything said in the chats it's in. */
+export interface BotInfo {
+  ownerId: string;
+  /** Everyone on the server sees it. A private one is only there for its owner and for whoever is in a chat with it. */
+  listed: boolean;
+  add: BotAdd;
+}
+
+/** A bot as its owner manages it, or one of the server's admins a listed one. */
+export interface BotView {
+  /** Its account's ID, from when it's made. */
+  id: string;
+  username: string;
+  ownerId: string;
+  listed: boolean;
+  add: BotAdd;
+  /** Whether it may send files. */
+  files: boolean;
+  /** The channels a server admin gave it, which are the only ones it joins. */
+  channels: string[];
+  /** Its program has signed up with its setup link. Until then it has no account. */
+  setUp: boolean;
+  createdAt: number;
+}
 
 export interface UserView {
   id: string;
@@ -96,6 +146,10 @@ export interface UserView {
   deleted: boolean;
   trust: TrustState;
   isSelf: boolean;
+  /** Set for a bot, which shows a badge wherever its name does, and never as online or last seen. */
+  bot: BotInfo | null;
+  /** A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any. */
+  commands: BotCommand[];
 }
 
 export interface Attachment {
@@ -166,7 +220,29 @@ export interface MessageBody {
   expiresIn?: number;
   /** A place the sender shared, from their device. */
   location?: SharedLocation;
+  /** Rows of buttons under the message, which only a bot's are shown with. */
+  buttons?: MessageButton[][];
+  /** Something for apps to act on. A message with one is shown nowhere. */
+  signal?: MessageSignal;
 }
+
+/**
+ * What a message carries for apps to act on instead of showing it. It goes to a
+ * chat's members as every message does, and only whoever it's for does anything.
+ */
+export type MessageSignal =
+  /**
+   * From a bot's owner to the bot, in their direct message: what it's called, and who
+   * may see and add it. A profile is sealed by the account it belongs to, so the bot
+   * sets its own, and it keeps its owner's rules itself, whatever a server says.
+   */
+  | { type: "bot_settings"; listed?: boolean; add?: BotAdd; profile?: { displayName?: string; bio?: string; avatar?: AvatarRef | null } }
+  /**
+   * Someone pressed a button under a bot's message: which message, and the data the
+   * button holds. It goes to the whole chat, as a chat's messages do, and only the bot
+   * acts on it.
+   */
+  | { type: "button"; message: string; data: string };
 
 /**
  * Where someone's device said they were when they shared it. It travels inside
@@ -276,6 +352,8 @@ export interface MessageView {
   preview: LinkPreview | null;
   forwarded: ForwardInfo | null;
   location: SharedLocation | null;
+  /** Rows of buttons under a bot's message. Empty under anyone else's. */
+  buttons: MessageButton[][];
   uploadProgress?: number;
   /** The time the sender's device signed is far from the server's. */
   timeDiffers?: boolean;
@@ -324,6 +402,8 @@ export interface ConversationView {
   mentionsOnly: boolean;
   /** A direct message with someone you blocked. */
   blocked: boolean;
+  /** A direct message with a bot. */
+  bot: boolean;
   /** The group's membership: empty for a DM that has no group yet. */
   members: GroupMemberView[];
   historyVisible: boolean;
@@ -588,4 +668,6 @@ export type CoreEvent =
   /** A session that seemed to be over is working after all. */
   | { type: "signed_in"; serverId: string }
   | { type: "security"; serverId: string; userId: string; message: string }
+  /** For a bot: someone pressed a button under one of its messages. `id` is the press's own, which is new each time. */
+  | { type: "button"; serverId: string; groupId: string; messageId: string; userId: string; data: string; id: string }
   | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string };

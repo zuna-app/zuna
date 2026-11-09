@@ -515,6 +515,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		FileIDs  []string `json:"file_ids"`
 		// How long until a disappearing message goes, in seconds, as its sender's app asks.
 		ExpiresIn int64 `json:"expires_in"`
+		// Silent is for a message apps show nowhere, such as a button's press: no phone is
+		// woken for it. It only ever spares someone a notification.
+		Silent bool `json:"silent"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -554,7 +557,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 	}
 	s.broadcastMessage(r, groupID, message)
 	// A message sent again, or a server without push, has no phones to wake.
-	if created && len(s.cfg.PushRelays) > 0 {
+	if created && !body.Silent && len(s.cfg.PushRelays) > 0 {
 		if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil {
 			s.pushMessage(groupID, kind == "channel", message)
 		}

@@ -85,6 +85,9 @@ export abstract class SessionLocal extends SessionBase {
     }
     // This account's own key comes from its vault, never from what the server says.
     this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [this.account.userId, this.sealPin(this.account.userId, this.account.core.rootPublic)]);
+    // And a bot's owner's from its setup link, since the bot does what its owner says.
+    const { bot } = this.account;
+    if (bot?.ownerKey) this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [bot.ownerId, this.sealPin(bot.ownerId, fromBase64(bot.ownerKey))]);
     this.loadChains();
     this.rotationOpen = this.getKv<RotationIntent>(ROTATION_INTENT) !== null;
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
@@ -182,7 +185,7 @@ export abstract class SessionLocal extends SessionBase {
    */
   protected madeAction(userId: string, when: number): void {
     const user = this.users.get(userId);
-    if (!user || userId === this.account.userId || user.deleted || user.banned || this.isBlocked(userId)) return;
+    if (!user || userId === this.account.userId || user.deleted || user.banned || user.bot || this.isBlocked(userId)) return;
     const till = when + presenceTiming.actedOnlineMs;
     const now = Date.now();
     if (till <= (this.actedUntil.get(userId) ?? 0) || (till <= now && till <= (user.lastSeenAt ?? 0))) return;
@@ -363,9 +366,16 @@ export abstract class SessionLocal extends SessionBase {
       deleted: api.deleted,
       trust: this.trustOf(api.id, identityKey),
       devices,
+      bot: api.bot ? { ownerId: api.bot.owner_id, listed: api.bot.listed === true, add: api.bot.add === "admins" || api.bot.add === "anyone" ? api.bot.add : "owner" } : null,
     };
+    if (api.bot?.proof) this.botProofs.set(api.id, api.bot.proof);
     this.users.set(api.id, user);
     this.persistUser(user);
+    // An account the server says is a bot's keeps a bot's rules, as after its data was brought back with its recovery key.
+    if (isSelf && user.bot && !this.account.bot) {
+      this.account = { ...this.account, bot: user.bot };
+      this.onAccountChanged?.(this.account);
+    }
     if (isSelf && user.role !== this.account.role) {
       this.account = { ...this.account, role: user.role };
     }
@@ -416,13 +426,16 @@ export abstract class SessionLocal extends SessionBase {
       displayName: user.profile.displayName || user.username,
       bio: user.profile.bio ?? "",
       avatar: user.profile.avatar ?? null,
-      online: this.shownOnline(user.id),
-      lastSeenAt: this.shownLastSeen(user),
+      // Nobody is using a bot, so it's never online, and was never last seen.
+      online: !user.bot && this.shownOnline(user.id),
+      lastSeenAt: user.bot ? null : this.shownLastSeen(user),
       hidesLastSeen: user.hidesLastSeen,
       banned: user.banned,
       deleted: user.deleted,
       trust: user.trust,
       isSelf: user.id === this.account.userId,
+      bot: user.bot ?? null,
+      commands: user.bot ? (user.profile.commands ?? []) : [],
     };
   }
 

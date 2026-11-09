@@ -7,7 +7,7 @@ import { planToJson, type SignedLink } from "../generations";
 import { utf8 } from "../encoding";
 import { manifestParts, type TrustManifest } from "../manifest";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseReaction, parseSystemEvent, type ChannelDetails, type GroupDetails, type SoundDetails } from "../validate";
-import type { GroupMemberView, MessageBody, MessageStatus, Profile, ReactionView, Role, SystemEvent, TrustState } from "../types";
+import type { BotInfo, GroupMemberView, MessageBody, MessageStatus, Profile, ReactionView, Role, SystemEvent, TrustState } from "../types";
 
 export const CHUNK_SIZE = 1 << 20;
 /** How often a claim of someone's key packages is tried while the server says to slow down, and how far apart: it allows one every 2 seconds then. */
@@ -161,7 +161,13 @@ export interface CachedUser {
   deleted: boolean;
   trust: TrustState;
   devices: Map<string, CachedDevice>;
+  /** Set for a bot, as the server says: whose it is, and who may see and add it. */
+  bot?: BotInfo | null;
 }
+
+/** The setup links this device made for bots still to sign up: the key that checks each one's proof, and what it's called. */
+export const BOT_SETUPS = "bot_setups";
+export type BotSetups = Record<string, { key: string; name: string }>;
 
 export type GroupMeta = GroupDetails;
 
