@@ -21,7 +21,7 @@ What it doesn't do:
 
 | Against | What they have | What holds |
 |---|---|---|
-| **A copy of the server's data** | The database, files and logs, once or over time: a break-in, a backup, a seizure | No sender of any content, and no exact way to work one out |
+| **A copy of the server's data** | The database, files and logs, once or over time: a break-in, a backup, a seizure | No sender of any content, and no exact way to work one out, but for a file's on a day few people uploaded, as the last section says |
 | **An honest server someone watches** | Whatever the server as written receives | It's never handed a sender, so there's nothing to write down or hand over |
 | **A server changed to find out** | Addresses, timing, every request | Not promised. It's no easier than timing and addresses already made it |
 | **A member** | The conversation's keys | Can't write as anyone else, can't touch others' messages, and can't cost the conversation more than they could with their name on it |
@@ -67,6 +67,7 @@ send key    = its public half, which the server holds for the group's current ep
 - **Whoever makes an epoch gives the server its send key** with the commit (`send_key`), external commits too. The server can't check it, and needn't.
 - **A sealed request is signed with the send secret,** and the server checks it against the one key it holds for the group. Any member's signature looks the same.
 - **Only the current epoch's key is taken,** so someone removed can't write. A request for an older epoch is answered `409 stale_epoch`, and `sealAndRetry` tries again.
+- **The server forgets the key when a device goes without a commit:** its person leaves, is banned or deletes their account, or the device is signed out or removed (`voidSendKey`, `voidSendKeysOf` in `server/internal/store/commits.go`). That device is still in the tree, so it would make the key, and pay with tokens it fetched before, until a member's commit took it out. Nothing sealed is taken for the group until that commit gives the next epoch's key, which an app sends before anything else (`ensureTreeClean`), and a send refused with `not_sealed` reads who's in the group again and does the same.
 - **The secret is never stored or handed on,** like `voiceKey`: not in the vault, not in a history grant. Its exporter label isn't the content key's, so holding old content keys gives no way to write.
 - **Every member checks the server's key against its own** when it applies a commit or reads the group (`checkSendKey` in `session/changes.ts`). One that differs is put right by a member's commit after a random wait, as every commit carries a key.
 - **Undoing commits restores it:** the server holds each send key beside its group info (`group_infos.send_key`, and the replaced key on the undone commit's event), and restores both together.
@@ -83,6 +84,7 @@ A limit on a person needs a name, and a limit on a whole group would let one mem
 - **Limits, counted against the person across their devices** (`token_issues`): 1,000 small and 100 large in each period, and for a bot 10,000 and 500. The most one person can make a server keep in a day is about 225 MiB, and a bot 1.7 GiB.
 - **Asked for while signed in, at times of their own** (`POST /api/tokens`, behind `withDevice`): a device fetches 100 small once it holds fewer than 40 for the current period, and 10 large below 4, a random one to ten minutes after it notices, and its first as soon as it's signed in. One with none, as a new device sending at once, fetches then and sends, which says something that one time. They're kept sealed in the core's `tokens` table (`session/sending.ts`, the Tokens part).
 - **Spent in the same transaction as the write,** so one refused for `stale_epoch` costs nothing (`spent_tokens`). Reactions, edits, pins and deletions spend a small one. Typing spends none.
+- **What changes nothing costs nothing, and is told to nobody.** A message sent again with the item key it came with, a reaction added again and a deletion of what's deleted spend no token, so they're not sent on to the group or pushed either: any member, whom nothing names, could otherwise have the server send a message it holds to everyone as often as they liked.
 - **Everyone must be shown the same keys.** `GET /api/tokens/keys` takes no session, and the server proves each batch was evaluated under the key shown there. Each signed body carries a short hash of the keys its sender was shown (`tokenKeys`), and an app whose own differ for the same period warns once (`compareTokenKeys`), as a key made for one person would let the server follow their tokens.
 - **Bots** get tokens at a bot's pace. There's no pace for a bot in each chat any more: it can't be held without a name, and members see a bot flooding and remove it.
 
@@ -116,6 +118,7 @@ item secret = HKDF(author root, "zuna/item-key/v1|kind|group|item")     an Ed255
 
 - **A message and a reaction each go up with their item key's public half,** which the server keeps beside them (`item_key`), and checks an edit, an author's deletion or a reaction taken back against (`itemSigned`).
 - Item keys can't be told apart or tied to anyone without the author root, so they name nobody. The same message ID sent again is a retry only with the same item key.
+- **A reaction taken back keeps its ID on the server,** without what it carried (`reactions.removed_at`). What a reaction carries is signed by whoever added it, and every member was sent it, so another member could otherwise send the same bytes again under the same ID with an item key of their own: it would show as its author's, who couldn't take it back. A deleted message's row stays for the same reason.
 - **Any of the author's devices can make one.** After the account's keys are replaced, a device tries the root from each key it holds, the older ones included (`itemSecret`, `heldItemSecret`).
 - **It only stands in for the server's own check.** What the apps trust is still the signature inside.
 
@@ -165,6 +168,8 @@ A commit that changes who's in a group names people by its nature, and the serve
 - Tokens are fetched at once and kept sealed, fetched again a while after running low and at once when there are none, and a device warns when someone was shown other keys.
 - No sealed request carries a session, and nothing the server says of a message names anyone.
 - Someone removed can't write with the last epoch's send key, and someone outside the group can't with tokens of their own.
+- Someone who left or was banned can't write with the key their device still makes, and those who stay send again at once.
+- A reaction someone took back can't be put back as theirs by another member.
 - What nobody signed, or what names another, shows nowhere and notifies nobody.
 - A signed body can't be moved to another group, message or epoch, or sealed again under another key.
 - Only an author changes, deletes or takes back what's theirs, from any of their devices, also after their keys were replaced.
@@ -174,7 +179,13 @@ A commit that changes who's in a group names people by its nature, and the serve
 - A file belongs to nobody once a message carries it, and is shared again only with its secret.
 - The server's database, after a conversation with every kind of content in it, names nobody in any row about a message, a reaction or a file one carries.
 
-The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `server/internal/tokens`, and `zuna-bot`'s tests run grammY's echo bot through all of it.
+The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `server/internal/tokens`, and `zuna-bot`'s tests run grammY's echo bot through all of it. `sealed_audit_test.go` beside them holds what an audit on 2026-11-10 found and fixed, each as the attack it was: a device that left, was banned or signed out writing with the key it held, a reaction taken back being put back by another member, and requests that cost no token being sent on to everyone.
+
+## What the audit left as it is
+
+- **The server says a group's epoch before it checks the signature,** as it holds only the current epoch's key and a member who's behind signs with an older one. Someone who knows a group's ID, as a former member does, can ask how many times its keys have changed since.
+- **A message the server's retention erased can be sent again by a member** while its epoch lasts, with its ID and the bytes its author signed, as nothing is left to say the ID was used. It shows as its author's, at a new time, with the note apps show when a message's own time differs from the server's. A disappearing message can't: it runs out by its signed time, wherever it arrives (`expiryOf`).
+- **A pin's proof can be sent again** by a member, as it could before sealed sender. Apps take the latest by its signed revision, so only a device that never saw a later one shows it.
 
 ## What wasn't checked
 
@@ -191,6 +202,11 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 - **Who it didn't have to wake,** and who never fetched a file because they already had it.
 - **Two people.** In a direct message, who wrote is one of two, and most of the above settles which.
 - **Tokens asked for** just before sending, when a device had none left.
+
+And from a copy of its data alone, with nothing watched:
+
+- **Who uploaded on which day.** Quota keeps how many MiB each person uploaded each day, for thirty days (`uploads`), and a file keeps when it was made. On a day only one person uploaded, the files made that day were theirs, and so was each message that first carried one.
+- **Who was issued tokens** in the last twelve hours, and how many (`token_issues`), which says who was about to send something, not what.
 
 ## How it was built
 
