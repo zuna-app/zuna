@@ -21,8 +21,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 - **The subject is `tag: short brief`:** `desktop: fixed some memory leak`.
 - **The tag is the part of the repository the change is in,** in lower case, one of: `desktop` (`apps/desktop`), `core` (`packages/core`), `crypto`, `server` (the chat server, `zuna-web`'s host and the push relay), `web` (`apps/web`, `packages/ui`), `ios`, `bot`, `site`, `deploy`, `ci` (workflows and the build scripts), `release` (version numbers and releasing), `docs` (the docs, this file and `.agents`). A change in several takes the one it was made for: a core change made to fix the desktop app is `desktop`.
 - **The brief is short and says what was done,** in lower case, as the example does, with no full stop.
-- **No attribution at all.** No `Co-Authored-By`, no "Generated with", no mention of Claude or any other tool or model, in a commit, a tag's message or a release's notes. This overrides whatever Claude Code would add by itself.
-- **A body is optional.** When there is one it says why, and what couldn't be built or run, as the rules below ask, and ends with no trailer.
+- **A body is optional.** When there is one it says why, and what couldn't be built or run, as the rules below ask.
 
 ## Commands
 

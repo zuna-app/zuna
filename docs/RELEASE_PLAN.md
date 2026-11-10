@@ -73,7 +73,7 @@ Cutting a release:
 2. Refuses unless the notes name every commit since the last release exactly once, by its short hash, under one of the three headings.
 3. Stops, saying so, when no commit touches what the app is built from: `apps/desktop`, `packages/core`, `crypto`, `package-lock.json`, the app's build scripts and `release.yml`. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
 4. Works out the version. If the files don't say it yet, sets it in all ten, commits `release: numbered the next release 0.12.0` and pushes.
-5. Makes an annotated tag whose message is the changelog, with no attribution in it, as in any commit, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
+5. Makes an annotated tag whose message is the changelog, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
 
 The version arithmetic has tests of its own (`node --test`), as it's the part nobody will be watching.
 
@@ -132,7 +132,7 @@ No test or environment variable can swap the keys in a release build. The update
 
 ## CLAUDE.md
 
-The rules Claude follows go where it reads them. The commit rules are there already, under "Commit messages": `tag: short brief`, and no attribution of any kind. These are the additions still to come, written as they'd be committed.
+The rules Claude follows go where it reads them. The commit rules are there already, under "Commit messages": `tag: short brief`. These are the additions still to come, written as they'd be committed.
 
 In **Working rules**:
 
