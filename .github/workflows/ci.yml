@@ -173,7 +173,12 @@ jobs:
   desktop:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'desktop') }}
     runs-on: windows-latest
-    timeout-minutes: 150
+    # Building everything takes about 12 minutes on a runner with nothing cached.
+    timeout-minutes: 60
+    env:
+      # Windows Server has no Opus decoder, which Windows 10 and 11 get with their
+      # Web Media Extensions, so the tests don't decode the fixtures' sound here.
+      ZUNA_TEST_NO_OPUS: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -181,7 +186,8 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      # GPUI comes from Zuna's fork of Zed, whose repository is large to fetch.
+      # GPUI comes from Zuna's fork of Zed, whose repository is large to fetch. The
+      # build itself isn't kept: it's 3.6 GB, and fetching it would take as long.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
@@ -192,7 +198,3 @@ jobs:
       - run: npm ci
       - run: npm run dist:windows
       - run: node scripts/windows-app.mjs test --release
-      - name: How large the build is
-        if: always()
-        shell: bash
-        run: du -sh "$LOCALAPPDATA/zuna-windows-target" "$LOCALAPPDATA/zuna-windows-target/release" ~/.cargo/git ~/.cargo/registry dist/windows/*.exe || true

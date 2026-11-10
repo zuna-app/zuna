@@ -189,9 +189,17 @@ mod tests {
 
     #[test]
     fn decodes_the_desktops_voice_and_video_messages() {
+        // Windows Server, which CI's runners are, has no Opus decoder: Windows 10 and 11 get theirs
+        // with the Web Media Extensions. ci.yml says so with ZUNA_TEST_NO_OPUS, and nothing else
+        // lets a file's sound go undecoded.
+        let no_opus = std::env::var_os("ZUNA_TEST_NO_OPUS").is_some();
+        const NO_DECODER: u32 = 0xC00D5212;
         for name in ["chromium-opus.m4a", "firefox-opus.m4a", "chromium-round.mp4", "firefox-round.mp4"] {
-            let (samples, rate) = decode_audio(&fixture(name)).unwrap_or_else(|error| panic!("{name}: {error}"));
-            assert!(rate > 0 && samples.len() > rate as usize / 10, "{name} has sound");
+            match decode_audio(&fixture(name)) {
+                Ok((samples, rate)) => assert!(rate > 0 && samples.len() > rate as usize / 10, "{name} has sound"),
+                Err(error) if no_opus && error.code().0 as u32 == NO_DECODER => eprintln!("{name}: this system has no decoder for its sound"),
+                Err(error) => panic!("{name}: {error}"),
+            }
             let found = details(&fixture(name)).unwrap();
             assert!(found.duration.is_some_and(|seconds| seconds > 0.), "{name} has a length");
         }
