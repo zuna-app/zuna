@@ -72,6 +72,8 @@ test("only what the app is built from reaches it", () => {
   assert.ok(reachesApp(["crypto/src/mls.rs"]));
   assert.ok(reachesApp(["package-lock.json"]));
   assert.ok(reachesApp([".github/workflows/release.yml"]));
+  assert.ok(reachesApp(["scripts/linux-app.mjs"]));
+  assert.ok(reachesApp(["scripts/linux-build-deps.sh"]));
   assert.ok(reachesApp(["apps/ios/core-bundle/src/crypto.ts"]));
   assert.ok(!reachesApp(["server/internal/api/server.go", "apps/web/src/main.tsx", "packages/ui/src/app.tsx"]));
   assert.ok(!reachesApp(["apps/ios/Zuna/App.swift", "apps/site/index.html", "docs/RELEASES.md", "CLAUDE.md"]));
