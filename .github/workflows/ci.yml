@@ -1,10 +1,22 @@
 name: CI
 
 on:
-  # Each release: the Release workflow runs this first, and signs and publishes
-  # nothing unless it passes.
+  # Each stable release: the Release workflow runs the jobs it names first, and
+  # signs and publishes nothing unless they pass.
   workflow_call:
+    inputs:
+      jobs:
+        description: The jobs to run, by name with spaces between, or all of them
+        type: string
+        default: all
   pull_request:
+  # By hand, as nothing runs on a push to main: gh workflow run ci.yml -f jobs=desktop
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: The jobs to run, by name with spaces between, or all of them
+        type: string
+        default: all
 
 # Third-party actions are pinned to full commits, since a tag can be moved.
 permissions:
@@ -12,6 +24,7 @@ permissions:
 
 jobs:
   test:
+    if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'test') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -38,6 +51,7 @@ jobs:
 
   # Known advisories in what's shipped.
   advisories:
+    if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'advisories') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -70,6 +84,7 @@ jobs:
   # It runs on macOS 27 with Xcode 27, like the development Mac; the macos-15
   # and macos-26 images only have Xcode 26.
   ios:
+    if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'ios') }}
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
@@ -114,6 +129,7 @@ jobs:
   # SQLite's in the ways CLAUDE.md lists. It hasn't been seen passing yet, so it
   # doesn't hold a release back: take continue-on-error away once it has.
   postgres:
+    if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'postgres') }}
     runs-on: ubuntu-latest
     continue-on-error: true
     services:
@@ -150,18 +166,14 @@ jobs:
       - run: npm run test:server
       - run: npm run test:core
 
-  # The native desktop app, which nothing else here builds, checked on Windows for
-  # now: Linux needs the pinned FFmpeg (scripts/ffmpeg.mjs) and its packages too.
-  # It hasn't been seen passing yet, so it doesn't hold a release back: take
-  # continue-on-error away once it has.
+  # The native desktop app, on Windows: the release build with its installer, as
+  # a release makes it, then its tests and the screen share's, in the same
+  # profile so that everything they share is built once. Linux and macOS aren't
+  # built here yet.
   desktop:
+    if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'desktop') }}
     runs-on: windows-latest
-    continue-on-error: true
-    timeout-minutes: 90
-    env:
-      # cl.exe can't open paths over 260 characters, which a target folder deep in
-      # the checkout reaches (scripts/windows-app.mjs).
-      CARGO_TARGET_DIR: C:\t
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -178,7 +190,9 @@ jobs:
           key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-cargo-
       - run: npm ci
-      - run: node apps/desktop/core-bundle/build.mjs
-      # LiveKit's webrtc-sys with Zuna's patch, which apps/desktop/Cargo.toml builds with.
-      - run: node scripts/webrtc-sys.mjs
-      - run: cargo check --manifest-path apps/desktop/Cargo.toml
+      - run: npm run dist:windows
+      - run: node scripts/windows-app.mjs test --release
+      - name: How large the build is
+        if: always()
+        shell: bash
+        run: du -sh "$LOCALAPPDATA/zuna-windows-target" "$LOCALAPPDATA/zuna-windows-target/release" ~/.cargo/git ~/.cargo/registry dist/windows/*.exe || true

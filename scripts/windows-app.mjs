@@ -7,6 +7,7 @@
 //   node scripts/windows-app.mjs build                            a release build in dist/windows
 //   node scripts/windows-app.mjs dist                             and its installer beside it
 //   node scripts/windows-app.mjs install                          and installs it, or updates the installed app
+//   node scripts/windows-app.mjs test [--release] [-- cargo args] its tests, and the screen share's
 //
 // The installed app keeps its data in %APPDATA%\Zuna Native. A copy run from anywhere else
 // keeps its own in %APPDATA%\Zuna Native Dev, and one started here in .dev-data, so that
@@ -21,7 +22,7 @@ import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 
-const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install"]);
+const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install", "test"]);
 const packaging = command === "dist" || command === "install";
 const release = command === "build" || packaging || flags.includes("--release");
 
@@ -36,7 +37,8 @@ await ensureFfmpeg(nativeAppDeps);
 // LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
 await ensureWebrtcSys(nativeAppDeps);
 
-const cargo = [`+${msvcToolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
+// A test's arguments are cargo's own, and the app's follow a `--`.
+const cargo = [`+${msvcToolchain()}`, command === "run" || command === "test" ? command : "build", ...(release ? ["--release"] : []), ...(command === "test" ? appArgs : appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
 run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 
