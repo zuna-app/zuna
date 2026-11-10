@@ -16,8 +16,20 @@
 ;   ICON         the app's icon
 ;   UNINSTALLER  where the uninstaller is written, and taken from
 ;   PLUGINS      electron-builder's NSIS plugins, for WinShell
+;   CHECK        for the update check's installers: no shortcuts and nothing in the registry, so
+;                one installed with /D= elsewhere leaves the real install alone
+;
+; The installer takes, besides NSIS's own /S for a quiet install and /D= for another folder:
+;
+;   /relaunch    starts the app once it's installed, which a quiet install otherwise doesn't.
+;                The app's Update button runs its update with /S /relaunch.
+;
+; A quiet install waits up to 15 seconds for a running copy to leave by itself before closing
+; it, as the app starts its update and then quits. An installed build must always be able to
+; update to the newest one, so these flags only change in ways the oldest build can follow.
 
 Unicode true
+!include "FileFunc.nsh"
 ; WinShell, for the shortcuts' AppUserModelID, from electron-builder's NSIS plugins.
 !addplugindir /x86-unicode "${PLUGINS}\x86-unicode"
 SetCompressor /SOLID lzma
@@ -46,9 +58,13 @@ UninstPage instfiles
 !endif
 
 ; This install's own copy, if it's running, closes first. Others named Zuna.exe, such as a
-; copy started from somewhere else, are left alone.
+; copy started from somewhere else, are left alone. A quiet install gives it 15 seconds to leave
+; by itself, which an app that's updating is already doing, so that no write is cut off.
 !macro CloseRunning
-  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq '$INSTDIR\Zuna.exe' } | Stop-Process -Force"`
+  StrCpy $R9 0
+  IfSilent 0 +2
+  StrCpy $R9 15
+  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$found = @(Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq '$INSTDIR\Zuna.exe' }); if ($$found.Count -gt 0) { if ($R9 -gt 0) { $$found | Wait-Process -Timeout $R9 -ErrorAction SilentlyContinue }; $$found | Where-Object { -not $$_.HasExited } | Stop-Process -Force }"`
   Pop $0
   Sleep 500
 !macroend
@@ -80,6 +96,17 @@ SectionEnd
 
 !else
 
+Var Relaunch
+
+Function .onInit
+  StrCpy $Relaunch 0
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/relaunch" $1
+  IfErrors +2
+  StrCpy $Relaunch 1
+FunctionEnd
+
 ; Called Zuna in the Start menu, on the desktop and in Apps. The folders keep Zuna Native, as the
 ; Electron app's were called Zuna.
 Section "Zuna"
@@ -90,6 +117,7 @@ Section "Zuna"
   File /r "${SOURCE}\*.*"
   File "/oname=Uninstall Zuna.exe" "${UNINSTALLER}"
 
+!ifndef CHECK
   ; The shortcuts carry the ID the app gives itself (AUMID in platform/windows/mod.rs), so
   ; Windows takes them for the same app, as Focus Assist's priority list does.
   CreateShortCut "$SMPROGRAMS\Zuna.lnk" "$INSTDIR\Zuna.exe"
@@ -112,13 +140,25 @@ Section "Zuna"
   WriteRegStr HKCU "Software\Classes\zuna" "" "URL:Zuna invite link"
   WriteRegStr HKCU "Software\Classes\zuna" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\zuna\shell\open\command" "" '"$INSTDIR\Zuna.exe" "%1"'
+!endif
 SectionEnd
 
-; Started once it's installed, unless it was an update installed quietly as the app quit.
-Function .onInstSuccess
-  IfSilent done
+; Started once it's installed, unless it was an update installed quietly as the app quit. One
+; installed with /relaunch is started either way, and so is the old copy when the program
+; couldn't be replaced, which then says the update didn't install rather than leaving nobody
+; an app.
+!macro StartAgain
+  IfSilent 0 +2
+  StrCmp $Relaunch 1 0 +2
   Exec '"$INSTDIR\Zuna.exe"'
-  done:
+!macroend
+
+Function .onInstSuccess
+  !insertmacro StartAgain
+FunctionEnd
+
+Function .onInstFailed
+  !insertmacro StartAgain
 FunctionEnd
 
 !endif

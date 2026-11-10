@@ -1,63 +1,18 @@
-//! Automatic updates, so that a security fix reaches people without their having to
-//! notice it. An update is only ever installed if it
-//! carries the same publisher's signature as the app running now. A build that isn't
-//! signed has nothing to compare with, so it doesn't update itself, and neither does one
-//! that wasn't installed, or a development build.
+//! Windows's part of updating (docs/RELEASES.md): downloading an update's installer, running
+//! it, and Authenticode. What an update is trusted by, and when one is looked for, is in
+//! `platform/updates.rs`, the same for every system.
 //!
-//! It looks at the newest release on GitHub every six hours, downloads its installer when
-//! it's newer, and runs it quietly as the app quits, as electron-updater's
-//! `autoInstallOnAppQuit` did for the Electron app.
+//! Authenticode is a second lock, behind the manifest's signature. If the app running now is
+//! signed, an update has to carry the same publisher's signature too. A build that isn't signed
+//! has nothing to compare with, so only the manifest's checks hold for it.
 
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::io::Write;
+use std::path::Path;
 
-use serde_json::Value;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Security::Cryptography::*;
 use windows::Win32::Security::WinTrust::*;
 use windows::core::{GUID, HSTRING, PCWSTR};
-
-pub use crate::platform::VERSION;
-
-const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
-const RELEASES: &str = "https://api.github.com/repos/zuna-app/zuna/releases/latest";
-
-/// An update downloaded and checked, to install as the app quits.
-static READY: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-/// Starts looking for updates, where this copy may update itself.
-pub fn start() {
-    if cfg!(debug_assertions) {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else { return };
-    if !installed(&exe) {
-        return;
-    }
-    // Checking this program's own signature hashes all of it, which waited on the window's
-    // thread before the first frame; here it waits on nothing.
-    std::thread::Builder::new()
-        .name("zuna-updates".into())
-        .spawn(move || {
-            let Some(publisher) = signer(&exe, false) else { return };
-            loop {
-                if let Err(error) = check(&publisher) {
-                    log::warn!("checking for updates: {error}");
-                }
-                std::thread::sleep(CHECK_EVERY);
-            }
-        })
-        .ok();
-}
-
-/// Runs a downloaded update quietly, once the app has quit.
-pub fn install_on_quit() {
-    let ready = READY.lock().ok().and_then(|ready| ready.clone());
-    if let Some(installer) = ready {
-        let _ = std::process::Command::new(installer).arg("/S").spawn();
-    }
-}
 
 /// Whether this copy is the one the installer put in place.
 pub fn installed(exe: &Path) -> bool {
@@ -66,50 +21,52 @@ pub fn installed(exe: &Path) -> bool {
     exe.to_string_lossy().to_lowercase().starts_with(&home.to_string_lossy().to_lowercase())
 }
 
-fn newer(candidate: &str, current: &str) -> bool {
-    let parts = |text: &str| -> Vec<u64> { text.trim_start_matches('v').split('.').map(|part| part.chars().take_while(char::is_ascii_digit).collect::<String>().parse().unwrap_or(0)).collect() };
-    parts(candidate) > parts(current)
+/// Downloads a file of a known size, and stops as soon as it's larger than that.
+pub fn download(client: &reqwest::Client, url: &str, to: &Path, size: u64) -> Result<(), String> {
+    let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
+    crate::host::tokio().block_on(async {
+        let mut response = client.get(url).send().await.and_then(|response| response.error_for_status()).map_err(|error| error.to_string())?;
+        let mut written = 0u64;
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            written += chunk.len() as u64;
+            if written > size {
+                return Err(format!("{url} is larger than its manifest says"));
+            }
+            file.write_all(&chunk).map_err(|error| error.to_string())?;
+        }
+        file.sync_all().map_err(|error| error.to_string())
+    })
 }
 
-fn check(publisher: &Signer) -> Result<(), String> {
-    if READY.lock().map(|ready| ready.is_some()).unwrap_or(false) {
-        return Ok(());
+/// Runs an installer quietly: it waits for this app to quit, installs over it, and with
+/// `relaunch` starts it again.
+pub fn run_installer(installer: &Path, relaunch: bool) -> bool {
+    let mut command = std::process::Command::new(installer);
+    command.arg("/S");
+    if relaunch {
+        command.arg("/relaunch");
     }
-    let client = reqwest::Client::builder()
-        .use_preconfigured_tls(crate::host::tls_config())
-        .user_agent("Zuna")
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(600))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let runtime = crate::host::tokio();
-    let body = runtime.block_on(async { client.get(RELEASES).header("Accept", "application/vnd.github+json").send().await?.error_for_status()?.bytes().await }).map_err(|error| error.to_string())?;
-    let release: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
-    let tag = release.get("tag_name").and_then(Value::as_str).unwrap_or_default();
-    if !newer(tag, VERSION) {
-        return Ok(());
+    // The update check's copy is installed wherever the check put it, never over the real one.
+    // NSIS takes the folder as its last argument, unquoted.
+    #[cfg(feature = "update-check")]
+    if let Some(folder) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
+        use std::os::windows::process::CommandExt;
+        command.raw_arg(format!("/D={}", folder.display()));
     }
-    let version = tag.trim_start_matches('v');
-    let wanted = format!("Zuna-Native-Setup-{version}.exe");
-    let Some(url) = release.get("assets").and_then(Value::as_array).and_then(|assets| assets.iter().find(|asset| asset.get("name").and_then(Value::as_str) == Some(wanted.as_str()))).and_then(|asset| asset.get("browser_download_url")).and_then(Value::as_str) else {
-        return Ok(());
-    };
-    let bytes = runtime.block_on(async { client.get(url).send().await?.error_for_status()?.bytes().await }).map_err(|error| error.to_string())?;
-    let folder = std::env::temp_dir().join("Zuna").join("update");
-    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let path = folder.join(&wanted);
-    std::fs::write(&path, &bytes).map_err(|error| error.to_string())?;
-    // Only the same publisher's, by the whole of its certificate's subject and issuer, and not
-    // revoked: anyone could put a file on a release page, and any CA could issue a
-    // certificate whose display name is the same.
-    if signer(&path, true).as_ref() != Some(publisher) {
-        std::fs::remove_file(&path).ok();
-        return Err(format!("{wanted} isn't signed by {}", publisher.name));
-    }
-    if let Ok(mut ready) = READY.lock() {
-        *ready = Some(path);
-    }
-    Ok(())
+    command.spawn().is_ok()
+}
+
+/// Who signed this program, if anyone did. It hashes all of the file, so it's asked off the
+/// window's thread.
+pub fn publisher(exe: &Path) -> Option<Signer> {
+    signer(exe, false)
+}
+
+/// Who signed a downloaded file, by a signature that checks out and whose certificates
+/// weren't revoked. Only the same publisher's counts, by the whole of its certificate's
+/// subject and issuer: any CA could issue a certificate whose display name is the same.
+pub fn signed_by(path: &Path) -> Option<Signer> {
+    signer(path, true)
 }
 
 /// Whether a file's Authenticode signature checks out, and with `revocation` that no
@@ -138,8 +95,8 @@ fn verified(path: &Path, revocation: bool) -> bool {
 /// Who signed a file: the name on the signing certificate, and the whole of its subject and
 /// of its issuer, which are what's compared.
 #[derive(Clone, Debug, PartialEq)]
-struct Signer {
-    name: String,
+pub struct Signer {
+    pub name: String,
     subject: String,
     issuer: String,
 }
@@ -209,14 +166,6 @@ fn signer(path: &Path, revocation: bool) -> Option<Signer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn compares_versions_as_numbers() {
-        assert!(newer("v1.10.0", "1.9.3"));
-        assert!(newer("1.0.1", "1.0.0"));
-        assert!(!newer("v1.0.0", "1.0.0"));
-        assert!(!newer("0.9.9", "1.0.0"));
-    }
 
     /// With ZUNA_SIGNED_EXE naming a signed program, its publisher is read from its certificate.
     #[test]

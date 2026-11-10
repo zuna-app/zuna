@@ -210,6 +210,7 @@ impl SettingsView {
                 .child(div().text_size(px(13.)).text_color(theme.text3).child("End-to-end encrypted chat on servers you run."))
                 .into_any_element(),
         ];
+        parts.extend(self.updates(cx));
         if let Some(server) = server {
             parts.push(Self::row(&server.entry.name, Some(&server.entry.url), div().text_size(px(12.5)).text_color(theme.text3).child(server.info.map(|info| info.version).unwrap_or_default()), &theme));
         }
@@ -225,6 +226,61 @@ impl SettingsView {
         parts
     }
 
+    /// Updates, where this copy updates itself: which releases it follows, where that stands,
+    /// and what's new. Elsewhere on Windows, a line saying it doesn't.
+    fn updates(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use crate::platform::updates::{self, Activity, Channel};
+        let theme = theme(cx);
+        let found = updates::current();
+        if !found.enabled {
+            let note = "This copy doesn't update itself. Only an installed release does.";
+            return if cfg!(windows) { vec![div().text_center().text_size(px(12.5)).text_color(theme.text3).child(note).into_any_element()] } else { Vec::new() };
+        }
+        let channels = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).children([Channel::Stable, Channel::Nightly].into_iter().map(|channel| {
+            let active = found.following == channel;
+            let label = if channel == Channel::Stable { "Stable" } else { "Nightly" };
+            let state = self.state.clone();
+            div()
+                .id(label)
+                .px(px(11.))
+                .py(px(4.))
+                .rounded(RADIUS_S)
+                .text_size(px(13.))
+                .text_color(if active { theme.text1 } else { theme.text2 })
+                .when(active, |el| el.bg(theme.bg5))
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    if !active {
+                        state.update(cx, |state, cx| state.update_settings(|settings| settings.update_channel = Some(channel.name().into()), cx));
+                        updates::follow(channel);
+                    }
+                })
+                .child(label)
+        }));
+        // Going back to stable never installs an older build, as the app's data has moved on.
+        let hint = match (found.following, Channel::of_build()) {
+            (Channel::Nightly, _) => "Nightly gets every change as it's made, and is tested less.",
+            (Channel::Stable, Channel::Nightly) => "This is a nightly build, so it stays as it is until a stable release passes it. Stable releases are tested before they're out.",
+            (Channel::Stable, Channel::Stable) => "Stable releases are tested before they're out.",
+        };
+        let page = found.ready.as_ref().map(|update| update.page()).or_else(updates::own_page);
+        let busy = found.activity != Activity::Idle;
+        let actions = div()
+            .flex()
+            .flex_none()
+            .gap(px(8.))
+            .when_some(page, |el, page| el.child(button("whats-new", ButtonKind::Ghost, ButtonSize::Small, false, cx).child("What's new").on_click(move |_, _, cx| cx.open_url(&page))))
+            .child(if found.ready.is_some() {
+                button("update-now", ButtonKind::Primary, ButtonSize::Small, false, cx).child("Update and restart").on_click(|_, _, cx| crate::ui::install_update(cx))
+            } else {
+                button("check-now", ButtonKind::Default, ButtonSize::Small, busy, cx).child("Check now").when(!busy, |el| el.on_click(|_, _, _| updates::check_now()))
+            });
+        vec![
+            Self::divider(&theme),
+            Self::row("Updates", Some(hint), channels, &theme),
+            Self::row(&updates::status_line(&found, std::time::SystemTime::now()), None, actions, &theme),
+        ]
+    }
 }
 
 impl Render for SettingsView {

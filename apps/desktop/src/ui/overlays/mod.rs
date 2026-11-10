@@ -40,6 +40,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
         Overlay::MoveVoice(moving) => cx.new(|cx| Dialog::new(state, DialogKind::MoveVoice(moving), window, cx)).into(),
+        Overlay::InstallUpdate => cx.new(|cx| Dialog::new(state, DialogKind::InstallUpdate, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -115,6 +116,7 @@ enum DialogKind {
     Verify(String),
     LeaveServer,
     MoveVoice(crate::voice::VoiceMove),
+    InstallUpdate,
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     AddMembers(String),
     ShareLocation(String),
@@ -256,7 +258,7 @@ impl Dialog {
             people_search.focus_handle(cx).focus(window, cx);
         }
         let focus = cx.focus_handle();
-        if matches!(kind, DialogKind::MoveVoice(_)) {
+        if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate) {
             window.focus(&focus, cx);
         }
         let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, focus, _subscriptions: subscriptions };
@@ -446,6 +448,24 @@ impl Dialog {
             .into_any_element();
         self.modal(Some("Join on this device?".into()), 420., body, Some(footer), cx)
     }
+
+    /// Asks before an update restarts the app while this device is in a voice channel or a
+    /// call, which that ends (`InstallUpdate`).
+    fn install_update(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let version = crate::platform::updates::current().ready.map(|update| update.label()).unwrap_or_default();
+        let body = vec![div().text_size(px(13.5)).child(format!("Updating to {version} restarts Zuna, which takes you out of the call you're in. You can join again once it's back.")).into_any_element()];
+        let state = self.state.clone();
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Not now").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("install-update", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Update and restart").on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| state.set_overlay(None, cx));
+                crate::ui::restart_into_update(cx);
+            }))
+            .into_any_element();
+        self.modal(Some("Update now?".into()), 420., body, Some(footer), cx)
+    }
 }
 
 impl Render for Dialog {
@@ -466,6 +486,7 @@ impl Render for Dialog {
                 let moving = moving.clone();
                 self.move_voice(moving, cx)
             }
+            DialogKind::InstallUpdate => self.install_update(cx),
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

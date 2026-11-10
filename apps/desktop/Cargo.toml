@@ -167,6 +167,10 @@ test-control = ["gpui/test-support", "gpui_platform/test-support"]
 # The screen share through LiveKit with someone watching, for test/key-log-check.mjs, which
 # `cargo test` would otherwise build each time.
 share-check = []
+# For test/windows-update-check.mjs alone: the updater takes its keys and the address of the
+# releases from the environment, updates wherever it was installed, and writes down where it
+# stands. Never in a build anyone uses, as that would let the environment swap the keys.
+update-check = []
 
 [[example]]
 name = "share-check"

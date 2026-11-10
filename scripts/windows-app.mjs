@@ -8,6 +8,9 @@
 //   node scripts/windows-app.mjs dist                             and its installer beside it
 //   node scripts/windows-app.mjs install                          and installs it, or updates the installed app
 //   node scripts/windows-app.mjs test [--release] [-- cargo args] its tests, and the screen share's
+//   node scripts/windows-app.mjs dist --update-check              an installer for apps/desktop/test/windows-update-check.mjs,
+//                                                                 in dist/windows-update-check: its updater takes keys and
+//                                                                 an address from the environment, which no other build does
 //
 // The installed app keeps its data in %APPDATA%\Zuna Native. A copy run from anywhere else
 // keeps its own in %APPDATA%\Zuna Native Dev, and one started here in .dev-data, so that
@@ -29,6 +32,13 @@ const release = command === "build" || packaging || flags.includes("--release");
 // What a build anyone installs says it is: its version, build number and channel, which an update
 // is compared by. A development build or a test has only the version.
 const stamp = command === "build" || packaging ? appStamp() : { ZUNA_VERSION: version };
+// The update check's builds, which are never installed over the real app.
+const updateCheck = flags.includes("--update-check");
+if (updateCheck && command !== "dist") {
+  console.error("--update-check only goes with dist.");
+  process.exit(2);
+}
+const distFolder = join(root, "dist", updateCheck ? "windows-update-check" : "windows");
 const released = { version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD };
 
 const crate = join(root, "apps", "desktop");
@@ -43,19 +53,19 @@ await ensureFfmpeg(nativeAppDeps);
 await ensureWebrtcSys(nativeAppDeps);
 
 // A test's arguments are cargo's own, and the app's follow a `--`.
-const cargo = [`+${msvcToolchain()}`, command === "run" || command === "test" ? command : "build", ...(release ? ["--release"] : []), ...(command === "test" ? appArgs : appArgs.length ? ["--", ...appArgs] : [])];
+const cargo = [`+${msvcToolchain()}`, command === "run" || command === "test" ? command : "build", ...(release ? ["--release"] : []), ...(updateCheck ? ["--features", "update-check"] : []), ...(command === "test" ? appArgs : appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
 run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
 
 if (command === "build" || packaging) {
-  const dist = join(root, "dist", "windows");
+  const dist = distFolder;
   mkdirSync(dist, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(dist, "Zuna.exe"));
   console.log(`> wrote ${join(dist, "Zuna.exe")}`);
 }
 
 if (packaging) {
-  const dist = join(root, "dist", "windows");
+  const dist = distFolder;
   // What's installed: the app, with the screen share's encoder and FFmpeg's libraries in `lib`
   // beside it, where the build put them.
   const staged = join(dist, "Zuna");
@@ -63,8 +73,8 @@ if (packaging) {
   mkdirSync(staged, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(staged, "Zuna.exe"));
   cpSync(join(target, "release", "lib"), join(staged, "lib"), { recursive: true });
-  // Signed with the release's certificate where it's given: only a signed build updates itself,
-  // and only from an update signed the same. The encoder is the app's own code, which it loads.
+  // Signed with the release's certificate where it's given: a signed build only takes an update
+  // signed the same, besides the manifest's own signature. The encoder is the app's own code, which it loads.
   const require = createRequire(join(root, "package.json"));
   const signer = await signing(require);
   if (signer) {
@@ -80,7 +90,7 @@ if (packaging) {
   const plugins = await getNsisPluginsPath(undefined, undefined);
   const out = join(dist, windowsInstaller(released));
   const nsis = (defines) => {
-    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DBUILD=${stamp.ZUNA_BUILD}`, `-DLABEL=${labelOf(released)}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
+    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DBUILD=${stamp.ZUNA_BUILD}`, `-DLABEL=${labelOf(released)}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...(updateCheck ? ["-DCHECK"] : []), ...defines, join(crate, "installer", "zuna.nsi")], {
       env: { ...process.env, ...(makensis.env ?? {}) },
     });
   };

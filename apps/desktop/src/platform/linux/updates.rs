@@ -3,10 +3,6 @@
 
 use std::path::Path;
 
-pub fn start() {}
-
-pub fn install_on_quit() {}
-
 /// Whether this copy is the one a package installed, which registers `zuna://` itself.
 pub fn installed(_exe: &Path) -> bool {
     false

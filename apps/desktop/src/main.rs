@@ -67,11 +67,15 @@ fn main() {
     // first to quit as Quit in the tray does, and never opens itself.
     let link = platform::link_in(&args);
     let quitting = args.get(1).is_some_and(|arg| arg == "--quit");
+    #[cfg(feature = "update-check")]
+    let updating = args.get(1).is_some_and(|arg| arg == "--update");
+    #[cfg(not(feature = "update-check"))]
+    let updating = false;
     let handed = match platform::single::claim(&host::data_dir()) {
-        platform::single::Claim::First(_) if quitting => return,
+        platform::single::Claim::First(_) if quitting || updating => return,
         platform::single::Claim::First(receiver) => receiver,
         platform::single::Claim::Running => {
-            platform::single::forward(&host::data_dir(), if quitting { QUIT } else { link.as_deref().unwrap_or("") });
+            platform::single::forward(&host::data_dir(), if quitting { QUIT } else if updating { UPDATE } else { link.as_deref().unwrap_or("") });
             return;
         }
     };
@@ -142,6 +146,12 @@ fn main() {
                     cx.update(quit);
                     break;
                 }
+                // The update check presses Update this way, having no pointer to press it with.
+                #[cfg(feature = "update-check")]
+                if message == UPDATE {
+                    cx.update(ui::install_update);
+                    continue;
+                }
                 platform::show_main();
                 if !message.starts_with("zuna://") {
                     continue;
@@ -192,6 +202,9 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions { title: Some("Zuna".into()), appears_transparent: true, traffic_light_position: Some(point(px(12.), px(10.))) }),
                 window_min_size: Some(size(px(720.), px(480.))),
+                // The update check's copy stays out of sight, as it runs on a person's desktop too.
+                show: cfg!(not(feature = "update-check")),
+                focus: cfg!(not(feature = "update-check")),
                 app_id: Some(platform::APP_ID.into()),
                 // Under Wayland the compositor's title bar, through xdg-decoration, where it has
                 // one, and the app's own where it hasn't, as on GNOME.
@@ -220,16 +233,22 @@ fn main() {
             },
         )
         .expect("the window opens");
-        cx.activate(true);
-        platform::updates::start();
+        if cfg!(not(feature = "update-check")) {
+            cx.activate(true);
+        }
+        platform::updates::start(state.read(cx).settings.update_channel.as_deref());
     });
 }
 
 /// What a start with --quit hands the copy already running.
 const QUIT: &str = "quit";
+/// What a start with --update hands it, in a build made for the update check.
+#[cfg_attr(not(feature = "update-check"), allow(dead_code))]
+const UPDATE: &str = "update";
 
-/// Quits for good, taking the tray's icon with it, and installs a downloaded update.
-fn quit(cx: &mut App) {
+/// Quits for good, taking the tray's icon with it, and installs a downloaded update, unless
+/// its installer was already started, as pressing Update does.
+pub(crate) fn quit(cx: &mut App) {
     platform::tray::remove();
     platform::updates::install_on_quit();
     host::clear_cache(&host::data_dir());

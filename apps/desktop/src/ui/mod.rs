@@ -65,6 +65,28 @@ pub const PROJECT_URL: &str = "https://github.com/zuna-app/zuna";
 /// The terms of use everyone agrees to when they create an account.
 pub const TERMS_URL: &str = "https://zuna.chat/terms/";
 
+/// Pressing Update: installs the update that's ready and starts the app again. In a voice
+/// channel or a call it asks first, as that ends it.
+pub fn install_update(cx: &mut gpui::App) {
+    if crate::voice::connected_channel(cx).is_some() {
+        let state = cx.global::<crate::state::Store>().0.clone();
+        state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::InstallUpdate), cx));
+        return;
+    }
+    restart_into_update(cx);
+}
+
+/// Starts the update's installer and quits, as Quit in the tray does. The installer waits for
+/// the app to leave, installs, and starts it again.
+pub fn restart_into_update(cx: &mut gpui::App) {
+    if crate::platform::updates::install(true) {
+        crate::quit(cx);
+    } else {
+        let state = cx.global::<crate::state::Store>().0.clone();
+        state.update(cx, |state, cx| state.toast("The update couldn't be started. Zuna will download it again.", ToastKind::Error, cx));
+    }
+}
+
 /// How long a closed dialog takes to fade away.
 const DIALOG_OUT: std::time::Duration = std::time::Duration::from_millis(150);
 /// How long settings take to go once closed.

@@ -26,6 +26,9 @@ pub struct Settings {
     pub hide_member_list: bool,
     /// How fast voice messages play, one of `media::VOICE_SPEEDS`, the same for all of them as in Telegram.
     pub voice_speed: f64,
+    /// Which releases this app updates itself from, `stable` or `nightly`, once the person has
+    /// picked. Until then it's the channel the build was made for.
+    pub update_channel: Option<String>,
 }
 
 impl Default for Settings {
@@ -45,6 +48,7 @@ impl Default for Settings {
             collapsed_categories: Vec::new(),
             hide_member_list: false,
             voice_speed: 1.,
+            update_channel: None,
         }
     }
 }

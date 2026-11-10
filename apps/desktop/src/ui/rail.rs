@@ -52,6 +52,28 @@ impl Root {
         let inset = if window.is_fullscreen() { 12. } else { crate::platform::TRAFFIC_LIGHTS_WIDTH };
         #[cfg(not(target_os = "macos"))]
         let inset = 12.;
+        // An update that's downloaded and checked: pressing it installs it and starts the app
+        // again, as in Telegram. Only where the app updates itself is there ever one.
+        let update = crate::platform::updates::current().ready.map(|update| {
+            div()
+                .id("update-button")
+                .flex()
+                .flex_none()
+                .items_center()
+                .h(px(22.))
+                .px(px(11.))
+                .mr(px(4.))
+                .rounded_full()
+                .bg(theme.accent)
+                .text_color(theme.on_accent)
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .hover(|style| style.opacity(0.88))
+                .tip(format!("Update to {} and restart", update.label()), Side::Bottom)
+                .on_click(|_, _, cx| install_update(cx))
+                .child("Update")
+        });
         // Covers the root, whose focus tracking would otherwise take each press here and leave
         // Windows nothing to drag, minimize, maximize or close with.
         div()
@@ -69,6 +91,7 @@ impl Root {
             .text_size(px(12.))
             .text_color(theme.text3)
             .child(drag)
+            .children(update)
             .when(cfg!(not(target_os = "macos")), |el| {
                 el.child(
                     div()

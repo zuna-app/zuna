@@ -153,6 +153,8 @@ pub enum Overlay {
     ServerSettings { section: Option<String> },
     /// Making a channel, or editing one, for server admins.
     Channel { channel_id: Option<String>, category: Option<String> },
+    /// Asking before an update restarts the app in the middle of a call.
+    InstallUpdate,
 }
 
 /// A media file decrypted to disk for playing.
@@ -340,6 +342,17 @@ impl AppState {
                 }
             }
         });
+        // The title bar's Update button and Settings follow what the updater finds.
+        let mut updates = crate::platform::updates::changes();
+        cx.spawn(async move |this, cx| {
+            use futures::StreamExt;
+            while updates.next().await.is_some() {
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         // Quitting shows the person offline at once, rather than after the server's linger for a
         // connection lost, as Telegram's desktop app says so before it quits (`Updates::isQuitPrevent`):
         // the core says so as it stops, and the frame gets a moment to go, within GPUI's 200 ms.

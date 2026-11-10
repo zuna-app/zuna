@@ -3,10 +3,6 @@
 
 use std::path::Path;
 
-pub fn start() {}
-
-pub fn install_on_quit() {}
-
 /// Whether this copy is a bundle in Applications, the person's or the computer's, rather
 /// than a build started where it was made.
 pub fn installed(exe: &Path) -> bool {
