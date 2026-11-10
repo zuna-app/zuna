@@ -70,7 +70,8 @@ struct ChannelMessageRow: View {
                     } else {
                         let sender = server.users[message.senderId]
                         Button {
-                            actions.mention(message.senderId)
+                            // Whoever wrote one that hasn't opened isn't known yet: there's nobody to mention.
+                            if !message.senderId.isEmpty { actions.mention(message.senderId) }
                         } label: {
                             AvatarView(
                                 name: sender?.displayName ?? "?",
@@ -147,14 +148,15 @@ struct ChannelMessageRow: View {
 
     /// The name and when, over a run.
     private var head: some View {
-        let name = server.users[message.senderId]?.displayName ?? "Unknown"
+        let known = !message.senderId.isEmpty
+        let name = known ? server.users[message.senderId]?.displayName ?? "Unknown" : "Not known yet"
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Button {
-                actions.mention(message.senderId)
+                if known { actions.mention(message.senderId) }
             } label: {
                 Text(name)
                     .font(.system(size: textSize, weight: .semibold))
-                    .foregroundStyle(Theme.nameColor(message.senderId))
+                    .foregroundStyle(known ? Theme.nameColor(message.senderId) : Theme.channelMuted)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)

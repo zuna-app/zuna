@@ -389,7 +389,7 @@ private struct MessageItem: View {
             if own { Spacer(minLength: 48) }
             if !own && context.isGroup {
                 Group {
-                    if context.lastInGroup {
+                    if context.lastInGroup, !message.senderId.isEmpty {
                         let sender = server.users[message.senderId]
                         AvatarView(
                             name: sender?.displayName ?? "?",
@@ -432,7 +432,8 @@ private struct MessageItem: View {
         // Not on pictures alone, which fill the bubble to its corner, nor under a failed one's outline.
         let shape = BubbleShape(own: own, grouped: context.grouped, tail: context.lastInGroup && !bare && !onlyMedia && message.status != .failed)
         return VStack(alignment: .leading, spacing: 4) {
-            if !own, context.isGroup, !context.grouped, jumbo == 0 {
+            // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name.
+            if !own, context.isGroup, !context.grouped, jumbo == 0, !message.senderId.isEmpty {
                 HStack(spacing: 5) {
                     Text(server.users[message.senderId]?.displayName ?? "Unknown")
                         .font(.subheadline.weight(.semibold))

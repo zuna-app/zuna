@@ -184,7 +184,9 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
     let selecting = context.selecting;
     let selected = context.selected.contains(&message.id);
     let editing_here = context.editing_id.as_deref() == Some(message.id.as_str());
-    let name = context.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+    // Whoever wrote one that hasn't opened isn't known yet: it's drawn as nobody's, with nothing to open.
+    let known = !message.sender_id.is_empty();
+    let name = if known { context.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into()) } else { "Not known yet".into() };
     let group = SharedString::from(format!("cmsg-{}", message.id));
     let entries = menu_entries(message, own, can_act, context);
 
@@ -280,8 +282,10 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                     .absolute()
                     .left(px(-56.))
                     .top(px(2.))
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: sender.clone() }), cx)))
+                    .when(known, |el| {
+                        el.cursor_pointer()
+                            .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: sender.clone() }), cx)))
+                    })
                     .child(avatar(AvatarProps { name: name.clone(), seed: message.sender_id.clone(), image, size: 40., online: false, rounded: false, dot_border: theme.bg_chat }, cx)),
             )
             .child(
@@ -296,10 +300,12 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
                         div()
                             .id(SharedString::from(format!("cmsg-author-{}", message.id)))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::css(name_color(&message.sender_id)))
-                            .cursor_pointer()
-                            .hover(|style| style.underline())
-                            .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: sender.clone() }), cx)))
+                            .text_color(if known { theme::css(name_color(&message.sender_id)) } else { theme.channel_muted })
+                            .when(known, |el| {
+                                el.cursor_pointer()
+                                    .hover(|style| style.underline())
+                                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: sender.clone() }), cx)))
+                            })
                             .child(name.clone())
                     })
                     .when(context.users.get(&message.sender_id).is_some_and(|user| user.bot.is_some()), |el| el.child(div().ml(px(6.)).child(bot_badge(cx))))

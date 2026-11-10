@@ -73,7 +73,9 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const jump = useApp((state) => state.jumpToMessage);
   const toast = useApp((state) => state.toast);
   const serverId = useApp((state) => state.activeServerId) ?? "";
-  const senderName = useServerField((server) => server.users[message.senderId]?.displayName ?? "Unknown", "Unknown");
+  // Whoever wrote one that hasn't opened isn't known yet: it's drawn as nobody's, with no profile to open.
+  const known = message.senderId !== "";
+  const senderName = useServerField((server) => (known ? (server.users[message.senderId]?.displayName ?? "Unknown") : "Not known yet"), "Unknown");
   const senderIsBot = useServerField((server) => !!server.users[message.senderId]?.bot, false);
   const senderAvatar = useServerField((server) => server.users[message.senderId]?.avatar ?? null, null);
   const replyName = useServerField((server) => {
@@ -377,11 +379,11 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             </time>
           ) : (
             <>
-              <button className="cmsg-avatar" onClick={() => openProfile(message.senderId)} aria-label={`${senderName}'s profile`} tabIndex={-1}>
+              <button className="cmsg-avatar" onClick={() => known && openProfile(message.senderId)} aria-label={known ? `${senderName}'s profile` : senderName} tabIndex={-1} disabled={!known}>
                 <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={40} />
               </button>
               <h3 className="cmsg-head">
-                <button className="cmsg-author" style={{ color: nameColor(message.senderId) }} onClick={() => openProfile(message.senderId)}>
+                <button className="cmsg-author" style={known ? { color: nameColor(message.senderId) } : undefined} onClick={() => known && openProfile(message.senderId)} disabled={!known}>
                   {senderName}
                 </button>
                 {senderIsBot && <BotBadge />}
@@ -495,7 +497,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       }
     >
       {check}
-      {!own && isGroup && <span className="msg-avatar">{lastInGroup && <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={32} />}</span>}
+      {!own && isGroup && <span className="msg-avatar">{lastInGroup && known && <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={32} />}</span>}
       <div className="msg-stack">
         <div
           className={`bubble${message.status === "sending" ? " is-sending" : ""}${message.status === "failed" ? " is-failed" : ""}`}
@@ -503,7 +505,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           onMouseDown={(event) => event.detail > 1 && repliesOnDoubleClick(event) && event.preventDefault()}
           onDoubleClick={(event) => repliesOnDoubleClick(event) && setReply(listId, message)}
         >
-          {!own && isGroup && !grouped && !jumbo && (
+          {!own && isGroup && !grouped && !jumbo && known && (
             <span className="msg-author" style={{ color: nameColor(message.senderId) }}>
               {senderName}
               {senderIsBot && <> <BotBadge /></>}

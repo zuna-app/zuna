@@ -120,11 +120,17 @@ pub(super) fn reply_on_double_click(message: &MessageView, context: &ChatContext
     }
 }
 
-/// Whether `b` carries on `a`'s run: the same person, within five minutes, on the same day.
+/// Whether `b` carries on `a`'s run: the same person, within five minutes, on the same day. A message
+/// that hasn't opened yet has no known author, so it's nobody's run, and nothing carries on from it.
 pub fn continues(a: Option<&MessageView>, b: Option<&MessageView>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => {
-            a.system.is_none() && b.system.is_none() && a.sender_id == b.sender_id && b.created_at - a.created_at < GROUP_WINDOW_MS && crate::format::same_day(a.created_at, b.created_at)
+            a.system.is_none()
+                && b.system.is_none()
+                && !a.sender_id.is_empty()
+                && a.sender_id == b.sender_id
+                && b.created_at - a.created_at < GROUP_WINDOW_MS
+                && crate::format::same_day(a.created_at, b.created_at)
         }
         _ => false,
     }
@@ -347,7 +353,8 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         bubble = bubble.border_1().border_color(theme.red);
     }
 
-    if !own && context.is_group && !grouped && !bare {
+    // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name.
+    if !own && context.is_group && !grouped && !bare && !message.sender_id.is_empty() {
         let name = context.users.get(&message.sender_id).map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
         let is_bot = context.users.get(&message.sender_id).is_some_and(|user| user.bot.is_some());
         bubble = bubble.child(div().flex().items_center().gap(px(5.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).mb(px(1.)).line_height(px(18.)).text_color(theme::css(name_color(&message.sender_id))).child(name).when(is_bot, |el| el.child(bot_badge(cx))));
@@ -571,7 +578,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         });
     if !own && context.is_group {
         let mut slot = div().w(px(32.)).flex_none().mr(px(3.)).flex();
-        if last_in_group {
+        if last_in_group && !message.sender_id.is_empty() {
             let user = context.users.get(&message.sender_id);
             let name = user.map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
             let image = context.avatars.get(&message.sender_id).cloned();

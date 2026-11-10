@@ -77,12 +77,14 @@ function glideOffset(list: HTMLElement, glide: Animation | null): number {
   return glide?.playState === "running" ? new DOMMatrixReadOnly(getComputedStyle(list).transform).m42 : 0;
 }
 
+/** Whether `b` carries on `a`'s run. One that hasn't opened yet has no known author, so it's nobody's run, and nothing carries on from it. */
 function continues(a: MessageView | undefined, b: MessageView | undefined): boolean {
   return (
     !!a &&
     !!b &&
     !a.system &&
     !b.system &&
+    a.senderId !== "" &&
     a.senderId === b.senderId &&
     b.createdAt - a.createdAt < GROUP_WINDOW_MS &&
     sameDay(a.createdAt, b.createdAt)

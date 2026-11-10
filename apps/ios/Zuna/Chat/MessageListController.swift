@@ -314,9 +314,10 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let size: Int
     }
 
-    /// A message continues the one before it, on the same day: same sender, within five minutes.
+    /// A message continues the one before it, on the same day: same sender, within five minutes. One
+    /// that hasn't opened yet has no known author, so it's nobody's run, and nothing carries on from it.
     private static func continues(_ a: MessageView, _ b: MessageView) -> Bool {
-        guard a.system == nil, b.system == nil else { return false }
+        guard a.system == nil, b.system == nil, !a.senderId.isEmpty else { return false }
         return a.senderId == b.senderId && b.createdAt - a.createdAt < groupWindow
     }
 
