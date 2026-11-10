@@ -229,8 +229,8 @@ impl TextInput {
         }
         window.focus(&self.focus_handle, cx);
         self.goal_x = None;
-        let Some(bounds) = self.last_bounds else { return };
-        let offset = self.offset_for(event.position - bounds.origin);
+        let Some(position) = self.local(event.position) else { return };
+        let offset = self.offset_for(position);
         if event.click_count >= 3 {
             self.move_to(self.line_start(offset), cx);
             self.select_to(self.line_end(offset), cx);
@@ -257,8 +257,8 @@ impl TextInput {
 
     pub(super) fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.is_selecting {
-            if let Some(bounds) = self.last_bounds {
-                let offset = self.offset_for(event.position - bounds.origin);
+            if let Some(position) = self.local(event.position) {
+                let offset = self.offset_for(position);
                 self.select_to(offset, cx);
             }
         }

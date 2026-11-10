@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
+    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
     FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
     Pixels, Point, SharedString, Style, Task, TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point,
     prelude::*, px, relative, size,
@@ -182,6 +182,8 @@ pub struct TextInput {
     lines: Vec<WrappedLine>,
     line_height: Pixels,
     last_bounds: Option<Bounds<Pixels>>,
+    /// How far a field of one line is scrolled sideways, to keep the caret in view.
+    scroll_x: Pixels,
     is_selecting: bool,
     caret_visible: bool,
     blink: Option<Task<()>>,
@@ -230,6 +232,7 @@ impl TextInput {
             lines: Vec::new(),
             line_height: px(20.),
             last_bounds: None,
+            scroll_x: px(0.),
             is_selecting: false,
             caret_visible: true,
             blink: None,
@@ -418,6 +421,12 @@ impl TextInput {
             y += line.size(self.line_height).height;
         }
         Some(point(px(0.), y))
+    }
+
+    /// A point in the window relative to the text's top left, which a scrolled field draws further left.
+    fn local(&self, position: Point<Pixels>) -> Option<Point<Pixels>> {
+        let bounds = self.last_bounds?;
+        Some(position - bounds.origin + point(self.scroll_x, px(0.)))
     }
 
     /// The offset nearest a point relative to the field's top left.

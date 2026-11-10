@@ -69,12 +69,12 @@ impl EntityInputHandler for TextInput {
         let range = self.range_from_utf16(&range_utf16);
         let start = self.position_for(range.start)?;
         let end = self.position_for(range.end)?;
-        Some(Bounds::from_corners(bounds.origin + start, bounds.origin + point(end.x, end.y + self.line_height)))
+        let origin = bounds.origin - point(self.scroll_x, px(0.));
+        Some(Bounds::from_corners(origin + start, origin + point(end.x, end.y + self.line_height)))
     }
 
     fn character_index_for_point(&mut self, point: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
-        let bounds = self.last_bounds?;
-        Some(self.offset_to_utf16(self.offset_for(point - bounds.origin)))
+        Some(self.offset_to_utf16(self.offset_for(self.local(point)?)))
     }
 }
 
@@ -87,6 +87,7 @@ pub(super) struct PrepaintState {
     cursor: Option<PaintQuad>,
     selections: Vec<PaintQuad>,
     line_height: Pixels,
+    scroll_x: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -178,13 +179,24 @@ impl Element for TextElement {
         // holds the lines while it measures, and gives them back after.
         let mut probe = TextInput { lines, line_height, ..clone_for_probe(input) };
         probe.masked = input.masked;
+        // A field of one line doesn't wrap, so it scrolls sideways as far as keeps the caret in
+        // view, and no further than the text's end, as a browser's input does.
+        let scroll_x = if input.multiline || input.content.is_empty() {
+            px(0.)
+        } else {
+            let caret = probe.position_for(input.cursor_offset()).map(|position| position.x).unwrap_or_default();
+            let text_width = probe.lines.iter().map(|line| line.width()).fold(px(0.), |a, b| a.max(b));
+            let room = (bounds.size.width - px(1.)).max(px(0.));
+            input.scroll_x.max(caret - room).min(caret).min((text_width - room).max(px(0.))).max(px(0.))
+        };
+        let origin = bounds.origin - point(scroll_x, px(0.));
         let selection = input.selected_range.clone();
         let mut selections = Vec::new();
         let mut cursor = None;
         let selection_color = gpui::rgba(0xffffff38);
         if input.content.is_empty() || selection.is_empty() {
             if let Some(position) = probe.position_for(input.cursor_offset()) {
-                cursor = Some(fill(Bounds::new(bounds.origin + point(position.x, position.y), size(px(1.), line_height)), theme.text1));
+                cursor = Some(fill(Bounds::new(origin + point(position.x, position.y), size(px(1.), line_height)), theme.text1));
             }
         } else if let (Some(start), Some(end)) = (probe.position_for(selection.start), probe.position_for(selection.end)) {
             // One rectangle per visual line the selection crosses.
@@ -193,12 +205,12 @@ impl Element for TextElement {
                 let left = if y == start.y { start.x } else { px(0.) };
                 let right = if y == end.y { end.x } else { bounds.size.width };
                 if right > left {
-                    selections.push(fill(Bounds::from_corners(bounds.origin + point(left, y), bounds.origin + point(right, y + line_height)), selection_color));
+                    selections.push(fill(Bounds::from_corners(origin + point(left, y), origin + point(right, y + line_height)), selection_color));
                 }
                 y += line_height;
             }
         }
-        PrepaintState { lines: std::mem::take(&mut probe.lines), cursor, selections, line_height }
+        PrepaintState { lines: std::mem::take(&mut probe.lines), cursor, selections, line_height, scroll_x }
     }
 
     fn paint(
@@ -213,26 +225,39 @@ impl Element for TextElement {
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
         window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.input.clone()), cx);
-        for selection in prepaint.selections.drain(..) {
-            window.paint_quad(selection)
-        }
-        let mut y = bounds.origin.y;
-        for line in &prepaint.lines {
-            line.paint(point(bounds.origin.x, y), prepaint.line_height, gpui::TextAlign::Left, None, window, cx).ok();
-            y += line.size(prepaint.line_height).height;
-        }
-        let input = self.input.read(cx);
-        if focus_handle.is_focused(window) && window.is_window_active() && input.caret_visible && !input.disabled {
-            if let Some(cursor) = prepaint.cursor.take() {
-                window.paint_quad(cursor);
+        // What a field of one line scrolls past is cut off at its sides. Above and below it isn't,
+        // so accents taller than the line still show.
+        let multiline = self.input.read(cx).multiline;
+        let mask = (!multiline).then(|| ContentMask {
+            bounds: Bounds::from_corners(
+                point(bounds.left(), bounds.top() - prepaint.line_height),
+                point(bounds.right(), bounds.bottom() + prepaint.line_height),
+            ),
+        });
+        window.with_content_mask(mask, |window| {
+            for selection in prepaint.selections.drain(..) {
+                window.paint_quad(selection)
             }
-        }
+            let mut y = bounds.origin.y;
+            for line in &prepaint.lines {
+                line.paint(point(bounds.origin.x - prepaint.scroll_x, y), prepaint.line_height, gpui::TextAlign::Left, None, window, cx).ok();
+                y += line.size(prepaint.line_height).height;
+            }
+            let input = self.input.read(cx);
+            if focus_handle.is_focused(window) && window.is_window_active() && input.caret_visible && !input.disabled {
+                if let Some(cursor) = prepaint.cursor.take() {
+                    window.paint_quad(cursor);
+                }
+            }
+        });
         let lines = std::mem::take(&mut prepaint.lines);
         let line_height = prepaint.line_height;
+        let scroll_x = prepaint.scroll_x;
         self.input.update(cx, |input, _| {
             input.lines = lines;
             input.line_height = line_height;
             input.last_bounds = Some(bounds);
+            input.scroll_x = scroll_x;
         });
     }
 }
@@ -254,6 +279,7 @@ pub(super) fn clone_for_probe(input: &TextInput) -> TextInput {
         lines: Vec::new(),
         line_height: input.line_height,
         last_bounds: None,
+        scroll_x: input.scroll_x,
         is_selecting: false,
         caret_visible: true,
         blink: None,
