@@ -102,6 +102,8 @@ function parseAttachment(value: unknown): Attachment | null {
   // Only a video can be a video message, whatever else says it is one.
   if (value.round === true && attachment.mime.startsWith("video/")) attachment.round = true;
   if (isString(value.waveform, MAX_WAVEFORM_LENGTH) && BASE64.test(value.waveform)) attachment.waveform = value.waveform;
+  // The secret the file was made with: 32 bytes, as base64.
+  if (isString(value.share, 44) && value.share.length === 44 && BASE64.test(value.share)) attachment.share = value.share;
   return attachment;
 }
 

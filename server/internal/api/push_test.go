@@ -116,7 +116,8 @@ func openPush(t *testing.T, key []byte, push relayPush) map[string]string {
 
 func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	relay := newFakeRelay(t)
-	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	// Long enough for the sender's read to arrive first, as it does from an app.
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL}; cfg.PushHold = 300 * time.Millisecond })
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
 	carol := h.register("carol", owner.newInvite())
@@ -141,9 +142,10 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 		t.Fatal("a device can register again")
 	}
 
-	// A new message wakes bob's phone only: not the sender's, not a non-member's.
+	// A new message wakes bob's phone only: not a non-member's, and not the sender's,
+	// whose app reads it at once, which nothing tells from anyone reading.
 	id := store.NewID()
-	owner.send(group.ID, 1, id)
+	owner.sendAndRead(group.ID, 1, id)
 	push := relay.next(t)
 	if push.Handle != "bob-phone" || push.Type != "alert" || push.Data["r"] != registration {
 		t.Fatalf("push: %+v", push)
@@ -160,14 +162,15 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	relay.none(t)
 
 	// Retries, edits and reactions don't.
-	owner.send(group.ID, 1, id)
-	h.mustDo("PUT", "/api/groups/"+group.ID+"/messages/"+id, owner.token, map[string]any{"epoch": 1, "envelope": []byte("edited")}, nil)
-	h.mustDo("POST", "/api/groups/"+group.ID+"/messages/"+id+"/reactions", owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "data": []byte("r")}, nil)
+	owner.sendAndRead(group.ID, 1, id)
+	h.sealedMust("PUT", "/api/sealed/groups/"+group.ID+"/messages/"+id, owner.sealedAs(group.ID, 1, itemSecretFor(id)), map[string]any{"envelope": []byte("edited")}, nil)
+	reaction := store.NewID()
+	h.sealedMust("POST", "/api/sealed/groups/"+group.ID+"/messages/"+id+"/reactions", owner.sealedAs(group.ID, 1, nil), map[string]any{"id": reaction, "data": []byte("r"), "item_key": itemKeyFor(reaction)}, nil)
 	relay.none(t)
 
 	// Muted groups are skipped.
 	bob.registerPush(relay.URL, "bob-phone", key, registration, []string{group.ID})
-	owner.send(group.ID, 1, store.NewID())
+	owner.sendAndRead(group.ID, 1, store.NewID())
 	relay.none(t)
 	// So are groups muted for a while, until the time is up, even if the phone never says so.
 	muteUntil := func(until time.Time) {
@@ -177,23 +180,28 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 		}, nil)
 	}
 	muteUntil(time.Now().Add(time.Hour))
-	owner.send(group.ID, 1, store.NewID())
+	owner.sendAndRead(group.ID, 1, store.NewID())
 	relay.none(t)
 	muteUntil(time.Now().Add(-time.Second))
-	owner.send(group.ID, 1, store.NewID())
+	owner.sendAndRead(group.ID, 1, store.NewID())
 	relay.next(t)
 	bob.registerPush(relay.URL, "bob-phone", key, registration, nil)
 
 	// A phone the relay says is gone is forgotten.
 	relay.gone.Store(true)
-	owner.send(group.ID, 1, store.NewID())
+	owner.sendAndRead(group.ID, 1, store.NewID())
 	relay.next(t)
 	waitUntil(t, "the registration to go", func() bool {
-		targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID, false)
-		return len(targets) == 0
+		targets, _ := h.db.PushTargets(context.Background(), group.ID, false)
+		for _, target := range targets {
+			if target.UserID == bob.userID {
+				return false
+			}
+		}
+		return true
 	})
 	relay.gone.Store(false)
-	owner.send(group.ID, 1, store.NewID())
+	owner.sendAndRead(group.ID, 1, store.NewID())
 	relay.none(t)
 }
 
@@ -211,7 +219,7 @@ func TestPushesStopWhenTheDeviceSignsOut(t *testing.T) {
 	h.mustDo("POST", "/api/auth/logout", bob.token, nil, nil)
 	owner.send(group.ID, 1, store.NewID())
 	relay.none(t)
-	if targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID, false); len(targets) != 0 {
+	if targets, _ := h.db.PushTargets(context.Background(), group.ID, false); len(targets) != 0 {
 		t.Fatalf("a signed-out device is still registered: %+v", targets)
 	}
 }
@@ -301,7 +309,7 @@ func TestPushesWaitWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
 	gone := store.NewID()
 	owner.send(group.ID, 1, gone)
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
+	owner.deleteOwn(group.ID, 1, gone)
 	// Reading clears the notifications the phone showed earlier.
 	if push := relay.next(t); push.Type != "background" {
 		t.Fatalf("pushed %+v", push)
@@ -397,7 +405,7 @@ func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
 	gone := store.NewID()
 	owner.send(group.ID, 1, gone)
 	relay.next(t)
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
+	owner.deleteOwn(group.ID, 1, gone)
 	deleted := relay.next(t)
 	if fields := openPush(t, key, deleted); deleted.Type != "background" || fields["t"] != "delete" || fields["m"] != gone {
 		t.Fatalf("delete push: %+v %v", deleted, fields)

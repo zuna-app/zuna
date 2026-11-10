@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -51,7 +52,8 @@ func (s *Server) diskIsFull(w http.ResponseWriter) bool {
 
 // botMaySendFiles says whether the caller may send files, which every person may
 // and a bot only if its owner lets it. It writes the refusal itself. It's asked as a
-// message with files is sent: a bot that may send none can still upload its own picture.
+// file for a message is uploaded, as a message names nobody: a bot that may send
+// none can still upload its own picture, which goes in no message.
 func (s *Server) botMaySendFiles(w http.ResponseWriter, r *http.Request, sess *store.Session) bool {
 	if !sess.Bot {
 		return true
@@ -72,8 +74,18 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 	var body struct {
 		ChunkCount int   `json:"chunk_count"`
 		TotalSize  int64 `json:"total_size"`
+		// The SHA-256 of the secret the file is made with, for a file a message will carry,
+		// which the message shows. A picture that stands on its own has none.
+		ShareHash []byte `json:"share_hash"`
 	}
 	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.ShareHash != nil && len(body.ShareHash) != sha256.Size {
+		writeError(w, http.StatusBadRequest, "bad_request", "The file description isn't valid.")
+		return
+	}
+	if body.ShareHash != nil && !s.botMaySendFiles(w, r, sess) {
 		return
 	}
 	limit, err := s.maxUploadBytes(r)
@@ -102,7 +114,8 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 		OwnerID:    sess.UserID,
 		ChunkCount: body.ChunkCount,
 		TotalSize:  body.TotalSize,
-	}, s.quotaBytes()); err != nil {
+		ShareHash:  body.ShareHash,
+	}, s.quotaBytes()>>20); err != nil {
 		writeFailure(w, err)
 		return
 	}

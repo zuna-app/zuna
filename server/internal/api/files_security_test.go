@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,30 @@ import (
 	"zuna/server/internal/store"
 )
 
+// uploadOwn uploads a file that goes in no message, such as someone's avatar.
+func (c *client) uploadOwn(data []byte) string {
+	c.h.t.Helper()
+	var created struct {
+		ID string `json:"id"`
+	}
+	c.h.mustDo("POST", "/api/files", c.token, map[string]any{"chunk_count": 1, "total_size": len(data)}, &created)
+	c.h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", c.token, data, nil)
+	c.h.mustDo("POST", "/api/files/"+created.ID+"/complete", c.token, map[string]any{}, nil)
+	return created.ID
+}
+
+// uploadPicture uploads a file that stands on its own, such as a picture, which goes in no message.
+func (c *client) uploadPicture(data []byte) string {
+	c.h.t.Helper()
+	var created struct {
+		ID string `json:"id"`
+	}
+	c.h.mustDo("POST", "/api/files", c.token, map[string]any{"chunk_count": 1, "total_size": len(data)}, &created)
+	c.h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", c.token, data, nil)
+	c.h.mustDo("POST", "/api/files/"+created.ID+"/complete?attach=1", c.token, map[string]any{}, nil)
+	return created.ID
+}
+
 // Z-09: nothing lets one account delete another's file.
 func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	h := newHarness(t)
@@ -21,9 +46,9 @@ func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	carol := h.register("carol", owner.newInvite())
 	group := owner.dm(bob.userID)
 	owner.commit(group.ID, 0, nil)
-	send := func(c *client, files ...string) (int, string) {
+	send := func(c *client, files ...map[string]any) (int, string) {
 		id := store.NewID()
-		status, _ := h.do("POST", "/api/groups/"+group.ID+"/messages", c.token, map[string]any{"id": id, "epoch": 1, "envelope": []byte("x"), "file_ids": files}, nil)
+		status, _, _ := c.sendWith(group.ID, 1, id, map[string]any{"files": files})
 		return status, id
 	}
 
@@ -32,46 +57,45 @@ func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	if status, _ := h.do("PATCH", "/api/me", bob.token, map[string]any{"profile": []byte("p"), "avatar_file": victim}, nil); status != http.StatusForbidden {
 		t.Fatalf("taking someone's file as an avatar gave %d", status)
 	}
-	// Or be listed in your message, which deleting would delete.
-	if status, _ := send(bob, victim); status != http.StatusForbidden {
+	// Or be listed in your message, which deleting would delete, without the secret it was made with.
+	if status, _ := send(bob, map[string]any{"id": victim, "secret": bytesOf(32, 3)}); status != http.StatusForbidden {
 		t.Fatalf("listing someone's file in a message gave %d", status)
 	}
 
-	// An avatar stays, whatever happens to a message that uses it.
-	avatar := carol.upload([]byte("avatar"))
+	// An avatar goes in no message, so nothing a message does touches it.
+	avatar := carol.uploadOwn([]byte("avatar"))
 	h.mustDo("PATCH", "/api/me", carol.token, map[string]any{"profile": []byte("p"), "avatar_file": avatar}, nil)
-	dm := carol.dm(owner.userID)
-	carol.commit(dm.ID, 0, nil)
-	id := store.NewID()
-	h.mustDo("POST", "/api/groups/"+dm.ID+"/messages", carol.token, map[string]any{"id": id, "epoch": 1, "envelope": []byte("x"), "file_ids": []string{avatar}}, nil)
-	h.mustDo("DELETE", "/api/groups/"+dm.ID+"/messages/"+id, carol.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
+	if status, _ := send(owner, map[string]any{"id": avatar, "secret": bytesOf(32, 0)}); status != http.StatusForbidden {
+		t.Fatalf("an avatar in a message gave %d", status)
+	}
 	if status := bob.readFile(avatar); status != http.StatusOK {
-		t.Fatalf("an avatar went with a message: %d", status)
+		t.Fatalf("an avatar: %d", status)
 	}
 
 	// A forward shares a file until the last copy goes.
 	photo := owner.upload([]byte("photo"))
-	if status, _ := send(owner, photo); status != http.StatusCreated {
+	if status, _ := send(owner, shareOf(photo)); status != http.StatusCreated {
 		t.Fatalf("sending: %d", status)
 	}
-	status, forwarded := send(bob, photo)
+	status, forwarded := send(bob, shareOf(photo))
 	if status != http.StatusCreated {
 		t.Fatalf("forwarding a file from your own chat: %d", status)
 	}
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+forwarded, bob.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
+	bob.deleteOwn(group.ID, 1, forwarded)
 	if status := owner.readFile(photo); status != http.StatusOK {
 		t.Fatalf("the original lost its file: %d", status)
 	}
 
 	// Replacing an avatar deletes the old one.
-	next := carol.upload([]byte("newer"))
+	next := carol.uploadOwn([]byte("newer"))
 	h.mustDo("PATCH", "/api/me", carol.token, map[string]any{"profile": []byte("p"), "avatar_file": next}, nil)
 	if status := carol.readFile(avatar); status != http.StatusNotFound {
 		t.Fatalf("the old avatar: %d", status)
 	}
 }
 
-// Z-27: a file's contents and details are for its conversation.
+// Z-27: a file's contents and details are for its conversation, and once a message
+// carries it, nothing kept says who uploaded it.
 func TestFilesAreForTheirConversation(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -83,7 +107,14 @@ func TestFilesAreForTheirConversation(t *testing.T) {
 	if status := bob.readFile(file); status != http.StatusNotFound {
 		t.Fatalf("before it was sent to anyone: %d", status)
 	}
-	h.mustDo("POST", "/api/groups/"+group.ID+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{file}}, nil)
+	var info store.File
+	h.mustDo("GET", "/api/files/"+file, owner.token, nil, &info)
+	if info.OwnerID != owner.userID {
+		t.Fatal("before it's sent, the uploader should see that it's theirs")
+	}
+	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": []map[string]any{shareOf(file)}}); status != http.StatusCreated {
+		t.Fatalf("sending it: %d %v", status, resp)
+	}
 	if status := bob.readFile(file); status != http.StatusOK {
 		t.Fatalf("a member: %d", status)
 	}
@@ -93,25 +124,21 @@ func TestFilesAreForTheirConversation(t *testing.T) {
 	if status, _ := h.do("GET", "/api/files/"+file, carol.token, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("an outsider reading its details: %d", status)
 	}
-	var info store.File
-	h.mustDo("GET", "/api/files/"+file, bob.token, nil, &info)
-	if info.OwnerID != "" {
-		t.Fatal("the details say who uploaded it")
+	for _, c := range []*client{bob, owner} {
+		var info store.File
+		h.mustDo("GET", "/api/files/"+file, c.token, nil, &info)
+		if info.OwnerID != "" {
+			t.Fatal("once a message carries it, the details say who uploaded it")
+		}
 	}
-	h.mustDo("GET", "/api/files/"+file, owner.token, nil, &info)
-	if info.OwnerID != owner.userID {
-		t.Fatal("the uploader should still see that it's theirs")
+	if owned, _ := h.db.File(context.Background(), file); owned.OwnerID != "" {
+		t.Fatalf("the database keeps who uploaded it: %q", owned.OwnerID)
 	}
 
 	// Group pictures belong to no message, and any member's app has to fetch them.
 	picture := owner.upload([]byte("group picture"))
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1, "total_size": 7}, &created)
-	h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", owner.token, []byte("picture"), nil)
-	h.mustDo("POST", "/api/files/"+created.ID+"/complete?attach=1", owner.token, map[string]any{}, nil)
-	if status := carol.readFile(created.ID); status != http.StatusOK {
+	created := owner.uploadPicture([]byte("picture"))
+	if status := carol.readFile(created); status != http.StatusOK {
 		t.Fatalf("a group's picture: %d", status)
 	}
 	if status := carol.readFile(picture); status != http.StatusNotFound {
@@ -204,7 +231,8 @@ func TestAnUnfinishedUploadCantBeKeptForGood(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11}, &created)
+	secret, hash := newShare()
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11, "share_hash": hash}, &created)
 	if status, _ := h.do("PATCH", "/api/me", owner.token, map[string]any{"profile": []byte("p"), "avatar_file": created.ID}, nil); status != http.StatusForbidden {
 		t.Fatalf("an unfinished upload as an avatar gave %d", status)
 	}
@@ -212,7 +240,7 @@ func TestAnUnfinishedUploadCantBeKeptForGood(t *testing.T) {
 	if status, _ := owner.commit(dm.ID, 0, nil); status >= 300 {
 		t.Fatalf("starting a chat gave %d", status)
 	}
-	status, _ := h.do("POST", "/api/groups/"+dm.ID+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{created.ID}}, nil)
+	status, _, _ := owner.sendWith(dm.ID, 1, store.NewID(), map[string]any{"files": []map[string]any{{"id": created.ID, "secret": secret}}})
 	if status != http.StatusForbidden {
 		t.Fatalf("an unfinished upload in a message gave %d", status)
 	}
@@ -226,6 +254,7 @@ func TestUploadsStopBeforeTheDiskIsFull(t *testing.T) {
 	}
 }
 
+// What someone uploads in thirty days counts, in whole MiB, whatever becomes of it.
 func TestParallelUploadsCantPassTheQuota(t *testing.T) {
 	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 4 })
 	owner := h.owner()

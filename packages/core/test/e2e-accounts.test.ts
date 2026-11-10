@@ -48,6 +48,7 @@ describe("presence and read state", () => {
   it("syncs read positions, unread counts and receipts", async () => {
     const aliceKey = `user:${alice.userId}`;
     alice.session.sendMessage(`user:${bob.userId}`, { text: "unread one" });
+    await waitFor(() => bob.texts(aliceKey).includes("unread one"), "the message");
     await waitFor(() => bob.session.getConversations().find((item) => item.key === aliceKey)!.unread > 0, "the unread count");
     const conversation = bob.session.getConversations().find((item) => item.key === aliceKey)!;
     const { messages } = await bob.session.loadMessages(conversation.groupId!);

@@ -217,7 +217,7 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     return session.withLock(groupId, () =>
       session.sealAndRetry(groupId, async (epoch: number, key: Uint8Array) => {
         const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, named, { userId: by.user, deviceId: by.device });
-        await session.api.sendMessage(groupId, { id, epoch, envelope });
+        await session.api.sealedSend(groupId, await session.seal(groupId, epoch, envelope.length), { id, envelope, item_key: wasm.signingPublic(session.itemSecret("message", groupId, id)) });
       }),
     ).then(() => id);
   }

@@ -1,7 +1,7 @@
 // The realtime connection: authenticates, keeps itself alive, and reconnects
 // with backoff. Whatever is missed while it's down comes from the change feed.
 
-import { fromBase64, toBase64 } from "./encoding";
+import { fromBase64 } from "./encoding";
 import type { VoiceUpdate } from "./types";
 
 const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000, 20_000, 30_000];
@@ -78,12 +78,6 @@ export class Socket {
     if (!this.connected) return false;
     this.ws!.send(JSON.stringify({ t: "voice", group_id: channelId ?? "", voice: voice ? { ...voice, ring: ring || undefined } : undefined }));
     return true;
-  }
-
-  sendTyping(groupId: string, data: Uint8Array): void {
-    if (this.connected) {
-      this.ws!.send(JSON.stringify({ t: "typing", group_id: groupId, data: toBase64(data) }));
-    }
   }
 
   private connect(): void {

@@ -101,6 +101,8 @@ type Config struct {
 	CallRing time.Duration
 	// PushWait replaces how long a phone's notification waits while its person is on another device.
 	PushWait time.Duration
+	// PushHold replaces how long every notification waits, so that its sender's own read cancels theirs.
+	PushHold time.Duration
 	// PresenceLinger replaces how long someone shows as online after they stop using Zuna.
 	PresenceLinger time.Duration
 }
@@ -113,12 +115,12 @@ type Server struct {
 	emotes  *emotes.Service
 	callers *clientip.Resolver
 
-	authLimiter    *ratelimit.Keyed
-	messageLimiter *ratelimit.Keyed
-	// What a bot may send: in all, and in each chat.
-	botMessageLimiter *ratelimit.Keyed
-	botChatLimiter    *ratelimit.Keyed
-	writeLimiter      *ratelimit.Keyed
+	authLimiter *ratelimit.Keyed
+	// Sealed requests name nobody, so they're held by address alone, as typing is
+	// in each group too. What's kept is held by tokens.
+	sealedLimiter *ratelimit.Keyed
+	typingLimiter *ratelimit.Keyed
+	writeLimiter  *ratelimit.Keyed
 	readLimiter       *ratelimit.Keyed
 	emoteLimiter      *ratelimit.Keyed
 	socketLimiter     *ratelimit.Keyed
@@ -189,12 +191,11 @@ func New(cfg Config, db *store.DB) *Server {
 		files:          filepath.Join(cfg.DataDir, "files"),
 		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		callers:        callers,
-		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
-		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
-		// As Telegram holds its bots to: thirty a second in all, and one a second in a chat,
-		// with room for a burst of answers.
-		botMessageLimiter: ratelimit.NewKeyed(rate.Limit(30), 90),
-		botChatLimiter:    ratelimit.NewKeyed(rate.Limit(1), 20),
+		authLimiter: ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
+		// Friends behind one home router share an address, and a bot may answer in many
+		// chats at once, so this only stops a flood.
+		sealedLimiter: ratelimit.NewKeyed(rate.Limit(50), 500),
+		typingLimiter: ratelimit.NewKeyed(rate.Limit(2), 10),
 		// Far beyond what using the app needs, even while uploading a large file.
 		writeLimiter: ratelimit.NewKeyed(rate.Limit(50), 300),
 		// Reads too, some of which load every user and device, so that one person
@@ -422,15 +423,20 @@ func (s *Server) Handler() http.Handler {
 
 	// Messages
 	mux.HandleFunc("GET /api/groups/{id}/messages", s.member(s.handleMessages))
-	mux.HandleFunc("POST /api/groups/{id}/messages", s.member(s.handleSendMessage))
 	mux.HandleFunc("GET /api/groups/{id}/messages/{mid}", s.member(s.handleMessage))
-	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}", s.member(s.handleEditMessage))
+	// A group admin deleting someone else's message, which is theirs to check.
 	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}", s.member(s.provenMember(s.handleDeleteMessage)))
-	mux.HandleFunc("POST /api/groups/{id}/messages/{mid}/reactions", s.member(s.handleAddReaction))
-	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/reactions/{rid}", s.member(s.handleRemoveReaction))
-	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}/pin", s.member(s.provenMember(s.handlePin(true))))
-	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/pin", s.member(s.provenMember(s.handlePin(false))))
 	mux.HandleFunc("GET /api/groups/{id}/pins", s.member(s.handlePins))
+
+	// What a member adds to a conversation, sealed: nothing says who sent it (sealed.go)
+	mux.HandleFunc("POST /api/sealed/groups/{id}/messages", s.sealed(s.handleSealedSend))
+	mux.HandleFunc("PUT /api/sealed/groups/{id}/messages/{mid}", s.sealed(s.handleSealedEdit))
+	mux.HandleFunc("DELETE /api/sealed/groups/{id}/messages/{mid}", s.sealed(s.handleSealedDelete))
+	mux.HandleFunc("POST /api/sealed/groups/{id}/messages/{mid}/reactions", s.sealed(s.handleSealedReact))
+	mux.HandleFunc("DELETE /api/sealed/groups/{id}/messages/{mid}/reactions/{rid}", s.sealed(s.handleSealedUnreact))
+	mux.HandleFunc("PUT /api/sealed/groups/{id}/messages/{mid}/pin", s.sealed(s.handleSealedPin(true)))
+	mux.HandleFunc("DELETE /api/sealed/groups/{id}/messages/{mid}/pin", s.sealed(s.handleSealedPin(false)))
+	mux.HandleFunc("POST /api/sealed/groups/{id}/typing", s.sealed(s.handleSealedTyping))
 
 	// Files (always encrypted by the client before upload)
 	mux.HandleFunc("POST /api/files", s.withDevice(s.handleCreateFile))
@@ -518,7 +524,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		headers := w.Header()
 		headers.Set("Access-Control-Allow-Origin", "*")
 		headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		headers.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Zuna-Proof, X-Zuna-Time")
+		headers.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Zuna-Proof, X-Zuna-Time, X-Zuna-Seal, X-Zuna-Epoch, X-Zuna-Token, X-Zuna-Item")
 		headers.Set("Access-Control-Max-Age", "86400")
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "no-referrer")

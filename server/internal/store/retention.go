@@ -116,20 +116,10 @@ func unreferenced(ctx context.Context, tx handle, fileIDs []string) ([]string, e
 }
 
 // inSeenMessage is true when file ?1 is in a message user ?2 can see, in a
-// conversation they belong to: one sent after they could see it from. Who may read
-// a file and who may share one both rest on it, so it's written once.
+// conversation they belong to: one sent after they could see it from, which is who may read it.
 const inSeenMessage = `EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
 	JOIN messages msg ON msg.group_id = r.group_id AND msg.id = r.message_id
 	WHERE r.file_id = ?1 AND m.user_id = ?2 AND msg.seq > m.visible_from_seq)`
 
-// mayShareFile reports whether a message from this user may use a file: their
-// own finished upload, or one already in a message they can see, in a conversation
-// they belong to, which is how a forwarded message shares its original's files.
-func mayShareFile(ctx context.Context, tx handle, fileID, userID string) (bool, error) {
-	var allowed bool
-	err := tx.QueryRowContext(ctx, `SELECT
-		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2 AND completed_at IS NOT NULL) OR `+inSeenMessage, fileID, userID).Scan(&allowed)
-	return allowed, err
-}
 
 // --- Files ---

@@ -12,28 +12,53 @@ type File struct {
 	ChunkCount  int    `json:"chunk_count"`
 	TotalSize   int64  `json:"total_size"`
 	CompletedAt *int64 `json:"completed_at"`
+	// ShareHash is the SHA-256 of the secret its uploader made it with, which a
+	// message carrying it shows. A file without one, such as a picture, goes in no message.
+	ShareHash []byte `json:"-"`
 	// Received is how much of the upload has arrived so far.
 	Received int64 `json:"-"`
 }
 
-// CreateFile records a new upload, unless that would take its owner past quota,
-// where zero is no limit. Both happen in one transaction, so uploads started
-// together can't each get past it.
-func (d *DB) CreateFile(ctx context.Context, f File, quota int64) error {
+// ErrUploadQuota is for an upload past what one person may upload in uploadDays.
+var ErrUploadQuota = errors.New("over the upload quota")
+
+// uploadDays is how long what someone uploaded counts towards their quota.
+const uploadDays = 30
+
+const dayMillis = 24 * 3600 * 1000
+
+// CreateFile records a new upload, unless that would take its uploader past what one
+// person may upload in thirty days, where zero is no limit. Each file counts in whole
+// MiB, so that no total gives one file's size away. A file belongs to nobody once a
+// message carries it, so what someone keeps can't be counted, only what they upload.
+// Both happen in one transaction, so uploads started together can't each get past it.
+func (d *DB) CreateFile(ctx context.Context, f File, quotaMiB int64) error {
 	return d.tx(ctx, func(tx handle) error {
-		if quota > 0 {
+		mib := (f.TotalSize + 1<<20 - 1) >> 20
+		day := Now() / dayMillis
+		if quotaMiB > 0 {
 			var used int64
-			if err := tx.QueryRowContext(ctx, `SELECT CAST(COALESCE(SUM(CASE WHEN total_size > received THEN total_size ELSE received END), 0) AS BIGINT) FROM files WHERE owner_id = ?`, f.OwnerID).Scan(&used); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT CAST(COALESCE(SUM(mib), 0) AS BIGINT) FROM uploads WHERE user_id = ? AND day > ?`, f.OwnerID, day-uploadDays).Scan(&used); err != nil {
 				return err
 			}
-			if used+f.TotalSize > quota {
-				return ErrQuota
+			if used+mib > quotaMiB {
+				return ErrUploadQuota
 			}
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO files(id, owner_id, chunk_count, total_size, created_at) VALUES(?,?,?,?,?)`,
-			f.ID, f.OwnerID, f.ChunkCount, f.TotalSize, Now())
+		if _, err := tx.ExecContext(ctx, `INSERT INTO uploads(user_id, day, mib) VALUES(?, ?, ?)
+			ON CONFLICT(user_id, day) DO UPDATE SET mib = uploads.mib + excluded.mib`, f.OwnerID, day, mib); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO files(id, owner_id, chunk_count, total_size, share_hash, created_at) VALUES(?,?,?,?,?,?)`,
+			f.ID, f.OwnerID, f.ChunkCount, f.TotalSize, f.ShareHash, Now())
 		return err
 	})
+}
+
+// PruneUploads forgets uploads too long ago to count towards anyone's quota.
+func (d *DB) PruneUploads(ctx context.Context) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM uploads WHERE day <= ?`, Now()/dayMillis-uploadDays)
+	return err
 }
 
 func (d *DB) File(ctx context.Context, id string) (*File, error) {

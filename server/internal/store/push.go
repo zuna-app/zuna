@@ -105,17 +105,18 @@ func (d *DB) PushNotified(ctx context.Context) (map[string][]string, error) {
 }
 
 // PushTargets lists the registered devices to wake for a new message in a
-// group: the other members' devices that are signed in and haven't muted it.
+// group: the members' devices that are signed in and haven't muted it, the sender's
+// own among them, as nothing says who that is. Its read at once spares them (pushHold).
 // With onlyFiltering, only those whose app hides what it shouldn't show.
-func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string, onlyFiltering bool) ([]PushRegistration, error) {
+func (d *DB) PushTargets(ctx context.Context, groupID string, onlyFiltering bool) ([]PushRegistration, error) {
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration, p.muted, p.filters
 		 FROM push_registrations p
 		 JOIN group_members m ON m.user_id = p.user_id AND m.group_id = ?
 		 JOIN devices dv ON dv.id = p.device_id AND dv.revoked_at IS NULL
 		 JOIN users u ON u.id = p.user_id AND u.banned_at IS NULL
-		 WHERE p.user_id != ? AND (? = 0 OR p.filters = 1) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
-		groupID, senderUserID, onlyFiltering)
+		 WHERE (? = 0 OR p.filters = 1) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
+		groupID, onlyFiltering)
 	if err != nil {
 		return nil, err
 	}

@@ -26,14 +26,18 @@ func TestMessagesSentAtOnceEachGetTheirOwnPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	const senders, each = 16, 8
+	tokens := make([]*Token, senders*each)
+	for i := range tokens {
+		tokens[i] = paid(t, db)
+	}
 	var wg sync.WaitGroup
 	errs := make(chan error, senders*each)
 	for sender := range senders {
 		wg.Go(func() {
 			for i := range each {
 				_, created, err := db.CreateMessage(ctx, Message{
-					GroupID: group, ID: fmt.Sprintf("m%d-%d", sender, i), SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-				}, nil, 0, 0)
+					GroupID: group, ID: fmt.Sprintf("m%d-%d", sender, i), Envelope: []byte("x"),
+				}, nil, tokens[sender*each+i], 0)
 				if err == nil && !created {
 					err = errors.New("a new message counted as a retry")
 				}
@@ -128,7 +132,7 @@ func TestMessagesAfterAPlaceComeOldestFirstFromWhatTheMemberMaySee(t *testing.T)
 		t.Fatal(err)
 	}
 	for i := range 12 {
-		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: fmt.Sprintf("m%d", i), SenderUser: "u", SenderDevice: "d", Envelope: []byte("x")}, nil, 0, 0); err != nil {
+		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: fmt.Sprintf("m%d", i), Envelope: []byte("x")}, nil, paid(t, db), 0); err != nil {
 			t.Fatal(err)
 		}
 	}

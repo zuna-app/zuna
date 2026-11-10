@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -46,14 +47,14 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 		t.Helper()
 		ownFile(t, db, file)
 		if _, _, err := db.CreateMessage(ctx, Message{
-			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-		}, []string{file}, 0, 0); err != nil {
+			GroupID: group, ID: id, Envelope: []byte("x"),
+		}, filesOf(file), paid(t, db), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
 	send("old", "file-old")
 	send("pinned", "file-pinned")
-	if _, err := db.SetPinned(ctx, group, "pinned", "u", true, Pin{}); err != nil {
+	if _, err := db.SetPinned(ctx, group, "pinned", true, Pin{}, paid(t, db)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,11 +86,11 @@ func TestRetentionDeletesInBatches(t *testing.T) {
 	ownFile(t, db, "own")
 	// Five messages, so three batches, with one file used in the first and the last.
 	for _, m := range []struct{ id, file string }{{"a", "shared"}, {"b", ""}, {"c", "own"}, {"d", ""}, {"e", "shared"}} {
-		var files []string
+		var files []FileShare
 		if m.file != "" {
-			files = []string{m.file}
+			files = filesOf(m.file)
 		}
-		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: m.id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x")}, files, 0, 0); err != nil {
+		if _, _, err := db.CreateMessage(ctx, Message{GroupID: group, ID: m.id, Envelope: []byte("x")}, files, paid(t, db), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -119,8 +120,8 @@ func TestDisappearingMessagesGoWhenDueEvenPinned(t *testing.T) {
 		t.Helper()
 		ownFile(t, db, file)
 		message, _, err := db.CreateMessage(ctx, Message{
-			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-		}, []string{file}, 0, expiresIn)
+			GroupID: group, ID: id, Envelope: []byte("x"),
+		}, filesOf(file), paid(t, db), expiresIn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +135,7 @@ func TestDisappearingMessagesGoWhenDueEvenPinned(t *testing.T) {
 	if brief.ExpiresAt == nil || *brief.ExpiresAt != brief.CreatedAt+60_000 {
 		t.Fatalf("expires_at = %v, want a minute after %d", brief.ExpiresAt, brief.CreatedAt)
 	}
-	if _, err := db.SetPinned(ctx, group, "brief", "u", true, Pin{}); err != nil {
+	if _, err := db.SetPinned(ctx, group, "brief", true, Pin{}, paid(t, db)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -250,8 +251,8 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 	send := func(group, id string, files ...string) {
 		t.Helper()
 		if _, _, err := db.CreateMessage(ctx, Message{
-			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-		}, files, 0, 0); err != nil {
+			GroupID: group, ID: id, Envelope: []byte("x"),
+		}, filesOf(files...), paid(t, db), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -261,14 +262,14 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 	send(first, "forwarded-here", "photo")
 	send(second, "forwarded-there", "photo", "notes")
 
-	_, files, err := db.DeleteMessage(ctx, first, "original", Deletion{})
+	_, files, err := db.DeleteMessage(ctx, first, "original", Deletion{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 0 {
 		t.Fatalf("removed files = %v, but the forwarded copies still use them", files)
 	}
-	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here", Deletion{}); err != nil || len(files) != 0 {
+	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here", Deletion{}, nil); err != nil || len(files) != 0 {
 		t.Fatalf("removed files = %v (%v), but the other group still uses the photo", files, err)
 	}
 	files, err = db.DeleteGroup(ctx, second)
@@ -312,9 +313,31 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 }
 
 // ownFile makes a finished upload belonging to the user these tests send messages as.
+// shareSecret stands in for the secret a file was made with, which a message carrying it shows.
+func shareSecret(id string) []byte {
+	sum := sha256.Sum256([]byte("share|" + id))
+	return sum[:]
+}
+
+// filesOf is files as a message carries them, with their secrets.
+func filesOf(ids ...string) []FileShare {
+	var files []FileShare
+	for _, id := range ids {
+		files = append(files, FileShare{ID: id, Secret: shareSecret(id)})
+	}
+	return files
+}
+
+// paid is a token of the server's own, to pay for something sealed.
+func paid(t *testing.T, db *DB) *Token {
+	t.Helper()
+	return ParseToken(issue(t, db, CurrentTokenPeriod(), SmallToken))
+}
+
 func ownFile(t *testing.T, db *DB, id string) {
 	t.Helper()
-	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}, 0); err != nil {
+	hash := sha256.Sum256(shareSecret(id))
+	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1, ShareHash: hash[:]}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.CompleteFile(context.Background(), id); err != nil {
@@ -430,15 +453,12 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE devices DROP COLUMN seal_generation;
 		ALTER TABLE devices DROP COLUMN seal_proof;
 		DROP TABLE sign_in_attempts;
-		ALTER TABLE messages DROP COLUMN deleted_by;
 		ALTER TABLE messages DROP COLUMN deletion;
 		ALTER TABLE messages DROP COLUMN pin;
-		ALTER TABLE messages DROP COLUMN pin_by;
 		DROP INDEX messages_expires;
 		ALTER TABLE messages DROP COLUMN expires_at;
 		DROP TABLE bot_channels;
 		DROP TABLE bots;
-		DROP TABLE channel_sends;
 		DROP TABLE channels;
 		ALTER TABLE group_members DROP COLUMN proof;
 		ALTER TABLE group_members DROP COLUMN history_wanted;
@@ -453,6 +473,14 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP INDEX welcomes_group;
 		DROP INDEX history_grants_group;
 		ALTER TABLE users DROP COLUMN banned_by;
+		ALTER TABLE messages ADD COLUMN sender_user TEXT NOT NULL DEFAULT '';
+		ALTER TABLE messages ADD COLUMN sender_device TEXT NOT NULL DEFAULT '';
+		ALTER TABLE messages ADD COLUMN pinned_by TEXT;
+		ALTER TABLE reactions ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
+		ALTER TABLE messages DROP COLUMN item_key;
+		ALTER TABLE reactions DROP COLUMN item_key;
+		ALTER TABLE files DROP COLUMN share_hash;
+		DROP TABLE uploads;
 		DROP TABLE token_keys;
 		DROP TABLE token_issues;
 		DROP TABLE spent_tokens;
@@ -480,7 +508,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		t.Fatalf("the group's info moved as %x, %v", info, err)
 	}
 
-	_, files, err := db.DeleteMessage(ctx, "g", "m", Deletion{})
+	_, files, err := db.DeleteMessage(ctx, "g", "m", Deletion{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

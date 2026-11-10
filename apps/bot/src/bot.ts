@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { ApiError, ZunaClient, type Attachment, type ConversationView, type CoreEvent, type MessageBody, type MessageButton, type MessageView, type ServerSession, type UserView } from "@zuna/core";
 import { randomBytes } from "@zuna/crypto";
 import { markupOf, ParseError, toTelegram } from "./format";
-import { DiskDbProvider, dataFolder, deviceKey, loadCrypto, pinServer, writePrivate } from "./host";
+import { DiskDbProvider, dataFolder, deviceKey, loadCrypto, pinServer, sealedFetch, writePrivate } from "./host";
 import { ApiFailure, type Params, flag, integer, required, structured, text } from "./params";
 import { BotStore, type StoredFile } from "./store";
 import { Updates } from "./updates";
@@ -78,7 +78,7 @@ export class Bot {
     dataFolder(dataDir);
     if (Bot.isSetUp(dataDir)) throw new Error(`${dataDir} already holds a bot. Each bot has a folder of its own.`);
     const db = new DiskDbProvider(dataDir);
-    const client = new ZunaClient({ db, deviceKey: deviceKey(dataDir), deviceName: "zuna-bot", onEvent: () => undefined, channels: true, pinServer });
+    const client = new ZunaClient({ db, deviceKey: deviceKey(dataDir), deviceName: "zuna-bot", onEvent: () => undefined, channels: true, pinServer, sealedFetch });
     await client.open();
     try {
       const { serverId, recoveryKey } = await client.registerBot(link);
@@ -108,6 +108,7 @@ export class Bot {
       onEvent: (event) => bot.onEvent(event),
       channels: true,
       pinServer,
+      sealedFetch,
     });
     await bot.client.open();
     const server = bot.client.listServers()[0];

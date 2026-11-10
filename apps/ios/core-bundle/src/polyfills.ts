@@ -308,7 +308,7 @@ let nextRequest = 1;
 
 g.Headers = HeadersPolyfill;
 g.Response = ResponsePolyfill;
-g.fetch = (input: unknown, init: { method?: string; headers?: any; body?: unknown; signal?: AbortSignalPolyfill } = {}) =>
+const hostFetch = (sealed: boolean) => (input: unknown, init: { method?: string; headers?: any; body?: unknown; signal?: AbortSignalPolyfill } = {}) =>
   new Promise<ResponsePolyfill>((resolve, reject) => {
     const signal = init.signal;
     if (signal?.aborted) {
@@ -329,8 +329,14 @@ g.fetch = (input: unknown, init: { method?: string; headers?: any; body?: unknow
       __zunaHost.httpCancel(id);
       reject(signal.reason);
     });
-    __zunaHost.http(id, (init.method ?? "GET").toUpperCase(), String(input), JSON.stringify(headers), body, 0);
+    __zunaHost.http(id, (init.method ?? "GET").toUpperCase(), String(input), JSON.stringify(headers), body, 0, sealed);
   });
+g.fetch = hostFetch(false);
+/**
+ * A fetch on connections of the host's that share nothing with the session's, for what adds
+ * to a conversation without saying who's sending (`ZunaClientOptions.sealedFetch`).
+ */
+g.__zunaSealedFetch = hostFetch(true);
 
 g.__zunaHttpDone = (id: number, status: number, headers: string, body: Uint8Array | null, error: string | null) => {
   const request = requests.get(id);

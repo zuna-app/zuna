@@ -114,6 +114,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     channels: true,
     calls: true,
     bots: !!__zunaHost.listsBots,
+    sealedFetch: (url, init) => g.__zunaSealedFetch(url, init),
     pinServer: async (url, pin) => {
       if (!__zunaHost.pinServer(url, pin)) throw new Error("That isn't a server's pin.");
     },

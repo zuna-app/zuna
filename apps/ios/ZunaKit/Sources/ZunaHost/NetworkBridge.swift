@@ -9,7 +9,12 @@ import Network
 final class NetworkBridge: NSObject, @unchecked Sendable {
     private let queue: DispatchQueue
     private let deliver: (_ function: String, _ arguments: [Any]) -> Void
-    private lazy var session: URLSession = {
+    private lazy var session: URLSession = makeSession()
+    /// What adds to a conversation without saying who's sending goes on connections of its
+    /// own, with TLS sessions of its own: an ephemeral session shares neither with another.
+    private lazy var sealedSession: URLSession = makeSession()
+
+    private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
@@ -20,7 +25,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         delegateQueue.maxConcurrentOperationCount = 1
         // A server that makes its own certificate is trusted by its pin, and nothing else.
         return URLSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: delegateQueue)
-    }()
+    }
     private var requests: [Int: URLSessionDataTask] = [:]
     private var sockets: [Int: NWConnection] = [:]
     /// Set by tests to make the network fail on purpose.
@@ -48,9 +53,9 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
     }
 
     func install(into object: JSValue) {
-        let http: @convention(block) (Double, String, String, String, JSValue, Double) -> Void = {
-            [unowned self] id, method, url, headers, body, timeoutMs in
-            request(id: Int(id), method: method, url: url, headers: headers, body: body, timeoutMs: timeoutMs)
+        let http: @convention(block) (Double, String, String, String, JSValue, Double, Bool) -> Void = {
+            [unowned self] id, method, url, headers, body, timeoutMs, sealed in
+            request(id: Int(id), method: method, url: url, headers: headers, body: body, timeoutMs: timeoutMs, sealed: sealed)
         }
         object.setObject(http, forKeyedSubscript: "http" as NSString)
 
@@ -82,7 +87,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
 
     // MARK: HTTP
 
-    private func request(id: Int, method: String, url: String, headers: String, body: JSValue, timeoutMs: Double) {
+    private func request(id: Int, method: String, url: String, headers: String, body: JSValue, timeoutMs: Double, sealed: Bool) {
         guard !offline, let target = URL(string: url) else {
             deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), offline ? "The network is offline." : "Invalid URL"])
             return
@@ -99,7 +104,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         } else if body.isString {
             request.httpBody = body.toString().data(using: .utf8)
         }
-        let task = session.dataTask(with: request) { [weak self] data, response, error in
+        let task = (sealed ? sealedSession : session).dataTask(with: request) { [weak self] data, response, error in
             guard let self, requests.removeValue(forKey: id) != nil else { return }
             #if DEBUG
             if let crash = crashOnResponse, error == nil, crash.method == method,

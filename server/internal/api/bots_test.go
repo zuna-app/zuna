@@ -420,11 +420,12 @@ func TestWhatABotMayNotDo(t *testing.T) {
 	refused("listing invites", "GET", "/api/invites", nil)
 	refused("making a bot", "POST", "/api/bots", map[string]any{"username": "helper2"})
 	refused("changing the server's settings", "PATCH", "/api/admin/settings", map[string]any{"name": "Mine"})
-	withFile := owner.dm(bot.userID)
-	owner.commit(withFile.ID, 0, nil)
-	refused("sending a file it isn't allowed", "POST", "/api/groups/"+withFile.ID+"/messages", map[string]any{
-		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{store.NewID()},
-	})
+	// A message names nobody, so what a bot may send is checked as it uploads a file for one.
+	_, shareHash := newShare()
+	refused("uploading a file for a message, which it isn't allowed", "POST", "/api/files", map[string]any{"chunk_count": 1, "total_size": 10, "share_hash": shareHash})
+	if status, _ := h.do("POST", "/api/files", bot.token, map[string]any{"chunk_count": 1, "total_size": 10}, nil); status != http.StatusCreated {
+		t.Fatalf("a bot uploading its own picture gave %d", status)
+	}
 
 	// Nor is it ever one of the server's admins.
 	if status, body := h.do("PUT", "/api/admin/users/"+bot.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil); status != http.StatusForbidden || body["error"] != "bot" {
@@ -460,12 +461,10 @@ func TestWhatABotMayNotDo(t *testing.T) {
 	bot.joinChannel(voice.ID, false)
 	refused("joining a voice channel's room", "POST", "/api/channels/"+voice.ID+"/voice", nil)
 
-	// Allowed files again, that's no longer what refuses it: the file just isn't there.
+	// Allowed files again, it may.
 	h.mustDo("PATCH", "/api/bots/"+bot.userID, owner.token, map[string]any{"files": true}, nil)
-	if status, body := h.do("POST", "/api/groups/"+withFile.ID+"/messages", bot.token, map[string]any{
-		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{store.NewID()},
-	}, nil); body["error"] == "bot" {
-		t.Fatalf("a bot allowed files sending one gave %d %v", status, body)
+	if status, body := h.do("POST", "/api/files", bot.token, map[string]any{"chunk_count": 1, "total_size": 10, "share_hash": shareHash}, nil); status != http.StatusCreated {
+		t.Fatalf("a bot allowed files uploading one gave %d %v", status, body)
 	}
 
 	// A channel taken away is one it's out of, and a private bot is out of them all.
@@ -513,13 +512,16 @@ func TestABotNeverShowsAsOnlineAndHasItsOwnLimits(t *testing.T) {
 		}
 	}
 
-	// A burst of answers in one chat, and then a steady pace.
-	for range 19 {
-		bot.send(group.ID, 1, store.NewID())
+	// What it sends is held by tokens, at a bot's pace: ten times a person's.
+	period := store.CurrentTokenPeriod()
+	// It has had one, for the message it sent.
+	for _, n := range append(slices.Repeat([]int{100}, 99), 99) {
+		if status, body := h.do("POST", "/api/tokens", bot.token, map[string]any{"period": period, "size": "small", "blinded": blinded(t, n)}, nil); status != http.StatusOK {
+			t.Fatalf("a bot's tokens gave %d %v", status, body)
+		}
 	}
-	status, body := h.do("POST", "/api/groups/"+group.ID+"/messages", bot.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x")}, nil)
-	if status != http.StatusTooManyRequests || body["error"] != "rate_limited" {
-		t.Fatalf("a bot's twenty-first message at once gave %d %v", status, body)
+	if status, _ := h.do("POST", "/api/tokens", bot.token, map[string]any{"period": period, "size": "small", "blinded": blinded(t, 1)}, nil); status != http.StatusTooManyRequests {
+		t.Fatalf("past a bot's limit gave %d", status)
 	}
 }
 

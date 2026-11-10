@@ -71,7 +71,7 @@ describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
     const { admin, member, other, groupId } = await threeInAGroup();
     const id = await sentAndSeen(admin, [member, other], groupId, "keep this");
     withServerDatabase((db) => db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(groupId, member.userId));
-    serverDeletes(groupId, id, member.userId, signedDeletion(member, groupId, id));
+    serverDeletes(groupId, id, signedDeletion(member, groupId, id));
     await sessionOf(other).syncGroup(groupId);
     expect(sessionOf(other).messageRow(groupId, id).body).not.toBeNull();
   });
@@ -126,7 +126,7 @@ describe("a device key someone else's certificate names (Z3-07)", () => {
       const row = db.prepare("SELECT data FROM reactions WHERE group_id = ? AND message_id = ?").get(groupId, id) as { data: Uint8Array };
       const signed = readSigned(new Uint8Array(row.data))!;
       const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
-      db.prepare("UPDATE reactions SET user_id = ?, data = ? WHERE group_id = ? AND message_id = ?").run(mal.userId, frameSigned(signed.epoch, signed.envelope), groupId, id);
+      db.prepare("UPDATE reactions SET data = ? WHERE group_id = ? AND message_id = ?").run(frameSigned(signed.epoch, signed.envelope), groupId, id);
       db.prepare("UPDATE messages SET updated_seq = ? WHERE group_id = ? AND id = ?").run(seq, groupId, id);
     });
     await sessionOf(bob).ensureUser(mal.userId, true);
@@ -224,11 +224,10 @@ describe("a server pinning or unpinning a message", () => {
   function serverPins(groupId: string, messageId: string, by: string | null, pin: Uint8Array | null): void {
     withServerDatabase((db) => {
       const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
-      db.prepare("UPDATE messages SET pinned_at = ?, pinned_by = ?, pin = ?, pin_by = ?, updated_seq = ? WHERE group_id = ? AND id = ?").run(
+      // Who pinned it is inside the pin, which the server can't write as anyone.
+      db.prepare("UPDATE messages SET pinned_at = ?, pin = ?, updated_seq = ? WHERE group_id = ? AND id = ?").run(
         by ? Date.now() : null,
-        by,
         pin,
-        pin ? by : null,
         seq,
         groupId,
         messageId,
@@ -298,11 +297,13 @@ describe("a server pinning or unpinning a message", () => {
     expect(await pinned(member, groupId)).toEqual([ids[0]]);
   });
 
-  it("needs the device's proof, not only its session token", async () => {
+  it("needs a member's send key, which a session token isn't", async () => {
     const { owner, groupId, ids } = await inAGroup();
-    const response = await fetch(`${server.url}/api/groups/${groupId}/messages/${ids[0]}/pin`, { method: "PUT", headers: { Authorization: `Bearer ${apiOf(owner).token}` } });
-    expect(response.status).toBe(401);
-    expect((await response.json()).error).toBe("proof_required");
+    const auth = { Authorization: `Bearer ${apiOf(owner).token}` };
+    // There's no named way to pin any more, and a sealed one takes a member's signature.
+    expect((await fetch(`${server.url}/api/groups/${groupId}/messages/${ids[0]}/pin`, { method: "PUT", headers: auth })).status).toBe(404);
+    const sealed = await fetch(`${server.url}/api/sealed/groups/${groupId}/messages/${ids[0]}/pin`, { method: "PUT", headers: auth, body: "{}" });
+    expect(sealed.status).toBe(400);
   });
 });
 
@@ -442,9 +443,8 @@ describe("what a server can learn from reactions and read positions, or change i
   }
 
   const storedReactions = (messageId: string) =>
-    withServerDatabase((db) => db.prepare("SELECT id, user_id, epoch, data, created_at FROM reactions WHERE message_id = ?").all(messageId)) as unknown as {
+    withServerDatabase((db) => db.prepare("SELECT id, epoch, data, created_at FROM reactions WHERE message_id = ?").all(messageId)) as unknown as {
       id: string;
-      user_id: string;
       epoch: number;
       data: Uint8Array;
       created_at: number;
@@ -461,7 +461,7 @@ describe("what a server can learn from reactions and read positions, or change i
 
     expect(shown(messageId, wire)).toHaveLength(1);
     // Whose it is, the server isn't told, so its saying so changes nothing.
-    expect(shown(messageId, { ...wire, user_id: ann.userId })[0].userIds).toEqual([rob.userId]);
+    expect(shown(messageId, { ...wire, user_id: ann.userId } as typeof wire)[0].userIds).toEqual([rob.userId]);
     expect(shown(randomId(), wire)).toEqual([]);
     expect(shown(messageId, { ...wire, id: randomId() })).toEqual([]);
   });

@@ -95,25 +95,36 @@ func newGroup(h *harness, c *client) string {
 	return created.Group.ID
 }
 
-// Z-50: what someone makes the server keep counts, whatever form it's in.
-func TestMessagesAndTheVaultCount(t *testing.T) {
+// Z-50: what someone makes the server keep counts, whatever form it's in. A message names
+// nobody, so it can't count against anyone: tokens hold what one person sends. The
+// vault is theirs alone, and counts.
+func TestMessagesAreHeldByTokensAndTheVaultCounts(t *testing.T) {
 	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 1 })
 	owner := h.owner()
 	group := newGroup(h, owner)
-	var status int
-	sent := 0
-	for sent = 0; sent < 20; sent++ {
-		status, _ = h.do("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{
-			"id": store.NewID(), "epoch": 0, "envelope": bytesOf(200<<10, 1),
-		}, nil)
-		if status != http.StatusCreated {
-			break
-		}
+	owner.start(group)
+	// A large message takes a large token, which a small one can't stand in for.
+	big := map[string]any{"envelope": bytesOf(200<<10, 1)}
+	small := sealed{secret: sendSecretFor(group, 1), epoch: 1, token: owner.tokenFor(store.SmallToken)}
+	id := store.NewID()
+	big["id"], big["item_key"] = id, itemKeyFor(id)
+	if status, resp := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages", small, big, nil); status != http.StatusForbidden || resp["error"] != "token_invalid" {
+		t.Fatalf("a large message paid with a small token gave %d %v", status, resp)
 	}
-	if status != http.StatusRequestEntityTooLarge || sent != 5 {
-		t.Fatalf("message %d gave %d", sent, status)
+	large := sealed{secret: sendSecretFor(group, 1), epoch: 1, token: owner.tokenFor(store.LargeToken)}
+	if status, resp := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages", large, big, nil); status != http.StatusCreated {
+		t.Fatalf("a large message gave %d %v", status, resp)
 	}
-	// With no room for messages, there's still room for the keys to the old ones.
+	// Each token pays once.
+	again := store.NewID()
+	big["id"], big["item_key"] = again, itemKeyFor(again)
+	if status, resp := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages", large, big, nil); status != http.StatusConflict || resp["error"] != "token_spent" {
+		t.Fatalf("a token spent again gave %d %v", status, resp)
+	}
+	// And nothing pays nothing.
+	if status, _ := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages", sealed{secret: sendSecretFor(group, 1), epoch: 1}, big, nil); status != http.StatusForbidden {
+		t.Fatalf("a message with no token gave %d", status)
+	}
 	put := func(id string) int {
 		status, _ := h.do("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": id, "data": bytesOf(200<<10, 1)}}}, nil)
 		return status
@@ -122,7 +133,7 @@ func TestMessagesAndTheVaultCount(t *testing.T) {
 		t.Fatalf("a vault item gave %d", status)
 	}
 	refused := false
-	for i := range 10 {
+	for i := range 20 {
 		refused = refused || put(fmt.Sprintf("item-%d", i)) == http.StatusRequestEntityTooLarge
 	}
 	if !refused {
@@ -130,38 +141,33 @@ func TestMessagesAndTheVaultCount(t *testing.T) {
 	}
 }
 
-// Z-50: reactions are small and few, on the current epoch, like anything else.
+// Z-50: reactions are small, on the current epoch, like anything else. How many one
+// person puts on a message is for apps to hold, as nothing says whose they are.
 func TestReactionsAreLimited(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
 	group := newGroup(h, owner)
-	message := owner.send(group, 0, store.NewID())
+	owner.start(group)
+	message := owner.send(group, 1, store.NewID())
 	react := func(id string, epoch int64, size int) int {
-		status, _ := h.do("POST", "/api/groups/"+group+"/messages/"+message.ID+"/reactions", owner.token, map[string]any{"id": id, "epoch": epoch, "data": bytesOf(size, 1)}, nil)
+		status, _ := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages/"+message.ID+"/reactions", owner.sealedAs(group, epoch, nil),
+			map[string]any{"id": id, "data": bytesOf(size, 1), "item_key": itemKeyFor(id)}, nil)
 		return status
 	}
 	first := store.NewID()
-	if status := react(first, 0, 2<<10); status != http.StatusOK {
+	if status := react(first, 1, 2<<10); status != http.StatusOK {
 		t.Fatalf("a reaction gave %d", status)
 	}
-	if status := react(store.NewID(), 0, 2<<10+1); status != http.StatusBadRequest {
+	if status := react(store.NewID(), 1, 2<<10+1); status != http.StatusBadRequest {
 		t.Fatalf("a large reaction gave %d", status)
 	}
-	if status, resp := owner.commit(group, 0, nil); status != http.StatusOK {
+	if status, resp := owner.commit(group, 1, nil); status != http.StatusOK {
 		t.Fatalf("a commit: %d %v", status, resp)
 	}
-	if status := react(store.NewID(), 0, 16); status != http.StatusConflict {
+	if status := react(store.NewID(), 1, 16); status != http.StatusConflict {
 		t.Fatalf("a reaction for an old epoch gave %d", status)
 	}
-	for i := 1; i < 32; i++ {
-		if status := react(store.NewID(), 1, 16); status != http.StatusOK {
-			t.Fatalf("reaction %d gave %d", i, status)
-		}
-	}
-	if status := react(store.NewID(), 1, 16); status != http.StatusRequestEntityTooLarge {
-		t.Fatalf("one too many gave %d", status)
-	}
-	if status := react(first, 0, 16); status != http.StatusOK {
+	if status := react(first, 2, 16); status != http.StatusOK {
 		t.Fatalf("a retry gave %d", status)
 	}
 }

@@ -17,7 +17,8 @@ declare const __zunaHost: {
   accountEvent(json: string): void;
   /** Channel 0 broadcasts to every channel. */
   post(channel: number, json: string): void;
-  http(id: number, method: string, url: string, headers: string, body: Uint8Array | string | null, timeoutMs: number): void;
+  /** `sealed` sends it on connections of their own, with a TLS session cache of their own, sharing nothing with the session's requests. */
+  http(id: number, method: string, url: string, headers: string, body: Uint8Array | string | null, timeoutMs: number, sealed: boolean): void;
   httpCancel(id: number): void;
   wsOpen(id: number, url: string): void;
   wsSend(id: number, text: string): void;

@@ -4,9 +4,10 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
-import { equalBytes, toBase64 } from "../src/encoding";
-import { waitFor } from "./helpers";
-import { apiOf, groupWith, person, sentAndSeen, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
+import { openEnvelope, randomId, sealEnvelope } from "../src/crypto";
+import { concat, equalBytes, toBase64, u64Bytes, utf8 } from "../src/encoding";
+import { TestApp, sleep, waitFor } from "./helpers";
+import { alice, apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer();
 
@@ -106,5 +107,291 @@ describe("tokens", () => {
     sessionOf(bob).setKv("token_keys", keys);
     await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "other keys");
     expect(warned(bob, "other keys for sending")).toBe(true);
+  });
+});
+
+/** A message `app` could send, sealed under the epoch it's at, with the body it likes. */
+async function sealedMessage(app: TestApp, groupId: string, value: unknown, signer = sessionOf(app).signer) {
+  const session = sessionOf(app);
+  const epoch = session.rememberCurrentEpochKey(groupId) as number;
+  const id = randomId();
+  const envelope = sealEnvelope(session.epochKey(groupId, epoch), session.account.deviceSecret, "message", groupId, id, epoch, value, signer);
+  return { id, epoch, envelope, item_key: wasm.signingPublic(session.itemSecret("message", groupId, id)) as Uint8Array };
+}
+
+/**
+ * Sends a message as `app`'s device would, sealed and paid for, sealed under whichever epoch
+ * it's at when it goes, with whatever body and signer the test likes.
+ */
+async function sendSealed(app: TestApp, groupId: string, value: (session: any) => unknown, extra: object = {}, signer?: { userId: string; deviceId: string }): Promise<string> {
+  const session = sessionOf(app);
+  const id = randomId();
+  await session.withLock(groupId, () =>
+    session.sealAndRetry(groupId, async (epoch: number, key: Uint8Array) => {
+      const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, value(session), signer ?? session.signer);
+      const item_key = wasm.signingPublic(session.itemSecret("message", groupId, id));
+      await apiOf(app).sealedSend(groupId, await session.seal(groupId, epoch, envelope.length), { id, envelope, item_key, ...extra });
+    }),
+  );
+  return id;
+}
+
+describe("what the server is told", () => {
+  it("carries no session on a sealed request, and names nobody in what it says of a message", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    // Everything ann's app sends to sealed routes, as the network carries it.
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const real = apiOf(ann).sealedFetch!;
+    apiOf(ann).sealedFetch = (url, init) => {
+      seen.push({ url, headers: { ...(init.headers as Record<string, string>) } });
+      return real(url, init);
+    };
+    const id = await sentAndSeen(ann, [bob], groupId, "nobody's name on this");
+    await ann.session.toggleReaction(groupId, id, "👍");
+    await ann.session.setPinned(groupId, id, true);
+    ann.session.editMessage(groupId, id, "still nobody's", {}, []);
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("still nobody's"), "the edit");
+    ann.session.sendTyping(groupId);
+    await ann.session.deleteMessage(groupId, id);
+    await waitFor(() => seen.some((request) => request.url.endsWith("/typing")), "the typing signal");
+    expect(seen.length).toBeGreaterThanOrEqual(6);
+    for (const request of seen) {
+      expect(request.url).toContain("/api/sealed/");
+      expect(Object.keys(request.headers).map((name) => name.toLowerCase())).not.toContain("authorization");
+    }
+    // What the server says of the group's messages names nobody.
+    const response = await fetch(`${server.url}/api/groups/${groupId}/changes?after=0`, { headers: { Authorization: `Bearer ${apiOf(bob).token}` } });
+    const text = await response.text();
+    for (const name of ["sender_user", "sender_device", "pinned_by", "pin_by", "deleted_by", "user_id"]) {
+      expect(JSON.parse(text).messages.every((message: object) => !(name in message) && (message as { reactions: object[] }).reactions.every((reaction) => !(name in reaction)))).toBe(true);
+    }
+    // Only the commits that change who's in it name anyone (decision 13).
+    expect(JSON.stringify(JSON.parse(text).messages)).not.toContain(ann.userId);
+  });
+});
+
+describe("who may write", () => {
+  it("isn't someone removed, with the last epoch's send key", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const cat = await person("cat");
+    const groupId = await groupWith(ann, [bob, cat]);
+    await sentAndSeen(ann, [bob, cat], groupId, "before");
+    const old = sessionOf(cat).sendKey(groupId);
+    const message = await sealedMessage(cat, groupId, { text: "after" });
+    await ann.session.removeMember(groupId, cat.userId);
+    await waitFor(async () => (await apiOf(ann).group(groupId)).epoch > old.epoch, "the removal");
+    const token = await sessionOf(cat).takeToken(message.envelope.length);
+    const at = (epoch: number) => ({ epoch, secret: old.secret, token });
+    await expect(apiOf(cat).sealedSend(groupId, at(old.epoch), message)).rejects.toMatchObject({ code: "stale_epoch" });
+    await expect(apiOf(cat).sealedSend(groupId, at(old.epoch + 1), message)).rejects.toMatchObject({ code: "not_sealed" });
+  });
+
+  it("isn't someone on the server outside the group, with tokens of their own", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const eve = await person("eve");
+    const groupId = await groupWith(ann, [bob]);
+    const epoch = (await apiOf(eve).group(groupId).catch(() => ({ epoch: sessionOf(ann).mlsEpoch(groupId) }))).epoch as number;
+    const id = randomId();
+    const token = await sessionOf(eve).takeToken(100);
+    const seal = { epoch, secret: wasm.randomBytes(32), token };
+    await expect(apiOf(eve).sealedSend(groupId, seal, { id, envelope: wasm.randomBytes(300), item_key: wasm.randomBytes(32) })).rejects.toMatchObject({ code: "not_sealed" });
+  });
+
+  it("can't pass as someone else: what nobody signed, or what names another, notifies nobody and shows nowhere", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    await sentAndSeen(ann, [bob], groupId, "hello");
+    bob.events.length = 0;
+    const signer = { userId: ann.userId, deviceId: sessionOf(ann).account.deviceId };
+    // Bob's device signs a body that says it's ann's, and a key nobody has signs one as ann.
+    const forged = [
+      await sendSealed(bob, groupId, () => ({ text: "it was ann", by: { user: ann.userId, device: signer.deviceId } })),
+      await sendSealed(bob, groupId, () => ({ text: "it was ann too", by: { user: ann.userId, device: signer.deviceId } }), {}, signer),
+    ];
+    await waitFor(() => forged.every((id) => !!sessionOf(ann).db.get("SELECT 1 FROM withheld WHERE group_id = ? AND id = ?", [groupId, id])), "ann to get both");
+    expect(ann.texts(`group:${groupId}`).some((text: string) => text.startsWith("it was ann"))).toBe(false);
+    expect(ann.events.some((event) => event.type === "notify" && (event as { body: string }).body.startsWith("it was ann"))).toBe(false);
+  });
+});
+
+describe("a signed body", () => {
+  it("can't be moved to another group, message or epoch, or sealed again under another key", async () => {
+    const key = wasm.randomBytes(32);
+    const other = wasm.randomBytes(32);
+    const device = wasm.signingKeygen();
+    const signer = { userId: "a".repeat(32), deviceId: "b".repeat(32) };
+    const sealed = sealEnvelope(key, device.secretKey, "message", "g", "m", 3, { text: "mine" }, signer);
+    expect(openEnvelope(key, "message", "g", "m", 3, sealed)!.signedBy(device.publicKey)).toBe(true);
+    expect(openEnvelope(key, "message", "h", "m", 3, sealed)).toBeNull();
+    expect(openEnvelope(key, "message", "g", "n", 3, sealed)).toBeNull();
+    expect(openEnvelope(key, "message", "g", "m", 4, sealed)).toBeNull();
+    expect(openEnvelope(key, "reaction", "g", "m", 3, sealed)).toBeNull();
+    // Someone holding the key opens it, and seals the same signed body again under a key of their own.
+    const aad = concat(utf8("zuna/message/v1|g|m|"), u64Bytes(3));
+    const resealed = wasm.aeadSeal(other, wasm.aeadOpen(key, sealed, aad), aad);
+    const opened = openEnvelope(other, "message", "g", "m", 3, resealed)!;
+    expect(opened.signer).toEqual(signer);
+    expect(opened.signedBy(device.publicKey)).toBe(false);
+  });
+});
+
+describe("item keys", () => {
+  it("let only a message's author change, delete or take back what's theirs, from any of their devices, also after their keys were replaced", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const id = await sentAndSeen(ann, [bob], groupId, "ann's words");
+    await bob.session.toggleReaction(groupId, id, "👍");
+    await waitFor(async () => (await ann.session.messageById(groupId, id))?.reactions.length === 1, "the reaction");
+    // Bob's app, changed to try, signs with the item key he'd have made for it, which isn't ann's.
+    const session = sessionOf(bob);
+    const epoch = session.rememberCurrentEpochKey(groupId) as number;
+    const envelope = sealEnvelope(session.epochKey(groupId, epoch), session.account.deviceSecret, "message", groupId, id, epoch, session.signedBody({ text: "bob's words" }), session.signer);
+    const own = session.itemSecret("message", groupId, id);
+    await expect(apiOf(bob).sealedEdit(groupId, id, await session.seal(groupId, epoch, envelope.length, own), envelope)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(apiOf(bob).sealedDelete(groupId, id, await session.seal(groupId, epoch, 0, own), wasm.randomBytes(64))).rejects.toMatchObject({ code: "forbidden" });
+    const reaction = (await apiOf(ann).message(groupId, id)).reactions[0]!;
+    await expect(apiOf(ann).sealedUnreact(groupId, id, reaction.id, await sessionOf(ann).seal(groupId, epoch, 0, sessionOf(ann).itemSecret("reaction", groupId, reaction.id)))).rejects.toMatchObject({ code: "forbidden" });
+    // Ann's other device, after her account's keys were replaced, edits with the key that made it.
+    const phone = await new TestApp("ann-phone").open();
+    open.push(phone);
+    await phone.login(server.url, ann.session.getSelf().username);
+    await ann.session.rotate();
+    await waitFor(() => sessionOf(phone).account.core.generation === sessionOf(ann).account.core.generation, "the phone to follow");
+    await waitFor(() => phone.texts(`group:${groupId}`).includes("ann's words"), "the phone to have it");
+    phone.session.editMessage(groupId, id, "ann's words, edited", {}, []);
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("ann's words, edited"), "the edit");
+    await phone.session.deleteMessage(groupId, id);
+    await waitFor(async () => (await bob.session.messageById(groupId, id))?.deletedAt !== null, "the deletion");
+  });
+});
+
+describe("tokens, spent", () => {
+  it("work once, and a member past their own can't send while others still do", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const message = await sealedMessage(ann, groupId, sessionOf(ann).signedBody({ text: "paid once" }));
+    const session = sessionOf(ann);
+    const seal = await session.seal(groupId, message.epoch, message.envelope.length);
+    await apiOf(ann).sealedSend(groupId, seal, message);
+    const again = await sealedMessage(ann, groupId, sessionOf(ann).signedBody({ text: "paid twice" }));
+    await expect(apiOf(ann).sealedSend(groupId, { ...seal, epoch: again.epoch }, again)).rejects.toMatchObject({ code: "token_spent" });
+    // Ann asks for all she may have in this period, and throws them away.
+    const period = Math.floor((Date.now() + apiOf(ann).serverAhead) / (6 * 3600 * 1000));
+    const blinded = (n: number) => Array.from({ length: n }, () => wasm.tokenBlind(1).slice(64, 96));
+    for (;;) {
+      const status = await apiOf(ann).issueTokens(period, "small", blinded(100)).then(() => 200, (error) => error.status);
+      if (status !== 200) break;
+    }
+    for (;;) {
+      const status = await apiOf(ann).issueTokens(period, "small", blinded(1)).then(() => 200, (error) => error.status);
+      if (status !== 200) break;
+    }
+    session.db.run("DELETE FROM tokens WHERE size = 'small'");
+    const held = ann.session.sendMessage(`group:${groupId}`, { text: "past my limit" });
+    await sentAndSeen(bob, [ann], groupId, "bob still can");
+    await sleep(300);
+    expect(sessionOf(ann).messageRow(groupId, held.id).status).toBe("sending");
+  });
+});
+
+describe("a sender's phone", () => {
+  it("is spared by its device reading at once, as anyone reading as it arrives would", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const id = await sentAndSeen(ann, [bob], groupId, "read as I send it");
+    const seq = sessionOf(ann).messageRow(groupId, id).seq as number;
+    await waitFor(() => sessionOf(ann).groups.get(groupId).readSent >= seq, "ann's read to reach the server");
+    await waitFor(() => (sessionOf(bob).groups.get(groupId).readBy[ann.userId] ?? 0) >= seq, "bob to see it");
+  });
+});
+
+describe("slow mode", () => {
+  it("hides a changed app's message that came too soon on everyone else's", async () => {
+    const id = await alice.session.createChannel({ type: "text", name: "unhurried" });
+    const ann = await person("ann");
+    await waitFor(() => ann.session.getChannels().some((channel) => channel.id === id && !!channel.conversation?.ready), "ann to come in");
+    await alice.session.updateChannel(id, { slowMode: 60 });
+    await waitFor(() => ann.session.getChannels().find((channel) => channel.id === id)?.slowMode === 60, "ann to see slow mode");
+    const send = (text: string) => sendSealed(ann, id, (session) => session.signedBody({ text }));
+    const first = await send("first, in time");
+    // What alice doesn't hold can't count against ann, so the first is shown before the second goes.
+    await waitFor(() => sessionOf(alice).messageRow(id, first)?.status === "sent", "alice to show the first");
+    const second = await send("second, too soon");
+    await waitFor(() => !!sessionOf(alice).db.get("SELECT 1 FROM withheld WHERE group_id = ? AND id = ?", [id, second]), "alice to get the second");
+    expect(sessionOf(alice).messageRow(id, first)?.status).toBe("sent");
+    expect(sessionOf(alice).messageRow(id, second)).toBeUndefined();
+  });
+});
+
+describe("files a message carries", () => {
+  it("belong to nobody once it does, and are shared again only with the secret they were made with", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const cat = await person("cat");
+    const groupId = await groupWith(ann, [bob]);
+    const other = await groupWith(bob, [cat]);
+    const blob = new Blob([new TextEncoder().encode("a file")], { type: "text/plain" });
+    const id = await ann.session.sendWithAttachments(`group:${groupId}`, [{ blob, name: "a.txt", mime: "text/plain" }], { text: "with a file" });
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("with a file"), "bob to get it");
+    const fileId = (await bob.session.messageById(groupId, id))!.attachments[0]!.fileId;
+    const owner = withServerDatabase((db) => db.prepare("SELECT owner_id FROM files WHERE id = ?").get(fileId)) as { owner_id: string };
+    expect(owner.owner_id).toBe("");
+    // Forwarding shares it with the secret, which travels inside the message.
+    const forwarded = bob.session.forwardMessage(groupId, id, `group:${other}`);
+    await waitFor(() => cat.texts(`group:${other}`).includes("with a file"), "cat to get the forward");
+    expect(forwarded.attachments[0]!.fileId).toBe(fileId);
+    // Without it, nobody can attach it.
+    await expect(sendSealed(cat, other, (session) => session.signedBody({ text: "stolen" }), { files: [{ id: fileId, secret: wasm.randomBytes(32) }] })).rejects.toMatchObject({ code: "forbidden" });
+  });
+});
+
+describe("what the server keeps", () => {
+  it("names nobody in any row about a message, a reaction or a file one carries, and counts no message against anyone", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const storedBytes = (app: TestApp) => (withServerDatabase((db) => db.prepare("SELECT stored_bytes FROM users WHERE id = ?").get(app.userId)) as { stored_bytes: number }).stored_bytes;
+    const before = storedBytes(ann);
+    // Every kind of content: messages, a long one, an edit, a reaction, a pin, a file, typing and a deletion.
+    const id = await sentAndSeen(ann, [bob], groupId, "every kind");
+    await sentAndSeen(ann, [bob], groupId, "a long one ".repeat(8_000));
+    await bob.session.toggleReaction(groupId, id, "👍");
+    await ann.session.setPinned(groupId, id, true);
+    ann.session.editMessage(groupId, id, "every kind, edited", {}, []);
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("every kind, edited"), "the edit");
+    const blob = new Blob([new TextEncoder().encode("a file")], { type: "text/plain" });
+    await ann.session.sendWithAttachments(`group:${groupId}`, [{ blob, name: "a.txt", mime: "text/plain" }], { text: "with a file" });
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("with a file"), "the file");
+    bob.session.sendTyping(groupId);
+    const gone = await sentAndSeen(bob, [ann], groupId, "to delete");
+    await bob.session.deleteMessage(groupId, gone);
+    await waitFor(async () => (await ann.session.messageById(groupId, gone))?.deletedAt != null, "the deletion");
+
+    const names = [ann.userId, bob.userId, sessionOf(ann).account.deviceId, sessionOf(bob).account.deviceId];
+    const named = (row: Record<string, unknown>) =>
+      Object.values(row).some((value) => {
+        const text = value instanceof Uint8Array ? Buffer.from(value).toString("latin1") : String(value);
+        return names.some((name) => text.includes(name) || text.includes(Buffer.from(name, "hex").toString("latin1")));
+      });
+    withServerDatabase((db) => {
+      const messages = db.prepare("SELECT * FROM messages WHERE group_id = ?").all(groupId) as Record<string, unknown>[];
+      const reactions = db.prepare("SELECT * FROM reactions WHERE group_id = ?").all(groupId) as Record<string, unknown>[];
+      const refs = db.prepare("SELECT * FROM file_refs WHERE group_id = ?").all(groupId) as { file_id: string }[];
+      const files = refs.map((ref) => db.prepare("SELECT * FROM files WHERE id = ?").get(ref.file_id) as Record<string, unknown>);
+      expect(messages.length).toBeGreaterThanOrEqual(4);
+      expect(reactions.length).toBe(1);
+      expect(files.length).toBe(1);
+      for (const row of [...messages, ...reactions, ...refs, ...files]) expect(named(row)).toBe(false);
+    });
+    // Nothing rose by what was sent: the long message alone would add almost ninety KiB.
+    expect(storedBytes(ann) - before).toBeLessThan(50_000);
   });
 });

@@ -68,7 +68,6 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func writeFailure(w http.ResponseWriter, err error) {
 	var conflict *store.EpochConflictError
 	var stale *store.GenerationConflictError
-	var slow *store.SlowModeError
 	switch {
 	case errors.As(err, &conflict):
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -82,13 +81,6 @@ func writeFailure(w http.ResponseWriter, err error) {
 			"message":    "This account's keys changed. Catch up and retry.",
 			"generation": stale.Current,
 		})
-	case errors.As(err, &slow):
-		w.Header().Set("Retry-After", strconv.FormatInt((slow.Wait+999)/1000, 10))
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{
-			"error":   "slow_mode",
-			"message": "Slow mode is on in this channel, so your next message has to wait.",
-			"wait_ms": slow.Wait,
-		})
 	case errors.Is(err, store.ErrStaleVersion):
 		writeError(w, http.StatusConflict, "stale_version", "Another of your devices saved this first. Look again and retry.")
 	case errors.Is(err, store.ErrDevicesChanged):
@@ -99,6 +91,8 @@ func writeFailure(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "forbidden", "You don't have permission to do this.")
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict", "That's already taken.")
+	case errors.Is(err, store.ErrUploadQuota):
+		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded", "You've uploaded all this server lets each person upload in 30 days.")
 	case errors.Is(err, store.ErrQuota):
 		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
 			"You've used all the storage this server gives each person. Deleting messages with files frees some.")

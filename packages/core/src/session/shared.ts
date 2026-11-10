@@ -275,18 +275,22 @@ export interface MessageRow {
   raw: Uint8Array | null;
   /** The reactions to a message that hasn't opened yet, as they came, sealed, so they're there once it does. */
   raw_reactions: Uint8Array | null;
+  /** The public half of the key only its author's devices can make, as the server holds it, which changing or deleting it takes. */
+  item_key: Uint8Array | null;
   unproven_delete_at: number | null;
   expires_at: number | null;
 }
 
 export interface StoredBody extends MessageBody {
   reactions?: ReactionView[];
+  /** This account's own reactions, with the item keys the server holds for them, which taking one back takes. */
+  mine?: { id: string; key: string; item: string }[];
   system?: SystemEvent;
 }
 
 export type OutboxEntry =
   /** `previewUrl`: the link whose preview was still being made when the message was sent. */
-  | { kind: "message"; id: string; body: MessageBody; fileIds?: string[]; previewUrl?: string }
+  | { kind: "message"; id: string; body: MessageBody; previewUrl?: string }
   | { kind: "edit"; id: string; groupId: string; body: MessageBody };
 
 export type Mutex = Promise<unknown>;
@@ -298,6 +302,10 @@ export const DELETED_PROFILE: Profile = { displayName: "Deleted account" };
 export const MESSAGE_ID = /^[0-9a-f]{32}$/;
 /** The longest slow mode a server allows, in seconds. */
 export const MAX_SLOW_MODE = 6 * 3600;
+/** How many reactions one person puts on a message, which apps hold as the server can't tell whose they are. */
+export const MAX_REACTIONS_BY_PERSON = 32;
+/** How much sooner after its author's last a message in a channel with slow mode may come, for the network, before it's hidden. */
+export const SLOW_MODE_MARGIN_MS = 2000;
 
 /** A channel's slow mode as the server says, in seconds, within what it allows. */
 export const slowModeOf = (api: ApiChannel | undefined): number => {
@@ -329,6 +337,9 @@ export function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody):
       const reaction = parseReaction(item);
       return reaction && Array.isArray(item.userIds) ? [{ ...reaction, userIds: item.userIds.filter((id) => typeof id === "string") }] : [];
     });
+  }
+  if (Array.isArray(stored.mine)) {
+    body.mine = stored.mine.filter((item) => typeof item?.id === "string" && typeof item.key === "string" && typeof item.item === "string");
   }
   return body;
 }

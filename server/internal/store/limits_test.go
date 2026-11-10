@@ -75,6 +75,8 @@ func TestGroupsAreLimited(t *testing.T) {
 	}
 }
 
+// What one person keeps is their vault. A message names nobody, so it counts towards
+// nobody's total: tokens hold what one person sends.
 func TestStorageIsRecounted(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
@@ -90,39 +92,26 @@ func TestStorageIsRecounted(t *testing.T) {
 		}
 		return n
 	}
-	send := func(id string, quota int64) error {
-		_, _, err := db.CreateMessage(ctx, Message{GroupID: group.ID, ID: id, SenderUser: user, SenderDevice: "d", Envelope: make([]byte, 100)}, nil, quota, 0)
-		return err
-	}
-	if err := send("one", 250); err != nil {
+	if _, _, err := db.CreateMessage(ctx, Message{GroupID: group.ID, ID: "one", Envelope: make([]byte, 100)}, nil, paid(t, db), 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := send("two", 250); err != nil {
-		t.Fatal(err)
+	if n := stored(); n != 0 {
+		t.Fatalf("a message counted %d bytes", n)
 	}
-	if err := send("three", 250); !errors.Is(err, ErrQuota) {
-		t.Fatalf("over quota gave %v", err)
-	}
-	if n := stored(); n != 200 {
-		t.Fatalf("%d bytes counted", n)
-	}
-	if _, _, err := db.DeleteMessage(ctx, group.ID, "one", Deletion{}); err != nil {
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO vault_items(user_id, id, seq, generation, data) VALUES(?, 'a', 1, 0, ?)`, user, make([]byte, 150)); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.RecountStorage(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := stored(); n != 100 {
+	if n := stored(); n != 150 {
 		t.Fatalf("%d bytes after recounting", n)
-	}
-	if err := send("three", 250); err != nil {
-		t.Fatal(err)
 	}
 	// A recount that finds the totals right changes nothing.
 	if err := db.RecountStorage(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := stored(); n != 200 {
+	if n := stored(); n != 150 {
 		t.Fatalf("%d bytes after recounting again", n)
 	}
 }

@@ -59,6 +59,10 @@ const (
 	elsewhereRecently = 5 * time.Minute
 	// Telegram's notify_cloud_delay_ms: how long they're held.
 	defaultPushWait = 30 * time.Second
+	// How long every notification waits, since nothing says who sent a message: long
+	// enough for its sender's read, which their app sends at once, to arrive and spare
+	// their own phones.
+	defaultPushHold = 1500 * time.Millisecond
 )
 
 // pushLabel binds a sealed push to the registration it was sealed for.
@@ -149,7 +153,7 @@ func (s *Server) pushMessage(groupID string, channel bool, message *store.Messag
 	sent := time.Now()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		targets, err := s.db.PushTargets(ctx, groupID, message.SenderUser, channel)
+		targets, err := s.db.PushTargets(ctx, groupID, channel)
 		cancel()
 		if err != nil {
 			slog.Warn("listing devices to notify", "error", err)
@@ -162,6 +166,9 @@ func (s *Server) pushMessage(groupID string, channel bool, message *store.Messag
 				s.notified.add(target.DeviceID, groupID)
 				continue
 			}
+			// Nothing says who sent it, so every notification waits a moment: a device that
+			// sends reads at once, at its own message, which spares its person's phones.
+			wait = max(wait, s.pushHold())
 			send := func() {
 				s.notified.add(target.DeviceID, groupID)
 				s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, collapseID(target.Key, message.ID))
@@ -181,6 +188,13 @@ func (s *Server) pushMessage(groupID string, channel bool, message *store.Messag
 			})
 		}
 	}()
+}
+
+func (s *Server) pushHold() time.Duration {
+	if s.cfg.PushHold > 0 {
+		return s.cfg.PushHold
+	}
+	return defaultPushHold
 }
 
 func (s *Server) pushWait() time.Duration {

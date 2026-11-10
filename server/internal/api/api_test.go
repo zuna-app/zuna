@@ -56,7 +56,8 @@ func newHarness(t *testing.T, configure ...func(*api.Config)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := api.Config{DataDir: dir, PublicURL: "http://test", Version: "test"}
+	// Notifications wait a moment for their sender's read, which these tests don't need.
+	cfg := api.Config{DataDir: dir, PublicURL: "http://test", Version: "test", PushHold: 10 * time.Millisecond}
 	for _, change := range configure {
 		change(&cfg)
 	}
@@ -234,15 +235,6 @@ func (c *client) commit(groupID string, expected int64, extra map[string]any) (i
 	return c.h.do("POST", "/api/groups/"+groupID+"/commit", c.token, body, nil)
 }
 
-func (c *client) send(groupID string, epoch int64, id string) *store.Message {
-	c.h.t.Helper()
-	var m store.Message
-	c.h.mustDo("POST", "/api/groups/"+groupID+"/messages", c.token, map[string]any{
-		"id": id, "epoch": epoch, "envelope": []byte("ciphertext-" + id),
-	}, &m)
-	return &m
-}
-
 func TestSetupInviteCreatesOwnerOnce(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -368,17 +360,15 @@ func TestDisappearingMessagesAreDueWhenTheirSenderAsked(t *testing.T) {
 	bob := h.register("bob", owner.newInvite())
 	group := owner.dm(bob.userID)
 	owner.commit(group.ID, 0, nil)
-	path := "/api/groups/" + group.ID + "/messages"
 
 	for _, seconds := range []int64{-1, 366*24*60*60 + 1} {
-		if status, _ := h.do("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "expires_in": seconds}, nil); status != http.StatusBadRequest {
+		if status, _, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"expires_in": seconds}); status != http.StatusBadRequest {
 			t.Fatalf("expires_in %d gave %d", seconds, status)
 		}
 	}
-	var brief store.Message
-	h.mustDo("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "expires_in": 3600}, &brief)
-	if brief.ExpiresAt == nil || *brief.ExpiresAt != brief.CreatedAt+3600_000 {
-		t.Fatalf("expires_at = %v, want an hour after %d", brief.ExpiresAt, brief.CreatedAt)
+	status, resp, brief := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"expires_in": 3600})
+	if status != http.StatusCreated || brief.ExpiresAt == nil || *brief.ExpiresAt != brief.CreatedAt+3600_000 {
+		t.Fatalf("expires_at = %v, want an hour after %d: %d %v", brief.ExpiresAt, brief.CreatedAt, status, resp)
 	}
 	if lasting := owner.send(group.ID, 1, store.NewID()); lasting.ExpiresAt != nil {
 		t.Fatal("a message sent without a timer shouldn't expire")
@@ -391,48 +381,64 @@ func TestMessageLifecycle(t *testing.T) {
 	bob := h.register("bob", owner.newInvite())
 	group := owner.dm(bob.userID)
 	owner.commit(group.ID, 0, nil)
-	path := "/api/groups/" + group.ID + "/messages"
+	path := "/api/sealed/groups/" + group.ID + "/messages"
 
 	// Stale epochs are refused, so content can't use a key a removed member knows.
-	status, resp := h.do("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 0, "envelope": []byte("x")}, nil)
+	status, resp, _ := owner.sendWith(group.ID, 0, store.NewID(), nil)
 	if status != http.StatusConflict || resp["error"] != "stale_epoch" {
 		t.Fatalf("stale send: %d %v", status, resp)
 	}
 
 	id := store.NewID()
 	first := owner.send(group.ID, 1, id)
+	if first.ItemKey == nil || first.Reactions == nil {
+		t.Fatalf("sent: %+v", first)
+	}
 	if retry := owner.send(group.ID, 1, id); retry.Seq != first.Seq {
 		t.Fatal("resending an ID must be idempotent")
 	}
+	// The same ID with another item key is someone else's.
+	if status, _, _ := bob.sendWith(group.ID, 1, id, map[string]any{"item_key": itemKeyFor(store.NewID())}); status != http.StatusConflict {
+		t.Fatalf("another's message with the same ID gave %d", status)
+	}
 
 	var edited store.Message
-	h.mustDo("PUT", path+"/"+id, owner.token, map[string]any{"epoch": 1, "envelope": []byte("edited")}, &edited)
+	h.sealedMust("PUT", path+"/"+id, owner.sealedAs(group.ID, 1, itemSecretFor(id)), map[string]any{"envelope": []byte("edited")}, &edited)
 	if string(edited.Envelope) != "edited" || edited.EditedAt == nil || edited.UpdatedSeq <= first.UpdatedSeq {
 		t.Fatalf("edit: %+v", edited)
 	}
-	status, _ = h.do("PUT", path+"/"+id, bob.token, map[string]any{"epoch": 1, "envelope": []byte("hack")}, nil)
-	if status != http.StatusForbidden {
+	// Changing or deleting it takes its item key, which only its author's devices can make.
+	if status, _ := h.sealedDo("PUT", path+"/"+id, bob.sealedAs(group.ID, 1, itemSecretFor(store.NewID())), map[string]any{"envelope": []byte("hack")}, nil); status != http.StatusForbidden {
 		t.Fatalf("editing someone else's message gave %d", status)
 	}
-	status, _ = h.do("DELETE", path+"/"+id, bob.token, nil, nil)
-	if status != http.StatusForbidden {
+	if status, _ := h.sealedDo("PUT", path+"/"+id, bob.sealedAs(group.ID, 1, nil), map[string]any{"envelope": []byte("hack")}, nil); status != http.StatusForbidden {
+		t.Fatalf("editing with no item key gave %d", status)
+	}
+	if status, _ := h.sealedDo("DELETE", path+"/"+id, bob.sealedAs(group.ID, 1, itemSecretFor(store.NewID())), map[string]any{"deletion": []byte("x")}, nil); status != http.StatusForbidden {
+		t.Fatalf("deleting someone else's message gave %d", status)
+	}
+	// And in a direct message, nobody else deletes it, as there are no admins to moderate.
+	if status, _ := h.do("DELETE", "/api/groups/"+group.ID+"/messages/"+id, bob.token, map[string]any{"epoch": 1, "deletion": []byte("x")}, nil); status != http.StatusForbidden {
 		t.Fatalf("deleting someone else's DM message gave %d", status)
 	}
 
 	reactionID := store.NewID()
 	var reacted store.Message
-	h.mustDo("POST", path+"/"+id+"/reactions", bob.token, map[string]any{"id": reactionID, "epoch": 1, "data": []byte("r")}, &reacted)
-	if len(reacted.Reactions) != 1 || reacted.Reactions[0].UserID != bob.userID {
+	h.sealedMust("POST", path+"/"+id+"/reactions", bob.sealedAs(group.ID, 1, nil), map[string]any{"id": reactionID, "data": []byte("r"), "item_key": itemKeyFor(reactionID)}, &reacted)
+	if len(reacted.Reactions) != 1 || reacted.Reactions[0].ID != reactionID {
 		t.Fatalf("reaction: %+v", reacted.Reactions)
 	}
-	h.mustDo("DELETE", path+"/"+id+"/reactions/"+reactionID, bob.token, nil, &reacted)
+	if status, _ := h.sealedDo("DELETE", path+"/"+id+"/reactions/"+reactionID, owner.sealedAs(group.ID, 1, itemSecretFor(id)), nil, nil); status != http.StatusForbidden {
+		t.Fatalf("taking back someone else's reaction gave %d", status)
+	}
+	h.sealedMust("DELETE", path+"/"+id+"/reactions/"+reactionID, bob.sealedAs(group.ID, 1, itemSecretFor(reactionID)), nil, &reacted)
 	if len(reacted.Reactions) != 0 {
 		t.Fatal("reaction should be gone")
 	}
 
 	var pinned store.Message
-	h.mustDo("PUT", path+"/"+id+"/pin", bob.token, map[string]any{"epoch": 1, "pin": []byte("signed")}, &pinned)
-	if pinned.PinnedAt == nil || pinned.PinnedBy != bob.userID {
+	h.sealedMust("PUT", path+"/"+id+"/pin", bob.sealedAs(group.ID, 1, nil), map[string]any{"pin": []byte("signed")}, &pinned)
+	if pinned.PinnedAt == nil || string(pinned.Pin) != "signed" {
 		t.Fatalf("pin: %+v", pinned)
 	}
 	var pins struct {
@@ -444,8 +450,8 @@ func TestMessageLifecycle(t *testing.T) {
 	}
 
 	var deleted store.Message
-	h.mustDo("DELETE", path+"/"+id, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, &deleted)
-	if deleted.DeletedAt == nil || len(deleted.Envelope) != 0 || deleted.PinnedAt != nil {
+	h.sealedMust("DELETE", path+"/"+id, owner.sealedAs(group.ID, 1, itemSecretFor(id)), map[string]any{"deletion": []byte("signed")}, &deleted)
+	if deleted.DeletedAt == nil || len(deleted.Envelope) != 0 || deleted.PinnedAt != nil || string(deleted.Deletion) != "signed" {
 		t.Fatalf("delete must erase the ciphertext: %+v", deleted)
 	}
 }
@@ -460,7 +466,7 @@ func TestChangeFeedCatchesUpOnStateAndCommits(t *testing.T) {
 	owner.send(group.ID, 1, a)
 	owner.send(group.ID, 1, b)
 	path := "/api/groups/" + group.ID
-	h.mustDo("PUT", path+"/messages/"+a, owner.token, map[string]any{"epoch": 1, "envelope": []byte("v2")}, nil)
+	h.sealedMust("PUT", "/api/sealed/groups/"+group.ID+"/messages/"+a, owner.sealedAs(group.ID, 1, itemSecretFor(a)), map[string]any{"envelope": []byte("v2")}, nil)
 	owner.commit(group.ID, 1, nil)
 
 	var page store.Changes
@@ -606,7 +612,9 @@ func TestFilesRoundTripAndAccess(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11}, &created)
+	secret, hash := newShare()
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11, "share_hash": hash}, &created)
+	shareSecrets.Store(created.ID, secret)
 	path := "/api/files/" + created.ID
 
 	if status, _ := h.do("PUT", path+"/chunks/0", bob.token, []byte("nope"), nil); status != http.StatusForbidden {
@@ -625,9 +633,9 @@ func TestFilesRoundTripAndAccess(t *testing.T) {
 	// Sent in a conversation, it's there for that conversation's members.
 	group := owner.dm(bob.userID)
 	owner.commit(group.ID, 0, nil)
-	h.mustDo("POST", "/api/groups/"+group.ID+"/messages", owner.token, map[string]any{
-		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{created.ID},
-	}, nil)
+	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": []map[string]any{shareOf(created.ID)}}); status != http.StatusCreated {
+		t.Fatalf("sending it: %d %v", status, resp)
+	}
 	req, _ := http.NewRequest("GET", h.url+path+"/chunks/1", nil)
 	req.Header.Set("Authorization", "Bearer "+bob.token)
 	resp, err := http.DefaultClient.Do(req)

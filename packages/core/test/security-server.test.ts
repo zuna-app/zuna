@@ -468,7 +468,7 @@ describe("a server saying a message was deleted", () => {
   it("only hides a copy when nobody who could delete it signed that, and keeps it for 30 days", async () => {
     const { admin, member, groupId } = await threeInAGroup();
     const id = await sentAndSeen(admin, [member], groupId, "evidence of something");
-    serverDeletes(groupId, id, admin.userId, null);
+    serverDeletes(groupId, id, null);
     await sessionOf(member).pullChanges(groupId);
     expect(member.texts(`group:${groupId}`)).not.toContain("evidence of something");
     expect((await member.session.messageById(groupId, id))?.deletedAt).toBeTruthy();
@@ -483,13 +483,13 @@ describe("a server saying a message was deleted", () => {
   it("doesn't take a plain member's signature for someone else's message, or one made for another message", async () => {
     const { admin, member, other, groupId } = await threeInAGroup();
     const id = await sentAndSeen(admin, [member, other], groupId, "not yours to delete");
-    serverDeletes(groupId, id, member.userId, signedDeletion(member, groupId, id));
+    serverDeletes(groupId, id, signedDeletion(member, groupId, id));
     await sessionOf(other).pullChanges(groupId);
     expect(sessionOf(other).messageRow(groupId, id).body).not.toBeNull();
 
     const own = await sentAndSeen(member, [other], groupId, "deleting this one");
     const another = await sentAndSeen(member, [other], groupId, "but not this one");
-    serverDeletes(groupId, another, member.userId, signedDeletion(member, groupId, own));
+    serverDeletes(groupId, another, signedDeletion(member, groupId, own));
     await sessionOf(other).pullChanges(groupId);
     expect(sessionOf(other).messageRow(groupId, another).body).not.toBeNull();
   });

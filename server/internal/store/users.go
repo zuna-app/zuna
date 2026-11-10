@@ -562,7 +562,6 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			`DELETE FROM history_grants WHERE user_id = ?`,
 			`DELETE FROM push_registrations WHERE user_id = ?`,
 			`DELETE FROM group_members WHERE user_id = ?`,
-			`DELETE FROM channel_sends WHERE user_id = ?`,
 			`DELETE FROM reports WHERE user_id = ?`,
 			// A bot's account going is the bot going.
 			`DELETE FROM bot_channels WHERE bot_id = ?`,

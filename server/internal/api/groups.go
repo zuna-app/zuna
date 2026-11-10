@@ -498,115 +498,21 @@ func (s *Server) broadcastMessage(r *http.Request, groupID string, message *stor
 	s.hub.ToUsers(members, Event{Type: "message", Data: message})
 }
 
-func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
-	groupID := r.PathValue("id")
-	// A bot has limits of its own, apart from people's: more in all, and a steady
-	// pace in each chat.
-	allowed := s.messageLimiter.Allow
-	if sess.Bot {
-		allowed = func(userID string) bool {
-			return s.botChatLimiter.Allow(userID+"/"+groupID) && s.botMessageLimiter.Allow(userID)
-		}
-	}
-	if !allowed(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "You're sending messages too quickly.")
+// handleDeleteMessage is a group's admin deleting someone else's message, which is named,
+// as it's the server's to check their role. It says who moderated, not who wrote. The
+// server doesn't keep who: the proof inside says so to the apps. An author deleting
+// their own is sealed (handleSealedDelete), and in a direct message there's only that.
+func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
+	if s.visibleMessage(w, r, member) == nil {
 		return
 	}
-	var body struct {
-		ID       string   `json:"id"`
-		Epoch    int64    `json:"epoch"`
-		Envelope []byte   `json:"envelope"`
-		FileIDs  []string `json:"file_ids"`
-		// How long until a disappearing message goes, in seconds, as its sender's app asks.
-		ExpiresIn int64 `json:"expires_in"`
-		// Silent is for a message apps show nowhere, such as a button's press: no phone is
-		// woken for it. It only ever spares someone a notification.
-		Silent bool `json:"silent"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if !store.ValidID(body.ID) || len(body.Envelope) == 0 {
-		writeError(w, http.StatusBadRequest, "bad_request", "The message is incomplete.")
-		return
-	}
-	if body.ExpiresIn < 0 || body.ExpiresIn > maxExpiresIn {
-		writeError(w, http.StatusBadRequest, "bad_request", "That message can't disappear after so long.")
-		return
-	}
-	if len(body.Envelope) > maxEnvelopeBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That message is too long.")
-		return
-	}
-	for _, fileID := range body.FileIDs {
-		if !store.ValidID(fileID) {
-			writeError(w, http.StatusBadRequest, "bad_request", "An attachment isn't valid.")
-			return
-		}
-	}
-	if len(body.FileIDs) > 0 && !s.botMaySendFiles(w, r, sess) {
-		return
-	}
-	message, created, err := s.db.CreateMessage(r.Context(), store.Message{
-		GroupID:      groupID,
-		ID:           body.ID,
-		SenderUser:   sess.UserID,
-		SenderDevice: sess.DeviceID,
-		Epoch:        body.Epoch,
-		Envelope:     body.Envelope,
-	}, body.FileIDs, s.quotaBytes(), body.ExpiresIn*1000)
+	kind, err := s.db.GroupKind(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	s.broadcastMessage(r, groupID, message)
-	// A message sent again, or a server without push, has no phones to wake.
-	if created && !body.Silent && len(s.cfg.PushRelays) > 0 {
-		if kind, err := s.db.GroupKind(r.Context(), groupID); err == nil {
-			s.pushMessage(groupID, kind == "channel", message)
-		}
-	}
-	writeJSON(w, http.StatusCreated, message)
-}
-
-func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
-	groupID := r.PathValue("id")
-	var body struct {
-		Epoch    int64  `json:"epoch"`
-		Envelope []byte `json:"envelope"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if len(body.Envelope) == 0 || len(body.Envelope) > maxEnvelopeBytes {
-		writeError(w, http.StatusBadRequest, "bad_request", "The edited message isn't valid.")
-		return
-	}
-	message, err := s.db.EditMessage(r.Context(), groupID, r.PathValue("mid"), sess.UserID, sess.DeviceID, body.Epoch, body.Envelope, s.quotaBytes())
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.broadcastMessage(r, groupID, message)
-	writeJSON(w, http.StatusOK, message)
-}
-
-func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
-	groupID := r.PathValue("id")
-	messageID := r.PathValue("mid")
-	existing := s.visibleMessage(w, r, member)
-	if existing == nil {
-		return
-	}
-	kind, err := s.db.GroupKind(r.Context(), groupID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	// In a DM only the sender can delete; in a group or channel, its admins can moderate.
-	canModerate := kind != "dm" && member.Role == "admin"
-	if existing.SenderUser != sess.UserID && !canModerate {
-		writeError(w, http.StatusForbidden, "forbidden", "You can only delete your own messages.")
+	if kind == "dm" || member.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can delete someone else's messages.")
 		return
 	}
 	// What the deleting device signed, which other members check before erasing their copies.
@@ -621,93 +527,7 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusBadRequest, "bad_request", "The deletion isn't valid.")
 		return
 	}
-	deletion := store.Deletion{By: sess.UserID, Proof: body.Deletion, Epoch: *body.Epoch}
-	message, files, err := s.db.DeleteMessage(r.Context(), groupID, messageID, deletion)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.removeFiles(r.Context(), files)
-	// One list of members, for the devices connected and the phones to wake.
-	if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
-		s.hub.ToUsers(members, Event{Type: "message", Data: message})
-		s.pushDeletion(members, groupID, messageID)
-	}
-	writeJSON(w, http.StatusOK, message)
-}
-
-func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
-	groupID := r.PathValue("id")
-	if s.visibleMessage(w, r, member) == nil {
-		return
-	}
-	var body struct {
-		ID    string `json:"id"`
-		Epoch int64  `json:"epoch"`
-		Data  []byte `json:"data"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if !store.ValidID(body.ID) || len(body.Data) == 0 || len(body.Data) > maxReactionBytes {
-		writeError(w, http.StatusBadRequest, "bad_request", "The reaction isn't valid.")
-		return
-	}
-	message, err := s.db.AddReaction(r.Context(), groupID, r.PathValue("mid"), store.Reaction{
-		ID:     body.ID,
-		UserID: sess.UserID,
-		Epoch:  body.Epoch,
-		Data:   body.Data,
-	}, s.quotaBytes())
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.broadcastMessage(r, groupID, message)
-	writeJSON(w, http.StatusOK, message)
-}
-
-func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
-	groupID := r.PathValue("id")
-	if s.visibleMessage(w, r, member) == nil {
-		return
-	}
-	message, err := s.db.RemoveReaction(r.Context(), groupID, r.PathValue("mid"), r.PathValue("rid"), sess.UserID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.broadcastMessage(r, groupID, message)
-	writeJSON(w, http.StatusOK, message)
-}
-
-func (s *Server) handlePin(pinned bool) memberHandler {
-	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
-		groupID := r.PathValue("id")
-		if s.visibleMessage(w, r, member) == nil {
-			return
-		}
-		// What the pinning device signed, which other members check before showing the pin.
-		var body struct {
-			Epoch *int64 `json:"epoch"`
-			Pin   []byte `json:"pin"`
-		}
-		if !readJSONUpTo(w, r, maxProofBody, &body) {
-			return
-		}
-		if len(body.Pin) == 0 || body.Epoch == nil || len(body.Pin) > maxProofBytes {
-			writeError(w, http.StatusBadRequest, "bad_request", "The pin isn't valid.")
-			return
-		}
-		pin := store.Pin{Proof: body.Pin, Epoch: *body.Epoch}
-		message, err := s.db.SetPinned(r.Context(), groupID, r.PathValue("mid"), sess.UserID, pinned, pin)
-		if err != nil {
-			writeFailure(w, err)
-			return
-		}
-		s.broadcastMessage(r, groupID, message)
-		writeJSON(w, http.StatusOK, message)
-	}
+	s.deleteMessage(w, r, r.PathValue("id"), store.Deletion{Proof: body.Deletion, Epoch: *body.Epoch}, nil)
 }
 
 func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {

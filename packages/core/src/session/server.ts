@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): what everyone on the server shares: the soundboard, the emotes, and its administration.
 
 import * as wasm from "@zuna/crypto";
-import { decode, type ApiBot, type ApiMessage, type ApiSound } from "../api";
+import { decode, type ApiBot, type ApiMessage, type ApiSound, type FileShare } from "../api";
 import { botProofInput, botSetupLink, inviteLink } from "../account";
 import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope } from "../crypto";
 import { fromBase64, toBase64, toBase64Url } from "../encoding";
@@ -326,23 +326,23 @@ export abstract class SessionServer extends SessionChannels {
    */
   async updateBotProfile(botId: string, changes: { displayName?: string; bio?: string }, avatarBlob?: Blob | null): Promise<void> {
     const profile: NonNullable<Extract<MessageSignal, { type: "bot_settings" }>["profile"]> = { ...changes };
-    let fileIds: string[] | undefined;
+    let files: FileShare[] | undefined;
     if (avatarBlob) {
       // Uploaded as a file of that message's, so the bot may fetch it, and then keep its own copy.
-      const ref = await this.uploadBlob(this.whole(avatarBlob));
+      const { share, ...ref } = await this.uploadBlob(this.whole(avatarBlob), undefined, false, true);
       const avatar: AvatarRef = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
       profile.avatar = avatar;
-      fileIds = [ref.fileId];
+      files = [{ id: ref.fileId, secret: fromBase64(share!) }];
     } else if (avatarBlob === null) {
       profile.avatar = null;
     }
-    await this.tellBot(botId, { type: "bot_settings", profile }, fileIds);
+    await this.tellBot(botId, { type: "bot_settings", profile }, files);
   }
 
   /** Says something to a bot as its owner, in their direct message, which is started if it has to be. */
-  protected async tellBot(botId: string, signal: MessageSignal, fileIds?: string[]): Promise<void> {
+  protected async tellBot(botId: string, signal: MessageSignal, files?: FileShare[]): Promise<void> {
     if (this.users.get(botId)?.bot?.ownerId !== this.account.userId) throw new Error("Only a bot's owner can change it.");
-    await this.sendSignal(await this.groupIdForKey(`user:${botId}`), signal, fileIds);
+    await this.sendSignal(await this.groupIdForKey(`user:${botId}`), signal, files);
   }
 
   /** Deletes a bot for good: its owner's to do, and any server admin's for a listed one. It's taken out of all its chats. */

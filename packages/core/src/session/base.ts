@@ -75,6 +75,8 @@ export abstract class SessionBase {
   protected usersCursor = 0;
   protected lastTypingSent = new Map<string, number>();
   protected flushing: Promise<void> | null = null;
+  /** Something came to wait while the outbox was being sent, which another pass sends. */
+  protected flushAgain = false;
   protected flushRetry: ReturnType<typeof setTimeout> | undefined;
   /** Chats whose next message a channel's slow mode holds back, by conversation key, and until when (ms). */
   protected slowHeld = new Map<string, number>();
@@ -187,9 +189,12 @@ export abstract class SessionBase {
     protected readonly callsOn: boolean = false,
     /** The app lists bots in a section of their own. One that doesn't is given no chat with a bot nobody has written to yet. */
     protected readonly botsOn: boolean = false,
+    /** How requests that name nobody go, as the host gives it (`ZunaClientOptions.sealedFetch`). */
+    sealedFetch?: (url: string, init: RequestInit) => Promise<Response>,
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
+    if (sealedFetch) this.api.sealedFetch = sealedFetch;
     this.api.prove = (input) => wasm.sign(this.account.deviceSecret, input);
     this.searchKey = wasm.hkdfSha256(dbKey, new Uint8Array(0), utf8("zuna/local/search"), 32);
     this.mediaTags = new Map(MEDIA_KINDS.map((kind) => [kind, mediaTag(this.searchKey, kind)]));

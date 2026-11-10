@@ -84,6 +84,13 @@ export interface ZunaClientOptions {
    * certificate itself, as a browser can't, leaves it out, and can't reach one.
    */
   pinServer?: (url: string, pin: string) => Promise<void>;
+  /**
+   * How requests that name nobody go, those that add to a conversation without saying who's
+   * sending: on a connection of their own, with a TLS session cache of its own, sharing
+   * nothing with the session's. A browser decides for itself which connection a request
+   * takes, so the web app leaves it out, and they go without credentials.
+   */
+  sealedFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -226,6 +233,7 @@ export class ZunaClient {
       this.options.channels ?? false,
       this.options.calls ?? false,
       this.options.bots ?? false,
+      this.options.sealedFetch,
     );
     // Nothing is erased on the server's word: that's for the person to decide.
     session.onSignedOut = (reason) => {

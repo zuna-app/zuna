@@ -98,14 +98,17 @@ func TestRealtimeDeliveryAndPresence(t *testing.T) {
 		t.Fatalf("message event: %v", got)
 	}
 
+	// Typing is sealed, and passed on without saying whose it is: that's inside.
+	h.sealedMust("POST", "/api/sealed/groups/"+group.ID+"/typing", sealed{secret: sendSecretFor(group.ID, 1), epoch: 1}, map[string]any{"data": []byte("sealed")}, nil)
+	if got := bobSocket.waitFor("typing"); got["group_id"] != group.ID || got["user_id"] != nil || got["data"] == nil {
+		t.Fatalf("typing event: %v", got)
+	}
+	// The socket's own frame for it is gone.
 	frame, _ := json.Marshal(map[string]any{"t": "typing", "group_id": group.ID, "data": []byte("sealed")})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := ownerSocket.ws.Write(ctx, websocket.MessageText, frame); err != nil {
 		t.Fatal(err)
-	}
-	if got := bobSocket.waitFor("typing"); got["user_id"] != owner.userID {
-		t.Fatalf("typing event: %v", got)
 	}
 
 	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", owner.token, map[string]any{"data": []byte("sealed-read")}, nil)

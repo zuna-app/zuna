@@ -620,4 +620,31 @@ CREATE TABLE spent_tokens (
 	input BYTEA NOT NULL,
 	PRIMARY KEY (period, size, input)
 );
+`, `
+-- A message's and a reaction's item key, the public half of a key only its author's
+-- devices can make, which changing or deleting it takes. It names nobody.
+ALTER TABLE messages ADD COLUMN item_key BYTEA;
+ALTER TABLE reactions ADD COLUMN item_key BYTEA;
+-- The hash of the secret a file was made with, which a message carrying it shows.
+-- A file a message carries belongs to nobody from then on.
+ALTER TABLE files ADD COLUMN share_hash BYTEA;
+UPDATE files SET owner_id = '' WHERE attached_at IS NOT NULL AND standalone = 0;
+-- How many MiB each person uploaded each day, which their quota counts over thirty days.
+CREATE TABLE uploads (
+	user_id TEXT COLLATE "C" NOT NULL,
+	day BIGINT NOT NULL,
+	mib BIGINT NOT NULL,
+	PRIMARY KEY (user_id, day)
+);
+`, `
+-- Nothing kept says who sent, pinned or deleted a message, or whose a reaction is: that's
+-- inside them, under their devices' signatures, and the requests that add or change them
+-- name nobody. Slow mode is each app's to hold, so nothing records who sent when either.
+ALTER TABLE messages DROP COLUMN sender_user;
+ALTER TABLE messages DROP COLUMN sender_device;
+ALTER TABLE messages DROP COLUMN pinned_by;
+ALTER TABLE messages DROP COLUMN pin_by;
+ALTER TABLE messages DROP COLUMN deleted_by;
+ALTER TABLE reactions DROP COLUMN user_id;
+DROP TABLE channel_sends;
 `}

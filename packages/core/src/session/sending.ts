@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): sending messages, and the files they carry.
 
 import * as wasm from "@zuna/crypto";
-import { ApiError, type TokenSize } from "../api";
+import { ApiError, decode, type ApiMessage, type FileShare, type Seal, type TokenSize } from "../api";
 import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
 import { concat, equalBytes, fromBase64, toBase64, toHex, u64Bytes, utf8 } from "../encoding";
 import { linkInText } from "../links";
@@ -18,6 +18,8 @@ import {
   type CachedGroup,
   type OutboxEntry,
   MAX_SLOW_MODE,
+  MAX_REACTIONS_BY_PERSON,
+  slowModeOf,
   TOKEN_BATCH,
   TOKEN_LOW,
   TOKEN_PERIOD_MS,
@@ -95,7 +97,7 @@ export abstract class SessionSending extends SessionConversations {
     const body: MessageBody = { ...original, forwarded: original.forwarded ?? { userId: senderId } };
     const newId = randomId();
     const view = this.ensureLocalEcho(toKey, newId, body);
-    this.enqueue(toKey, { kind: "message", id: newId, body, fileIds: body.attachments?.map((item) => item.fileId) });
+    this.enqueue(toKey, { kind: "message", id: newId, body });
     return view;
   }
 
@@ -140,9 +142,18 @@ export abstract class SessionSending extends SessionConversations {
     void this.flushOutbox();
   }
 
+  /** Sends what's waiting. Anything that comes to wait while it does is sent too, in another pass. */
   flushOutbox(): Promise<void> {
-    if (this.flushing) return this.flushing;
-    this.flushing = this.runOutbox().finally(() => {
+    if (this.flushing) {
+      this.flushAgain = true;
+      return this.flushing;
+    }
+    this.flushing = (async () => {
+      do {
+        this.flushAgain = false;
+        await this.runOutbox();
+      } while (this.flushAgain && !this.stopped);
+    })().finally(() => {
       this.flushing = null;
     });
     return this.flushing;
@@ -173,17 +184,18 @@ export abstract class SessionSending extends SessionConversations {
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
         continue;
       }
+      // A message names nobody, so the server can't hold anyone to a channel's slow mode: each app holds its own person.
+      const slowUntil = entry.kind === "message" ? this.slowModeHolds(row.group_key, now) : 0;
+      if (slowUntil > now) {
+        this.slowHeld.set(row.group_key, Math.min(slowUntil, now + MAX_SLOW_MODE * 1000));
+        this.emitConversations();
+        continue;
+      }
       try {
         await this.deliver(row.group_key, entry);
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
         this.retryDelay.delete(row.group_key);
       } catch (error) {
-        if (error instanceof ApiError && error.code === "slow_mode") {
-          const wait = Number(error.body.wait_ms);
-          this.slowHeld.set(row.group_key, Date.now() + (Number.isFinite(wait) && wait > 0 ? Math.min(wait, MAX_SLOW_MODE * 1000) : 1000));
-          this.emitConversations();
-          continue;
-        }
         if (error instanceof ApiError && error.retryable) {
           const delay = Math.min((this.retryDelay.get(row.group_key) ?? 1250) * 2, 30_000);
           this.retryDelay.set(row.group_key, delay);
@@ -213,6 +225,17 @@ export abstract class SessionSending extends SessionConversations {
     );
   }
 
+  /** When a channel's slow mode lets this person's next message there go, from the last any of their devices sent, or 0. */
+  protected slowModeHolds(groupKey: string, now: number): number {
+    const group = this.groupForKey(groupKey);
+    const slowMode = group?.kind === "channel" ? slowModeOf(this.channels.get(group.id)?.api) : 0;
+    if (!group || slowMode === 0 || group.members.some((member) => member.userId === this.account.userId && member.role === "admin")) return 0;
+    const own = this.db.get<{ sent: number | null }>("SELECT MAX(created_at) AS sent FROM messages WHERE group_id = ? AND sender_user = ? AND seq IS NOT NULL", [group.id, this.account.userId]);
+    const sent = Math.max((own?.sent ?? 0) - this.api.serverAhead, this.getKv<EarlierMessage>(`sent/${group.id}`)?.at ?? 0);
+    const until = sent + slowMode * 1000;
+    return until > now ? until : 0;
+  }
+
   protected async deliver(groupKey: string, entry: OutboxEntry): Promise<void> {
     if (entry.kind === "edit") {
       await this.withLock(entry.groupId, () =>
@@ -222,13 +245,16 @@ export abstract class SessionSending extends SessionConversations {
           // An edit says how long the message lasts as it first did, so it disappears all the same.
           const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
           const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body), this.signer);
-          this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
+          const item = this.heldItemSecret("message", entry.groupId, entry.id, row?.item_key ?? null);
+          if (!item) throw new Error("This message can't be edited from this device.");
+          this.ingest(await this.api.sealedEdit(entry.groupId, entry.id, await this.seal(entry.groupId, epoch, envelope.length, item), envelope), false);
         }),
       );
       return;
     }
     // Messages go in order, so the ones after it wait for its preview too.
     const body = entry.previewUrl ? await this.withPreview(groupKey, entry.id, entry.body, entry.previewUrl) : entry.body;
+    let saved = null as ApiMessage | null;
     const groupId = await this.groupIdForKey(groupKey);
     await this.withLock(groupId, async () => {
       await this.ensureReady(groupId);
@@ -239,11 +265,12 @@ export abstract class SessionSending extends SessionConversations {
         // It lasts as long as the chat says when it goes, whenever it was written.
         const expiresIn = this.disappearAfter(this.groups.get(groupId)) || undefined;
         const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }), this.signer);
-        const saved = await this.api.sendMessage(groupId, {
+        const files = this.sharesOf(body);
+        saved = await this.api.sealedSend(groupId, await this.seal(groupId, epoch, envelope.length), {
           id: entry.id,
-          epoch,
           envelope,
-          file_ids: entry.fileIds?.length ? entry.fileIds : undefined,
+          item_key: wasm.signingPublic(this.itemSecret("message", groupId, entry.id)),
+          files: files.length ? files : undefined,
           expires_in: expiresIn,
         });
         this.setKv(`sent/${groupId}`, { id: entry.id, epoch, at: Date.now(), expiresIn } satisfies EarlierMessage);
@@ -251,6 +278,48 @@ export abstract class SessionSending extends SessionConversations {
       });
     });
     this.emitConversations();
+    // Read at once, at its own message, as anyone reading it as it arrives would: the server
+    // can't tell whose phones to leave out, and holds each push a moment for this to spare them.
+    if (saved) void this.markRead(groupId, saved.seq).catch((error) => console.warn("[zuna] read state", error));
+  }
+
+  /** The files a message carries, with the secrets they were made with, which the server checks. */
+  protected sharesOf(body: MessageBody): FileShare[] {
+    return (body.attachments ?? []).filter((item) => item.share).map((item) => ({ id: item.fileId, secret: fromBase64(item.share!) }));
+  }
+
+  /**
+   * The key only this account's devices can make for something it added, which changing or
+   * deleting it takes: from the account key, so any of its devices can, and tied to nothing
+   * else, so it names nobody.
+   */
+  protected itemSecret(kind: "message" | "reaction", groupId: string, itemId: string, accountKey = this.account.accountKey): Uint8Array {
+    return wasm.hkdfSha256(subkey(accountKey, "author"), new Uint8Array(0), utf8(`zuna/item-key/v1|${kind}|${groupId}|${itemId}`), 32);
+  }
+
+  /**
+   * The item key whose public half the server holds for something, from whichever of this
+   * account's keys made it: the account's keys are replaced now and then, and the older ones
+   * are tried too. Null if none of them did, as for something someone else added.
+   */
+  protected heldItemSecret(kind: "message" | "reaction", groupId: string, itemId: string, shown: Uint8Array | string | null | undefined): Uint8Array | null {
+    if (!shown) return null;
+    const wanted = typeof shown === "string" ? decode(shown) : shown;
+    for (const key of [this.account.accountKey, ...Object.values(this.account.core.olderKeys)]) {
+      const secret = this.itemSecret(kind, groupId, itemId, key);
+      if (equalBytes(wasm.signingPublic(secret), wanted)) return secret;
+    }
+    return null;
+  }
+
+  /**
+   * What a sealed request is signed and paid with: the group's send key for the epoch it's for,
+   * which any member could make, a token for something of `bytes`, and `item` to change or delete something.
+   */
+  protected async seal(groupId: string, epoch: number, bytes: number | null, item?: Uint8Array): Promise<Seal> {
+    const send = this.sendKey(groupId);
+    if (send.epoch !== epoch) throw new ApiError(409, "stale_epoch", "The conversation's keys changed.");
+    return { epoch, secret: send.secret, token: bytes === null ? undefined : await this.takeToken(bytes), item };
   }
 
   /**
@@ -280,13 +349,14 @@ export abstract class SessionSending extends SessionConversations {
    * Sends something for the apps of a chat's members to act on, which they show nowhere.
    * To the server it's a message like any other, but one no phone is woken for.
    */
-  protected async sendSignal(groupId: string, signal: NonNullable<MessageBody["signal"]>, fileIds?: string[]): Promise<void> {
+  protected async sendSignal(groupId: string, signal: NonNullable<MessageBody["signal"]>, files?: FileShare[]): Promise<void> {
     const id = randomId();
     await this.withLock(groupId, async () => {
       await this.ensureReady(groupId);
       await this.sealAndRetry(groupId, async (epoch, key) => {
         const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, id, epoch, this.signedBody({ signal }), this.signer);
-        this.ingest(await this.api.sendMessage(groupId, { id, epoch, envelope, file_ids: fileIds?.length ? fileIds : undefined, silent: true }), false);
+        const item_key = wasm.signingPublic(this.itemSecret("message", groupId, id));
+        this.ingest(await this.api.sealedSend(groupId, await this.seal(groupId, epoch, envelope.length), { id, envelope, item_key, files: files?.length ? files : undefined, silent: true }), false);
       });
     });
   }
@@ -315,7 +385,10 @@ export abstract class SessionSending extends SessionConversations {
     });
   }
 
-  /** Runs `send` with the current epoch's key, catching up and retrying if we were behind. */
+  /**
+   * Runs `send` with the current epoch's key, catching up and retrying if we were behind, and
+   * with another token if one was spent already, as one used on a request that never answered may be.
+   */
   protected async sealAndRetry(groupId: string, send: (epoch: number, key: Uint8Array) => Promise<void>): Promise<void> {
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       this.refuseDoubtful(groupId);
@@ -330,6 +403,13 @@ export abstract class SessionSending extends SessionConversations {
         if (error instanceof ApiError && error.code === "stale_epoch") {
           await this.pullChanges(groupId);
           continue;
+        }
+        if (error instanceof ApiError && (error.code === "token_spent" || error.code === "token_invalid")) continue;
+        if (error instanceof ApiError && error.code === "not_sealed") {
+          // The server holds a send key for this epoch that isn't the one its members make. A
+          // member puts it right with a commit (`checkSendKey`); this goes once that's in.
+          this.applyGroup(await this.api.group(groupId));
+          throw new ApiError(0, "not_sealed", "This conversation's keys are being put right. This will go once they are.");
         }
         throw error;
       }
@@ -378,7 +458,6 @@ export abstract class SessionSending extends SessionConversations {
         forwarded: body.forwarded,
         preview: body.preview && linkInText(body.preview.url, body.text ?? "") ? body.preview : undefined,
       },
-      fileIds: body.attachments?.map((item) => item.fileId),
     });
   }
 
@@ -428,13 +507,19 @@ export abstract class SessionSending extends SessionConversations {
     this.emitConversations();
   }
 
-  /** This device signs the deletion, so other members' apps can tell it from the server's word before erasing their copies. */
+  /**
+   * This device signs the deletion, so other members' apps can tell it from the server's word
+   * before erasing their copies. Its author's own goes sealed, with its item key, and a group
+   * admin's of someone else's by name, as it's the server's to check their role.
+   */
   protected async deleteSigned(groupId: string, id: string): Promise<void> {
     const { userId, deviceSecret } = this.account;
     await this.withLock(groupId, () =>
       this.sealAndRetry(groupId, async (epoch, epochKey) => {
         const deletion = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }, this.signer));
-        this.ingest(await this.api.deleteMessage(groupId, id, epoch, deletion), false);
+        const row = this.messageRow(groupId, id);
+        const item = row?.sender_user === userId ? this.heldItemSecret("message", groupId, id, row.item_key) : null;
+        this.ingest(item ? await this.api.sealedDelete(groupId, id, await this.seal(groupId, epoch, 0, item), deletion) : await this.api.moderateMessage(groupId, id, epoch, deletion), false);
       }),
     );
   }
@@ -447,7 +532,7 @@ export abstract class SessionSending extends SessionConversations {
         // After the pin this device holds, whatever its clock says, as with edits.
         const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
         const pin = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
-        this.ingest(await this.api.pin(groupId, id, pinned, epoch, pin), false);
+        this.ingest(await this.api.sealedPin(groupId, id, pinned, await this.seal(groupId, epoch, pin.length), pin), false);
       }),
     );
   }
@@ -455,23 +540,28 @@ export abstract class SessionSending extends SessionConversations {
   async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {
     const { userId, deviceSecret } = this.account;
     const row = this.messageRow(groupId, messageId);
-    const current = row ? (this.storedBody(row)?.reactions ?? []) : [];
+    const stored = row ? this.storedBody(row) : null;
+    const current = stored?.reactions ?? [];
     const already = current.some((item) => item.key === key && item.userIds.includes(userId));
     await this.withLock(groupId, async () => {
       if (already) {
-        // Another device may have made it, or two devices the same one, and only an open reaction says what it is.
-        const { reactions } = await this.api.message(groupId, messageId);
-        for (const reaction of reactions) {
-          const opened = this.openReaction(groupId, messageId, reaction);
-          if (opened?.userId !== userId || opened.key !== key) continue;
-          this.ingest(await this.api.removeReaction(groupId, messageId, reaction.id), false);
+        // Another device may have made it, or two devices the same one: each is taken back with the key that made it.
+        for (const mine of (this.storedBody(this.messageRow(groupId, messageId)!)?.mine ?? []).filter((item) => item.key === key)) {
+          const item = this.heldItemSecret("reaction", groupId, mine.id, mine.item);
+          if (!item) continue;
+          await this.sealAndRetry(groupId, async (epoch) => {
+            this.ingest(await this.api.sealedUnreact(groupId, messageId, mine.id, await this.seal(groupId, epoch, 0, item)), false);
+          });
         }
         return;
       }
+      // How many one person puts on a message is held by each app, as the server can't tell whose they are.
+      if (current.filter((item) => item.userIds.includes(userId)).length >= MAX_REACTIONS_BY_PERSON) throw new Error("That's as many reactions as one person can add to a message.");
       const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
         const data = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
-        this.ingest(await this.api.addReaction(groupId, messageId, id, epoch, data), false);
+        const item_key = wasm.signingPublic(this.itemSecret("reaction", groupId, id));
+        this.ingest(await this.api.sealedReact(groupId, messageId, await this.seal(groupId, epoch, data.length), { id, data, item_key }), false);
       });
     });
   }
@@ -483,8 +573,13 @@ export abstract class SessionSending extends SessionConversations {
     this.lastTypingSent.set(groupId, now);
     const epoch = this.rememberCurrentEpochKey(groupId);
     const key = this.epochKey(groupId, epoch);
-    // Signed, so that a server can't show someone typing who isn't, and timed, so it can't send it on again later.
-    if (key) this.socket.sendTyping(groupId, frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, "typing", epoch, { at: now }, this.signer)));
+    if (!key) return;
+    // Signed inside, so that a server can't show someone typing who isn't, timed, so it can't send it on again
+    // later, and sealed, so it doesn't say who's typing, which would name whoever sends the message after it.
+    const data = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, "typing", epoch, { at: now }, this.signer));
+    void this.seal(groupId, epoch, null)
+      .then((seal) => this.api.sealedTyping(groupId, seal, data))
+      .catch(() => undefined);
   }
 
   async markRead(groupId: string, seq: number): Promise<void> {
@@ -687,16 +782,23 @@ export abstract class SessionSending extends SessionConversations {
     return { size: this.files.size(blob), read: (start, end) => this.files.read(blob, start, end) };
   }
 
+  /**
+   * Uploads a file. One a message will carry (`share`) is made with a secret, which travels
+   * inside the message with its key and shows the server whoever sends it holds it; from
+   * then on the server keeps nothing of who uploaded it. A picture that stands on its own has none.
+   */
   protected async uploadBlob(
     source: ByteSource,
     onProgress?: (loaded: number, total: number) => void,
     attach = false,
-  ): Promise<{ fileId: string; key: string; prefix: string; chunks: number }> {
+    share = false,
+  ): Promise<{ fileId: string; key: string; prefix: string; chunks: number; share?: string }> {
     const key = wasm.randomBytes(32);
     const prefix = wasm.randomBytes(15);
+    const secret = share ? wasm.randomBytes(32) : null;
     const size = source.size;
     const chunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
-    const created = await this.api.createFile(chunks, size + chunks * 16);
+    const created = await this.api.createFile(chunks, size + chunks * 16, secret ? wasm.sha256(secret) : undefined);
     let loaded = 0;
     // A few chunks go at once, and once one fails the rest of a file given up on don't.
     await eachLimited(Array.from({ length: chunks }, (_, index) => index), UPLOAD_CONCURRENCY, async (index) => {
@@ -708,7 +810,7 @@ export abstract class SessionSending extends SessionConversations {
       onProgress?.(loaded, size);
     });
     await this.api.completeFile(created.id, attach);
-    return { fileId: created.id, key: toBase64(key), prefix: toBase64(prefix), chunks };
+    return { fileId: created.id, key: toBase64(key), prefix: toBase64(prefix), chunks, ...(secret ? { share: toBase64(secret) } : {}) };
   }
 
   /** Decrypts a file, verifying that every chunk is present and in order. */
@@ -795,7 +897,7 @@ export abstract class SessionSending extends SessionConversations {
             message: { ...this.toMessageView(current), uploadProgress: (uploaded + loaded) / Math.max(totalBytes, 1) },
             isNew: false,
           });
-        });
+        }, false, true);
         uploaded += this.files.size(file.blob);
         attachments.push({ ...placeholders[index]!, size: source.size, ...ref });
       }
@@ -805,7 +907,6 @@ export abstract class SessionSending extends SessionConversations {
         kind: "message",
         id,
         body: finalBody,
-        fileIds: attachments.map((item) => item.fileId),
         previewUrl: this.pendingPreview(finalBody, options.previewUrl),
       });
     } catch (error) {

@@ -40,13 +40,6 @@ func (e *EpochConflictError) Error() string {
 	return fmt.Sprintf("stale epoch: group is at %d", e.Current)
 }
 
-// SlowModeError reports that a channel's slow mode holds back someone's next message
-// for Wait more milliseconds.
-type SlowModeError struct{ Wait int64 }
-
-func (e *SlowModeError) Error() string {
-	return fmt.Sprintf("slow mode: %d ms to wait", e.Wait)
-}
 
 type DB struct {
 	conn     *sql.DB

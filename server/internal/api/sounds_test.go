@@ -150,7 +150,8 @@ func TestASoundGoesOnlyToOthersInTheVoiceChannel(t *testing.T) {
 		t.Fatalf("heard %+v", sound)
 	}
 	// Someone in the channel but not in the call hears nothing, nor does the one who played it.
-	listening.write(map[string]any{"t": "typing", "group_id": voice.ID, "data": []byte("typing")})
+	owner.start(voice.ID)
+	h.sealedMust("POST", "/api/sealed/groups/"+voice.ID+"/typing", sealed{secret: sendSecretFor(voice.ID, 1), epoch: 1}, map[string]any{"data": []byte("typing")}, nil)
 	if kind, _ := notListening.firstOf("sound", "typing"); kind != "typing" {
 		t.Fatal("someone outside the call heard a sound")
 	}

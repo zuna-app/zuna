@@ -152,25 +152,35 @@ const pins = new Map<string, string>();
  */
 export async function pinServer(url: string, pin: string): Promise<void> {
   const { hostname, port } = new URL(url);
-  if (pins.size === 0) {
-    const usual = buildConnector({});
-    // A resumed session shows no certificate to check, so each connection starts afresh.
-    const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
-    setGlobalDispatcher(
-      new Agent({
-        connect(options, callback) {
-          const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
-          if (!wanted || options.protocol !== "https:") return usual(options, callback);
-          own(options, (error, socket) => {
-            if (error || !socket) return callback(error ?? new Error("No connection."), null);
-            const key = (socket as TLSSocket).getPeerX509Certificate()?.publicKey.export({ type: "spki", format: "der" });
-            if (key && createHash("sha256").update(key).digest("base64url") === wanted) return callback(null, socket);
-            socket.destroy();
-            callback(new Error("The server's certificate doesn't match its pin."), null);
-          });
-        },
-      }),
-    );
-  }
+  if (pins.size === 0) setGlobalDispatcher(pinnedAgent());
   pins.set(`${hostname}:${port || 443}`, pin);
 }
+
+/** Connections that trust a server with a pin by its key alone, and any other as usual. */
+function pinnedAgent(): Agent {
+  const usual = buildConnector({});
+  // A resumed session shows no certificate to check, so each connection starts afresh.
+  const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
+  return new Agent({
+    connect(options, callback) {
+      const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
+      if (!wanted || options.protocol !== "https:") return usual(options, callback);
+      own(options, (error, socket) => {
+        if (error || !socket) return callback(error ?? new Error("No connection."), null);
+        const key = (socket as TLSSocket).getPeerX509Certificate()?.publicKey.export({ type: "spki", format: "der" });
+        if (key && createHash("sha256").update(key).digest("base64url") === wanted) return callback(null, socket);
+        socket.destroy();
+        callback(new Error("The server's certificate doesn't match its pin."), null);
+      });
+    },
+  });
+}
+
+/**
+ * Connections of their own for what the bot adds to its chats without saying who it is,
+ * so they share no connection and no TLS session with its signed-in requests.
+ */
+const sealedAgent = pinnedAgent();
+
+/** A fetch on those connections, for `ZunaClientOptions.sealedFetch`. */
+export const sealedFetch = (url: string, init: RequestInit): Promise<Response> => fetch(url, { ...init, dispatcher: sealedAgent } as RequestInit);

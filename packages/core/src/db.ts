@@ -193,6 +193,8 @@ const MIGRATIONS: string[] = [
   `,
   // Tokens fetched ahead, sealed, each spent once on something added to a conversation without a name.
   `CREATE TABLE tokens (id TEXT PRIMARY KEY, period INTEGER NOT NULL, size TEXT NOT NULL, token BLOB NOT NULL);`,
+  // The item key the server holds for each message, which changing or deleting this account's own takes.
+  `ALTER TABLE messages ADD COLUMN item_key BLOB;`,
 ];
 
 export function migrate(db: LocalDb): void {

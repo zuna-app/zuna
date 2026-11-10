@@ -78,13 +78,13 @@ export const sessionOf = (app: TestApp) => app.session as any;
 export const warned = (app: TestApp, text: string) => securityEvents(app).some((event) => (event as { message: string }).message.includes(text));
 
 /** What a malicious server writes to delete a message, with whatever proof it has. */
-export function serverDeletes(groupId: string, messageId: string, by: string, deletion: Uint8Array | null): void {
+export function serverDeletes(groupId: string, messageId: string, deletion: Uint8Array | null): void {
   withServerDatabase((db) => {
     const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
-    db.prepare("UPDATE messages SET envelope = NULL, deleted_at = ?, updated_seq = ?, deleted_by = ?, deletion = ? WHERE group_id = ? AND id = ?").run(
+    // Who deleted it is inside the deletion, which the server can't write as anyone.
+    db.prepare("UPDATE messages SET envelope = NULL, deleted_at = ?, updated_seq = ?, deletion = ? WHERE group_id = ? AND id = ?").run(
       Date.now(),
       seq,
-      by,
       deletion,
       groupId,
       messageId,

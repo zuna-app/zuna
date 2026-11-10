@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/coder/websocket"
@@ -138,10 +137,10 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 
 // readLoop handles what the app sends until the connection ends, and says why it ended.
 func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) error {
-	// Typing and pings are worth nothing when there's too much of them. Whether someone's
+	// Pings are worth nothing when there's too much of them. Whether someone's
 	// using their device and where they are in voice are state, which a dropped frame would
 	// leave wrong, so they have a limit of their own, far past anything an app sends, and
-	// typing can't use it up.
+	// pings can't use it up.
 	chatter := rate.NewLimiter(clientFramesPerSecond, clientFrameBurst)
 	state := rate.NewLimiter(stateFramesPerSecond, stateFrameBurst)
 	for {
@@ -161,8 +160,6 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) erro
 			continue
 		}
 		switch frame.Type {
-		case "typing":
-			s.relayTyping(ctx, c, frame)
 		case "active":
 			if !c.quiet {
 				s.hub.SetActive(c, frame.Active)
@@ -175,19 +172,3 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) erro
 	}
 }
 
-// relayTyping forwards an encrypted typing signal without storing it.
-func (s *Server) relayTyping(ctx context.Context, c *conn, frame clientFrame) {
-	if !store.ValidID(frame.GroupID) || len(frame.Data) > 1024 {
-		return
-	}
-	// Who's in the group says too whether the one typing is: one query for both, on every frame.
-	members, err := s.db.GroupMemberIDs(ctx, frame.GroupID)
-	if err != nil || !slices.Contains(members, c.userID) {
-		return
-	}
-	s.hub.ToUsersExcept(members, c.deviceID, Event{Type: "typing", Data: map[string]any{
-		"group_id": frame.GroupID,
-		"user_id":  c.userID,
-		"data":     frame.Data,
-	}})
-}

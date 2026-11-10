@@ -6,7 +6,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -44,13 +43,6 @@ func commitFrame(groupID string, epoch int64) []byte {
 }
 
 // groupInfoFrame is what a group info looks like from outside.
-// sendKeyFor stands in for the public half of a group's send key at an epoch, which
-// only members can make, and the server takes as it comes.
-func sendKeyFor(groupID string, epoch int64) []byte {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("send key|%s|%d", groupID, epoch)))
-	return sum[:]
-}
-
 func groupInfoFrame(groupID string, epoch int64) []byte {
 	frame := mlsHeader(4)
 	frame = append(frame, 0, 1, 0, 3)
@@ -92,7 +84,9 @@ func (c *client) upload(chunks ...[]byte) string {
 	var created struct {
 		ID string `json:"id"`
 	}
-	c.h.mustDo("POST", "/api/files", c.token, map[string]any{"chunk_count": len(chunks), "total_size": total}, &created)
+	secret, hash := newShare()
+	c.h.mustDo("POST", "/api/files", c.token, map[string]any{"chunk_count": len(chunks), "total_size": total, "share_hash": hash}, &created)
+	shareSecrets.Store(created.ID, secret)
 	for n, chunk := range chunks {
 		c.h.mustDo("PUT", fmt.Sprintf("/api/files/%s/chunks/%d", created.ID, n), c.token, chunk, nil)
 	}

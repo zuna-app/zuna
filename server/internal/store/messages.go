@@ -2,68 +2,76 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"sort"
 )
 
-// Message is an encrypted message and its server-visible state.
+// Message is an encrypted message and its server-visible state. Nothing here says
+// who sent it, pinned it or deleted it: that's inside what it carries, under their
+// devices' signatures, and the requests that add or change it name nobody.
 //
 // Sync is state-based: every change to a message moves it to a new updated_seq,
 // so a client that was offline fetches the current state of whatever changed
 // instead of replaying each edit.
 type Message struct {
-	GroupID      string `json:"group_id"`
-	ID           string `json:"id"`
-	Seq          int64  `json:"seq"`
-	UpdatedSeq   int64  `json:"updated_seq"`
-	SenderUser   string `json:"sender_user"`
-	SenderDevice string `json:"sender_device"`
-	Epoch        int64  `json:"epoch"`
-	Envelope     []byte `json:"envelope,omitempty"`
-	CreatedAt    int64  `json:"created_at"`
-	EditedAt     *int64 `json:"edited_at"`
-	DeletedAt    *int64 `json:"deleted_at"`
-	PinnedAt     *int64 `json:"pinned_at"`
-	PinnedBy     string `json:"pinned_by,omitempty"`
-	DeletedBy    string `json:"deleted_by,omitempty"`
+	GroupID    string `json:"group_id"`
+	ID         string `json:"id"`
+	Seq        int64  `json:"seq"`
+	UpdatedSeq int64  `json:"updated_seq"`
+	Epoch      int64  `json:"epoch"`
+	Envelope   []byte `json:"envelope,omitempty"`
+	// ItemKey is the public half of the key only its author's devices can make,
+	// which changing or deleting it takes. It names nobody.
+	ItemKey   []byte `json:"item_key,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	EditedAt  *int64 `json:"edited_at"`
+	DeletedAt *int64 `json:"deleted_at"`
+	PinnedAt  *int64 `json:"pinned_at"`
 	// What the deleting device signed, which apps check before erasing their copies.
 	Deletion []byte `json:"deletion,omitempty"`
-	// What the device that last pinned or unpinned it signed, and whose that was.
-	Pin   []byte `json:"pin,omitempty"`
-	PinBy string `json:"pin_by,omitempty"`
+	// What the device that last pinned or unpinned it signed.
+	Pin []byte `json:"pin,omitempty"`
 	// When it disappears, as its sender's app asked, if it does.
 	ExpiresAt *int64     `json:"expires_at,omitempty"`
 	Reactions []Reaction `json:"reactions"`
 }
 
-// Reaction is an encrypted reaction; the server can't tell which emote it is.
+// Reaction is an encrypted reaction; the server can't tell which emote it is, or whose.
 type Reaction struct {
 	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
 	Epoch     int64  `json:"epoch"`
 	Data      []byte `json:"data"`
+	ItemKey   []byte `json:"item_key,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 }
 
-const messageColumns = `group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope,
-	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion, pin, pin_by, expires_at`
+// FileShare is a file a message carries, with the secret its uploader made it with,
+// which shows whoever sends the message holds it.
+type FileShare struct {
+	ID     string `json:"id"`
+	Secret []byte `json:"secret"`
+}
+
+// ShareSecretLen is how long a file's share secret is.
+const ShareSecretLen = 32
+
+const messageColumns = `group_id, id, seq, updated_seq, epoch, envelope, item_key,
+	created_at, edited_at, deleted_at, pinned_at, deletion, pin, expires_at`
 
 func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
 	var m Message
 	var edited, deleted, pinned, expires sql.NullInt64
-	var pinnedBy, deletedBy, pinBy sql.NullString
-	if err := row.Scan(&m.GroupID, &m.ID, &m.Seq, &m.UpdatedSeq, &m.SenderUser, &m.SenderDevice, &m.Epoch, &m.Envelope,
-		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion, &m.Pin, &pinBy, &expires); err != nil {
+	if err := row.Scan(&m.GroupID, &m.ID, &m.Seq, &m.UpdatedSeq, &m.Epoch, &m.Envelope, &m.ItemKey,
+		&m.CreatedAt, &edited, &deleted, &pinned, &m.Deletion, &m.Pin, &expires); err != nil {
 		return nil, err
 	}
 	m.ExpiresAt = nullableInt(expires)
 	m.EditedAt = nullableInt(edited)
 	m.DeletedAt = nullableInt(deleted)
 	m.PinnedAt = nullableInt(pinned)
-	m.PinnedBy = pinnedBy.String
-	m.DeletedBy = deletedBy.String
-	m.PinBy = pinBy.String
 	m.Reactions = []Reaction{}
 	return &m, nil
 }
@@ -79,7 +87,7 @@ func (d *DB) attachReactions(ctx context.Context, groupID string, messages []*Me
 		byID[m.ID] = m
 		args = append(args, m.ID)
 	}
-	rows, err := d.sql.QueryContext(ctx, `SELECT message_id, id, user_id, epoch, data, created_at FROM reactions
+	rows, err := d.sql.QueryContext(ctx, `SELECT message_id, id, epoch, data, item_key, created_at FROM reactions
 		WHERE group_id = ? AND message_id IN (`+placeholders(len(messages))+`) ORDER BY created_at`, args...)
 	if err != nil {
 		return err
@@ -88,7 +96,7 @@ func (d *DB) attachReactions(ctx context.Context, groupID string, messages []*Me
 	for rows.Next() {
 		var messageID string
 		var r Reaction
-		if err := rows.Scan(&messageID, &r.ID, &r.UserID, &r.Epoch, &r.Data, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&messageID, &r.ID, &r.Epoch, &r.Data, &r.ItemKey, &r.CreatedAt); err != nil {
 			return err
 		}
 		byID[messageID].Reactions = append(byID[messageID].Reactions, r)
@@ -105,18 +113,33 @@ func currentEpoch(ctx context.Context, tx handle, groupID string) (int64, error)
 	return epoch, err
 }
 
-// CreateMessage stores a message. Sending the same ID twice returns the
-// existing message, with created false, which makes client retries safe. Content must be encrypted
-// under the group's current epoch, so a removed member's key is never reused.
-// A message with expiresIn (ms) above zero disappears that long after it arrives.
-func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quota int64, expiresIn int64) (message *Message, created bool, err error) {
+// atEpoch refuses what's sealed for an epoch that isn't a group's current one, so a
+// removed member's key is never reused.
+func atEpoch(ctx context.Context, tx handle, groupID string, epoch int64) error {
+	current, err := currentEpoch(ctx, tx, groupID)
+	if err != nil {
+		return err
+	}
+	if current != epoch {
+		return &EpochConflictError{Current: current}
+	}
+	return nil
+}
+
+// CreateMessage stores a message, sealed by one of a group's members of its current
+// epoch, which spends a token. Sending the same ID twice with the same item key
+// returns the message that arrived, with created false and nothing spent, which
+// makes retries safe; with another item key it's a conflict. Each file it carries
+// takes its share secret, and from then on the file belongs to nobody. A message
+// with expiresIn (ms) above zero disappears that long after it arrives.
+func (d *DB) CreateMessage(ctx context.Context, m Message, files []FileShare, token *Token, expiresIn int64) (message *Message, created bool, err error) {
 	err = d.tx(ctx, func(tx handle) error {
 		created = false
-		var existing string
-		err := tx.QueryRowContext(ctx, `SELECT sender_user FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
+		var existing []byte
+		err := tx.QueryRowContext(ctx, `SELECT item_key FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
 		if err == nil {
 			// A retry of a message that already arrived.
-			if existing != m.SenderUser {
+			if subtle.ConstantTimeCompare(existing, m.ItemKey) != 1 {
 				return ErrConflict
 			}
 			return nil
@@ -124,20 +147,13 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		epoch, err := currentEpoch(ctx, tx, m.GroupID)
-		if err != nil {
+		if err := atEpoch(ctx, tx, m.GroupID, m.Epoch); err != nil {
 			return err
 		}
-		if epoch != m.Epoch {
-			return &EpochConflictError{Current: epoch}
-		}
-		if err := countBytes(ctx, tx, storedBytes, m.SenderUser, int64(len(m.Envelope)), quota); err != nil {
+		if err := spendToken(ctx, tx, token, TokenSizeFor(len(m.Envelope))); err != nil {
 			return err
 		}
 		now := Now()
-		if err := takeSlowModeTurn(ctx, tx, m.GroupID, m.SenderUser, now); err != nil {
-			return err
-		}
 		seq, err := nextSeq(ctx, tx, m.GroupID)
 		if err != nil {
 			return err
@@ -147,22 +163,12 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 			at := now + expiresIn
 			expiresAt = &at
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope, created_at, expires_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.SenderUser, m.SenderDevice, m.Epoch, m.Envelope, now, expiresAt); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, epoch, envelope, item_key, created_at, expires_at)
+			VALUES(?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.Epoch, m.Envelope, m.ItemKey, now, expiresAt); err != nil {
 			return err
 		}
-		for _, fileID := range fileIDs {
-			allowed, err := mayShareFile(ctx, tx, fileID, m.SenderUser)
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				return ErrForbidden
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO file_refs(file_id, group_id, message_id) VALUES(?,?,?) ON CONFLICT DO NOTHING`, fileID, m.GroupID, m.ID); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, now, fileID, m.SenderUser); err != nil {
+		for _, file := range files {
+			if err := shareFile(ctx, tx, file, m.GroupID, m.ID, now); err != nil {
 				return err
 			}
 		}
@@ -174,6 +180,29 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 	}
 	message, err = d.Message(ctx, m.GroupID, m.ID)
 	return message, created, err
+}
+
+// shareFile ties a file to a message that carries it, if the message's sender showed
+// the secret its uploader made it with, and takes its owner away: from then on what's
+// kept says nothing of who uploaded it. A forwarded file is shared with the same secret.
+func shareFile(ctx context.Context, tx handle, file FileShare, groupID, messageID string, now int64) error {
+	var hash []byte
+	err := tx.QueryRowContext(ctx, `SELECT share_hash FROM files WHERE id = ? AND completed_at IS NOT NULL`, file.ID).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(file.Secret)
+	if len(hash) != sha256.Size || subtle.ConstantTimeCompare(hash, sum[:]) != 1 {
+		return ErrForbidden
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO file_refs(file_id, group_id, message_id) VALUES(?,?,?) ON CONFLICT DO NOTHING`, file.ID, groupID, messageID); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE files SET attached_at = COALESCE(attached_at, ?), owner_id = '' WHERE id = ?`, now, file.ID)
+	return err
 }
 
 func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) {
@@ -190,37 +219,33 @@ func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) 
 	return m, nil
 }
 
-// EditMessage replaces a message's ciphertext. Only the sender may edit.
-func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID string, epoch int64, envelope []byte, quota int64) (*Message, error) {
+// EditMessage replaces a message's ciphertext, which spends a token. Who may is for
+// the caller to have checked, by the message's item key.
+func (d *DB) EditMessage(ctx context.Context, groupID, id string, epoch int64, envelope []byte, token *Token) (*Message, error) {
 	err := d.tx(ctx, func(tx handle) error {
-		var sender string
 		var deleted sql.NullInt64
-		err := tx.QueryRowContext(ctx, `SELECT sender_user, deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&sender, &deleted)
+		err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if sender != userID || deleted.Valid {
+		if deleted.Valid {
 			return ErrForbidden
 		}
-		current, err := currentEpoch(ctx, tx, groupID)
-		if err != nil {
+		if err := atEpoch(ctx, tx, groupID, epoch); err != nil {
 			return err
 		}
-		if current != epoch {
-			return &EpochConflictError{Current: current}
-		}
-		if err := countBytes(ctx, tx, storedBytes, userID, int64(len(envelope)), quota); err != nil {
+		if err := spendToken(ctx, tx, token, TokenSizeFor(len(envelope))); err != nil {
 			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE messages SET envelope = ?, epoch = ?, sender_device = ?, edited_at = ?, updated_seq = ?
-			WHERE group_id = ? AND id = ?`, envelope, epoch, deviceID, Now(), seq, groupID, id)
+		_, err = tx.ExecContext(ctx, `UPDATE messages SET envelope = ?, epoch = ?, edited_at = ?, updated_seq = ?
+			WHERE group_id = ? AND id = ?`, envelope, epoch, Now(), seq, groupID, id)
 		return err
 	})
 	if err != nil {
@@ -229,17 +254,17 @@ func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID stri
 	return d.Message(ctx, groupID, id)
 }
 
-// DeleteMessage erases the ciphertext and leaves a tombstone so every client
-// removes it too. It returns the message and the files that are now orphaned.
-// Deletion says who deleted a message and, from apps that sign it, the proof
-// their device made, under the group's epoch at the time.
+// Deletion is the proof a device made to delete a message, under the group's epoch at
+// the time, which apps check before erasing their copies. Who made it is inside.
 type Deletion struct {
-	By    string
 	Epoch int64
 	Proof []byte
 }
 
-func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion) (*Message, []string, error) {
+// DeleteMessage erases the ciphertext and leaves a tombstone so every client
+// removes it too. It returns the message and the files that are now orphaned. An
+// author's deletion is sealed and spends a token; a group admin's is named and doesn't.
+func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion, token *Token) (*Message, []string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx handle) error {
 		fileIDs = nil
@@ -256,12 +281,13 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 		}
 		// A proof is only made under the current epoch, as content is.
 		if deletion.Proof != nil {
-			current, err := currentEpoch(ctx, tx, groupID)
-			if err != nil {
+			if err := atEpoch(ctx, tx, groupID, deletion.Epoch); err != nil {
 				return err
 			}
-			if current != deletion.Epoch {
-				return &EpochConflictError{Current: current}
+		}
+		if token != nil {
+			if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+				return err
 			}
 		}
 		fileIDs, err = collectStrings(ctx, tx, `SELECT file_id FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id)
@@ -278,8 +304,8 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 		if _, err := tx.ExecContext(ctx, `DELETE FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, pin = NULL, pin_by = NULL, updated_seq = ?,
-			deleted_by = NULLIF(?, ''), deletion = ? WHERE group_id = ? AND id = ?`, Now(), seq, deletion.By, deletion.Proof, groupID, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pin = NULL, updated_seq = ?,
+			deletion = ? WHERE group_id = ? AND id = ?`, Now(), seq, deletion.Proof, groupID, id); err != nil {
 			return err
 		}
 		fileIDs, err = unreferenced(ctx, tx, fileIDs)
@@ -311,37 +337,55 @@ func messageExists(ctx context.Context, tx handle, groupID, id string) error {
 	return err
 }
 
-// AddReaction stores a reaction. Like a message, it has to be under the current
-// epoch, and adding the same ID twice is a retry that changes nothing.
-func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, quota int64) (*Message, error) {
+// ItemKey is the item key of a message, or with reactionID of a reaction to it.
+func (d *DB) ItemKey(ctx context.Context, groupID, messageID, reactionID string) ([]byte, error) {
+	var key []byte
+	var err error
+	if reactionID == "" {
+		err = d.sql.QueryRowContext(ctx, `SELECT item_key FROM messages WHERE group_id = ? AND id = ?`, groupID, messageID).Scan(&key)
+	} else {
+		err = d.sql.QueryRowContext(ctx, `SELECT item_key FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, reactionID).Scan(&key)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return key, err
+}
+
+// AddReaction stores a reaction, which spends a token. Like a message, it has to be
+// under the current epoch, and adding the same ID twice with the same item key is a
+// retry that changes nothing. How many one person puts on a message is for apps to hold.
+func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (*Message, error) {
 	err := d.tx(ctx, func(tx handle) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
-		var same, mine, all int
-		err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN id = ? THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN user_id = ? THEN 1 ELSE 0 END), 0), COUNT(*) FROM reactions
-			WHERE group_id = ? AND message_id = ?`, r.ID, r.UserID, groupID, messageID).Scan(&same, &mine, &all)
-		if err != nil {
-			return err
-		}
-		if same > 0 {
+		var existing []byte
+		err := tx.QueryRowContext(ctx, `SELECT item_key FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, r.ID).Scan(&existing)
+		if err == nil {
+			if subtle.ConstantTimeCompare(existing, r.ItemKey) != 1 {
+				return ErrConflict
+			}
 			return nil
 		}
-		if mine >= maxReactionsByPerson || all >= maxReactionsOnMessage {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var all int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM reactions WHERE group_id = ? AND message_id = ?`, groupID, messageID).Scan(&all); err != nil {
+			return err
+		}
+		if all >= maxReactionsOnMessage {
 			return ErrLimit
 		}
-		current, err := currentEpoch(ctx, tx, groupID)
-		if err != nil {
+		if err := atEpoch(ctx, tx, groupID, r.Epoch); err != nil {
 			return err
 		}
-		if current != r.Epoch {
-			return &EpochConflictError{Current: current}
-		}
-		if err := countBytes(ctx, tx, storedBytes, r.UserID, int64(len(r.Data)), quota); err != nil {
+		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO reactions(group_id, message_id, id, user_id, epoch, data, created_at)
-			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.UserID, r.Epoch, r.Data, Now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO reactions(group_id, message_id, id, epoch, data, item_key, created_at)
+			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.Epoch, r.Data, r.ItemKey, Now()); err != nil {
 			return err
 		}
 		return touch(ctx, tx, groupID, messageID)
@@ -352,10 +396,14 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 	return d.Message(ctx, groupID, messageID)
 }
 
-func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID, userID string) (*Message, error) {
+// RemoveReaction takes a reaction back, which spends a token. Who may is for the
+// caller to have checked, by the reaction's item key.
+func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token) (*Message, error) {
 	err := d.tx(ctx, func(tx handle) error {
-		res, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ? AND id = ? AND user_id = ?`,
-			groupID, messageID, reactionID, userID)
+		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, reactionID)
 		if err != nil {
 			return err
 		}
@@ -376,29 +424,24 @@ type Pin struct {
 	Proof []byte
 }
 
-func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, pinned bool, pin Pin) (*Message, error) {
+// SetPinned pins or unpins a message for one of its group's members, which spends a token.
+func (d *DB) SetPinned(ctx context.Context, groupID, messageID string, pinned bool, pin Pin, token *Token) (*Message, error) {
 	err := d.tx(ctx, func(tx handle) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
 		// A proof is only made under the current epoch, as content is.
-		if pin.Proof != nil {
-			current, err := currentEpoch(ctx, tx, groupID)
-			if err != nil {
-				return err
-			}
-			if current != pin.Epoch {
-				return &EpochConflictError{Current: current}
-			}
+		if err := atEpoch(ctx, tx, groupID, pin.Epoch); err != nil {
+			return err
 		}
-		pinBy := sql.NullString{String: userID, Valid: pin.Proof != nil}
+		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+			return err
+		}
 		var err error
 		if pinned {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pinned_by = ?, pin = ?, pin_by = ? WHERE group_id = ? AND id = ?`,
-				Now(), userID, pin.Proof, pinBy, groupID, messageID)
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pin = ? WHERE group_id = ? AND id = ?`, Now(), pin.Proof, groupID, messageID)
 		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pinned_by = NULL, pin = ?, pin_by = ? WHERE group_id = ? AND id = ?`,
-				pin.Proof, pinBy, groupID, messageID)
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pin = ? WHERE group_id = ? AND id = ?`, pin.Proof, groupID, messageID)
 		}
 		if err != nil {
 			return err
@@ -409,6 +452,18 @@ func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, p
 		return nil, err
 	}
 	return d.Message(ctx, groupID, messageID)
+}
+
+// SendKey is a group's current epoch and the send key whoever made it gave, which
+// sealed requests to it have to be signed with.
+func (d *DB) SendKey(ctx context.Context, groupID string) (int64, []byte, error) {
+	var epoch int64
+	var key []byte
+	err := d.sql.QueryRowContext(ctx, `SELECT g.epoch, i.send_key FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id WHERE g.id = ?`, groupID).Scan(&epoch, &key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil, ErrNotFound
+	}
+	return epoch, key, err
 }
 
 // pinsQuery picks a group's pins seen from a sequence number on. The unary + keeps

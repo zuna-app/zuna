@@ -260,27 +260,28 @@ const pins = new Map<string, string>();
  */
 function pinInNode(url: string, pin: string): void {
   const { hostname, port } = new URL(url);
-  if (pins.size === 0) {
-    const usual = buildConnector({});
-    // A resumed session shows no certificate to check, so each connection starts afresh.
-    const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
-    setGlobalDispatcher(
-      new Agent({
-        connect(options, callback) {
-          const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
-          if (!wanted || options.protocol !== "https:") return usual(options, callback);
-          own(options, (error, socket) => {
-            if (error || !socket) return callback(error ?? new Error("No connection."), null);
-            const key = (socket as TLSSocket).getPeerX509Certificate()?.publicKey.export({ type: "spki", format: "der" });
-            if (key && createHash("sha256").update(key).digest("base64url") === wanted) return callback(null, socket);
-            socket.destroy();
-            callback(new Error("The server's certificate doesn't match its pin."), null);
-          });
-        },
-      }),
-    );
-  }
+  if (pins.size === 0) setGlobalDispatcher(pinnedAgent());
   pins.set(`${hostname}:${port || 443}`, pin);
+}
+
+/** Connections that trust a server with a pin by its key, as the apps' hosts do. */
+function pinnedAgent(): Agent {
+  const usual = buildConnector({});
+  // A resumed session shows no certificate to check, so each connection starts afresh.
+  const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
+  return new Agent({
+    connect(options, callback) {
+      const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
+      if (!wanted || options.protocol !== "https:") return usual(options, callback);
+      own(options, (error, socket) => {
+        if (error || !socket) return callback(error ?? new Error("No connection."), null);
+        const key = (socket as TLSSocket).getPeerX509Certificate()?.publicKey.export({ type: "spki", format: "der" });
+        if (key && createHash("sha256").update(key).digest("base64url") === wanted) return callback(null, socket);
+        socket.destroy();
+        callback(new Error("The server's certificate doesn't match its pin."), null);
+      });
+    },
+  });
 }
 
 /** One app install, with its own device key and local databases. */
@@ -302,6 +303,8 @@ export class TestApp {
   pinning = true;
   /** Each server it was asked to trust, and by which pin. */
   readonly pinned: [url: string, pin: string][] = [];
+  /** The connections its requests that name nobody go down, apart from its session's, as the apps' hosts keep them. */
+  readonly sealedAgent = pinnedAgent();
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
@@ -322,6 +325,7 @@ export class TestApp {
       channels: this.channels,
       calls: this.calls,
       bots: this.bots,
+      sealedFetch: (url, init) => fetch(url, { ...init, dispatcher: this.sealedAgent } as RequestInit),
       pinServer: this.pinning
         ? async (url, pin) => {
             this.pinned.push([url, pin]);

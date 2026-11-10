@@ -18,6 +18,9 @@ import {
   SEARCH_REBUILD_BATCH,
   LONGEST_WAIT_MS,
   KEY_UNPROVEN,
+  MAX_REACTIONS_BY_PERSON,
+  SLOW_MODE_MARGIN_MS,
+  slowModeOf,
   type CachedGroup,
   type MessageRow,
   type StoredBody,
@@ -54,16 +57,31 @@ export abstract class SessionIngest extends SessionChanges {
     return parsed && { ...parsed, userId: checked.signer.userId };
   }
 
+  /**
+   * The reactions on a message, by what they are, and this account's own with their item keys.
+   * Beyond the most one person may add, the server can't refuse someone's, as it can't tell
+   * whose they are, so a changed app's extra ones are left out here, in the order they came.
+   */
   protected openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
+    return this.readReactions(groupId, messageId, raw).views;
+  }
+
+  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { views: ReactionView[]; mine: NonNullable<StoredBody["mine"]> } {
     const grouped = new Map<string, ReactionView>();
+    const counts = new Map<string, number>();
+    const mine: NonNullable<StoredBody["mine"]> = [];
     for (const reaction of raw) {
       const opened = this.openReaction(groupId, messageId, reaction);
       if (!opened) continue;
+      const count = (counts.get(opened.userId) ?? 0) + 1;
+      counts.set(opened.userId, count);
+      if (count > MAX_REACTIONS_BY_PERSON) continue;
+      if (opened.userId === this.account.userId && reaction.item_key) mine.push({ id: reaction.id, key: opened.key, item: reaction.item_key });
       const entry = grouped.get(opened.key) ?? { key: opened.key, emote: opened.emote, userIds: [] };
       if (!entry.userIds.includes(opened.userId)) entry.userIds.push(opened.userId);
       grouped.set(opened.key, entry);
     }
-    return [...grouped.values()];
+    return { views: [...grouped.values()], mine };
   }
 
   /**
@@ -86,6 +104,25 @@ export abstract class SessionIngest extends SessionChanges {
     const key = this.epochKey(message.group_id, message.epoch);
     const checked = key && this.checkMessage(message, key);
     return !!checked && checked.state === "signed" && this.couldBeSent(message, checked.signer) && parseMessageBody(checked.value) !== null;
+  }
+
+  /**
+   * Whether a message in a channel with slow mode came sooner after its author's last one there
+   * than the channel allows, less a margin for the network, by the server's times, which every
+   * app sees alike. An honest app never sends one, as it holds its own person, so only a changed
+   * app's extra messages are hidden, and tokens bound how many there can be. One whose author's
+   * last this device doesn't hold shows: nobody is judged on what isn't there. Admins aren't held to it.
+   */
+  protected cameTooSoon(message: ApiMessage, author: string): boolean {
+    const group = this.groups.get(message.group_id);
+    if (group?.kind !== "channel") return false;
+    const slowMode = slowModeOf(this.channels.get(group.id)?.api);
+    if (slowMode === 0 || group.members.some((member) => member.userId === author && member.role === "admin")) return false;
+    const before = this.db.get<{ created_at: number }>(
+      "SELECT created_at FROM messages WHERE group_id = ? AND sender_user = ? AND seq IS NOT NULL AND seq < ? AND status = 'sent' ORDER BY seq DESC LIMIT 1",
+      [group.id, author, message.seq],
+    );
+    return !!before && message.created_at - before.created_at < slowMode * 1000 - SLOW_MODE_MARGIN_MS;
   }
 
   /** Whether the key held for an epoch came from a grant and hasn't opened anything properly signed yet. */
@@ -157,6 +194,10 @@ export abstract class SessionIngest extends SessionChanges {
             this.noteSignal(message, parsed, existing, author.userId);
             return;
           }
+          if (parsed && !existing?.body && this.cameTooSoon(message, author.userId)) {
+            this.withhold(message, existing, null);
+            return;
+          }
           if (parsed && this.changedAfterLeaving(message, author, existing, parsed)) {
             status = "unverified";
             raw = envelope;
@@ -174,7 +215,8 @@ export abstract class SessionIngest extends SessionChanges {
       }
     }
     // What's sealed, kept as it is too, so the event needn't open it again.
-    const storedValue: StoredBody | null = body ? { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) } : null;
+    const reactions = body ? this.readReactions(message.group_id, message.id, message.reactions) : null;
+    const storedValue: StoredBody | null = body && reactions ? { ...body, reactions: reactions.views, mine: reactions.mine.length ? reactions.mine : undefined } : null;
     const stored = storedValue ? this.sealJson("message", `${message.group_id}/${message.id}`, storedValue) : (kept?.body ?? heldAfterLeaving);
     // A message that didn't open keeps its reactions as they came, to be read once it does.
     const rawReactions = body ? null : kept ? kept.raw_reactions : raw ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : null;
@@ -207,12 +249,13 @@ export abstract class SessionIngest extends SessionChanges {
     this.db.transaction(() => {
       if (withheld) this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
       this.db.run(
-        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, raw_reactions, unproven_delete_at, expires_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, raw_reactions, unproven_delete_at, expires_at, item_key)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_user = excluded.sender_user, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
            pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, pin_revision = excluded.pin_revision, status = excluded.status, body = excluded.body, raw = excluded.raw,
-           raw_reactions = excluded.raw_reactions, unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at`,
+           raw_reactions = excluded.raw_reactions, unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at,
+           item_key = COALESCE(excluded.item_key, messages.item_key)`,
         [
           message.group_id,
           message.id,
@@ -233,6 +276,7 @@ export abstract class SessionIngest extends SessionChanges {
           rawReactions,
           kept ? (kept.unproven_delete_at ?? Date.now()) : null,
           expiresAt,
+          message.item_key ? decode(message.item_key) : null,
         ],
       );
       // Read once, for its row ID here and for the event after.

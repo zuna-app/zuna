@@ -212,6 +212,8 @@ export interface ApiReaction {
   id: string;
   epoch: number;
   data: string;
+  /** The public half of the key only its author's devices can make, which taking it back takes. */
+  item_key?: string;
   created_at: number;
 }
 
@@ -226,6 +228,8 @@ export interface ApiMessage {
   updated_seq: number;
   epoch: number;
   envelope?: string;
+  /** The public half of the key only its author's devices can make, which changing or deleting it takes. It names nobody. */
+  item_key?: string;
   created_at: number;
   edited_at: number | null;
   deleted_at: number | null;
@@ -348,8 +352,31 @@ export function encodeBody(value: unknown): unknown {
   return value;
 }
 
+/**
+ * What a sealed request is signed and paid with: the group's send key for the epoch it's
+ * for, a token, and to change or delete something, its item key.
+ */
+export interface Seal {
+  epoch: number;
+  secret: Uint8Array;
+  token?: Uint8Array;
+  item?: Uint8Array;
+}
+
+/** A file a message carries, with the secret it was made with, which shows the server whoever sends it holds it. */
+export interface FileShare {
+  id: string;
+  secret: Uint8Array;
+}
+
 export class Api {
   token: string | null = null;
+  /**
+   * How requests that name nobody go: on a connection of their own, sharing nothing with
+   * the session's, where the host can give one. Without it they go through `fetch` with no
+   * credentials, as a browser decides for itself which connection a request takes.
+   */
+  sealedFetch: ((url: string, init: RequestInit) => Promise<Response>) | null = null;
   /**
    * Signs a request with this device's key. What can't be undone, or acts for the
    * whole server, needs it, so that a session token alone can do none of it.
@@ -403,6 +430,57 @@ export class Api {
       }
       if (response.status !== 401 || attempt > 0 || !prove) break;
       // A proof this device's clock put too far from the server's: the server says its time.
+      const parsed = (await response.clone().json().catch(() => ({}))) as Record<string, unknown>;
+      if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
+      this.clockOffset = parsed.now - Date.now();
+    }
+    if (!response.ok) {
+      const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        response.status,
+        typeof parsed.error === "string" ? parsed.error : "error",
+        typeof parsed.message === "string" ? parsed.message : `The server responded with status ${response.status}.`,
+        parsed,
+      );
+    }
+    return (await response.json()) as T;
+  }
+
+  /**
+   * A request that adds to a conversation without saying who's sending it: no session, no
+   * device and nothing a known key checks. It's signed with the group's send key for its
+   * current epoch, which any member could have made, and pays with a token, which can't be
+   * tied to whoever was issued it. Signed over the method, path, time, epoch, token and body.
+   */
+  private async sealedRequest<T>(method: string, path: string, body: unknown, seal: Seal): Promise<T> {
+    const text = body === undefined ? "" : JSON.stringify(encodeBody(body));
+    const bytes = utf8(text);
+    const token = seal.token ?? new Uint8Array(0);
+    const send = this.sealedFetch ?? ((url: string, init: RequestInit) => fetch(url, { ...init, credentials: "omit", cache: "no-store" }));
+    let response: Response;
+    for (let attempt = 0; ; attempt++) {
+      const at = Date.now() + this.clockOffset;
+      const input = concat(utf8(`zuna/sealed/v1|${method}|${path}|${at}|${seal.epoch}|`), wasm.sha256(token), wasm.sha256(bytes));
+      const headers: Record<string, string> = {
+        "X-Zuna-Time": String(at),
+        "X-Zuna-Epoch": String(seal.epoch),
+        "X-Zuna-Seal": toBase64(wasm.sign(seal.secret, input)),
+      };
+      if (body !== undefined) headers["Content-Type"] = "application/json";
+      if (seal.token) headers["X-Zuna-Token"] = toBase64(seal.token);
+      if (seal.item) headers["X-Zuna-Item"] = toBase64(wasm.sign(seal.item, input));
+      try {
+        response = await send(this.baseUrl + path, {
+          method,
+          headers,
+          body: body === undefined ? undefined : text,
+          signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS + Math.ceil(bytes.length * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS)),
+        });
+      } catch {
+        throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
+      }
+      if (response.status !== 401 || attempt > 0) break;
+      // A time this device's clock put too far from the server's: the server says its time.
       const parsed = (await response.clone().json().catch(() => ({}))) as Record<string, unknown>;
       if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
       this.clockOffset = parsed.now - Date.now();
@@ -567,25 +645,34 @@ export class Api {
     return (await this.request<{ messages: ApiMessage[] }>("GET", `${at`/api/groups/${groupId}/messages`}?${query}`)).messages;
   };
   message = (groupId: string, id: string) => this.request<ApiMessage>("GET", at`/api/groups/${groupId}/messages/${id}`);
-  /** `silent` is for a message apps show nowhere, which no phone is woken for. */
-  sendMessage = (groupId: string, body: { id: string; epoch: number; envelope: Uint8Array; file_ids?: string[]; expires_in?: number; silent?: boolean }) =>
-    this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
-  editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
-    this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
-  deleteMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
+  /** A group admin deleting someone else's message, which is named: it's the server's to check their role. */
+  moderateMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
     this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`, { epoch, deletion });
-  addReaction = (groupId: string, messageId: string, id: string, epoch: number, data: Uint8Array) =>
-    this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages/${messageId}/reactions`, { id, epoch, data });
-  removeReaction = (groupId: string, messageId: string, id: string) =>
-    this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${messageId}/reactions/${id}`);
-  pin = (groupId: string, messageId: string, pinned: boolean, epoch: number, pin: Uint8Array) =>
-    this.request<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/groups/${groupId}/messages/${messageId}/pin`, { epoch, pin });
+
+  // What a member adds to a conversation, sealed: none of these says who's sending
+  /** `silent` is for a message apps show nowhere, which no phone is woken for. */
+  sealedSend = (groupId: string, seal: Seal, body: { id: string; envelope: Uint8Array; item_key: Uint8Array; files?: FileShare[]; expires_in?: number; silent?: boolean }) =>
+    this.sealedRequest<ApiMessage>("POST", at`/api/sealed/groups/${groupId}/messages`, body, seal);
+  sealedEdit = (groupId: string, id: string, seal: Seal, envelope: Uint8Array) =>
+    this.sealedRequest<ApiMessage>("PUT", at`/api/sealed/groups/${groupId}/messages/${id}`, { envelope }, seal);
+  /** An author deleting their own message, with its item key. */
+  sealedDelete = (groupId: string, id: string, seal: Seal, deletion: Uint8Array) =>
+    this.sealedRequest<ApiMessage>("DELETE", at`/api/sealed/groups/${groupId}/messages/${id}`, { deletion }, seal);
+  sealedReact = (groupId: string, messageId: string, seal: Seal, body: { id: string; data: Uint8Array; item_key: Uint8Array }) =>
+    this.sealedRequest<ApiMessage>("POST", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions`, body, seal);
+  sealedUnreact = (groupId: string, messageId: string, id: string, seal: Seal) =>
+    this.sealedRequest<ApiMessage>("DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions/${id}`, undefined, seal);
+  sealedPin = (groupId: string, messageId: string, pinned: boolean, seal: Seal, pin: Uint8Array) =>
+    this.sealedRequest<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/pin`, { pin }, seal);
+  /** Passed on to the group without being kept, or paid for. */
+  sealedTyping = (groupId: string, seal: Seal, data: Uint8Array) => this.sealedRequest("POST", at`/api/sealed/groups/${groupId}/typing`, { data }, seal);
   pins = async (groupId: string) =>
     (await this.request<{ messages: ApiMessage[] }>("GET", at`/api/groups/${groupId}/pins`)).messages;
 
   // Files
-  createFile = (chunkCount: number, totalSize: number) =>
-    this.request<{ id: string }>("POST", "/api/files", { chunk_count: chunkCount, total_size: totalSize });
+  /** `shareHash` is the SHA-256 of the secret a file a message will carry is made with. A picture that stands on its own has none. */
+  createFile = (chunkCount: number, totalSize: number, shareHash?: Uint8Array) =>
+    this.request<{ id: string }>("POST", "/api/files", { chunk_count: chunkCount, total_size: totalSize, share_hash: shareHash });
   uploadChunk = (id: string, n: number, data: Uint8Array) => this.request("PUT", at`/api/files/${id}/chunks/${n}`, undefined, data);
   completeFile = (id: string, attach = false) => this.request("POST", `${at`/api/files/${id}/complete`}${attach ? "?attach=1" : ""}`, {});
 

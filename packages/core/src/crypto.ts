@@ -50,7 +50,7 @@ const NO_SALT = new Uint8Array(0);
 export const randomId = (): string => toHex(wasm.randomBytes(16));
 
 /** What a long-term key protects. Each gets a key of its own, so no two kinds of data are ever under one key. */
-export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "channel" | "sound";
+export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "channel" | "sound" | "author";
 
 export const subkey = (key: Uint8Array, purpose: KeyPurpose): Uint8Array => wasm.hkdfSha256(key, NO_SALT, label(`zuna/subkey/v1|${purpose}`), 32);
 

@@ -110,34 +110,6 @@ func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userL
 	return nil
 }
 
-// takeSlowModeTurn refuses a message in a channel whose slow mode still holds its sender
-// back, and otherwise notes when they sent it. The channel's admins aren't held back,
-// and a group that isn't a channel has nothing to check.
-func takeSlowModeTurn(ctx context.Context, tx handle, groupID, userID string, now int64) error {
-	var slowMode int64
-	var role string
-	err := tx.QueryRowContext(ctx, `SELECT c.slow_mode, COALESCE(m.role, '') FROM channels c
-		LEFT JOIN group_members m ON m.group_id = c.id AND m.user_id = ? WHERE c.id = ?`, userID, groupID).Scan(&slowMode, &role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if slowMode > 0 && role != "admin" {
-		var last int64
-		switch err := tx.QueryRowContext(ctx, `SELECT sent_at FROM channel_sends WHERE channel_id = ? AND user_id = ?`, groupID, userID).Scan(&last); {
-		case errors.Is(err, sql.ErrNoRows):
-		case err != nil:
-			return err
-		case last+slowMode*1000 > now:
-			return &SlowModeError{Wait: last + slowMode*1000 - now}
-		}
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO channel_sends(channel_id, user_id, sent_at) VALUES(?,?,?)
-		ON CONFLICT(channel_id, user_id) DO UPDATE SET sent_at = excluded.sent_at`, groupID, userID, now)
-	return err
-}
 
 // OrderChannels puts the listed channels in that order. Those left out, such as
 // one made a moment ago, stay after them.

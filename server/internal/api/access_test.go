@@ -8,28 +8,23 @@ import (
 	"zuna/server/internal/store"
 )
 
-// Z-60: what came before someone joined isn't there for them, whichever route they ask through.
+// Z-60: what came before someone joined isn't there for them, whichever route they ask
+// through. What's sealed names nobody, so it can't tell them apart: it takes knowing a
+// message's ID, which nothing from before gives them.
 func TestAMessageFromBeforeJoiningIsNotThereWhicheverWayYouAsk(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
 	group := newGroup(h, owner)
-	old := owner.send(group, 0, store.NewID())
-	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+	owner.start(group)
+	old := owner.send(group, 1, store.NewID())
+	if status, resp := owner.commit(group, 1, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
 		t.Fatalf("adding them: %d %v", status, resp)
 	}
 	base := "/api/groups/" + group + "/messages/" + old.ID
 	for name, call := range map[string]func() (int, map[string]any){
-		"reading": func() (int, map[string]any) { return h.do("GET", base, bob.token, nil, nil) },
-		"reacting": func() (int, map[string]any) {
-			return h.do("POST", base+"/reactions", bob.token, map[string]any{"id": store.NewID(), "epoch": 1, "data": []byte("x")}, nil)
-		},
-		"removing a reaction": func() (int, map[string]any) {
-			return h.do("DELETE", base+"/reactions/"+store.NewID(), bob.token, nil, nil)
-		},
-		"pinning":   func() (int, map[string]any) { return h.do("PUT", base+"/pin", bob.token, nil, nil) },
-		"unpinning": func() (int, map[string]any) { return h.do("DELETE", base+"/pin", bob.token, nil, nil) },
-		"deleting":  func() (int, map[string]any) { return h.do("DELETE", base, bob.token, nil, nil) },
+		"reading":  func() (int, map[string]any) { return h.do("GET", base, bob.token, nil, nil) },
+		"deleting": func() (int, map[string]any) { return h.do("DELETE", base, bob.token, nil, nil) },
 	} {
 		if status, resp := call(); status != http.StatusNotFound || resp["envelope"] != nil {
 			t.Errorf("%s gave %d %v", name, status, resp)
@@ -43,24 +38,32 @@ func TestADeletionCarriesWhatItsDeviceSigned(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
 	group := newGroup(h, owner)
-	base := "/api/groups/" + group + "/messages/"
-	first := owner.send(group, 0, store.NewID())
-	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil); status != http.StatusConflict {
+	owner.start(group)
+	base := "/api/sealed/groups/" + group + "/messages/"
+	first := owner.send(group, 1, store.NewID())
+	if status, _ := h.sealedDo("DELETE", base+first.ID, owner.sealedAs(group, 0, itemSecretFor(first.ID)), map[string]any{"deletion": []byte("signed")}, nil); status != http.StatusConflict {
 		t.Fatalf("a proof for another epoch gave %d", status)
 	}
-	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"deletion": []byte("signed")}, nil); status != http.StatusBadRequest {
-		t.Fatalf("a proof without its epoch gave %d", status)
-	}
 	var deleted store.Message
-	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"epoch": 0, "deletion": []byte("signed")}, &deleted); status != http.StatusOK {
+	if status, _ := h.sealedDo("DELETE", base+first.ID, owner.sealedAs(group, 1, itemSecretFor(first.ID)), map[string]any{"deletion": []byte("signed")}, &deleted); status != http.StatusOK {
 		t.Fatalf("deleting gave %d", status)
 	}
-	if string(deleted.Deletion) != "signed" || deleted.DeletedBy != owner.userID || deleted.DeletedAt == nil {
+	if string(deleted.Deletion) != "signed" || deleted.DeletedAt == nil {
 		t.Fatalf("the deletion came back as %+v", deleted)
 	}
-	second := owner.send(group, 0, store.NewID())
-	if status, _ := h.do("DELETE", base+second.ID, owner.token, nil, nil); status != http.StatusBadRequest {
+	second := owner.send(group, 1, store.NewID())
+	if status, _ := h.sealedDo("DELETE", base+second.ID, owner.sealedAs(group, 1, itemSecretFor(second.ID)), nil, nil); status != http.StatusBadRequest {
 		t.Fatalf("deleting without a proof gave %d", status)
+	}
+	// A group's admin deletes someone else's by name, which also carries what their device signed.
+	bob := h.register("bob", owner.newInvite())
+	owner.commit(group, 1, map[string]any{"add_users": []string{bob.userID}})
+	third := bob.send(group, 2, store.NewID())
+	if status, _ := h.do("DELETE", "/api/groups/"+group+"/messages/"+third.ID, bob.token, map[string]any{"epoch": 2, "deletion": []byte("signed")}, nil); status != http.StatusForbidden {
+		t.Fatalf("a member deleting by name gave %d", status)
+	}
+	if status, _ := h.do("DELETE", "/api/groups/"+group+"/messages/"+third.ID, owner.token, map[string]any{"epoch": 2, "deletion": []byte("moderated")}, &deleted); status != http.StatusOK || string(deleted.Deletion) != "moderated" {
+		t.Fatalf("an admin deleting gave %d: %+v", status, deleted)
 	}
 }
 
@@ -79,12 +82,16 @@ func TestJoiningWithoutHistoryGivesNoEventsOrFilesFromBefore(t *testing.T) {
 		t.Fatalf("removing carol: %d %v", status, resp)
 	}
 	before := owner.upload([]byte("from before"))
-	h.mustDo("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 2, "envelope": []byte("x"), "file_ids": []string{before}}, nil)
+	if status, resp, _ := owner.sendWith(group, 2, store.NewID(), map[string]any{"files": []map[string]any{shareOf(before)}}); status != http.StatusCreated {
+		t.Fatalf("sending a file: %d %v", status, resp)
+	}
 	if status, resp := owner.commit(group, 2, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
 		t.Fatalf("adding bob: %d %v", status, resp)
 	}
 	after := owner.upload([]byte("from after"))
-	h.mustDo("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 3, "envelope": []byte("x"), "file_ids": []string{after}}, nil)
+	if status, resp, _ := owner.sendWith(group, 3, store.NewID(), map[string]any{"files": []map[string]any{shareOf(after)}}); status != http.StatusCreated {
+		t.Fatalf("sending a file: %d %v", status, resp)
+	}
 
 	var changes store.Changes
 	h.mustDo("GET", "/api/groups/"+group+"/changes?after=0", bob.token, nil, &changes)
@@ -98,10 +105,10 @@ func TestJoiningWithoutHistoryGivesNoEventsOrFilesFromBefore(t *testing.T) {
 	if status := bob.readFile(after); status != http.StatusOK {
 		t.Fatalf("a file from after: %d", status)
 	}
-	// Nor can it be forwarded somewhere to be read there.
+	// Nor can it be forwarded somewhere to be read there, without the secret it was made with.
 	dm := bob.dm(owner.userID)
 	bob.commit(dm.ID, 0, nil)
-	if status, _ := h.do("POST", "/api/groups/"+dm.ID+"/messages", bob.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{before}}, nil); status == http.StatusOK {
+	if status, _, _ := bob.sendWith(dm.ID, 1, store.NewID(), map[string]any{"files": []map[string]any{{"id": before, "secret": bytesOf(32, 9)}}}); status == http.StatusCreated {
 		t.Fatal("a file from before was forwarded")
 	}
 	var full store.Changes

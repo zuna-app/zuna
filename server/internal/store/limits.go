@@ -14,7 +14,6 @@ const (
 	commitBaseBytes      = 256 << 10
 	commitBytesPerDevice = 8 << 10
 
-	maxReactionsByPerson  = 32
 	maxReactionsOnMessage = 1024
 	maxGroupsCreated      = 10_000
 	maxActiveDevices      = 128
@@ -47,8 +46,8 @@ func countBytes(ctx context.Context, tx handle, column, userID string, n, limit 
 }
 
 // RecountStorage works out again what everyone has stored, since the running totals
-// only ever go up: nothing about deleting a message says whose total it was on, and
-// expiring messages deletes a lot of them at once.
+// only ever go up. What one person keeps is their vault: a message or a reaction
+// names nobody, so it's held by tokens instead, and a file by what they upload.
 //
 // It counts, and reads the totals, in one read-only snapshot, which keeps no writer
 // waiting, then moves each total that's off by the difference. Whatever was added
@@ -82,14 +81,8 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 		}
 		return rows.Err()
 	}
-	for _, query := range []string{
-		`SELECT sender_user, COALESCE(SUM(LENGTH(envelope)), 0) FROM messages GROUP BY sender_user`,
-		`SELECT user_id, COALESCE(SUM(LENGTH(data)), 0) FROM reactions GROUP BY user_id`,
-		`SELECT user_id, COALESCE(SUM(LENGTH(data)), 0) FROM vault_items GROUP BY user_id`,
-	} {
-		if err := add(stored, query); err != nil {
-			return err
-		}
+	if err := add(stored, `SELECT user_id, COALESCE(SUM(LENGTH(data)), 0) FROM vault_items GROUP BY user_id`); err != nil {
+		return err
 	}
 	if err := add(commits, `SELECT sender_user, COALESCE(SUM(LENGTH(data) + COALESCE(LENGTH(replaced_info), 0)), 0)
 		FROM group_events WHERE kind = 'commit' GROUP BY sender_user`); err != nil {

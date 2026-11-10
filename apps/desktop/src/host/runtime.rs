@@ -52,6 +52,9 @@ struct Host {
     tasks: Sender<Task>,
     tokio: Handle,
     http: reqwest::Client,
+    /// What adds to a conversation without saying who's sending, on connections of its own,
+    /// with a TLS session cache of its own, sharing nothing with `http`'s.
+    sealed_http: reqwest::Client,
     /// For link previews alone, under their address rules (web.rs).
     web: reqwest::Client,
     timers: HashMap<u32, (AbortHandle, bool)>,
@@ -86,11 +89,15 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
     })));
     let context = Context::full(&runtime).expect("a QuickJS context");
 
-    let http = reqwest::Client::builder()
-        .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .expect("an HTTP client");
+    let client = || {
+        reqwest::Client::builder()
+            .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
+            .connect_timeout(Duration::from_secs(15))
+            .build()
+            .expect("an HTTP client")
+    };
+    let http = client();
+    let sealed_http = client();
 
     let files = super::cache_in(&options.data_dir).join("files");
     std::fs::create_dir_all(&files).ok();
@@ -98,6 +105,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         tasks: tasks.clone(),
         tokio: options.tokio.clone(),
         http,
+        sealed_http,
         web: super::web::client(tls::client_config(&[b"h2", b"http/1.1"])),
         timers: HashMap::new(),
         requests: HashMap::new(),
@@ -360,9 +368,10 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
             None => None,
         };
         let timeout = number_arg(&a, 5);
+        let sealed = a.get(6).is_some_and(|value| value.as_bool() == Some(true));
         let mut host = h.borrow_mut();
         let tasks = host.tasks.clone();
-        let client = host.http.clone();
+        let client = if sealed { host.sealed_http.clone() } else { host.http.clone() };
         let handle = host.tokio.spawn(async move {
             let done = |status: u16, headers: String, body: Option<Vec<u8>>, error: Option<String>| {
                 tasks.send(Task::HttpDone { id, status, headers, body, error }).ok();
