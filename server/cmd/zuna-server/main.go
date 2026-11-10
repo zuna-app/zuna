@@ -184,6 +184,9 @@ func run(cfg config) error {
 	}
 	// For tests only: how long someone shows as online after they stop using Zuna, instead of 5 s.
 	linger, _ := time.ParseDuration(os.Getenv("ZUNA_TEST_PRESENCE_LINGER"))
+	// For tests only: how many times over someone is issued a period's tokens, for a test
+	// that signs one person in on a new device again and again, each of which fetches its own.
+	tokenScale, _ := strconv.Atoi(os.Getenv("ZUNA_TEST_TOKEN_SCALE"))
 	srv := api.New(api.Config{
 		DataDir:          cfg.dataDir,
 		PublicURL:        cfg.publicURL,
@@ -201,6 +204,7 @@ func run(cfg config) error {
 		LiveKitKey:         cfg.liveKitKey,
 		LiveKitSecret:      cfg.liveKitSecret,
 		PresenceLinger:     linger,
+		TokenScale:         tokenScale,
 	}, db)
 	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
 	if base := os.Getenv("ZUNA_7TV_API"); base != "" {

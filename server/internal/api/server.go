@@ -105,6 +105,8 @@ type Config struct {
 	PushHold time.Duration
 	// PresenceLinger replaces how long someone shows as online after they stop using Zuna.
 	PresenceLinger time.Duration
+	// TokenScale multiplies how many tokens a person or a bot may be issued in a period. Zero is once.
+	TokenScale int
 }
 
 type Server struct {
@@ -173,6 +175,9 @@ type Server struct {
 func New(cfg Config, db *store.DB) *Server {
 	if cfg.AuthBurst <= 0 {
 		cfg.AuthBurst = defaultAuthBurst
+	}
+	if cfg.TokenScale <= 0 {
+		cfg.TokenScale = 1
 	}
 	if cfg.UserQuotaMB == 0 {
 		cfg.UserQuotaMB = defaultUserQuotaMB

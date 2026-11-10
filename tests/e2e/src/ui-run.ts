@@ -114,7 +114,9 @@ const liveKitLog = createWriteStream(join(runDir, "livekit-server.log"));
 liveKit.stdout.pipe(liveKitLog);
 liveKit.stderr.pipe(liveKitLog);
 
-const server = new TestServer({ pushRelays: [relayUrl], liveKit: `ws://127.0.0.1:${liveKitPort}` });
+// Every test signs bob in on an app with nothing kept, which fetches tokens of its own, and
+// ten of those are all a person is issued in six hours.
+const server = new TestServer({ pushRelays: [relayUrl], liveKit: `ws://127.0.0.1:${liveKitPort}`, tokenScale: 100 });
 await server.start();
 // Servers nobody has set up yet: for the owner's flow, the iPad's list of servers, and choosing a server to share to.
 const spare = new TestServer();

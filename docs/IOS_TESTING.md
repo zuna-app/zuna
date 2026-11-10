@@ -193,7 +193,7 @@ The app's control channel listens on the phone's loopback only, so it's reached 
 
 ## Hermetic environment
 
-- **Server:** a new binary and temporary data directory per run, `--auth-burst 1000`, listening on `127.0.0.1`. The core accepts plain HTTP for loopback, and the Debug app allows local networking in ATS.
+- **Server:** a new binary and temporary data directory per run, `--auth-burst 1000`, listening on `127.0.0.1`. The core accepts plain HTTP for loopback, and the Debug app allows local networking in ATS. The UI run's server has `ZUNA_TEST_TOKEN_SCALE=100` too, which issues someone a period's tokens that many times over: each test signs bob in on an app with nothing kept, which fetches a batch of its own, and ten batches are all a person gets in six hours.
 - **Fake 7TV:** a small HTTP server in the orchestrator serving a fixture set with static, animated and zero-width WebP emotes. This needs the **only server change: two optional environment variables, `ZUNA_7TV_API` and `ZUNA_7TV_CDN`**, overriding `APIBase` and `CDNBase` in `server/internal/emotes`. Without them, emote tests would depend on the real 7TV.
 - **Simulators:** dedicated devices created by script, `Zuna E2E iPhone` (iPhone 17, iOS 27.0) and `Zuna E2E iPad`. Tests use only these. Before each UI run:
   - uninstall the app;

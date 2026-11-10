@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudflare/circl/oprf"
 
+	"zuna/server/internal/api"
 	"zuna/server/internal/store"
 )
 
@@ -121,5 +122,23 @@ func TestTokensAreIssuedUpToAPersonsLimitAcrossTheirDevices(t *testing.T) {
 	}
 	if status, _ := h.do("POST", "/api/tokens", "", map[string]any{"period": period, "size": "small", "blinded": blinded(t, 1)}, nil); status != http.StatusUnauthorized {
 		t.Fatalf("asking without a session gave %d", status)
+	}
+}
+
+func TestATestsScaleIssuesAPeriodsTokensThatManyTimesOver(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.TokenScale = 2 })
+	owner := h.owner()
+	period := store.CurrentTokenPeriod()
+	ask := func(n int) int {
+		status, _ := h.do("POST", "/api/tokens", owner.token, map[string]any{"period": period, "size": "large", "blinded": blinded(t, n)}, nil)
+		return status
+	}
+	for i := 0; i < 20; i++ {
+		if status := ask(10); status != http.StatusOK {
+			t.Fatalf("batch %d gave %d", i, status)
+		}
+	}
+	if status := ask(1); status != http.StatusTooManyRequests {
+		t.Fatalf("past twice the limit gave %d", status)
 	}
 }

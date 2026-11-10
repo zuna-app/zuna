@@ -165,8 +165,11 @@ export class TestServer {
    * `sqlite` keeps its database in SQLite even with ZUNA_TEST_POSTGRES, for tests that open it as a stolen backup or a malicious server would.
    * `ownCertificate` has it reached by its IP address, with a certificate it makes itself, which its links pin.
    * `presenceLinger` is how long, in ms, someone shows as online after they stop using an app, instead of 5 s.
+   * `tokenScale` is how many times over someone is issued a period's tokens, for a run that signs one person in on a new device again and again.
    */
-  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number } = {}) {}
+  constructor(
+    private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number; tokenScale?: number } = {},
+  ) {}
 
   async start(): Promise<void> {
     const binary = serverBinary();
@@ -210,6 +213,7 @@ export class TestServer {
     }
     const env = { ...process.env };
     if (this.options.presenceLinger) env.ZUNA_TEST_PRESENCE_LINGER = `${this.options.presenceLinger}ms`;
+    if (this.options.tokenScale) env.ZUNA_TEST_TOKEN_SCALE = String(this.options.tokenScale);
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env,
