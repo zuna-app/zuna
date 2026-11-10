@@ -145,9 +145,19 @@ async function packages(dist) {
   const hash = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
   if (!existsSync(runtime) || hash(runtime) !== runtimeHash) {
     mkdirSync(join(root, "apps", "desktop", ".deps"), { recursive: true });
-    const response = await fetch("https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64");
-    if (!response.ok) throw new Error(`The AppImage runtime: HTTP ${response.status}`);
-    writeFileSync(runtime, Buffer.from(await response.arrayBuffer()));
+    // Tried a few times: a release's run lost its connection here once, with everything else built.
+    let bytes;
+    for (let attempt = 1; !bytes; attempt++) {
+      try {
+        const response = await fetch("https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        bytes = Buffer.from(await response.arrayBuffer());
+      } catch (error) {
+        if (attempt === 4) throw new Error(`The AppImage runtime couldn't be fetched: ${error.cause?.message ?? error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+      }
+    }
+    writeFileSync(runtime, bytes);
     if (hash(runtime) !== runtimeHash) throw new Error("The AppImage runtime isn't the one pinned.");
   }
   const appDir = join(dist, "Zuna.AppDir");
