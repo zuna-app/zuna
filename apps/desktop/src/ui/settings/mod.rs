@@ -206,7 +206,7 @@ impl SettingsView {
                 .text_center()
                 .child(logo(56.))
                 .child(div().mt(px(6.)).text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Zuna"))
-                .child(div().text_color(theme.text2).child(format!("Version {} for {}", crate::platform::VERSION, crate::platform::SYSTEM_NAME)))
+                .child(div().text_color(theme.text2).child(format!("Version {} for {}", crate::platform::version_name(crate::platform::VERSION, crate::platform::CHANNEL, crate::platform::BUILD), crate::platform::SYSTEM_NAME)))
                 .child(div().text_size(px(13.)).text_color(theme.text3).child("End-to-end encrypted chat on servers you run."))
                 .into_any_element(),
         ];

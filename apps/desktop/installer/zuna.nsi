@@ -10,7 +10,9 @@
 ;
 ;   SOURCE       the folder with Zuna.exe and lib\, the screen share's encoder and FFmpeg's libraries
 ;   OUTFILE      the installer to write, or the program that writes the uninstaller
-;   VERSION      the version it installs
+;   VERSION      the version it installs, as 1.2.3
+;   BUILD        its build number, the fourth part of the installer's own version
+;   LABEL        what the release is called, as 1.2.3 or 1.2.3-nightly.1108
 ;   ICON         the app's icon
 ;   UNINSTALLER  where the uninstaller is written, and taken from
 ;   PLUGINS      electron-builder's NSIS plugins, for WinShell
@@ -25,15 +27,15 @@ OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Zuna Native"
 Icon "${ICON}"
 UninstallIcon "${ICON}"
-BrandingText "Zuna ${VERSION}"
+BrandingText "Zuna ${LABEL}"
 ShowInstDetails nevershow
 ShowUninstDetails nevershow
 AutoCloseWindow true
-VIProductVersion "${VERSION}.0"
+VIProductVersion "${VERSION}.${BUILD}"
 VIAddVersionKey "ProductName" "Zuna"
 VIAddVersionKey "FileDescription" "Zuna"
-VIAddVersionKey "FileVersion" "${VERSION}"
-VIAddVersionKey "ProductVersion" "${VERSION}"
+VIAddVersionKey "FileVersion" "${LABEL}"
+VIAddVersionKey "ProductVersion" "${LABEL}"
 VIAddVersionKey "LegalCopyright" "Zuna contributors. Licensed under AGPL-3.0."
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ZunaNative"
@@ -97,7 +99,7 @@ Section "Zuna"
   WinShell::SetLnkAUMI "$DESKTOP\Zuna.lnk" "chat.zuna.desktop"
 
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Zuna"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${LABEL}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "Zuna contributors"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\Zuna.exe"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"

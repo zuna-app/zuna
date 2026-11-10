@@ -96,9 +96,19 @@ fn embed_icon(root: &str) {
     std::fs::write(&icon, ico).unwrap();
     let rc = out.join("zuna.rc");
     println!("cargo:rerun-if-env-changed=ZUNA_VERSION");
+    println!("cargo:rerun-if-env-changed=ZUNA_BUILD");
+    println!("cargo:rerun-if-env-changed=ZUNA_CHANNEL");
     let version = std::env::var("ZUNA_VERSION").unwrap_or_else(|_| std::env::var("CARGO_PKG_VERSION").unwrap());
-    let mut numbers: Vec<u16> = version.split(['.', '-', '+']).map(|part| part.parse().unwrap_or(0)).take(4).collect();
-    numbers.resize(4, 0);
+    // The version's three numbers, then the build number, which is what tells two nightlies apart.
+    let mut numbers: Vec<u16> = version.split(['.', '-', '+']).map(|part| part.parse().unwrap_or(0)).take(3).collect();
+    numbers.resize(3, 0);
+    let build = std::env::var("ZUNA_BUILD").ok().and_then(|build| build.parse::<u16>().ok()).unwrap_or(0);
+    numbers.push(build);
+    // As a person reads it: 1.2.3, or 1.2.3-nightly.1108.
+    let version = match std::env::var("ZUNA_CHANNEL").as_deref() {
+        Ok("nightly") if build > 0 => format!("{version}-nightly.{build}"),
+        _ => version,
+    };
     let numbers = numbers.iter().map(u16::to_string).collect::<Vec<_>>().join(",");
     let strings: String = [
         ("CompanyName", "Zuna contributors"),

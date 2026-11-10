@@ -20,11 +20,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
-import { appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
+import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
+import { labelOf, windowsInstaller } from "./release.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("win32", ["run", "build", "dist", "install", "test"]);
 const packaging = command === "dist" || command === "install";
 const release = command === "build" || packaging || flags.includes("--release");
+// What a build anyone installs says it is: its version, build number and channel, which an update
+// is compared by. A development build or a test has only the version.
+const stamp = command === "build" || packaging ? appStamp() : { ZUNA_VERSION: version };
+const released = { version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD };
 
 const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
@@ -40,7 +45,7 @@ await ensureWebrtcSys(nativeAppDeps);
 // A test's arguments are cargo's own, and the app's follow a `--`.
 const cargo = [`+${msvcToolchain()}`, command === "run" || command === "test" ? command : "build", ...(release ? ["--release"] : []), ...(command === "test" ? appArgs : appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
 
 if (command === "build" || packaging) {
   const dist = join(root, "dist", "windows");
@@ -73,9 +78,9 @@ if (packaging) {
   const makensis = await getMakeNsisPath(undefined, undefined);
   // Its plugins too, for WinShell, which gives the shortcuts the app's AppUserModelID.
   const plugins = await getNsisPluginsPath(undefined, undefined);
-  const out = join(dist, `Zuna-Native-Setup-${version}.exe`);
+  const out = join(dist, windowsInstaller(released));
   const nsis = (defines) => {
-    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
+    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DBUILD=${stamp.ZUNA_BUILD}`, `-DLABEL=${labelOf(released)}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...defines, join(crate, "installer", "zuna.nsi")], {
       env: { ...process.env, ...(makensis.env ?? {}) },
     });
   };
@@ -132,7 +137,7 @@ function install(installer) {
   }
   // As its shortcut starts it.
   if (running) spawnSync("explorer.exe", [exe], { stdio: "ignore" });
-  console.log(`> installed ${exe}, version ${version}${running ? ", and started it again" : ""}`);
+  console.log(`> installed ${exe}, version ${labelOf(released)}${running ? ", and started it again" : ""}`);
 }
 
 /** Whether the installed copy is running. Others named Zuna.exe, such as a development build, don't count. */

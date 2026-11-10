@@ -10,6 +10,19 @@ export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** The version every app is released with: the root package.json's. */
 export const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
+/**
+ * What a release build of the native app is stamped with, as its environment: the version, its
+ * build number, which is how many commits it has behind it and what an update is compared by,
+ * and the channel its updates come from. A release's workflow sets the last two, and a build
+ * made here is a nightly of this checkout. Development builds aren't stamped, so that a commit
+ * doesn't rebuild them.
+ */
+export function appStamp() {
+  const count = spawnSync("git", ["rev-list", "--count", "HEAD"], { cwd: root, encoding: "utf8" });
+  const build = process.env.ZUNA_BUILD ?? (count.status === 0 ? count.stdout.trim() : "0");
+  return { ZUNA_VERSION: appVersion, ZUNA_BUILD: build, ZUNA_CHANNEL: process.env.ZUNA_CHANNEL ?? "nightly" };
+}
+
 // Tools installed per-user may not be on PATH yet in an already open terminal.
 const extraPaths = [
   join(homedir(), ".cargo", "bin"),

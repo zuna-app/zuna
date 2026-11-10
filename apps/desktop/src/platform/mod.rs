@@ -126,6 +126,49 @@ pub const VERSION: &str = match option_env!("ZUNA_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+/// This build's number: how many commits `main` had at the commit it was built from, which
+/// is what an update is compared by (docs/RELEASES.md). 0 in a development build, which is
+/// given none.
+pub const BUILD: u32 = match option_env!("ZUNA_BUILD") {
+    Some(build) => number(build),
+    None => 0,
+};
+
+/// The channel this build was made for, `stable` or `nightly`, which its updates come from
+/// until the person picks another.
+pub const CHANNEL: &str = match option_env!("ZUNA_CHANNEL") {
+    Some(channel) => channel,
+    None => "nightly",
+};
+
+/// A number read as the build is compiled, or 0 where it isn't one.
+const fn number(text: &str) -> u32 {
+    let bytes = text.as_bytes();
+    if bytes.is_empty() {
+        return 0;
+    }
+    let mut value = 0u32;
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() || value > 99_999_999 {
+            return 0;
+        }
+        value = value * 10 + (bytes[index] - b'0') as u32;
+        index += 1;
+    }
+    value
+}
+
+/// What a build calls itself: `0.11.0`, `0.11.1 nightly 1112`, or `0.11.1 development` for one
+/// that was never stamped.
+pub fn version_name(version: &str, channel: &str, build: u32) -> String {
+    match (build, channel) {
+        (0, _) => format!("{version} development"),
+        (_, "stable") => version.to_string(),
+        (_, channel) => format!("{version} {channel} {build}"),
+    }
+}
+
 /// Runs work right after the update it's asked in. Windows answers many calls on a GPUI
 /// window with messages to it at once, which GPUI drops in the middle of an update.
 pub fn later(cx: &gpui::App, work: impl FnOnce() + 'static) {
@@ -273,4 +316,27 @@ pub fn notification_tones() -> &'static [i16] {
         }
         samples.iter().map(|sample| (sample.clamp(-1., 1.) * 32767.) as i16).collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_build_names_itself_by_its_channel() {
+        assert_eq!(version_name("0.11.0", "stable", 1200), "0.11.0");
+        assert_eq!(version_name("0.11.1", "nightly", 1112), "0.11.1 nightly 1112");
+        assert_eq!(version_name("0.11.1", "nightly", 0), "0.11.1 development");
+        assert_eq!(version_name("0.11.1", "stable", 0), "0.11.1 development");
+    }
+
+    #[test]
+    fn a_build_number_is_read_as_the_build_is_compiled() {
+        assert_eq!(number("1108"), 1108);
+        assert_eq!(number("0"), 0);
+        assert_eq!(number(""), 0);
+        assert_eq!(number("12a"), 0);
+        assert_eq!(number("-3"), 0);
+        assert_eq!(number("99999999999999"), 0);
+    }
 }

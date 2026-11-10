@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
-import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
+import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
@@ -37,7 +37,7 @@ const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] 
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
 // copy's ~/.local/share/zuna, so that `npm run dev:clean` starts it over with the test server.
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : appStamp()) } });
 
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");

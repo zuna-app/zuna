@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
-import { appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
+import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "dist", "bundle"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
@@ -304,7 +304,7 @@ await ensureWebrtcSys(nativeAppDeps);
 bundleCore();
 
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];
-run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
+run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : appStamp()) } });
 const program = join(target, release ? "release" : "debug", "zuna");
 // The app's media through FFmpeg, as a library of its own (apps/desktop/media-ffmpeg).
 run("cargo", ["build", ...(release ? ["--release"] : [])], { cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
