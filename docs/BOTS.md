@@ -121,6 +121,8 @@ bot.on("message:text", (ctx) => ctx.reply(`You said: ${ctx.message.text}`));
 bot.start();
 ```
 
+[examples/simple-bot](../examples/simple-bot) is a bot like that to run, with commands and a button, and its README goes through setting it up step by step, against your own server or the local test server.
+
 Any language works the same way: calls go to `http://127.0.0.1:8081/bot<token>/<method>`, as Telegram's do. grammY is the library `zuna-bot`'s own tests run a bot with. Others should work where they let you set the API's address, and haven't been tried.
 
 ### What's there

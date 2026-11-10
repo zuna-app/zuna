@@ -7,7 +7,8 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "tests/*"
+    "tests/*",
+    "examples/*"
   ],
   "engines": {
     "node": ">=22.22"
@@ -32,7 +33,7 @@
     "test:server": "node scripts/test-server.mjs",
     "test:core": "npm run test -w @zuna/core",
     "test:bot": "npm run test -w @zuna/bot",
-    "typecheck": "npm run typecheck -w @zuna/core && npm run typecheck -w @zuna/ui && npm run typecheck -w @zuna/web && npm run typecheck -w @zuna/site && npm run typecheck -w @zuna/ios && npm run typecheck -w @zuna/e2e && npm run typecheck -w @zuna/bot",
+    "typecheck": "npm run typecheck -w @zuna/core && npm run typecheck -w @zuna/ui && npm run typecheck -w @zuna/web && npm run typecheck -w @zuna/site && npm run typecheck -w @zuna/ios && npm run typecheck -w @zuna/e2e && npm run typecheck -w @zuna/bot && npm run typecheck -w zuna-simple-bot",
     "dev:server": "node scripts/dev-server.mjs",
     "dev:web": "node scripts/dev-web.mjs",
     "dev:clean": "node scripts/dev-clean.mjs",

@@ -26,7 +26,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
-| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace and `zuna-bot` | `npm run typecheck` |
+| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace, `zuna-bot` and the example bot in `examples/simple-bot` | `npm run typecheck` |
 | All of crypto, server, core and `zuna-bot` tests | `npm test` |
 | `zuna-bot` as one file with the cryptography beside it (`dist/bot`), which Node 22.22+ runs anywhere, and its tests, which run grammY's echo bot on it against a real server | `npm run build:bot`, `npm run test:bot` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
@@ -157,7 +157,7 @@ Rules the core depends on:
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Web UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
-| Bots: accounts a program runs | `docs/BOTS.md`, `docs/BOTS_PLAN.md`, `server/internal/api/bots.go`, `server/internal/store/bots.go`, `// --- Bots ---` in `session/server.ts`, `apps/bot`, `packages/ui/src/features/bots`, `apps/desktop/src/ui/server_settings/bots.rs` |
+| Bots: accounts a program runs | `docs/BOTS.md`, `docs/BOTS_PLAN.md`, `server/internal/api/bots.go`, `server/internal/store/bots.go`, `// --- Bots ---` in `session/server.ts`, `apps/bot`, `examples/simple-bot`, `packages/ui/src/features/bots`, `apps/desktop/src/ui/server_settings/bots.rs` |
 | Adding the test server's people, who answer by themselves, or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |

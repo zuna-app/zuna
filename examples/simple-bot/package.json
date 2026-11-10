@@ -1,0 +1,22 @@
+{
+  "name": "zuna-simple-bot",
+  "version": "0.10.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "A small Zuna bot, written with grammY against zuna-bot's API.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22"
+  },
+  "scripts": {
+    "start": "node bot.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
