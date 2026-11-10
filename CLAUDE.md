@@ -9,10 +9,14 @@ Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds
 - **Pull first.** Run `git pull --rebase origin main` at the start of any work. Two people push to `main`.
 - **Always work on `main`, and push there.** Never create a branch or a pull request. If the push is refused, rebase onto `origin/main` and push again. Never force-push.
 - **Commit as you go,** without waiting to be asked: one small commit per change, pushed when it's done. Don't leave finished work uncommitted.
-- **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, so nothing checks a push to `main`.
+- **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, and a nightly's run only builds, so nothing checks a push to `main`. `gh workflow run ci.yml -f jobs=desktop` runs a job of it by hand.
 - **The remote is `zuna-app/zuna`,** which was `SocketByte/zuna-chat` until 2026-11-10. `SocketByte/zuna` is a different repository: never push there.
 - **No Dependabot,** or anything else that opens branches. It was removed on purpose. Update dependencies by hand.
-- **No backward compatibility until the first release.** Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
+- **No backward compatibility until the first stable release.** Nightlies don't count as one. Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
+- **An installed build must always be able to update to the newest one.** That's the one exception: the update manifest, the keys, the installer's flags and a release's file names only change in ways the oldest build still installed can follow.
+- **Cut a nightly when a session's work is pushed.** Once what was asked for is pushed and its checks have passed here, run `npm run release:pending`, read each commit it lists, write the changelog and run `npm run release:nightly -- <notes file>`. It says so itself when nothing in the app changed. Nobody asks for this each time.
+- **"Release a new stable version" means `npm run release:stable -- <notes file>`,** after the same reading, the type checks, `npm test` and the app's tests. Then watch the run with `gh run watch` until the release is published, or say what failed. Fix a failure on `main` and release the next patch. Never move or delete a tag.
+- **Claude picks version numbers, and never asks.** The levels are in "Releases". Only 1.0.0 waits for a person's word.
 
 ### Commit messages
 
@@ -22,6 +26,24 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 - **The tag is the part of the repository the change is in,** in lower case, one of: `desktop` (`apps/desktop`), `core` (`packages/core`), `crypto`, `server` (the chat server, `zuna-web`'s host and the push relay), `web` (`apps/web`, `packages/ui`), `ios`, `bot`, `site`, `deploy`, `ci` (workflows and the build scripts), `release` (version numbers and releasing), `docs` (the docs, this file and `.agents`). A change in several takes the one it was made for: a core change made to fix the desktop app is `desktop`.
 - **The brief is short and says what was done,** in lower case, as the example does, with no full stop.
 - **A body is optional.** When there is one it says why, and what couldn't be built or run, as the rules below ask.
+
+## Releases
+
+Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. `docs/RELEASE_PLAN.md` has the design.
+
+A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.10.0`, which becomes that release.
+
+| Level | What it is | Examples |
+|---|---|---|
+| minor | Something new a person can see or do in the app | A feature, a new setting, a platform gaining what another had |
+| patch | A change to what's already there that someone could notice | A fix, a security or privacy fix, a speed-up, new wording, a dependency update that reaches the app |
+| build | Nothing anyone using the app would notice | Refactors, tests, docs, CI, scripts, and anything that isn't in the native app: server, web, iOS, site, bot |
+| major | Only on a person's word | 1.0.0 |
+
+- **The changelog decides the version.** `npm run release:pending` lists the commits since the last release with the files each touched. The notes file names every one of them once, by its short hash, under `## New` (minor), `## Fixed and changed` (patch) or `## Under the hood` (build), and `scripts/release.mjs` works the version out from the headings, so the two can't disagree. The script sets the version's files itself, in a commit of its own that needs no line.
+- **Read each commit's diff to place it,** not just its subject. A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three, and a `core:` one can reach the app or not.
+- **What reaches the app is what it's built from:** `APP_PATHS` in `scripts/release.mjs`. A commit that touches none of it can only go under the hood, and a session with none cuts no nightly.
+- **A tag is the release.** The script pushes an annotated tag whose message is the changelog, and `.github/workflows/release.yml` builds, signs and publishes from it. A nightly's run only builds. A stable release's also runs `ci.yml`'s `test`, `advisories` and `desktop` jobs first. A failed run publishes nothing, and the next release carries its commits.
 
 ## Commands
 
@@ -34,7 +56,8 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace, `zuna-bot` and the example bot in `examples/simple-bot` | `npm run typecheck` |
-| All of crypto, server, core and `zuna-bot` tests | `npm test` |
+| All of the release script's, crypto, server, core and `zuna-bot` tests | `npm test` |
+| What the next release of the native app would carry, and cutting a nightly or a stable one from a changelog ("Releases") | `npm run release:pending`, `npm run release:nightly -- <notes file>`, `npm run release:stable -- <notes file>`, each of the last two with `--dry-run` to only say what it would do |
 | `zuna-bot` as one file with the cryptography beside it (`dist/bot`), which Node 22.22+ runs anywhere, and its tests, which run grammY's echo bot on it against a real server | `npm run build:bot`, `npm run test:bot` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run build:server`, `npm run build:web` |
@@ -46,7 +69,7 @@ The test server's address and sign-in details are in `.dev-data/world/world.json
 
 There's no linter or formatter. The strict check is the type checks, which fail on unused locals and parameters.
 
-The native app has no type check of its own. Build it on this system (`npm run dev:windows`, `dev:linux` or `dev:macos`), and run its tests with `cargo test` in `apps/desktop` after `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and, on Windows and Linux, `node scripts/ffmpeg.mjs`, which its build needs; on Windows with `+stable-x86_64-pc-windows-msvc` and `CARGO_TARGET_DIR` at `%LOCALAPPDATA%\zuna-windows-target`, as `scripts/windows-app.mjs` sets them. That runs the tests of its screen share's crate too, `apps/desktop/screenshare`, which is in its workspace. It only builds for the system it's on, so say in the commit message which of Windows, Linux and macOS weren't built, as for Swift. The screen share's crate needs neither LiveKit nor GPUI, so its code for the others can be type-checked from any system: `ZUNA_CHECK_ONLY=1 cargo check -p zuna-screenshare --target x86_64-unknown-linux-gnu` in `apps/desktop`, or `aarch64-apple-darwin`, after `rustup target add` and `node scripts/webrtc-sys.mjs`.
+The native app has no type check of its own. Build it on this system (`npm run dev:windows`, `dev:linux` or `dev:macos`), and run its tests with `cargo test` in `apps/desktop` after `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and, on Windows and Linux, `node scripts/ffmpeg.mjs`, which its build needs; on Windows with `+stable-x86_64-pc-windows-msvc` and `CARGO_TARGET_DIR` at `%LOCALAPPDATA%\zuna-windows-target`, as `scripts/windows-app.mjs` sets them, and `node scripts/windows-app.mjs test [--release] [-- cargo's arguments]` does all of that. That runs the tests of its screen share's crate too, `apps/desktop/screenshare`, which is in its workspace. It only builds for the system it's on, so say in the commit message which of Windows, Linux and macOS weren't built, as for Swift. The screen share's crate needs neither LiveKit nor GPUI, so its code for the others can be type-checked from any system: `ZUNA_CHECK_ONLY=1 cargo check -p zuna-screenshare --target x86_64-unknown-linux-gnu` in `apps/desktop`, or `aarch64-apple-darwin`, after `rustup target add` and `node scripts/webrtc-sys.mjs`.
 
 One test at a time:
 
@@ -137,6 +160,9 @@ Rules the core depends on:
 | The site's content security policy or headers (`apps/site/policy.mjs`) | The Caddy example under "Hosting" in `docs/SITE_PLAN.md`, and what the server sends |
 | LiveKit's Rust SDK in the native app (`livekit` in `apps/desktop/Cargo.toml`), and with it `webrtc-sys` | The version and SHA-256 in `scripts/webrtc-sys.mjs`, and `apps/desktop/patches/webrtc-sys.patch` made again against the new crate |
 | GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
+| What the native app is built from | `APP_PATHS` in `scripts/release.mjs`, or a session that only touched the new place cuts no nightly |
+| Which files say the version: a new workspace's `package.json`, or a new crate | `CRATES` and `versionFiles` in `scripts/release.mjs`, which keeps them the same |
+| An update signing key | The public key in `apps/desktop/src/platform/updates.rs`, the environment's `UPDATE_SIGNING_KEY` secret and the offline copy, in that order: an app must carry the new key before anything is signed with it |
 
 ## Feature parity
 
