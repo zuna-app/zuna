@@ -339,6 +339,8 @@ try {
   await drive({ do: "click", x: 134, y: 221 });
   const again = tileIn(await shot("04-their-share-again"), stageArea);
   check("someone's share fills the stage as it starts, and again coming back to the channel from another chat", filled.width > 900 && again.width === filled.width && again.height === filled.height, `${filled.width}x${filled.height}, then ${again.width}x${again.height}`);
+  // The app looks for an open stage once a second, so coming back to one may not have been seen yet.
+  await until(screenAwake, "the screen to be kept on", 3_000).catch(() => undefined);
   check("watching it keeps the screen on, through the Inhibit portal", screenAwake() && awakeThrough() === "the screen is kept on through the Inhibit portal", awakeThrough());
   await page.getByRole("button", { name: "Stop sharing" }).first().click();
   await sleep(2000);
