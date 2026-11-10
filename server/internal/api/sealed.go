@@ -130,7 +130,7 @@ func (s *Server) sealed(next sealedHandler) http.HandlerFunc {
 	}
 }
 
-// refuseUnsignedItem writes a refusal unless the request was signed with the item key
+// itemSigned writes a refusal unless the request was signed with the item key
 // of what it changes, and says whether to go on.
 func (s *Server) itemSigned(w http.ResponseWriter, r *http.Request, q *sealedRequest, reactionID string) bool {
 	key, err := s.db.ItemKey(r.Context(), q.GroupID, r.PathValue("mid"), reactionID)
