@@ -143,6 +143,8 @@ pub struct Voice {
     mic: Option<Microphone>,
     mic_source: Option<livekit::webrtc::audio_source::native::NativeAudioSource>,
     pub(crate) mixer: Mixer,
+    /// Keeps the sound output open from coming into a voice channel or a call until it's left.
+    output_hold: Option<audio::Hold>,
     processing: SharedProcessing,
     /// Each join counts, so one that takes a while can tell it's been replaced.
     attempt: u64,
@@ -168,9 +170,10 @@ pub struct Voice {
     ptt_task: Option<Task<()>>,
     /// Trying the microphone outside a call: it, and where it plays back.
     mic_test: Option<(Microphone, u64)>,
-    /// The microphone being opened again, or for the test, on a thread of its own.
+    /// The microphone being opened again, on a thread of its own.
     mic_task: Option<Task<()>>,
-    mic_test_task: Option<Task<()>>,
+    /// The test's microphone being opened, and where it will play back.
+    mic_test_task: Option<(Task<()>, u64)>,
 }
 
 struct GlobalVoice(Entity<Voice>);
@@ -211,6 +214,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         mic: None,
         mic_source: None,
         mixer: Mixer::new(processing.clone()),
+        output_hold: None,
         processing,
         attempt: 0,
         reconnects: 0,
@@ -373,7 +377,7 @@ impl Voice {
         let back = self.mixer.live(1.);
         let mixer = self.mixer.clone();
         let opening = open_microphone(&self.settings, false, self.processing.clone(), move |frame| mixer.push(back, &frame, 1), cx);
-        self.mic_test_task = Some(cx.spawn(async move |this, cx| {
+        let task = cx.spawn(async move |this, cx| {
             let opened = opening.await;
             this.update(cx, |voice, cx| {
                 voice.mic_test_task = None;
@@ -388,13 +392,17 @@ impl Voice {
                 cx.notify();
             })
             .ok();
-        }));
+        });
+        self.mic_test_task = Some((task, back));
         cx.notify();
     }
 
     fn stop_mic_test(&mut self, cx: &mut Context<Self>) {
-        // A test still opening is dropped, and its microphone with it, once it's open.
-        self.mic_test_task = None;
+        // A test still opening is dropped, and its microphone with it, once it's open. Where
+        // it would have played goes too, or the output would stay open for it.
+        if let Some((_, back)) = self.mic_test_task.take() {
+            self.mixer.remove(back);
+        }
         if let Some((_, back)) = self.mic_test.take() {
             self.mixer.remove(back);
             if self.status == VoiceStatus::Idle {
@@ -469,6 +477,8 @@ impl Voice {
 
     fn reset(&mut self) {
         self.status = VoiceStatus::Idle;
+        // The output closes once whatever is still playing, such as the sound of leaving, has played.
+        self.output_hold = None;
         self.server_id = None;
         self.channel_id = None;
         self.call = false;

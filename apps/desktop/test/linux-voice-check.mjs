@@ -237,6 +237,12 @@ try {
   /** Whether the app last asked for the screen to stay on, or to sleep, and what it asked through. */
   const screenAwake = () => [...app.output.matchAll(/keeping the screen on|letting the screen sleep/g)].at(-1)?.[0] === "keeping the screen on";
   const awakeThrough = () => [...app.output.matchAll(/the screen is kept on through the (Inhibit portal|screen saver)|the screen can't be kept on[^\n]*|the screen may sleep again/g)].map((match) => match[0]).at(-1);
+  /** How many streams the app's voice and its sounds are playing through in PipeWire. A desktop shows the app as playing sound for as long as there's one. */
+  const voiceStreams = () => {
+    const objects = JSON.parse(execFileSync("pw-dump", { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }));
+    const clients = new Set(objects.filter((object) => object.info?.props?.["application.process.id"] === app.pid).map((object) => object.id));
+    return objects.filter((object) => clients.has(object.info?.props?.["client.id"]) && object.info.props["media.name"] === "Zuna voice").length;
+  };
   // Maximized, so where things are is the same each run, by a double click on the title bar,
   // again until it takes, as a window that's only just appeared may not have drawn it yet.
   await until(async () => {
@@ -429,9 +435,13 @@ try {
   check("with no camera on, it may sleep on the stage too", !screenAwake());
 
   // --- A call in their direct message, from the web app ---
+  const heldInChannel = voiceStreams();
   await drive({ do: "click", x: 360, y: 802 });
   const left = await page.locator(".voice-occupant", { hasText: "Linux Owner" }).waitFor({ state: "detached", timeout: 15_000 }).then(() => true).catch(() => false);
   check("leaving the voice channel in the native app takes it out", left);
+  // Left open, the desktop goes on showing the app as playing sound.
+  const letGo = await until(() => voiceStreams() === 0, "the speakers to be let go of", 6_000).then(() => true).catch(() => false);
+  check("and lets go of the speakers it held through the channel, once the sound of leaving has played", heldInChannel === 1 && letGo, `${heldInChannel} before, ${voiceStreams()} after`);
   await page.getByRole("button", { name: "Disconnect from voice" }).click();
   await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
   await page.locator(".conv-row", { hasText: "Linux Owner" }).first().click();
@@ -488,6 +498,7 @@ try {
   await shot("10-declined");
   const afterDecline = await loudestOn(speakers, 3);
   check("declining in the web app stops the native app ringing", afterDecline < 0.005, `peak ${afterDecline.toFixed(3)}`);
+  check("and lets go of its speakers again", voiceStreams() === 0, `${voiceStreams()} left`);
 
   // --- Voice and video messages, recorded here and played in the web app ---
   // The message box's microphone, recording what's said into the check's own.

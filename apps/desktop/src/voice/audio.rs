@@ -5,7 +5,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::time::Duration;
 
 #[cfg(any(windows, target_os = "macos"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -84,9 +85,23 @@ struct Source {
 #[derive(Default)]
 struct MixerState {
     sources: HashMap<u64, Source>,
+    /// How many are keeping the output open with nothing to play: a call, or a ring.
+    held: usize,
+    /// It's been opened since the output last looked, for something about to play.
+    opened: bool,
 }
 
-/// Everything played, mixed into one output on the chosen device.
+impl MixerState {
+    /// Whether anything still needs the output. The output asks every `IDLE_CHECK`, and asking
+    /// forgets that it was opened.
+    fn needed(&mut self) -> bool {
+        let opened = std::mem::take(&mut self.opened);
+        self.held > 0 || !self.sources.is_empty() || opened
+    }
+}
+
+/// Everything played, mixed into one output on the chosen device, which is open only while
+/// there's something to play, or a call that may have at any moment.
 #[derive(Clone)]
 pub struct Mixer {
     state: Arc<Mutex<MixerState>>,
@@ -94,6 +109,21 @@ pub struct Mixer {
     processing: SharedProcessing,
     output: Arc<Mutex<Option<OutputThread>>>,
 }
+
+/// Keeps the output open until it's dropped.
+pub struct Hold(Arc<Mutex<MixerState>>);
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.lock().held -= 1;
+    }
+}
+
+/// How often the output looks at whether anything still needs it. After two looks in a row
+/// with nothing held and nothing left to play, it lets go of the device, which is at least
+/// this long after the last of a sound. Left open, the system shows Zuna as playing, and
+/// keeps the device awake for it, from the first sound on.
+const IDLE_CHECK: Duration = Duration::from_millis(500);
 
 /// How far behind what's arrived live sound plays, in frames: 40 ms. LiveKit hands each 10 ms
 /// of a voice over on a timer of its own, sometimes late, and the device takes it on its own
@@ -109,13 +139,31 @@ impl Mixer {
     }
 
     /// Plays on a device, by its ID, or the default one. It moves there if it's already playing.
+    /// The output closes a moment after the last of what it plays, unless it's held, so this
+    /// comes before each sound outside a call.
     pub fn open(&self, device: &str) {
         let mut output = self.output.lock();
-        if output.as_ref().is_some_and(|thread| thread.device == device && !thread.failed.load(Ordering::Relaxed)) {
+        // Said under the state's lock, which the output closes under: either it sees this and
+        // stays open, or it has closed already, which is seen here.
+        self.state.lock().opened = true;
+        if output.as_ref().is_some_and(|thread| thread.device == device && !thread.gone.load(Ordering::Relaxed)) {
             return;
         }
         *output = None;
         *output = OutputThread::start(device.to_string(), self.state.clone(), self.processing.clone());
+    }
+
+    /// Opens the output, and keeps it open until what this gives is dropped: for a call, where
+    /// a voice may come at any moment, and a ring, which is quiet between its repeats.
+    pub fn hold(&self, device: &str) -> Hold {
+        let hold = self.held();
+        self.open(device);
+        hold
+    }
+
+    fn held(&self) -> Hold {
+        self.state.lock().held += 1;
+        Hold(self.state.clone())
     }
 
     /// A place to send live sound, such as a person's voice.
@@ -159,18 +207,14 @@ impl Mixer {
     pub fn remove(&self, id: u64) {
         self.state.lock().sources.remove(&id);
     }
-
-    /// Stops playing, and lets go of the device.
-    pub fn close(&self) {
-        *self.output.lock() = None;
-        self.state.lock().sources.retain(|_, source| source.once);
-    }
 }
 
 struct OutputThread {
     device: String,
     stop: Sender<()>,
-    failed: Arc<AtomicBool>,
+    /// The device failed, or the output closed with nothing left to play. Either way it's
+    /// opened again the next time it's wanted.
+    gone: Arc<AtomicBool>,
 }
 
 impl Drop for OutputThread {
@@ -182,22 +226,36 @@ impl Drop for OutputThread {
 impl OutputThread {
     fn start(device: String, state: Arc<Mutex<MixerState>>, processing: SharedProcessing) -> Option<OutputThread> {
         let (stop, stopped) = channel::<()>();
-        let failed = Arc::new(AtomicBool::new(false));
-        let failing = failed.clone();
+        let gone = Arc::new(AtomicBool::new(false));
+        let going = gone.clone();
         let wanted = device.clone();
         std::thread::Builder::new()
             .name("zuna-sound-out".into())
             .spawn(move || {
-                let Some(stream) = open_output(&wanted, state, processing, failing.clone()) else {
-                    failing.store(true, Ordering::Relaxed);
+                let Some(stream) = open_output(&wanted, state.clone(), processing, going.clone()) else {
+                    going.store(true, Ordering::Relaxed);
                     return;
                 };
-                // A cpal stream stays on the thread that made it.
-                let _ = stopped.recv();
+                // A cpal stream stays on the thread that made it, which waits here to be
+                // stopped, or for nothing to need the output any more.
+                let mut idle = false;
+                while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(IDLE_CHECK) {
+                    let mut state = state.lock();
+                    if state.needed() {
+                        idle = false;
+                    } else if !idle {
+                        idle = true;
+                    } else {
+                        // Said under the state's lock, as `open` says it's wanted: either that
+                        // came first and was seen above, or it sees this and opens it again.
+                        going.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                }
                 drop(stream);
             })
             .ok()?;
-        Some(OutputThread { device, stop, failed })
+        Some(OutputThread { device, stop, gone })
     }
 }
 
@@ -462,6 +520,29 @@ mod tests {
         }
         let behind = mixer.state.lock().sources[&id].buffer.len() / 2;
         (gaps, behind)
+    }
+
+    #[test]
+    fn needs_the_output_only_while_held_or_playing() {
+        let mixer = Mixer::new(Arc::default());
+        let needed = || mixer.state.lock().needed();
+        assert!(!needed());
+        // A call holds it, with nobody talking.
+        let hold = mixer.held();
+        assert!(needed());
+        drop(hold);
+        assert!(!needed());
+        // A sound needs it until the last of it has been played.
+        mixer.once(vec![0.5; 200], 1.);
+        let mut out = Vec::new();
+        mix(&mixer.state, 60, &mut out);
+        assert!(needed());
+        mix(&mixer.state, 60, &mut out);
+        assert!(!needed());
+        // Opened for a sound that hasn't come yet, it's needed for one look.
+        mixer.state.lock().opened = true;
+        assert!(needed());
+        assert!(!needed());
     }
 
     #[test]

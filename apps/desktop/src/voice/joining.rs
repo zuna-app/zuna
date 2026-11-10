@@ -69,7 +69,7 @@ impl Voice {
     pub(super) fn connect(&mut self, server_id: String, channel_id: String, mine: u64, how: JoinHow, cx: &mut Context<Self>) {
         let core = self.core(cx);
         let bitrate = self.state.read(cx).servers.get(&server_id).and_then(|server| server.channels.iter().find(|channel| channel.id == channel_id)).map(|channel| channel.bitrate as u64).unwrap_or(0);
-        self.mixer.open(&self.settings.output_device);
+        self.output_hold = Some(self.mixer.hold(&self.settings.output_device));
         // Nothing about voice needs a microphone: someone without one can still listen. It's
         // opened alongside joining, off the window's thread, and joining waits for it.
         let opening = self.open_room_microphone(&self.settings.clone(), cx);

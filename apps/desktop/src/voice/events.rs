@@ -28,11 +28,13 @@ impl Voice {
         self.ringing = ring;
         self.ring_task = None;
         let Some(kind) = ring else { return };
-        self.mixer.open(&self.settings.output_device);
+        // Held for as long as it rings, as it's quiet between one ring and the next.
+        let hold = self.mixer.hold(&self.settings.output_device);
         let (every, samples) = sounds::ring(kind, self.settings.output_volume.min(1.));
         let mixer = self.mixer.clone();
         let executor = cx.background_executor().clone();
         self.ring_task = Some(cx.background_executor().spawn(async move {
+            let _hold = hold;
             loop {
                 mixer.once(samples.clone(), 1.);
                 executor.timer(Duration::from_millis(every)).await;

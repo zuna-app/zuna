@@ -61,7 +61,15 @@ impl Shared {
                         mixer.push(mixer_id, &frame.data, frame.num_channels);
                     }
                 });
-                self.audio.lock().insert(sid, RemoteAudio { user_id: user, screen, mixer_id, task: task.abort_handle() });
+                let mut playing = self.audio.lock();
+                // A room closed meanwhile has let go of everyone it was playing, under this
+                // lock, and nothing would let go of this one: the output would stay open for it.
+                if self.closed.load(Ordering::Relaxed) {
+                    task.abort();
+                    self.mixer.remove(mixer_id);
+                    return;
+                }
+                playing.insert(sid, RemoteAudio { user_id: user, screen, mixer_id, task: task.abort_handle() });
             }
             RemoteTrack::Video(video) => {
                 if self.videos.lock().contains_key(&sid) {
