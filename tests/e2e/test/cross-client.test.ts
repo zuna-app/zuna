@@ -78,6 +78,28 @@ describe("an iOS client with a desktop client", () => {
     expect(footprint).toBeLessThan(24);
   });
 
+  it.skipIf(phoneTarget === "simulator")("previews one from an epoch that began while the phone slept, within its memory", async () => {
+    const chat = `user:${bobId}`;
+    const groupId = alice.session.getConversations().find((item) => item.key === chat)!.groupId!;
+    const text = "while the phone slept";
+    await phone.setOffline(true);
+    try {
+      // The chat's keys are renewed, as they are each week and whenever a device comes or goes.
+      const session = alice.session as any;
+      await session.withLock(groupId, () => session.commitWithRetry(groupId, async () => ({ kind: "update" })));
+      const sent = alice.session.sendMessage(chat, { text });
+      await waitFor(() => alice.texts(chat).includes(text), "alice's message to go");
+      const { preview, footprint } = await phone.previewPush(groupId, sent.id);
+      expect(preview).toMatchObject({ title: "alice", body: text, decrypted: true, sender: { id: aliceId } });
+      console.log(`notification extension footprint, following an epoch: ${footprint.toFixed(1)} MB`);
+      expect(footprint).toBeLessThan(24);
+    } finally {
+      await phone.setOffline(false);
+    }
+    // The app then takes the same step itself.
+    await waitFor(async () => (await phone.texts(`user:${aliceId}`)).includes(text), "bob to catch up", 60_000);
+  });
+
   it("exchanges direct messages both ways", async () => {
     await phone.session.sendMessage(`user:${aliceId}`, { text: "hi from iOS" });
     await waitFor(() => alice.texts(`user:${bobId}`).includes("hi from iOS"), "alice to receive");

@@ -20,6 +20,9 @@ public struct PushPreview: Decodable, Sendable, Equatable {
     public let group: Group?
     /// The message alone, without the sender's name in front.
     public let text: String?
+    /// The chat, for a message that can't be read: the other person in a direct message, or the group, with
+    /// its picture when asked for and the server could be reached. It says nothing of who wrote it.
+    public let chat: Person?
     /// When the server took the message, by its clock (ms), if it could be fetched: a chat read after that has read it.
     public let sentAt: Int?
 

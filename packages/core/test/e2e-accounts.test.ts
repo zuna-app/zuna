@@ -3,7 +3,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { notifyTiming } from "../src/notify";
-import { notifiedChats, previewPush } from "../src/push";
+import { notifiedChats, previewPush, pushTiming } from "../src/push";
 import { presenceTiming } from "../src/presence";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv, createHmac } from "node:crypto";
@@ -588,6 +588,154 @@ describe("notifications from a push", () => {
 
     const missing = await previewPush(extension(bob), bob.serverId, own.groupId, "no-such-message");
     expect(missing).toMatchObject({ title: "alice", body: "New message", decrypted: false, conversationKey: `user:${alice.userId}` });
+  });
+
+  it("asks for the message again when the server couldn't be reached", async () => {
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "are you there" });
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("are you there"), "delivery to bob");
+    const message = received(bob, "are you there");
+    const real = globalThis.fetch;
+    const timing = { ...pushTiming };
+    Object.assign(pushTiming, { retries: [10, 10] });
+    let failures = 0;
+    // A phone a push woke may be a moment from having a network.
+    const failing = (times: number) => {
+      failures = 0;
+      globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes(`/messages/${message.id}`) && failures < times) {
+          failures++;
+          return Promise.reject(new TypeError("fetch failed"));
+        }
+        return real(input, init);
+      }) as typeof fetch;
+    };
+    try {
+      failing(2);
+      expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject({ text: "are you there", decrypted: true });
+      expect(failures).toBe(2);
+      // It only has so long, so it gives up, and says what it can.
+      failing(Infinity);
+      const unreached = await previewPush(extension(bob), bob.serverId, message.groupId, message.id, true);
+      expect(unreached).toMatchObject({ title: "alice", body: "New message", decrypted: false, chat: { id: alice.userId, name: "alice" } });
+      expect(failures).toBe(3);
+    } finally {
+      globalThis.fetch = real;
+      Object.assign(pushTiming, timing);
+    }
+  });
+
+  it("reads a message from an epoch that began while the phone slept, and keeps nothing of it", async () => {
+    const phone = await new TestApp("bob-phone").open();
+    await phone.login(server.url, "bob");
+    const chat = `user:${alice.userId}`;
+    const face = new Uint8Array(900).map((_, i) => (i * 5) & 255);
+    await alice.session.updateProfile({}, new Blob([face], { type: "image/png" }));
+    await waitFor(() => !!phone.session.getUsers().find((user) => user.id === alice.userId)?.avatar, "the phone to see alice's picture");
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "before you sleep" });
+    await waitFor(() => phone.texts(chat).includes("before you sleep"), "delivery to the phone");
+    const groupId = phone.session.getConversations().find((item) => item.key === chat)!.groupId!;
+    const asleep = (phone.session as any).mlsEpoch(groupId) as number;
+    phone.client.stop();
+    await sleep(50);
+    const kept = async () => {
+      const db = await phone.db.open(`zuna-server-${phone.serverId}`);
+      return JSON.stringify([db.all("SELECT k, v FROM mls_kv ORDER BY k"), db.all("SELECT epoch, key FROM epoch_keys WHERE group_id = ? ORDER BY epoch", [groupId])]);
+    };
+    const before = await kept();
+
+    // The group's keys are renewed, as they are each week, and whenever someone's device comes or goes.
+    const renew = async () => {
+      const session = alice.session as any;
+      await session.withLock(groupId, () => session.commitWithRetry(groupId, async () => ({ kind: "update" })));
+    };
+    await renew();
+    await renew();
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "while you slept" });
+    await waitFor(() => bob.texts(chat).includes("while you slept"), "delivery to bob's laptop");
+    const message = received(bob, "while you slept");
+    expect((bob.session as any).messageRow(groupId, message.id).epoch).toBe(asleep + 2);
+
+    const preview = await previewPush(extension(phone), phone.serverId, groupId, message.id, true);
+    expect(preview).toMatchObject({ title: "alice", body: "while you slept", text: "while you slept", decrypted: true, sender: { id: alice.userId, name: "alice" } });
+    expect(await kept()).toBe(before);
+
+    // What the app wouldn't take as theirs still isn't worded as theirs: a message from a device that wasn't in the epoch's tree.
+    const session = bob.session as any;
+    const { sealEnvelope } = await import("../src/crypto");
+    const { toBase64 } = await import("../src/encoding");
+    const stranger = (carol.session as any).account;
+    const epoch = asleep + 2;
+    const id = "f".repeat(message.id.length);
+    const envelope = sealEnvelope(session.epochKey(groupId, epoch), stranger.deviceSecret, "message", groupId, id, epoch, { text: "not alice", by: { user: carol.userId, device: stranger.deviceId } }, { userId: carol.userId, deviceId: stranger.deviceId });
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes(`/messages/${id}`)) return real(input, init);
+      const answer = (await (await real(String(input).replace(id, message.id), init)).json()) as Record<string, unknown>;
+      return new Response(JSON.stringify({ ...answer, id, envelope: toBase64(envelope) }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      // It still says which chat, with the chat's picture, and nothing of who wrote it.
+      const unread = await previewPush(extension(phone), phone.serverId, groupId, id, true);
+      expect(unread).toMatchObject({ title: "alice", body: "New message", decrypted: false, chat: { id: alice.userId, name: "alice" } });
+      expect(unread.sender).toBeUndefined();
+      expect(Buffer.from(unread.chat!.picture!, "base64").equals(Buffer.from(face))).toBe(true);
+    } finally {
+      globalThis.fetch = real;
+    }
+
+    // A device of alice's signs in, which comes into the chat by itself. What her first device then says is read,
+    // and what the new one says isn't yet: whether it's hers is the app's to check, with what it knows of her keys.
+    const second = await new TestApp("alice-second").open();
+    await second.login(server.url, "alice");
+    try {
+      await waitFor(() => (second.session as any).hasMlsGroup(groupId), "alice's second device to come into the chat");
+      await waitFor(() => (bob.session as any).mlsEpoch(groupId) > epoch && (alice.session as any).mlsEpoch(groupId) === (bob.session as any).mlsEpoch(groupId), "everyone awake to see it come");
+      alice.session.sendMessage(`user:${bob.userId}`, { text: "from the one you know" });
+      await waitFor(() => bob.texts(chat).includes("from the one you know"), "delivery to bob's laptop");
+      const known = await previewPush(extension(phone), phone.serverId, groupId, received(bob, "from the one you know").id);
+      expect(known).toMatchObject({ body: "from the one you know", decrypted: true, sender: { id: alice.userId } });
+      second.session.sendMessage(`user:${bob.userId}`, { text: "from the one you don't" });
+      await waitFor(() => bob.texts(chat).includes("from the one you don't"), "delivery to bob's laptop");
+      const unknown = await previewPush(extension(phone), phone.serverId, groupId, received(bob, "from the one you don't").id);
+      expect(unknown).toMatchObject({ title: "alice", body: "New message", decrypted: false, chat: { id: alice.userId, name: "alice" } });
+      expect(unknown.chat!.picture).toBeUndefined();
+    } finally {
+      second.client.stop();
+    }
+    expect(await kept()).toBe(before);
+
+    // Back awake, the app takes the same steps itself, and holds what the preview read.
+    await phone.open();
+    await phone.online();
+    await waitFor(() => phone.texts(chat).includes("from the one you don't"), "the phone to catch up");
+    expect(phone.texts(chat)).toContain("while you slept");
+    phone.client.stop();
+    await alice.session.updateProfile({ avatar: null }, null);
+  });
+
+  it("follows a group it was let into, but not past a change to who's in it", async () => {
+    const phone = await new TestApp("bob-pocket").open();
+    await phone.login(server.url, "bob");
+    const groupId = await alice.session.createGroup("Night shift", [bob.userId], false);
+    const chat = `group:${groupId}`;
+    alice.session.sendMessage(chat, { text: "roll call" });
+    await waitFor(() => phone.texts(chat).includes("roll call"), "delivery to the phone");
+    phone.client.stop();
+    await sleep(50);
+
+    const session = alice.session as any;
+    await session.withLock(groupId, () => session.commitWithRetry(groupId, async () => ({ kind: "update" })));
+    alice.session.sendMessage(chat, { text: "still here?" });
+    await waitFor(() => bob.texts(chat).includes("still here?"), "delivery to bob's laptop");
+    const here = await previewPush(extension(phone), phone.serverId, groupId, received(bob, "still here?").id);
+    expect(here).toMatchObject({ title: "Night shift", body: "alice: still here?", decrypted: true, group: { name: "Night shift" } });
+
+    // Whether carol may be let in is the app's to check, with what it knows of the group, so the preview stops there.
+    await alice.session.addMembers(groupId, [carol.userId]);
+    alice.session.sendMessage(chat, { text: "meet carol" });
+    await waitFor(() => bob.texts(chat).includes("meet carol"), "delivery to bob's laptop");
+    const met = await previewPush(extension(phone), phone.serverId, groupId, received(bob, "meet carol").id);
+    expect(met).toMatchObject({ title: "Night shift", body: "New message", decrypted: false });
   });
 });
 

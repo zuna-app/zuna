@@ -382,6 +382,8 @@ export class Api {
    * whole server, needs it, so that a session token alone can do none of it.
    */
   prove: ((input: Uint8Array) => Uint8Array) | null = null;
+  /** How long a request waits for its answer, in ms, before what it's given for each byte it sends. */
+  timeout = REQUEST_TIMEOUT_MS;
   /** How far the server's clock is from this device's, once a proof has shown it's off. */
   private clockOffset = 0;
 
@@ -409,7 +411,7 @@ export class Api {
       bytes = utf8(text);
     }
     const sent = raw ? (raw instanceof Uint8Array ? raw.length : raw.size) : bytes.length;
-    const timeout = Math.min(REQUEST_TIMEOUT_MS + Math.ceil(sent * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS);
+    const timeout = Math.min(this.timeout + Math.ceil(sent * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS);
     let response: Response;
     for (let attempt = 0; ; attempt++) {
       if (prove && method !== "GET") {

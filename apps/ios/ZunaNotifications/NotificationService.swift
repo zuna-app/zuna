@@ -113,6 +113,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                 pictures: settings.preview != .none
             )
             logger.info("Previewed a push in \(Int(Date().timeIntervalSince(started) * 1000)) ms, using \(Self.footprint(), format: .fixed(precision: 1)) MB")
+            // Kept in the log, as it's what someone asks about later: a notification that only said a message came.
+            if !preview.decrypted, !preview.hidden { logger.notice("A pushed message couldn't be read with what this device holds") }
             if preview.hidden || preview.muted {
                 guard PushStore.canFilter else { return content }
                 PushStore.badge -= 1

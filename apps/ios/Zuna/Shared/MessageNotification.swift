@@ -30,7 +30,9 @@ enum MessageNotification {
             base.title = preview.title
             base.body = preview.body
         }
-        guard let sender = preview.sender else { return base }
+        // A message that can't be read is laid out as its chat's, as its title names it: the picture of
+        // the person it's with, or of the group, in place of the app's icon.
+        guard let sender = preview.sender ?? preview.chat else { return base }
 
         let person = INPerson(
             personHandle: INPersonHandle(value: sender.id, type: .unknown),
