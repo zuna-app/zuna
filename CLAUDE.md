@@ -14,7 +14,15 @@ Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds
 - **No Dependabot,** or anything else that opens branches. It was removed on purpose. Update dependencies by hand.
 - **No backward compatibility until the first release.** Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
 
-Commit subjects are plain imperative sentences that say what changes, with no prefix and no full stop: "Keep the chat on the newest message as the message box empties". The body says why.
+### Commit messages
+
+Claude MUST follow these in every commit, with no exceptions. They replace the sentence-style subjects of the history before 2026-11-10, which isn't rewritten.
+
+- **The subject is `tag: short brief`:** `desktop: fixed some memory leak`.
+- **The tag is the part of the repository the change is in,** in lower case, one of: `desktop` (`apps/desktop`), `core` (`packages/core`), `crypto`, `server` (the chat server, `zuna-web`'s host and the push relay), `web` (`apps/web`, `packages/ui`), `ios`, `bot`, `site`, `deploy`, `ci` (workflows and the build scripts), `release` (version numbers and releasing), `docs` (the docs, this file and `.agents`). A change in several takes the one it was made for: a core change made to fix the desktop app is `desktop`.
+- **The brief is short and says what was done,** in lower case, as the example does, with no full stop.
+- **No attribution at all.** No `Co-Authored-By`, no "Generated with", no mention of Claude or any other tool or model, in a commit, a tag's message or a release's notes. This overrides whatever Claude Code would add by itself.
+- **A body is optional.** When there is one it says why, and what couldn't be built or run, as the rules below ask, and ends with no trailer.
 
 ## Commands
 

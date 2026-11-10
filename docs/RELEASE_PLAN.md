@@ -53,6 +53,8 @@ The next version is the last stable's, raised once by the highest level among th
 
 Claude reads each commit's diff to decide, not just its subject, and the decision is written down as the changelog: every commit since the last release under **New**, **Fixed and changed** or **Under the hood**. The script works the level out from those headings, so the changelog and the version can't disagree.
 
+Commits are written `tag: short brief`, as CLAUDE.md's "Commit messages" says, and a changelog line is a commit's subject as it stands. The tag says where a change is, not how big it is: a `desktop:` commit can be any of the three levels, and a `core:` one can reach the app or not. So the level still comes from reading the diff, and what reaches the app from the paths a commit touched.
+
 ## `scripts/release.mjs`
 
 One script, with no dependency beyond git and Node.
@@ -70,8 +72,8 @@ Cutting a release:
 1. Refuses unless this is `main`, with nothing unpushed and `HEAD` at `origin/main`.
 2. Refuses unless the notes name every commit since the last release exactly once, by its short hash, under one of the three headings.
 3. Stops, saying so, when no commit touches what the app is built from: `apps/desktop`, `packages/core`, `crypto`, `package-lock.json`, the app's build scripts and `release.yml`. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
-4. Works out the version. If the files don't say it yet, sets it in all ten, commits "Number the next release 0.12.0" and pushes.
-5. Makes an annotated tag whose message is the changelog, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
+4. Works out the version. If the files don't say it yet, sets it in all ten, commits `release: numbered the next release 0.12.0` and pushes.
+5. Makes an annotated tag whose message is the changelog, with no attribution in it, as in any commit, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
 
 The version arithmetic has tests of its own (`node --test`), as it's the part nobody will be watching.
 
@@ -130,7 +132,7 @@ No test or environment variable can swap the keys in a release build. The update
 
 ## CLAUDE.md
 
-The rules Claude follows go where it reads them. These are the additions, written as they'd be committed.
+The rules Claude follows go where it reads them. The commit rules are there already, under "Commit messages": `tag: short brief`, and no attribution of any kind. These are the additions still to come, written as they'd be committed.
 
 In **Working rules**:
 
