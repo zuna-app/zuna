@@ -128,7 +128,7 @@ try {
   await first.click(855, 795);
   await sleep(1200);
   await first.shot("screen-picker");
-  await first.click(904, 724);
+  await first.click(906, 625);
   const shared = await until(() => /screen share publishing from this connection/.test(first.log()), "the owner's share to go out", 30_000).catch(() => false);
   check("a screen is shared from the app's own connection", shared, first.log().split("\n").filter((line) => /screen/i.test(line)).slice(-3).join(" | "));
   const onGpu = await until(() => /video: decoded on the GPU at (\d+)×(\d+)/.exec(second.log()), "the guest to decode the share", 30_000).catch(() => null);
