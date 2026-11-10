@@ -74,7 +74,7 @@ struct ChatScreen: View {
         return HStack(spacing: 0) {
             chat(server, conversation, list: list, listId: listId, peer: peer, isSaved: isSaved, channel: channel)
             if roomForMembers, !memberListHidden {
-                ChannelMemberList(server: server) { sheet = .verify(userId: $0) }
+                ChannelMemberList(server: server, bots: Bots.inChat(conversation, server)) { sheet = .verify(userId: $0) }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -211,7 +211,8 @@ struct ChatScreen: View {
     /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
     static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
         guard server.hasCalls, !conversation.removed else { return false }
-        if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && !conversation.blocked && peer?.banned != true && peer?.deleted != true }
+        // A bot stays out of calls.
+        if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && peer?.bot == nil && !conversation.blocked && peer?.banned != true && peer?.deleted != true }
         return conversation.kind == .group
     }
 
@@ -394,6 +395,8 @@ struct ChatScreen: View {
             pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
             delete: { deletingOne = $0 },
             discard: { id in run { try await model.core.session(serverId).discardMessage(listId, id: id) } },
+            // Goes to the whole chat, as its messages do, and shows nowhere: the bot answers as it likes.
+            press: { message, row, column in run { try await model.core.session(serverId).pressButton(message.groupId, messageId: message.id, row: row, column: column) } },
             pickReaction: { sheet = .react(messageId: $0) },
             readers: { message in
                 guard let seq = message.seq else { return [] }
@@ -732,6 +735,7 @@ private struct ChatHeader: View {
                     .font(.headline)
                     .foregroundStyle(Theme.text1)
                     .lineLimit(1)
+                if peer?.bot != nil, !isSaved { BotBadge() }
                 if peer?.trust == .verified, !isSaved {
                     Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel("Verified")
                 }
@@ -785,6 +789,8 @@ private struct ChatHeader: View {
         if isSaved { return "Notes to yourself" }
         if peer?.deleted == true { return "Deleted their account" }
         if peer?.banned == true { return "Removed from this server" }
+        // Nobody is using a bot, so it's never online, and was never last seen.
+        if peer?.bot != nil { return "bot" }
         if peerOnline { return "online" }
         return Format.lastSeen(peer.flatMap { live.lastSeenAt($0) }, hidden: peer?.hidesLastSeen ?? false)
     }

@@ -322,7 +322,16 @@ struct ConversationDetails: View {
                     .accessibilityIdentifier(A11y.Details.edit)
                 }
             }
-            if let peer, !isSelf {
+            if let peer, !isSelf, !peer.deleted, let bot = peer.bot {
+                // Nobody is using a bot, so it's never online and was never last seen. Whose it is
+                // and what it reads stand there instead.
+                BotBadge()
+                Text(Bots.whose(bot, server) + ". A program runs it, and reads everything said in the chats it's in.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text3)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            } else if let peer, !isSelf {
                 WithPresence(serverId: server.entry.id, user: peer) { online in
                     let lastSeen = model.live(server.entry.id).lastSeenAt(peer)
                     // Drawn again as the minutes pass, so a last seen stays true.
@@ -452,6 +461,7 @@ struct ConversationDetails: View {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(user?.displayName ?? "Unknown").foregroundStyle(Theme.text1)
+                                if user?.bot != nil { BotBadge() }
                                 if member.userId == selfId { Text("(you)").foregroundStyle(Theme.text3) }
                             }
                             Text(member.notOnRoster == true ? "Has this chat's keys, but isn't listed as a member" : member.noKeys == true ? "No device in this chat yet" : "@\(user?.username ?? "")")

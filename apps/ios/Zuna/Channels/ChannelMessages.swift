@@ -158,6 +158,7 @@ struct ChannelMessageRow: View {
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
+            if server.users[message.senderId]?.bot != nil { BotBadge() }
             Text(Format.stamp(message.createdAt))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Theme.channelMuted)
@@ -219,6 +220,9 @@ struct ChannelMessageRow: View {
                 InPlaceEditor(message: message, serverId: server.entry.id, size: textSize)
             } else {
                 said
+            }
+            if !(message.buttons ?? []).isEmpty {
+                MessageButtonsView(message: message) { row, column in actions.press(message, row, column) }
             }
             if !message.reactions.isEmpty {
                 ChannelReactions(message: message, server: server, canAdd: selectable, react: { actions.react(message.id, $0, $1) }, add: { actions.pickReaction(message.id) })

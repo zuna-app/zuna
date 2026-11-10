@@ -1,6 +1,6 @@
 # Bots: plan
 
-Status: built, apart from the iPhone and iPad app's interface. "Stages" says what's where, and "What was decided" how the questions this plan left open were settled. [BOTS.md](BOTS.md) is the guide for people.
+Status: built. The iPhone and iPad app's interface is written, and hasn't been compiled or run yet. "Stages" says what's where, and "What was decided" how the questions this plan left open were settled. [BOTS.md](BOTS.md) is the guide for people.
 
 Scope: bots that are members of the chats they're in, as Telegram's are, made and run by the people on a server. Left for later: bots that see only the commands sent to them, bots in voice, and small programs that run inside a group.
 
@@ -180,7 +180,7 @@ Built:
 - **B1:** `zuna-bot` in `apps/bot`, which grammY's echo bot runs on unchanged (`apps/bot/test/bot.test.ts`). Its container image hasn't been built.
 - **B2 and B3 in the web app** (`packages/ui/src/features/bots`), checked by `apps/web/test/web-check.mjs` in Chromium, **and in the native desktop app** (`apps/desktop/src/ui/server_settings/bots.rs` and beside each screen it touches), built and looked at on Windows, and not built on Linux or macOS.
 
-Not built: **B2 and B3 in the iPhone and iPad app.** Its models have the fields, and nothing draws them. A bot's chats still work there, as anyone's do, without the badge, the commands or the buttons.
+Written and never built: **B2 and B3 in the iPhone and iPad app** (`apps/ios/Zuna/Shared/Bots.swift`, `Settings/BotsSettingsView.swift`, and beside each screen they touch). It was written on Windows, where Swift can't be compiled, so it has to be built on a Mac, fixed where it doesn't compile, and gone through, before any of it counts as working.
 
 | Stage | What | Shows it works |
 |---|---|---|

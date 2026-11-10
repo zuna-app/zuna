@@ -52,6 +52,8 @@ struct ChatActions {
     var pin: (_ message: MessageView, _ pinned: Bool) -> Void = { _, _ in }
     var delete: (_ message: MessageView) -> Void = { _ in }
     var discard: (_ messageId: String) -> Void = { _ in }
+    /// A press of a button under a bot's message, by its row and its place in it.
+    var press: (_ message: MessageView, _ row: Int, _ column: Int) -> Void = { _, _, _ in }
     /// The full picker, for a reaction that isn't among the quick ones.
     var pickReaction: (_ messageId: String) -> Void = { _ in }
     /// Who in this group has read a message, as far as their read receipts say.
@@ -263,7 +265,10 @@ private struct SystemRow: View {
         let targets = (system.targetIds ?? []).map(name).joined(separator: ", ")
         switch system.type {
         case .groupCreated: return "\(name(system.actorId)) created this group"
-        case .memberAdded: return "\(name(system.actorId)) added \(targets)"
+        case .memberAdded:
+            // The line that says a bot was added names it as one.
+            let added = (system.targetIds ?? []).map { id in server.users[id]?.bot != nil ? "the bot " + name(id) : name(id) }.joined(separator: ", ")
+            return "\(name(system.actorId)) added \(added)"
         case .memberRemoved: return "\(name(system.actorId)) removed \(targets)"
         case .memberLeft: return "\(name(system.actorId)) left the group"
         case .memberRejoined: return "\(name(system.actorId)) rejoined this chat"
@@ -400,6 +405,9 @@ private struct MessageItem: View {
             }
             VStack(alignment: own ? .trailing : .leading, spacing: 3) {
                 bubble
+                if !deleted, !(message.buttons ?? []).isEmpty {
+                    MessageButtonsView(message: message) { row, column in actions.press(message, row, column) }
+                }
                 if message.status == .failed {
                     Button {
                         actions.retry(message.id)
@@ -425,13 +433,16 @@ private struct MessageItem: View {
         let shape = BubbleShape(own: own, grouped: context.grouped, tail: context.lastInGroup && !bare && !onlyMedia && message.status != .failed)
         return VStack(alignment: .leading, spacing: 4) {
             if !own, context.isGroup, !context.grouped, jumbo == 0 {
-                Text(server.users[message.senderId]?.displayName ?? "Unknown")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.nameColor(message.senderId))
-                    .lineLimit(1)
-                    // Pictures alone fill the bubble to its edges, which the name keeps away from.
-                    .padding(.horizontal, onlyMedia || onlyRound ? 12 : 0)
-                    .padding(.top, onlyMedia ? 6 : 0)
+                HStack(spacing: 5) {
+                    Text(server.users[message.senderId]?.displayName ?? "Unknown")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.nameColor(message.senderId))
+                        .lineLimit(1)
+                    if server.users[message.senderId]?.bot != nil { BotBadge() }
+                }
+                // Pictures alone fill the bubble to its edges, which the name keeps away from.
+                .padding(.horizontal, onlyMedia || onlyRound ? 12 : 0)
+                .padding(.top, onlyMedia ? 6 : 0)
             }
             content
         }

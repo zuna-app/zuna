@@ -59,7 +59,7 @@ struct SignedOutView: View {
 /// a tab of their own; on an iPad, which has no tabs, they head this list.
 struct ChatListView: View {
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", channels = "Channels", people = "People", groups = "Groups", unread = "Unread"
+        case all = "All", channels = "Channels", people = "People", bots = "Bots", groups = "Groups", unread = "Unread"
         var id: Self { self }
     }
 
@@ -164,6 +164,9 @@ struct ChatListView: View {
         }
         .onChange(of: model.activeServer.map(showsChannels) ?? false) { _, shows in
             if !shows, filter == .channels { filter = .all }
+        }
+        .onChange(of: model.activeServer.map(showsBots) ?? false) { _, shows in
+            if !shows, filter == .bots { filter = .all }
         }
     }
 
@@ -357,7 +360,8 @@ struct ChatListView: View {
         switch filter {
         case .all: return true
         case .channels: return server.channel(hit.conversationKey) != nil
-        case .people: return conversation?.kind == .dm
+        case .people: return conversation?.kind == .dm && conversation?.bot != true
+        case .bots: return conversation?.bot == true
         case .groups: return conversation?.kind == .group
         case .unread: return conversation.map { $0.unread > 0 || $0.markedUnread } ?? false
         }
@@ -371,12 +375,16 @@ struct ChatListView: View {
                 let username = item.peerId.flatMap { server.users[$0]?.username.lowercased() } ?? ""
                 if !item.title.lowercased().contains(needle), !username.contains(needle) { return false }
             }
+            // A bot nobody has written to yet is in the Bots tab and in a search, and out of the rest:
+            // the list of chats stays the list of chats.
+            let unwritten = item.bot == true && item.groupId == nil && needle.isEmpty
             switch filter {
-            case .all: return true
+            case .all: return !unwritten
             case .channels: return false
-            case .people: return item.kind == .dm
+            case .people: return item.kind == .dm && item.bot != true
+            case .bots: return item.bot == true
             case .groups: return item.kind == .group
-            case .unread: return item.unread > 0 || item.markedUnread
+            case .unread: return (item.unread > 0 || item.markedUnread) && !unwritten
             }
         }
         // Searching looks through hidden conversations too, so nothing gets lost.
@@ -387,8 +395,8 @@ struct ChatListView: View {
 
     private func filterBar(_ server: AppModel.ServerState) -> some View {
         Picker("Show", selection: $filter) {
-            // Channels, when the server has some, as the desktop's tab.
-            ForEach(Filter.allCases.filter { $0 != .channels || showsChannels(server) }) { item in
+            // Channels, when the server has some, as the desktop's tab, and Bots when it has any.
+            ForEach(Filter.allCases.filter { ($0 != .channels || showsChannels(server)) && ($0 != .bots || showsBots(server)) }) { item in
                 Text(item.rawValue).tag(item)
             }
         }
@@ -423,6 +431,11 @@ struct ChatListView: View {
     /// Channels are in this list only beside the open chat on an iPad.
     private func showsChannels(_ server: AppModel.ServerState) -> Bool {
         sidebar && server.showsChannels
+    }
+
+    /// Bots have a tab of their own once there's one to show.
+    private func showsBots(_ server: AppModel.ServerState) -> Bool {
+        server.conversations.contains { $0.bot == true }
     }
 
     private func channelActions(_ server: AppModel.ServerState) -> ChannelListActions {
@@ -539,6 +552,7 @@ private struct ChatRow: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.text1)
                         .lineLimit(1)
+                    if conversation.bot == true { BotBadge() }
                     marks(peer: peer)
                     Spacer(minLength: 6)
                     HStack(spacing: 2) {

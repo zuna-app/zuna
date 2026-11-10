@@ -3,10 +3,11 @@ import ZunaModels
 
 extension AppModel.ServerState {
     /// Who can read a channel, which is everyone on the server, as the desktop lists
-    /// them: those online, and you, first, then the rest, each by name.
+    /// them: those online, and you, first, then the rest, each by name. A bot only reads the
+    /// channels it was given, so bots aren't among them: `Bots.inChat` has a channel's own.
     @MainActor func channelMembers(_ live: LiveState) -> (online: [UserView], offline: [UserView]) {
         let people = users.values
-            .filter { !$0.banned && !$0.deleted }
+            .filter { !$0.banned && !$0.deleted && $0.bot == nil }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         let here = people.filter { live.isOnline($0) || $0.isSelf }
         return (here, people.filter { !live.isOnline($0) && !$0.isSelf })
@@ -19,6 +20,8 @@ extension AppModel.ServerState {
 struct ChannelMemberList: View {
     @Environment(AppModel.self) private var model
     let server: AppModel.ServerState
+    /// The bots in the channel that's open, which stand in a group of their own, without the dot.
+    var bots: [UserView] = []
     let profile: (_ userId: String) -> Void
 
     static let width: CGFloat = 240
@@ -27,6 +30,10 @@ struct ChannelMemberList: View {
         let members = server.channelMembers(model.live(server.entry.id))
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
+                if !bots.isEmpty {
+                    heading("Bots — \(bots.count)")
+                    ForEach(bots) { row($0, online: false, faded: false) }
+                }
                 if !members.online.isEmpty {
                     heading("Online — \(members.online.count)")
                     ForEach(members.online) { row($0, online: true) }
@@ -59,7 +66,7 @@ struct ChannelMemberList: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    private func row(_ user: UserView, online: Bool) -> some View {
+    private func row(_ user: UserView, online: Bool, faded: Bool? = nil) -> some View {
         Button {
             if !user.isSelf { profile(user.id) }
         } label: {
@@ -69,6 +76,7 @@ struct ChannelMemberList: View {
                     .font(.body.weight(.medium))
                     .foregroundStyle(Theme.nameColor(user.id))
                     .lineLimit(1)
+                if user.bot != nil { BotBadge() }
                 if user.role == .owner {
                     Image(systemName: "crown.fill")
                         .font(.caption)
@@ -79,7 +87,7 @@ struct ChannelMemberList: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 42)
-            .opacity(online ? 1 : 0.35)
+            .opacity((faded ?? !online) ? 0.35 : 1)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

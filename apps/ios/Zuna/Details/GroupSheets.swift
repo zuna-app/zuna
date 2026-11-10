@@ -28,7 +28,10 @@ struct PeoplePicker: View {
                             AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: online)
                         }
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(user.displayName).foregroundStyle(Theme.text1)
+                            HStack(spacing: 5) {
+                                Text(user.displayName).foregroundStyle(Theme.text1)
+                                if user.bot != nil { BotBadge() }
+                            }
                             Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)
                         }
                         Spacer()
@@ -57,12 +60,18 @@ struct NewGroupSheet: View {
     @State private var selected: Set<String> = []
     @State private var history = false
     @State private var busy = false
+    /// Asking what adding the bots picked means, before the group is made.
+    @State private var asking = false
 
     var body: some View {
         let server = model.servers[serverId]
         let users = (server?.users.values.map { $0 } ?? [])
             .filter { $0.id != server?.me?.userId && !$0.banned && !$0.deleted }
+            // Of the bots, only the ones this person may add.
+            .filter { user in server.map { Bots.mayAdd(user, in: $0) } ?? false }
             .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        let bots = users.filter { $0.bot != nil && selected.contains($0.id) }
+        let question = Bots.question(bots)
         NavigationStack {
             List {
                 Section("Group name") {
@@ -93,12 +102,18 @@ struct NewGroupSheet: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Button(selected.isEmpty ? "Create" : "Create with \(selected.count + 1) people") { create() }
+                        // A bot among them is asked about first, each time.
+                        Button(selected.isEmpty ? "Create" : "Create with \(selected.count + 1) people") { if bots.isEmpty { create() } else { asking = true } }
                             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier(A11y.Groups.create)
                     }
                 }
             }
+        }
+        .confirmationDialog(question.title, isPresented: $asking, titleVisibility: .visible) {
+            Button(question.action) { create() }
+        } message: {
+            Text(Bots.reads)
         }
     }
 
@@ -126,13 +141,19 @@ struct AddMembersSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String> = []
     @State private var busy = false
+    /// Asking what adding the bots picked means, before they're added.
+    @State private var asking = false
 
     var body: some View {
         let server = model.servers[serverId]
         let memberIds = Set(conversation.members.map(\.userId))
         let users = (server?.users.values.map { $0 } ?? [])
             .filter { !memberIds.contains($0.id) && !$0.banned && !$0.deleted }
+            // Of the bots, only the ones this person may add.
+            .filter { user in server.map { Bots.mayAdd(user, in: $0) } ?? false }
             .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        let bots = users.filter { $0.bot != nil && selected.contains($0.id) }
+        let question = Bots.question(bots)
         NavigationStack {
             List {
                 if conversation.historyVisible {
@@ -159,12 +180,18 @@ struct AddMembersSheet: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Add") { add() }
+                        // A bot among them is asked about first, each time.
+                        Button("Add") { if bots.isEmpty { add() } else { asking = true } }
                             .disabled(selected.isEmpty)
                             .accessibilityIdentifier(A11y.Groups.add)
                     }
                 }
             }
+        }
+        .confirmationDialog(question.title, isPresented: $asking, titleVisibility: .visible) {
+            Button(question.action) { add() }
+        } message: {
+            Text(Bots.reads)
         }
     }
 

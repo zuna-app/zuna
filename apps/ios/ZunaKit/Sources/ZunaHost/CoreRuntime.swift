@@ -40,6 +40,8 @@ public final class CoreRuntime: @unchecked Sendable {
         public var logToStandardError = false
         /// Called on the core's queue when an account signs in, changes its password or signs out.
         public var onAccountEvent: (@Sendable (AccountEvent) -> Void)?
+        /// The app lists a server's bots itself, so the core gives it a chat with a bot nobody has written to yet.
+        public var listsBots = false
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -302,6 +304,9 @@ public final class CoreRuntime: @unchecked Sendable {
         installFiles(into: host)
         network.install(into: host)
         web.install(into: host)
+        if options.listsBots {
+            host.setObject(true, forKeyedSubscript: "listsBots" as NSString)
+        }
         #if DEBUG
         // Turns on the bundle's test hooks (a movable clock, access to the client). Release builds leave them off.
         host.setObject(true, forKeyedSubscript: "testHooks" as NSString)

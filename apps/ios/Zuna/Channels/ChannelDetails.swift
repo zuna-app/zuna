@@ -111,7 +111,7 @@ struct ChannelDetails: View {
                 .listRowBackground(Theme.bg2)
             }
 
-            members(server)
+            members(server, bots: conversation.map { Bots.inChat($0, server) } ?? [])
         }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier(A11y.Channels.details)
@@ -169,8 +169,15 @@ struct ChannelDetails: View {
 
     /// Everyone who can read the channel, which is everyone on the server: online first, then the rest, faded.
     @ViewBuilder
-    private func members(_ server: AppModel.ServerState) -> some View {
+    private func members(_ server: AppModel.ServerState, bots: [UserView]) -> some View {
         let (online, offline) = server.channelMembers(model.live(server.entry.id))
+        // A bot only reads the channels it was given, so the ones here stand by themselves.
+        if !bots.isEmpty {
+            Section("Bots — \(bots.count)") {
+                ForEach(bots) { member($0, server: server) }
+            }
+            .listRowBackground(Theme.bg2)
+        }
         if !online.isEmpty {
             Section("Online — \(online.count)") {
                 ForEach(online) { member($0, server: server) }
@@ -197,6 +204,7 @@ struct ChannelDetails: View {
                     .font(.body.weight(.medium))
                     .foregroundStyle(Theme.nameColor(user.id))
                     .lineLimit(1)
+                if user.bot != nil { BotBadge() }
                 if user.role == .owner {
                     Image(systemName: "crown.fill")
                         .font(.caption)

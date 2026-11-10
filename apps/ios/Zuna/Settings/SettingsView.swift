@@ -77,6 +77,11 @@ struct SettingsView: View {
                                 SettingsLabel("Server settings", systemImage: "server.rack", color: Color(hex: 0x5F6775))
                             }
                             .accessibilityIdentifier(A11y.Settings.server)
+                        } else if BotsSettingsView.shows(server) {
+                            // Someone who isn't an admin has their own bots here, where the server lets them make any.
+                            NavigationLink { BotsSettingsView(serverId: server.entry.id) } label: {
+                                SettingsLabel("Bots", systemImage: "cpu", color: Color(hex: 0x5F6775))
+                            }
                         }
                         Button(role: .destructive) {
                             confirmingSignOut = true

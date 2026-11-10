@@ -151,6 +151,8 @@ final class CoreController {
         options.onAccountEvent = { event in
             Self.updateLock(in: directory, deviceKey: key, with: event)
         }
+        // The chat list has a tab for bots, where one nobody has written to yet is found.
+        options.listsBots = true
         #if DEBUG
         options.logToStandardError = true
         #endif

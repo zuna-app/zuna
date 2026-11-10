@@ -338,6 +338,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             pin: { [weak self] in self?.input?.actions.pin($0, $1) },
             delete: { [weak self] in self?.input?.actions.delete($0) },
             discard: { [weak self] in self?.input?.actions.discard($0) },
+            press: { [weak self] in self?.input?.actions.press($0, $1, $2) },
             pickReaction: { [weak self] in self?.input?.actions.pickReaction($0) },
             readers: { [weak self] in self?.input?.actions.readers($0) ?? [] },
             reactedBy: { [weak self] in self?.input?.actions.reactedBy($0) ?? "" },

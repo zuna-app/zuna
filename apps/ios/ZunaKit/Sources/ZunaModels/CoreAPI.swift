@@ -153,6 +153,8 @@ public struct SessionCalls: Sendable {
     public func toggleReaction(_ groupId: String, messageId: String, key: String, emote: EmoteRef? = nil) async throws {
         try await run("toggleReaction", emote.map { [groupId, messageId, key, $0] } ?? [groupId, messageId, key])
     }
+    /// Presses a button under a bot's message, by its row and its place in it. The press goes to the whole chat and is shown nowhere.
+    public func pressButton(_ groupId: String, messageId: String, row: Int, column: Int) async throws { try await run("pressButton", [groupId, messageId, row, column]) }
     public func sendTyping(_ groupId: String) async throws { try await run("sendTyping", [groupId]) }
     public func markRead(_ groupId: String, seq: Int) async throws { try await run("markRead", [groupId, seq]) }
     /// Has the server wake this device through a push relay for new messages, or stops it with nil.
@@ -314,6 +316,30 @@ public struct SessionCalls: Sendable {
     /// Changes only the fields that are set.
     public func updateServerSettings(_ changes: ServerSettingsChanges) async throws { try await run("updateServerSettings", [changes]) }
 
+    // MARK: Bots
+
+    /// The bots this person may manage: their own, and for a server admin the listed ones.
+    public func getBots() async throws -> [BotView] { try await call("getBots") }
+    /// Makes a bot, and the link its program is set up with, which works once, for an hour, and is only given here.
+    public func createBot(_ bot: NewBot) async throws -> CreatedBot { try await call("createBot", [bot]) }
+    /// A new setup link for a bot that hasn't been set up, which ends the one before.
+    public func newBotLink(_ botId: String) async throws -> String { try await call("newBotLink", [botId]) }
+    /// Changes only the fields that are set.
+    public func updateBot(_ botId: String, _ changes: BotChanges) async throws { try await run("updateBot", [botId, changes]) }
+    /// Asks a bot to change its name, description and picture, in its owner's chat with it. The bot does when it's running.
+    public func updateBotProfile(_ botId: String, _ changes: ProfileChanges, avatar: AvatarChange = .unchanged) async throws {
+        let avatarArgument: any Encodable & Sendable = switch avatar {
+        case .unchanged: Absent()
+        case .removed: Optional<WireFile>.none
+        case let .set(file): file
+        }
+        try await run("updateBotProfile", [botId, changes, avatarArgument])
+    }
+    /// Deletes a bot for good, taking it out of all its chats.
+    public func deleteBot(_ botId: String) async throws { try await run("deleteBot", [botId]) }
+    /// The channels a listed bot is given, by a server admin: the only ones it joins.
+    public func setBotChannels(_ botId: String, channelIds: [String]) async throws { try await run("setBotChannels", [botId, channelIds]) }
+
     // MARK: Files
 
     /// Decrypts an attachment or avatar into the app's protected cache.
@@ -331,14 +357,18 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
     public var maxUploadMb: Int?
     public var retentionDays: Int?
     public var screenShare: ScreenRules?
+    public var allowMemberBots: Bool?
+    public var maxBots: Int?
 
-    public init(name: String? = nil, registration: String? = nil, allowMemberInvites: Bool? = nil, maxUploadMb: Int? = nil, retentionDays: Int? = nil, screenShare: ScreenRules? = nil) {
+    public init(name: String? = nil, registration: String? = nil, allowMemberInvites: Bool? = nil, maxUploadMb: Int? = nil, retentionDays: Int? = nil, screenShare: ScreenRules? = nil, allowMemberBots: Bool? = nil, maxBots: Int? = nil) {
         self.name = name
         self.registration = registration
         self.allowMemberInvites = allowMemberInvites
         self.maxUploadMb = maxUploadMb
         self.retentionDays = retentionDays
         self.screenShare = screenShare
+        self.allowMemberBots = allowMemberBots
+        self.maxBots = maxBots
     }
 
     enum CodingKeys: String, CodingKey {
@@ -347,6 +377,44 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
         case maxUploadMb = "max_upload_mb"
         case retentionDays = "retention_days"
         case screenShare = "screen_share"
+        case allowMemberBots = "allow_member_bots"
+        case maxBots = "max_bots"
+    }
+}
+
+/// A bot to make: its username and name, whether everyone sees it, who may add it to groups, and whether it may send files.
+public struct NewBot: Codable, Sendable, Equatable {
+    public var username: String
+    public var name: String
+    public var listed: Bool
+    public var add: BotAdd
+    public var files: Bool
+
+    public init(username: String, name: String, listed: Bool, add: BotAdd, files: Bool) {
+        self.username = username
+        self.name = name
+        self.listed = listed
+        self.add = add
+        self.files = files
+    }
+}
+
+/// A bot just made, with the link its program is set up with.
+public struct CreatedBot: Codable, Sendable, Equatable {
+    public var bot: BotView
+    public var link: String
+}
+
+/// What a bot's owner can change about it; nil fields stay as they are.
+public struct BotChanges: Codable, Sendable, Equatable {
+    public var listed: Bool?
+    public var add: BotAdd?
+    public var files: Bool?
+
+    public init(listed: Bool? = nil, add: BotAdd? = nil, files: Bool? = nil) {
+        self.listed = listed
+        self.add = add
+        self.files = files
     }
 }
 

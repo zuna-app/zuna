@@ -11,7 +11,7 @@ enum Keyboard {
 
 /// Writing a message, laid out like Telegram's: attach, the text growing up to
 /// six lines with the emoji button inside, and send. Above it: the message
-/// being answered or edited, files to send, and suggestions for `@` and `:`.
+/// being answered or edited, files to send, and suggestions for `@`, `:` and the `/` commands of the chat's bots.
 struct Composer: View {
     let serverId: String
     let conversation: ConversationView
@@ -731,12 +731,19 @@ struct Composer: View {
     /// Compiled once: `trigger` is read several times for each key typed.
     private static let triggerPattern = try! NSRegularExpression(pattern: #"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$"#)
 
-    /// `:name` for emotes, from the `:` on, and `@name` for people, just before the caret.
+    /// Compiled once, as `triggerPattern` is.
+    private static let commandPattern = try! NSRegularExpression(pattern: #"^/([A-Za-z0-9_]{0,32})$"#)
+
+    /// `:name` for emotes, from the `:` on, and `@name` for people, just before the caret, or the
+    /// `/` at the very start, for the commands of the bots in this chat.
     private var trigger: (kind: Character, query: String, start: Int, end: Int)? {
         let current = state.text
         let end = caretOffset ?? current.utf16.count
         let before = String(current.utf16.prefix(end)) ?? current
         let ns = before as NSString
+        if let command = Self.commandPattern.firstMatch(in: before, range: NSRange(location: 0, length: ns.length)) {
+            return (Character("/"), ns.substring(with: command.range(at: 1)).lowercased(), 0, end)
+        }
         guard let match = Self.triggerPattern.firstMatch(in: before, range: NSRange(location: 0, length: ns.length)) else { return nil }
         let kind = Character(ns.substring(with: match.range(at: 1)))
         let query = ns.substring(with: match.range(at: 2))
@@ -753,6 +760,12 @@ struct Composer: View {
 
     private var suggestions: [Suggestion] {
         guard let trigger else { return [] }
+        if trigger.kind == "/" {
+            // Whose a command is shows by its picture, and is written after it where more than one bot could answer.
+            return Bots.commands(in: conversation, server, typed: trigger.query).prefix(Self.maxSuggestions).map {
+                Suggestion(id: $0.id, label: "/" + $0.command.command, hint: $0.command.description, insert: $0.insert, emote: nil, user: $0.bot)
+            }
+        }
         if trigger.kind == ":" {
             let all = server.emotes.emotes
             if trigger.query.isEmpty {

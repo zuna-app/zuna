@@ -109,6 +109,9 @@ struct ServerSettingsView: View {
                 Section("Storage") {
                     NavigationLink("Files and retention") { StorageView(serverId: serverId) }
                 }
+                Section("Bots") {
+                    NavigationLink("Bots") { BotsSettingsView(serverId: serverId) }
+                }
             }
         }
         .listRowBackground(Theme.bg2)
@@ -178,7 +181,10 @@ struct ServerMembersView: View {
                         AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: online)
                     }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(user.displayName).foregroundStyle(Theme.text1)
+                        HStack(spacing: 5) {
+                            Text(user.displayName).foregroundStyle(Theme.text1)
+                            if user.bot != nil { BotBadge() }
+                        }
                         Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)
                     }
                     Spacer()
@@ -198,7 +204,8 @@ struct ServerMembersView: View {
         .navigationTitle("Members")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(target?.displayName ?? "", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }), presenting: target) { user in
-            if selfRole == .owner {
+            // A bot is never one of the server's admins.
+            if selfRole == .owner, user.bot == nil {
                 Button(user.role == .admin ? "Remove admin" : "Make admin") {
                     run { try await model.core.session(serverId).setServerRole(user.id, role: user.role == .admin ? .member : .admin) }
                 }
