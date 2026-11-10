@@ -1,6 +1,6 @@
 # Key transparency: plan
 
-**Status:** a plan, written on 2026-11-11 against commit `9b4d8fed`. Nothing here is built, and nobody independent has reviewed it. Section 12 is what a reviewer and the owner should look at first.
+**Status:** a plan, written on 2026-11-11 against commit `9b4d8fed`. Nothing here is built, and nobody independent has reviewed it. The owner made section 12's decisions the same day, each as the plan had assumed. Its questions for a reviewer are open, and are what a reviewer should look at first.
 
 **Scope:** which keys and devices each account on a server has. Today that's whatever the server says, held to the signatures it can't forge. This plan makes it a record the server can't change afterwards, can't show differently to different people without leaving proof, and that every account's own devices read.
 
@@ -268,7 +268,7 @@ Each stage ships on its own and leaves things working. Nothing is kept for older
 
 ### Stage 0: decisions and review
 
-This document, and answers to section 12.
+This document, and answers to section 12. The owner's are in. A reviewer's aren't, and whether building waits for them is the owner's to say.
 
 ### Stage 1: the server keeps the log
 
@@ -386,16 +386,16 @@ For `CLAUDE.md`, once Stage 1 is in:
 6. **Commits.** Should a commit that adds a device name the head its entry is under, so that nobody is ever told "not yet" by a server that's holding the log back from them?
 7. **Bodies as exact JSON bytes,** as certificates and links are signed. Anything to gain from a binary format here?
 
-### For the owner
+### What the owner chose
 
-Each has what this plan assumes, and is the owner's to change.
+Decided on 2026-11-11, each as this plan had assumed. Each is still the owner's to change.
 
-1. **Every device reads the whole log** (5.1). Assumed, since every device already reads the whole list of people. The other way is section 9's, at several times the work.
-2. **Usernames are in the log** (row 8 of section 3). Assumed. Without it the log ties keys to an ID nobody ever sees.
-3. **Invite links grow by about a hundred characters** (5.8). Assumed, as it's the one thing here that prevents and doesn't only find out. Without it, someone joining takes the server's first answer on trust.
-4. **New warnings in the existing place** (section 7). They ask for nothing, but they're messages people didn't get before.
-5. **Private bots show as records about nobody** (5.3). Assumed acceptable. The other way is a second log for them alone, which only their owners would read.
-6. **Restoring a backup takes a flag, and tells everyone once** (5.10). The other way is devices warning for good.
+1. **Every device reads the whole log** (5.1), since every device already reads the whole list of people. Turned down: proofs on request, section 9's way, at several times the work.
+2. **Usernames are in the log** (row 8 of section 3). Turned down: the account's ID alone, which ties keys to something nobody ever sees.
+3. **Invite links carry the log key and the inviter's head,** about a hundred characters more (5.8), as it's the one thing here that prevents and doesn't only find out. Turned down: the key alone, and a link left as it is, where someone joining takes the server's first answer on trust.
+4. **All of section 5.9's warnings are shown,** in the existing place, the milder one a member can cause included. They ask for nothing, but they're messages people didn't get before. Turned down: only the proven ones, which would leave a server that gave someone another log key unnoticed.
+5. **Private bots show as records about nobody** (5.3), with what that leaks. Turned down: a second log for them alone, and leaving them out of the log.
+6. **Restoring a backup takes a flag, and tells everyone once** (5.10). Turned down: no eras, with devices warning for good.
 
 ## Appendix A: formats
 
