@@ -26,7 +26,7 @@ export async function startWebApp(options: { name: string; speech?: string }): P
   const bin = mkdtempSync(join(tmpdir(), "zuna-e2e-web-"));
   const host = join(bin, "zuna-web");
   try {
-    execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", host, "./cmd/zuna-web"], {
+    execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", host, "./cmd/zuna-web"], {
       cwd: join(root, "server"),
       env: { ...process.env, PATH: [...goBin, process.env.PATH ?? ""].join(delimiter) },
       stdio: "inherit",

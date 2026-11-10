@@ -34,7 +34,7 @@ const goEnv = { ...process.env, PATH: [...goBin, process.env.PATH ?? process.env
 const exe = process.platform === "win32" ? ".exe" : "";
 const bin = mkdtempSync(join(tmpdir(), "zuna-web-bin-"));
 for (const name of ["zuna-server", "zuna-web"]) {
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", join(bin, name + exe), `./cmd/${name}`], { cwd: join(root, "server"), env: goEnv, stdio: "inherit" });
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", join(bin, name + exe), `./cmd/${name}`], { cwd: join(root, "server"), env: goEnv, stdio: "inherit" });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

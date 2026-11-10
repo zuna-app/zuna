@@ -38,7 +38,7 @@ export function build() {
   }
   execFileSync(process.execPath, [join(root, "scripts", "macos-app.mjs"), "bundle", "--test-control"], { stdio: "inherit", cwd: root });
   const server = join(tmpdir(), "zuna-mac-check-server");
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
   return { server };
 }
 

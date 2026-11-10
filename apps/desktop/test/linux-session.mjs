@@ -39,9 +39,9 @@ export async function outside(script) {
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
   const server = join(tmpdir(), "zuna-linux-check-server");
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
   const webHost = join(tmpdir(), "zuna-linux-check-web");
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", webHost, "./cmd/zuna-web"], { stdio: "inherit", cwd: join(root, "server") });
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", webHost, "./cmd/zuna-web"], { stdio: "inherit", cwd: join(root, "server") });
   // Each run is marked, as what the session bus starts for the portals outlives it.
   const run = `${process.pid}-${Date.now()}`;
   // Folders of its own, given to the session bus itself, so that everything it starts, the

@@ -9,7 +9,7 @@ import { devData, devServerRunning, devWorldFile, ensureBuilt, env, root, run } 
 ensureBuilt();
 
 const binary = join(devData, "bin", `zuna-web${process.platform === "win32" ? ".exe" : ""}`);
-run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-web"], { cwd: join(root, "server") });
+run("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", binary, "./cmd/zuna-web"], { cwd: join(root, "server") });
 
 const appEnv = { ...env };
 if (existsSync(devWorldFile)) {

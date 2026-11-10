@@ -12,7 +12,7 @@ const goBin = [join(process.env.LOCALAPPDATA ?? "", "Programs", "go", "bin"), jo
 /** Built without debug symbols, which Windows Defender takes for a trojan's. */
 export function buildServer(): string {
   const out = join(tmpdir(), `zuna-test-server${process.platform === "win32" ? ".exe" : ""}`);
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", out, "./cmd/zuna-server"], {
+  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", out, "./cmd/zuna-server"], {
     cwd: join(root, "server"),
     env: { ...process.env, PATH: [...goBin, process.env.PATH ?? process.env.Path ?? ""].join(delimiter) },
     stdio: "inherit",

@@ -103,7 +103,7 @@ export function ensureLiveKit() {
   const source = join(devData, "livekit-src");
   rmSync(source, { recursive: true, force: true });
   run("git", ["clone", "--quiet", "--depth", "1", "--branch", LIVEKIT_TAG, "https://github.com/livekit/livekit", source]);
-  run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/server"], { cwd: source });
+  run("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", binary, "./cmd/server"], { cwd: source });
   rmSync(source, { recursive: true, force: true });
   writeFileSync(stamp, LIVEKIT_TAG);
   return binary;
@@ -137,7 +137,7 @@ export function goBuildAll(pkg, outDir, prefix) {
   const version = process.env.ZUNA_VERSION ?? "dev";
   for (const [goos, goarch] of GO_TARGETS) {
     const name = `${prefix}-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;
-    run("go", ["build", "-trimpath", "-ldflags", `-s -w -X main.version=${version}`, "-o", join(outDir, name), pkg], {
+    run("go", ["build", "-trimpath", "-ldflags", `-s -w -buildid= -X main.version=${version}`, "-o", join(outDir, name), pkg], {
       cwd: join(root, "server"),
       env: { ...env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: "0" },
     });
