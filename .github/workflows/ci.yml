@@ -206,14 +206,14 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:12
     timeout-minutes: 60
+    env:
+      CC: clang-21
+      CXX: clang++-21
+      LIBCLANG_PATH: /usr/lib/llvm-21/lib
     steps:
-      - name: Install what the build needs
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd unzip build-essential cmake clang libclang-dev pkg-config \
-            libxkbcommon-dev libwayland-dev libfontconfig-dev libfreetype-dev libpipewire-0.3-dev libglib2.0-dev libva-dev libdrm-dev libgbm-dev libegl-dev libdbus-1-dev \
-            desktop-file-utils squashfs-tools
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # What the build links or reads headers of, what makes the packages, and clang 21.
+      - run: sh scripts/linux-build-deps.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
