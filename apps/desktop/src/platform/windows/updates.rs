@@ -25,9 +25,9 @@ pub fn installed(exe: &Path) -> bool {
 pub fn download(client: &reqwest::Client, url: &str, to: &Path, size: u64) -> Result<(), String> {
     let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
     crate::host::tokio().block_on(async {
-        let mut response = client.get(url).send().await.and_then(|response| response.error_for_status()).map_err(|error| error.to_string())?;
+        let mut response = client.get(url).send().await.and_then(|response| response.error_for_status()).map_err(crate::platform::updates::problem)?;
         let mut written = 0u64;
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        while let Some(chunk) = response.chunk().await.map_err(crate::platform::updates::problem)? {
             written += chunk.len() as u64;
             if written > size {
                 return Err(format!("{url} is larger than its manifest says"));

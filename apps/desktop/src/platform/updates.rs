@@ -391,6 +391,8 @@ pub fn status_line(updates: &Updates, now: SystemTime) -> String {
     }
     match (&updates.problem, updates.checked) {
         (Some(problem), _) => format!("Couldn't check for updates: {problem}"),
+        // A release is out that this app won't take, which is worth a person's knowing.
+        (None, Some(_)) if updates.refused.is_some() => format!("The newest release wasn't taken: {}", updates.refused.as_deref().unwrap_or_default()),
         (None, Some(checked)) => format!("Up to date, checked {}", ago(checked, now)),
         (None, None) => "Not checked yet".into(),
     }
@@ -420,6 +422,8 @@ pub fn check_now() {}
 #[cfg(not(windows))]
 pub fn follow(_channel: Channel) {}
 
+#[cfg(windows)]
+pub(in crate::platform) use self::running::problem;
 #[cfg(windows)]
 pub use self::running::{check_now, follow, install, install_on_quit, start};
 
@@ -586,15 +590,25 @@ mod running {
             .map_err(|error| error.to_string())
     }
 
+    /// What went wrong with a request, in words for Settings. The whole of it goes to the log.
+    pub(in crate::platform) fn problem(error: reqwest::Error) -> String {
+        log::warn!("updates: {error:?}");
+        match error.status() {
+            Some(status) => format!("GitHub answered {}", status.as_u16()),
+            None if error.is_timeout() => "the connection timed out".into(),
+            None => "no connection to GitHub".into(),
+        }
+    }
+
     /// Something small from the releases, or nothing where there's none (404).
     fn get(client: &reqwest::Client, url: &str, limit: usize) -> Result<Option<Vec<u8>>, String> {
         let bytes = crate::host::tokio().block_on(async {
-            let response = client.get(url).header("Accept", "application/vnd.github+json").send().await.map_err(|error| error.to_string())?;
+            let response = client.get(url).header("Accept", "application/vnd.github+json").send().await.map_err(problem)?;
             if response.status() == reqwest::StatusCode::NOT_FOUND {
                 return Ok(None);
             }
-            let response = response.error_for_status().map_err(|error| error.to_string())?;
-            response.bytes().await.map(Some).map_err(|error| error.to_string())
+            let response = response.error_for_status().map_err(problem)?;
+            response.bytes().await.map(Some).map_err(problem)
         })?;
         match bytes {
             Some(bytes) if bytes.len() > limit => Err(format!("{url} answered with more than expected")),
@@ -920,6 +934,9 @@ mod tests {
         assert_eq!(status_line(&updates, now), "Up to date, checked just now");
         updates.checked = Some(ago_minutes(200));
         assert_eq!(status_line(&updates, now), "Up to date, checked 3 hours ago");
+        updates.refused = Some("its manifest isn't signed with one of Zuna's keys".into());
+        assert_eq!(status_line(&updates, now), "The newest release wasn't taken: its manifest isn't signed with one of Zuna's keys");
+        updates.refused = None;
         updates.problem = Some("no connection".into());
         assert_eq!(status_line(&updates, now), "Couldn't check for updates: no connection");
         updates.not_installed = Some("0.12.0".into());
