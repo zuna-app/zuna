@@ -1,4 +1,4 @@
-// Sealed sender (docs/SEALED_SENDER_PLAN.md): each test is an attack on it or a promise it
+// Sealed sender (docs/SEALED_SENDER.md): each test is an attack on it or a promise it
 // makes, driving real clients against a real server.
 
 import * as wasm from "@zuna/crypto";
@@ -68,6 +68,24 @@ describe("the send key", () => {
     await waitFor(async () => (await heldSendKey(ann, groupId)).epoch === before.epoch, "it to be undone", 20_000);
     expect(equalBytes((await heldSendKey(ann, groupId)).key, before.key)).toBe(true);
     await sentAndSeen(bob, [ann, cat], groupId, "after the undoing");
+  });
+});
+
+describe("an old epoch", () => {
+  it("is renewed as its group is synced, so sending a message needn't commit just before it", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    await sentAndSeen(ann, [bob], groupId, "a week ago");
+    const before = await heldSendKey(ann, groupId);
+    // A week on, as ann's device sees it.
+    sessionOf(ann).db.run("UPDATE epoch_keys SET created_at = ? WHERE group_id = ?", [Date.now() - 8 * 24 * 3600 * 1000, groupId]);
+    await ann.session.syncGroup(groupId);
+    await waitFor(async () => (await heldSendKey(ann, groupId)).epoch > before.epoch, "the sync to renew it", 20_000);
+    const renewed = (await heldSendKey(ann, groupId)).epoch;
+    await waitFor(() => sessionOf(ann).mlsEpoch(groupId) === renewed, "ann to be at the new epoch");
+    await sentAndSeen(ann, [bob], groupId, "today");
+    expect((await heldSendKey(ann, groupId)).epoch).toBe(renewed);
   });
 });
 

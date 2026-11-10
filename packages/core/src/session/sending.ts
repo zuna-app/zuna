@@ -417,14 +417,29 @@ export abstract class SessionSending extends SessionConversations {
     throw new Error("Couldn't catch up with this conversation. Please try again.");
   }
 
+  /**
+   * Renews a group's keys once its epoch is a week old, or this device's leaf still has an
+   * older certificate. Syncing does it (`reconcile`), so sending rarely has to.
+   */
   protected async rotateIfOld(groupId: string): Promise<void> {
+    if (!this.needsRotating(groupId)) return;
+    const nobodyNeeded = new Error("no longer needed");
+    await this.commitWithRetry(groupId, async () => {
+      // Someone else may have renewed it while this one caught up.
+      if (!this.needsRotating(groupId)) throw nobodyNeeded;
+      return { kind: "update" };
+    }).catch((error) => {
+      if (error !== nobodyNeeded) throw error;
+    });
+  }
+
+  protected needsRotating(groupId: string): boolean {
     const epoch = this.mlsEpoch(groupId);
     const row = this.db.get<{ created_at: number }>("SELECT created_at FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
     // A leaf with an older certificate gets the new one in any commit, and that's
     // how everyone sharing this group finds out about a rotation the server may be keeping from them.
     const old = !!row && Date.now() - row.created_at >= EPOCH_MAX_AGE_MS;
-    if (!old && !this.leafIsBehind(groupId)) return;
-    await this.commitWithRetry(groupId, async () => ({ kind: "update" }));
+    return old || this.leafIsBehind(groupId);
   }
 
   protected leafIsBehind(groupId: string): boolean {

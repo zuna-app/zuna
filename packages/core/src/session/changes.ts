@@ -668,6 +668,13 @@ export abstract class SessionChanges extends SessionJoining {
     if (this.stopped || this.groups.get(groupId)?.removedAt || !this.hasMlsGroup(groupId)) return;
     await this.learnTreeUsers(groupId);
     await this.takeOverIfNoAdmin(groupId);
+    await this.removeStaleLeaves(groupId);
+    // An old epoch is renewed as the group is synced, by whoever's wait ends first, rather
+    // than just before something is sent, where a commit would say who sent what came next.
+    if (!this.groups.get(groupId)?.doubtful) await this.rotateIfOld(groupId);
+  }
+
+  protected async removeStaleLeaves(groupId: string): Promise<void> {
     if ((await this.staleLeaves(groupId)).length === 0) return;
     // What's known about the roster may be behind, so ask before removing anyone.
     this.applyGroup(await this.api.group(groupId));

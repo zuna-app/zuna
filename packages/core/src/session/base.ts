@@ -260,6 +260,7 @@ export abstract class SessionBase {
   protected abstract compareTokenKeys(tag: { p: number; h: string }, from: string): void;
   protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
   protected abstract staleLeaves(groupId: string): Promise<number[]>;
+  protected abstract rotateIfOld(groupId: string): Promise<void>;
   protected abstract onFrame(frame: SocketFrame): void;
   protected abstract rescheduleAffectedByDeviceChange(userId: string): void;
   protected abstract ingest(message: ApiMessage, live: boolean): void;
