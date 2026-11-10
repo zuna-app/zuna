@@ -384,6 +384,26 @@ func setGroupInfo(ctx context.Context, tx handle, groupID string, info, sendKey 
 // SendKeyLen is how long a send key's public half is: an Ed25519 key's.
 const SendKeyLen = 32
 
+// A send key is every device's in its epoch's tree, and a device leaves the tree only
+// by a commit. One that goes any other way, with its person leaving or being banned, or
+// by being signed out, still makes the key until a member's commit takes its leaf out.
+// So the server forgets the key there and then, and takes nothing sealed for the group
+// until that commit gives it the next epoch's, which the device that went can't make.
+
+// voidSendKey forgets a group's send key, as someone leaves it without a commit.
+func voidSendKey(ctx context.Context, tx handle, groupID string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE group_infos SET send_key = NULL WHERE group_id = ?`, groupID)
+	return err
+}
+
+// voidSendKeysOf forgets the send keys of every group someone is in, as one of their
+// devices goes, or all of them do.
+func voidSendKeysOf(ctx context.Context, tx handle, userID string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE group_infos SET send_key = NULL
+		WHERE group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)`, userID)
+	return err
+}
+
 // GroupInfo returns the latest published MLS GroupInfo, used for external joins.
 func (d *DB) GroupInfo(ctx context.Context, groupID string) ([]byte, int64, error) {
 	var info []byte

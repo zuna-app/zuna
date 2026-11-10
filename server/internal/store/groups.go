@@ -363,6 +363,10 @@ func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
 		}
+		// Their devices still make this epoch's send key, until a commit takes them out.
+		if err := voidSendKey(ctx, tx, groupID); err != nil {
+			return err
+		}
 		var epoch int64
 		if err := tx.QueryRowContext(ctx, `SELECT epoch FROM groups WHERE id = ?`, groupID).Scan(&epoch); err != nil {
 			return err

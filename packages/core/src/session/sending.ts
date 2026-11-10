@@ -390,6 +390,7 @@ export abstract class SessionSending extends SessionConversations {
    * with another token if one was spent already, as one used on a request that never answered may be.
    */
   protected async sealAndRetry(groupId: string, send: (epoch: number, key: Uint8Array) => Promise<void>): Promise<void> {
+    let unsealed = false;
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       this.refuseDoubtful(groupId);
       if (!this.hasMlsGroup(groupId)) await this.ensureReady(groupId);
@@ -406,9 +407,19 @@ export abstract class SessionSending extends SessionConversations {
         }
         if (error instanceof ApiError && (error.code === "token_spent" || error.code === "token_invalid")) continue;
         if (error instanceof ApiError && error.code === "not_sealed") {
-          // The server holds a send key for this epoch that isn't the one its members make. A
-          // member puts it right with a commit (`checkSendKey`); this goes once that's in.
+          // The server holds no send key for this epoch that its members make. It forgets the key
+          // when someone leaves, is banned or signs a device out, as their device still makes it
+          // until a commit takes it out of the tree. With who's in the group read again, the next
+          // turn takes out whoever went (`ensureTreeClean`), and that commit carries the next key.
           this.applyGroup(await this.api.group(groupId));
+          if (!unsealed) {
+            unsealed = true;
+            // The tree was clean for who was in the group before, which says nothing of who is now.
+            this.cleanEpochs.delete(groupId);
+            continue;
+          }
+          // Nobody to take out, so whoever made the epoch gave a wrong key, or the server changed
+          // it. A member puts it right with a commit (`checkSendKey`); this goes once that's in.
           throw new ApiError(0, "not_sealed", "This conversation's keys are being put right. This will go once they are.");
         }
         throw error;

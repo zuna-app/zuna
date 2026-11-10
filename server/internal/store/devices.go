@@ -69,6 +69,10 @@ func revokeDevice(ctx context.Context, tx handle, userID, deviceID string, now i
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	// It still makes the send key of every group it's in, until a commit takes it out.
+	if err := voidSendKeysOf(ctx, tx, userID); err != nil {
+		return err
+	}
 	// Devices are never deleted, only revoked, so the cascade on welcomes never comes.
 	for _, table := range []string{"sessions", "key_packages", "push_registrations", "account_bundles", "welcomes"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {

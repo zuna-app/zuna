@@ -433,6 +433,10 @@ func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
 			return err
 		}
+		// Their devices still make the send key of any group they're left in, until a commit takes them out.
+		if err := voidSendKeysOf(ctx, tx, userID); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
 			return err
 		}
@@ -544,6 +548,10 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			return err
 		}
 		now := Now()
+		// Their devices still make the send key of any group they're left in, until a commit takes them out.
+		if err := voidSendKeysOf(ctx, tx, userID); err != nil {
+			return err
+		}
 		// No username has a colon, so nobody can sign up as what this one is now.
 		empty := []byte{}
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET username = '', username_key = ?, role = 'member',

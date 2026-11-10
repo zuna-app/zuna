@@ -217,7 +217,9 @@ func TestPushesStopWhenTheDeviceSignsOut(t *testing.T) {
 	relay.next(t)
 
 	h.mustDo("POST", "/api/auth/logout", bob.token, nil, nil)
-	owner.send(group.ID, 1, store.NewID())
+	// The device that went still makes the epoch's send key, so a commit comes before anything else.
+	owner.commit(group.ID, 1, nil)
+	owner.send(group.ID, 2, store.NewID())
 	relay.none(t)
 	if targets, _ := h.db.PushTargets(context.Background(), group.ID, false); len(targets) != 0 {
 		t.Fatalf("a signed-out device is still registered: %+v", targets)

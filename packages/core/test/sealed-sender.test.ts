@@ -207,6 +207,35 @@ describe("who may write", () => {
     await expect(apiOf(cat).sealedSend(groupId, at(old.epoch + 1), message)).rejects.toMatchObject({ code: "not_sealed" });
   });
 
+  it("isn't someone who left or was banned, with the key their device still makes until a commit takes it out", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const cat = await person("cat");
+    const dan = await person("dan");
+    const groupId = await groupWith(ann, [bob, cat, dan]);
+    const first = await sentAndSeen(ann, [bob, cat, dan], groupId, "before");
+    const refused = async (gone: TestApp, go: () => Promise<unknown>) => {
+      // What their device holds as they go: the epoch's key, a message under it, and a token to pay with.
+      const held = sessionOf(gone).sendKey(groupId);
+      const message = await sealedMessage(gone, groupId, sessionOf(gone).signedBody({ text: "after going" }));
+      const token = await sessionOf(gone).takeToken(message.envelope.length);
+      const api = apiOf(gone);
+      await go();
+      // The server forgot the key as they went, or a member's commit has moved the epoch on already.
+      await expect(api.sealedSend(groupId, { epoch: held.epoch, secret: held.secret, token }, message)).rejects.toMatchObject({ code: expect.stringMatching(/^(not_sealed|stale_epoch)$/) });
+    };
+    // A changed app leaves by the server alone, and keeps everything it holds.
+    await refused(cat, () => apiOf(cat).leaveGroup(groupId));
+    // Those who stay go on at once: with a reaction, which has no outbox to go again from, and a message.
+    await bob.session.toggleReaction(groupId, first, "👍");
+    await sentAndSeen(ann, [bob, dan], groupId, "without cat");
+    await refused(dan, () => alice.session.banUser(dan.userId));
+    await sentAndSeen(bob, [ann], groupId, "without dan");
+    await waitFor(async () => (await ann.session.messageById(groupId, first))?.reactions.length === 1, "the reaction");
+    expect(ann.texts(`group:${groupId}`)).not.toContain("after going");
+    expect(bob.texts(`group:${groupId}`)).not.toContain("after going");
+  });
+
   it("isn't someone on the server outside the group, with tokens of their own", async () => {
     const ann = await person("ann");
     const bob = await person("bob");
