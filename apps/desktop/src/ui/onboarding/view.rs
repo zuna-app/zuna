@@ -457,5 +457,6 @@ impl Render for Onboarding {
                 120,
             ))
             .child(scrollbar("onboarding", Scrolls::Div(scroll_handle("onboarding"))))
+            .reveals_focus(&scroll_handle("onboarding"))
     }
 }

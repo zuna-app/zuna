@@ -210,6 +210,12 @@ impl Element for TextElement {
                 y += line_height;
             }
         }
+        if input.reveal {
+            self.input.update(cx, |input, _| input.reveal = false);
+            if crate::ui::scrollbar::reveal(bounds) {
+                window.request_animation_frame();
+            }
+        }
         PrepaintState { lines: std::mem::take(&mut probe.lines), cursor, selections, line_height, scroll_x }
     }
 
@@ -287,5 +293,6 @@ pub(super) fn clone_for_probe(input: &TextInput) -> TextInput {
         blinking: false,
         accepts_files: input.accepts_files,
         suggesting: input.suggesting,
+        reveal: false,
     }
 }

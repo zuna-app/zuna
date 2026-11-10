@@ -198,6 +198,8 @@ pub struct TextInput {
     accepts_files: bool,
     /// While suggestions show, the arrows and Enter pick among them instead of moving or sending.
     suggesting: bool,
+    /// Just took focus, so it scrolls into view as it's next laid out.
+    reveal: bool,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -272,6 +274,7 @@ impl TextInput {
             blinking: false,
             accepts_files: false,
             suggesting: false,
+            reveal: false,
         }
     }
 
@@ -576,6 +579,7 @@ impl Render for TextInput {
         }
         if focused != self.was_focused {
             self.was_focused = focused;
+            self.reveal = focused;
             cx.emit(if focused { InputEvent::Focused } else { InputEvent::Blurred });
         }
         div()

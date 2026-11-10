@@ -7,7 +7,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use gpui::{App, Bounds, ElementId, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollHandle, Style, Window, point, px, size};
+use gpui::{
+    AnyElement, App, Bounds, ElementId, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, ScrollHandle, Style, Window, point, px, size,
+};
 
 use crate::theme;
 
@@ -57,6 +60,8 @@ thread_local! {
     static OVERFLOWED: RefCell<HashMap<&'static str, bool>> = RefCell::new(HashMap::new());
     /// A thumb being dragged: which, where the pointer was, and how far it had scrolled then.
     static DRAG: RefCell<Option<(&'static str, Pixels, Pixels)>> = const { RefCell::new(None) };
+    /// The areas scrolling around what's being laid out now, innermost last (`reveal`).
+    static AROUND: RefCell<Vec<ScrollHandle>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The scroll handle for a scrolling area, by its name.
@@ -70,6 +75,89 @@ pub fn scroll_handle(name: &'static str) -> ScrollHandle {
 pub fn forget_scroll(name: &'static str) {
     HANDLES.with(|handles| handles.borrow_mut().remove(name));
     OVERFLOWED.with(|overflowed| overflowed.borrow_mut().remove(name));
+}
+
+/// How much more than a field is shown as it's scrolled into view: its box's padding, and the
+/// label above it.
+const REVEAL_ROOM: Pixels = px(40.);
+
+/// Scrolls the areas around what's being laid out, innermost first, as far as shows `bounds`
+/// with room around them, as a browser scrolls to a field that takes focus. Only an area it
+/// isn't all inside moves. Whether any did, so the window is drawn again.
+pub fn reveal(mut bounds: Bounds<Pixels>) -> bool {
+    let around = AROUND.with(|around| around.borrow().clone());
+    let mut moved = false;
+    for handle in around.iter().rev() {
+        let view = handle.bounds();
+        let by = if bounds.top() < view.top() {
+            bounds.top() - REVEAL_ROOM - view.top()
+        } else if bounds.bottom() > view.bottom() {
+            (bounds.bottom() + REVEAL_ROOM - view.bottom()).min(bounds.top() - REVEAL_ROOM - view.top())
+        } else {
+            continue;
+        };
+        let offset = handle.offset();
+        let down = (-offset.y + by).clamp(px(0.), handle.max_offset().y);
+        let by = down + offset.y;
+        if by != px(0.) {
+            handle.set_offset(point(offset.x, -down));
+            bounds.origin.y -= by;
+            moved = true;
+        }
+    }
+    moved
+}
+
+pub trait RevealsFocus: IntoElement + Sized {
+    /// A scrolling area, tracked by `handle`, that a field in it scrolls to show itself as it
+    /// takes focus (`reveal`).
+    fn reveals_focus(self, handle: &ScrollHandle) -> Revealing {
+        Revealing { handle: handle.clone(), area: Some(self.into_any_element()) }
+    }
+}
+
+impl<E: IntoElement> RevealsFocus for E {}
+
+pub struct Revealing {
+    handle: ScrollHandle,
+    area: Option<AnyElement>,
+}
+
+impl IntoElement for Revealing {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for Revealing {
+    type RequestLayoutState = AnyElement;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, AnyElement) {
+        let mut area = self.area.take().expect("laid out once");
+        (area.request_layout(window, cx), area)
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, area: &mut AnyElement, window: &mut Window, cx: &mut App) {
+        // The area takes its bounds and how far it can scroll before what's in it is laid out.
+        AROUND.with(|around| around.borrow_mut().push(self.handle.clone()));
+        area.prepaint(window, cx);
+        AROUND.with(|around| around.borrow_mut().pop());
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, area: &mut AnyElement, _: &mut (), window: &mut Window, cx: &mut App) {
+        area.paint(window, cx);
+    }
 }
 
 /// Whether this ran past its height when it was last drawn: then a classic scrollbar takes

@@ -15,7 +15,7 @@ use serde_json::json;
 
 use super::components::*;
 use super::motion::{Enter, Motion};
-use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
+use super::scrollbar::{RevealsFocus, Scrolls, gutter, scroll_handle, scrollbar};
 use super::onboarding::Onboarding;
 use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::models::{SafetyCheck, from_value};
@@ -330,7 +330,7 @@ impl Dialog {
                     )
                     .child({
                         let handle = scroll_handle("modal-body");
-                        div().id("modal-body").overflow_y_scroll().track_scroll(&handle).px(px(20.)).pr(px(20.) + gutter(&handle)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body).child(scrollbar("modal-body", Scrolls::Div(handle.clone())))
+                        div().id("modal-body").overflow_y_scroll().track_scroll(&handle).px(px(20.)).pr(px(20.) + gutter(&handle)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body).child(scrollbar("modal-body", Scrolls::Div(handle.clone()))).reveals_focus(&handle)
                     });
                 if let Some(footer) = footer {
                     card = card.child(div().flex().justify_end().gap(px(8.)).px(px(20.)).pb(px(16.)).child(footer));
@@ -347,7 +347,8 @@ impl Dialog {
                         .pr(px(24.) + gutter(&scroll_handle("modal-flow")))
                         .child(div().absolute().right(px(10.)).top(px(10.)).child(icon_button("close-modal", "x", 17., true, false, cx).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx)))))
                         .children(body)
-                        .child(scrollbar("modal-flow", Scrolls::Div(scroll_handle("modal-flow")))),
+                        .child(scrollbar("modal-flow", Scrolls::Div(scroll_handle("modal-flow"))))
+                        .reveals_focus(&scroll_handle("modal-flow")),
                 );
             }
         }
