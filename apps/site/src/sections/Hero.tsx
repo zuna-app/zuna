@@ -15,7 +15,7 @@ export function Hero() {
           <DownloadButton />
           <HostButton />
         </div>
-        <p className="hero-platforms hero-in">For Windows, macOS, Linux and the web, and soon iPhone and iPad.</p>
+        <p className="hero-platforms hero-in">For Windows, Linux and the web, and soon macOS, iPhone and iPad.</p>
       </div>
       <div className="wrap hero-stage hero-in">
         <div className="hero-tilt">
