@@ -19,7 +19,7 @@ This is a plan: nothing below is built. Once it is, a `docs/RELEASES.md` that sa
 | `apps/desktop/installer/zuna.nsi`, `scripts/windows-app.mjs` | A one-click installer for one person, which needs no administrator, so an update never shows a UAC prompt. `/S` installs quietly. It force-closes a running copy and doesn't start the app after a quiet install |
 | `.github/workflows/release.yml` | Runs on `v*` tags: all of `ci.yml`, then server binaries, `zuna-web` and both Docker images. No desktop job since Electron went. No tag has ever been pushed, so it has never run |
 | `.github/workflows/ci.yml` | Its `desktop` job only runs `cargo check` on Windows, is `continue-on-error`, and has never been seen passing |
-| The version | `0.10.0`, in eight `package.json` files and two `Cargo.toml`s. The app takes the root `package.json`'s through `ZUNA_VERSION` |
+| The version | `0.1.0` since 2026-11-10, when `0.10.0` was renumbered before anything was released, in eight `package.json` files and two `Cargo.toml`s. The app takes the root `package.json`'s through `ZUNA_VERSION` |
 | The repository | **Public,** as `zuna-app/zuna` since 2026-11-10, so an installed app can read its releases without a sign-in. It has none yet, so `releases/latest` answers 404. `SECURITY.md` and `apps/site` already point people at its releases page |
 | This machine | Has `gh`, signed in, since 2026-11-10. Git pushes over SSH, so Claude can push a tag, and `gh` can watch a workflow run and read its logs |
 
@@ -49,7 +49,7 @@ What each change counts as:
 | build | Nothing anyone using the app would notice | Refactors, tests, docs, CI, scripts, and anything that isn't in the native app: server, web, iOS, site, bot |
 | major | Only on your word | 1.0.0 |
 
-The next version is the last stable's, raised once by the highest level among the commits since it, and at least a patch. After `0.11.0`: a refactor gives `0.11.1-nightly.1110`, a fix after it `0.11.1-nightly.1112` (only the build moves), a feature `0.12.0-nightly.1115`, another feature `0.12.0-nightly.1120`. Until the first stable release the number stays `0.10.0`, which becomes that release.
+The next version is the last stable's, raised once by the highest level among the commits since it, and at least a patch. After `0.11.0`: a refactor gives `0.11.1-nightly.1110`, a fix after it `0.11.1-nightly.1112` (only the build moves), a feature `0.12.0-nightly.1115`, another feature `0.12.0-nightly.1120`. Until the first stable release the number stays `0.1.0`, which becomes that release.
 
 Claude reads each commit's diff to decide, not just its subject, and the decision is written down as the changelog: every commit since the last release under **New**, **Fixed and changed** or **Under the hood**. The script works the level out from those headings, so the changelog and the version can't disagree.
 

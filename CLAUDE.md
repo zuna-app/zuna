@@ -31,7 +31,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 
 Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. `docs/RELEASE_PLAN.md` has the design.
 
-A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.10.0`, which becomes that release.
+A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.1.0`, which becomes that release.
 
 | Level | What it is | Examples |
 |---|---|---|
