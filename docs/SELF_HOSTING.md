@@ -93,6 +93,8 @@ Paste it into the Zuna app, create your account, save your recovery key, and nam
 
 If Caddy, nginx or Traefik already handles HTTPS, run Zuna on plain HTTP behind it.
 
+The server keeps no address with what's sent without a name, which is everything people add to a conversation, but a proxy's access log keeps the address of every request, at `/api/sealed/` too, which goes a long way to saying who sent each message. Turn the access log off for that path, or keep none at all.
+
 - **From source on Linux,** that's how it always runs: on port 9660. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
 - **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:9660`, for a proxy on the same machine:
 
@@ -182,7 +184,7 @@ Everything can be set by flag or environment variable.
 | `--behind-cloudflare` | `ZUNA_BEHIND_CLOUDFLARE` | `false` | Take a request from Cloudflare's proxy to be from whoever it names in `CF-Connecting-IP` ([Behind Cloudflare](#behind-cloudflare)) |
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | A link for downloading the app, which invite pages show as well as the official releases |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address, where an IPv6 /48 counts as one |
-| `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may keep, and as many again of messages, or `-1` for no limit |
+| `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may upload in 30 days, counted in whole MB for each file, or `-1` for no limit. A file a message carries belongs to nobody, so what someone keeps can't be counted, and deleting a message frees none of it. Their vault may hold twice this |
 | `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.zuna.chat` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
 
 The app only connects over HTTPS, except to `localhost`.

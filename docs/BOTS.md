@@ -149,3 +149,4 @@ Updates are `message`, `edited_message`, `callback_query` and `my_chat_member`. 
 - **What has no place here is refused by name:** payments, inline mode, stickers, games and topics.
 - **Keyboards under the message box, forced replies and the like are left out** without an error, so a bot that sends them still sends its message.
 - **A bot doesn't mark anything as read,** and shows as typing when it says it is with `sendChatAction`.
+- **What a bot sends is held by tokens, not a pace in each chat.** The server isn't told who sends a message, so a bot is held as a person is, at ten times a person's rate: ten thousand messages, reactions or changes, and five hundred messages over 32 KiB, in six hours, across all its chats. Telegram's one a second in each chat doesn't apply, and a bot that floods a chat is for its members to remove.

@@ -29,8 +29,8 @@ export function Privacy() {
         <h2>Your server</h2>
         <p>
           Each server is run by its admins, not by the project. It stores your account and your messages, encrypted on your device with keys the server never
-          has. It does see some things: your username, who is in each conversation, who sent a message to which conversation, when, and roughly how big, your IP
-          address and your online status. The <a href={doc("SECURITY.md")}>security model</a> lists exactly what it can and can't see.
+          has. It does see some things: your username, who is in each conversation, when a message was sent to which conversation, and roughly how big, your IP
+          address and your online status. It isn't told who sent each message, though a server set on finding out can often tell from addresses and timing. The <a href={doc("SECURITY.md")}>security model</a> lists exactly what it can and can't see.
         </p>
         <p>
           You can delete your account on a server in the app's settings, with your password. The server then erases your profile, your keys and what it kept

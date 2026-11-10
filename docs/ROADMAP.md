@@ -48,6 +48,7 @@ The iPhone app's approach carries over:
 - **Automatic updates** for the native app on macOS, as it has on Windows, which needs a signed release pipeline first.
 - **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases, which the native app's release job, still to be written, would take.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
-- **Sealed sender**, to hide from the server who sent a message. [SEALED_SENDER_PLAN.md](SEALED_SENDER_PLAN.md) has the plan.
+- **Sealing commits that change nobody,** so that renewing a group's keys names nobody either ([SEALED_SENDER.md](SEALED_SENDER.md), "Later").
+- **Hiding who's in a conversation** from the server, which delivers by membership today.
 - **Encrypted backups** you can export and import yourself.
 - **An independent security audit.**

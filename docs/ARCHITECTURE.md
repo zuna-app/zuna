@@ -44,7 +44,7 @@ The server is a delivery service and a blob store:
 
 1. **Orders commits.** `POST /api/groups/{id}/commit` carries `expected_epoch`. In one transaction the server checks it against the group's epoch, then advances. If two members commit at once, one gets `409 stale_epoch` and retries from the new state. This is the total ordering MLS requires from a delivery service.
 2. **Requires current keys for content.** A message for an old epoch is refused the same way, so an honest sender who hasn't seen a removal can't encrypt with a key the removed person knows. Clients don't rely on this alone: before encrypting, they remove anyone who shouldn't hold the keys, and they refuse messages from a device in an epoch after it left, or that came after their epoch had ended. An edit keeps its message's place, so a change to a message they already hold, from a device they've seen leave, is refused too.
-3. **Stores and relays ciphertext.**
+3. **Stores and relays ciphertext, without being told who sent it.** What a member adds to a conversation comes as a sealed request, with no session: signed with the group's send key for its current epoch, which any member could have made, and paid for with a token the server issued to someone earlier but can't tie back to them. Who wrote it is signed inside. Changing or deleting something takes its item key, which only its author's devices can make. [SECURITY_DETAILS.md](SECURITY_DETAILS.md#sealed-sender) has the details.
 4. **Reads the outside of commits.** It can't read MLS content, but it refuses bytes that aren't a commit or group info for this group and epoch, since advancing a group on anything else would strand every member. A commit that gets past this but that nobody can apply is undone by an admin's app, which still holds the last good state: it takes the group back to that epoch, and everyone who never got past it carries on. Nobody has to accept anything new.
 
 ## Who holds a group's keys
@@ -138,6 +138,9 @@ account key (random, one per generation)
                  listing every pin and verification under a number that only goes up
 
 MLS epoch --exporter--> content key --> messages, reactions, group details, read state, typing, sounds played
+          --exporter--> send key (an Ed25519 seed, never stored) --> signs sealed requests; the server holds its public half
+
+account key --> author root --> item key for each message and reaction --> changes or deletes it; the server holds its public half
 
 file key (random, per file) --> STREAM-encrypted chunks
 ```

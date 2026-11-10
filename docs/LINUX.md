@@ -108,6 +108,7 @@ For each domain, the proxy must:
 - **handle HTTPS;**
 - **forward WebSockets,** which the server uses for everything live;
 - **add the client's address to `X-Forwarded-For`,** which both services use for rate limiting. Only the entries the proxy added count, so a caller can't make up their own;
+- **keep no access log of `/api/sealed/`,** where everything people add to a conversation goes without a name: the server keeps no address with it, but a log of every request's address would go a long way to saying who sent each message;
 - **allow request bodies of at least 2 MB.** Files upload in 1 MiB chunks, so the limit doesn't need to match the largest file.
 
 The web app's domain needs only HTTPS and `X-Forwarded-For`. Don't add security headers there: the web app sends its own, and a proxy that changes them can weaken them.

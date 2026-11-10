@@ -7,8 +7,8 @@ import { doc } from "../pages";
 const EMOJI = ["🐶", "🦁", "🦄", "🐼", "🐧", "🐙", "🦋", "🌵", "🍄", "🌙", "🔥", "🍌", "🌳", "🐢", "☁️", "🍎"];
 
 /** Condensed from the table in SECURITY.md. */
-const SEES = ["Your username and when you signed up", "Who is in each conversation", "Who sent a message, when, and roughly how big", "Your IP address and online status"];
-const NEVER = ["What you write, reply or react with", "Photos, files and their names", "Group names, pictures and descriptions", "Links, their previews, and what you search for"];
+const SEES = ["Your username and when you signed up", "Who is in each conversation", "When a message was sent there, and roughly how big", "Your IP address and online status"];
+const NEVER = ["What you write, reply or react with", "Who in a chat sent each message", "Photos, files and their names", "Group names, pictures and descriptions", "Links, their previews, and what you search for"];
 
 /** Each from SECURITY.md: MLS through the audited OpenMLS, the password stretched with Argon2id, and every message signed by its device. */
 const CREDENTIALS = ["MLS · RFC 9420", "OpenMLS, independently audited", "Argon2id", "Every message signed"];
@@ -138,7 +138,7 @@ export function Security() {
         <aside className="sec-audit reveal">
           <Info size={18} aria-hidden="true" />
           <p>
-            <b>Zuna hides what you say, not who you talk to.</b> And while OpenMLS has been audited, Zuna's own code hasn't had an independent review yet. We'd
+            <b>Zuna hides what you say, and the server isn't told who in a chat said it, but it does see who you talk to.</b> One set on finding out who sent a message can often still tell, from addresses and timing. And while OpenMLS has been audited, Zuna's own code hasn't had an independent review yet. We'd
             rather you knew. <a href={doc("SECURITY.md")}>Read the full security model</a>
           </p>
         </aside>

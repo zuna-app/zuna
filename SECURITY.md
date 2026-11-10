@@ -11,7 +11,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 ## In short
 
 - **The server can't read what you write.** Messages, files, reactions, group names, calls and voice are encrypted on your device so that only the people in a conversation can open them, and profiles and channel names so that only the people invited to the server can.
-- **It does see who talks to whom, and when.** Zuna hides content, not metadata. The table below lists what the server sees.
+- **It does see who talks to whom, and when.** Zuna hides content, and who in a conversation wrote each message, but not who's in it. The table below lists what the server sees.
 - **Your password opens your history.** It never leaves your device, but anyone who learns it can read everything you can.
 - **The emoji check proves who you're talking to.** Until you compare emoji with someone, a malicious server could have given you a fake key for them from the start.
 - **A bot reads the chats it's in.** It's a member like any other, run by a program on a machine its owner chose, and it shows a badge wherever its name does.
@@ -23,17 +23,18 @@ Please report security issues privately through GitHub's "Report a vulnerability
 |---|---|---|
 | **Accounts** | Username, role, sign-up date, which devices exist, when an account was deleted | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
-| **Messages** | Who sent one, when, to which conversation, and roughly how big it is | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
-| **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
-| **Files** | Size and uploader, and which messages share a file, as a forwarded one does | Name, type, content |
-| **Pins and deletes** | Which message was pinned or deleted | The message's content |
+| **Messages** | When one was sent, to which conversation, and roughly how big it is | Who sent it (though it can often work that out, as "Limits" says), text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
+| **Reactions** | Which message was reacted to | Which reaction it was (with the exception under "Limits"), and whose |
+| **Files** | Who uploads a file, and its size, until a message carries it, and which messages share a file, as a forwarded one does | Name, type, content, and once a message carries it, who uploaded it |
+| **Pins and deletes** | Which message was pinned or deleted, and which admin deleted someone else's message in a group | The message's content, who pinned it, and who deleted their own |
+| **Sending** | How much each person asked to be able to send in each six hours, and how much each person uploads in thirty days | What they sent with it |
 | **Disappearing messages** | When each message is due to go, and so how long a chat's messages last | The setting itself |
 | **Read state** | That someone's read position changed | The position itself |
-| **Typing** | That someone sent a typing signal | Nothing further |
+| **Typing** | That someone in a conversation is typing | Who |
 | **Channels** | That each exists, who made it, whether it's for text or voice, its place in the list, and its rules, such as how many fit and its slow mode | Its name, topic, heading and audio quality, and everything said in it |
 | **Soundboard** | How many sounds there are, who added each and how big its file is, and when someone played one | What each is called and sounds like, and which was played |
 | **Presence** | Online status, last seen, and which of your devices you're using and when you last used each | Hidden from other members if you choose, but not from the server. As on Telegram, whoever sees you write, type or read their messages sees you online for 30 seconds after, in their own app |
-| **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, which chats each phone was notified about since they were last read, and that a chat was read | What a push is about |
+| **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, which chats each phone was notified about since they were last read, and that a chat was read | What a push is about, and who sent the message it's for |
 | **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
@@ -55,7 +56,15 @@ Please report security issues privately through GitHub's "Report a vulnerability
 
 Every conversation, direct messages too, is encrypted with [MLS](https://www.rfc-editor.org/rfc/rfc9420.html), an open standard for group encryption, through the audited [OpenMLS](https://github.com/openmls/openmls). Each of your devices holds its own keys, and they change whenever someone joins or leaves, and at least weekly in active chats. Every message, reaction and read position is also signed by the device that sent it, so a server can't put one person's words under another's name, even with a member's help.
 
+Who signed something is inside its encryption, with the signature, so the server can't try each member's key on it to find out whose it is.
+
 Zuna keeps one key for each stretch of a conversation, rather than a new one for every message. That's what lets a device you add later read your past messages, and lets a group's admin share its history with people who join. The cost is that whoever gets your password or recovery key can read all of it.
+
+### Who sent it
+
+Nothing a member adds to a conversation tells the server who sent it: messages, edits, reactions, pins, a person's deletion of their own message, and typing. They go without the account's session, on a connection of their own where the app can make one, signed with a key that everyone holding the conversation's current keys can make, so any member's signature looks the same, and someone removed can't make it. What each costs is a token, which the server gave the person's device earlier, counted against them, but can't tie back to them when it's spent, which keeps anyone from flooding a conversation without a name. Who wrote what is signed inside, where only members see it, and the server keeps no sender of anything, nor who uploaded a file once a message carries it.
+
+Changing or deleting something takes a key that only its author's devices can make, which names nobody. A group's admin deleting someone else's message, changes to who's in a conversation, calls, voice, presence and read positions still name who they're from, as each is about someone being somewhere, or something the server has to check. A phone isn't told of its own person's message: each notification waits a moment, and the device that sent it reads it at once, as anyone reading it as it arrives would.
 
 ### Your password and recovery key
 
@@ -161,6 +170,7 @@ These need the server against you: its operator, someone who broke into it, or s
 - **It can take people out of a group,** as it decides who's listed in it, though everyone sees them go. Once it has taken out every one of a group's admins, whoever it makes the group's admin next is believed.
 - **The time shown comes from the server.** The sender's device signs its own time too, and the app flags a message when the two are far apart.
 - **A server you've left can still wake your iPhone for a while.** It keeps the push relay's handle for your phone, which works for up to 60 days after the app last renewed it. Its notifications say only that a message arrived, without a sound, and a call it rings ends at once, but the app can't hide them until Apple lets it filter notifications.
+- **It can often work out who sent a message.** It isn't told, and keeps nothing that says, but it sees the address a sealed request comes from, which is also that device's socket's, and in the web app the browser may send it down the same connection as the account's requests. It sees when devices come online, typing just before a message, a file uploaded just before a message carries it, a change to a group's keys just before a message, a read position just after, and which phones it didn't have to wake. In a direct message, who wrote is one of two. Asking for tokens just before sending, when a device had none left, says something too.
 - **Invite pages run on your server.** If you open an invite link in a browser, the page comes from that server, and altered page code could read the community key from the link. Pasting the link into the app avoids this.
 
 ### Even with an honest server
@@ -169,6 +179,7 @@ These need the server against you: its operator, someone who broke into it, or s
 - **New keys only help once a stolen secret is changed.** Until you change a stolen password or recovery key, whoever has it can open your new keys too. What they already read, they keep.
 - **Whoever runs a bot reads what it reads.** A bot's chats are open on the machine that runs it: to its code, to whoever controls that machine, and to anyone who can read its data folder, where its keys are files. A bot running on the chat server's own machine puts its chats within that machine's reach, though nothing else. Its badge is there so you can decide what to say in front of it.
 - **A button's press goes to everyone in the chat.** It's a message like any other, which the apps show nowhere. Someone with a modified app could see who pressed which button under a bot's message.
+- **A member can post what nobody can open.** Nothing says who sends something to a conversation, so a member, or a modified app, can post bytes that no app shows as anyone's: they're kept out of sight, and tokens bound how many there can be. Slow mode, and the most reactions one person puts on a message, are held by each app the same way: an honest app keeps to them, and the others hide what a modified one sends past them.
 - **A member can hold up a group for a while.** The server can't check a change to a group's keys, so a member can send one nobody can apply. The apps undo it on their own, and make whoever sent it wait longer each time, but the same undoing lets a member make others wait. An admin can remove someone doing either, and a plain member can't undo an admin's change.
 - **A server's limits on a shared screen's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so nobody can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, though a modified app could reuse an earlier share's permission for the few minutes it lasts.
 - **A server without a domain is only as trusted as the first link to it.** The app trusts the key that link names. Someone who sends you a link to that address with a key of their own, and can get between you and it, could pose as the server, seeing what the server sees, though nothing it can't read. Once you're on the server, a link can't change its key.
