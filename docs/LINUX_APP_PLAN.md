@@ -168,7 +168,7 @@ Video4Linux2, as Chromium uses on Linux, through `libavdevice`'s `v4l2` input: e
 
 ### Updates
 
-None on Linux, as for the Electron app (`updates.ts` returns on Linux): packages update through the system, and an AppImage by downloading a new one. `updates::start` and `install_on_quit` do nothing there, and `VERSION` stays shared.
+None on Linux, as for the Electron app (`updates.ts` returns on Linux): packages update through the system, and an AppImage by downloading a new one. `platform/updates.rs` finds, downloads and installs on Windows only, and `VERSION`, `BUILD` and `CHANNEL` stay shared, so About says which build it is. Every release carries the five packages, built in Debian 12 (`docs/RELEASES.md`).
 
 ### Packages
 

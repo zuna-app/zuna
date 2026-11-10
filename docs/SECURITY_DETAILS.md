@@ -209,10 +209,26 @@ On the iPhone and iPad, the share extension uses the same data and device key as
 
 - **The web app's host is never a chat server.** It runs as its own program, `zuna-web`, on an address of its own. A chat server, or someone who breaks into one, can't change the code, and its pages can't reach the web app's storage.
 - **It loads nothing from anyone else.** Every file comes from its host, under its content security policy: no inline scripts, and images only from memory. The host also sends `frame-ancestors 'none'`, `X-Frame-Options`, `Cross-Origin-Opener-Policy` and `nosniff`, and pages it fetches for previews are marked so they can never run as pages there.
-- **A copy can be checked.** Each release lists the SHA-256 of every file the web app serves, and `scripts/check-web.mjs` compares a running copy with it. This shows what the host serves when you check, not what it serves to everyone at every moment.
+- **A copy can be checked.** A build lists the SHA-256 of every file the web app serves (`zuna-web-files.sha256`, from `npm run build:web`), and `scripts/check-web.mjs` compares a running copy with it. No release carries that list yet, so for now it's whoever built a copy that can check it. This shows what the host serves when you check, not what it serves to everyone at every moment.
 
 [WEB.md](WEB.md) says how to run it.
 
 ## The desktop app
 
 The desktop app draws its own interface with GPUI, without a web engine, so nothing a message carries can run as code in it. What a message says is checked in the core (`validate.ts`) before anything shows it.
+
+### Updates
+
+On Windows the app updates itself from the repository's releases on GitHub (`apps/desktop/src/platform/updates.rs`, [RELEASES.md](RELEASES.md)). GitHub, and the connection to it, are trusted for nothing but being there:
+
+- **A release is its manifest,** `update.json`: its version, build number, channel, and its installer's name, size and SHA-256. `update.json.sig` is an Ed25519 signature of the manifest's bytes.
+- **The app carries the public keys,** two for each channel: the one in use, and a spare whose private half was never on GitHub. The private keys in use are secrets of two GitHub environments, which only the release workflow's publishing job reads, for `v*` tags.
+- **Its checks, in order:** the signature, before anything in the manifest is read; that the manifest's channel is the one its key may sign, and one this app follows; that its build number is higher than the app's own; that its tag and file name are what a release's are; then the downloaded file's size and SHA-256, and those again right before the installer runs.
+- **An app on stable takes only what a stable key signed.** One on nightly takes either. So whatever cuts nightlies can't reach anyone who didn't choose them, as long as it can't reach the stable key.
+- **A build number only goes up,** being how many commits `main` has, so an old release can't be served again as a downgrade, and going from nightly back to stable waits for a stable release that's newer.
+- **Nothing can swap the keys or the address** in a build anyone uses: no environment variable, file or setting. Only a build made with the `update-check` feature, for the update's own check, reads them from its environment.
+- **Authenticode is a second lock.** Where the running app is signed, an update must be signed by the same publisher, by the whole of its certificate's subject and issuer, with revocation checked. No build is signed yet.
+
+What it doesn't cover: whoever can push a `v*` tag to the repository can release, as the workflow that signs is read from the tagged commit. Both maintainers can, and a stable release waits for no second person. A stolen maintainer account could ship an update to everyone. The spare keys are for moving to after a key leaks, which takes a release signed with the old key that carries the new one.
+
+On Linux and macOS the app doesn't update itself.

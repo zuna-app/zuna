@@ -87,7 +87,7 @@ Update it later with `sudo zuna-update`. The [self-hosting guide](docs/SELF_HOST
 
 ## Join a server
 
-1. Install the desktop app. Releases don't carry it yet, so for now build it from source, as [CONTRIBUTING.md](CONTRIBUTING.md) says. Once they do, it comes from the [releases page](https://github.com/zuna-app/zuna/releases), and on Linux that's the `.deb` for Debian and Ubuntu, the `.rpm` for Fedora and openSUSE, the `.pkg.tar.zst` for Arch (`sudo pacman -U`), or the AppImage or the `.tar.gz` anywhere else. The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md): the same chats, channels and calls in a browser, with the limits it lists.
+1. Install the desktop app from the [releases page](https://github.com/zuna-app/zuna/releases). On Windows that's `Zuna-Native-Setup-<version>.exe`, which updates itself from then on. On Linux it's the `.deb` for Debian and Ubuntu, the `.rpm` for Fedora and openSUSE, the `.pkg.tar.zst` for Arch (`sudo pacman -U`), or the AppImage or the `.tar.gz` anywhere else. There's no macOS build there yet, so on a Mac build it from source, as [CONTRIBUTING.md](CONTRIBUTING.md) says. The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md): the same chats, channels and calls in a browser, with the limits it lists.
 2. Paste the invite link someone sent you.
 3. Pick a name and password, and save your recovery key.
 

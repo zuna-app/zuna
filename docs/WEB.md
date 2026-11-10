@@ -18,7 +18,7 @@ A web app's code comes from its host on every visit. Whoever controls the host c
 | New messages | System notifications, sound, dock or taskbar badge | The browser's notifications, which it asks to allow at your first click, and sound. The tab's title counts them: `(3) Zuna` |
 | Your phone | While you use the app, notified 30 seconds later about what you didn't read there | The same, while the tab is in front |
 | Invite links | `zuna://` links open the app | Paste the link, or open `https://web.example/#join=<invite link>` |
-| Updates | Signed builds update themselves on Windows. On Linux they come with the system's packages or a new AppImage, and macOS has none yet | A reload, offered when the host has a newer version |
+| Updates | On Windows the app updates itself, from stable releases or nightlies, with an Update button once one is ready. On Linux they come with the system's packages or a new AppImage, and macOS has none yet | A reload, offered when the host has a newer version |
 | Running in the background | Stays in the tray on Windows and Linux, and in the Dock on macOS | Runs while its tab is open |
 | Tabs and windows | One window | One tab at a time. Another tab offers "Use here" |
 | Window size | At least 860 × 540 | The same. A smaller window shows a notice |
@@ -33,7 +33,7 @@ Current Chrome, Edge, Firefox and Safari can all run it. One thing to know:
 
 ## Running it
 
-`zuna-web` is one file with the web app inside it. Get it from a release, or build it with `npm run build:web`, which puts it in `dist/web` for each platform.
+`zuna-web` is one file with the web app inside it. Build it with `npm run build:web`, which puts it in `dist/web` for each platform. Releases don't carry it yet.
 
 ### With deploy/update.sh
 
@@ -118,13 +118,13 @@ This means the host sees which links people preview. Websites see the host's add
 
 ## Checking a running copy
 
-Each release lists the SHA-256 of every file the web app serves, in `zuna-web-files.sha256`. To check that a copy serves exactly that release:
+A build lists the SHA-256 of every file the web app serves, in `zuna-web-files.sha256` beside it in `dist/web`. Releases will carry that list once `zuna-web` is on them. To check that a copy serves exactly that build:
 
 ```bash
 node scripts/check-web.mjs https://web.chat.example.com zuna-web-files.sha256
 ```
 
-It fetches every file and fails if any differs, or if the page loads a file the release doesn't have. It checks what the host serves at that moment, not what it served earlier or will serve to someone else.
+It fetches every file and fails if any differs, or if the page loads a file the build doesn't have. It checks what the host serves at that moment, not what it served earlier or will serve to someone else.
 
 ## Upgrading
 

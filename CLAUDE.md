@@ -29,7 +29,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 
 ## Releases
 
-Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. `docs/RELEASE_PLAN.md` has the design.
+Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer and the Linux packages. `docs/RELEASES.md` says how all of it works.
 
 A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.1.0`, which becomes that release.
 
@@ -43,6 +43,7 @@ A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `
 - **The changelog decides the version.** `npm run release:pending` lists the commits since the last release with the files each touched. The notes file names every one of them once, by its short hash, under `## New` (minor), `## Fixed and changed` (patch) or `## Under the hood` (build), and `scripts/release.mjs` works the version out from the headings, so the two can't disagree. The script sets the version's files itself, in a commit of its own that needs no line.
 - **Read each commit's diff to place it,** not just its subject. A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three, and a `core:` one can reach the app or not.
 - **What reaches the app is what it's built from:** `APP_PATHS` in `scripts/release.mjs`. A commit that touches none of it can only go under the hood, and a session with none cuts no nightly.
+- **A hook keeps a nightly from being forgotten.** `.claude/settings.json`, checked in, runs `node scripts/release.mjs owed --hook` as a turn ends, which holds the turn once while this checkout has pushed app commits with no nightly.
 - **A tag is the release.** The script pushes an annotated tag whose message is the changelog, and `.github/workflows/release.yml` builds, signs and publishes from it. A nightly's run only builds. A stable release's also runs `ci.yml`'s `test`, `advisories` and `desktop` jobs first. A failed run publishes nothing, and the next release carries its commits.
 
 ## Commands
@@ -86,6 +87,8 @@ Core tests drive real clients against a real Go server, which they build themsel
 The server's tests and the core's run in SQLite. With `ZUNA_TEST_POSTGRES` set to a PostgreSQL database's address, such as `postgres://zuna@localhost/zuna_test?sslmode=disable`, they run in PostgreSQL instead, each test or test server in a schema of its own there. Run them that way after changing any SQL. The Go tests drop their schemas, and the core's leave theirs, so give them a database to throw away.
 
 The native app on Linux has checks of its own in `apps/desktop/test`, each running it in a KWin of its own with its own session bus, keyring and PipeWire devices nobody hears, driven through KWin's fake input: `linux-check.mjs` for the window, tray, notifications, device key and a chat, `linux-voice-check.mjs` for voice, calls, cameras, push to talk, screen sharing and voice and video messages with the web app in Chromium (after `npm run build -w @zuna/web`, and with a `v4l2loopback` device loaded), and `linux-package-check.mjs` for the AppImage and the .tar.gz (after `npm run dist:linux`). Run the first two after changing anything under `platform/linux`, `media/ffmpeg`, `voice` or `screenshare`.
+
+On Windows, `node apps/desktop/test/windows-update-check.mjs` checks that the app updates itself: it builds the app twice with the `update-check` feature, installs the older into a folder of its own, serves releases from this machine signed with keys made for the run, and expects the newer build found, installed by the Update button and started, then everything an update must pass refused when it doesn't. Its app's window stays hidden and its installers touch neither the registry nor the shortcuts, so it runs beside an installed Zuna. Run it after changing `platform/updates.rs`, `platform/windows/updates.rs`, the installer, or what a release's manifest holds. `ci.yml`'s `desktop` job runs it too.
 
 On macOS, `apps/desktop/test/mac-voice-check.mjs` runs two copies of the app on the person's own desktop, against a test server and a LiveKit of its own, and drives them through the test control built into them (`src/test_control.rs`, the `test-control` feature, which no build anyone uses has), so it asks nothing of the system and leaves the pointer alone: onboarding, a voice channel and a call each way with a tone in place of a microphone, a screen share of moving bars past macOS's picker (`ZUNA_FAKE_SCREEN`) encoded and decoded on the GPU, Voice and video, and voice and video messages. Run it after changing anything under `platform/macos`, `media`, `voice` or `screenshare`.
 
@@ -162,6 +165,9 @@ Rules the core depends on:
 | GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
 | What the native app is built from | `APP_PATHS` in `scripts/release.mjs`, or a session that only touched the new place cuts no nightly |
 | Which files say the version: a new workspace's `package.json`, or a new crate | `CRATES` and `versionFiles` in `scripts/release.mjs`, which keeps them the same |
+| The update manifest, or what's in a release (`publish` in `release.yml`, `manifest` in `scripts/release.mjs`) | `apps/desktop/src/platform/updates.rs`, which reads them, `apps/desktop/test/windows-update-check.mjs`, "Updates" in `docs/SECURITY_DETAILS.md`, and `docs/RELEASES.md` |
+| The installer's flags (`apps/desktop/installer/zuna.nsi`), or how the app starts it (`run_installer`) | Both, and `windows-update-check.mjs`. A build already installed starts whichever installer comes next with `/S /relaunch` |
+| What the Linux build needs (`scripts/linux-build-deps.sh`) | Nothing else: `release.yml` and `ci.yml` both run it |
 | An update signing key | The public key in `apps/desktop/src/platform/updates.rs`, the environment's `UPDATE_SIGNING_KEY` secret and the offline copy, in that order: an app must carry the new key before anything is signed with it |
 
 ## Feature parity

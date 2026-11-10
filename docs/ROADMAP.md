@@ -44,9 +44,10 @@ The iPhone app's approach carries over:
 
 ## Other ideas
 
-- **Releasing the native app.** The release workflow's desktop job went with the Electron app on 2026-11-08. It needs one that builds and signs the Windows installer (`npm run dist:windows`, with `CSC_LINK` and `CSC_KEY_PASSWORD`), the Linux packages (`npm run dist:linux`, in a container old enough for glibc), and later the macOS app.
-- **Automatic updates** for the native app on macOS, as it has on Windows, which needs a signed release pipeline first.
-- **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases, which the native app's release job, still to be written, would take.
+- **Releasing the native app on macOS.** Releases carry the Windows installer and the Linux packages ([RELEASES.md](RELEASES.md)). The macOS app needs a Developer ID certificate and notarizing in the release workflow's secrets (`npm run dist:macos`).
+- **Automatic updates** for the native app on macOS, as it has on Windows, checked against the same manifest, once it's released.
+- **Code signing** for Windows, so the installer doesn't show a warning the first time it's downloaded. This needs a certificate held by whoever publishes releases, which `npm run dist:windows` takes in `CSC_LINK` and `CSC_KEY_PASSWORD`.
+- **The server and `zuna-web` on releases.** The release workflow's jobs for the server's binaries, `zuna-web` and both images went on 2026-11-10, when it was rewritten around the native app, as none of them was ready to be released. They're in git history, to bring back when they are.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealing commits that change nobody,** so that renewing a group's keys names nobody either ([SEALED_SENDER.md](SEALED_SENDER.md), "Later").
 - **Hiding who's in a conversation** from the server, which delivers by membership today.

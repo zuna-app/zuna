@@ -68,7 +68,7 @@ It goes back to the previous build if a new one doesn't start. The details are i
 
 ## Option 3: Run the binary yourself
 
-Download the file for your platform from the [releases page](https://github.com/zuna-app/zuna/releases), then:
+Releases don't carry the server yet, only the desktop app, so build it first: `npm run build:server` writes one file for each platform into `dist/server`, and [CONTRIBUTING.md](../CONTRIBUTING.md) says what building needs. Then:
 
 ```bash
 ./zuna-server --domain chat.example.com --data /path/to/data
