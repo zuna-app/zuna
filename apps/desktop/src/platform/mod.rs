@@ -23,6 +23,8 @@ mod unix;
 pub use self::unix::single;
 
 pub mod notification;
+// Named over each system's own `updates`, which it calls.
+pub mod updates;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
