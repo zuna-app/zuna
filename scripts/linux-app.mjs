@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
+import { labelOf } from "./release.mjs";
 
 const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
@@ -37,7 +38,10 @@ const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] 
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
 // copy's ~/.local/share/zuna, so that `npm run dev:clean` starts it over with the test server.
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : appStamp()) } });
+// What a build anyone installs says it is, as on Windows: its version, build number and channel.
+const stamp = command === "run" ? { ZUNA_VERSION: version } : appStamp();
+const released = { version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD };
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
 
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
@@ -99,6 +103,8 @@ async function packages(dist) {
     arch: "amd64",
     platform: "linux",
     version,
+    // A nightly sorts before the release it leads to, and after the nightlies before it.
+    ...(released.channel === "nightly" ? { prerelease: `nightly.${released.build}` } : {}),
     release: "1",
     maintainer: "Zuna contributors <zuna@users.noreply.github.com>",
     description,
@@ -124,8 +130,11 @@ async function packages(dist) {
   // nfpm reads YAML, of which JSON is a part.
   const settings = join(out, "nfpm.json");
   writeFileSync(settings, JSON.stringify(config, null, 2));
-  for (const packager of ["deb", "rpm", "archlinux"]) {
-    run("go", ["run", "github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0", "package", "--config", settings, "--packager", packager, "--target", out]);
+  // Named by this script, as each packager's own name for a nightly has a character a release's
+  // file can't keep.
+  const label = labelOf(released);
+  for (const [packager, name] of [["deb", `Zuna-${label}-amd64.deb`], ["rpm", `Zuna-${label}-x86_64.rpm`], ["archlinux", `Zuna-${label}-x86_64.pkg.tar.zst`]]) {
+    run("go", ["run", "github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0", "package", "--config", settings, "--packager", packager, "--target", join(out, name)]);
   }
   rmSync(settings);
   rmSync(desktop);
@@ -153,7 +162,7 @@ async function packages(dist) {
   symlinkSync("zuna.png", join(appDir, ".DirIcon"));
   const squashfs = join(dist, "Zuna.squashfs");
   run("mksquashfs", [appDir, squashfs, "-root-owned", "-noappend", "-comp", "zstd", "-quiet"]);
-  const image = join(out, `Zuna-${version}-x86_64.AppImage`);
+  const image = join(out, `Zuna-${label}-x86_64.AppImage`);
   writeFileSync(image, Buffer.concat([readFileSync(runtime), readFileSync(squashfs)]));
   chmodSync(image, 0o755);
   rmSync(squashfs);
@@ -166,7 +175,7 @@ async function packages(dist) {
   mkdirSync(staged);
   copyFileSync(join(dist, "zuna"), join(staged, "zuna"));
   cpSync(join(dist, "lib"), join(staged, "lib"), { recursive: true });
-  run("tar", ["-czf", join(out, `Zuna-${version}-x64.tar.gz`), "-C", dist, folder]);
+  run("tar", ["-czf", join(out, `Zuna-${label}-x86_64.tar.gz`), "-C", dist, folder]);
   rmSync(staged, { recursive: true, force: true });
   console.log(`> wrote ${readdirSync(out).join(", ")} in ${out}`);
 }
