@@ -168,7 +168,8 @@ jobs:
 
   # The native desktop app, on Windows: the release build with its installer, as
   # a release makes it, then its tests and the screen share's, in the same
-  # profile so that everything they share is built once. Linux and macOS aren't
+  # profile so that everything they share is built once, and the check of its
+  # updates. Linux and macOS aren't
   # built here yet.
   desktop:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'desktop') }}
@@ -198,6 +199,8 @@ jobs:
       - run: npm ci
       - run: npm run dist:windows
       - run: node scripts/windows-app.mjs test --release
+      # The app updating itself, from releases served on the runner (docs/RELEASES.md).
+      - run: node apps/desktop/test/windows-update-check.mjs
 
   # The same app's Linux packages, built as a release builds them (the linux job
   # in release.yml, which this follows). Only by hand: gh workflow run ci.yml -f jobs=linux
