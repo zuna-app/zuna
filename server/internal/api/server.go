@@ -236,6 +236,7 @@ func New(cfg Config, db *store.DB) *Server {
 	for i := range s.pushQueues {
 		s.pushQueues[i] = make(chan pushJob, pushQueueLength)
 	}
+	db.OnLog(s.tellLog)
 	s.restoreSignInAttempts(context.Background())
 	s.restoreNotified(context.Background())
 	return s
@@ -379,6 +380,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/devices/{id}/seal-key", s.withDevice(s.proven(s.handleSealKey)))
 	mux.HandleFunc("PUT /api/devices/{id}/certificate", s.withDevice(s.proven(s.handleCertificate)))
 	mux.HandleFunc("GET /api/users/{id}/identity-links", s.withDevice(s.handleIdentityLinks))
+
+	// The log of who holds which keys, which every device reads all of (log.go). A device
+	// signing in reads it before it registers, with its own account's entries.
+	mux.HandleFunc("GET /api/log", s.authed(s.handleLog))
+	mux.HandleFunc("GET /api/log/bodies", s.withDevice(s.handleLogBodies))
 
 	// Groups
 	mux.HandleFunc("GET /api/groups", s.withDevice(s.handleGroups))

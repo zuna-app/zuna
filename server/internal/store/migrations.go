@@ -573,4 +573,18 @@ DROP TABLE channel_sends;
 -- its ID can't be used again: what a reaction carries is signed by whoever added it,
 -- and any member who saw it could otherwise put it back as theirs.
 ALTER TABLE reactions ADD COLUMN removed_at INTEGER;
+`, `
+-- The log of keys: every change to who holds which keys, hashed into a Merkle tree
+-- whose head the server signs, by era and place (log.go). Its key, era and frontier
+-- are in settings.
+CREATE TABLE log_entries (
+	era INTEGER NOT NULL,
+	idx INTEGER NOT NULL,
+	record BLOB NOT NULL,
+	body BLOB NOT NULL,
+	user_id TEXT NOT NULL,
+	root BLOB NOT NULL,
+	PRIMARY KEY (era, idx)
+);
+CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
 `}

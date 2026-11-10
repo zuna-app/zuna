@@ -251,6 +251,9 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 		if err := putItems(ctx, tx, rotation.UserID, rotation.Items); err != nil {
 			return err
 		}
+		if err := appendLog(ctx, tx, rotation.UserID, linkEntry(rotation.UserID, rotation.Link.Generation, rotation.Link.Payload)); err != nil {
+			return err
+		}
 		for _, id := range rotation.Removed {
 			if err := revokeDevice(ctx, tx, rotation.UserID, id, now); err != nil && !errors.Is(err, ErrNotFound) {
 				return err
@@ -353,20 +356,29 @@ func (d *DB) CloseGeneration(ctx context.Context, userID string, generation int6
 
 // SetDeviceSealKey is a device saying what to seal account keys to from now on.
 func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key []byte, generation int64, proof []byte) error {
-	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET seal_key = ?, seal_generation = ?, seal_proof = ? WHERE id = ?`, key, generation, proof, deviceID)
+	return d.touchDevice(ctx, userID, deviceID, sealBody{1, "seal", userID, deviceID, generation, sealHash(key, generation, proof)},
+		`UPDATE devices SET seal_key = ?, seal_generation = ?, seal_proof = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, key, generation, proof, deviceID, userID)
 }
 
 // SetDeviceCertificate is a device publishing the certificate it has now.
 func (d *DB) SetDeviceCertificate(ctx context.Context, userID, deviceID string, certificate []byte) error {
-	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET certificate = ? WHERE id = ?`, certificate, deviceID)
+	return d.touchDevice(ctx, userID, deviceID, certificateBody{1, "certificate", userID, deviceID, sha(certificate)},
+		`UPDATE devices SET certificate = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, certificate, deviceID, userID)
 }
 
-func (d *DB) touchDevice(ctx context.Context, userID, deviceID, query string, args ...any) error {
+func (d *DB) touchDevice(ctx context.Context, userID, deviceID string, entry any, query string, args ...any) error {
 	return d.tx(ctx, func(tx handle) error {
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		res, err := tx.ExecContext(ctx, query, args...)
+		if err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, Now(), userID)
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if err := appendLog(ctx, tx, userID, entry); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, Now(), userID)
 		return err
 	})
 }

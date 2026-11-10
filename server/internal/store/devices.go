@@ -45,6 +45,9 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 		if err != nil {
 			return err
 		}
+		if err := appendLog(ctx, tx, dev.UserID, deviceEntry(dev)); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET device_id = ? WHERE token_hash = ?`, dev.ID, tokenHash); err != nil {
 			return err
 		}
@@ -68,6 +71,9 @@ func revokeDevice(ctx context.Context, tx handle, userID, deviceID string, now i
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	if err := appendLog(ctx, tx, userID, revokedEntry(userID, deviceID)); err != nil {
+		return err
 	}
 	// It still makes the send key of every group it's in, until a commit takes it out.
 	if err := voidSendKeysOf(ctx, tx, userID); err != nil {

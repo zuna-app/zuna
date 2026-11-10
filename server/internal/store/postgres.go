@@ -652,4 +652,15 @@ DROP TABLE channel_sends;
 -- its ID can't be used again: what a reaction carries is signed by whoever added it,
 -- and any member who saw it could otherwise put it back as theirs.
 ALTER TABLE reactions ADD COLUMN removed_at BIGINT;
+`, `
+CREATE TABLE log_entries (
+	era BIGINT NOT NULL,
+	idx BIGINT NOT NULL,
+	record BYTEA NOT NULL,
+	body BYTEA NOT NULL,
+	user_id TEXT COLLATE "C" NOT NULL,
+	root BYTEA NOT NULL,
+	PRIMARY KEY (era, idx)
+);
+CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
 `}

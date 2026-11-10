@@ -55,6 +55,9 @@ type config struct {
 	// certificate, and that certificate's pin, which the server's links carry.
 	ip  net.IP
 	pin string
+	// newLogEra starts the log of keys again from what the database holds, as after
+	// restoring a backup, and stops.
+	newLogEra bool
 }
 
 // splitList reads a comma-separated list of addresses. "off" is none.
@@ -102,6 +105,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.liveKitKey, "livekit-key", os.Getenv("ZUNA_LIVEKIT_KEY"), "LiveKit API key (env ZUNA_LIVEKIT_KEY)")
 	flag.StringVar(&cfg.liveKitSecret, "livekit-secret", os.Getenv("ZUNA_LIVEKIT_SECRET"), "LiveKit API secret (env ZUNA_LIVEKIT_SECRET)")
 	flag.StringVar(&cfg.liveKitKeys, "livekit-keys", os.Getenv("ZUNA_LIVEKIT_KEYS"), "LiveKit's key file, to take the key and secret from instead, which is made with new ones if it isn't there (env ZUNA_LIVEKIT_KEYS)")
+	flag.BoolVar(&cfg.newLogEra, "new-log-era", false, "start the log of who holds which keys again from what the database holds, as after restoring it from a backup, and exit. Every member's app says so once")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -177,6 +181,14 @@ func run(cfg config) error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer db.Close()
+	if cfg.newLogEra {
+		era, err := db.StartLogEra(context.Background())
+		if err != nil {
+			return fmt.Errorf("starting the log of keys again: %w", err)
+		}
+		fmt.Printf("The log of keys is in era %d now. Start the server again without --new-log-era.\n", era)
+		return nil
+	}
 
 	proxies := splitList(cfg.trustedProxies)
 	if _, err := clientip.New(cfg.trustProxy, proxies, cfg.cloudflare); err != nil {

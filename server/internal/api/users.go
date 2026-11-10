@@ -76,6 +76,8 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store
 		"online": s.hub.Online(),
 		"seen":   seen,
 		"now":    store.Now(),
+		// Where the log of keys is, so that a device only reads it when it grew.
+		"log": s.logStatus(r.Context()),
 	})
 }
 

@@ -46,6 +46,8 @@ type ServerInfo struct {
 	// CommunityKey is only present in open sign-up mode, where admins accepted
 	// that the server can read profiles. In invite mode it stays in invite links.
 	CommunityKey string `json:"community_key,omitempty"`
+	// LogKey is what the heads of the log of keys are signed with, for someone signed in.
+	LogKey []byte `json:"log_key,omitempty"`
 }
 
 // publicServerInfo is what someone without an account may hear: what the join
@@ -132,6 +134,9 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	// Someone signed in hears all of it, anyone else only what the join screen needs.
 	if _, err := s.db.SessionByToken(r.Context(), hashToken(bearerToken(r))); err != nil {
 		info = publicPart(info)
+	} else if info.LogKey, err = s.db.LogPublicKey(r.Context()); err != nil {
+		writeFailure(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, info)
 }

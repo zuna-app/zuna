@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -51,6 +52,11 @@ type DB struct {
 	// second behind writes that took a few milliseconds all told. It's nil for
 	// PostgreSQL, which writes side by side.
 	writing *sync.Mutex
+	// onLog is called once a transaction that grew the log of keys is kept.
+	onLog func()
+	// logKey is the key the log's heads are signed with, once it's been read.
+	logKeyMu sync.Mutex
+	logKey   ed25519.PrivateKey
 }
 
 // handle runs statements on the whole database or in one transaction, turning
@@ -66,6 +72,9 @@ type handle struct {
 	// statement run by ExecContext is a write of its own. A transaction's handle has
 	// none, as the transaction holds it already.
 	writing *sync.Mutex
+	// logged is set, on a transaction's handle, once it appends to the log of keys,
+	// so that whoever is connected can be told once it's kept.
+	logged *bool
 }
 
 func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
@@ -114,7 +123,7 @@ func Open(path string) (*DB, error) {
 }
 
 func open(conn *sql.DB, postgres bool) (*DB, error) {
-	db := &DB{conn: conn, sql: handle{conn, postgres, nil}, postgres: postgres}
+	db := &DB{conn: conn, sql: handle{conn, postgres, nil, nil}, postgres: postgres}
 	if !postgres {
 		db.writing = &sync.Mutex{}
 		db.sql.writing = db.writing
@@ -122,6 +131,10 @@ func open(conn *sql.DB, postgres bool) (*DB, error) {
 	if err := db.migrate(context.Background()); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
+	}
+	if err := db.ensureLog(context.Background()); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("starting the log of keys: %w", err)
 	}
 	return db, nil
 }
@@ -156,10 +169,17 @@ func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle
 		return err
 	}
 	defer tx.Rollback()
-	if err := fn(handle{tx, d.postgres, nil}); err != nil {
+	logged := false
+	if err := fn(handle{tx, d.postgres, nil, &logged}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if logged && d.onLog != nil {
+		d.onLog()
+	}
+	return nil
 }
 
 func (d *DB) migrate(ctx context.Context) error {

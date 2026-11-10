@@ -169,6 +169,9 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 		if err := d.insertSlots(ctx, tx, id, u.Slots); err != nil {
 			return err
 		}
+		if err := appendLog(ctx, tx, id, accountEntry(id, u.Username, u.IdentityKey, u.HpkeKey, u.HpkeKeySig)); err != nil {
+			return err
+		}
 		if bot != "" {
 			if _, err := tx.ExecContext(ctx, `UPDATE bots SET set_up_at = ?, invite_code = NULL, setup_proof = ? WHERE id = ?`, now, u.BotProof, bot); err != nil {
 				return err
@@ -437,7 +440,7 @@ func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
 		if err := voidSendKeysOf(ctx, tx, userID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
+		if err := revokeAll(ctx, tx, userID, now); err != nil {
 			return err
 		}
 		// What waits for their devices goes with them, as when one is removed or the account deleted.
@@ -462,6 +465,23 @@ func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
 		_, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE user_id = ?`, userID)
 		return err
 	})
+}
+
+// revokeAll revokes every device an account still has, each with its entry in the log.
+func revokeAll(ctx context.Context, tx handle, userID string, now int64) error {
+	ids, err := collectStrings(ctx, tx, `SELECT id FROM devices WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at, id`, userID)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := appendLog(ctx, tx, userID, revokedEntry(userID, id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UnbanUser lets someone back in, and back into the direct messages the ban took
@@ -578,7 +598,10 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 				return err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
+		if err := revokeAll(ctx, tx, userID, now); err != nil {
+			return err
+		}
+		if err := appendLog(ctx, tx, userID, deletedBody{1, "deleted", userID}); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE invites SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL`, now, userID); err != nil {

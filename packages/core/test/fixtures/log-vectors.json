@@ -1,0 +1,106 @@
+{
+  "rfc6962": {
+    "leaves": [
+      "",
+      "00",
+      "10",
+      "2021",
+      "3031",
+      "40414243",
+      "5051525354555657",
+      "606162636465666768696a6b6c6d6e6f"
+    ],
+    "roots": [
+      "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+      "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+      "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+    ]
+  },
+  "entries": [
+    {
+      "user": "0123456789abcdef0123456789abcdef",
+      "username": "Alice",
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "body": "{\"v\":1,\"t\":\"account\",\"user\":\"0123456789abcdef0123456789abcdef\",\"username\":\"Alice\",\"root\":\"AAEC\",\"hpke\":\"AwQF\",\"hpke_sig\":\"BgcI\"}",
+      "user_tag": "e79e3fd144784c8179127f86a7b9698d",
+      "name_tag": "29f18ccac1fdf10433b78d12b4d959d5",
+      "body_hash": "2e603605d79e388c8255284793a325345d673f41c0d2893f815aee0d219b714b",
+      "record": "000102030405060708090a0b0c0d0e0fe79e3fd144784c8179127f86a7b9698d29f18ccac1fdf10433b78d12b4d959d52e603605d79e388c8255284793a325345d673f41c0d2893f815aee0d219b714b",
+      "leaf": "e4542c124023a3fae17e3552eb7362c43567f4fdc837717169d22ff66f5ee8ca"
+    },
+    {
+      "user": "0123456789abcdef0123456789abcdef",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "other_tag": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+      "body": "{\"v\":1,\"t\":\"device\",\"user\":\"0123456789abcdef0123456789abcdef\",\"device\":\"aa\",\"key\":\"AAE=\",\"cert\":\"AgM=\",\"enroll\":\"BAU=\",\"seal\":\"Bgc=\"}",
+      "user_tag": "418b086e66d3de391b270426bfee6d22",
+      "name_tag": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+      "body_hash": "453daa83da4fad3374d5f9a8ee2044ab45011814000e6812d9db3be02878dde7",
+      "record": "101112131415161718191a1b1c1d1e1f418b086e66d3de391b270426bfee6d22a0a1a2a3a4a5a6a7a8a9aaabacadaeaf453daa83da4fad3374d5f9a8ee2044ab45011814000e6812d9db3be02878dde7",
+      "leaf": "e982da591b63ac9002ae459ae3571af53d8ab8271b7a8b8ee6ba2ddd54c5a9e9"
+    },
+    {
+      "user": "fedcba9876543210fedcba9876543210",
+      "username": "bob.b",
+      "nonce": "202122232425262728292a2b2c2d2e2f",
+      "body": "{\"v\":1,\"t\":\"account\",\"user\":\"fedcba9876543210fedcba9876543210\",\"username\":\"bob.b\",\"root\":\"CQo=\",\"hpke\":\"Cww=\",\"hpke_sig\":\"DQ4=\"}",
+      "user_tag": "699f8984f020a136bf394766272027ae",
+      "name_tag": "361cd73f84f94d8afac1c7a687745a1b",
+      "body_hash": "0a2c538351b4c88b2a628a574f0ea38a9ff4adc99b5aec7e6f1b22c06ffd6bf0",
+      "record": "202122232425262728292a2b2c2d2e2f699f8984f020a136bf394766272027ae361cd73f84f94d8afac1c7a687745a1b0a2c538351b4c88b2a628a574f0ea38a9ff4adc99b5aec7e6f1b22c06ffd6bf0",
+      "leaf": "49e4d4d2307f443c2f12a055500f83f1e021585c0a0a9bd24216a81fc6459275"
+    },
+    {
+      "user": "0123456789abcdef0123456789abcdef",
+      "nonce": "303132333435363738393a3b3c3d3e3f",
+      "other_tag": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "body": "{\"v\":1,\"t\":\"revoked\",\"user\":\"0123456789abcdef0123456789abcdef\",\"device\":\"aa\"}",
+      "user_tag": "3cb026113b2ad230a7e586d9cb00b387",
+      "name_tag": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "body_hash": "ba773abdf0dfcd74dfda772d07f5ad1ea14fa403dd7c9b11d3d0e01279097a0c",
+      "record": "303132333435363738393a3b3c3d3e3f3cb026113b2ad230a7e586d9cb00b387b0b1b2b3b4b5b6b7b8b9babbbcbdbebfba773abdf0dfcd74dfda772d07f5ad1ea14fa403dd7c9b11d3d0e01279097a0c",
+      "leaf": "b3a78327fb8ca5197043f1fc663e1ce03cd5f051c69abc43ecf92ed2cb662135"
+    },
+    {
+      "user": "fedcba9876543210fedcba9876543210",
+      "nonce": "404142434445464748494a4b4c4d4e4f",
+      "other_tag": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+      "body": "{\"v\":1,\"t\":\"deleted\",\"user\":\"fedcba9876543210fedcba9876543210\"}",
+      "user_tag": "b2840f28a7d11c60e314e3f6f24d6860",
+      "name_tag": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+      "body_hash": "70f92f597c79a6c4f206d0d27e5667c90538e10a292145fb14959e14b003c960",
+      "record": "404142434445464748494a4b4c4d4e4fb2840f28a7d11c60e314e3f6f24d6860c0c1c2c3c4c5c6c7c8c9cacbcccdcecf70f92f597c79a6c4f206d0d27e5667c90538e10a292145fb14959e14b003c960",
+      "leaf": "4ce8b821bced7fbb1da2df49af9c4b0dc68308c16b92315b28d47acc9eabe350"
+    }
+  ],
+  "roots": [
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "e4542c124023a3fae17e3552eb7362c43567f4fdc837717169d22ff66f5ee8ca",
+    "f7a5a256393d59267a6f1062a91aa9edfe2497c259572ffa2ec3cda885fe6256",
+    "a740eb6b5731fc80585d254e173e71dbfb4af2ed262173b2d06c51950070eff7",
+    "2059afef042a9883f3cbe8804f25dc4e82a08dec020358ca10ff7ca4c9f2d940",
+    "e55031181b614f7973c52156a7fae0c8172f41d0e9bfa568bfd180aedadadca3"
+  ],
+  "frontiers": [
+    "",
+    "e4542c124023a3fae17e3552eb7362c43567f4fdc837717169d22ff66f5ee8ca",
+    "f7a5a256393d59267a6f1062a91aa9edfe2497c259572ffa2ec3cda885fe6256",
+    "f7a5a256393d59267a6f1062a91aa9edfe2497c259572ffa2ec3cda885fe625649e4d4d2307f443c2f12a055500f83f1e021585c0a0a9bd24216a81fc6459275",
+    "2059afef042a9883f3cbe8804f25dc4e82a08dec020358ca10ff7ca4c9f2d940",
+    "2059afef042a9883f3cbe8804f25dc4e82a08dec020358ca10ff7ca4c9f2d9404ce8b821bced7fbb1da2df49af9c4b0dc68308c16b92315b28d47acc9eabe350"
+  ],
+  "head": {
+    "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "era": 3,
+    "size": 5,
+    "root": "e55031181b614f7973c52156a7fae0c8172f41d0e9bfa568bfd180aedadadca3",
+    "input": "7a756e612f6c6f672f686561642f76317c00000000000000030000000000000005e55031181b614f7973c52156a7fae0c8172f41d0e9bfa568bfd180aedadadca3",
+    "signature": "54e1d28d6ca3b05dd2c9f6fe3f0e468d2945e868d85534d7adeb046e1d7e554c8fd1f4dcbc478f27394d5ea627e58bbccfe6d161ebbd913dd9349771f1872c0d"
+  }
+}
