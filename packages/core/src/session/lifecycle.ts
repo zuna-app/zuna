@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): starting, syncing and stopping, and the frames the server sends over the socket.
 
 import { ApiError, type ApiEvent, type ApiGroup, type ApiMessage, type ApiUser } from "../api";
-import { openEnvelope, readSigned } from "../crypto";
+import { checkEnvelope, readSigned } from "../crypto";
 import { fromBase64, toBase64 } from "../encoding";
 import { decodeFrameData, type SocketFrame } from "../socket";
 import type { ConnectionState, ServerInfo } from "../types";
@@ -412,18 +412,19 @@ export abstract class SessionLifecycle extends SessionServer {
     else if (group.kind === "dm") this.madeAction(data.user_id, Date.now());
   }
 
-  protected onLiveTyping(data: { group_id: string; user_id: string; data: string }): void {
-    if (data.user_id === this.account.userId || this.isBlocked(data.user_id)) return;
+  /** Someone typing, who only the signature inside says: the server isn't told. */
+  protected onLiveTyping(data: { group_id: string; data: string }): void {
     const signed = readSigned(decodeFrameData(data.data));
     const key = signed && this.epochKey(data.group_id, signed.epoch);
-    const device = signed && this.users.get(data.user_id)?.devices.get(signed.deviceId);
-    if (!signed || !key || !device) return;
-    const opened = openEnvelope<{ at?: unknown }>(key, device.signatureKey, "typing", data.group_id, data.user_id, signed.epoch, signed.envelope, { userId: data.user_id, deviceId: signed.deviceId });
-    const at = opened.ok ? opened.value?.at : undefined;
-    if (typeof at !== "number" || Math.abs(Date.now() - at) > TYPING_FRESH_MS) return;
-    this.emit({ type: "typing", serverId: this.serverId, groupId: data.group_id, userId: data.user_id });
+    if (!signed || !key) return;
+    const checked = checkEnvelope<{ at?: unknown }>(key, "typing", data.group_id, "typing", signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+    if (checked.state !== "signed") return;
+    const userId = checked.signer.userId;
+    const at = checked.value?.at;
+    if (userId === this.account.userId || this.isBlocked(userId) || typeof at !== "number" || Math.abs(Date.now() - at) > TYPING_FRESH_MS) return;
+    this.emit({ type: "typing", serverId: this.serverId, groupId: data.group_id, userId });
     // Typing shows them online for a while, as on Telegram (`SendActionManager::registerFor`).
-    this.madeAction(data.user_id, Date.now());
+    this.madeAction(userId, Date.now());
   }
 
   protected onPresence(data: { user_id: string; online: boolean; last_seen_at?: number }): void {

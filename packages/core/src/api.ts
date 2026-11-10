@@ -195,34 +195,33 @@ export interface ApiCall {
   declined: string[];
 }
 
+/** Whose a reaction is, the server isn't told: it's inside, under its device's signature. */
 export interface ApiReaction {
   id: string;
-  user_id: string;
   epoch: number;
   data: string;
   created_at: number;
 }
 
+/**
+ * A message as the server holds it. Who sent it, who pinned it and who deleted it are
+ * inside what it carries, under their devices' signatures, and nowhere else.
+ */
 export interface ApiMessage {
   group_id: string;
   id: string;
   seq: number;
   updated_seq: number;
-  sender_user: string;
-  sender_device: string;
   epoch: number;
   envelope?: string;
   created_at: number;
   edited_at: number | null;
   deleted_at: number | null;
   pinned_at: number | null;
-  pinned_by?: string;
-  deleted_by?: string;
-  /** What the deleting device signed, from apps that sign deletions. */
+  /** What the deleting device signed. */
   deletion?: string;
-  /** What the device that last pinned or unpinned it signed, from apps that sign pins, and whose it was. */
+  /** What the device that last pinned or unpinned it signed. */
   pin?: string;
-  pin_by?: string;
   reactions: ApiReaction[];
 }
 

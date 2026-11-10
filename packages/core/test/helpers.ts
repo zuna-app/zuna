@@ -11,6 +11,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildServer } from "./server-binary";
+import { startJunkProxy } from "./junk-proxy";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { Agent, buildConnector, setGlobalDispatcher } from "undici";
@@ -154,6 +155,7 @@ export class TestServer {
   setupLink = "";
   private process: ChildProcess | null = null;
   private dir = "";
+  private stopProxy: (() => Promise<void>) | null = null;
 
   /**
    * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
@@ -177,7 +179,17 @@ export class TestServer {
   }
 
   private async startOn(binary: string, port: number): Promise<void> {
-    this.url = `${this.options.ownCertificate ? "https" : "http"}://127.0.0.1:${port}`;
+    // With ZUNA_TEST_JUNK_SENDERS, apps reach it through a proxy that says nothing true about who sent what (junk-proxy.ts).
+    const junk = !!process.env.ZUNA_TEST_JUNK_SENDERS && !this.options.ownCertificate;
+    const reached = junk ? port + 1 : port;
+    this.url = `${this.options.ownCertificate ? "https" : "http"}://127.0.0.1:${reached}`;
+    if (junk) {
+      try {
+        this.stopProxy = await startJunkProxy(`http://127.0.0.1:${port}`, reached);
+      } catch (error) {
+        throw new PortTaken(String(error));
+      }
+    }
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     if (this.options.ownCertificate) args.push("--domain", "127.0.0.1");
     // Never the project's real relay, which is the default.
@@ -210,7 +222,11 @@ export class TestServer {
         if (await healthy(this.url)) return;
       }
       if (this.process.exitCode !== null) {
-        if (/bind:/.test(output)) throw new PortTaken(output);
+        if (/bind:/.test(output)) {
+          await this.stopProxy?.();
+          this.stopProxy = null;
+          throw new PortTaken(output);
+        }
         break;
       }
       await sleep(50);
@@ -220,6 +236,7 @@ export class TestServer {
 
   async stop(): Promise<void> {
     this.process?.kill();
+    await this.stopProxy?.();
     await sleep(200);
     try {
       rmSync(this.dir, { recursive: true, force: true });

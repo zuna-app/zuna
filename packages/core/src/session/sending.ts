@@ -421,10 +421,10 @@ export abstract class SessionSending extends SessionConversations {
 
   /** This device signs the deletion, so other members' apps can tell it from the server's word before erasing their copies. */
   protected async deleteSigned(groupId: string, id: string): Promise<void> {
-    const { userId, deviceId, deviceSecret } = this.account;
+    const { userId, deviceSecret } = this.account;
     await this.withLock(groupId, () =>
       this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const deletion = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }, this.signer));
+        const deletion = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }, this.signer));
         this.ingest(await this.api.deleteMessage(groupId, id, epoch, deletion), false);
       }),
     );
@@ -432,19 +432,19 @@ export abstract class SessionSending extends SessionConversations {
 
   /** This device signs the pin, so other members' apps can tell it from the server's word. */
   async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {
-    const { userId, deviceId, deviceSecret } = this.account;
+    const { userId, deviceSecret } = this.account;
     await this.withLock(groupId, () =>
       this.sealAndRetry(groupId, async (epoch, epochKey) => {
         // After the pin this device holds, whatever its clock says, as with edits.
         const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
-        const pin = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
+        const pin = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
         this.ingest(await this.api.pin(groupId, id, pinned, epoch, pin), false);
       }),
     );
   }
 
   async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {
-    const { userId, deviceId, deviceSecret } = this.account;
+    const { userId, deviceSecret } = this.account;
     const row = this.messageRow(groupId, messageId);
     const current = row ? (this.storedBody(row)?.reactions ?? []) : [];
     const already = current.some((item) => item.key === key && item.userIds.includes(userId));
@@ -453,14 +453,15 @@ export abstract class SessionSending extends SessionConversations {
         // Another device may have made it, or two devices the same one, and only an open reaction says what it is.
         const { reactions } = await this.api.message(groupId, messageId);
         for (const reaction of reactions) {
-          if (reaction.user_id !== userId || this.openReaction(groupId, messageId, reaction)?.key !== key) continue;
+          const opened = this.openReaction(groupId, messageId, reaction);
+          if (opened?.userId !== userId || opened.key !== key) continue;
           this.ingest(await this.api.removeReaction(groupId, messageId, reaction.id), false);
         }
         return;
       }
       const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const data = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
+        const data = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
         this.ingest(await this.api.addReaction(groupId, messageId, id, epoch, data), false);
       });
     });
@@ -474,7 +475,7 @@ export abstract class SessionSending extends SessionConversations {
     const epoch = this.rememberCurrentEpochKey(groupId);
     const key = this.epochKey(groupId, epoch);
     // Signed, so that a server can't show someone typing who isn't, and timed, so it can't send it on again later.
-    if (key) this.socket.sendTyping(groupId, frameSigned(this.account.deviceId, epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, this.account.userId, epoch, { at: now }, this.signer)));
+    if (key) this.socket.sendTyping(groupId, frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, "typing", epoch, { at: now }, this.signer)));
   }
 
   async markRead(groupId: string, seq: number): Promise<void> {
@@ -495,13 +496,13 @@ export abstract class SessionSending extends SessionConversations {
   protected async sendRead(group: CachedGroup): Promise<void> {
     const seq = group.ownRead;
     const epoch = this.rememberCurrentEpochKey(group.id);
-    const { userId, deviceId, deviceSecret, accountKey } = this.account;
+    const { userId, deviceSecret, accountKey } = this.account;
     let framed: Uint8Array;
     // Nobody has read ticks in a channel, so where someone is stays their own.
     if (this.prefs.sendReadReceipts && group.kind !== "channel") {
       const key = this.epochKey(group.id, epoch);
       if (!key) return;
-      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }, this.signer));
+      framed = frameSigned(epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }, this.signer));
     } else {
       // The position is sealed to our own account key, so our other devices stay
       // in sync while nobody else can read it.

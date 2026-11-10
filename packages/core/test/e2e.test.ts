@@ -142,7 +142,7 @@ describe("direct messages", () => {
     expect(view?.text).toBe("");
   });
 
-  it("refuses to show a message whose signature doesn't match its sender", async () => {
+  it("shows nowhere a message whose signature doesn't match who it names, as nobody's", async () => {
     const session = bob.session as any;
     const groupId = bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;
     const epoch = session.mlsEpoch(groupId);
@@ -158,8 +158,6 @@ describe("direct messages", () => {
         id,
         seq: 999999,
         updated_seq: 999999,
-        sender_user: alice.userId,
-        sender_device: aliceDevice,
         epoch,
         envelope: btoa(String.fromCharCode(...envelope)),
         created_at: Date.now(),
@@ -170,9 +168,9 @@ describe("direct messages", () => {
       },
       false,
     );
-    const view = await bob.session.messageById(groupId, id);
-    expect(view?.status).toBe("unverified");
-    expect(view?.text).toBe("");
+    expect(await bob.session.messageById(groupId, id)).toBeFalsy();
+    expect(session.db.get("SELECT held FROM withheld WHERE group_id = ? AND id = ?", [groupId, id])).toEqual({ held: 0 });
+    expect(bob.session.getConversations().find((item) => item.groupId === groupId)!.lastMessage?.id).not.toBe(id);
   });
 });
 
@@ -377,6 +375,7 @@ describe("notices", () => {
     db.exec("DROP TABLE device_arrivals");
     db.exec("ALTER TABLE messages DROP COLUMN raw_reactions");
     db.exec("DROP TABLE signals");
+    db.exec("DROP TABLE withheld");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     // Every migration still runs, and nothing sealed the old way is left to fail to open.

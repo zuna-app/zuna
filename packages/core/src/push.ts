@@ -10,7 +10,7 @@ import * as wasm from "@zuna/crypto";
 import { Api, decode, type ApiChannel } from "./api";
 import { openChannelDetails } from "./channels";
 import { INDEX_DB, decodeAccount, label, serverDbName, serverKeyFor } from "./client";
-import { namesItsSender, openEnvelope } from "./crypto";
+import { checkEnvelope, namesItsSender } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
@@ -120,12 +120,21 @@ export async function previewPush(
   const message = await api.message(groupId, messageId).catch(() => null);
   if (!message) return preview({});
   if (Number.isSafeInteger(message.created_at)) sentAt = message.created_at;
-  if (message.deleted_at || !message.envelope || message.sender_user === account.userId) return preview({ hidden: true });
+  if (message.deleted_at || !message.envelope) return preview({ hidden: true });
 
-  const sender = user(message.sender_user);
-  const device = sender?.devices.find((item) => item.id === message.sender_device);
   const epochRow = db.get<{ key: Uint8Array }>("SELECT key FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, message.epoch]);
-  if (!group || !sender || !device || !epochRow) return preview({});
+  if (!group || !epochRow) return preview({});
+  // Who sent it is inside, under their device's signature: the server isn't told.
+  const epochKey = wasm.aeadOpen(key, epochRow.key, label(`epoch|${groupId}:${message.epoch}`));
+  const checked = checkEnvelope<unknown>(epochKey, "message", groupId, message.id, message.epoch, decode(message.envelope), (signer) => {
+    const device = user(signer.userId)?.devices.find((item) => item.id === signer.deviceId);
+    return device && fromBase64(device.signatureKey);
+  });
+  if (checked.state !== "signed" || !namesItsSender(checked.value, checked.signer.userId, checked.signer.deviceId)) return preview({});
+  const { userId: senderUser, deviceId: senderDevice } = checked.signer;
+  if (senderUser === account.userId) return preview({ hidden: true });
+  const sender = user(senderUser);
+  if (!sender) return preview({});
   // What the app wouldn't show as theirs isn't worded as theirs here either: a message
   // from a device in an epoch after it left, or after its epoch ended (couldBeSent in
   // session.ts), or from someone whose key changed in a way that doesn't follow.
@@ -138,7 +147,6 @@ export async function previewPush(
       return careful;
     }
   };
-  const { sender_user: senderUser, sender_device: senderDevice } = message;
   const { departure, arrival, joined, epochStart } = sealedRows;
   const sendable = couldBeSent(
     {
@@ -150,24 +158,12 @@ export async function previewPush(
     message,
   );
   if (!sendable || sender.trust === "changed") return preview({});
-  const epochKey = wasm.aeadOpen(key, epochRow.key, label(`epoch|${groupId}:${message.epoch}`));
-  const opened = openEnvelope<unknown>(
-    epochKey,
-    fromBase64(device.signatureKey),
-    "message",
-    groupId,
-    message.id,
-    message.epoch,
-    decode(message.envelope),
-    { userId: message.sender_user, deviceId: message.sender_device },
-  );
-  if (!opened.ok || !namesItsSender(opened.value, message.sender_user, message.sender_device)) return preview({});
-  const body = parseMessageBody(opened.value);
+  const body = parseMessageBody(checked.value);
   if (!body) return preview({});
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv", "prefs", prefsRow.v) : {};
-  if (prefs.blocked?.includes(message.sender_user)) return preview({ hidden: true });
+  if (prefs.blocked?.includes(senderUser)) return preview({ hidden: true });
   // A reply counts if this device holds the message replied to, as for the session's "@".
   const repliedTo = body.replyTo ? db.get<{ sender_user: string }>("SELECT sender_user FROM messages WHERE group_id = ? AND id = ?", [groupId, body.replyTo]) : undefined;
   const mentioned = (body.mentions ?? []).includes(account.userId) || repliedTo?.sender_user === account.userId;
@@ -192,7 +188,7 @@ export async function previewPush(
     decrypted: true,
     // Everything said in a channel isn't for everyone in it: only what's said to them.
     muted: !mentioned && (group.kind === "channel" || onlyMentionsNotify(prefs, conversationKey!)),
-    sender: { id: message.sender_user, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
+    sender: { id: senderUser, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
     group: group.kind === "dm" ? undefined : { name: groupName, picture: group.kind === "group" ? await picture(group.meta.avatar) : undefined },
     text: previewText(content),
   });

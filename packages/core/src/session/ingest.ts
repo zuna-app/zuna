@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): taking in messages, letting them disappear, and indexing them for search.
 
 import { ApiError, decode, type ApiMessage, type ApiReaction } from "../api";
-import { namesItsSender, openEnvelope, randomId, readSigned } from "../crypto";
+import { checkEnvelope, namesItsSender, randomId, readSigned, type CheckedEnvelope, type Signer } from "../crypto";
 import { equalBytes, toBase64 } from "../encoding";
 import { mediaIn } from "../media";
 import { notificationDelay, notificationText, previewText } from "../notify";
@@ -17,6 +17,7 @@ import {
   EARLIER_LOOK_DELAY_MS,
   SEARCH_REBUILD_BATCH,
   LONGEST_WAIT_MS,
+  KEY_UNPROVEN,
   type CachedGroup,
   type MessageRow,
   type StoredBody,
@@ -26,6 +27,12 @@ import {
 } from "./shared";
 import { SessionChanges } from "./changes";
 
+/** A message kept out of every chat (`withhold`), as it came, with whom it named if anyone. */
+interface Withheld {
+  message: ApiMessage;
+  signer: Signer | null;
+}
+
 export abstract class SessionIngest extends SessionChanges {
   // --- Ingesting messages ---
 
@@ -33,15 +40,18 @@ export abstract class SessionIngest extends SessionChanges {
     return this.db.get<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND id = ?", [groupId, id]);
   }
 
-  /** What a reaction is, if it's what it says: the signature says whose it is, and the authenticated data which message it's on. */
-  protected openReaction(groupId: string, messageId: string, reaction: ApiReaction): ReturnType<typeof parseReaction> {
+  /**
+   * What a reaction is, and whose, if it's what it says: the signature inside says whose it is,
+   * and the authenticated data which message it's on. The server isn't told whose it is.
+   */
+  protected openReaction(groupId: string, messageId: string, reaction: ApiReaction): (NonNullable<ReturnType<typeof parseReaction>> & { userId: string }) | null {
     const key = this.epochKey(groupId, reaction.epoch);
-    if (!key) return null;
-    const signed = readSigned(decode(reaction.data));
-    const device = signed && this.users.get(reaction.user_id)?.devices.get(signed.deviceId);
-    if (!signed || !device || signed.epoch !== reaction.epoch) return null;
-    const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope, { userId: reaction.user_id, deviceId: signed.deviceId });
-    return opened.ok && opened.value?.id === reaction.id ? parseReaction(opened.value) : null;
+    const signed = key && readSigned(decode(reaction.data));
+    if (!key || !signed || signed.epoch !== reaction.epoch) return null;
+    const checked = checkEnvelope<{ id?: unknown }>(key, "reaction", groupId, messageId, reaction.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+    if (checked.state !== "signed" || checked.value?.id !== reaction.id) return null;
+    const parsed = parseReaction(checked.value);
+    return parsed && { ...parsed, userId: checked.signer.userId };
   }
 
   protected openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
@@ -50,27 +60,44 @@ export abstract class SessionIngest extends SessionChanges {
       const opened = this.openReaction(groupId, messageId, reaction);
       if (!opened) continue;
       const entry = grouped.get(opened.key) ?? { key: opened.key, emote: opened.emote, userIds: [] };
-      if (!entry.userIds.includes(reaction.user_id)) entry.userIds.push(reaction.user_id);
+      if (!entry.userIds.includes(opened.userId)) entry.userIds.push(opened.userId);
       grouped.set(opened.key, entry);
     }
     return [...grouped.values()];
   }
 
   /**
+   * Opens a message and checks who signed it. What it says it's from is also what its
+   * body says, under the signature, and one where the two differ is nobody's.
+   */
+  protected checkMessage(message: ApiMessage, key: Uint8Array): CheckedEnvelope<unknown> {
+    const checked = checkEnvelope<unknown>(key, "message", message.group_id, message.id, message.epoch, decode(message.envelope), (signer) => this.deviceKey(signer));
+    if (checked.state === "signed" && !namesItsSender(checked.value, checked.signer.userId, checked.signer.deviceId)) return { state: "forged" };
+    return checked;
+  }
+
+  /**
    * Whether a message would be stored as it is with what this device holds now: there, opening,
-   * from a device it knows, and one that could have been sent then. One that isn't is left for
+   * signed by a device it knows, and one that could have been sent then. One that isn't is left for
    * when the keys and people it may depend on have been caught up on (`catchUpFirst`).
    */
   protected readableNow(message: ApiMessage): boolean {
-    if (!validApiMessage(message) || message.deleted_at !== null || !message.envelope || !this.couldBeSent(message)) return false;
+    if (!validApiMessage(message) || message.deleted_at !== null || !message.envelope) return false;
     const key = this.epochKey(message.group_id, message.epoch);
-    const device = this.users.get(message.sender_user)?.devices.get(message.sender_device);
-    if (!key || !device) return false;
-    const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, decode(message.envelope), { userId: message.sender_user, deviceId: message.sender_device });
-    return opened.ok && namesItsSender(opened.value, message.sender_user, message.sender_device) && parseMessageBody(opened.value) !== null;
+    const checked = key && this.checkMessage(message, key);
+    return !!checked && checked.state === "signed" && this.couldBeSent(message, checked.signer) && parseMessageBody(checked.value) !== null;
   }
 
-  /** Stores a message's current state, decrypting it if the keys are available. */
+  /** Whether the key held for an epoch came from a grant and hasn't opened anything properly signed yet. */
+  protected keyUnproven(groupId: string, epoch: number): boolean {
+    return !!this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_UNPROVEN]);
+  }
+
+  /**
+   * Stores a message's current state, decrypting it if the keys are available. Who wrote it
+   * is whoever's device signed it, inside: the server isn't told. One that opens but names a
+   * device this one doesn't know yet, or that nobody it names signed, goes nowhere (`withhold`).
+   */
   protected ingest(message: ApiMessage, live: boolean): void {
     if (!validApiMessage(message)) {
       console.warn("[zuna] the server sent something that isn't a message");
@@ -78,49 +105,59 @@ export abstract class SessionIngest extends SessionChanges {
     }
     // A disappearing message that went from here stays gone, whatever the server sends.
     if (this.hasExpired(message.group_id, message.id)) return;
+    const withheld = this.db.get<{ updated_seq: number }>("SELECT updated_seq FROM withheld WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
+    if (withheld && withheld.updated_seq >= message.updated_seq) return;
     const existing = this.messageRow(message.group_id, message.id);
     // A pin or unpin this device couldn't check yet, such as one under keys it didn't have then, is looked at again.
     const pinUnsettled = !!existing && (existing.pinned_at === null) !== (message.pinned_at === null);
     if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified" && !pinUnsettled) {
       return;
     }
-    // A message's author never changes. A signature only proves who signed what's arriving now.
-    if (existing && existing.sender_user !== message.sender_user) {
-      this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message was left as it was.");
+    // One this device never held, and nobody can read now, has nothing to show.
+    if (message.deleted_at !== null && !existing) {
+      if (withheld) this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
       return;
     }
+    // Who wrote it, as far as this device knows: whoever signed what it held, until something newer opens.
+    let author: Signer | null = existing?.sender_user ? { userId: existing.sender_user, deviceId: existing.sender_device } : null;
     let status: MessageStatus = "sent";
     let body: StoredBody | null = null;
     let raw: Uint8Array | null = null;
     // Nothing local is erased on the server's word: only a deletion its author, or a
     // group's admin, signed does that. Otherwise the copy is hidden, and kept a while.
-    const kept = message.deleted_at !== null && existing && (existing.body || existing.raw) && !this.deletionProven(message) ? existing : null;
+    const kept = message.deleted_at !== null && existing && (existing.body || existing.raw) && !this.deletionProven(message, existing) ? existing : null;
     let heldAfterLeaving: Uint8Array | null = null;
     // A later edit this device holds, kept with how it arrived when the server sends an earlier one.
     let laterEdit: MessageRow | null = null;
     if (!message.deleted_at && message.envelope) {
       const envelope = decode(message.envelope);
       const key = this.epochKey(message.group_id, message.epoch);
-      const device = this.users.get(message.sender_user)?.devices.get(message.sender_device);
-      if (!this.couldBeSent(message)) {
-        status = "unverified";
-        raw = envelope;
-      } else if (!key || !device) {
+      const checked = key ? this.checkMessage(message, key) : null;
+      if (!checked || (checked.state === "closed" && this.keyUnproven(message.group_id, message.epoch))) {
+        // Without the right key there's no telling who wrote it, or whether anyone did.
         status = "undecryptable";
         raw = envelope;
+      } else if (checked.state !== "signed") {
+        this.withhold(message, existing, checked.state === "unknown" ? checked.signer : null);
+        return;
       } else {
-        const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope, { userId: message.sender_user, deviceId: message.sender_device });
-        if (opened.ok && !namesItsSender(opened.value, message.sender_user, message.sender_device)) {
+        // A message's author never changes. A signature only proves who signed what's arriving now.
+        if (author && author.userId !== checked.signer.userId) {
+          this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message was left as it was.");
+          return;
+        }
+        author = checked.signer;
+        if (!this.couldBeSent(message, author)) {
           status = "unverified";
           raw = envelope;
-        } else if (opened.ok) {
+        } else {
           this.keyProvedItself(message.group_id, message.epoch);
-          const parsed = parseMessageBody(opened.value);
+          const parsed = parseMessageBody(checked.value);
           if (parsed?.signal) {
-            this.noteSignal(message, parsed, existing);
+            this.noteSignal(message, parsed, existing, author.userId);
             return;
           }
-          if (parsed && this.changedAfterLeaving(message, existing, parsed)) {
+          if (parsed && this.changedAfterLeaving(message, author, existing, parsed)) {
             status = "unverified";
             raw = envelope;
             heldAfterLeaving = existing!.body;
@@ -133,12 +170,6 @@ export abstract class SessionIngest extends SessionChanges {
             status = "invalid";
             raw = envelope;
           }
-        } else if (opened.reason === "signature") {
-          status = "unverified";
-          raw = envelope;
-        } else {
-          status = "undecryptable";
-          raw = envelope;
         }
       }
     }
@@ -172,11 +203,13 @@ export abstract class SessionIngest extends SessionChanges {
 
     let row!: MessageRow;
     const isNew = !existing || existing.seq === null;
+    const authorId = author?.userId ?? "";
     this.db.transaction(() => {
+      if (withheld) this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
       this.db.run(
         `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, raw_reactions, unproven_delete_at, expires_at)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_device = excluded.sender_device,
+         ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_user = excluded.sender_user, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
            pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, pin_revision = excluded.pin_revision, status = excluded.status, body = excluded.body, raw = excluded.raw,
            raw_reactions = excluded.raw_reactions, unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at`,
@@ -185,8 +218,8 @@ export abstract class SessionIngest extends SessionChanges {
           message.id,
           message.seq,
           message.updated_seq,
-          message.sender_user,
-          laterEdit ? laterEdit.sender_device : message.sender_device,
+          authorId,
+          laterEdit ? laterEdit.sender_device : (author?.deviceId ?? ""),
           laterEdit ? laterEdit.epoch : message.epoch,
           message.created_at,
           laterEdit ? laterEdit.edited_at : message.edited_at,
@@ -213,23 +246,80 @@ export abstract class SessionIngest extends SessionChanges {
 
     const view = this.toMessageView(row, storedValue ? readStoredBody(row, storedValue) : undefined);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
+    const fromOther = !!authorId && authorId !== this.account.userId;
     // A message new here shows its sender online for a while after it was sent, as on Telegram
     // (`History::newItemAdded`), or moves their last seen on to it when it's older.
-    if (isNew && message.deleted_at === null && message.sender_user !== this.account.userId) this.madeAction(message.sender_user, message.created_at);
+    if (isNew && message.deleted_at === null && fromOther) this.madeAction(authorId, message.created_at);
     if (expiresAt !== null && expiresAt < this.nextExpiry) this.expireMessages();
     // The first message in a new chat often beats its welcome, and only opens once that's in.
     const ref = `${message.group_id}/${message.id}`;
     if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
-    if (fresh && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
-    if (body?.after) this.lookForEarlier(message, body);
+    if (fresh && status === "sent" && fromOther) this.maybeNotify(view);
+    if (body?.after && author) this.lookForEarlier(message, body, author.userId);
+  }
+
+  /**
+   * Keeps a message out of every chat, shown, counted and notified about nowhere, and never as
+   * from whoever it names: one naming a device this one doesn't know yet, which is tried again
+   * once it does (`retryWithheld`), and one nobody it names signed, which is nobody's. What's
+   * already shown as someone's stays as it is: a change nobody signed changes nothing.
+   */
+  protected withhold(message: ApiMessage, existing: MessageRow | undefined, unknown: Signer | null): void {
+    if (existing && existing.status !== "undecryptable") return;
+    const row = `${message.group_id}/${message.id}`;
+    this.db.transaction(() => {
+      if (existing) {
+        this.db.run("DELETE FROM search WHERE rowid = ?", [existing.row_id]);
+        this.db.run("DELETE FROM media WHERE row_id = ?", [existing.row_id]);
+        this.db.run("DELETE FROM messages WHERE row_id = ?", [existing.row_id]);
+      }
+      this.db.run("INSERT OR REPLACE INTO withheld(group_id, id, updated_seq, held, data, at) VALUES(?, ?, ?, ?, ?, ?)", [
+        message.group_id,
+        message.id,
+        message.updated_seq,
+        unknown ? 1 : 0,
+        this.sealJson("withheld", row, { message, signer: unknown } satisfies Withheld),
+        Date.now(),
+      ]);
+    });
+    if (existing) this.emit({ type: "message_removed", serverId: this.serverId, groupId: message.group_id, id: message.id });
+    if (unknown) this.learnDevice(message.group_id, unknown);
+  }
+
+  /** Asks after a device something here names, and tries what it held back again once that's known. */
+  protected learnDevice(groupId: string, signer: Signer): void {
+    const ref = `${signer.userId}/${signer.deviceId}`;
+    if (this.learning.has(ref)) return;
+    this.learning.add(ref);
+    void this.ensureUser(signer.userId, true)
+      .then(() => (this.deviceKey(signer) ? this.withLock(groupId, async () => this.retryWithheld(groupId)) : undefined))
+      .catch((error) => console.warn("[zuna] asking after a device", error))
+      .finally(() => this.learning.delete(ref));
+  }
+
+  /** Takes in again what was held back for naming a device this one didn't know, now that it does. */
+  protected retryWithheld(groupId: string): void {
+    const rows = this.db.all<{ id: string; data: Uint8Array }>("SELECT id, data FROM withheld WHERE group_id = ? AND held = 1", [groupId]);
+    for (const row of rows) {
+      let withheld: Withheld;
+      try {
+        withheld = this.openJson<Withheld>("withheld", `${groupId}/${row.id}`, row.data);
+      } catch {
+        this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [groupId, row.id]);
+        continue;
+      }
+      if (!withheld.signer || !this.deviceKey(withheld.signer)) continue;
+      this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [groupId, row.id]);
+      this.ingest(withheld.message, false);
+    }
   }
 
   /**
    * A message that carries something to act on is shown nowhere, and acted on the first
    * time it comes, however often the server sends it.
    */
-  protected noteSignal(message: ApiMessage, body: MessageBody, existing: MessageRow | undefined): void {
+  protected noteSignal(message: ApiMessage, body: MessageBody, existing: MessageRow | undefined, from: string): void {
     if (existing) {
       // It came before its keys did, and showed as a message that wouldn't open.
       this.db.run("DELETE FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id]);
@@ -237,7 +327,7 @@ export abstract class SessionIngest extends SessionChanges {
     }
     if (this.db.get("SELECT 1 FROM signals WHERE group_id = ? AND id = ?", [message.group_id, message.id])) return;
     this.db.run("INSERT INTO signals(group_id, id, at) VALUES(?, ?, ?)", [message.group_id, message.id, Date.now()]);
-    this.takeSignal(message, body);
+    this.takeSignal(message, body, from);
   }
 
   /**
@@ -246,7 +336,7 @@ export abstract class SessionIngest extends SessionChanges {
    * says there's no such message, the person is told. Only for one sent while this
    * device was in the conversation, and recently, so it can't have expired.
    */
-  protected lookForEarlier(message: ApiMessage, body: MessageBody): void {
+  protected lookForEarlier(message: ApiMessage, body: MessageBody, userId: string): void {
     const after = body.after!;
     if (this.messageRow(message.group_id, after.id) || this.hasExpired(message.group_id, after.id)) return;
     // One that disappeared before it could arrive is simply gone.
@@ -254,7 +344,7 @@ export abstract class SessionIngest extends SessionChanges {
     const joined = this.joinedEpoch(message.group_id);
     if (joined === null || after.epoch < joined || body.sentAt === undefined) return;
     if (message.created_at < Date.now() - EARLIER_LOOKED_FOR_MS || body.sentAt - after.at > EARLIER_LOOKED_FOR_MS) return;
-    this.missing.set(`${message.group_id}/${after.id}`, { groupId: message.group_id, id: after.id, userId: message.sender_user });
+    this.missing.set(`${message.group_id}/${after.id}`, { groupId: message.group_id, id: after.id, userId });
     clearTimeout(this.missingTimer);
     this.missingTimer = setTimeout(() => void this.findMissing(), EARLIER_LOOK_DELAY_MS);
   }
@@ -290,8 +380,9 @@ export abstract class SessionIngest extends SessionChanges {
    * after it left, or before it came, and one that came after a later epoch had already begun. Genuinely
    * old messages are unaffected: they fit the order the group's commits came in.
    */
-  protected couldBeSent(message: ApiMessage): boolean {
-    const { group_id: groupId, sender_user: userId, sender_device: deviceId } = message;
+  protected couldBeSent(message: { group_id: string; epoch: number; seq: number }, sender: Signer): boolean {
+    const { group_id: groupId } = message;
+    const { userId, deviceId } = sender;
     return couldBeSent(
       {
         left: () => this.departedAt(groupId, userId, deviceId),
@@ -325,8 +416,8 @@ export abstract class SessionIngest extends SessionChanges {
    * arriving late, or one made after with the server's help, and this can't tell.
    * The copy held stays, so trying again later still finds the change.
    */
-  protected changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
-    if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_user, message.sender_device) === null) return false;
+  protected changedAfterLeaving(message: ApiMessage, sender: Signer, existing: MessageRow | undefined, parsed: MessageBody): boolean {
+    if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, sender.userId, sender.deviceId) === null) return false;
     const held = parseMessageBody(this.openJson<StoredBody>("message", `${existing.group_id}/${existing.id}`, existing.body));
     return !!held && JSON.stringify(held) !== JSON.stringify(parsed);
   }
@@ -347,45 +438,45 @@ export abstract class SessionIngest extends SessionChanges {
     return held.revision === null ? none : held;
   }
 
-  protected openPin(message: ApiMessage): { by: string; pinned: boolean; revision: number } | null {
-    if (!message.pin || !message.pin_by) return null;
-    const signed = readSigned(decode(message.pin));
-    if (!signed) return null;
-    const key = this.epochKey(message.group_id, signed.epoch);
-    const device = this.users.get(message.pin_by)?.devices.get(signed.deviceId);
-    if (!key || !device) return null;
-    const left = this.departedAt(message.group_id, message.pin_by, signed.deviceId);
+  /**
+   * Who signed something about a message, if a device this one knows did, under an
+   * epoch from before that device left the group, and it names them as who it's by.
+   */
+  protected signedAbout<T extends { by?: unknown }>(message: ApiMessage, kind: "pin" | "deletion", framed: string | undefined): { by: string; value: T } | null {
+    const signed = framed ? readSigned(decode(framed)) : null;
+    const key = signed && this.epochKey(message.group_id, signed.epoch);
+    if (!signed || !key) return null;
+    const checked = checkEnvelope<T>(key, kind, message.group_id, message.id, signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+    if (checked.state !== "signed" || checked.value?.by !== checked.signer.userId) return null;
+    const left = this.departedAt(message.group_id, checked.signer.userId, checked.signer.deviceId);
     if (left !== null && signed.epoch >= left) return null;
-    const opened = openEnvelope<{ by?: unknown; pinned?: unknown; revision?: unknown }>(key, device.signatureKey, "pin", message.group_id, message.id, signed.epoch, signed.envelope, { userId: message.pin_by, deviceId: signed.deviceId });
-    if (!opened.ok || opened.value?.by !== message.pin_by || typeof opened.value.pinned !== "boolean") return null;
-    const { revision } = opened.value;
-    return typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0 ? { by: message.pin_by, pinned: opened.value.pinned, revision } : null;
+    return { by: checked.signer.userId, value: checked.value };
+  }
+
+  protected openPin(message: ApiMessage): { by: string; pinned: boolean; revision: number } | null {
+    const signed = this.signedAbout<{ by?: unknown; pinned?: unknown; revision?: unknown }>(message, "pin", message.pin);
+    if (!signed || typeof signed.value.pinned !== "boolean") return null;
+    const { revision } = signed.value;
+    return typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0 ? { by: signed.by, pinned: signed.value.pinned, revision } : null;
   }
 
   /**
    * Whether a deletion is what its author, or in a group one of its admins, asked
    * for: their device signed it, under an epoch from before that device left.
-   * Who's an admin is the server's word, as it is for history grants.
+   * Its author is whoever signed the copy this device holds.
    */
-  protected deletionProven(message: ApiMessage): boolean {
-    if (!message.deletion || !message.deleted_by) return false;
-    const signed = readSigned(decode(message.deletion));
+  protected deletionProven(message: ApiMessage, existing: MessageRow): boolean {
+    const signed = this.signedAbout(message, "deletion", message.deletion);
     if (!signed) return false;
-    const key = this.epochKey(message.group_id, signed.epoch);
-    const device = this.users.get(message.deleted_by)?.devices.get(signed.deviceId);
-    if (!key || !device) return false;
-    const left = this.departedAt(message.group_id, message.deleted_by, signed.deviceId);
-    if (left !== null && signed.epoch >= left) return false;
-    const opened = openEnvelope<{ by?: unknown }>(key, device.signatureKey, "deletion", message.group_id, message.id, signed.epoch, signed.envelope, { userId: message.deleted_by, deviceId: signed.deviceId });
-    if (!opened.ok || opened.value?.by !== message.deleted_by) return false;
-    if (message.deleted_by === message.sender_user) return true;
+    if (existing.sender_user && signed.by === existing.sender_user) return true;
     const group = this.groups.get(message.group_id);
-    return !!group && group.kind !== "dm" && this.isGroupAdmin(group, message.deleted_by);
+    return !!group && group.kind !== "dm" && this.isGroupAdmin(group, signed.by);
   }
 
-  /** A copy kept after a deletion nobody proved goes once that's long enough ago. */
+  /** A copy kept after a deletion nobody proved goes once that's long enough ago, and so does what nobody signed. */
   protected forgetUnprovenDeletions(): void {
     this.db.run("UPDATE messages SET body = NULL, raw = NULL, unproven_delete_at = NULL WHERE unproven_delete_at < ?", [Date.now() - REMOVED_KEPT_MS]);
+    this.db.run("DELETE FROM withheld WHERE held = 0 AND at < ?", [Date.now() - REMOVED_KEPT_MS]);
   }
 
   // --- Disappearing messages ---
@@ -462,28 +553,26 @@ export abstract class SessionIngest extends SessionChanges {
     const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND status IN ('undecryptable','unverified')", [groupId]);
     for (const row of rows) {
       if (!row.raw) continue;
-      // Without its epoch's key or its sender's device it can only fail again.
-      if (!this.epochKey(groupId, row.epoch) || !this.users.get(row.sender_user)?.devices.has(row.sender_device)) continue;
+      // Without its epoch's key, or the device of whoever signed it, it can only fail again.
+      if (!this.epochKey(groupId, row.epoch) || (row.sender_user && !this.deviceKey({ userId: row.sender_user, deviceId: row.sender_device }))) continue;
       this.ingest(
         {
           group_id: row.group_id,
           id: row.id,
           seq: row.seq ?? 0,
           updated_seq: row.updated_seq,
-          sender_user: row.sender_user,
-          sender_device: row.sender_device,
           epoch: row.epoch,
           envelope: toBase64(row.raw),
           created_at: row.created_at,
           edited_at: row.edited_at,
           deleted_at: row.deleted_at,
           pinned_at: row.pinned_at,
-          pinned_by: row.pinned_by ?? undefined,
           reactions: this.rawReactionsOf(row),
         },
         false,
       );
     }
+    this.retryWithheld(groupId);
     const group = this.groups.get(groupId);
     if (group) {
       this.refreshGroupSecrets(group);

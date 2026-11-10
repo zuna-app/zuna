@@ -310,18 +310,30 @@ export type ContentKind = "message" | "reaction" | "meta" | "read" | "typing" | 
 const contentAad = (kind: ContentKind, groupId: string, itemId: string, epoch: number) =>
   concat(label(`zuna/${kind}/v1|${groupId}|${itemId}|`), u64Bytes(epoch));
 
-/**
- * What a device signs: what the content is, and whose device it's from. Nothing
- * proves a device's key isn't also named in another account's certificate, so the
- * signature itself says whose it is.
- */
-const signatureInput = (aad: Uint8Array, ciphertext: Uint8Array, signer: Signer) =>
-  concat(label(`zuna/envelope-sig/v2|${signer.userId}|${signer.deviceId}|`), wasm.sha256(aad), wasm.sha256(ciphertext));
+/** The envelope's version, the first byte inside its encryption. */
+const ENVELOPE_VERSION = 3;
 
 /**
- * Encrypts content under an epoch key and signs it with the sender's device key.
- * All members share the epoch key, so only the signature proves who wrote this.
- * Wire format: signature(64) || nonce || ciphertext.
+ * Binds a signature to the very key it's under. The authenticated data and body alone
+ * would let a member seal someone's signed body again under a key of their choosing,
+ * and a key from a history grant proves itself by what it opens (`keyProvedItself`).
+ */
+const keyCommitment = (epochKey: Uint8Array) => wasm.hkdfSha256(epochKey, NO_SALT, label("zuna/envelope-commit/v1"), 32);
+
+/**
+ * What a device signs: whose device it's from, what the content is about, which key
+ * it's under, and what it says. Nothing proves a device's key isn't also named in
+ * another account's certificate, so the signature itself says whose it is.
+ */
+const signatureInput = (aad: Uint8Array, commitment: Uint8Array, body: Uint8Array, signer: Signer) =>
+  concat(label(`zuna/envelope-sig/v3|${signer.userId}|${signer.deviceId}|`), wasm.sha256(aad), commitment, wasm.sha256(body));
+
+/**
+ * Encrypts content under an epoch key, signed with the sender's device key. All
+ * members share the epoch key, so only the signature proves who wrote it, and it's
+ * inside the encryption with who signed, so that the server can't try each
+ * member's key on it to find out whose it is.
+ * Wire format: nonce || XChaCha20-Poly1305(pad(version || user || device || signature(64) || body)).
  */
 export function sealEnvelope(
   epochKey: Uint8Array,
@@ -334,8 +346,13 @@ export function sealEnvelope(
   signer: Signer,
 ): Uint8Array {
   const aad = contentAad(kind, groupId, itemId, epoch);
-  const ciphertext = wasm.aeadSeal(epochKey, pad(utf8(JSON.stringify(value))), aad);
-  return concat(wasm.sign(deviceSecret, signatureInput(aad, ciphertext, signer)), ciphertext);
+  const body = utf8(JSON.stringify(value));
+  const user = utf8(signer.userId);
+  const device = utf8(signer.deviceId);
+  if (user.length > 255 || device.length > 255) throw new Error("That account or device ID is too long.");
+  const signature = wasm.sign(deviceSecret, signatureInput(aad, keyCommitment(epochKey), body, signer));
+  const inner = concat(new Uint8Array([ENVELOPE_VERSION, user.length]), user, new Uint8Array([device.length]), device, signature, body);
+  return wasm.aeadSeal(epochKey, pad(inner), aad);
 }
 
 /**
@@ -347,30 +364,68 @@ export function namesItsSender(body: unknown, user: string, device: string): boo
   return by?.user === user && by?.device === device;
 }
 
-export type OpenResult<T> = { ok: true; value: T } | { ok: false; reason: "signature" | "decrypt" };
+/** An envelope opened: who it says it's from, which only `signedBy` proves, and what it says. */
+export interface OpenedEnvelope<T> {
+  signer: Signer;
+  /** What it says, or undefined if that isn't JSON, which nobody's app makes. */
+  value: T | undefined;
+  /** Whether this device key signed it, as the device it names. */
+  signedBy(devicePublic: Uint8Array): boolean;
+}
 
-export function openEnvelope<T>(
+/** Opens an envelope, or gives null for one that doesn't open under this key or isn't one. */
+export function openEnvelope<T>(epochKey: Uint8Array, kind: ContentKind, groupId: string, itemId: string, epoch: number, sealed: Uint8Array): OpenedEnvelope<T> | null {
+  const aad = contentAad(kind, groupId, itemId, epoch);
+  let inner: Uint8Array;
+  try {
+    inner = unpad(wasm.aeadOpen(epochKey, sealed, aad));
+  } catch {
+    return null;
+  }
+  if (inner.length < 2 || inner[0] !== ENVELOPE_VERSION) return null;
+  const userEnd = 2 + inner[1]!;
+  if (inner.length <= userEnd) return null;
+  const deviceEnd = userEnd + 1 + inner[userEnd]!;
+  if (inner.length < deviceEnd + 64) return null;
+  const signer = { userId: fromUtf8(inner.subarray(2, userEnd)), deviceId: fromUtf8(inner.subarray(userEnd + 1, deviceEnd)) };
+  const signature = inner.subarray(deviceEnd, deviceEnd + 64);
+  const body = inner.subarray(deviceEnd + 64);
+  let value: T | undefined;
+  try {
+    value = JSON.parse(fromUtf8(body));
+  } catch {
+    value = undefined;
+  }
+  return { signer, value, signedBy: (devicePublic) => wasm.verify(devicePublic, signatureInput(aad, keyCommitment(epochKey), body, signer), signature) };
+}
+
+/** What became of an envelope this device tried to open and check. */
+export type CheckedEnvelope<T> =
+  /** Opened, and a device this one knows signed it: what it says is theirs. */
+  | { state: "signed"; signer: Signer; value: T }
+  /** Opened, naming a device this one doesn't know yet. */
+  | { state: "unknown"; signer: Signer }
+  /** Opened, but nobody it names signed it, or it isn't well formed: it's nobody's. */
+  | { state: "forged" }
+  /** Doesn't open under this key. */
+  | { state: "closed" };
+
+/** Opens an envelope and checks its signature with the key `device` gives for whoever it names, if any. */
+export function checkEnvelope<T>(
   epochKey: Uint8Array,
-  devicePublic: Uint8Array,
   kind: ContentKind,
   groupId: string,
   itemId: string,
   epoch: number,
   sealed: Uint8Array,
-  signer: Signer,
-): OpenResult<T> {
-  if (sealed.length < 64) return { ok: false, reason: "decrypt" };
-  const signature = sealed.subarray(0, 64);
-  const ciphertext = sealed.subarray(64);
-  const aad = contentAad(kind, groupId, itemId, epoch);
-  if (!wasm.verify(devicePublic, signatureInput(aad, ciphertext, signer), signature)) {
-    return { ok: false, reason: "signature" };
-  }
-  try {
-    return { ok: true, value: JSON.parse(fromUtf8(unpad(wasm.aeadOpen(epochKey, ciphertext, aad)))) };
-  } catch {
-    return { ok: false, reason: "decrypt" };
-  }
+  device: (signer: Signer) => Uint8Array | undefined,
+): CheckedEnvelope<T> {
+  const opened = openEnvelope<T>(epochKey, kind, groupId, itemId, epoch, sealed);
+  if (!opened) return { state: "closed" };
+  if (opened.value === undefined) return { state: "forged" };
+  const key = device(opened.signer);
+  if (!key) return { state: "unknown", signer: opened.signer };
+  return opened.signedBy(key) ? { state: "signed", signer: opened.signer, value: opened.value } : { state: "forged" };
 }
 
 /** Unsigned sealing for short-lived signals where only members need to read it. */
@@ -393,24 +448,22 @@ export function openSignal<T>(key: Uint8Array, kind: ContentKind, groupId: strin
   }
 }
 
-const SIGNED_SIGNAL = 2;
+const SIGNED_SIGNAL = 3;
 
 /**
- * A reaction or a read position, as an envelope its device signed. What says whose
- * it is, and what it's about, is the signature and the authenticated data, so the
- * server can't pass it off as someone else's or move it to another message.
+ * A reaction, pin, deletion, read position or typing signal, as an envelope its
+ * device signed, with the epoch it's under. Who it's from is inside the envelope,
+ * and what it's about is in its authenticated data, so the server can't pass it
+ * off as someone else's or move it to another message.
  */
-export function frameSigned(deviceId: string, epoch: number, envelope: Uint8Array): Uint8Array {
-  const device = utf8(deviceId);
-  return concat(new Uint8Array([SIGNED_SIGNAL, device.length]), device, u32Bytes(epoch), envelope);
+export function frameSigned(epoch: number, envelope: Uint8Array): Uint8Array {
+  return concat(new Uint8Array([SIGNED_SIGNAL]), u32Bytes(epoch), envelope);
 }
 
 /** What `frameSigned` made, or null for what isn't one. */
-export function readSigned(framed: Uint8Array): { deviceId: string; epoch: number; envelope: Uint8Array } | null {
-  if (framed[0] !== SIGNED_SIGNAL || framed.length < 2) return null;
-  const end = 2 + framed[1]!;
-  if (framed.length < end + 4) return null;
-  return { deviceId: fromUtf8(framed.subarray(2, end)), epoch: readU32(framed.subarray(end)), envelope: framed.subarray(end + 4) };
+export function readSigned(framed: Uint8Array): { epoch: number; envelope: Uint8Array } | null {
+  if (framed[0] !== SIGNED_SIGNAL || framed.length < 5) return null;
+  return { epoch: readU32(framed.subarray(1)), envelope: framed.subarray(5) };
 }
 
 // --- History sharing ---

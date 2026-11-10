@@ -35,7 +35,7 @@ describe("presence and read state", () => {
     const key = session.epochKey(groupId, epoch);
     const own = (alice.session as any).account;
     const signed = (at: number, by = own) =>
-      toBase64(frameSigned(by.deviceId, epoch, sealEnvelope(key, by.deviceSecret, "typing", groupId, alice.userId, epoch, { at }, { userId: alice.userId, deviceId: by.deviceId })));
+      toBase64(frameSigned(epoch, sealEnvelope(key, by.deviceSecret, "typing", groupId, "typing", epoch, { at }, { userId: alice.userId, deviceId: by.deviceId })));
     bob.events.length = 0;
     session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: toBase64(sealSignal(key, "typing", groupId, epoch, {})) });
     session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: signed(Date.now() - 10 * 60_000) });

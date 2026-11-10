@@ -60,6 +60,8 @@ export abstract class SessionBase {
   protected epochKeys = new Map<string, Uint8Array>();
   /** Messages that arrived live before their keys did, notified once they open. */
   protected awaitingKeys = new Set<string>();
+  /** Devices something here named that this device is asking the server about (`learnDevice`). */
+  protected learning = new Set<string>();
   protected syncing = new Map<string, { again: boolean; done: Promise<void> }>();
   protected socket: Socket;
   protected connection: ConnectionState = "connecting";
@@ -264,6 +266,6 @@ export abstract class SessionBase {
   protected abstract noticeVoiceEpoch(): void;
   protected abstract forgetCall(groupId: string): void;
   protected abstract applySounds(list: ApiSound[], save?: boolean): void;
-  protected abstract takeSignal(message: ApiMessage, body: MessageBody): void;
+  protected abstract takeSignal(message: ApiMessage, body: MessageBody, from: string): void;
   abstract leaveGroup(groupId: string): Promise<void>;
 }

@@ -299,8 +299,6 @@ export const validApiMessage = (message: ApiMessage): boolean =>
   Number.isSafeInteger(message.updated_seq) &&
   Number.isSafeInteger(message.epoch) &&
   Number.isSafeInteger(message.created_at) &&
-  typeof message.sender_user === "string" &&
-  typeof message.sender_device === "string" &&
   Array.isArray(message.reactions);
 
 

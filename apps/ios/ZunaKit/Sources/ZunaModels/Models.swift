@@ -374,6 +374,7 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var id: String
     public var groupId: String
     public var seq: Int?
+    /// Whoever's device signed it, from inside: the server isn't told. Empty until it opens.
     public var senderId: String
     public var createdAt: Int
     public var editedAt: Int?

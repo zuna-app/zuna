@@ -300,8 +300,10 @@ export interface ReactionView {
 }
 
 /**
- * "unverified": its signature failed, or it couldn't have been sent when it claims.
+ * "undecryptable": it doesn't open yet, so who wrote it isn't known either (`senderId` is "").
+ * "unverified": its author's device signed it, but couldn't have sent it when it claims.
  * "invalid": it opened, but what's inside isn't a message this app can show.
+ * A message nobody it names signed, or from a device this one doesn't know yet, is shown nowhere.
  */
 export type MessageStatus = "sending" | "sent" | "failed" | "undecryptable" | "unverified" | "invalid";
 
@@ -335,6 +337,7 @@ export interface MessageView {
   id: string;
   groupId: string;
   seq: number | null;
+  /** Whoever's device signed it, from inside: the server isn't told. "" until it opens. */
   senderId: string;
   createdAt: number;
   editedAt: number | null;

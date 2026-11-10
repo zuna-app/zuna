@@ -248,6 +248,7 @@ pub struct MessageView {
     pub id: String,
     pub group_id: String,
     pub seq: Option<f64>,
+    /// Whoever's device signed it, from inside: the server isn't told. Empty until it opens.
     pub sender_id: String,
     pub created_at: f64,
     pub edited_at: Option<f64>,

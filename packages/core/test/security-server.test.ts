@@ -266,11 +266,10 @@ describe("a server rewriting who said what (Z-40)", () => {
     await waitFor(() => sessionOf(eve).messageRow(groupId, sent.id)?.status === "sent", "eve to read it");
     const row = sessionOf(eve).messageRow(groupId, sent.id);
     const malSession = sessionOf(mal);
-    const envelope = sealEnvelope(malSession.epochKey(groupId, row.epoch), malSession.account.deviceSecret, "message", groupId, sent.id, row.epoch, { text: "I resign" }, malSession.signer);
+    const envelope = sealEnvelope(malSession.epochKey(groupId, row.epoch), malSession.account.deviceSecret, "message", groupId, sent.id, row.epoch, { text: "I resign", by: { user: mal.userId, device: malSession.account.deviceId } }, malSession.signer);
     sessionOf(eve).ingest(
       {
-        group_id: groupId, id: sent.id, seq: row.seq, updated_seq: row.updated_seq + 1,
-        sender_user: mal.userId, sender_device: malSession.account.deviceId, epoch: row.epoch,
+        group_id: groupId, id: sent.id, seq: row.seq, updated_seq: row.updated_seq + 1, epoch: row.epoch,
         envelope: toBase64(envelope), created_at: row.created_at, edited_at: null, deleted_at: null, pinned_at: null, reactions: [],
       },
       true,
@@ -280,7 +279,7 @@ describe("a server rewriting who said what (Z-40)", () => {
     expect(warned(eve, "who wrote a message")).toBe(true);
   });
 
-  it("doesn't believe a body that says someone else sent it", async () => {
+  it("shows nowhere a body that says someone else sent it, as nobody's", async () => {
     const ann = await person("ann");
     const mal = await person("mal");
     const eve = await person("eve");
@@ -300,12 +299,13 @@ describe("a server rewriting who said what (Z-40)", () => {
     );
     sessionOf(eve).ingest(
       {
-        group_id: groupId, id, seq: 999, updated_seq: 999, sender_user: mal.userId, sender_device: malSession.account.deviceId, epoch,
+        group_id: groupId, id, seq: 999, updated_seq: 999, epoch,
         envelope: toBase64(envelope), created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [],
       },
       true,
     );
-    expect(sessionOf(eve).messageRow(groupId, id).status).toBe("unverified");
+    expect(sessionOf(eve).messageRow(groupId, id)).toBeUndefined();
+    expect(sessionOf(eve).db.get("SELECT held FROM withheld WHERE group_id = ? AND id = ?", [groupId, id])).toEqual({ held: 0 });
   });
 });
 
@@ -412,9 +412,10 @@ describe("a message the server says was edited (Z-53)", () => {
     const sealed = session.db.get("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, epoch + 1]).seq;
     const start = session.openValue("epoch-start", `${groupId}:${epoch + 1}`, sealed, 0) as number;
 
-    const message = { group_id: groupId, sender_user: owner.userId, sender_device: owner.session.getSelf().deviceId, epoch, seq: start + 5, edited_at: Date.now() };
-    expect(session.couldBeSent({ ...message, seq: start - 1 })).toBe(true);
-    expect(session.couldBeSent(message)).toBe(false);
+    const message = { group_id: groupId, epoch, seq: start + 5, edited_at: Date.now() };
+    const sender = { userId: owner.userId, deviceId: owner.session.getSelf().deviceId };
+    expect(session.couldBeSent({ ...message, seq: start - 1 }, sender)).toBe(true);
+    expect(session.couldBeSent(message, sender)).toBe(false);
     // An edit keeps its place in the group, from before that epoch ended.
     owner.session.editMessage(groupId, sent.id, "typo here", {}, []);
     await waitFor(() => member.texts(`group:${groupId}`).includes("typo here"), "the edit");

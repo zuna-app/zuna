@@ -2,7 +2,7 @@
 
 import * as wasm from "@zuna/crypto";
 import { decode, type Api, type ApiChannel, type ApiSound, type ApiUser } from "../api";
-import { openProfile, openProfileAtGeneration, parseCertificate } from "../crypto";
+import { openProfile, openProfileAtGeneration, parseCertificate, type Signer } from "../crypto";
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
 import type { TrustManifest } from "../manifest";
 import { parseProfile } from "../validate";
@@ -407,6 +407,11 @@ export abstract class SessionLocal extends SessionBase {
     } catch {
       return this.users.get(userId) ?? null;
     }
+  }
+
+  /** The key a device signs with, if this device knows it, for checking what it signed. */
+  protected deviceKey(signer: Signer): Uint8Array | undefined {
+    return this.users.get(signer.userId)?.devices.get(signer.deviceId)?.signatureKey;
   }
 
   /** Someone as the server has them now, and their chain followed to it. Throws when they can't be fetched. */

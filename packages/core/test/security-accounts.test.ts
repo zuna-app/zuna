@@ -284,9 +284,9 @@ describe("old keys and removed devices (Z-20)", () => {
     const device = (dave.session as any).account.deviceId;
     const epoch = session.mlsEpoch(groupId);
     session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, dave.userId, device, session.sealJson("departure", `${groupId}/${dave.userId}/${device}`, epoch)]);
-    const message = (id: string, at: number) => ({ group_id: groupId, id, seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch: at, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
-    expect(session.couldBeSent(message("b".repeat(32), epoch))).toBe(false);
-    expect(session.couldBeSent(message("c".repeat(32), epoch - 1))).toBe(true);
+    const message = (id: string, at: number) => ({ group_id: groupId, id, seq: 0, updated_seq: 0, epoch: at, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
+    expect(session.couldBeSent(message("b".repeat(32), epoch), { userId: dave.userId, deviceId: device })).toBe(false);
+    expect(session.couldBeSent(message("c".repeat(32), epoch - 1), { userId: dave.userId, deviceId: device })).toBe(true);
   });
 
   it("doesn't take another account's device with the same ID leaving for this one's (Z3-06)", async () => {
@@ -296,8 +296,8 @@ describe("old keys and removed devices (Z-20)", () => {
     const device = (dave.session as any).account.deviceId;
     const epoch = session.mlsEpoch(groupId);
     session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, "f".repeat(32), device, session.sealJson("departure", `${groupId}/${"f".repeat(32)}/${device}`, epoch)]);
-    const message = { group_id: groupId, id: "d".repeat(32), seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] };
-    expect(session.couldBeSent(message)).toBe(true);
+    const message = { group_id: groupId, id: "d".repeat(32), seq: 0, updated_seq: 0, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] };
+    expect(session.couldBeSent(message, { userId: dave.userId, deviceId: device })).toBe(true);
   });
 
   it("refuses a message claiming an epoch that had already ended when it came", async () => {
@@ -307,9 +307,9 @@ describe("old keys and removed devices (Z-20)", () => {
     const epoch = session.mlsEpoch(groupId);
     session.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [groupId, epoch + 1, session.sealJson("epoch-start", `${groupId}:${epoch + 1}`, 500)]);
     const device = (dave.session as any).account.deviceId;
-    const message = (seq: number) => ({ group_id: groupId, id: "d".repeat(32), seq, updated_seq: seq, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
-    expect(session.couldBeSent(message(499))).toBe(true);
-    expect(session.couldBeSent(message(501))).toBe(false);
+    const message = (seq: number) => ({ group_id: groupId, id: "d".repeat(32), seq, updated_seq: seq, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
+    expect(session.couldBeSent(message(499), { userId: dave.userId, deviceId: device })).toBe(true);
+    expect(session.couldBeSent(message(501), { userId: dave.userId, deviceId: device })).toBe(false);
   });
 
   it("flags a message whose signed time is far from the server's", async () => {

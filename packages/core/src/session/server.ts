@@ -3,7 +3,7 @@
 import * as wasm from "@zuna/crypto";
 import { decode, type ApiBot, type ApiMessage, type ApiSound } from "../api";
 import { botProofInput, botSetupLink, inviteLink } from "../account";
-import { frameSigned, openEnvelope, randomId, readSigned, sealEnvelope } from "../crypto";
+import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope } from "../crypto";
 import { fromBase64, toBase64, toBase64Url } from "../encoding";
 import { decodeFrameData } from "../socket";
 import { openSoundDetails, sealSoundDetails } from "../soundboard";
@@ -132,7 +132,7 @@ export abstract class SessionServer extends SessionChannels {
     const key = this.epochKey(channelId, epoch);
     if (!key) throw new Error("This device can't play sounds here yet.");
     const play = { sound: soundId, user: this.account.userId, at: Date.now(), nonce: randomId() };
-    const sealed = frameSigned(this.account.deviceId, epoch, sealEnvelope(key, this.account.deviceSecret, "play", channelId, this.account.userId, epoch, play, this.signer));
+    const sealed = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "play", channelId, this.account.userId, epoch, play, this.signer));
     await (this.isCall(channelId) ? this.api.playCallSound(channelId, sealed) : this.api.playSound(channelId, sealed));
   }
 
@@ -145,10 +145,9 @@ export abstract class SessionServer extends SessionChannels {
     // Signed by the device that played it, so that nobody else in the room can say who did.
     const signed = readSigned(decodeFrameData(data.data));
     const key = signed && this.epochKey(data.channel_id, signed.epoch);
-    const device = signed && this.users.get(data.user_id)?.devices.get(signed.deviceId);
-    if (!signed || !key || !device) return;
-    const opened = openEnvelope<{ nonce?: unknown }>(key, device.signatureKey, "play", data.channel_id, data.user_id, signed.epoch, signed.envelope, { userId: data.user_id, deviceId: signed.deviceId });
-    const play = opened.ok ? parsePlay(opened.value) : null;
+    if (!signed || !key) return;
+    const checked = checkEnvelope<unknown>(key, "play", data.channel_id, data.user_id, signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+    const play = checked.state === "signed" && checked.signer.userId === data.user_id ? parsePlay(checked.value) : null;
     if (!play || play.user !== data.user_id || !this.sounds.get(play.sound)?.details) return;
     const now = Date.now();
     for (const [nonce, seen] of this.playsSeen) {
@@ -396,18 +395,18 @@ export abstract class SessionServer extends SessionChannels {
   }
 
   /** Does what a message that's shown nowhere asks, if it's this device's to do. */
-  protected takeSignal(message: ApiMessage, body: MessageBody): void {
+  protected takeSignal(message: ApiMessage, body: MessageBody, from: string): void {
     const signal = body.signal;
     if (signal?.type === "bot_settings") {
       // One at a time, in the order they came.
-      void this.withLock("bot-settings", () => this.obeyOwner(message, body.sentAt ?? message.created_at, signal)).catch((error) => console.warn("[zuna] taking on a bot's settings", error));
+      void this.withLock("bot-settings", () => this.obeyOwner(message, from, body.sentAt ?? message.created_at, signal)).catch((error) => console.warn("[zuna] taking on a bot's settings", error));
     }
     if (signal?.type === "button" && this.account.bot && this.hearsChat(message.group_id)) {
       // Only for a button this bot's own message has, with the data that button holds.
       const row = this.messageRow(message.group_id, signal.message);
       const own = row?.sender_user === this.account.userId && row.deleted_at === null ? this.toMessageView(row).buttons : [];
       if (!own.some((buttons) => buttons.some((button) => button.data === signal.data))) return;
-      this.emit({ type: "button", serverId: this.serverId, groupId: message.group_id, messageId: signal.message, userId: message.sender_user, data: signal.data, id: message.id });
+      this.emit({ type: "button", serverId: this.serverId, groupId: message.group_id, messageId: signal.message, userId: from, data: signal.data, id: message.id });
     }
   }
 
@@ -416,10 +415,10 @@ export abstract class SessionServer extends SessionChannels {
    * and from nobody else: who may see and add it, which it keeps itself from then on, and
    * its profile, which only it can seal. An older ask than the last one it took changes nothing.
    */
-  protected async obeyOwner(message: ApiMessage, at: number, signal: Extract<MessageSignal, { type: "bot_settings" }>): Promise<void> {
+  protected async obeyOwner(message: ApiMessage, from: string, at: number, signal: Extract<MessageSignal, { type: "bot_settings" }>): Promise<void> {
     const rules = this.account.bot;
     const group = this.groups.get(message.group_id);
-    if (!rules || message.sender_user !== rules.ownerId || group?.kind !== "dm" || group.peerId !== rules.ownerId) return;
+    if (!rules || from !== rules.ownerId || group?.kind !== "dm" || group.peerId !== rules.ownerId) return;
     if (signal.listed !== undefined || signal.add !== undefined) {
       if (at > (this.getKv<number>("bot_rules_at") ?? 0)) {
         this.setKv("bot_rules_at", at);

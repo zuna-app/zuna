@@ -97,7 +97,7 @@ export function signedDeletion(app: TestApp, groupId: string, messageId: string)
   const session = sessionOf(app);
   const epoch = session.mlsEpoch(groupId) as number;
   const { deviceId, deviceSecret } = session.account;
-  return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }, { userId: app.userId, deviceId }));
+  return frameSigned(epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }, { userId: app.userId, deviceId }));
 }
 
 export async function threeInAGroup() {

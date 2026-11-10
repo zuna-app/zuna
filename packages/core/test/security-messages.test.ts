@@ -126,7 +126,7 @@ describe("a device key someone else's certificate names (Z3-07)", () => {
       const row = db.prepare("SELECT data FROM reactions WHERE group_id = ? AND message_id = ?").get(groupId, id) as { data: Uint8Array };
       const signed = readSigned(new Uint8Array(row.data))!;
       const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
-      db.prepare("UPDATE reactions SET user_id = ?, data = ? WHERE group_id = ? AND message_id = ?").run(mal.userId, frameSigned(device, signed.epoch, signed.envelope), groupId, id);
+      db.prepare("UPDATE reactions SET user_id = ?, data = ? WHERE group_id = ? AND message_id = ?").run(mal.userId, frameSigned(signed.epoch, signed.envelope), groupId, id);
       db.prepare("UPDATE messages SET updated_seq = ? WHERE group_id = ? AND id = ?").run(seq, groupId, id);
     });
     await sessionOf(bob).ensureUser(mal.userId, true);
@@ -459,7 +459,8 @@ describe("what a server can learn from reactions and read positions, or change i
     await sessionOf(zed).ensureUser(rob.userId, true);
 
     expect(shown(messageId, wire)).toHaveLength(1);
-    expect(shown(messageId, { ...wire, user_id: ann.userId })).toEqual([]);
+    // Whose it is, the server isn't told, so its saying so changes nothing.
+    expect(shown(messageId, { ...wire, user_id: ann.userId })[0].userIds).toEqual([rob.userId]);
     expect(shown(randomId(), wire)).toEqual([]);
     expect(shown(messageId, { ...wire, id: randomId() })).toEqual([]);
   });

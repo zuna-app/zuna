@@ -3,7 +3,7 @@
 import { ApiError, decode, type ApiGroup } from "../api";
 import {
   CONTENT_LABEL,
-  openEnvelope,
+  checkEnvelope,
   openSignal,
   readSigned,
   readSignedGroupDetails,
@@ -494,11 +494,10 @@ export abstract class SessionGroups extends SessionRotation {
     let seq: number | null = null;
     const signed = readSigned(sealed);
     if (signed) {
-      const device = this.users.get(userId)?.devices.get(signed.deviceId);
       const key = this.epochKey(group.id, signed.epoch);
-      if (!device || !key) return;
-      const opened = openEnvelope<unknown>(key, device.signatureKey, "read", group.id, userId, signed.epoch, signed.envelope, { userId, deviceId: signed.deviceId });
-      seq = opened.ok ? parseReadState(opened.value) : null;
+      if (!key) return;
+      const checked = checkEnvelope<unknown>(key, "read", group.id, userId, signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+      seq = checked.state === "signed" && checked.signer.userId === userId ? parseReadState(checked.value) : null;
     } else {
       // Unsigned, it can only be this account's own, sealed to its key so its other
       // devices keep up.

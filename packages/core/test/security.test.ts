@@ -233,14 +233,20 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     ["text too long", { text: "x".repeat(MAX_TEXT_LENGTH + 1) }],
   ];
 
-  it.each(shapes)("shows %s as a message that can't be displayed", async (_, body) => {
+  it.each(shapes)("shows %s as a message that can't be displayed, or nowhere", async (_, body) => {
     const dave = await person("dave");
     const groupId = await dmWith(dave);
     const id = await sendRaw(dave, groupId, body);
-    await waitFor(() => (alice.session as any).messageRow(groupId, id) !== undefined, "it to arrive");
+    const session = alice.session as any;
+    // One that isn't an object can't say who it's from, so it can't be told from someone else's, and it's nobody's.
+    if (body === null || typeof body !== "object") {
+      await waitFor(() => !!session.db.get("SELECT 1 FROM withheld WHERE group_id = ? AND id = ?", [groupId, id]), "it to arrive");
+      expect(await alice.session.messageById(groupId, id)).toBeFalsy();
+      return;
+    }
+    await waitFor(() => session.messageRow(groupId, id) !== undefined, "it to arrive");
     const view = await alice.session.messageById(groupId, id);
-    // One that isn't an object can't say who it's from, so it can't be told from someone else's.
-    expect(view!.status).toBe(body !== null && typeof body === "object" ? "invalid" : "unverified");
+    expect(view!.status).toBe("invalid");
     expect(view!.text).toBe("");
     // None of what the app does with a conversation's newest message trips on it.
     const row = alice.session.getConversations().find((item) => item.groupId === groupId)!;

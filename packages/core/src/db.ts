@@ -185,6 +185,12 @@ const MIGRATIONS: string[] = [
   `CREATE INDEX messages_unproven ON messages(unproven_delete_at) WHERE unproven_delete_at IS NOT NULL;`,
   // The messages that carried something to act on, which are shown nowhere and acted on once.
   `CREATE TABLE signals (group_id TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (group_id, id));`,
+  // Messages kept out of every chat, as they came, sealed: one naming a device this one doesn't
+  // know yet (held), tried again once it does, and one nobody it names signed, which is nobody's.
+  `
+  CREATE TABLE withheld (group_id TEXT NOT NULL, id TEXT NOT NULL, updated_seq INTEGER NOT NULL, held INTEGER NOT NULL, data BLOB NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (group_id, id));
+  CREATE INDEX withheld_held ON withheld(group_id) WHERE held = 1;
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

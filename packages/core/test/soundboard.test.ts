@@ -153,7 +153,7 @@ describe("the soundboard", () => {
     const signal = (by: TestApp, user: string, at = Date.now(), room = channelId) => {
       const { deviceId, deviceSecret } = (by.session as any).account;
       const play = { sound: soundId, user, at, nonce: `${user}-${at}` };
-      return toBase64(frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "play", room, by.userId, epoch, play, { userId: by.userId, deviceId })));
+      return toBase64(frameSigned(epoch, sealEnvelope(key, deviceSecret, "play", room, by.userId, epoch, play, { userId: by.userId, deviceId })));
     };
 
     const fromAlice = signal(alice, alice.userId);
