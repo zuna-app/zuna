@@ -162,7 +162,7 @@ Rules the core depends on:
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Web UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
-| Bots: accounts a program runs | `docs/BOTS.md`, `docs/BOTS_PLAN.md`, `server/internal/api/bots.go`, `server/internal/store/bots.go`, `// --- Bots ---` in `session/server.ts`, `apps/bot`, `examples/simple-bot`, `packages/ui/src/features/bots`, `apps/desktop/src/ui/server_settings/bots.rs` |
+| Bots: accounts a program runs | `docs/BOTS.md`, `server/internal/api/bots.go`, `server/internal/store/bots.go`, `// --- Bots ---` in `session/server.ts`, `apps/bot`, `examples/simple-bot`, `packages/ui/src/features/bots`, `apps/desktop/src/ui/server_settings/bots.rs` |
 | Adding the test server's people, who answer by themselves, or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |

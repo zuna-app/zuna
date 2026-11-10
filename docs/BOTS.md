@@ -2,8 +2,6 @@
 
 A bot is an account that a program runs instead of a person. You make one in a server's settings, run it on a machine of your choosing with `zuna-bot`, and write its code against an API shaped like Telegram's Bot API, so a bot written for Telegram needs little more than a new address.
 
-[BOTS_PLAN.md](BOTS_PLAN.md) has the design and what's left for later: bots that only see the commands sent to them, bots in voice, and small programs that run inside a group.
-
 ## Before you add one
 
 A bot is a member of the chats it's in, with keys of its own, like a person. That has three consequences worth knowing first.

@@ -236,7 +236,7 @@ A call is a conversation's own room on the voice channels' media server, under i
 
 ## Bots
 
-`docs/BOTS.md` for people, `docs/BOTS_PLAN.md` for the design. A bot is an account its owner makes and a program of theirs runs through `zuna-bot` (`apps/bot`), which isn't a platform here: it has no interface. The server's part is `server/internal/api/bots.go` and `server/internal/store/bots.go`, and the core's `// --- Bots ---` in `packages/core/src/session/server.ts`, with a bot's own rules in `session/joining.ts` (`noteIfUnwanted`, `hearsChat`). The native app has all of the table too, in its own row in "The native desktop app", which says where and what was checked.
+`docs/BOTS.md` for people. A bot is an account its owner makes and a program of theirs runs through `zuna-bot` (`apps/bot`), which isn't a platform here: it has no interface. The server's part is `server/internal/api/bots.go` and `server/internal/store/bots.go`, and the core's `// --- Bots ---` in `packages/core/src/session/server.ts`, with a bot's own rules in `session/joining.ts` (`noteIfUnwanted`, `hearsChat`). The native app has all of the table too, in its own row in "The native desktop app", which says where and what was checked.
 
 | Feature | Desktop | iOS | Web | Desktop and web code | iOS code | Notes |
 |---|---|---|---|---|---|---|
