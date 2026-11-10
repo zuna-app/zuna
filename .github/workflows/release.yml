@@ -4,170 +4,136 @@ on:
   push:
     tags: ["v*"]
 
-# Nothing runs with more than it needs. Files are built and signed by jobs that
-# can't publish anything, and the job that publishes runs no build. Third-party
-# actions are pinned to full commits, since a tag can be moved.
+# Releases the native app, which scripts/release.mjs tagged: v1.2.3 is a stable
+# release, and v1.2.3-nightly.1108 a nightly. docs/RELEASES.md says how it all
+# fits together. The server, zuna-web and their images aren't released here
+# yet (docs/ROADMAP.md).
 #
-# Whatever signs or publishes waits for every test and advisory check in ci.yml,
-# and runs in the "release" environment. Its signing secrets belong there rather
-# than in the repository, with the other maintainer as a required reviewer and
-# only v* tags allowed, so that one account or token alone can't ship a release,
-# whose binaries and images servers take as they are. It builds no desktop app
-# yet: that job went with the Electron app, and the native app's is still to be
-# written (docs/ROADMAP.md).
+# Nothing runs with more than it needs. The app is built by a job that holds no
+# secret and can't publish anything, and the job that signs and publishes runs
+# no build. Third-party actions are pinned to full commits, since a tag can be
+# moved.
+#
+# What an installed app trusts is the manifest's signature, made with its
+# channel's key: the stable key is a secret of the "release" environment and
+# the nightly key of "nightly", both of which only v* tags reach. An app on
+# stable takes nothing the nightly key signed, so whatever cuts nightlies can't
+# reach anyone who didn't choose them. A stable release also waits for ci.yml's
+# tests, and a nightly's run only builds.
 permissions:
   contents: read
 
+# A nightly that's overtaken is cancelled, so two sessions that end close
+# together leave one build, the newer. A stable release always finishes.
+concurrency:
+  group: ${{ contains(github.ref_name, '-nightly.') && 'release-nightly' || format('release-{0}', github.ref_name) }}
+  cancel-in-progress: ${{ contains(github.ref_name, '-nightly.') }}
+
 jobs:
+  # What the tag releases. Fails unless it's annotated, on main, and agrees with
+  # the version in package.json and, for a nightly, with its commit's number.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      build: ${{ steps.plan.outputs.build }}
+      label: ${{ steps.plan.outputs.label }}
+      commit: ${{ steps.plan.outputs.commit }}
+      environment: ${{ steps.plan.outputs.environment }}
+    steps:
+      # All of main's history, as the build number is how many commits there are.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      # The checkout leaves the tag pointing at its commit, without its message.
+      - run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" "+refs/heads/main:refs/remotes/origin/main"
+      - id: plan
+        run: node scripts/release.mjs plan "$GITHUB_REF_NAME"
+
+  # Everything that tests what's shipped, before a stable release.
   checks:
+    needs: [plan]
+    if: ${{ needs.plan.outputs.channel == 'stable' }}
     uses: ./.github/workflows/ci.yml
+    with:
+      jobs: test advisories desktop
 
-  server:
-    runs-on: ubuntu-latest
+  windows:
+    needs: [plan]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      ZUNA_BUILD: ${{ needs.plan.outputs.build }}
+      ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: server/go.mod
-          # setup-go keys its cache on a go.sum at the root by default.
-          cache-dependency-path: server/go.sum
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - run: ZUNA_VERSION="${GITHUB_REF_NAME#v}" node scripts/build-server.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: server
-          path: dist/server/*
-          if-no-files-found: error
-
-  image:
-    needs: [checks]
-    environment: release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      # Image names can't have capitals.
-      - id: owner
-        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: server
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: VERSION=${{ github.ref_name }}
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:latest
-            ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:${{ github.ref_name }}
-
-  # zuna-web for each platform, with the web app inside, and the list of the app's
-  # files that scripts/check-web.mjs compares a running copy with.
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: server/go.mod
-          # setup-go keys its cache on a go.sum at the root by default.
-          cache-dependency-path: server/go.sum
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      # What ci.yml's desktop job saved on main. A tag's own cache would be of
+      # no use to the next tag, so nothing is saved here.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          targets: wasm32-unknown-unknown
-      - uses: ./.github/actions/wasm-bindgen
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-cargo-
       - run: npm ci
-      - run: npm run build:crypto
-      - run: ZUNA_VERSION="${GITHUB_REF_NAME#v}" npm run build:web
+      - run: npm run dist:windows
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: web
-          path: dist/web/*
-          if-no-files-found: error
-      # The same build for the zuna-web image, so that it serves exactly what
-      # zuna-web-files.sha256 lists, without a second build that would only match
-      # while Vite's output stays the same byte for byte.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: web-app
-          path: apps/web/dist/
+          name: windows
+          path: dist/windows/Zuna-Native-Setup-${{ needs.plan.outputs.label }}.exe
           if-no-files-found: error
 
-  web-image:
-    needs: [checks, web]
-    environment: release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # The web job's build, into server/cmd/zuna-web/site, where the image's build finds it.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: web-app
-          path: server/cmd/zuna-web/site
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - id: owner
-        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: server
-          file: server/Dockerfile.web
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: VERSION=${{ github.ref_name }}
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.name }}/zuna-web:latest
-            ghcr.io/${{ steps.owner.outputs.name }}/zuna-web:${{ github.ref_name }}
-
+  # Signs the manifest and publishes. A nightly doesn't wait for the checks,
+  # which only run for a stable release.
   publish:
-    needs: [checks, server, image, web, web-image]
-    environment: release
+    needs: [plan, checks, windows]
+    if: ${{ !cancelled() && needs.windows.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
+    environment: ${{ needs.plan.outputs.environment }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
       attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LABEL: ${{ needs.plan.outputs.label }}
+      CHANNEL: ${{ needs.plan.outputs.channel }}
     steps:
-      # What's released, by name: the web app's own files went into the zuna-web image.
+      # For the release script and the keys the app carries, and the tag's message.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: server
+          name: windows
           path: artifacts
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: web
-          path: artifacts
-      - name: Create checksums
-        working-directory: artifacts
-        run: sha256sum * > SHA256SUMS
+      - name: Write and sign the manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          ZUNA_VERSION: ${{ needs.plan.outputs.version }}
+          ZUNA_BUILD: ${{ needs.plan.outputs.build }}
+          ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
+          ZUNA_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node scripts/release.mjs manifest artifacts
       # Says which workflow run built each file; check one with `gh attestation verify`.
-      # GitHub only offers this for public repositories on most plans.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
-        if: ${{ !github.event.repository.private }}
         with:
           subject-path: artifacts/*
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: artifacts/*
+      # The tag's message is the changelog. Only a stable release becomes "latest".
+      - name: Publish the release
+        run: |
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          if [ "$CHANNEL" = stable ]; then
+            gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --title "Zuna $LABEL" --notes-file notes.md --latest
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --title "Zuna $LABEL" --notes-file notes.md --prerelease --latest=false
+          fi
+      - name: Delete the nightlies past the newest
+        if: ${{ needs.plan.outputs.channel == 'nightly' }}
+        run: node scripts/release.mjs prune
