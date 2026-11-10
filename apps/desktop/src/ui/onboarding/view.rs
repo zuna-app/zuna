@@ -137,7 +137,7 @@ impl Onboarding {
                         .text_color(theme.text2)
                         .cursor_pointer()
                         .hover(move |style| style.text_color(theme.text1))
-                        .on_click(|_, _, cx| cx.open_url("https://github.com/SocketByte/zuna-chat/blob/main/docs/SELF_HOSTING.md"))
+                        .on_click(|_, _, cx| cx.open_url("https://github.com/zuna-app/zuna/blob/main/docs/SELF_HOSTING.md"))
                         .child(icon("server", 14., theme.text2))
                         .child("Host your own server")
                         .child(icon("arrow-up-right", 14., theme.text2)),

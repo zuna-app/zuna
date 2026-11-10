@@ -1,5 +1,5 @@
 export const SITE = "https://zuna.chat";
-export const REPO = "https://github.com/SocketByte/zuna-chat";
+export const REPO = "https://github.com/zuna-app/zuna";
 
 export type PageId = "home" | "privacy" | "terms" | "support" | "missing";
 

@@ -10,7 +10,7 @@ Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds
 - **Always work on `main`, and push there.** Never create a branch or a pull request. If the push is refused, rebase onto `origin/main` and push again. Never force-push.
 - **Commit as you go,** without waiting to be asked: one small commit per change, pushed when it's done. Don't leave finished work uncommitted.
 - **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, so nothing checks a push to `main`.
-- **The remote is `SocketByte/zuna-chat`.** `SocketByte/zuna` is a different repository: never push there.
+- **The remote is `zuna-app/zuna`,** which was `SocketByte/zuna-chat` until 2026-11-10. `SocketByte/zuna` is a different repository: never push there.
 - **No Dependabot,** or anything else that opens branches. It was removed on purpose. Update dependencies by hand.
 - **No backward compatibility until the first release.** Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
 
@@ -129,7 +129,7 @@ Rules the core depends on:
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
 | The site's content security policy or headers (`apps/site/policy.mjs`) | The Caddy example under "Hosting" in `docs/SITE_PLAN.md`, and what the server sends |
 | LiveKit's Rust SDK in the native app (`livekit` in `apps/desktop/Cargo.toml`), and with it `webrtc-sys` | The version and SHA-256 in `scripts/webrtc-sys.mjs`, and `apps/desktop/patches/webrtc-sys.patch` made again against the new crate |
-| GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `SocketByte/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
+| GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
 
 ## Feature parity
 
@@ -188,7 +188,7 @@ Rules the core depends on:
 
 ## Gotchas
 
-- **The native app's GPUI is a git dependency on `SocketByte/zed`,** Zuna's fork of Zed, pinned to a commit of its `zuna/v1.27.0` branch, so the first build fetches Zed's repository, which is large. To change GPUI, point `gpui` and `gpui_platform` in `apps/desktop/Cargo.toml` at a local checkout of that branch with `path`, then commit and push there and move the pin. The fork's branches are the one place branches are made, one for each Zed release, and none is ever rebased or force-pushed, so older pins keep building.
+- **The native app's GPUI is a git dependency on `zuna-app/zed`,** Zuna's fork of Zed, pinned to a commit of its `zuna/v1.27.0` branch, so the first build fetches Zed's repository, which is large. To change GPUI, point `gpui` and `gpui_platform` in `apps/desktop/Cargo.toml` at a local checkout of that branch with `path`, then commit and push there and move the pin. The fork's branches are the one place branches are made, one for each Zed release, and none is ever rebased or force-pushed, so older pins keep building.
 - **The native app builds against the FFmpeg `scripts/ffmpeg.mjs` pins,** in `apps/desktop/.deps`, through `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`: on Windows and Linux the screen share's encoder, which its build puts in `lib` beside the app with FFmpeg's libraries, and on Linux the app's media too, which links them. The app's scripts and the Linux checks fetch it first; a plain `cargo build` needs it fetched already, with `node scripts/ffmpeg.mjs`. On macOS that FFmpeg is built from its pinned source, and the app never links it: libwebrtc carries Chromium's own FFmpeg, whose symbols the linker would take for the app's calls, so the same `media/ffmpeg` code is built into a library of its own, `apps/desktop/media-ffmpeg`, which the app loads (`media/apple/ffmpeg.rs`). Its tests run there, with `cargo test` in that folder.
 - **The native app builds LiveKit's `webrtc-sys` with a patch of Zuna's,** `apps/desktop/patches/webrtc-sys.patch`, which lets AV1 go out end to end encrypted: LiveKit's frame cryptor encrypts all of an AV1 frame, which libwebrtc's packetizer then can't read, so the ciphertext goes in OBUs of its own (`docs/SCREEN_SHARE.md`, "AV1"). `[patch.crates-io]` in `apps/desktop/Cargo.toml` takes it from `apps/desktop/.deps/webrtc-sys`, where `scripts/webrtc-sys.mjs` puts the crate from crates.io, checked against its SHA-256, with the patch applied. The app's scripts and checks fetch it first; any plain `cargo` command in `apps/desktop` needs it fetched already, as the workspace won't load without it.
 - **On macOS, anything the app reads in Desktop or Documents waits for the person to allow it.** The checkout is often there, so the checks copy what the app should read into their own folder, and `npm run dev:macos`'s data in `.dev-data` makes macOS ask once.

@@ -21,7 +21,7 @@ use windows::core::{GUID, HSTRING, PCWSTR};
 pub use crate::platform::VERSION;
 
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
-const RELEASES: &str = "https://api.github.com/repos/SocketByte/zuna-chat/releases/latest";
+const RELEASES: &str = "https://api.github.com/repos/zuna-app/zuna/releases/latest";
 
 /// An update downloaded and checked, to install as the app quits.
 static READY: Mutex<Option<PathBuf>> = Mutex::new(None);

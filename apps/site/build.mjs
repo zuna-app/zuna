@@ -52,7 +52,7 @@ async function latestRelease() {
   if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   try {
     // A network that takes the request and never answers mustn't hold the build.
-    const response = await fetch("https://api.github.com/repos/SocketByte/zuna-chat/releases/latest", { headers, signal: AbortSignal.timeout(10_000) });
+    const response = await fetch("https://api.github.com/repos/zuna-app/zuna/releases/latest", { headers, signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       console.warn(`No release to link to (GitHub said ${response.status}), so downloads lead to the releases page`);
       return null;

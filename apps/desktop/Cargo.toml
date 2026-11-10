@@ -20,10 +20,10 @@ exclude = ["media-ffmpeg", "test/driver"]
 
 [dependencies]
 # GPUI from Zed's v1.27.0 release with Zuna's changes on top, from the `zuna/v1.27.0` branch of
-# SocketByte/zed, pinned to a commit. Its ZUNA.md lists the changes and how to move to a newer
+# zuna-app/zed, pinned to a commit. Its ZUNA.md lists the changes and how to move to a newer
 # release. Without X11, as the app only runs under Wayland on Linux.
-gpui = { git = "https://github.com/SocketByte/zed", rev = "c5e567c7b0bd8b29b60b0673d80eb044e4d20c8d", default-features = false, features = ["font-kit", "wayland", "windows-manifest"] }
-gpui_platform = { git = "https://github.com/SocketByte/zed", rev = "c5e567c7b0bd8b29b60b0673d80eb044e4d20c8d", default-features = false, features = ["font-kit", "wayland"] }
+gpui = { git = "https://github.com/zuna-app/zed", rev = "c5e567c7b0bd8b29b60b0673d80eb044e4d20c8d", default-features = false, features = ["font-kit", "wayland", "windows-manifest"] }
+gpui_platform = { git = "https://github.com/zuna-app/zed", rev = "c5e567c7b0bd8b29b60b0673d80eb044e4d20c8d", default-features = false, features = ["font-kit", "wayland"] }
 
 # The client core runs in QuickJS, as it runs in JavaScriptCore on iOS, and its
 # cryptography is the same Rust crate the other apps use.

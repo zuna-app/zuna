@@ -19,7 +19,7 @@ The interface in `apps/desktop/src/ui` follows the web's styles in `packages/ui`
 
 ## Building it
 
-You need Windows, Rust with the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`), Visual Studio's C++ build tools, and Node for bundling the core. The first build downloads LiveKit's libwebrtc, and GPUI from Zuna's fork of Zed: Zed's v1.27.0 with Zuna's changes, on the `zuna/v1.27.0` branch of [SocketByte/zed](https://github.com/SocketByte/zed), whose `ZUNA.md` lists them. `apps/desktop/Cargo.toml` pins it to a commit.
+You need Windows, Rust with the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`), Visual Studio's C++ build tools, and Node for bundling the core. The first build downloads LiveKit's libwebrtc, and GPUI from Zuna's fork of Zed: Zed's v1.27.0 with Zuna's changes, on the `zuna/v1.27.0` branch of [zuna-app/zed](https://github.com/zuna-app/zed), whose `ZUNA.md` lists them. `apps/desktop/Cargo.toml` pins it to a commit.
 
 ```bash
 npm run dev:windows

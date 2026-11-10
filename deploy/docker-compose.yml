@@ -13,7 +13,7 @@ services:
     build:
       context: ../server
     # Or use a published image instead of building:
-    # image: ghcr.io/socketbyte/zuna-server:latest
+    # image: ghcr.io/zuna-app/zuna-server:latest
     restart: unless-stopped
     # It only ever writes to its data volume, and needs no special powers.
     read_only: true

@@ -20,11 +20,11 @@ There are three ways to run it:
 ## Option 1: Docker
 
 ```bash
-git clone https://github.com/SocketByte/zuna-chat.git
+git clone https://github.com/zuna-app/zuna.git
 ```
 
 ```bash
-cd zuna-chat/deploy
+cd zuna/deploy
 ```
 
 ```bash
@@ -44,7 +44,7 @@ LiveKit, for [voice channels](#voice-channels) and calls, runs in a container ne
 On Debian, Ubuntu, Fedora or another Linux with systemd, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
 
 ```bash
-sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
+sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
 ```
 
 ```bash
@@ -68,7 +68,7 @@ It goes back to the previous build if a new one doesn't start. The details are i
 
 ## Option 3: Run the binary yourself
 
-Download the file for your platform from the [releases page](https://github.com/SocketByte/zuna-chat/releases), then:
+Download the file for your platform from the [releases page](https://github.com/zuna-app/zuna/releases), then:
 
 ```bash
 ./zuna-server --domain chat.example.com --data /path/to/data

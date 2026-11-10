@@ -60,7 +60,7 @@ use motion::{Enter, Motion};
 use text_input::TabScope;
 
 /// Where the project lives (lib/links.ts).
-pub const PROJECT_URL: &str = "https://github.com/SocketByte/zuna-chat";
+pub const PROJECT_URL: &str = "https://github.com/zuna-app/zuna";
 
 /// The terms of use everyone agrees to when they create an account.
 pub const TERMS_URL: &str = "https://zuna.chat/terms/";

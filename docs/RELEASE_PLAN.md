@@ -20,14 +20,14 @@ This is a plan: nothing below is built. Once it is, a `docs/RELEASES.md` that sa
 | `.github/workflows/release.yml` | Runs on `v*` tags: all of `ci.yml`, then server binaries, `zuna-web` and both Docker images. No desktop job since Electron went. No tag has ever been pushed, so it has never run |
 | `.github/workflows/ci.yml` | Its `desktop` job only runs `cargo check` on Windows, is `continue-on-error`, and has never been seen passing |
 | The version | `0.10.0`, in eight `package.json` files and two `Cargo.toml`s. The app takes the root `package.json`'s through `ZUNA_VERSION` |
-| The repository | **Private.** `api.github.com/repos/SocketByte/zuna-chat` answers 404 without a sign-in, so no installed app could read its releases today. `SECURITY.md` and `apps/site` already point people at its releases page |
-| This machine | Has no `gh`. Git pushes over SSH, so Claude can push a tag, but can't watch a workflow run or read its logs |
+| The repository | **Public,** as `zuna-app/zuna` since 2026-11-10, so an installed app can read its releases without a sign-in. It has none yet, so `releases/latest` answers 404. `SECURITY.md` and `apps/site` already point people at its releases page |
+| This machine | Has `gh`, signed in, since 2026-11-10. Git pushes over SSH, so Claude can push a tag, and `gh` can watch a workflow run and read its logs |
 
 ## Decisions to make first
 
 These four are yours. Each has a recommendation, and the rest of the plan assumes it.
 
-1. **Where the releases are public.** An app can't download from a private repository. Either `SocketByte/zuna-chat` goes public before the first nightly (recommended, as the site and `SECURITY.md` already assume it, and Actions minutes are free there), or releases go to a public repository that holds nothing else. On a private repository, Windows runners also cost double minutes and build attestations aren't offered.
+1. **Where the releases are public.** Settled: the repository went public as `zuna-app/zuna` on 2026-11-10, so releases go there, where Actions minutes are free and build attestations are offered.
 2. **Whether a stable release keeps the second person's approval.** `release.yml` says its `release` environment has the other maintainer as a required reviewer, so that one stolen account can't ship to everyone. I couldn't check that it's set up so. Keeping it means a stable release waits for one click from them (recommended). Dropping it makes stable as hands-off as nightly.
 3. **What "no backward compatibility until the first release" means from here.** Recommended: "the first release" is the first stable one, and nightlies don't count. One thing has to keep working from the first nightly on, though: an installed build must always be able to update to the newest one.
 4. **Whether iOS's tests hold back a desktop release.** Today a release waits for every job in `ci.yml`, the iPhone's simulator run included, which takes up to an hour and isn't what's being shipped. Recommended: keep it, since "fully tested" was the ask, and take it out only if it turns out flaky.
@@ -161,11 +161,11 @@ In **What has to change together**:
 Claude can't do these, as they're GitHub settings and secrets.
 
 1. Decide 1 to 4 above.
-2. Make the repository public, or make the releases one.
+2. ~~Make the repository public.~~ Done on 2026-11-10.
 3. Run `node scripts/release.mjs keygen` twice. Each run prints a public key, which Claude commits, and a private key, which goes into its environment's secret as `UPDATE_SIGNING_KEY` and onto something offline. Run it twice more for the spares, which only go offline.
 4. Make the `nightly` environment, limited to tags, with no reviewer. Check `release` has the reviewer and the tag rule its comment claims.
 5. Add a tag ruleset: only maintainers create `v*` tags, and nobody moves or deletes one except the workflow's cleanup.
-6. Install `gh` and sign in, on each machine Claude releases from, so it can watch a run and read why one failed.
+6. Install `gh` and sign in, on each machine Claude releases from, so it can watch a run and read why one failed. Done on the Windows machine on 2026-11-10.
 
 ## Order of work
 

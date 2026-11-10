@@ -12,7 +12,7 @@ services:
       context: ../server
       dockerfile: Dockerfile.web
     # Or use a published image instead of building:
-    # image: ghcr.io/socketbyte/zuna-web:latest
+    # image: ghcr.io/zuna-app/zuna-web:latest
     restart: unless-stopped
     read_only: true
     tmpfs:

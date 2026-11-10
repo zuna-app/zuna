@@ -56,7 +56,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`,
 
 ## Hosting
 
-Publishing the site is building it and copying `apps/site/dist` to the server's folder for zuna.chat. The token only lets the build see the latest release while the repository is private:
+Publishing the site is building it and copying `apps/site/dist` to the server's folder for zuna.chat. The build asks GitHub for the latest release, which needs no token now that the repository is public. One only raises GitHub's rate limit:
 
 ```bash
 GITHUB_TOKEN=$(gh auth token) npm run build -w @zuna/site
@@ -94,5 +94,5 @@ zuna.chat {
 
 ## Left to decide
 
-- The repository is private and has no release yet, so download and GitHub links only work for visitors once it's public.
+- The repository, `zuna-app/zuna`, is public but has no release yet, so download links have nothing to download until there is one.
 - A contact address for `/support` and `/privacy`, which Apple asks for.

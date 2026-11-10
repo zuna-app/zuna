@@ -66,7 +66,7 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
 
 // officialDownloads is where the project publishes the app, whatever a server's
 // operator chooses to link to as well.
-const officialDownloads = "https://github.com/SocketByte/zuna-chat/releases"
+const officialDownloads = "https://github.com/zuna-app/zuna/releases"
 
 type pageData struct {
 	Title       string

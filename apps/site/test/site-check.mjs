@@ -149,7 +149,7 @@ async function interactions(browser) {
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
   check("Windows, macOS and Linux each have a download", downloads.length === 3, String(downloads.length));
-  check("downloads lead to GitHub's releases", downloads.every((href) => href.startsWith("https://github.com/SocketByte/zuna-chat/releases")), downloads.join(", "));
+  check("downloads lead to GitHub's releases", downloads.every((href) => href.startsWith("https://github.com/zuna-app/zuna/releases")), downloads.join(", "));
 
   check("interacting sends nothing anywhere", outside.length === 0, outside.join(", "));
   check("interacting raises no errors", problems.length === 0, problems.join(" | "));

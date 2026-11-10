@@ -11,8 +11,8 @@ const METHODS = [
     caption: "# With Docker",
     guide: doc("docs/SELF_HOSTING.md"),
     commands: [
-      "git clone https://github.com/SocketByte/zuna-chat.git",
-      "cd zuna-chat/deploy",
+      "git clone https://github.com/zuna-app/zuna.git",
+      "cd zuna/deploy",
       "ZUNA_DOMAIN=chat.example.com docker compose up -d",
       "docker compose logs zuna",
     ],
@@ -33,7 +33,7 @@ const METHODS = [
     name: "systemd",
     caption: "# Without Docker, with systemd",
     guide: doc("docs/LINUX.md"),
-    commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/install.sh"],
+    commands: ["sudo git clone https://github.com/zuna-app/zuna.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/install.sh"],
     output: [
       "# Asks how people reach it, then about the proxy and firewall.",
       "# Runs Zuna and LiveKit for calls with systemd, behind Caddy,",

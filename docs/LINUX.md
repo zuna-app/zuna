@@ -18,10 +18,10 @@ It doesn't set up a reverse proxy or a firewall: those are yours. For the chat s
 
 ## Installing
 
-Get the code. If the repository is private, clone it with a deploy key or an access token.
+Get the code:
 
 ```bash
-sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
+sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
 ```
 
 ### With the installer
