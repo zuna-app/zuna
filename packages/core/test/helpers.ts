@@ -15,10 +15,11 @@ import { startJunkProxy } from "./junk-proxy";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { Agent, buildConnector, setGlobalDispatcher } from "undici";
-import { initCryptoSync, randomBytes } from "@zuna/crypto";
+import { initCryptoSync, randomBytes, signingPublic } from "@zuna/crypto";
 import { ZunaClient } from "../src/client";
 import type { DbProvider, LocalDb, SqlValue } from "../src/db";
-import { toBase64 } from "../src/encoding";
+import { toBase64, u64Bytes, utf8 } from "../src/encoding";
+import { SEND_LABEL } from "../src/crypto";
 import { allowLocalLinks, type WebAdapter } from "../src/links";
 import { rotationTiming } from "../src/session";
 import type { CoreEvent } from "../src/types";
@@ -466,4 +467,15 @@ export class FakeRelay {
   stop(): void {
     this.server.close();
   }
+}
+
+/**
+ * The public half of a group's send key, as an MLS client holding it makes it: of its
+ * current epoch, or with `pending`, of the epoch its pending commit makes. A raw commit
+ * a test posts gives it, as an app's does.
+ */
+export function sendKeyOf(mls: { epoch(group: Uint8Array): number; exportSecret(group: Uint8Array, label: string, context: Uint8Array, length: number): Uint8Array; exportPendingSecret(group: Uint8Array, label: string, context: Uint8Array, length: number): Uint8Array }, groupId: string, pending = false): Uint8Array {
+  const group = utf8(groupId);
+  const epoch = mls.epoch(group) + (pending ? 1 : 0);
+  return signingPublic(pending ? mls.exportPendingSecret(group, SEND_LABEL, u64Bytes(epoch), 32) : mls.exportSecret(group, SEND_LABEL, u64Bytes(epoch), 32));
 }

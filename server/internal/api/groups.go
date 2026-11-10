@@ -136,6 +136,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		ExpectedEpoch int64                `json:"expected_epoch"`
 		Commit        []byte               `json:"commit"`
 		GroupInfo     []byte               `json:"group_info"`
+		SendKey       []byte               `json:"send_key"`
 		Kind          string               `json:"kind"`
 		AddUsers      []string             `json:"add_users"`
 		RemoveUsers   []string             `json:"remove_users"`
@@ -148,7 +149,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	if !readJSONUpTo(w, r, maxCommitBody, &body) {
 		return
 	}
-	if len(body.Commit) == 0 || len(body.GroupInfo) == 0 {
+	if len(body.Commit) == 0 || len(body.GroupInfo) == 0 || len(body.SendKey) != store.SendKeyLen {
 		writeError(w, http.StatusBadRequest, "bad_request", "The commit is incomplete.")
 		return
 	}
@@ -173,6 +174,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		ExpectedEpoch: body.ExpectedEpoch,
 		Data:          body.Commit,
 		GroupInfo:     body.GroupInfo,
+		SendKey:       body.SendKey,
 		Kind:          body.Kind,
 		AddUsers:      body.AddUsers,
 		RemoveUsers:   body.RemoveUsers,
@@ -228,6 +230,8 @@ func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess 
 		From      int64  `json:"from_epoch"`
 		To        int64  `json:"to_epoch"`
 		GroupInfo []byte `json:"group_info"`
+		// The send key of the epoch an admin takes the group back to, with its group info.
+		SendKey []byte `json:"send_key"`
 	}
 	if !readJSONUpTo(w, r, maxCommitBody, &body) {
 		return
@@ -235,12 +239,12 @@ func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess 
 	byAdmin := member.Role == "admin"
 	// Only the very start has no group info to go back to.
 	valid := body.To >= 0 && body.To < body.From &&
-		(!byAdmin || (body.To == 0 && body.From == 1 && len(body.GroupInfo) == 0) || validGroupInfoFrame(body.GroupInfo, groupID, body.To))
+		(!byAdmin || (body.To == 0 && body.From == 1 && len(body.GroupInfo) == 0) || (validGroupInfoFrame(body.GroupInfo, groupID, body.To) && len(body.SendKey) == store.SendKeyLen))
 	if !valid {
 		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a valid state for this conversation.")
 		return
 	}
-	event, senders, err := s.db.VoidCommits(r.Context(), groupID, sess.UserID, sess.DeviceID, byAdmin, body.From, body.To, body.GroupInfo)
+	event, senders, err := s.db.VoidCommits(r.Context(), groupID, sess.UserID, sess.DeviceID, byAdmin, body.From, body.To, body.GroupInfo, body.SendKey)
 	if err != nil {
 		writeFailure(w, err)
 		return

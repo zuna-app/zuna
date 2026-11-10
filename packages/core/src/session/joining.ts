@@ -1,7 +1,8 @@
 // ServerSession, in part (see base.ts): joining groups, and committing to them.
 
+import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiGroup } from "../api";
-import { CONTENT_LABEL, parseCertificate } from "../crypto";
+import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
 import { equalBytes, u64Bytes, utf8 } from "../encoding";
 import { sealRoster, type Roster } from "../roster";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
@@ -289,6 +290,8 @@ export abstract class SessionJoining extends SessionGroups {
           expected_epoch: latest.epoch,
           commit: result.commit,
           group_info: groupInfo,
+          // The join has already taken this device's state to the epoch it makes.
+          send_key: wasm.signingPublic(this.mls.exportSecret(groupBytes, SEND_LABEL, u64Bytes(result.epoch), 32)),
           kind: "external",
         });
       } catch (error) {
@@ -408,6 +411,7 @@ export abstract class SessionJoining extends SessionGroups {
         expected_epoch: 0,
         commit: pending.commit,
         group_info: pending.groupInfo!,
+        send_key: wasm.signingPublic(this.mls.exportPendingSecret(groupBytes, SEND_LABEL, u64Bytes(newEpoch), 32)),
         kind: "init",
         add_users: extraUsers,
         welcomes: pending.welcome ? packages.map((item) => ({ device_id: item.deviceId, data: pending.welcome! })) : [],
@@ -491,6 +495,7 @@ export abstract class SessionJoining extends SessionGroups {
           expected_epoch: epoch,
           commit: pending.commit,
           group_info: pending.groupInfo!,
+          send_key: wasm.signingPublic(this.mls.exportPendingSecret(groupBytes, SEND_LABEL, u64Bytes(newEpoch), 32)),
           kind: plan.kind,
           add_users: plan.addUsers,
           remove_users: plan.removeUsers,

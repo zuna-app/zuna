@@ -9,7 +9,7 @@ import { createCertificate, sealVaultItem } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { keyCommitment, sealBundle, signSealProof } from "../src/generations";
 import { joinManifestParts, manifestParts, readManifestPart, type TrustManifest } from "../src/manifest";
-import { TestApp, sleep, waitFor } from "./helpers";
+import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
 import {
   server,
   alice,
@@ -267,7 +267,7 @@ describe("someone holding old keys, with the server's help", () => {
     const ghost = new wasm.MlsClient(keys.publicKey, keys.secretKey, forged, [] as unknown as any[]);
     const latest = await apiOf(alice).groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(latest.group_info)) as { commit: Uint8Array };
-    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
     await waitFor(() => securityEvents(alice).some((event) => event.message.includes("isn't really")), "the warning");
     await waitFor(() => sessionOf(alice).treeMembers(groupId).every((member: { deviceId: string }) => member.deviceId !== fakeId), "the ghost to be removed", 10_000);
   });

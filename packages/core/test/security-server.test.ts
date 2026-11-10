@@ -7,7 +7,7 @@ import { decode } from "../src/api";
 import { randomId, sealEnvelope } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { parseGroupDetails, parseMessageBody, parseProfile } from "../src/validate";
-import { TestApp, sleep, waitFor } from "./helpers";
+import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
 import {
   server,
   alice,
@@ -145,7 +145,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     const info = await apiOf(carol).groupInfo(groupId);
     const ghostMls = sessionOf(ghost).mls;
     const joined = ghostMls.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };
-    await apiOf(carol).commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghostMls.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await apiOf(carol).commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghostMls.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghostMls, groupId), kind: "external" });
     await waitFor(() => warned(carol, "isn't part of one of your direct messages"), "the warning");
     await waitFor(() => !sessionOf(carol).treeMembers(groupId).some((member: { userId: string }) => member.userId === ghost.userId), "them to be removed", 15_000);
     const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "after they're gone" });
@@ -237,7 +237,7 @@ describe("a leaf naming someone nobody can check yet (Z-43)", () => {
     const ghost = new wasm.MlsClient(keys.publicKey, keys.secretKey, forged, [] as unknown as any[]);
     const info = await malApi.groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };
-    await malApi.commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await malApi.commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
     await waitFor(() => session.mlsEpoch(groupId) === info.epoch + 1, "carol to apply it");
 
     const leaf = session.treeMembers(groupId).find((member: { deviceId: string }) => member.deviceId === device);

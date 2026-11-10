@@ -149,6 +149,8 @@ export interface ApiGroup {
   members: ApiMember[];
   /** Who a direct message is between, which stays so once either has gone. */
   dm_users?: string[];
+  /** The public half of the current epoch's send key, as whoever made the epoch gave it. */
+  send_key?: string | null;
 }
 
 export interface ApiChannel {
@@ -235,6 +237,8 @@ export interface ApiEvent {
   sender_device?: string;
   target_user?: string;
   created_at: number;
+  /** For a commit: the send key it gave the epoch it made. */
+  send_key?: string;
 }
 
 export interface ApiChanges {
@@ -262,6 +266,8 @@ export interface CommitRequest {
   expected_epoch: number;
   commit: Uint8Array;
   group_info: Uint8Array;
+  /** The public half of the new epoch's send key. */
+  send_key: Uint8Array;
   kind: string;
   add_users?: string[];
   remove_users?: string[];
@@ -487,8 +493,9 @@ export class Api {
   deleteGroup = (id: string) => this.request("DELETE", at`/api/groups/${id}`);
   commit = (groupId: string, body: CommitRequest) =>
     this.request<{ seq: number; epoch: number }>("POST", at`/api/groups/${groupId}/commit`, body);
-  voidCommits = (groupId: string, fromEpoch: number, toEpoch: number, groupInfo: Uint8Array) =>
-    this.request("POST", at`/api/groups/${groupId}/void-commits`, { from_epoch: fromEpoch, to_epoch: toEpoch, group_info: groupInfo });
+  /** An admin's `groupInfo` and `sendKey` are for the epoch it takes the group back to. */
+  voidCommits = (groupId: string, fromEpoch: number, toEpoch: number, groupInfo: Uint8Array, sendKey: Uint8Array) =>
+    this.request("POST", at`/api/groups/${groupId}/void-commits`, { from_epoch: fromEpoch, to_epoch: toEpoch, group_info: groupInfo, send_key: sendKey });
   groupInfo = (groupId: string) =>
     this.request<{ group_info: string | null; epoch: number }>("GET", at`/api/groups/${groupId}/group-info`);
   setGroupMeta = (groupId: string, meta: Uint8Array, epoch: number, historyVisible?: boolean) =>

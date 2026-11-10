@@ -509,4 +509,11 @@ CREATE TABLE bot_channels (
 -- comma-separated. They were only kept in memory, so after a restart a chat read
 -- elsewhere left its notification on the phone.
 ALTER TABLE push_registrations ADD COLUMN notified TEXT NOT NULL DEFAULT '';
+`, `
+-- The public half of the key every member of a group's current epoch can make, which
+-- sealed requests are signed with, beside the group info whoever made the epoch gave
+-- with it. A commit keeps the one it made, and the one it replaced, to go back to.
+ALTER TABLE group_infos ADD COLUMN send_key BLOB;
+ALTER TABLE group_events ADD COLUMN send_key BLOB;
+ALTER TABLE group_events ADD COLUMN replaced_send_key BLOB;
 `}

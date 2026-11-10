@@ -90,6 +90,10 @@ export abstract class SessionBase {
   protected expiryTimer: ReturnType<typeof setTimeout> | undefined;
   protected nextExpiry = Infinity;
   protected reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Groups whose send key the server holds wrong, waiting for this device to put it right (`checkSendKey`). */
+  protected sendKeyFixes = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The epoch and send key last found right for each group, so it isn't worked out again each time. */
+  protected sendKeysChecked = new Map<string, string>();
   protected stopped = false;
   /** Why the server says this session is over, if it has. */
   protected signedOutReason: string | null = null;
@@ -245,6 +249,7 @@ export abstract class SessionBase {
   protected abstract pullChanges(groupId: string): Promise<void>;
   protected abstract noteArrivals(groupId: string): void;
   protected abstract scheduleReconcile(groupId: string): void;
+  protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
   protected abstract staleLeaves(groupId: string): Promise<number[]>;
   protected abstract onFrame(frame: SocketFrame): void;
   protected abstract rescheduleAffectedByDeviceChange(userId: string): void;

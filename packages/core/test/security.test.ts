@@ -10,7 +10,7 @@ import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate";
-import { TestApp, sleep, waitFor } from "./helpers";
+import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
 import { server, alice, person, apiOf, groupWith, securityEvents, ghostClient, sessionOf, startServer } from "./security-setup";
 
 startServer();
@@ -31,6 +31,7 @@ describe("a server joining a group as someone's device (Z-01)", () => {
       expected_epoch: latest.epoch,
       commit: joined.commit,
       group_info: ghost.exportGroupInfo(utf8(groupId)),
+      send_key: sendKeyOf(ghost, groupId),
       kind: "external",
     });
 
@@ -59,7 +60,7 @@ describe("a server joining a group as someone's device (Z-01)", () => {
     const ghost = ghostClient(utf8("not a certificate"));
     const latest = await apiOf(dave).groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(latest.group_info)) as { commit: Uint8Array };
-    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
     await waitFor(() => securityEvents(alice).length > 0, "alice to be warned");
     await waitFor(() => ((alice.session as any).treeMembers(groupId) as { genuine: boolean }[]).every((member) => member.genuine), "the leaf to go");
   });
@@ -93,7 +94,7 @@ describe("a server joining a group as someone's device (Z-01)", () => {
     const ghost = new wasm.MlsClient(device.publicKey, device.secretKey, fake, [] as unknown as any[]);
     const latest = await apiOf(dave).groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(latest.group_info)) as { commit: Uint8Array };
-    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
     await waitFor(() => ((alice.session as any).treeMembers(groupId) as { genuine: boolean; deviceId: string }[]).every((member) => member.genuine), "the fake to go");
   });
 });
@@ -371,7 +372,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     const groupId = await groupWith(alice, [dave]);
     const latest = await apiOf(dave).groupInfo(groupId);
     await expect(
-      apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: wasm.randomBytes(64), group_info: wasm.randomBytes(64), kind: "update" }),
+      apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: wasm.randomBytes(64), group_info: wasm.randomBytes(64), send_key: wasm.randomBytes(32), kind: "update" }),
     ).rejects.toMatchObject({ status: 400 });
     alice.session.sendMessage(`group:${groupId}`, { text: "still fine" });
     await waitFor(() => dave.texts(`group:${groupId}`).includes("still fine"), "delivery");
@@ -397,7 +398,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     alice.events.length = 0;
 
     const { commit, info } = brokenFrames(groupId, epoch);
-    await apiOf(erin).commit(groupId, { expected_epoch: epoch, commit, group_info: info, kind: "update" });
+    await apiOf(erin).commit(groupId, { expected_epoch: epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
 
     // The admin's app puts it right by itself, and nobody's keys or messages are lost.
     await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /broken update/.test(event.message)), "it to be undone");
@@ -421,7 +422,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     const honestInfo = (await apiOf(eve).groupInfo(groupId)).group_info;
 
     const { commit, info } = brokenFrames(groupId, epoch);
-    await apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit, group_info: info, kind: "update" });
+    await apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
     await waitFor(() => securityEvents(eve).some((event) => /broken update from sam/.test((event as { message: string }).message)), "it to be undone, and who sent it named");
 
     const latest = await apiOf(eve).groupInfo(groupId);
@@ -432,7 +433,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
 
     // And whoever sent it has to wait before doing that again.
     const again = brokenFrames(groupId, epoch);
-    await expect(apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit: again.commit, group_info: again.info, kind: "update" })).rejects.toMatchObject({ status: 429 });
+    await expect(apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit: again.commit, group_info: again.info, send_key: wasm.randomBytes(32), kind: "update" })).rejects.toMatchObject({ status: 429 });
 
     await owner.open();
     await owner.online();

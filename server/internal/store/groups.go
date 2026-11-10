@@ -24,6 +24,10 @@ type Group struct {
 	// DMUsers are the two people a direct message is between, who stay its two
 	// once either has left the server.
 	DMUsers []string `json:"dm_users,omitempty"`
+	// SendKey is the public half of the key every member of the current epoch can make,
+	// which sealed requests are signed with, as whoever made the epoch gave it. The
+	// server can't check it, and members do.
+	SendKey []byte `json:"send_key,omitempty"`
 }
 
 type GroupMember struct {
@@ -50,6 +54,8 @@ type GroupEvent struct {
 	SenderDevice string `json:"sender_device,omitempty"`
 	TargetUser   string `json:"target_user,omitempty"`
 	CreatedAt    int64  `json:"created_at"`
+	// SendKey is the send key a commit gave the epoch it made, for members to check.
+	SendKey []byte `json:"send_key,omitempty"`
 }
 
 // Commit describes a request to advance a group by one epoch.
@@ -60,6 +66,8 @@ type Commit struct {
 	ExpectedEpoch int64
 	Data          []byte
 	GroupInfo     []byte
+	// SendKey is the public half of the new epoch's send key (SendKeyLen bytes).
+	SendKey       []byte
 	Kind          string
 	AddUsers      []string
 	RemoveUsers   []string
@@ -212,7 +220,8 @@ func (d *DB) GroupKind(ctx context.Context, id string) (string, error) {
 	return kind, err
 }
 
-const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at`
+const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at,
+	(SELECT i.send_key FROM group_infos i WHERE i.group_id = g.id)`
 
 // scanGroup reads a group's row, as groupColumns lists it, without its members.
 func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
@@ -220,7 +229,7 @@ func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
 	var metaEpoch sql.NullInt64
 	var history int
 	var dmKey sql.NullString
-	if err := row.Scan(&g.ID, &g.Kind, &dmKey, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt); err != nil {
+	if err := row.Scan(&g.ID, &g.Kind, &dmKey, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt, &g.SendKey); err != nil {
 		return nil, err
 	}
 	g.MetaEpoch = nullableInt(metaEpoch)

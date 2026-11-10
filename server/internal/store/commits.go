@@ -24,9 +24,9 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		c := c // Each attempt starts from the commit as it was sent.
 		var epoch int64
 		var kind string
-		var replaced []byte
-		err := tx.QueryRowContext(ctx, `SELECT g.epoch, g.kind, i.info FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id
-			WHERE g.id = ?`, c.GroupID).Scan(&epoch, &kind, &replaced)
+		var replaced, replacedKey []byte
+		err := tx.QueryRowContext(ctx, `SELECT g.epoch, g.kind, i.info, i.send_key FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id
+			WHERE g.id = ?`, c.GroupID).Scan(&epoch, &kind, &replaced, &replacedKey)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -151,7 +151,7 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 				return err
 			}
 		}
-		if err := setGroupInfo(ctx, tx, c.GroupID, c.GroupInfo); err != nil {
+		if err := setGroupInfo(ctx, tx, c.GroupID, c.GroupInfo, c.SendKey); err != nil {
 			return err
 		}
 		for _, welcome := range c.Welcomes {
@@ -175,13 +175,14 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 			SenderUser:   c.SenderUser,
 			SenderDevice: c.SenderDevice,
 			CreatedAt:    now,
+			SendKey:      c.SendKey,
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, data, sender_user, sender_device, created_at, replaced_info)
-			VALUES(?,?,?,?,?,?,?,?,?)`, c.GroupID, seq, "commit", newEpoch, c.Data, c.SenderUser, c.SenderDevice, now, replaced)
+		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, data, sender_user, sender_device, created_at, replaced_info, send_key, replaced_send_key)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?)`, c.GroupID, seq, "commit", newEpoch, c.Data, c.SenderUser, c.SenderDevice, now, replaced, c.SendKey, replacedKey)
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE group_events SET replaced_info = NULL WHERE group_id = ? AND epoch <= ? AND replaced_info IS NOT NULL`,
+		_, err = tx.ExecContext(ctx, `UPDATE group_events SET replaced_info = NULL, replaced_send_key = NULL WHERE group_id = ? AND epoch <= ? AND replaced_info IS NOT NULL`,
 			c.GroupID, newEpoch-UndoableCommits)
 		return err
 	})
@@ -272,7 +273,10 @@ const UndoableCommits = 32
 // members' commits, to the group info the server held then. Taking theirs instead
 // would let one member's undo leave everyone with nothing they could rejoin from.
 // It returns who sent the commits undone, starting from the latest.
-func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, byAdmin bool, from, to int64, groupInfo []byte) (*GroupEvent, []string, error) {
+//
+// The send key goes back with the group info: an admin gives the one for the epoch
+// it goes back to, and anyone else gets the one the server held then.
+func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, byAdmin bool, from, to int64, groupInfo, sendKey []byte) (*GroupEvent, []string, error) {
 	var event GroupEvent
 	var senders []string
 	err := d.tx(ctx, func(tx handle) error {
@@ -292,16 +296,16 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			if anyAdmin {
 				return ErrForbidden
 			}
-			var held []byte
-			err := tx.QueryRowContext(ctx, `SELECT replaced_info FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ?`,
-				groupID, to+1).Scan(&held)
+			var held, heldKey []byte
+			err := tx.QueryRowContext(ctx, `SELECT replaced_info, replaced_send_key FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ?`,
+				groupID, to+1).Scan(&held, &heldKey)
 			if errors.Is(err, sql.ErrNoRows) || (err == nil && len(held) == 0 && to != 0) {
 				return ErrForbidden
 			}
 			if err != nil {
 				return err
 			}
-			groupInfo = held
+			groupInfo, sendKey = held, heldKey
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {
 			return err
@@ -310,7 +314,7 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 		if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ? WHERE id = ?`, to, groupID); err != nil {
 			return err
 		}
-		if err := setGroupInfo(ctx, tx, groupID, groupInfo); err != nil {
+		if err := setGroupInfo(ctx, tx, groupID, groupInfo, sendKey); err != nil {
 			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
@@ -363,19 +367,22 @@ func commitSenders(ctx context.Context, tx handle, groupID string, after int64) 
 	return senders, anyAdmin, rows.Err()
 }
 
-// setGroupInfo keeps a group's latest GroupInfo, or none. It's in a table of its
-// own, as it carries the group's whole ratchet tree, which grows with each device
-// in it: in the group's row, SQLite would write it again with each message, which
-// changes the row's seq, and read past it for anything after it in the row.
-func setGroupInfo(ctx context.Context, tx handle, groupID string, info []byte) error {
+// setGroupInfo keeps a group's latest GroupInfo and its epoch's send key, or none.
+// It's in a table of its own, as it carries the group's whole ratchet tree, which
+// grows with each device in it: in the group's row, SQLite would write it again with
+// each message, which changes the row's seq, and read past it for anything after it in the row.
+func setGroupInfo(ctx context.Context, tx handle, groupID string, info, sendKey []byte) error {
 	if len(info) == 0 {
 		_, err := tx.ExecContext(ctx, `DELETE FROM group_infos WHERE group_id = ?`, groupID)
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO group_infos(group_id, info) VALUES(?, ?)
-		ON CONFLICT(group_id) DO UPDATE SET info = excluded.info`, groupID, info)
+	_, err := tx.ExecContext(ctx, `INSERT INTO group_infos(group_id, info, send_key) VALUES(?, ?, ?)
+		ON CONFLICT(group_id) DO UPDATE SET info = excluded.info, send_key = excluded.send_key`, groupID, info, sendKey)
 	return err
 }
+
+// SendKeyLen is how long a send key's public half is: an Ed25519 key's.
+const SendKeyLen = 32
 
 // GroupInfo returns the latest published MLS GroupInfo, used for external joins.
 func (d *DB) GroupInfo(ctx context.Context, groupID string) ([]byte, int64, error) {

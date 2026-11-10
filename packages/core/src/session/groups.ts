@@ -1,8 +1,10 @@
 // ServerSession, in part (see base.ts): epoch keys, key packages, and what this device keeps of each group.
 
+import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiGroup } from "../api";
 import {
   CONTENT_LABEL,
+  SEND_LABEL,
   checkEnvelope,
   openSignal,
   readSigned,
@@ -118,6 +120,18 @@ export abstract class SessionGroups extends SessionRotation {
     }
     this.confirmedEpochs.set(groupId, epoch);
     return epoch;
+  }
+
+  /**
+   * The current epoch's send key, which sealed requests are signed with, as every member of
+   * the epoch can make it. It comes straight from the MLS exporter, as a call's key does, and
+   * is never stored or handed on, so holding old content keys gives no way to write.
+   */
+  protected sendKey(groupId: string): { epoch: number; secret: Uint8Array; public: Uint8Array } {
+    const groupBytes = utf8(groupId);
+    const epoch = this.mls.epoch(groupBytes);
+    const secret = this.mls.exportSecret(groupBytes, SEND_LABEL, u64Bytes(epoch), 32);
+    return { epoch, secret, public: wasm.signingPublic(secret) };
   }
 
   protected allEpochKeys(groupId: string): Record<number, string> {
@@ -297,6 +311,7 @@ export abstract class SessionGroups extends SessionRotation {
     };
     this.showRosterRoles(group);
     this.groups.set(api.id, group);
+    this.checkSendKey(api.id, api.epoch, api.send_key);
     this.refreshGroupSecrets(group);
     this.persistGroup(group);
     if (group.historyWanted?.length) this.scheduleHistoryGrants(group.id);

@@ -227,7 +227,7 @@ func (c *client) dm(peer string) *store.Group {
 
 func (c *client) commit(groupID string, expected int64, extra map[string]any) (int, map[string]any) {
 	c.h.t.Helper()
-	body := map[string]any{"expected_epoch": expected, "commit": commitFrame(groupID, expected), "group_info": groupInfoFrame(groupID, expected+1), "kind": "update"}
+	body := map[string]any{"expected_epoch": expected, "commit": commitFrame(groupID, expected), "group_info": groupInfoFrame(groupID, expected+1), "send_key": sendKeyFor(groupID, expected+1), "kind": "update"}
 	for k, v := range extra {
 		body[k] = v
 	}

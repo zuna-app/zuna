@@ -47,6 +47,8 @@ export abstract class SessionLifecycle extends SessionServer {
     this.sealingTimer = undefined;
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
+    for (const timer of this.sendKeyFixes.values()) clearTimeout(timer);
+    this.sendKeyFixes.clear();
     for (const timer of this.grantTimers.values()) clearTimeout(timer);
     this.grantTimers.clear();
     for (const timer of this.waitingNotifications) clearTimeout(timer);

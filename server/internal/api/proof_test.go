@@ -82,7 +82,7 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 	h.mustDo("POST", "/api/groups", token, map[string]any{"kind": "group"}, &created)
 	group := created.Group.ID
 	h.mustDo("POST", "/api/groups/"+group+"/commit", token, map[string]any{
-		"expected_epoch": 0, "commit": commitFrame(group, 0), "group_info": groupInfoFrame(group, 1), "kind": "update", "add_users": []string{bob.userID},
+		"expected_epoch": 0, "commit": commitFrame(group, 0), "group_info": groupInfoFrame(group, 1), "send_key": sendKeyFor(group, 1), "kind": "update", "add_users": []string{bob.userID},
 	}, nil)
 	vault, err := json.Marshal(map[string]any{"items": []map[string]any{{"id": "prefs", "data": []byte("junk")}}})
 	if err != nil {

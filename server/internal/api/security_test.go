@@ -6,6 +6,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -43,6 +44,13 @@ func commitFrame(groupID string, epoch int64) []byte {
 }
 
 // groupInfoFrame is what a group info looks like from outside.
+// sendKeyFor stands in for the public half of a group's send key at an epoch, which
+// only members can make, and the server takes as it comes.
+func sendKeyFor(groupID string, epoch int64) []byte {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("send key|%s|%d", groupID, epoch)))
+	return sum[:]
+}
+
 func groupInfoFrame(groupID string, epoch int64) []byte {
 	frame := mlsHeader(4)
 	frame = append(frame, 0, 1, 0, 3)
@@ -133,6 +141,8 @@ func TestCommitsThatArentCommitsAreRefused(t *testing.T) {
 		"group info for another": {"group_info": groupInfoFrame(other.ID, 2)},
 		"group info for an old":  {"group_info": groupInfoFrame(group.ID, 1)},
 		"not a commit":           {"commit": groupInfoFrame(group.ID, 1)},
+		"no send key":            {"send_key": nil},
+		"half a send key":        {"send_key": bytesOf(16, 1)},
 	}
 	for name, extra := range cases {
 		if status, _ := bob.commit(group.ID, 1, extra); status != http.StatusBadRequest {
@@ -160,7 +170,7 @@ func TestAnAdminCanVoidACommitNobodyCanApply(t *testing.T) {
 	bob.commit(group, 1, nil)
 
 	void := func(c *client, from, to int64, info []byte) int {
-		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info}, nil)
+		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info, "send_key": sendKeyFor(group, to)}, nil)
 		return status
 	}
 	if status := void(owner, 2, 1, bytesOf(32, 1)); status != http.StatusBadRequest {
@@ -219,7 +229,7 @@ func TestAMemberCanVoidOnlyWhatsSafeToVoid(t *testing.T) {
 	owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID, carol.userID, dave.userID}})
 
 	void := func(c *client, from, to int64, info []byte) int {
-		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info}, nil)
+		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info, "send_key": sendKeyFor(group, to)}, nil)
 		return status
 	}
 	groupInfo := func() []byte {
@@ -241,12 +251,17 @@ func TestAMemberCanVoidOnlyWhatsSafeToVoid(t *testing.T) {
 		t.Fatalf("a commit: %d %v", status, resp)
 	}
 
-	// What it goes back to is what the server held, whatever they say.
-	if status := void(carol, 2, 1, bytesOf(32, 1)); status != http.StatusOK {
+	// What it goes back to is what the server held, whatever they say, with the send key it held then.
+	if status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", carol.token, map[string]any{"from_epoch": 2, "to_epoch": 1, "group_info": bytesOf(32, 1), "send_key": bytesOf(32, 7)}, nil); status != http.StatusOK {
 		t.Fatalf("a member undoing a member's commit gave %d", status)
 	}
 	if !bytes.Equal(groupInfo(), atOne) {
 		t.Fatal("the group info isn't what the server held at that epoch")
+	}
+	var held store.Group
+	h.mustDo("GET", "/api/groups/"+group, bob.token, nil, &held)
+	if !bytes.Equal(held.SendKey, sendKeyFor(group, 1)) {
+		t.Fatalf("the send key isn't the one the server held at that epoch: %x", held.SendKey)
 	}
 
 	// The event names whose it was, so people know who to take it up with.

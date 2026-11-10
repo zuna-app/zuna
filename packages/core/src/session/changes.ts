@@ -2,7 +2,7 @@
 
 import { ApiError, decode, type ApiEvent, type ApiMessage } from "../api";
 import { parseCertificate } from "../crypto";
-import { utf8 } from "../encoding";
+import { equalBytes, utf8 } from "../encoding";
 import { sealedRows } from "../sendable";
 import { RECONCILE_JITTER_MS, KEY_VOIDED, type StoredBody } from "./shared";
 import { SessionJoining } from "./joining";
@@ -265,7 +265,7 @@ export abstract class SessionChanges extends SessionJoining {
     if (group.epoch <= local || (!held && group.epoch > 1)) return;
     console.warn("[zuna] undoing a commit nobody can apply", cause);
     try {
-      await this.api.voidCommits(groupId, group.epoch, local, held ? this.mls.exportGroupInfo(groupBytes) : new Uint8Array(0));
+      await this.api.voidCommits(groupId, group.epoch, local, held ? this.mls.exportGroupInfo(groupBytes) : new Uint8Array(0), held ? this.sendKey(groupId).public : new Uint8Array(0));
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 403) throw error;
       // Being refused this says nothing about still being in the group. Someone else may yet be able to.
@@ -357,6 +357,7 @@ export abstract class SessionChanges extends SessionJoining {
     }
     this.rememberCurrentEpochKey(groupId);
     this.uploadEpochKeysSoon();
+    this.checkSendKey(groupId, processed.epoch, event.send_key);
     await this.checkTree(groupId);
     // Nobody is added to a channel: they come in by themselves, so that's when to look at whether they should have.
     if (processed.isExternal && this.groups.get(groupId)?.kind === "channel") this.scheduleReconcile(groupId);
@@ -581,6 +582,34 @@ export abstract class SessionChanges extends SessionJoining {
   }
 
   // --- Reconciling MLS with the roster ---
+
+  /**
+   * Checks the send key the server holds for a group's current epoch against this device's own.
+   * A wrong one, from whoever made the epoch or from the server, leaves nobody able to send, so a
+   * member puts it right with a commit of its own, which carries one, after a random wait, as
+   * reconciling does: everyone sees the same, and the others then have nothing left to do.
+   */
+  protected checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void {
+    if (epoch === 0 || !this.hasMlsGroup(groupId) || this.mlsEpoch(groupId) !== epoch) return;
+    const seen = `${epoch}:${sendKey ?? ""}`;
+    if (this.sendKeysChecked.get(groupId) === seen) return;
+    if (sendKey && equalBytes(decode(sendKey), this.sendKey(groupId).public)) {
+      this.sendKeysChecked.set(groupId, seen);
+      return;
+    }
+    if (this.sendKeyFixes.has(groupId) || this.stopped) return;
+    console.warn("[zuna] the server holds a wrong send key for a conversation; putting it right");
+    const timer = setTimeout(() => {
+      this.sendKeyFixes.delete(groupId);
+      void this.withLock(groupId, async () => {
+        const group = await this.api.group(groupId);
+        if (group.epoch !== epoch || !this.hasMlsGroup(groupId) || this.mlsEpoch(groupId) !== epoch) return;
+        if (group.send_key && equalBytes(decode(group.send_key), this.sendKey(groupId).public)) return;
+        await this.commitWithRetry(groupId, async () => ({ kind: "update" }));
+      }).catch((error) => console.warn("[zuna] putting a send key right", error));
+    }, Math.random() * RECONCILE_JITTER_MS);
+    this.sendKeyFixes.set(groupId, timer);
+  }
 
   protected scheduleReconcile(groupId: string): void {
     if (this.reconcileTimers.has(groupId) || this.stopped) return;

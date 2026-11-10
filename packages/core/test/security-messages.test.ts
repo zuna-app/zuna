@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
 import { createCertificate, frameSigned, readSigned, randomId, sealEnvelope, sealSignal, sealVaultItem, subkey } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
-import { TestApp, waitFor } from "./helpers";
+import { TestApp, waitFor, sendKeyOf } from "./helpers";
 import {
   server,
   alice,
@@ -395,6 +395,7 @@ describe("a Welcome delivered as being for another group (Z-46)", () => {
       expected_epoch: epoch,
       commit: pending.commit,
       group_info: pending.groupInfo,
+      send_key: sendKeyOf(session.mls, own, true),
       kind: "members",
       add_users: [victim.userId],
       welcomes: [{ device_id: deviceId, data: forged.welcome }],

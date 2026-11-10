@@ -453,6 +453,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP INDEX welcomes_group;
 		DROP INDEX history_grants_group;
 		ALTER TABLE users DROP COLUMN banned_by;
+		ALTER TABLE group_events DROP COLUMN send_key;
+		ALTER TABLE group_events DROP COLUMN replaced_send_key;
 		DROP INDEX group_events_commits;
 		ALTER TABLE groups ADD COLUMN group_info BLOB;
 		DROP TABLE group_infos;

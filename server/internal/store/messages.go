@@ -539,7 +539,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 		return nil, err
 	}
 
-	eventRows, err := d.sql.QueryContext(ctx, `SELECT group_id, seq, kind, epoch, data, sender_user, sender_device, target_user, created_at
+	eventRows, err := d.sql.QueryContext(ctx, `SELECT group_id, seq, kind, epoch, data, sender_user, sender_device, target_user, created_at, send_key
 		FROM group_events WHERE group_id = ? AND seq > ? AND seq <= ? AND seq >= ? ORDER BY seq ASC`, groupID, after, upTo, visibleFrom)
 	if err != nil {
 		return nil, err
@@ -548,7 +548,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 	for eventRows.Next() {
 		var e GroupEvent
 		var senderDevice, target sql.NullString
-		if err := eventRows.Scan(&e.GroupID, &e.Seq, &e.Kind, &e.Epoch, &e.Data, &e.SenderUser, &senderDevice, &target, &e.CreatedAt); err != nil {
+		if err := eventRows.Scan(&e.GroupID, &e.Seq, &e.Kind, &e.Epoch, &e.Data, &e.SenderUser, &senderDevice, &target, &e.CreatedAt, &e.SendKey); err != nil {
 			return nil, err
 		}
 		e.SenderDevice = senderDevice.String

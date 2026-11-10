@@ -18,6 +18,11 @@ import type { SlotKind, SlotPublic } from "./generations";
 import { SAFETY_EMOJI } from "./safety-emoji";
 
 export const CONTENT_LABEL = "zuna/content/v1";
+/**
+ * The exporter label of an epoch's send secret, an Ed25519 seed every member of the
+ * epoch can make, which sealed requests are signed with. Never stored or handed on.
+ */
+export const SEND_LABEL = "zuna/send/v1";
 
 export interface KdfParams {
   salt: Uint8Array;
