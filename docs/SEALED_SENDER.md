@@ -190,7 +190,7 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 ## What wasn't checked
 
 - **PostgreSQL.** The new SQL ran in SQLite only, as the machine it was built on had no PostgreSQL. Run the server's and the core's tests with `ZUNA_TEST_POSTGRES`.
-- **Swift.** iOS's sealed connection and its drawing of a row with no known author were written on Windows and never compiled, as `.agents/FEATURE_PARITY.md` says.
+- **A row with no known author on iOS.** Its drawing was written on Windows and builds on a Mac, but no test has such a message, and nobody has looked at one. iOS's sealed connection, written the same way, has run since: the core's tests on the iOS host and the app's UI tests send through it.
 - **The native app on Linux and macOS,** which was built on Windows only.
 - **The web's check in Firefox and WebKit,** which don't run on that machine. Chromium's passed every step up to the bots, which fail as they did before sealed sender.
 
