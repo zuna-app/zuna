@@ -195,6 +195,7 @@ async function runIn(name) {
   const appUrl = `http://localhost:${webPort}/`;
   let context;
   let fresh;
+  let elsewhere;
   let leaver;
   let bots;
   let botProgram;
@@ -699,6 +700,45 @@ async function runIn(name) {
     await again.close();
     again = taker;
 
+    // Coming into voice while another of this person's devices is in it asks first, and only a yes takes that one out.
+    elsewhere = await profile();
+    const other = elsewhere.pages()[0] ?? (await elsewhere.newPage());
+    watch(other, "second device");
+    await other.goto(appUrl);
+    await other.getByRole("button", { name: "Sign in", exact: true }).click();
+    await fill(other.getByLabel("Server address"), serverUrl);
+    await fill(other.getByLabel("Username"), "alex");
+    await fill(other.locator('input[type="password"]'), "web-check-only-Pass-9182");
+    await other.getByRole("button", { name: "Sign in", exact: true }).click();
+    await other.locator(".channel-row", { hasText: "Lounge" }).click({ timeout: 45_000 });
+    await other.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    await again.locator(".voice-occupant").waitFor({ timeout: 15_000 });
+    await again.locator(".conv-row", { hasText: "Priya" }).click();
+    await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    const askMove = again.locator(".modal", { hasText: "Join on this device?" });
+    await askMove.waitFor({ timeout: 5_000 });
+    await sleep(300);
+    await again.screenshot({ path: prefix("08-voice-elsewhere") });
+    const asked = await askMove.innerText();
+    await askMove.getByRole("button", { name: "Cancel" }).click();
+    await askMove.waitFor({ state: "detached", timeout: 5_000 });
+    await sleep(1000);
+    check(
+      "coming into voice while another device is in it asks first, and Cancel changes nothing",
+      asked.includes("You're in this voice channel on another device.") && (await again.locator(".voice-panel").count()) === 0 && (await again.locator(".chat-title", { hasText: "Priya" }).count()) === 1 && (await other.locator(".voice-panel-status.is-connected").count()) === 1,
+      asked.replace(/\n/g, " "),
+    );
+    await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    await askMove.getByRole("button", { name: "Join here" }).click();
+    await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    await other.getByText("You joined this voice channel on another device.").waitFor({ timeout: 15_000 });
+    check("Join here comes in, and takes the other device out", (await other.locator(".voice-panel").count()) === 0 && (await again.locator(".voice-occupant").count()) === 1);
+    await again.getByRole("button", { name: "Disconnect from voice" }).click();
+    await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
+    leaving.add(other);
+    await elsewhere.close();
+    elsewhere = undefined;
+
     // Someone deletes their account, and the app lets go of the server.
     leaver = await profile();
     const gone = leaver.pages()[0] ?? (await leaver.newPage());
@@ -910,13 +950,14 @@ async function runIn(name) {
   } catch (error) {
     check("the run finished", false, error.message.split("\n")[0]);
     console.error(error);
-    for (const [index, open] of [...(context?.pages() ?? []), ...(fresh?.pages() ?? []), ...(leaver?.pages() ?? [])].entries()) {
+    for (const [index, open] of [...(context?.pages() ?? []), ...(fresh?.pages() ?? []), ...(elsewhere?.pages() ?? []), ...(leaver?.pages() ?? [])].entries()) {
       await open.screenshot({ path: prefix(`crash-${index}`) }).catch(() => undefined);
     }
     if (errors.length) console.error("Page errors:", errors);
   } finally {
     await context?.close().catch(() => undefined);
     await fresh?.close().catch(() => undefined);
+    await elsewhere?.close().catch(() => undefined);
     await leaver?.close().catch(() => undefined);
     stop(bots);
     stop(botProgram);

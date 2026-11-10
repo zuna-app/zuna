@@ -7,6 +7,7 @@ import { useActiveChannel, useActiveConversation, useActiveField, useApp, type S
 import { ChatView } from "@/features/chat/ChatView";
 import { channelTitle } from "@/features/voice/ChannelList";
 import { IncomingCalls } from "@/features/voice/IncomingCalls";
+import { MoveVoice } from "@/features/voice/MoveVoice";
 import { VoicePanel } from "@/features/voice/VoicePanel";
 import { VoiceStage } from "@/features/voice/VoiceStage";
 import { watchPushToTalk } from "@/voice/ptt";
@@ -210,6 +211,7 @@ export function Shell() {
         <div className="sidebar-resizer" onMouseDown={onResizeStart} />
       </aside>
       <IncomingCalls />
+      <MoveVoice />
       <main className="main">
         <div className="main-inner">
           {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}

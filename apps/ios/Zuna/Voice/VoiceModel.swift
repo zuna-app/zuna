@@ -78,6 +78,16 @@ struct IncomingCall: Identifiable, Equatable {
     var systemId: UUID { SystemCall.callId(serverId: serverId, groupId: groupId, startedAt: startedAt) }
 }
 
+/// A room this person asked to come into here, while another of their devices is in one on its server.
+struct VoiceMove: Equatable {
+    let serverId: String
+    let channelId: String
+    let ring: Bool
+    let camera: Bool
+    /// The room the other device is in.
+    let from: String
+}
+
 /// The voice channel or call this device is in, wherever in the app the person is looking.
 /// There's one at a time, across all servers, as in Discord. A call is a direct message's or a
 /// group's, in a room of its own under the conversation's group, and works as a voice channel
@@ -142,6 +152,8 @@ final class VoiceModel {
     private(set) var sounding: [String: String] = [:]
     /// What keys the call's media is under, for its details.
     private(set) var keyEpoch: Int?
+    /// Coming into a room that waits for the person's word, as it takes another of their devices out of voice.
+    var moving: VoiceMove?
 
     /// Called when the call ends, or one stops ringing here, so the app can let go of what it kept running for it in the background.
     @ObservationIgnored var onEnded: (() -> Void)?
@@ -291,11 +303,19 @@ final class VoiceModel {
 
     // MARK: Joining and leaving
 
-    /// Comes into a voice channel or a call, or opens the one this device is already in. `ring` starts a call, ringing
-    /// everyone else in the conversation, and `answered` is a call the system's screen answered, which it has already.
-    func join(serverId: String, channelId: String, ring: Bool = false, camera: Bool = false, answered: UUID? = nil) async {
+    /// Comes into a voice channel or a call, or opens the one this device is already in, asking first if that takes
+    /// another of this person's devices out of one, unless they're `sure`. `ring` starts a call, ringing everyone else
+    /// in the conversation, and `answered` is a call the system's screen answered, which it has already.
+    func join(serverId: String, channelId: String, ring: Bool = false, camera: Bool = false, answered: UUID? = nil, sure: Bool = false) async {
+        let here = self.serverId == serverId && self.channelId == channelId && status != .idle
+        // The server keeps only a person's latest device in voice, so coming in here ends it on another of theirs.
+        // A call the system's screen answered is being come into already, with nowhere left to ask.
+        if !here, !sure, answered == nil, let other = app?.servers[serverId]?.voiceElsewhere {
+            moving = VoiceMove(serverId: serverId, channelId: channelId, ring: ring, camera: camera, from: other.channelId)
+            return
+        }
         stageShown = true
-        if self.serverId == serverId, self.channelId == channelId, status != .idle { return }
+        if here { return }
         if status != .idle { leave(keepingSystemCall: answered != nil) }
         stageShown = true
         attempt += 1
@@ -322,6 +342,21 @@ final class VoiceModel {
         }
         guard mine == attempt else { return }
         await connect(serverId: serverId, channelId: channelId, mine: mine)
+    }
+
+    /// Comes into the room that was asked about, whatever that ends on another of this person's devices.
+    func move(_ move: VoiceMove) async {
+        await join(serverId: move.serverId, channelId: move.channelId, ring: move.ring, camera: move.camera, sure: true)
+    }
+
+    /// Where the other device is, for the question about a move, in words that follow "You're in".
+    func place(of move: VoiceMove) -> String {
+        let server = app?.servers[move.serverId]
+        let channel = server?.channels.first { $0.id == move.from }
+        if move.from == move.channelId { return channel != nil ? "this voice channel" : "this call" }
+        if let channel { return channel.name.isEmpty ? "a voice channel" : channel.name }
+        guard let conversation = server?.conversation(groupId: move.from) else { return "a call" }
+        return conversation.kind == .dm ? "a call with \(conversation.title)" : "a call in \(conversation.title)"
     }
 
     /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.

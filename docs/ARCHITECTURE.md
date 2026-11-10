@@ -171,6 +171,6 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Client core | `npm run test:core` | Real clients against a real server: DMs, groups, new devices, recovery, self-repair, attacks |
 | Web app | `node apps/web/test/web-check.mjs` | The built web app in Chromium, Firefox and WebKit, served by a real `zuna-web`, against a real server and live bots |
 | Desktop app on Linux | `node apps/desktop/test/linux-check.mjs`, `linux-voice-check.mjs` | The native app in a KWin of its own: the window, tray, notifications, device key and a chat, then voice, calls, cameras, push to talk, screen sharing and voice and video messages with the web app |
-| Desktop app on macOS | `node apps/desktop/test/mac-voice-check.mjs` | Two copies of the native app on a test server and a LiveKit of their own: voice channels and calls each way, a screen share encoded and decoded on the GPU, voice and video messages |
+| Desktop app on macOS | `node apps/desktop/test/mac-voice-check.mjs` | Two copies of the native app on a test server and a LiveKit of their own: voice channels and calls each way, a screen share encoded and decoded on the GPU, voice and video messages, and the question before voice moves here from someone's other device, a client in Node |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

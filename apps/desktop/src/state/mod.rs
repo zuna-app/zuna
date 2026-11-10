@@ -136,6 +136,8 @@ pub enum Overlay {
     AddServer { link: Option<String>, sign_in_url: Option<String> },
     /// Choosing what to share from a voice channel or a call.
     ScreenPicker,
+    /// Asking before coming into voice here takes another of this person's devices out of it.
+    MoveVoice(crate::voice::VoiceMove),
     Settings { section: Option<String> },
     NewGroup,
     Invite,

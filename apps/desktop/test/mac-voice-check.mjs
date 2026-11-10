@@ -7,13 +7,15 @@
 //
 // It also shares a screen, with moving bars in place of one past macOS's picker, which the
 // guest decodes with VideoToolbox and draws from the GPU, and sends voice and video messages
-// from the desktop's fixtures, which the owner reads and plays through the media library.
+// from the desktop's fixtures, which the owner reads and plays through the media library. Last,
+// a client in Node signs in as the owner's second device (second-device.ts) and says it's in
+// the voice channel, where the app asks before it comes in and takes that device out.
 
 import { spawn } from "node:child_process";
 import { copyFileSync } from "node:fs";
 import { join } from "node:path";
-import { build, root, session, sleep, until } from "./mac-session.mjs";
-import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
+import { build, here, root, session, sleep, until } from "./mac-session.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const { server: serverBinary } = build();
 const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
@@ -62,7 +64,7 @@ try {
   const { media, url: liveKitUrl } = startLiveKit();
   await sleep(1500);
   check("LiveKit starts", media.exitCode === null, media.output.slice(-300));
-  const { setupLink } = await startServer(serverBinary, ["--livekit-url", liveKitUrl, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
+  const { setupLink, url: serverUrl } = await startServer(serverBinary, ["--livekit-url", liveKitUrl, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
 
   // Moving bars in place of a screen, past macOS's picker, which nobody's here to click.
   const first = await startApp("first", { ZUNA_FAKE_MIC: "1", ZUNA_FAKE_SCREEN: "1", RUST_LOG: "info,zuna=debug" });
@@ -191,6 +193,41 @@ try {
   await first.click(430, 460);
   await sleep(1800);
   await first.shot("voice-playing");
+
+  // --- Coming into voice while another of the owner's devices is in it asks first ---
+  const ownDevice = (await first.core("getSelf", [], serverId)).ok?.deviceId;
+  const laptop = start(...viteNodeArgs(join(here, "second-device.ts"), serverUrl, "owner", "mac-voice-check-owner"), process.env, "second device", join(root, "packages", "core"));
+  /** The owner's devices in voice, as the app has heard. */
+  const ownerIn = async () => ((await first.core("getVoiceMembers", [], serverId)).ok ?? []).filter((member) => member.userId === ownerId).map((member) => member.deviceId);
+  await until(() => /"ready"/.test(laptop.output), "the owner's second device to sign in", 90_000);
+  laptop.stdin.write(`${JSON.stringify({ voice: channel.ok })}\n`);
+  await until(async () => (await ownerIn()).length === 1, "the app to hear the second device is in the channel", 20_000);
+  await sleep(500);
+  await first.click(134, 221);
+  await sleep(1200);
+  await first.shot("voice-elsewhere");
+  // Escape says no, and so does Cancel.
+  await first.key("escape");
+  await sleep(800);
+  await first.shot("voice-elsewhere-escaped");
+  await first.click(134, 221);
+  await sleep(1000);
+  await first.click(696, 465);
+  await sleep(1500);
+  const stayed = await ownerIn();
+  check("coming into voice while another device is in it asks first, and Escape or Cancel changes nothing", stayed.length === 1 && stayed[0] !== ownDevice && !/"ended"/.test(laptop.output), `in voice: ${stayed.join(" ")}, this device: ${ownDevice}`);
+  // Join here.
+  await first.click(134, 221);
+  await sleep(1000);
+  await first.click(785, 465);
+  const moved = await until(async () => {
+    const now = await ownerIn();
+    return now.length === 1 && now[0] === ownDevice && /"ended":"elsewhere"/.test(laptop.output);
+  }, "the app to take the second device's place", 30_000).catch(() => false);
+  check("Join here comes in, and takes the other device out", moved, laptop.output.trim().split("\n").slice(-2).join(" | "));
+  await first.shot("voice-moved");
+  await first.click(1017, 795);
+  await sleep(1000);
 } catch (error) {
   check("the check ran to its end", false, error.message);
 } finally {

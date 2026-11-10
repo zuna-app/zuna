@@ -1,5 +1,6 @@
 //! Dialogs over the app: joining another server, a new group, invites, verifying
-//! someone and leaving a server (packages/ui/src/features/overlays/Overlays.tsx).
+//! someone, leaving a server and moving voice to this device
+//! (packages/ui/src/features/overlays/Overlays.tsx).
 
 mod groups;
 mod verify;
@@ -38,6 +39,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Invite => cx.new(|cx| Dialog::new(state, DialogKind::Invite, window, cx)).into(),
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
+        Overlay::MoveVoice(moving) => cx.new(|cx| Dialog::new(state, DialogKind::MoveVoice(moving), window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -112,6 +114,7 @@ enum DialogKind {
     Invite,
     Verify(String),
     LeaveServer,
+    MoveVoice(crate::voice::VoiceMove),
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     AddMembers(String),
     ShareLocation(String),
@@ -174,6 +177,8 @@ pub struct Dialog {
     invite_panel: Option<Entity<super::invites::InvitePanel>>,
     /// Where this device was found, or why it wasn't, while sharing a location.
     location: Option<Result<(f64, f64, Option<f64>), String>>,
+    /// Holds focus where the dialog has no field to, so Escape closes it.
+    focus: gpui::FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -250,7 +255,11 @@ impl Dialog {
             people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
             people_search.focus_handle(cx).focus(window, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, _subscriptions: subscriptions };
+        let focus = cx.focus_handle();
+        if matches!(kind, DialogKind::MoveVoice(_)) {
+            window.focus(&focus, cx);
+        }
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, focus, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -352,6 +361,7 @@ impl Dialog {
             .p(px(28.))
             .bg(theme::color(theme::black_a(0.6)))
             .occlude()
+            .track_focus(&self.focus)
             .on_mouse_down(gpui::MouseButton::Left, cx.listener(|dialog, _, _, cx| dialog.close(cx)))
             .on_key_down(cx.listener(|dialog, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
@@ -402,6 +412,38 @@ impl Dialog {
             .into_any_element();
         self.modal(Some(format!("Leave {}?", server.entry.name)), 440., body, Some(footer), cx)
     }
+
+    /// Asks before coming into a voice channel or a call here, while another of this person's
+    /// devices is in one on the same server, which that takes out (`MoveVoice`).
+    fn move_voice(&mut self, moving: crate::voice::VoiceMove, cx: &mut Context<Self>) -> AnyElement {
+        let server = self.state.read(cx).servers.get(&moving.server_id);
+        let channel = server.and_then(|server| server.channels.iter().find(|channel| channel.id == moving.from));
+        // Where the other device is, in words that follow "You're in".
+        let place = match (channel, server.and_then(|server| crate::voice::conversation_of_group(server, &moving.from))) {
+            (Some(_), _) if moving.from == moving.channel_id => "this voice channel".to_string(),
+            (None, _) if moving.from == moving.channel_id => "this call".to_string(),
+            (Some(channel), _) if !channel.name.is_empty() => channel.name.clone(),
+            (Some(_), _) => "a voice channel".to_string(),
+            (None, Some(conversation)) if conversation.kind == "dm" => format!("a call with {}", conversation.title),
+            (None, Some(conversation)) => format!("a call in {}", conversation.title),
+            (None, None) => "a call".to_string(),
+        };
+        let body = vec![div().text_size(px(13.5)).child(format!("You're in {place} on another device. Joining here disconnects that device.")).into_any_element()];
+        let state = self.state.clone();
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("move-voice", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Join here").on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| state.set_overlay(None, cx));
+                if let Some(voice) = crate::voice::get(cx) {
+                    let moving = moving.clone();
+                    voice.update(cx, |voice, cx| voice.come_in(moving.server_id, moving.channel_id, moving.return_to, moving.how, cx));
+                }
+            }))
+            .into_any_element();
+        self.modal(Some("Join on this device?".into()), 420., body, Some(footer), cx)
+    }
 }
 
 impl Render for Dialog {
@@ -418,6 +460,10 @@ impl Render for Dialog {
                 self.verify(user_id, cx)
             }
             DialogKind::LeaveServer => self.leave_server(cx),
+            DialogKind::MoveVoice(moving) => {
+                let moving = moving.clone();
+                self.move_voice(moving, cx)
+            }
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

@@ -91,9 +91,13 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
     if (channel.type === "voice" && server) {
       // Clicking a voice channel is coming into it, as in Discord. Leaving goes back to what was open before.
       const activeIsVoice = server.channels.find((item) => item.key === server.activeKey)?.type === "voice";
+      if (server.info?.voice) {
+        // It opens as this device comes in, which may wait to be asked about.
+        void join(server.entry.id, channel.id, activeIsVoice ? undefined : server.activeKey, { open: channel.key });
+        return;
+      }
       selectConversation(channel.key);
-      if (server.info?.voice) void join(server.entry.id, channel.id, activeIsVoice ? undefined : server.activeKey);
-      else toast("This server has no media server yet, so its voice channels can't be joined.", "info");
+      toast("This server has no media server yet, so its voice channels can't be joined.", "info");
       return;
     }
     selectConversation(channel.key);

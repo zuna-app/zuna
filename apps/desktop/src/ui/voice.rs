@@ -249,7 +249,7 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                     state.select_server(&item.server_id, cx);
                     state.select_conversation(Some(item.conversation.key.clone()), cx);
                 });
-                voice.update(cx, |voice, cx| voice.join(item.server_id.clone(), item.call.group_id.clone(), None, JoinHow { ring: false, camera }, cx));
+                voice.update(cx, |voice, cx| voice.join(item.server_id.clone(), item.call.group_id.clone(), None, JoinHow { camera, ..Default::default() }, cx));
             }
         };
         let decline = {

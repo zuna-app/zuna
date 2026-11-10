@@ -3,9 +3,10 @@
 // group's, in a room of its own under the conversation's group, and everything a voice channel
 // has works the same in it.
 
+import type { VoiceMember } from "@zuna/core";
 import { screenTerms } from "@zuna/core/voice";
 import { create } from "zustand";
-import { conversationOfGroup, useApp } from "@/state/store";
+import { conversationOfGroup, useApp, type ServerState } from "@/state/store";
 import { voiceHooks } from "./events";
 import type { MicReading } from "./mic";
 // The room, and LiveKit with it, a third of the app's script, only loads on coming into a
@@ -58,9 +59,16 @@ interface VoiceState {
   localMutes: Record<string, true>;
   /** Who's playing a sound from the soundboard right now, by user, with what to show for it. */
   sounding: Record<string, string>;
+  /** Coming into a room that waits for the person's word, as it takes another of their devices out of voice. */
+  moving: VoiceMove | null;
 
-  /** Comes into a voice channel or a call. `returnTo` is what to open again on leaving a voice channel, if it's said. */
+  /**
+   * Comes into a voice channel or a call, asking first if that takes another of this person's devices
+   * out of one. `returnTo` is what to open again on leaving a voice channel, if it's said.
+   */
   join(serverId: string, channelId: string, returnTo?: string | null, how?: JoinHow): Promise<void>;
+  /** Comes into the room that was asked about, or leaves things as they are. */
+  answerMove(go: boolean): void;
   /** Calls the people in a conversation, starting a direct message if nobody's written in it yet. */
   startCall(serverId: string, conversationKey: string, camera: boolean): Promise<void>;
   /** Stops a call ringing on all this person's devices. */
@@ -91,6 +99,26 @@ export interface JoinHow {
   ring?: boolean;
   /** The camera goes on once in. */
   camera?: boolean;
+  /** A voice channel's own row was clicked, so it opens too, once this device is coming in. */
+  open?: string;
+  /** The person said yes to taking another of their devices out of voice. */
+  sure?: boolean;
+}
+
+/** A room this person asked to come into here, while another of their devices is in one on its server. */
+export interface VoiceMove {
+  serverId: string;
+  channelId: string;
+  returnTo?: string | null;
+  how: JoinHow;
+  /** The room the other device is in. */
+  from: string;
+}
+
+/** Another of this person's devices in a voice channel or a call on a server, where only their latest stays in. */
+export function voiceElsewhere(server: ServerState | undefined): VoiceMember | undefined {
+  const self = server?.self;
+  return self ? Object.values(server.voice).find((member) => member.userId === self.userId && member.deviceId !== self.deviceId) : undefined;
 }
 
 const NOT_IN_VOICE = {
@@ -400,6 +428,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     useApp.getState().toast(reason === "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.", "info");
   };
   voiceHooks.onServerGone = (serverId) => {
+    if (get().moving?.serverId === serverId) set({ moving: null });
     if (get().serverId === serverId) get().leave();
   };
 
@@ -471,13 +500,22 @@ export const useVoice = create<VoiceState>((set, get) => {
     volumes: loadVolumes(),
     streamVolumes: loadVolumes("stream"),
     localMutes: {},
+    moving: null,
 
     async join(serverId, channelId, returnTo, how = {}) {
       const { serverId: inServer, channelId: inChannel, status } = get();
+      const here = inServer === serverId && inChannel === channelId && status !== "idle";
+      // The server keeps only a person's latest device in voice, so coming in here ends it on another of theirs.
+      const other = here || how.sure ? undefined : voiceElsewhere(useApp.getState().servers[serverId]);
+      if (other) {
+        set({ moving: { serverId, channelId, returnTo, how, from: other.channelId } });
+        return;
+      }
+      if (how.open && useApp.getState().activeServerId === serverId) useApp.getState().selectConversation(how.open);
       // Moving between voice channels keeps what was open before the first of them.
       const before = returnTo !== undefined ? returnTo : openBefore;
       openBefore = before;
-      if (inServer === serverId && inChannel === channelId && status !== "idle") return;
+      if (here) return;
       if (status !== "idle") get().leave();
       openBefore = before;
       const mine = ++attempt;
@@ -486,6 +524,13 @@ export const useVoice = create<VoiceState>((set, get) => {
       set({ ...NOT_IN_VOICE, status: "connecting", serverId, channelId, call });
       ringOnAnnounce = !!how.ring && call;
       await connect(serverId, channelId, mine, how);
+    },
+
+    answerMove(go) {
+      const { moving } = get();
+      if (!moving) return;
+      set({ moving: null });
+      if (go) void get().join(moving.serverId, moving.channelId, moving.returnTo, { ...moving.how, sure: true });
     },
 
     async startCall(serverId, conversationKey, camera) {

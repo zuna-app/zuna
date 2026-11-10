@@ -373,6 +373,29 @@ final class VoiceTests: XCTestCase {
         try bobLaptop.call("setVoiceState", [lounge, here])
         XCTAssertTrue(zuna.toast(startingWith: "You joined this voice channel on another device").waitForExistence(timeout: 10))
         try waitFor("the call to close") { !self.zuna.element(A11y.Voice.stage).exists && !self.zuna.element(A11y.Voice.bar).exists }
+
+        // And coming in on the phone would end it on the laptop, which is asked first.
+        let laptop = try XCTUnwrap(try members(alice).first { $0["userId"] as? String == bobId }?["deviceId"] as? String)
+        XCTAssertTrue(zuna.element(A11y.Channels.occupant(laptop)).waitForExistence(timeout: 10))
+        row.tap()
+        let question = zuna.app.alerts["Join on this device?"]
+        XCTAssertTrue(question.waitForExistence(timeout: 10))
+        XCTAssertTrue(question.staticTexts["You're in this voice channel on another device. Joining here disconnects that device."].exists)
+        zuna.screenshot("96-voice-elsewhere")
+        question.buttons["Cancel"].tap()
+        XCTAssertFalse(zuna.element(A11y.Voice.stage).waitForExistence(timeout: 3))
+        XCTAssertNil(try bobsPhone(alice))
+        XCTAssertTrue(try members(alice).contains { $0["deviceId"] as? String == laptop })
+
+        row.tap()
+        XCTAssertTrue(question.waitForExistence(timeout: 10))
+        question.buttons["Join here"].tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.stage).waitForExistence(timeout: 10))
+        try waitFor("alice to see bob on his phone alone", timeout: 30) {
+            try self.bobsPhone(alice) != nil && !self.members(alice).contains { $0["deviceId"] as? String == laptop }
+        }
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
         try bobLaptop.call("setVoiceState", [NSNull(), NSNull()])
     }
 }

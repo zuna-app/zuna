@@ -224,6 +224,7 @@ export function Modal({
 export function Confirm({
   title,
   action,
+  kind = "danger",
   onCancel,
   onConfirm,
   width = 420,
@@ -231,6 +232,8 @@ export function Confirm({
 }: {
   title: string;
   action: string;
+  /** How the button that says yes looks: red, unless what's asked about loses nothing. */
+  kind?: "danger" | "primary";
   onCancel: () => void;
   onConfirm: () => void;
   width?: number;
@@ -245,7 +248,7 @@ export function Confirm({
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
-          <button className="btn btn-danger" onClick={onConfirm}>{action}</button>
+          <button className={`btn btn-${kind}`} onClick={onConfirm}>{action}</button>
         </>
       }
     >

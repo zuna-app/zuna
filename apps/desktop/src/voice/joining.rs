@@ -3,15 +3,37 @@
 use super::*;
 
 impl Voice {
-    /// Comes into a voice channel or a call. `return_to` is what to open again on leaving a voice channel, if it's said.
+    /// Comes into a voice channel or a call, asking first if that takes another of this person's devices
+    /// out of one. `return_to` is what to open again on leaving a voice channel, if it's said.
     pub fn join(&mut self, server_id: String, channel_id: String, return_to: Option<Option<String>>, how: JoinHow, cx: &mut Context<Self>) {
+        // The server keeps only a person's latest device in voice, so coming in here ends it on another of theirs.
+        let from = if self.is_in(&server_id, &channel_id) { None } else { self.state.read(cx).servers.get(&server_id).and_then(elsewhere).map(str::to_string) };
+        match from {
+            Some(from) => self.state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::MoveVoice(VoiceMove { server_id, channel_id, return_to, how, from })), cx)),
+            None => self.come_in(server_id, channel_id, return_to, how, cx),
+        }
+    }
+
+    fn is_in(&self, server_id: &str, channel_id: &str) -> bool {
+        self.server_id.as_deref() == Some(server_id) && self.channel_id.as_deref() == Some(channel_id) && self.status != VoiceStatus::Idle
+    }
+
+    /// Comes into a voice channel or a call, whatever that ends on another of this person's devices.
+    pub fn come_in(&mut self, server_id: String, channel_id: String, return_to: Option<Option<String>>, how: JoinHow, cx: &mut Context<Self>) {
+        if let Some(key) = how.open.clone() {
+            self.state.update(cx, |state, cx| {
+                if state.active_server.as_deref() == Some(server_id.as_str()) {
+                    state.select_conversation(Some(key), cx);
+                }
+            });
+        }
         // Moving between voice channels keeps what was open before the first of them.
         let before = match return_to {
             Some(value) => value,
             None => self.open_before.clone(),
         };
         self.open_before = before.clone();
-        if self.server_id.as_deref() == Some(&server_id) && self.channel_id.as_deref() == Some(&channel_id) && self.status != VoiceStatus::Idle {
+        if self.is_in(&server_id, &channel_id) {
             return;
         }
         if self.status != VoiceStatus::Idle {
@@ -302,7 +324,7 @@ impl Voice {
                     let group_id = group.as_str().unwrap_or_default().to_string();
                     // Someone else may have called meanwhile, which this joins rather than ringing anyone.
                     let going = voice.state.read(cx).servers.get(&server_id).is_some_and(|server| server.voice.values().any(|member| member.channel_id == group_id));
-                    voice.join(server_id, group_id, None, JoinHow { ring: !going, camera }, cx);
+                    voice.join(server_id, group_id, None, JoinHow { ring: !going, camera, open: None }, cx);
                 }
                 Err(error) => voice.toast(if error.message.is_empty() { "Couldn't start the call.".to_string() } else { error.message }, ToastKind::Error, cx),
             })

@@ -60,12 +60,32 @@ pub struct ShareInfo {
 }
 
 /// How to come into a room.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct JoinHow {
     /// It starts a call, ringing everyone else in the conversation.
     pub ring: bool,
     /// The camera goes on once in.
     pub camera: bool,
+    /// A voice channel's own row was clicked, so it opens too, once this device is coming in.
+    pub open: Option<String>,
+}
+
+/// A room this person asked to come into here, while another of their devices is in one on its server.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VoiceMove {
+    pub server_id: String,
+    pub channel_id: String,
+    pub return_to: Option<Option<String>>,
+    pub how: JoinHow,
+    /// The room the other device is in.
+    pub from: String,
+}
+
+/// Another of this person's devices in a voice channel or a call on a server, where only their
+/// latest stays in: the room it's in.
+pub fn elsewhere(server: &ServerState) -> Option<&str> {
+    let me = server.me.as_ref()?;
+    server.voice.values().find(|member| member.user_id == me.user_id && member.device_id != me.device_id).map(|member| member.channel_id.as_str())
 }
 
 const RECONNECT_ATTEMPTS: u32 = 3;
@@ -261,17 +281,17 @@ pub fn open_channel(state: &Entity<AppState>, channel: &ChannelView, _window: &m
     let active_is_voice = server.channels.iter().any(|item| Some(&item.key) == server.active_key.as_ref() && item.kind == "voice");
     let return_to = if active_is_voice { None } else { Some(server.active_key.clone()) };
     let ready = server.info.as_ref().is_some_and(|info| info.voice.is_some_and(|voice| voice > 0.));
-    state.update(cx, |state, cx| {
-        state.select_conversation(Some(key), cx);
-        if !ready {
+    if !ready {
+        state.update(cx, |state, cx| {
+            state.select_conversation(Some(key), cx);
             state.toast("This server has no media server yet, so its voice channels can't be joined.", ToastKind::Info, cx);
-        }
-    });
-    if ready {
-        if let Some(voice) = get(cx) {
-            let (server_id, channel_id) = (server.entry.id.clone(), channel.id.clone());
-            voice.update(cx, |voice, cx| voice.join(server_id, channel_id, return_to, JoinHow::default(), cx));
-        }
+        });
+        return;
+    }
+    // It opens as this device comes in, which may wait to be asked about.
+    if let Some(voice) = get(cx) {
+        let (server_id, channel_id) = (server.entry.id.clone(), channel.id.clone());
+        voice.update(cx, |voice, cx| voice.join(server_id, channel_id, return_to, JoinHow { open: Some(key), ..Default::default() }, cx));
     }
 }
 

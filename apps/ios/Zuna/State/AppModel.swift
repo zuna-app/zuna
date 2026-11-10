@@ -123,6 +123,12 @@ final class AppModel {
         /// Whether direct messages and groups can have calls here.
         var hasCalls: Bool { (info?.calls ?? 0) > 0 }
 
+        /// Another of this person's devices in a voice channel or a call here, where only their latest stays in.
+        var voiceElsewhere: VoiceMember? {
+            guard let me else { return nil }
+            return voice.values.first { $0.userId == me.userId && $0.deviceId != me.deviceId }
+        }
+
         /// Who's in a conversation's call, or a voice channel, by user, in the order they came.
         func inRoom(_ roomId: String) -> [String] {
             var seen = Set<String>()

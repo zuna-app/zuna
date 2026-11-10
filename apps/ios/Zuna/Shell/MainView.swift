@@ -32,6 +32,13 @@ struct MainView: View {
         .fullScreenCover(isPresented: $voice.stageShown) {
             CallScreen()
         }
+        // Coming into voice here ends it on another of this person's devices, which is asked first.
+        .alert("Join on this device?", isPresented: Binding(get: { voice.moving != nil }, set: { if !$0 { voice.moving = nil } }), presenting: voice.moving) { move in
+            Button("Join here") { Task { await voice.move(move) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { move in
+            Text("You're in \(voice.place(of: move)) on another device. Joining here disconnects that device.")
+        }
         .task { await notifications.askOnce() }
     }
 
