@@ -129,9 +129,11 @@ final class ChannelsTests: XCTestCase {
         // Its details list everyone on the server, as the desktop's member list does.
         zuna.element(A11y.Chat.title).tap()
         XCTAssertTrue(zuna.element(A11y.Channels.details).waitForExistence(timeout: 10))
-        // Last: the peers aren't using Zuna, so they show as offline, below bob.
+        // Carol typed a moment ago, so she shows as online for a while, under bob. Alice isn't using Zuna, so she's offline, at the end.
         XCTAssertTrue(scrolledTo(A11y.Channels.member(World.current["carol"].userId)).waitForExistence(timeout: 5))
-        XCTAssertTrue(zuna.element(A11y.Channels.member(World.current["alice"].userId)).label.contains("Owner"))
+        let owner = scrolledTo(A11y.Channels.member(World.current["alice"].userId))
+        XCTAssertTrue(owner.waitForExistence(timeout: 5))
+        XCTAssertTrue(owner.label.contains("Owner"))
         // Not an admin, so nothing to edit.
         XCTAssertFalse(zuna.element(A11y.Channels.edit).exists)
         zuna.screenshot("92-channel-details")
