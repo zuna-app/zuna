@@ -50,6 +50,7 @@ The iPhone app's approach carries over:
 - **The server and `zuna-web` on releases.** The release workflow's jobs for the server's binaries, `zuna-web` and both images went on 2026-11-10, when it was rewritten around the native app, as none of them was ready to be released. They're in git history, to bring back when they are.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealing commits that change nobody,** so that renewing a group's keys names nobody either ([SEALED_SENDER.md](SEALED_SENDER.md), "Later").
+- **Key transparency:** a log of every change to who holds which keys, which each server keeps and every device reads, so that a server can't hand out a false key or hide a device without the account's owner seeing it. [KEY_TRANSPARENCY_PLAN.md](KEY_TRANSPARENCY_PLAN.md) is the plan, and nothing of it is built.
 - **Hiding who's in a conversation** from the server, which delivers by membership today.
 - **Encrypted backups** you can export and import yourself.
 - **An independent security audit.**
