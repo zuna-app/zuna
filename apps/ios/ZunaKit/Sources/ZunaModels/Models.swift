@@ -247,6 +247,9 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable {
     public var waveform: String?
     /// A video message recorded in the app: square, shown in a circle, playing by itself without sound.
     public var round: Bool?
+    /// The secret the file was made with, base64, which a message carrying it shows the server,
+    /// as one forwarding it does too. From then on the server keeps nothing of who uploaded it.
+    public var share: String?
 }
 
 public struct EmoteRef: Codable, Sendable, Equatable, Hashable {
