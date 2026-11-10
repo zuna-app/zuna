@@ -1,6 +1,6 @@
 [package]
 name = "zuna-test-driver"
-version = "0.10.0"
+version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Drives the native app in a KWin of its own, for apps/desktop/test/linux-check.mjs."

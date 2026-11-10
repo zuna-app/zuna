@@ -1,6 +1,6 @@
 {
   "name": "@zuna/web",
-  "version": "0.10.0",
+  "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Zuna in a browser, served by its own host, zuna-web.",

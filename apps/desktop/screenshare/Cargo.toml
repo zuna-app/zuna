@@ -1,6 +1,6 @@
 [package]
 name = "zuna-screenshare"
-version = "0.10.0"
+version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "The native app's screen capture, GPU encoding and a share's sound, which it runs in its own process."

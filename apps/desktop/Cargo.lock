@@ -10097,7 +10097,7 @@ source = "git+https://github.com/zuna-app/zed?rev=c5e567c7b0bd8b29b60b0673d80eb0
 
 [[package]]
 name = "zuna-crypto"
-version = "0.10.0"
+version = "0.1.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -10119,7 +10119,7 @@ dependencies = [
 
 [[package]]
 name = "zuna-screenshare"
-version = "0.10.0"
+version = "0.1.0"
 dependencies = [
  "ashpd",
  "cc",
@@ -10140,7 +10140,7 @@ dependencies = [
 
 [[package]]
 name = "zuna-windows"
-version = "0.10.0"
+version = "0.1.0"
 dependencies = [
  "ashpd",
  "base64 0.22.1",

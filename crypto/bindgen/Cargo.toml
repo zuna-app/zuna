@@ -2,7 +2,7 @@
 # generates the Swift bindings from the compiled library.
 [package]
 name = "zuna-uniffi-bindgen"
-version = "0.10.0"
+version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 publish = false
