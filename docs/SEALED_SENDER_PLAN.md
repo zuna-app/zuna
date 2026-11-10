@@ -187,21 +187,37 @@ A commit that changes who's in a group names people by its nature, and the serve
 
 In this plan: renew an old epoch when a chat is opened or synced, not when something is sent, so it's rarely left to do at sending time. Sealing commits that change no membership is a later piece of work, with its own answer for holding back whoever sends ones nobody can apply.
 
-## To settle first
+## Settled before building
 
-Answer these before writing code, in this file, each with what was checked.
+Settled on 2026-11-10, each with what was checked.
 
-1. **The token suite and libraries.** RFC 9497 in verifiable mode over ristretto255 with SHA-512 is the first choice, as `curve25519-dalek` is already in `crypto/Cargo.lock`. Candidates are the `voprf` crate in Rust and `github.com/cloudflare/circl/oprf` in Go. Check each is maintained, what review it's had, that the Rust one builds for `wasm32-unknown-unknown` and iOS, and that both pass the RFC's test vectors and each other's output. Decide between the partially oblivious mode, where one key covers every size and period, and a key for each.
-2. **Numbers.** How many small and large tokens a person and a bot get and how fast, the small size, how long a key lasts, how many a device fetches at once and keeps. Start from today's `messageLimiter` (15 a second, 60 at once), which is far more than tokens need to allow, since tokens can be saved up. Work out the most one account could make a server keep in a day, and write it down.
-3. **Whether `sign` takes a 32-byte seed,** in `crypto/src/primitives.rs`, and add the one function missing: a public key from a seed.
-4. **Where the server's token keys live.** In the database, several servers on one PostgreSQL share them, and a copy of it lets someone make tokens, which only gets them past a limit. Say which, and why.
-5. **How a device comes by its first tokens,** and what the share extension and a phone woken to send do.
-6. **What slow mode's margin is,** and what an app does about a message whose author's earlier one it doesn't hold.
-7. **Every other place a sender shows.** Search the server for `sender_user`, `sender_device`, `SenderUser`, `user_id` on anything about messages, and each limiter keyed by user that a send touches. Search the core, `apps/desktop/src`, `packages/ui` and `apps/ios` for uses of the server's word on a sender. The table above is a start, not the whole.
+1. **The token suite and libraries.** RFC 9497 in verifiable mode (VOPRF), suite `ristretto255-SHA512`, with a key of its own for each size and each period, not the partially oblivious mode. With one key for everything, a copy of the database would make tokens for every period to come; with a key for each period, only for the few hours that period has left. And the apps check every key against the one a request with no session is shown (decision 4), which is as simple with several keys as with one.
+   - Rust: [`voprf`](https://crates.io/crates/voprf) 0.5.0, Meta's, MIT, the implementation `opaque-ke` uses, with the RFC's vectors in its own tests (`src/tests/cfrg_vectors.rs`). It takes `curve25519-dalek` 4, `sha2` 0.10 and `elliptic-curve` 0.13, which `crypto/Cargo.lock` already holds. It builds for `wasm32-unknown-unknown`, and `cargo check --target aarch64-apple-ios` passes. 0.6 is still a pre-release. Nothing here says what independent review it's had, and nothing was found that says.
+   - Go: `github.com/cloudflare/circl` 1.6.5, Cloudflare's, BSD, with the RFC's vectors in `oprf/testdata`. Its batched proofs are the RFC's (`ProveBatchRFC9497`).
+   - Both pass the RFC's VOPRF vectors for `ristretto255-SHA512` in tests of Zuna's own (`crypto/src/primitives.rs`, `server/internal/tokens`), and each other's output: a fixture of tokens blinded by the Rust client and evaluated by the Go server is finalized in Rust and redeemed in Go.
+2. **Numbers.**
+   - A **period** is six hours, counted from the Unix epoch, and a token redeems in its own period and the next, so it lasts between six and twelve hours.
+   - A **small** token is for an envelope up to 32 KiB, which holds any text message, and one with a photo's or video's preview picture (22 KiB at most). A **large** one is for up to the 256 KiB limit.
+   - A person may have 1,000 small and 100 large issued in each period, across all their devices, and a bot 10,000 and 500. That's a message every 22 seconds around the clock, for someone who sends nothing larger, where today's `messageLimiter` allows 15 a second.
+   - A device fetches 100 small at once once it holds fewer than 40 for the current period, and 10 large once it holds fewer than 4, a random 1 to 10 minutes after it notices, and keeps at most twice that. Reactions, edits, pins and deletions each spend a small one.
+   - **The most one person can make a server keep in a day**, if they did nothing else: four periods of 1,000 × 32 KiB and 100 × 256 KiB, 225 MiB. A bot, four of 10,000 × 32 KiB and 500 × 256 KiB, 1.7 GiB. Saving up adds one more period's worth at most. Today it's 10 GiB in all, once, since messages count towards a person's quota.
+3. **`sign` takes a 32-byte seed.** `RustCrypto::sign` makes an `ed25519_dalek::SigningKey` from exactly the 32 bytes `signing_keygen` returns, which is the seed. `signing_public` is added beside it.
+4. **The token keys live in the database,** in `token_keys`, made at random when a period first needs one, inside a transaction, so that several servers on one PostgreSQL issue and redeem with the same keys, as they have to share which tokens were spent anyway. A copy of the database holds only the keys of the current period and the one before, which make tokens for twelve hours at most, and a token only gets someone past a limit: writing still takes a group's send secret. They're deleted with the tokens spent under them once their period can't redeem any more.
+5. **First tokens.** A device fetches its first as soon as it's signed in, and from then on at random times as its stock runs low, never because something is about to go. One that has none, as a new device sending at once, fetches then and sends, which says something only that once. The iPhone's share extension and a phone woken to send use the same database as the app, so they spend the app's tokens, and fetch only when there are none.
+6. **Slow mode's margin is two seconds,** by the server's times. A message that came less than slow mode less two seconds after the same author's previous one in that channel is hidden, unless its author is one of the channel's admins. If this device doesn't hold the author's previous one, as when it's from before this device came into the channel, the message shows: nobody can be judged on what isn't there.
+7. **Every other place a sender shows,** beyond the table above, found by searching the server and the apps:
+   - `server/internal/store/limits.go`, `RecountStorage`: sums messages by `sender_user` and reactions by `user_id`.
+   - `store/retention.go`, `mayShareFile` and `inSeenMessage`: share a file by its owner, which names the sender of a message carrying it. `store/files.go`, `CreateFile`'s quota: what a person's files come to now.
+   - `api/files.go`, `botMaySendFiles`, called from `handleSendMessage`.
+   - `store/messages.go`, `AddReaction`: `maxReactionsByPerson` counts by `user_id`.
+   - `store/channels.go`, `takeSlowModeTurn`: `channel_sends` by user.
+   - `group_events.sender_user` for commits, which stay named (decision 13).
+   - The core: `ingest.ts` (`readableNow`, `ingest`, `couldBeSent`, `retryUndecryptable`, `openReaction`, `openPin`, `deletionProven`, `lookForEarlier`), `push.ts` (what a phone shows before the app opens), `conversations.ts` (last messages, unread counts, the slow mode wait), `lifecycle.ts` (typing and read frames), `groups.ts` (`applyReadState`), `sending.ts` (reactions taken back by `user_id`), and `forwardable`, which names the original's author from the core's own row.
+   - `apps/desktop/src`, `packages/ui` and `apps/ios` draw `senderId` from the core and never read the server's: they need only draw a row whose author isn't known.
 
 ## For the owner to decide
 
-Each has a default the plan goes by. Ask before the stage it's in.
+The owner chose every default, on 2026-11-10.
 
 | Question | Default | The other way |
 |---|---|---|
