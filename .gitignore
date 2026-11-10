@@ -43,8 +43,10 @@ zuna-bot-data/
 .vscode/
 .idea/
 
-# Local tool configuration
-.claude/
+# Local tool configuration, but for Claude Code's settings for everyone here: the hook that
+# keeps a session from ending with app commits pushed and no nightly cut (docs/RELEASES.md)
+.claude/*
+!.claude/settings.json
 
 # zuna-web: scripts/build-web.mjs copies the built app here to build it in
 server/cmd/zuna-web/site/*
