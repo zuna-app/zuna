@@ -90,6 +90,18 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "verify", |c, a| Ok(boolean(&c, primitives::verify(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))));
+    define!(crypto, ctx, "signingPublic", |c, a| {
+        let out = check(&c, primitives::signing_public(&bytes_arg(&a, 0)))?;
+        new_bytes(&c, out)
+    });
+    define!(crypto, ctx, "tokenBlind", |c, a| {
+        let out = check(&c, primitives::token_blind(number_arg(&a, 0) as usize))?;
+        new_bytes(&c, out)
+    });
+    define!(crypto, ctx, "tokenFinalize", |c, a| {
+        let out = check(&c, primitives::token_finalize(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2), &bytes_arg(&a, 3)))?;
+        new_bytes(&c, out)
+    });
     define!(crypto, ctx, "hpkeKeygen", |c, _a| {
         let pair = check(&c, primitives::hpke_keygen())?;
         key_pair(&c, pair)

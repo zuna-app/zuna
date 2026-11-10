@@ -164,6 +164,86 @@ pub fn verify(public: &[u8], message: &[u8], signature: &[u8]) -> bool {
         .is_ok()
 }
 
+/// The public half of an Ed25519 key from its 32-byte seed, which is what
+/// `signing_keygen` returns as the secret and `sign` takes. A seed can come from
+/// anywhere 32 bytes do, such as the MLS exporter.
+pub fn signing_public(secret: &[u8]) -> Result<Vec<u8>> {
+    let seed: [u8; 32] = secret.try_into().map_err(|_| "signing key: a seed is 32 bytes".to_string())?;
+    Ok(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key().to_bytes().to_vec())
+}
+
+// --- Tokens ---
+//
+// RFC 9497 in verifiable mode, suite ristretto255-SHA512. A device blinds random
+// inputs, the server evaluates them under a key it shows everyone with a proof that
+// it used that key, and the device unblinds them. Redeeming one shows the server
+// an input and its output, which it can check with its key, but not tie to the
+// blinded element it evaluated.
+
+type TokenSuite = voprf::Ristretto255;
+
+pub const TOKEN_INPUT_LEN: usize = 32;
+/// One blinded token as the device keeps it: `input || blind || blinded element`.
+/// Only the blinded element goes to the server.
+pub const TOKEN_BLIND_LEN: usize = 96;
+pub const TOKEN_ELEMENT_LEN: usize = 32;
+pub const TOKEN_OUTPUT_LEN: usize = 64;
+pub const TOKEN_PROOF_LEN: usize = 64;
+/// As many as one request asks for, and a little more.
+const MAX_TOKENS_AT_ONCE: usize = 256;
+
+/// Makes `count` tokens' random inputs and blinds them, each `TOKEN_BLIND_LEN` bytes.
+pub fn token_blind(count: usize) -> Result<Vec<u8>> {
+    if count == 0 || count > MAX_TOKENS_AT_ONCE {
+        return Err("tokens: that's not a number of tokens to ask for".into());
+    }
+    let mut out = Vec::with_capacity(count * TOKEN_BLIND_LEN);
+    for _ in 0..count {
+        let input = random_bytes(TOKEN_INPUT_LEN)?;
+        let blinded = voprf::VoprfClient::<TokenSuite>::blind(&input, &mut rand_core::OsRng).map_err(err("token blind"))?;
+        out.extend_from_slice(&input);
+        out.extend_from_slice(&blinded.state.serialize());
+    }
+    Ok(out)
+}
+
+/// Checks the server's proof that it evaluated every blinded element under
+/// `public`, then unblinds them: one `TOKEN_OUTPUT_LEN` output for each, in order.
+pub fn token_finalize(blinds: &[u8], evaluated: &[u8], proof: &[u8], public: &[u8]) -> Result<Vec<u8>> {
+    if blinds.is_empty() || blinds.len() % TOKEN_BLIND_LEN != 0 {
+        return Err("tokens: blinded tokens aren't whole".into());
+    }
+    let inputs: Vec<&[u8]> = blinds.chunks(TOKEN_BLIND_LEN).map(|chunk| &chunk[..TOKEN_INPUT_LEN]).collect();
+    let states: Vec<&[u8]> = blinds.chunks(TOKEN_BLIND_LEN).map(|chunk| &chunk[TOKEN_INPUT_LEN..]).collect();
+    finalize_tokens(&inputs, &states, evaluated, proof, public)
+}
+
+fn finalize_tokens(inputs: &[&[u8]], states: &[&[u8]], evaluated: &[u8], proof: &[u8], public: &[u8]) -> Result<Vec<u8>> {
+    use voprf::Group as _;
+    if evaluated.len() != states.len() * TOKEN_ELEMENT_LEN || proof.len() != TOKEN_PROOF_LEN {
+        return Err("tokens: the server's answer doesn't match what was asked".into());
+    }
+    let clients = states
+        .iter()
+        .map(|state| voprf::VoprfClient::<TokenSuite>::deserialize(state))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(err("token state"))?;
+    let messages = evaluated
+        .chunks(TOKEN_ELEMENT_LEN)
+        .map(voprf::EvaluationElement::<TokenSuite>::deserialize)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(err("token element"))?;
+    let proof = voprf::Proof::<TokenSuite>::deserialize(proof).map_err(err("token proof"))?;
+    let public = TokenSuite::deserialize_elem(public).map_err(err("token key"))?;
+    let inputs = inputs.to_vec();
+    let outputs = voprf::VoprfClient::batch_finalize(&inputs, &clients, &messages, &proof, public).map_err(err("token proof"))?;
+    let mut out = Vec::with_capacity(states.len() * TOKEN_OUTPUT_LEN);
+    for output in outputs {
+        out.extend_from_slice(&output.map_err(err("token finalize"))?);
+    }
+    Ok(out)
+}
+
 /// Returns `(public, secret)` of a fresh X25519 HPKE key.
 pub fn hpke_keygen() -> Result<(Vec<u8>, Vec<u8>)> {
     let ikm = random_bytes(32)?;
@@ -250,6 +330,96 @@ mod tests {
         let sig = sign(&secret, b"msg").unwrap();
         assert!(verify(&public, b"msg", &sig));
         assert!(!verify(&public, b"other", &sig));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn a_seed_signs_for_its_public_key() {
+        let (public, secret) = signing_keygen().unwrap();
+        assert_eq!(signing_public(&secret).unwrap(), public);
+        let seed = random_bytes(32).unwrap();
+        let sig = sign(&seed, b"msg").unwrap();
+        assert!(verify(&signing_public(&seed).unwrap(), b"msg", &sig));
+        assert!(signing_public(&[1u8; 31]).is_err());
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
+    }
+
+    // RFC 9497, appendix A.1.2: VOPRF mode, ristretto255-SHA512.
+    const RFC_PUBLIC: &str = "c803e2cc6b05fc15064549b5920659ca4a77b2cca6f04f6b357009335476ad4e";
+    const RFC_BLIND_1: &str = "64d37aed22a27f5191de1c1d69fadb899d8862b58eb4220029e036ec4c1f6706";
+    const RFC_BLIND_2: &str = "222a5e897cf59db8145db8d16e597e8facb80ae7d4e26d9881aa6f61d645fc0e";
+    const RFC_BLINDED_1: &str = "863f330cc1a1259ed5a5998a23acfd37fb4351a793a5b3c090b642ddc439b945";
+    const RFC_BLINDED_2: &str = "90a0145ea9da29254c3a56be4fe185465ebb3bf2a1801f7124bbbadac751e654";
+    const RFC_EVALUATED_1: &str = "aa8fa048764d5623868679402ff6108d2521884fa138cd7f9c7669a9a014267e";
+    const RFC_EVALUATED_2: &str = "cc5ac221950a49ceaa73c8db41b82c20372a4c8d63e5dded2db920b7eee36a2a";
+    const RFC_PROOF_1: &str = "ddef93772692e535d1a53903db24367355cc2cc78de93b3be5a8ffcc6985dd066d4346421d17bf5117a2a1ff0fcb2a759f58a539dfbe857a40bce4cf49ec600d";
+    const RFC_PROOF_BATCH: &str = "cc203910175d786927eeb44ea847328047892ddf8590e723c37205cb74600b0a5ab5337c8eb4ceae0494c2cf89529dcf94572ed267473d567aeed6ab873dee08";
+    const RFC_OUTPUT_1: &str = "b58cfbe118e0cb94d79b5fd6a6dafb98764dff49c14e1770b566e42402da1a7da4d8527693914139caee5bd03903af43a491351d23b430948dd50cde10d32b3c";
+    const RFC_OUTPUT_2: &str = "8a9a2f3c7f085b65933594309041fc1898d42d0858e59f90814ae90571a6df60356f4610bf816f27afdd84f47719e480906d27ecd994985890e5f539e7ea74b6";
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn tokens_finalize_as_the_rfc_says() {
+        let state_1 = [hex(RFC_BLIND_1), hex(RFC_BLINDED_1)].concat();
+        let state_2 = [hex(RFC_BLIND_2), hex(RFC_BLINDED_2)].concat();
+        let input_2 = hex("5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a");
+        let one = finalize_tokens(&[&[0u8]], &[&state_1], &hex(RFC_EVALUATED_1), &hex(RFC_PROOF_1), &hex(RFC_PUBLIC)).unwrap();
+        assert_eq!(one, hex(RFC_OUTPUT_1));
+        let evaluated = [hex(RFC_EVALUATED_1), hex(RFC_EVALUATED_2)].concat();
+        let batch = finalize_tokens(&[&[0u8], &input_2], &[&state_1, &state_2], &evaluated, &hex(RFC_PROOF_BATCH), &hex(RFC_PUBLIC)).unwrap();
+        assert_eq!(batch, [hex(RFC_OUTPUT_1), hex(RFC_OUTPUT_2)].concat());
+        // A proof for other elements, or under another key, is refused.
+        assert!(finalize_tokens(&[&[0u8]], &[&state_1], &hex(RFC_EVALUATED_1), &hex(RFC_PROOF_BATCH), &hex(RFC_PUBLIC)).is_err());
+        assert!(finalize_tokens(&[&[0u8]], &[&state_1], &hex(RFC_EVALUATED_1), &hex(RFC_PROOF_1), &hex(RFC_BLINDED_2)).is_err());
+    }
+
+    /// The hex strings under one name in a fixture's JSON, which holds nothing else.
+    fn fixture_hex(json: &str, name: &str) -> Vec<Vec<u8>> {
+        let start = json.find(&format!("\"{name}\"")).unwrap() + name.len() + 2;
+        let rest = json[start..].trim_start_matches([':', ' ']);
+        let end = if rest.starts_with('[') { rest.find(']').unwrap() } else { rest[1..].find('"').unwrap() + 1 };
+        rest[..end].split('"').skip(1).step_by(2).map(hex).collect()
+    }
+
+    // Tokens this client blinded, which the server's Go package evaluated under a
+    // key of its own (server/internal/tokens, where the same file is checked too).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn tokens_the_go_server_evaluated_finalize_as_it_redeems_them() {
+        let json = include_str!("testdata/rust-client.json");
+        let outputs = token_finalize(
+            &fixture_hex(json, "blinds").concat(),
+            &fixture_hex(json, "evaluated").concat(),
+            &fixture_hex(json, "proof").concat(),
+            &fixture_hex(json, "public").concat(),
+        )
+        .unwrap();
+        assert_eq!(outputs, fixture_hex(json, "outputs").concat());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn tokens_blinded_here_finalize_to_what_the_key_makes_of_them() {
+        use voprf::Group as _;
+        let server = voprf::VoprfServer::<TokenSuite>::new(&mut rand_core::OsRng).unwrap();
+        let public = TokenSuite::serialize_elem(server.get_public_key()).to_vec();
+        let blinds = token_blind(3).unwrap();
+        assert_eq!(blinds.len(), 3 * TOKEN_BLIND_LEN);
+        let elements: Vec<_> = blinds
+            .chunks(TOKEN_BLIND_LEN)
+            .map(|chunk| voprf::BlindedElement::<TokenSuite>::deserialize(&chunk[64..]).unwrap())
+            .collect();
+        let prepared: Vec<_> = server.batch_blind_evaluate_prepare(elements.iter()).collect();
+        let finished = server.batch_blind_evaluate_finish(&mut rand_core::OsRng, elements.iter(), &prepared).unwrap();
+        let evaluated: Vec<u8> = finished.messages.flat_map(|message| message.serialize().to_vec()).collect();
+        let outputs = token_finalize(&blinds, &evaluated, &finished.proof.serialize(), &public).unwrap();
+        for (chunk, output) in blinds.chunks(TOKEN_BLIND_LEN).zip(outputs.chunks(TOKEN_OUTPUT_LEN)) {
+            assert_eq!(server.evaluate(&chunk[..TOKEN_INPUT_LEN]).unwrap().to_vec(), output);
+        }
+        assert!(token_blind(0).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -134,6 +134,21 @@ pub fn verify(public: &[u8], message: &[u8], signature: &[u8]) -> bool {
     primitives::verify(public, message, signature)
 }
 
+#[wasm_bindgen(js_name = signingPublic)]
+pub fn signing_public(secret: &[u8]) -> JsResult<Vec<u8>> {
+    to_js(primitives::signing_public(secret))
+}
+
+#[wasm_bindgen(js_name = tokenBlind)]
+pub fn token_blind(count: u32) -> JsResult<Vec<u8>> {
+    to_js(primitives::token_blind(count as usize))
+}
+
+#[wasm_bindgen(js_name = tokenFinalize)]
+pub fn token_finalize(blinds: &[u8], evaluated: &[u8], proof: &[u8], public: &[u8]) -> JsResult<Vec<u8>> {
+    to_js(primitives::token_finalize(blinds, evaluated, proof, public))
+}
+
 #[wasm_bindgen(js_name = hpkeKeygen)]
 pub fn hpke_keygen() -> JsResult<Object> {
     to_js(primitives::hpke_keygen()).map(key_pair)

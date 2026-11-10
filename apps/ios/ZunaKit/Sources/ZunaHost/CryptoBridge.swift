@@ -86,6 +86,26 @@ final class CryptoBridge {
         }
         define("verify", verify)
 
+        let signingPublic: @convention(block) (JSValue) -> JSValue = { secret in
+            bytes { try ZunaCrypto.signingPublic(secret: data(secret)) }
+        }
+        define("signingPublic", signingPublic)
+
+        let tokenBlind: @convention(block) (Double) -> JSValue = { count in
+            bytes { try ZunaCrypto.tokenBlind(count: UInt32(count)) }
+        }
+        define("tokenBlind", tokenBlind)
+
+        let tokenFinalize: @convention(block) (JSValue, JSValue, JSValue, JSValue) -> JSValue = {
+            blinds, evaluated, proof, publicKey in
+            bytes {
+                try ZunaCrypto.tokenFinalize(
+                    blinds: data(blinds), evaluated: data(evaluated), proof: data(proof), publicKey: data(publicKey)
+                )
+            }
+        }
+        define("tokenFinalize", tokenFinalize)
+
         let hpkeKeygen: @convention(block) () -> JSValue = {
             keyPair { try ZunaCrypto.hpkeKeygen() }
         }

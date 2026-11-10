@@ -31,6 +31,10 @@ export const signingKeygen = (): KeyPair => native.signingKeygen();
 export const sign = (secret: Uint8Array, message: Uint8Array): Uint8Array => native.sign(secret, message);
 export const verify = (publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean =>
   native.verify(publicKey, message, signature);
+export const signingPublic = (secret: Uint8Array): Uint8Array => native.signingPublic(secret);
+export const tokenBlind = (count: number): Uint8Array => native.tokenBlind(count);
+export const tokenFinalize = (blinds: Uint8Array, evaluated: Uint8Array, proof: Uint8Array, publicKey: Uint8Array): Uint8Array =>
+  native.tokenFinalize(blinds, evaluated, proof, publicKey);
 export const hpkeKeygen = (): KeyPair => native.hpkeKeygen();
 export const hpkeSeal = (recipient: Uint8Array, info: Uint8Array, aad: Uint8Array, plaintext: Uint8Array): Uint8Array =>
   native.hpkeSeal(recipient, info, aad, plaintext);

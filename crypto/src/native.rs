@@ -138,6 +138,21 @@ pub fn verify(public_key: Vec<u8>, message: Vec<u8>, signature: Vec<u8>) -> bool
 }
 
 #[uniffi::export]
+pub fn signing_public(secret: Vec<u8>) -> NativeResult<Vec<u8>> {
+    native(primitives::signing_public(&secret))
+}
+
+#[uniffi::export]
+pub fn token_blind(count: u32) -> NativeResult<Vec<u8>> {
+    native(primitives::token_blind(count as usize))
+}
+
+#[uniffi::export]
+pub fn token_finalize(blinds: Vec<u8>, evaluated: Vec<u8>, proof: Vec<u8>, public_key: Vec<u8>) -> NativeResult<Vec<u8>> {
+    native(primitives::token_finalize(&blinds, &evaluated, &proof, &public_key))
+}
+
+#[uniffi::export]
 pub fn hpke_keygen() -> NativeResult<KeyPair> {
     native(primitives::hpke_keygen()).map(KeyPair::from)
 }

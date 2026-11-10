@@ -27,6 +27,11 @@ chacha20poly1305 = "0.10"
 argon2 = "0.5"
 hkdf = "0.12"
 sha2 = "0.10"
+# Tokens the server can't trace (RFC 9497), which limit what an unnamed sender may send.
+voprf = { version = "0.5", default-features = false, features = ["ristretto255-ciphersuite"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+# OpenMLS's own Ed25519, for a public key from a seed, which OpenMLS doesn't offer.
+ed25519-dalek = "2"
 
 # The web app and the tests load the core as WebAssembly.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
