@@ -81,7 +81,7 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 | `plan` | every tag | Reads the channel, version and build from the tag. Fails unless the tag is annotated, its commit is on `main`, `package.json` agrees with it, and a nightly's number is the commit count |
 | `checks` | stable only | `ci.yml`'s `test`, `advisories` and `desktop` jobs. The iPhone's and PostgreSQL's don't hold a desktop release back |
 | `windows` | every tag | `npm run dist:windows` on `windows-latest`, with the version, build and channel stamped in. Holds no secret |
-| `linux` | every tag | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. Holds no secret |
+| `linux` | every tag | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. Holds no secret |
 | `publish` | every tag | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
 
 - **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. Neither has a reviewer, so a stable release waits for nobody's click. `nightly` only runs for `v*-nightly.*` tags and `release` for `v*` tags.
@@ -91,7 +91,7 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 - **The 30 newest nightlies are kept.** `publish` deletes older nightly releases and their tags. Stable releases stay for good.
 - **`ci.yml`'s `desktop` job** is the release build with its installer, then the app's tests and the screen share's in the same profile, and `windows-update-check.mjs`. `gh workflow run ci.yml -f jobs=desktop` runs it by hand, as nothing runs on a push to `main`, and `-f jobs=linux` builds the Linux packages the same way.
 
-On a runner with nothing cached the Windows build takes about 11 minutes and the installer one more. Only Cargo's registry and git checkouts are cached, which `ci.yml` saves on `main` and a release only reads: the build's own folder is 3.6 GB, and fetching it would take as long as building. Windows Server has no Opus decoder, so the tests don't decode the fixtures' sound there (`ZUNA_TEST_NO_OPUS`).
+On a runner with nothing cached the Windows build takes about 11 minutes and the installer one more, and the Linux build about 10 with its packages. Each Linux package is about 110 MB. Only Cargo's registry and git checkouts are cached, which `ci.yml` saves on `main` and a release only reads: the build's own folder is 3.6 GB, and fetching it would take as long as building. Windows Server has no Opus decoder, so the tests don't decode the fixtures' sound there (`ZUNA_TEST_NO_OPUS`).
 
 ## What an update is trusted by
 
@@ -153,6 +153,14 @@ A rule can be forgotten at the end of a long session, so `.claude/settings.json`
 - `gh`, signed in, on each machine Claude releases from, so it can watch a run and read why one failed.
 
 To replace a key: make the new one with `keygen --spare`, add its public half to the app, release, and only once the builds that matter carry it, set it as the environment's secret.
+
+## What hasn't been checked
+
+- **A real update between two published releases,** on an installed copy: the check serves its releases from the machine it runs on. The first build that can update itself is `0.1.0-nightly.1135`.
+- **The Linux packages a release carries:** they're built on CI and were never installed or run from there. `linux-check.mjs` and `linux-package-check.mjs` run on a developer's machine, on packages built there.
+- **Whether Windows Defender or SmartScreen leaves the unsigned installer alone** when it's downloaded in a browser.
+- **The Authenticode lock,** as no build is signed.
+- **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
 
