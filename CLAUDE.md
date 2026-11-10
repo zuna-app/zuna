@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, Linux under Wayland, `docs/LINUX_APP_PLAN.md`, and macOS on Apple silicon, `docs/MACOS_APP_PLAN.md`, with no packages released yet), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from was removed on 2026-11-08, and is in git history.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, Linux under Wayland, `docs/LINUX_APP_PLAN.md`, and macOS on Apple silicon, `docs/MACOS_APP_PLAN.md`, with no packages released yet), which is the only desktop app, a web app, a native iPhone and iPad app, and `zuna-bot` (`apps/bot`), which runs a bot's account and gives its code an API shaped like Telegram's (`docs/BOTS.md`). The Electron desktop app it took over from was removed on 2026-11-08, and is in git history.
 
 ## Working rules
 
@@ -26,8 +26,9 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
-| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, and the e2e workspace | `npm run typecheck` |
-| All of crypto, server and core tests | `npm test` |
+| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace and `zuna-bot` | `npm run typecheck` |
+| All of crypto, server, core and `zuna-bot` tests | `npm test` |
+| `zuna-bot` as one file with the cryptography beside it (`dist/bot`), which Node 22.22+ runs anywhere, and its tests, which run grammY's echo bot on it against a real server | `npm run build:bot`, `npm run test:bot` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run build:server`, `npm run build:web` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, add its installer beside it, or install it on this computer with that installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run dist:windows`, `npm run install:windows` |
@@ -46,6 +47,7 @@ One test at a time:
 cd server && go test ./internal/api -run TestOutsidersLearnLittle
 cd packages/core && npx vitest run test/security.test.ts -t "part of the test's name"
 cd crypto && cargo test --target wasm32-unknown-unknown --lib part_of_the_test_name
+cd apps/bot && npx vitest run test/bot.test.ts -t "part of the test's name"
 npm run test -w @zuna/e2e -- test/golden.test.ts   # macOS only, see Gotchas
 ```
 
@@ -57,7 +59,7 @@ The native app on Linux has checks of its own in `apps/desktop/test`, each runni
 
 On macOS, `apps/desktop/test/mac-voice-check.mjs` runs two copies of the app on the person's own desktop, against a test server and a LiveKit of its own, and drives them through the test control built into them (`src/test_control.rs`, the `test-control` feature, which no build anyone uses has), so it asks nothing of the system and leaves the pointer alone: onboarding, a voice channel and a call each way with a tone in place of a microphone, a screen share of moving bars past macOS's picker (`ZUNA_FAKE_SCREEN`) encoded and decoded on the GPU, Voice and video, and voice and video messages. Run it after changing anything under `platform/macos`, `media`, `voice` or `screenshare`.
 
-`packages/ui` is the web app's interface. A change there needs the web's check, which runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`. Playwright's Firefox doesn't start on macOS 27, so there name `moz-firefox` instead, which runs the Firefox installed from Mozilla, as the site's check below also takes.
+`packages/ui` is the web app's interface. A change there needs the web's check, which runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`, and `npm run build:bot`, as its bots step sets a bot up with the built `zuna-bot`. Playwright's Firefox doesn't start on macOS 27, so there name `moz-firefox` instead, which runs the Firefox installed from Mozilla, as the site's check below also takes.
 
 The landing page has a check of its own, in the same browsers: `npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. It serves the build as a static host does, and fails on any request to another origin, a content security policy violation, sideways scrolling, or a section that stays hidden without script or with less motion. Run it after changing `apps/site`. The site is hosted on the maintainers' own server, not on GitHub, and "Hosting" in `docs/SITE_PLAN.md` says how it's published.
 
@@ -69,7 +71,7 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
-**One client core, four hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app (`packages/ui/src/core/serve.ts`, started by `apps/web/src/worker.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+**One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app (`packages/ui/src/core/serve.ts`, started by `apps/web/src/worker.ts`), in Node in `zuna-bot` (`apps/bot/src/host.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
 **The native desktop app draws its own interface.** `apps/desktop/src/ui` follows `packages/ui`'s styles in GPUI, with its state in `state/`, and asks the system for anything else in `apps/desktop/src/platform` (`docs/WINDOWS_APP.md`).
 
@@ -79,7 +81,7 @@ The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the th
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
-**`ServerSession` is the heart of it,** at about 7,000 lines, in `packages/core/src/session/`. It's one class written in parts, each a file whose class extends the one before, from `base.ts`, which holds the state they share and lists them, to `ServerSession` itself in `session.ts`. A part calls the parts before it directly, and those after it through `protected abstract` members at the end of `base.ts`, so a method a part below needs is declared there too. Private members are `protected`, which keeps them out of `rpc.ts`'s allowlist as `private` did. The parts are divided by `// --- Name ---` markers, so search for those instead of reading them through: Lifecycle, Sealing data at rest, Locks, Users, Vault, Vault manifest, Account generations, Rotating the account's keys, Epoch keys, Key packages, Groups: state, Groups: joining, Groups: applying changes, Reconciling MLS with the roster, Realtime frames, Ingesting messages, Disappearing messages, Conversations, Notifications, Reading messages, Sending, Files, Profile and account, Identity verification, Group management, Channels, Voice, Calls, Soundboard, Emotes, Administration, Search index. `grep -n "^  // --- " packages/core/src/session/*.ts` lists them with their files and lines.
+**`ServerSession` is the heart of it,** at about 7,000 lines, in `packages/core/src/session/`. It's one class written in parts, each a file whose class extends the one before, from `base.ts`, which holds the state they share and lists them, to `ServerSession` itself in `session.ts`. A part calls the parts before it directly, and those after it through `protected abstract` members at the end of `base.ts`, so a method a part below needs is declared there too. Private members are `protected`, which keeps them out of `rpc.ts`'s allowlist as `private` did. The parts are divided by `// --- Name ---` markers, so search for those instead of reading them through: Lifecycle, Sealing data at rest, Locks, Users, Vault, Vault manifest, Account generations, Rotating the account's keys, Epoch keys, Key packages, Groups: state, Groups: joining, Groups: applying changes, Reconciling MLS with the roster, Realtime frames, Ingesting messages, Disappearing messages, Conversations, Notifications, Reading messages, Sending, Files, Profile and account, Identity verification, Group management, Channels, Voice, Calls, Soundboard, Emotes, Administration, Bots, Search index. `grep -n "^  // --- " packages/core/src/session/*.ts` lists them with their files and lines.
 
 Rules the core depends on:
 
@@ -91,8 +93,10 @@ Rules the core depends on:
 - What arrives decrypted is still untrusted, so it goes through `validate.ts` before anything shows it.
 - A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out.
 - A voice channel's media key comes straight from the MLS exporter for the current epoch, and is never stored or handed on (`voiceKey`).
+- A bot is an account like any other, whose core keeps its owner's rules itself: it leaves a group it was added to by someone its owner didn't allow (`noteIfUnwanted`), a private one joins no channel, and it only obeys its owner's identity key, pinned from its setup link. Nobody hands a bot a group's history.
+- A message with a `signal`, as an owner's changes to their bot and a button's press are, is shown nowhere and never stored (`noteSignal`). Buttons only show under a bot's messages.
 
-**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, and `limited`, `publicLimited` and `pageLimited` for rate limits, with `proven` or `provenMember` inside them for what needs the device's signature (`proof.go`). `/healthz`, the emote images, `/livekit/` and `/api/ws`, whose token comes in its first frame, have no wrapper and check access themselves. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
+**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, and `limited`, `publicLimited` and `pageLimited` for rate limits, with `proven` or `provenMember` inside them for what needs the device's signature (`proof.go`). `/healthz`, the emote images, `/livekit/` and `/api/ws`, whose token comes in its first frame, have no wrapper and check access themselves. A bot's session is refused what a bot may not do by `refuseBot` inside the route, and a private bot is left out of what anyone but its owner and the people in a chat with it are told (`canSee`, `hearers` and `tell` in `bots.go`), so whatever tells people about a user goes through those. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
 
 **Voice runs in the interface, not the core.** `apps/desktop/src/voice` holds the native app's LiveKit room, through LiveKit's Rust SDK, with the microphone's processing and the sound devices, and its screen share, captured and encoded in the app by `apps/desktop/screenshare`, `packages/ui/src/voice` the web's, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
@@ -109,6 +113,8 @@ Rules the core depends on:
 | The web's markup (`lib/markup.tsx` in `packages/ui`) | `apps/desktop/src/markup.rs` and its tests, `ZunaModels/Markup.swift`, and the golden file, which checks Swift against the web but not Rust: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
 | The emoji list (`packages/ui/src/lib/emoji-data.ts`) | `apps/desktop/src/emoji_data.rs`, written by `node apps/desktop/scripts/emoji.mjs` |
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
+| What a bot may do, or who may add one (`refuseBot` and `ApplyCommit` in the server) | The bot's own check in `packages/core/src/session/joining.ts`, the web's and the native app's `mayAddBot` and `may_add`, and `docs/BOTS.md` |
+| A Telegram method or update `zuna-bot` gives (`apps/bot/src/bot.ts`, `updates.ts`) | "What's there" and "Where it differs from Telegram" in `docs/BOTS.md` |
 | A database schema | Add to the end of `migrations` in `server/internal/store/migrations.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` and `apps/desktop/src/host/web.rs` |
@@ -151,7 +157,8 @@ Rules the core depends on:
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Web UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
-| Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
+| Bots: accounts a program runs | `docs/BOTS.md`, `docs/BOTS_PLAN.md`, `server/internal/api/bots.go`, `server/internal/store/bots.go`, `// --- Bots ---` in `session/server.ts`, `apps/bot`, `packages/ui/src/features/bots`, `apps/desktop/src/ui/server_settings/bots.rs` |
+| Adding the test server's people, who answer by themselves, or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
 | What's planned | `docs/ROADMAP.md` |
@@ -160,7 +167,9 @@ Rules the core depends on:
 
 - The native app (`apps/desktop`) is the only desktop app. The Electron app it took over from is gone, with what only it used in `packages/ui`.
 - One sidebar icon is one self-hosted install, with one account on it. No central service and no federation.
-- The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only.
+- The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only. A private bot is the one account that isn't there for everyone: only its owner sees it, and whoever is in a chat with it.
+- A bot is a member of its chats with keys of its own, run by `zuna-bot` on a machine its owner chose. It gets nothing from before it was added, shows a badge wherever its name does and is asked about each time one is added, and never shows as online. It can't start a chat, write to someone first, join voice or be one of a server's admins. Only a server's admins make listed bots, and by default only a bot's owner adds it to groups.
+- A press of a bot's button goes to the whole chat, as its messages do, and is shown nowhere.
 - Channels are the open places: everyone on a server can see and join all of them, and only server admins make them. There are no private channels, since a group is that.
 - One voice channel at a time, on one device, across all servers.
 - Each server's admins pick one 7TV emote set. People can't add their own.

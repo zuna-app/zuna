@@ -1,6 +1,6 @@
 # Bots: plan
 
-Status: being built, a stage at a time. "Stages" says how far it's got.
+Status: built, apart from the iPhone and iPad app's interface. "Stages" says what's where, and "What was decided" how the questions this plan left open were settled. [BOTS.md](BOTS.md) is the guide for people.
 
 Scope: bots that are members of the chats they're in, as Telegram's are, made and run by the people on a server. Left for later: bots that see only the commands sent to them, bots in voice, and small programs that run inside a group.
 
@@ -17,9 +17,9 @@ Scope: bots that are members of the chats they're in, as Telegram's are, made an
 
 This is the part to agree on first.
 
-- **A bot reads everything said in a chat it's in,** from when it was added. The app says so once when someone adds one, and the line in the chat names it as a bot.
+- **A bot reads everything said in a chat it's in,** from when it was added. The app says so each time someone adds one, and the line in the chat names it as a bot.
 - **It gets nothing from before.** Adding a person to a group that shares its history hands them the older keys (`addMembers` in `session/management.ts`). Adding a bot never does.
-- **Whichever machine runs a bot can read that bot's chats.** That includes the chat server's own machine, if the bot runs there. `docs/SELF_HOSTING.md` would say so beside the example that runs one.
+- **Whichever machine runs a bot can read that bot's chats.** That includes the chat server's own machine, if the bot runs there. `docs/SELF_HOSTING.md` says so under "Bots".
 - **A bot's keys are in a folder.** There's no keychain on a server, so the device key is a file only its user can read, as on Linux without a secret store. Whoever copies the folder is the bot.
 - **A bot can't be given a weak password.** It signs up with 32 random bytes nobody sees, so the server guessing passwords, the first limit in `SECURITY.md`, doesn't apply to it.
 - **The owner's app knows the bot's key is the real one.** The setup link holds a secret the server never sees. The bot signs its identity key with it, and the owner's app checks that and marks the bot verified, with nothing to compare. Everyone else trusts the first key they see and is warned if it changes, as with people.
@@ -174,7 +174,13 @@ The first methods, by Telegram's names:
 
 ## Stages
 
-Built so far: B0, in the server (`server/internal/api/bots.go`, `server/internal/store/bots.go`) and the core (`// --- Bots ---` in `packages/core/src/session/server.ts`, tested in `packages/core/test/bots.test.ts`), the core's part of B3: commands in a bot's profile, buttons under its messages, and the press that goes back to it, B1: `zuna-bot` in `apps/bot`, which grammY's echo bot runs on unchanged (`apps/bot/test/bot.test.ts`), and B2 and B3 in the web app (`packages/ui/src/features/bots`). [BOTS.md](BOTS.md) is the guide for people.
+Built:
+
+- **B0,** in the server (`server/internal/api/bots.go`, `server/internal/store/bots.go`) and the core (`// --- Bots ---` in `packages/core/src/session/server.ts`, tested in `packages/core/test/bots.test.ts`). The server's tests ran in SQLite only.
+- **B1:** `zuna-bot` in `apps/bot`, which grammY's echo bot runs on unchanged (`apps/bot/test/bot.test.ts`). Its container image hasn't been built.
+- **B2 and B3 in the web app** (`packages/ui/src/features/bots`), checked by `apps/web/test/web-check.mjs` in Chromium, **and in the native desktop app** (`apps/desktop/src/ui/server_settings/bots.rs` and beside each screen it touches), built and looked at on Windows, and not built on Linux or macOS.
+
+Not built: **B2 and B3 in the iPhone and iPad app.** Its models have the fields, and nothing draws them. A bot's chats still work there, as anyone's do, without the badge, the commands or the buttons.
 
 | Stage | What | Shows it works |
 |---|---|---|
@@ -183,11 +189,18 @@ Built so far: B0, in the server (`server/internal/api/bots.go`, `server/internal
 | B2 | The three interfaces | Each platform's own checks |
 | B3 | Commands and buttons | The same |
 
-## Open questions
+## What was decided
 
-1. **Sealing a private bot's profile apart from the community key.** Its name would be hidden from members who hold a copy of the server's data. People in a chat with it still need its name, so each chat would have to carry the bot's own profile key. Worth it?
-2. **Who may add a listed bot, by default.** Only its owner is safest. Anyone is what makes a listed bot useful.
-3. **Button presses reach everyone's devices** and are only hidden. Is that acceptable, or should a press go to the bot alone, in the direct message with it?
-4. **How close to Telegram's API.** Close enough that its libraries work unchanged is the aim. Each method that can't be matched exactly makes that less true.
-5. **Read receipts and typing.** A bot shouldn't mark what it reads as read. Should it show as typing when it says it is?
-6. **A bot as a group's admin.** Moderation needs it. It also lets a bot add and remove people.
+The questions this plan left open, and what was built for each. Any of them can still be changed: nothing has been released.
+
+1. **A private bot's profile is sealed with the community key, as everyone's is.** Someone who holds that key and a copy of the server's data could read a private bot's name. Sealing it apart would mean each chat carrying the bot's own profile key, which wasn't judged worth it for a name.
+2. **Only its owner may add a listed bot, until they say otherwise.** The owner can widen it to the server's admins or to anyone, when making the bot or after.
+3. **A button's press goes to the whole chat and is shown nowhere.** It's a message as any other, so every member's device gets it and a modified app could show who pressed what, which `SECURITY.md` says. A press to the bot alone would need a direct chat with it that the person never opened.
+4. **Close enough to Telegram that its libraries run unchanged.** grammY's echo bot does, in `zuna-bot`'s tests. What can't be matched is listed in [BOTS.md](BOTS.md) under "Where it differs from Telegram", and what has no place here is refused by name.
+5. **A bot marks nothing as read, and shows as typing when it says it is,** through `sendChatAction`.
+6. **A bot may be a group's admin, as a person may,** and never one of the server's.
+
+Two things came up that the plan didn't ask:
+
+- **A change to a bot's name, description or picture goes through the bot.** A profile is sealed and signed by the account it belongs to, so the owner's app asks the bot to set it, in their direct chat, and the bot does when it's running.
+- **`zuna-bot` keeps running when its bot is deleted,** and says so in its log, rather than exit and be started again by whatever keeps it running.
