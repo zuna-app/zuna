@@ -197,7 +197,11 @@ mod tests {
         for name in ["chromium-opus.m4a", "firefox-opus.m4a", "chromium-round.mp4", "firefox-round.mp4"] {
             match decode_audio(&fixture(name)) {
                 Ok((samples, rate)) => assert!(rate > 0 && samples.len() > rate as usize / 10, "{name} has sound"),
-                Err(error) if no_opus && error.code().0 as u32 == NO_DECODER => eprintln!("{name}: this system has no decoder for its sound"),
+                // Nor does it read how long such a file is.
+                Err(error) if no_opus && error.code().0 as u32 == NO_DECODER => {
+                    eprintln!("{name}: this system has no decoder for its sound");
+                    continue;
+                }
                 Err(error) => panic!("{name}: {error}"),
             }
             let found = details(&fixture(name)).unwrap();
