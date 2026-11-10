@@ -647,4 +647,9 @@ ALTER TABLE messages DROP COLUMN pin_by;
 ALTER TABLE messages DROP COLUMN deleted_by;
 ALTER TABLE reactions DROP COLUMN user_id;
 DROP TABLE channel_sends;
+`, `
+-- When a reaction was taken back. Its row stays, without what it carried, so that
+-- its ID can't be used again: what a reaction carries is signed by whoever added it,
+-- and any member who saw it could otherwise put it back as theirs.
+ALTER TABLE reactions ADD COLUMN removed_at BIGINT;
 `}

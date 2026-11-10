@@ -443,7 +443,7 @@ describe("what a server can learn from reactions and read positions, or change i
   }
 
   const storedReactions = (messageId: string) =>
-    withServerDatabase((db) => db.prepare("SELECT id, epoch, data, created_at FROM reactions WHERE message_id = ?").all(messageId)) as unknown as {
+    withServerDatabase((db) => db.prepare("SELECT id, epoch, data, created_at FROM reactions WHERE message_id = ? AND removed_at IS NULL").all(messageId)) as unknown as {
       id: string;
       epoch: number;
       data: Uint8Array;
@@ -484,6 +484,9 @@ describe("what a server can learn from reactions and read positions, or change i
     await phone.session.toggleReaction(groupId, messageId, THUMBS_UP);
     await waitFor(async () => (await rob.session.messageById(groupId, messageId))?.reactions.length === 0, "the reaction to go");
     expect(storedReactions(messageId)).toEqual([]);
+    // Its ID stays used, so that nobody sends it again, with nothing of what it carried.
+    const kept = withServerDatabase((db) => db.prepare("SELECT data FROM reactions WHERE message_id = ?").all(messageId)) as unknown as { data: Uint8Array }[];
+    expect(kept.map((row) => row.data.length)).toEqual([0]);
   });
 
   it("can't pass one person's read position off as another's", async () => {

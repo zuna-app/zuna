@@ -88,7 +88,7 @@ func (d *DB) attachReactions(ctx context.Context, groupID string, messages []*Me
 		args = append(args, m.ID)
 	}
 	rows, err := d.sql.QueryContext(ctx, `SELECT message_id, id, epoch, data, item_key, created_at FROM reactions
-		WHERE group_id = ? AND message_id IN (`+placeholders(len(messages))+`) ORDER BY created_at`, args...)
+		WHERE group_id = ? AND removed_at IS NULL AND message_id IN (`+placeholders(len(messages))+`) ORDER BY created_at`, args...)
 	if err != nil {
 		return err
 	}
@@ -262,12 +262,15 @@ type Deletion struct {
 }
 
 // DeleteMessage erases the ciphertext and leaves a tombstone so every client
-// removes it too. It returns the message and the files that are now orphaned. An
-// author's deletion is sealed and spends a token; a group admin's is named and doesn't.
-func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion, token *Token) (*Message, []string, error) {
+// removes it too. It returns the message, the files that are now orphaned, and whether
+// this deleted it: one already deleted stays as it was, and costs nothing. An author's
+// deletion is sealed and spends a token; a group admin's is named and doesn't.
+func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion, token *Token) (*Message, []string, bool, error) {
 	var fileIDs []string
+	deletedNow := false
 	err := d.tx(ctx, func(tx handle) error {
 		fileIDs = nil
+		deletedNow = false
 		var deleted sql.NullInt64
 		err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -308,14 +311,15 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 			deletion = ? WHERE group_id = ? AND id = ?`, Now(), seq, deletion.Proof, groupID, id); err != nil {
 			return err
 		}
+		deletedNow = true
 		fileIDs, err = unreferenced(ctx, tx, fileIDs)
 		return err
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	m, err := d.Message(ctx, groupID, id)
-	return m, fileIDs, err
+	return m, fileIDs, deletedNow, err
 }
 
 // touch moves a message to a new updated_seq after a change to its state.
@@ -344,7 +348,7 @@ func (d *DB) ItemKey(ctx context.Context, groupID, messageID, reactionID string)
 	if reactionID == "" {
 		err = d.sql.QueryRowContext(ctx, `SELECT item_key FROM messages WHERE group_id = ? AND id = ?`, groupID, messageID).Scan(&key)
 	} else {
-		err = d.sql.QueryRowContext(ctx, `SELECT item_key FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, reactionID).Scan(&key)
+		err = d.sql.QueryRowContext(ctx, `SELECT item_key FROM reactions WHERE group_id = ? AND message_id = ? AND id = ? AND removed_at IS NULL`, groupID, messageID, reactionID).Scan(&key)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -352,18 +356,23 @@ func (d *DB) ItemKey(ctx context.Context, groupID, messageID, reactionID string)
 	return key, err
 }
 
-// AddReaction stores a reaction, which spends a token. Like a message, it has to be
-// under the current epoch, and adding the same ID twice with the same item key is a
-// retry that changes nothing. How many one person puts on a message is for apps to hold.
-func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (*Message, error) {
-	err := d.tx(ctx, func(tx handle) error {
+// AddReaction stores a reaction, which spends a token, and says whether it added one.
+// Like a message, it has to be under the current epoch, and adding the same ID twice
+// with the same item key is a retry that changes nothing and costs nothing. One that
+// was taken back stays taken back: what it carried is signed by whoever added it, and
+// every member saw it, so any of them could otherwise put it back as theirs. How many
+// one person puts on a message is for apps to hold.
+func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (message *Message, added bool, err error) {
+	err = d.tx(ctx, func(tx handle) error {
+		added = false
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
 		var existing []byte
-		err := tx.QueryRowContext(ctx, `SELECT item_key FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, r.ID).Scan(&existing)
+		var removed sql.NullInt64
+		err := tx.QueryRowContext(ctx, `SELECT item_key, removed_at FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, r.ID).Scan(&existing, &removed)
 		if err == nil {
-			if subtle.ConstantTimeCompare(existing, r.ItemKey) != 1 {
+			if removed.Valid || subtle.ConstantTimeCompare(existing, r.ItemKey) != 1 {
 				return ErrConflict
 			}
 			return nil
@@ -372,7 +381,7 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 			return err
 		}
 		var all int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM reactions WHERE group_id = ? AND message_id = ?`, groupID, messageID).Scan(&all); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM reactions WHERE group_id = ? AND message_id = ? AND removed_at IS NULL`, groupID, messageID).Scan(&all); err != nil {
 			return err
 		}
 		if all >= maxReactionsOnMessage {
@@ -388,22 +397,26 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.Epoch, r.Data, r.ItemKey, Now()); err != nil {
 			return err
 		}
+		added = true
 		return touch(ctx, tx, groupID, messageID)
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return d.Message(ctx, groupID, messageID)
+	message, err = d.Message(ctx, groupID, messageID)
+	return message, added, err
 }
 
 // RemoveReaction takes a reaction back, which spends a token. Who may is for the
-// caller to have checked, by the reaction's item key.
+// caller to have checked, by the reaction's item key. What it carried goes, and its
+// ID stays, so that nobody adds it again (AddReaction).
 func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token) (*Message, error) {
 	err := d.tx(ctx, func(tx handle) error {
 		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`, groupID, messageID, reactionID)
+		res, err := tx.ExecContext(ctx, `UPDATE reactions SET removed_at = ?, data = ? WHERE group_id = ? AND message_id = ? AND id = ? AND removed_at IS NULL`,
+			Now(), []byte{}, groupID, messageID, reactionID)
 		if err != nil {
 			return err
 		}

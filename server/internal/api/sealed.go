@@ -191,11 +191,15 @@ func (s *Server) handleSealedSend(w http.ResponseWriter, r *http.Request, q *sea
 		writeFailure(w, err)
 		return
 	}
-	s.broadcastMessage(r, q.GroupID, message)
-	// A message sent again, or a server without push, has no phones to wake.
-	if created && !body.Silent && len(s.cfg.PushRelays) > 0 {
-		if kind, err := s.db.GroupKind(r.Context(), q.GroupID); err == nil {
-			s.pushMessage(q.GroupID, kind == "channel", message)
+	// A message sent again cost no token and changed nothing, so it's told to nobody and
+	// wakes no phone: otherwise any member could have the server send a message it holds
+	// to everyone in the group, as often as they liked, for nothing.
+	if created {
+		s.broadcastMessage(r, q.GroupID, message)
+		if !body.Silent && len(s.cfg.PushRelays) > 0 {
+			if kind, err := s.db.GroupKind(r.Context(), q.GroupID); err == nil {
+				s.pushMessage(q.GroupID, kind == "channel", message)
+			}
 		}
 	}
 	writeJSON(w, http.StatusCreated, message)
@@ -240,21 +244,29 @@ func (s *Server) handleSealedDelete(w http.ResponseWriter, r *http.Request, q *s
 	if !s.itemSigned(w, r, q, "") {
 		return
 	}
+	// Only a group admin's deletion, which is named, goes without a token.
+	if q.Token == nil {
+		writeFailure(w, store.ErrTokenInvalid)
+		return
+	}
 	s.deleteMessage(w, r, q.GroupID, store.Deletion{Proof: body.Deletion, Epoch: q.Epoch}, q.Token)
 }
 
 func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request, groupID string, deletion store.Deletion, token *store.Token) {
 	messageID := r.PathValue("mid")
-	message, files, err := s.db.DeleteMessage(r.Context(), groupID, messageID, deletion, token)
+	message, files, deleted, err := s.db.DeleteMessage(r.Context(), groupID, messageID, deletion, token)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	s.removeFiles(r.Context(), files)
-	// One list of members, for the devices connected and the phones to wake.
-	if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
-		s.hub.ToUsers(members, Event{Type: "message", Data: message})
-		s.pushDeletion(members, groupID, messageID)
+	// One deleted already cost nothing and changed nothing, so it's told to nobody again.
+	if deleted {
+		// One list of members, for the devices connected and the phones to wake.
+		if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
+			s.hub.ToUsers(members, Event{Type: "message", Data: message})
+			s.pushDeletion(members, groupID, messageID)
+		}
 	}
 	writeJSON(w, http.StatusOK, message)
 }
@@ -272,7 +284,7 @@ func (s *Server) handleSealedReact(w http.ResponseWriter, r *http.Request, q *se
 		writeError(w, http.StatusBadRequest, "bad_request", "The reaction isn't valid.")
 		return
 	}
-	message, err := s.db.AddReaction(r.Context(), q.GroupID, r.PathValue("mid"), store.Reaction{
+	message, added, err := s.db.AddReaction(r.Context(), q.GroupID, r.PathValue("mid"), store.Reaction{
 		ID:      body.ID,
 		Epoch:   q.Epoch,
 		Data:    body.Data,
@@ -282,7 +294,10 @@ func (s *Server) handleSealedReact(w http.ResponseWriter, r *http.Request, q *se
 		writeFailure(w, err)
 		return
 	}
-	s.broadcastMessage(r, q.GroupID, message)
+	// One added again cost nothing and changed nothing, so it's told to nobody, as a message sent again.
+	if added {
+		s.broadcastMessage(r, q.GroupID, message)
+	}
 	writeJSON(w, http.StatusOK, message)
 }
 

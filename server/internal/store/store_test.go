@@ -262,14 +262,14 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 	send(first, "forwarded-here", "photo")
 	send(second, "forwarded-there", "photo", "notes")
 
-	_, files, err := db.DeleteMessage(ctx, first, "original", Deletion{}, nil)
+	_, files, _, err := db.DeleteMessage(ctx, first, "original", Deletion{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 0 {
 		t.Fatalf("removed files = %v, but the forwarded copies still use them", files)
 	}
-	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here", Deletion{}, nil); err != nil || len(files) != 0 {
+	if _, files, _, err = db.DeleteMessage(ctx, first, "forwarded-here", Deletion{}, nil); err != nil || len(files) != 0 {
 		t.Fatalf("removed files = %v (%v), but the other group still uses the photo", files, err)
 	}
 	files, err = db.DeleteGroup(ctx, second)
@@ -479,6 +479,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE reactions ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
 		ALTER TABLE messages DROP COLUMN item_key;
 		ALTER TABLE reactions DROP COLUMN item_key;
+		ALTER TABLE reactions DROP COLUMN removed_at;
 		ALTER TABLE files DROP COLUMN share_hash;
 		DROP TABLE uploads;
 		DROP TABLE token_keys;
@@ -508,7 +509,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		t.Fatalf("the group's info moved as %x, %v", info, err)
 	}
 
-	_, files, err := db.DeleteMessage(ctx, "g", "m", Deletion{}, nil)
+	_, files, _, err := db.DeleteMessage(ctx, "g", "m", Deletion{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

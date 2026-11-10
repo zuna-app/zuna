@@ -72,3 +72,113 @@ func TestADeviceThatWentWithoutACommitCantWriteWithTheKeyItHeld(t *testing.T) {
 	refused("a device signed out", token)
 	renewed()
 }
+
+// What a reaction carries is signed by whoever added it, and every member saw it. Once
+// it's taken back, another member could send the same bytes again under the same ID,
+// with an item key of their own: it would show as its author's again, and they
+// couldn't take it back. Its ID stays used.
+func TestAReactionTakenBackStaysTakenBack(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding bob gave %d %v", status, resp)
+	}
+	id := store.NewID()
+	owner.send(group, 1, id)
+	reactions := "/api/sealed/groups/" + group + "/messages/" + id + "/reactions"
+	reaction := store.NewID()
+	signed := []byte("what bob's device signed")
+
+	h.sealedMust("POST", reactions, bob.sealedAs(group, 1, nil), map[string]any{"id": reaction, "data": signed, "item_key": itemKeyFor(reaction)}, nil)
+	h.sealedMust("DELETE", reactions+"/"+reaction, bob.sealedAs(group, 1, itemSecretFor(reaction)), nil, nil)
+
+	// Under a key of the other member's own, and under bob's, which everyone was shown.
+	for _, key := range [][]byte{itemKeyFor("someone else's"), itemKeyFor(reaction)} {
+		status, resp := h.sealedDo("POST", reactions, owner.sealedAs(group, 1, nil), map[string]any{"id": reaction, "data": signed, "item_key": key}, nil)
+		if status != http.StatusConflict {
+			t.Fatalf("putting back a reaction its author took back gave %d %v", status, resp)
+		}
+	}
+	var message store.Message
+	h.mustDo("GET", "/api/groups/"+group+"/messages/"+id, bob.token, nil, &message)
+	if len(message.Reactions) != 0 {
+		t.Fatalf("the message shows %d reactions after its only one was taken back", len(message.Reactions))
+	}
+	// Taking it back twice finds nothing to take back.
+	if status, _ := h.sealedDo("DELETE", reactions+"/"+reaction, bob.sealedAs(group, 1, itemSecretFor(reaction)), nil, nil); status != http.StatusNotFound {
+		t.Fatalf("taking a reaction back twice gave %d", status)
+	}
+	// Another reaction, with an ID of its own, goes as before.
+	other := store.NewID()
+	h.sealedMust("POST", reactions, bob.sealedAs(group, 1, nil), map[string]any{"id": other, "data": signed, "item_key": itemKeyFor(other)}, &message)
+	if len(message.Reactions) != 1 || message.Reactions[0].ID != other {
+		t.Fatalf("a new reaction after one was taken back: %+v", message.Reactions)
+	}
+}
+
+// Sending a message again, adding a reaction again and deleting what's deleted cost no
+// token, as they change nothing. So they're told to nobody: a member, whom nothing
+// names, could otherwise have the server send a message it holds to everyone in the
+// group as often as they liked. And an author's deletion costs a token, as the rest does.
+func TestWhatChangesNothingCostsNothingAndIsToldToNobody(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding bob gave %d %v", status, resp)
+	}
+	listening := bob.connect()
+	// Nothing came since the last thing waited for.
+	quiet := func(after string) {
+		t.Helper()
+		listening.write(map[string]any{"t": "ping"})
+		if got := listening.next(); got != "pong" {
+			t.Fatalf("%s, everyone was sent a %q", after, got)
+		}
+	}
+	free := sealed{secret: sendSecretFor(group, 1), epoch: 1}
+	messages := "/api/sealed/groups/" + group + "/messages"
+
+	id := store.NewID()
+	owner.send(group, 1, id)
+	listening.waitFor("message")
+	// With the item key every member was shown, and no token.
+	if status, resp := h.sealedDo("POST", messages, free, map[string]any{"id": id, "envelope": []byte("again"), "item_key": itemKeyFor(id)}, nil); status != http.StatusCreated {
+		t.Fatalf("a message sent again gave %d %v", status, resp)
+	}
+	quiet("after a message was sent again")
+
+	reaction := store.NewID()
+	body := map[string]any{"id": reaction, "data": []byte("signed"), "item_key": itemKeyFor(reaction)}
+	h.sealedMust("POST", messages+"/"+id+"/reactions", owner.sealedAs(group, 1, nil), body, nil)
+	listening.waitFor("message")
+	if status, resp := h.sealedDo("POST", messages+"/"+id+"/reactions", free, body, nil); status != http.StatusOK {
+		t.Fatalf("a reaction added again gave %d %v", status, resp)
+	}
+	quiet("after a reaction was added again")
+
+	// An author's deletion without a token is refused, and the message stays.
+	unpaid := sealed{secret: sendSecretFor(group, 1), epoch: 1, item: itemSecretFor(id)}
+	deletion := map[string]any{"deletion": []byte("signed")}
+	if status, resp := h.sealedDo("DELETE", messages+"/"+id, unpaid, deletion, nil); status != http.StatusForbidden || resp["error"] != "token_invalid" {
+		t.Fatalf("a deletion with no token gave %d %v", status, resp)
+	}
+	var message store.Message
+	h.mustDo("GET", "/api/groups/"+group+"/messages/"+id, bob.token, nil, &message)
+	if message.DeletedAt != nil {
+		t.Fatal("a deletion with no token deleted the message")
+	}
+	quiet("after a deletion that was refused")
+
+	owner.deleteOwn(group, 1, id)
+	listening.waitFor("message")
+	// Deleting it again spends nothing, so the same token still pays for something else.
+	again := owner.sealedAs(group, 1, itemSecretFor(id))
+	h.sealedMust("DELETE", messages+"/"+id, again, deletion, nil)
+	quiet("after a deleted message was deleted again")
+	next := store.NewID()
+	h.sealedMust("POST", messages, sealed{secret: sendSecretFor(group, 1), epoch: 1, token: again.token}, map[string]any{"id": next, "envelope": []byte("x"), "item_key": itemKeyFor(next)}, nil)
+}

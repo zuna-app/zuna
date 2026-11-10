@@ -236,6 +236,30 @@ describe("who may write", () => {
     expect(bob.texts(`group:${groupId}`)).not.toContain("after going");
   });
 
+  it("can't put back a reaction someone took back, as theirs", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const id = await sentAndSeen(ann, [bob], groupId, "hello");
+    await ann.session.toggleReaction(groupId, id, "👍");
+    await waitFor(async () => (await bob.session.messageById(groupId, id))?.reactions.length === 1, "the reaction");
+    // Bob keeps what ann's device signed, as every member is sent it.
+    const taken = (await apiOf(bob).message(groupId, id)).reactions[0]!;
+    await ann.session.toggleReaction(groupId, id, "👍");
+    await waitFor(async () => (await bob.session.messageById(groupId, id))?.reactions.length === 0, "it to be taken back");
+    // He sends the same bytes under the same ID, with an item key of his own and then with hers, which he was shown.
+    const session = sessionOf(bob);
+    for (const item_key of [wasm.signingPublic(session.itemSecret("reaction", groupId, taken.id)) as Uint8Array, decode(taken.item_key!)]) {
+      const seal = await session.seal(groupId, taken.epoch, taken.data.length);
+      await expect(apiOf(bob).sealedReact(groupId, id, seal, { id: taken.id, data: decode(taken.data), item_key })).rejects.toMatchObject({ status: 409 });
+    }
+    expect((await apiOf(ann).message(groupId, id)).reactions).toEqual([]);
+    expect((await ann.session.messageById(groupId, id))?.reactions).toEqual([]);
+    // She reacts again, which is a new reaction with an ID of its own.
+    await ann.session.toggleReaction(groupId, id, "👍");
+    await waitFor(async () => (await bob.session.messageById(groupId, id))?.reactions.length === 1, "her new reaction");
+  });
+
   it("isn't someone on the server outside the group, with tokens of their own", async () => {
     const ann = await person("ann");
     const bob = await person("bob");
