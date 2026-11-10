@@ -330,8 +330,10 @@ final class MessageActionsTests: XCTestCase {
 
         /// The test's typing hides the on-screen keyboard, which comes back a moment after Send,
         /// moving the list under a press, so it waits for the message to stay put, and tries again.
+        /// It presses the text: the middle of a short message's row is beside its bubble, where a
+        /// touch is the chat's, and opens no menu.
         func select(_ id: String) {
-            let message = zuna.element(A11y.Chat.message(id))
+            let message = zuna.element(A11y.Chat.text(id))
             let item = zuna.app.buttons["Select"]
             for _ in 0..<3 where !item.exists {
                 var last = CGRect.null
