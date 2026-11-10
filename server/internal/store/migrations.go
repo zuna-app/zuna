@@ -516,4 +516,29 @@ ALTER TABLE push_registrations ADD COLUMN notified TEXT NOT NULL DEFAULT '';
 ALTER TABLE group_infos ADD COLUMN send_key BLOB;
 ALTER TABLE group_events ADD COLUMN send_key BLOB;
 ALTER TABLE group_events ADD COLUMN replaced_send_key BLOB;
+`, `
+-- The keys tokens are issued under, one for each size in each period, the tokens each
+-- person was issued in a period, and the inputs of those spent, which say nothing of
+-- whose they were. All go once their period can't redeem anything any more.
+CREATE TABLE token_keys (
+	period INTEGER NOT NULL,
+	size TEXT NOT NULL,
+	secret BLOB NOT NULL,
+	public BLOB NOT NULL,
+	PRIMARY KEY (period, size)
+);
+CREATE TABLE token_issues (
+	user_id TEXT NOT NULL,
+	period INTEGER NOT NULL,
+	size TEXT NOT NULL,
+	issued INTEGER NOT NULL,
+	PRIMARY KEY (user_id, period, size)
+);
+CREATE INDEX token_issues_period ON token_issues(period);
+CREATE TABLE spent_tokens (
+	period INTEGER NOT NULL,
+	size TEXT NOT NULL,
+	input BLOB NOT NULL,
+	PRIMARY KEY (period, size, input)
+);
 `}

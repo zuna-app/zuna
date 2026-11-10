@@ -376,6 +376,7 @@ describe("notices", () => {
     db.exec("ALTER TABLE messages DROP COLUMN raw_reactions");
     db.exec("DROP TABLE signals");
     db.exec("DROP TABLE withheld");
+    db.exec("DROP TABLE tokens");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     // Every migration still runs, and nothing sealed the old way is left to fail to open.

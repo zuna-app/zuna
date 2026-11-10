@@ -43,6 +43,8 @@ export abstract class SessionLifecycle extends SessionServer {
     clearTimeout(this.rotationTimer);
     clearTimeout(this.sealingTimer);
     clearTimeout(this.voiceKeyTimer);
+    clearTimeout(this.tokenTopUp);
+    this.tokenTopUp = undefined;
     this.rotationTimer = undefined;
     this.sealingTimer = undefined;
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
@@ -128,6 +130,8 @@ export abstract class SessionLifecycle extends SessionServer {
     try {
       await this.syncAll();
       if (this.socket.connected) this.setConnection("online");
+      // A device signed in has none yet: it fetches them now, never when something is about to go.
+      this.topUpTokensSoon(true);
       // The server may have dropped it, or missed a change made offline.
       this.resendPush();
     } catch (error) {

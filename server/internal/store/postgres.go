@@ -595,4 +595,29 @@ ALTER TABLE push_registrations ADD COLUMN notified TEXT COLLATE "C" NOT NULL DEF
 ALTER TABLE group_infos ADD COLUMN send_key BYTEA;
 ALTER TABLE group_events ADD COLUMN send_key BYTEA;
 ALTER TABLE group_events ADD COLUMN replaced_send_key BYTEA;
+`, `
+-- The keys tokens are issued under, one for each size in each period, the tokens each
+-- person was issued in a period, and the inputs of those spent, which say nothing of
+-- whose they were. All go once their period can't redeem anything any more.
+CREATE TABLE token_keys (
+	period BIGINT NOT NULL,
+	size TEXT COLLATE "C" NOT NULL,
+	secret BYTEA NOT NULL,
+	public BYTEA NOT NULL,
+	PRIMARY KEY (period, size)
+);
+CREATE TABLE token_issues (
+	user_id TEXT COLLATE "C" NOT NULL,
+	period BIGINT NOT NULL,
+	size TEXT COLLATE "C" NOT NULL,
+	issued BIGINT NOT NULL,
+	PRIMARY KEY (user_id, period, size)
+);
+CREATE INDEX token_issues_period ON token_issues(period);
+CREATE TABLE spent_tokens (
+	period BIGINT NOT NULL,
+	size TEXT COLLATE "C" NOT NULL,
+	input BYTEA NOT NULL,
+	PRIMARY KEY (period, size, input)
+);
 `}

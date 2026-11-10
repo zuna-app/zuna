@@ -320,6 +320,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /invite/{code}", s.publicLimited(s.handleInvitePage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /api/info", s.pageLimited(s.handleInfo))
+	// The keys tokens are issued under, which everyone is shown alike, asked without a session.
+	mux.HandleFunc("GET /api/tokens/keys", s.pageLimited(s.handleTokenKeys))
 	mux.HandleFunc("GET /api/icon", s.pageLimited(s.handleIcon))
 	mux.HandleFunc("GET /api/invites/{code}", s.publicLimited(s.handleInviteInfo))
 	mux.HandleFunc("GET /api/emotes/{id}/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +353,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))
 	mux.HandleFunc("POST /api/key-packages", s.withDevice(s.handleAddKeyPackages))
 	mux.HandleFunc("POST /api/users/{id}/key-packages/claim", s.withDevice(s.handleClaimKeyPackages))
+	// Tokens, counted against whoever asks, which pay for what's sealed without a name
+	mux.HandleFunc("POST /api/tokens", s.withDevice(s.handleIssueTokens))
 
 	// Encrypted per-user key vault
 	mux.HandleFunc("GET /api/vault", s.withDevice(s.handleVaultGet))

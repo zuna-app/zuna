@@ -90,6 +90,8 @@ export abstract class SessionBase {
   protected expiryTimer: ReturnType<typeof setTimeout> | undefined;
   protected nextExpiry = Infinity;
   protected reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When this device fetches more tokens, having run low (`topUpTokensSoon`). */
+  protected tokenTopUp: ReturnType<typeof setTimeout> | undefined;
   /** Groups whose send key the server holds wrong, waiting for this device to put it right (`checkSendKey`). */
   protected sendKeyFixes = new Map<string, ReturnType<typeof setTimeout>>();
   /** The epoch and send key last found right for each group, so it isn't worked out again each time. */
@@ -249,6 +251,8 @@ export abstract class SessionBase {
   protected abstract pullChanges(groupId: string): Promise<void>;
   protected abstract noteArrivals(groupId: string): void;
   protected abstract scheduleReconcile(groupId: string): void;
+  protected abstract topUpTokensSoon(now?: boolean): void;
+  protected abstract compareTokenKeys(tag: { p: number; h: string }, from: string): void;
   protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
   protected abstract staleLeaves(groupId: string): Promise<number[]>;
   protected abstract onFrame(frame: SocketFrame): void;

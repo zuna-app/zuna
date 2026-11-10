@@ -13,6 +13,16 @@ function at(parts: TemplateStringsArray, ...values: (string | number)[]): string
   return parts.reduce((path, part, index) => path + encodeURIComponent(values[index - 1]!) + part);
 }
 
+/** A token pays for something added to a conversation up to 32 KiB, or a large one for anything up to the server's limit. */
+export type TokenSize = "small" | "large";
+
+/** The public key tokens of one size are issued under in one period. */
+export interface ApiTokenKey {
+  period: number;
+  size: TokenSize;
+  public: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -355,14 +365,16 @@ export class Api {
 
   constructor(readonly baseUrl: string) {}
 
-  private async request<T>(method: string, path: string, body?: unknown, raw?: Uint8Array | Blob): Promise<T> {
+  /** `anonymous` sends nothing of the session: no token and no device's proof. */
+  private async request<T>(method: string, path: string, body?: unknown, raw?: Uint8Array | Blob, anonymous = false): Promise<T> {
     const headers: Record<string, string> = {};
-    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+    const prove = anonymous ? null : this.prove;
+    if (this.token && !anonymous) headers["Authorization"] = `Bearer ${this.token}`;
     let payload: BodyInit | undefined;
     let bytes: Uint8Array = new Uint8Array(0);
     if (raw) {
       payload = raw as BodyInit;
-      if (this.prove && method !== "GET") bytes = raw instanceof Uint8Array ? raw : new Uint8Array(await raw.arrayBuffer());
+      if (prove && method !== "GET") bytes = raw instanceof Uint8Array ? raw : new Uint8Array(await raw.arrayBuffer());
     } else if (body !== undefined) {
       headers["Content-Type"] = "application/json";
       const text = JSON.stringify(encodeBody(body));
@@ -373,10 +385,10 @@ export class Api {
     const timeout = Math.min(REQUEST_TIMEOUT_MS + Math.ceil(sent * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS);
     let response: Response;
     for (let attempt = 0; ; attempt++) {
-      if (this.prove && method !== "GET") {
+      if (prove && method !== "GET") {
         const at = Date.now() + this.clockOffset;
         const input = concat(utf8(`zuna/request/v1|${method}|${path.split("?")[0]}|${at}|`), wasm.sha256(bytes));
-        headers["X-Zuna-Proof"] = toBase64(this.prove(input));
+        headers["X-Zuna-Proof"] = toBase64(prove(input));
         headers["X-Zuna-Time"] = String(at);
       }
       try {
@@ -389,7 +401,7 @@ export class Api {
       } catch {
         throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
       }
-      if (response.status !== 401 || attempt > 0 || !this.prove) break;
+      if (response.status !== 401 || attempt > 0 || !prove) break;
       // A proof this device's clock put too far from the server's: the server says its time.
       const parsed = (await response.clone().json().catch(() => ({}))) as Record<string, unknown>;
       if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
@@ -436,6 +448,13 @@ export class Api {
   addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra: { generation: number; seal_key: Uint8Array; enroll_proof: Uint8Array; seal_generation: number; seal_proof: Uint8Array }) =>
     this.request("POST", "/api/devices", { id, certificate, signature_key: signatureKey, ...extra });
   revokeDevice = (id: string) => this.request("DELETE", at`/api/devices/${id}`);
+
+  // Tokens, which pay for what's added to a conversation without a name
+  /** The keys tokens are issued under, asked without the session, so this device is shown what anyone is. */
+  tokenKeys = () => this.request<{ period: number; keys: ApiTokenKey[] }>("GET", "/api/tokens/keys", undefined, undefined, true);
+  /** Blinded tokens evaluated, counted against this person, with the proof that they were under the period's key. */
+  issueTokens = (period: number, size: TokenSize, blinded: Uint8Array[]) =>
+    this.request<{ evaluated: string[]; proof: string }>("POST", "/api/tokens", { period, size, blinded });
 
   // Key packages
   keyPackageStatus = () => this.request<{ count: number; last_resort_at: number }>("GET", "/api/key-packages/status");

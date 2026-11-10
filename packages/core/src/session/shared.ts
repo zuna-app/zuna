@@ -1,7 +1,7 @@
 // What every part of ServerSession shares: its timings and limits, the shapes of what it
 // keeps, and helpers that need nothing of it.
 
-import { decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiSound } from "../api";
+import { decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiSound, type TokenSize } from "../api";
 import { coreToJson } from "../crypto";
 import { planToJson, type SignedLink } from "../generations";
 import { utf8 } from "../encoding";
@@ -97,6 +97,19 @@ export const voiceTiming = {
 };
 
 /** How long things wait before a rotation. Tests shorten these. */
+/** How long a key issues tokens for, as the server's `TokenPeriod`. */
+export const TOKEN_PERIOD_MS = 6 * 3600 * 1000;
+/** What a small token pays for, as the server's `SmallTokenBytes`. */
+export const TOKEN_SMALL_BYTES = 32 << 10;
+export const TOKEN_SIZES: TokenSize[] = ["small", "large"];
+/** How many of each size a device asks for at once, and under how many it asks for more. */
+export const TOKEN_BATCH: Record<TokenSize, number> = { small: 100, large: 10 };
+export const TOKEN_LOW: Record<TokenSize, number> = { small: 40, large: 4 };
+export const tokenTiming = {
+  /** How long after running low a device fetches more: a random while, at a time of its own. */
+  topUpMs: [60_000, 600_000] as [number, number],
+};
+
 export const rotationTiming = {
   /** Removals close together share one rotation. */
   gatherMs: 2000,

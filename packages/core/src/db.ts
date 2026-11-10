@@ -191,6 +191,8 @@ const MIGRATIONS: string[] = [
   CREATE TABLE withheld (group_id TEXT NOT NULL, id TEXT NOT NULL, updated_seq INTEGER NOT NULL, held INTEGER NOT NULL, data BLOB NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (group_id, id));
   CREATE INDEX withheld_held ON withheld(group_id) WHERE held = 1;
   `,
+  // Tokens fetched ahead, sealed, each spent once on something added to a conversation without a name.
+  `CREATE TABLE tokens (id TEXT PRIMARY KEY, period INTEGER NOT NULL, size TEXT NOT NULL, token BLOB NOT NULL);`,
 ];
 
 export function migrate(db: LocalDb): void {

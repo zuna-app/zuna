@@ -102,6 +102,9 @@ func (s *Server) cleanup(ctx context.Context) {
 	if err := s.db.DeleteSignInAttemptsBefore(ctx, time.Now().Add(-ratelimit.ForgetAfter).UnixMilli()); err != nil {
 		slog.Warn("forgetting old sign-in attempts", "error", err)
 	}
+	if err := s.db.PruneTokens(ctx); err != nil {
+		slog.Warn("forgetting old token keys", "error", err)
+	}
 	defer func() {
 		if err := s.db.PruneCommits(ctx); err != nil {
 			slog.Warn("removing old commits", "error", err)

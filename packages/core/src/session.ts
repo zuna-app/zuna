@@ -10,6 +10,6 @@
 
 import { SessionLifecycle } from "./session/lifecycle";
 
-export { rotationTiming, voiceTiming } from "./session/shared";
+export { rotationTiming, tokenTiming, voiceTiming } from "./session/shared";
 
 export class ServerSession extends SessionLifecycle {}

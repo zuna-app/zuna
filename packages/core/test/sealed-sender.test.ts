@@ -4,9 +4,9 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
-import { equalBytes } from "../src/encoding";
+import { equalBytes, toBase64 } from "../src/encoding";
 import { waitFor } from "./helpers";
-import { apiOf, groupWith, person, sentAndSeen, sessionOf, startServer, withServerDatabase } from "./security-setup";
+import { apiOf, groupWith, person, sentAndSeen, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer();
 
@@ -67,5 +67,44 @@ describe("the send key", () => {
     await waitFor(async () => (await heldSendKey(ann, groupId)).epoch === before.epoch, "it to be undone", 20_000);
     expect(equalBytes((await heldSendKey(ann, groupId)).key, before.key)).toBe(true);
     await sentAndSeen(bob, [ann, cat], groupId, "after the undoing");
+  });
+});
+
+describe("tokens", () => {
+  const held = (app: Parameters<typeof sessionOf>[0], size: string) => sessionOf(app).tokenCount(size) as number;
+
+  it("are fetched as soon as a device is signed in, and kept sealed", async () => {
+    const ann = await person("ann");
+    await waitFor(() => held(ann, "small") >= 100 && held(ann, "large") >= 10, "its first tokens");
+    const row = sessionOf(ann).db.get("SELECT id, token FROM tokens LIMIT 1") as { id: string; token: Uint8Array };
+    expect(row.token.length).toBeGreaterThan(105);
+    expect(sessionOf(ann).openLocal("token", row.id, row.token).length).toBe(105);
+  });
+
+  it("are fetched again a while after running low, and at once when there are none", async () => {
+    const ann = await person("ann");
+    await waitFor(() => held(ann, "small") >= 100, "its first tokens");
+    sessionOf(ann).db.run("DELETE FROM tokens WHERE size = 'small' AND rowid NOT IN (SELECT rowid FROM tokens WHERE size = 'small' LIMIT 10)");
+    sessionOf(ann).topUpTokensSoon();
+    await waitFor(() => held(ann, "small") >= 100, "more");
+    sessionOf(ann).db.run("DELETE FROM tokens");
+    const token = (await sessionOf(ann).takeToken(100)) as Uint8Array;
+    expect(token.length).toBe(105);
+    expect(token[8]).toBe(1);
+    expect((await sessionOf(ann).takeToken(40_000))[8]).toBe(2);
+  });
+
+  it("warn when someone was shown other keys than this device for the same period", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
+    await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "same keys");
+    expect(warned(bob, "other keys for sending")).toBe(false);
+    // As if the server had shown bob keys of his own.
+    const keys = sessionOf(bob).heldTokenKeys();
+    for (const period of Object.keys(keys)) keys[period] = { small: toBase64(wasm.randomBytes(32)), large: toBase64(wasm.randomBytes(32)) };
+    sessionOf(bob).setKv("token_keys", keys);
+    await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "other keys");
+    expect(warned(bob, "other keys for sending")).toBe(true);
   });
 });

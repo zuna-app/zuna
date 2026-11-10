@@ -21,7 +21,7 @@ import type { DbProvider, LocalDb, SqlValue } from "../src/db";
 import { toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { SEND_LABEL } from "../src/crypto";
 import { allowLocalLinks, type WebAdapter } from "../src/links";
-import { rotationTiming } from "../src/session";
+import { rotationTiming, tokenTiming } from "../src/session";
 import type { CoreEvent } from "../src/types";
 
 const require = createRequire(import.meta.url);
@@ -37,6 +37,8 @@ export function loadCrypto(): void {
   rotationTiming.gatherMs = 20;
   rotationTiming.takeoverMs = 200;
   rotationTiming.retryMs = 200;
+  // Nor a few minutes for a device that ran low on tokens to fetch more.
+  tokenTiming.topUpMs = [20, 60];
 }
 
 class MemoryDb implements LocalDb {

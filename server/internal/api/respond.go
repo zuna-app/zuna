@@ -102,6 +102,10 @@ func writeFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrQuota):
 		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
 			"You've used all the storage this server gives each person. Deleting messages with files frees some.")
+	case errors.Is(err, store.ErrTokenInvalid):
+		writeError(w, http.StatusForbidden, "token_invalid", "That token isn't one this server issued for this, or it's too old.")
+	case errors.Is(err, store.ErrTokenSpent):
+		writeError(w, http.StatusConflict, "token_spent", "That token was used already.")
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusRequestEntityTooLarge, "limit_reached", "That's more than this server allows.")
 	default:

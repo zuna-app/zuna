@@ -1,9 +1,9 @@
 // ServerSession, in part (see base.ts): sending messages, and the files they carry.
 
 import * as wasm from "@zuna/crypto";
-import { ApiError } from "../api";
+import { ApiError, type TokenSize } from "../api";
 import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
-import { equalBytes, fromBase64, toBase64, utf8 } from "../encoding";
+import { concat, equalBytes, fromBase64, toBase64, toHex, u64Bytes, utf8 } from "../encoding";
 import { linkInText } from "../links";
 import { withoutMetadata, type ByteSource } from "../metadata";
 import type { Attachment, EarlierMessage, EmoteRef, MessageBody, MessageButton, MessageView } from "../types";
@@ -18,6 +18,12 @@ import {
   type CachedGroup,
   type OutboxEntry,
   MAX_SLOW_MODE,
+  TOKEN_BATCH,
+  TOKEN_LOW,
+  TOKEN_PERIOD_MS,
+  TOKEN_SIZES,
+  TOKEN_SMALL_BYTES,
+  tokenTiming,
   eachLimited,
   assertSendable,
 } from "./shared";
@@ -285,9 +291,12 @@ export abstract class SessionSending extends SessionConversations {
     });
   }
 
-  /** What goes under this device's signature: the message, when it was sent, and who's sending it. */
+  /**
+   * What goes under this device's signature: the message, when it was sent, who's sending it,
+   * and which token keys this device was shown, so that everyone can tell they were shown the same.
+   */
   protected signedBody(body: MessageBody): MessageBody & { sentAt: number; by: { user: string; device: string } } {
-    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId } };
+    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId }, tokenKeys: this.tokenKeysTag() };
   }
 
   /** A DM's first message is echoed before its group exists; this moves it there. */
@@ -533,6 +542,142 @@ export abstract class SessionSending extends SessionConversations {
         await this.sendRead(group).catch((error) => console.warn("[zuna] read state", error));
       }
     }
+  }
+
+  // --- Tokens ---
+
+  /** The period tokens are issued for now, by the server's clock as far as this device knows it. */
+  protected tokenPeriod(): number {
+    return Math.floor((Date.now() + this.api.serverAhead) / TOKEN_PERIOD_MS);
+  }
+
+  /** The public keys tokens are issued under, by period and size, as a request with no session was shown them. */
+  protected heldTokenKeys(): Record<string, Partial<Record<TokenSize, string>>> {
+    return this.getKv<Record<string, Partial<Record<TokenSize, string>>>>("token_keys") ?? {};
+  }
+
+  /**
+   * Asks which keys tokens are issued under, without the session, as anyone would. A key
+   * doesn't change within its period, so one shown differently later is the server
+   * showing this device something else, and it's said so.
+   */
+  protected async refreshTokenKeys(): Promise<number> {
+    const shown = await this.api.tokenKeys();
+    const held = this.heldTokenKeys();
+    for (const key of shown.keys) {
+      if (key.size !== "small" && key.size !== "large") continue;
+      const before = held[key.period]?.[key.size];
+      if (before && before !== key.public) {
+        this.warnOnce(`token-key/${key.period}`, "The server changed the keys it shows for sending in the middle of their time, which could let it tell which messages are yours.");
+        continue;
+      }
+      (held[key.period] ??= {})[key.size] = key.public;
+    }
+    for (const period of Object.keys(held)) if (Number(period) < shown.period - 1) delete held[period];
+    this.setKv("token_keys", held);
+    return shown.period;
+  }
+
+  /** A short hash of a period's token keys, which signed messages carry so that everyone can tell they were shown the same. */
+  protected tokenKeysHash(period: number): string | null {
+    const keys = this.heldTokenKeys()[period];
+    if (!keys?.small || !keys.large) return null;
+    return toHex(wasm.sha256(concat(utf8(`zuna/token-keys/v1|${period}|`), fromBase64(keys.small), fromBase64(keys.large))).subarray(0, 8));
+  }
+
+  /** What a signed message says of the token keys its sender holds, for the newest period it holds them for. */
+  protected tokenKeysTag(): { p: number; h: string } | undefined {
+    const periods = Object.keys(this.heldTokenKeys()).map(Number).sort((a, b) => b - a);
+    for (const period of periods) {
+      const hash = this.tokenKeysHash(period);
+      if (hash) return { p: period, h: hash };
+    }
+    return undefined;
+  }
+
+  /**
+   * Someone's message says which token keys they were shown. If they're not the ones this
+   * device was shown for the same period, the server is showing people keys of their own,
+   * which would let it follow their tokens to what they send, and it's said so.
+   */
+  protected compareTokenKeys(tag: { p: number; h: string }, from: string): void {
+    const own = this.tokenKeysHash(tag.p);
+    if (!own || own === tag.h) return;
+    this.warnOnce(
+      `token-keys/${tag.p}`,
+      "The server showed someone in one of your conversations other keys for sending than it showed you, which would let it tell which messages are theirs.",
+      from,
+    );
+  }
+
+  protected tokenCount(size: TokenSize): number {
+    return this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM tokens WHERE size = ? AND period >= ?", [size, this.tokenPeriod() - 1])?.n ?? 0;
+  }
+
+  /**
+   * Fetches tokens of a size, signed in, which the server counts against this person, and
+   * unblinds them with the key everyone is shown, which the server proves it used.
+   */
+  protected async fetchTokens(size: TokenSize): Promise<void> {
+    const period = await this.refreshTokenKeys();
+    const key = this.heldTokenKeys()[period]?.[size];
+    if (!key) throw new Error("The server didn't show the keys tokens are issued under.");
+    const count = TOKEN_BATCH[size];
+    const blinds = wasm.tokenBlind(count);
+    const blinded = Array.from({ length: count }, (_, index) => blinds.slice(index * 96 + 64, index * 96 + 96));
+    const answer = await this.api.issueTokens(period, size, blinded);
+    if (!Array.isArray(answer.evaluated) || answer.evaluated.length !== count) throw new Error("The server's tokens weren't what was asked for.");
+    const outputs = wasm.tokenFinalize(blinds, concat(...answer.evaluated.map((element) => fromBase64(element))), fromBase64(answer.proof), fromBase64(key));
+    const tag = new Uint8Array([size === "small" ? 1 : 2]);
+    this.db.transaction(() => {
+      for (let index = 0; index < count; index++) {
+        const token = concat(u64Bytes(period), tag, blinds.subarray(index * 96, index * 96 + 32), outputs.subarray(index * 64, index * 64 + 64));
+        const id = randomId();
+        this.db.run("INSERT INTO tokens(id, period, size, token) VALUES(?, ?, ?, ?)", [id, period, size, this.sealLocal("token", id, token)]);
+      }
+    });
+  }
+
+  /**
+   * Takes a token to spend on something of `bytes`, the oldest first, as it runs out soonest.
+   * With none left it fetches some, which is the one time asking says something is about to go.
+   */
+  protected async takeToken(bytes: number): Promise<Uint8Array> {
+    const size: TokenSize = bytes <= TOKEN_SMALL_BYTES ? "small" : "large";
+    const pick = () =>
+      this.db.get<{ id: string; token: Uint8Array }>("SELECT id, token FROM tokens WHERE size = ? AND period >= ? ORDER BY period LIMIT 1", [size, this.tokenPeriod() - 1]);
+    let row = pick();
+    if (!row) {
+      await this.fetchTokens(size);
+      row = pick();
+    }
+    if (!row) throw new ApiError(0, "no_tokens", "Couldn't get what's needed to send. This will go when the server answers.");
+    this.db.run("DELETE FROM tokens WHERE id = ?", [row.id]);
+    this.topUpTokensSoon();
+    return this.openLocal("token", row.id, row.token);
+  }
+
+  /**
+   * Fetches more tokens a random while after this device runs low, at a time of its own,
+   * never because something is about to go. `now` fetches at once any size there are none
+   * of, as when the device has just signed in.
+   */
+  protected topUpTokensSoon(now = false): void {
+    if (this.stopped) return;
+    this.db.run("DELETE FROM tokens WHERE period < ?", [this.tokenPeriod() - 1]);
+    const low = TOKEN_SIZES.filter((size) => this.tokenCount(size) < TOKEN_LOW[size]);
+    if (low.length === 0 || this.tokenTopUp) return;
+    const empty = now && low.some((size) => this.tokenCount(size) === 0);
+    const [least, most] = tokenTiming.topUpMs;
+    this.tokenTopUp = setTimeout(
+      () => {
+        this.tokenTopUp = undefined;
+        void (async () => {
+          for (const size of TOKEN_SIZES) if (this.tokenCount(size) < TOKEN_LOW[size]) await this.fetchTokens(size);
+        })().catch((error) => console.warn("[zuna] fetching tokens", error));
+      },
+      empty ? 0 : least + Math.random() * (most - least),
+    );
   }
 
   // --- Files ---

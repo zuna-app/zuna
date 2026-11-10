@@ -259,6 +259,7 @@ export abstract class SessionIngest extends SessionChanges {
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
     if (fresh && status === "sent" && fromOther) this.maybeNotify(view);
     if (body?.after && author) this.lookForEarlier(message, body, author.userId);
+    if (body?.tokenKeys && fromOther) this.compareTokenKeys(body.tokenKeys, authorId);
   }
 
   /**

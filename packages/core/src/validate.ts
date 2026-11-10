@@ -284,6 +284,10 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   }
   const buttons = parseButtons(value.buttons);
   if (buttons) body.buttons = buttons;
+  const tokenKeys = value.tokenKeys;
+  if (isObject(tokenKeys) && isCount(tokenKeys.p, Number.MAX_SAFE_INTEGER) && typeof tokenKeys.h === "string" && /^[0-9a-f]{16}$/.test(tokenKeys.h)) {
+    body.tokenKeys = { p: tokenKeys.p, h: tokenKeys.h };
+  }
   if (!absent(value.signal)) {
     // Something to act on is all such a message is, so one that's nothing known can't be shown as a message either.
     const signal = parseSignal(value.signal);
