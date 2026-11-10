@@ -148,7 +148,7 @@ async function interactions(browser) {
   check("and to the whole self-hosting guide", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/SELF_HOSTING.md"));
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
-  check("Windows, macOS and Linux each have a download", downloads.length === 3, String(downloads.length));
+  check("Windows and Linux each have a download", downloads.length === 2, String(downloads.length));
   check("downloads lead to GitHub's releases", downloads.every((href) => href.startsWith("https://github.com/zuna-app/zuna/releases")), downloads.join(", "));
 
   check("interacting sends nothing anywhere", outside.length === 0, outside.join(", "));

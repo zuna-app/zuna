@@ -19,10 +19,12 @@ export interface Download {
   size?: number;
 }
 
-/** What the native app's scripts make (scripts/windows-app.mjs, macos-app.mjs and linux-app.mjs), by the names they give them. */
-const FILES: Record<"windows" | "mac" | "linux", { label: string; match: RegExp }[]> = {
+/**
+ * What a release carries (docs/RELEASES.md), by the names the native app's scripts give them
+ * (scripts/windows-app.mjs and linux-app.mjs). There's no macOS build on releases yet.
+ */
+const FILES: Record<"windows" | "linux", { label: string; match: RegExp }[]> = {
   windows: [{ label: "Installer (.exe)", match: /^Zuna-Native-Setup-.*\.exe$/ }],
-  mac: [{ label: "Apple silicon (.dmg)", match: /^Zuna-.*-arm64\.dmg$/ }],
   linux: [
     { label: "AppImage", match: /\.AppImage$/ },
     { label: "Debian, Ubuntu (.deb)", match: /\.deb$/ },
@@ -32,7 +34,7 @@ const FILES: Record<"windows" | "mac" | "linux", { label: string; match: RegExp 
   ],
 };
 
-export function downloadsFor(system: "windows" | "mac" | "linux"): Download[] {
+export function downloadsFor(system: "windows" | "linux"): Download[] {
   return FILES[system].map(({ label, match }) => {
     const asset = RELEASE?.assets.find((a) => match.test(a.name));
     return asset ? { label, url: asset.url, size: Math.round(asset.size / 1e6) } : { label, url: RELEASES_PAGE };

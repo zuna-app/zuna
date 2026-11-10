@@ -23,7 +23,6 @@ export function Platforms() {
         </div>
         <div className="platforms">
           <Platform icon={<Monitor size={22} />} name="Windows" detail="Windows 10 and 11, x64" system="windows" />
-          <Platform icon={<Laptop size={22} />} name="macOS" detail="Apple silicon" system="mac" />
           <Platform icon={<Terminal size={22} />} name="Linux" detail="x64, built for Wayland" system="linux" />
           <article className="platform reveal">
             <span className="platform-icon">
@@ -33,6 +32,18 @@ export function Platforms() {
             <p>The desktop's interface in a browser, when your server's admins host it.</p>
             <a className="platform-link" href={doc("docs/WEB.md")}>
               How to host the web app
+            </a>
+          </article>
+          <article className="platform is-soon reveal">
+            <span className="platform-icon">
+              <Laptop size={22} aria-hidden="true" />
+            </span>
+            <h3>
+              macOS <span className="badge">Soon</span>
+            </h3>
+            <p>Runs on Apple silicon today, built from source. Releases don't carry it yet.</p>
+            <a className="platform-link" href={doc("CONTRIBUTING.md")}>
+              How to build it
             </a>
           </article>
           <article className="platform is-soon reveal">
@@ -63,7 +74,7 @@ export function Platforms() {
   );
 }
 
-function Platform(props: { icon: ReactNode; name: string; detail: string; system: "windows" | "mac" | "linux" }) {
+function Platform(props: { icon: ReactNode; name: string; detail: string; system: "windows" | "linux" }) {
   const [main, ...others] = downloadsFor(props.system);
   return (
     <article className="platform reveal">

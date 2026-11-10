@@ -12,7 +12,7 @@ export function useSystem(): System | null {
 export function DownloadButton({ size = "large" }: { size?: "large" | "small" }) {
   const system = useSystem();
   const className = `button button-primary ${size === "small" ? "button-small" : ""}`;
-  if (system === "windows" || system === "mac" || system === "linux") {
+  if (system === "windows" || system === "linux") {
     const [first] = downloadsFor(system);
     return (
       <a className={className} href={first!.url}>
