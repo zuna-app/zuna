@@ -56,6 +56,7 @@ actions!(
         Newline,
         Escape,
         Tab,
+        ShiftTab,
     ]
 );
 
@@ -95,6 +96,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-enter", Newline, context),
         KeyBinding::new("escape", Escape, context),
         KeyBinding::new("tab", Tab, context),
+        KeyBinding::new("shift-tab", ShiftTab, context),
     ]);
     // macOS's own: ⌘ for the clipboard and the text's ends, ⌥ by word, and ⌘ with the arrows
     // to the line's ends, as every field on a Mac takes them.
@@ -143,6 +145,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-enter", Newline, context),
         KeyBinding::new("escape", Escape, context),
         KeyBinding::new("tab", Tab, context),
+        KeyBinding::new("shift-tab", ShiftTab, context),
     ]);
 }
 
@@ -204,6 +207,35 @@ thread_local! {
     static FIELDS: std::cell::RefCell<Vec<gpui::WeakFocusHandle>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+pub trait TabScope: InteractiveElement + Sized {
+    /// Keeps Tab and Shift+Tab among the fields inside this element, which tracks `scope`, as a
+    /// dialog keeps them from the fields behind it. A field passes them on unless it's suggesting.
+    fn tab_scope(self, scope: &FocusHandle) -> Self {
+        let (next, previous) = (scope.clone(), scope.clone());
+        self.on_action(move |_: &Tab, window, cx| step_focus(&next, true, window, cx))
+            .on_action(move |_: &ShiftTab, window, cx| step_focus(&previous, false, window, cx))
+    }
+}
+
+impl<E: InteractiveElement> TabScope for E {}
+
+/// Moves focus to the next field in the window, or the one before, as it's drawn, past any
+/// outside `scope`, and back to the first after the last.
+fn step_focus(scope: &FocusHandle, forward: bool, window: &mut Window, cx: &mut App) {
+    let start = window.focused(cx);
+    let fields = FIELDS.with(|fields| fields.borrow().len());
+    for _ in 0..fields {
+        if forward { window.focus_next(cx) } else { window.focus_prev(cx) }
+        let Some(now) = window.focused(cx) else { return };
+        if Some(&now) == start.as_ref() || scope.contains(&now, window) {
+            return;
+        }
+    }
+    if let Some(start) = start {
+        window.focus(&start, cx);
+    }
+}
+
 /// Whether any text field has focus.
 pub fn any_focused(window: &Window) -> bool {
     FIELDS.with(|fields| {
@@ -215,7 +247,7 @@ pub fn any_focused(window: &Window) -> bool {
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
-        let focus_handle = cx.focus_handle();
+        let focus_handle = cx.focus_handle().tab_stop(true);
         FIELDS.with(|fields| fields.borrow_mut().push(focus_handle.downgrade()));
         TextInput {
             focus_handle,
@@ -585,6 +617,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::newline))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::tab))
+            .on_action(cx.listener(Self::shift_tab))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))

@@ -217,8 +217,22 @@ impl TextInput {
         cx.emit(InputEvent::Escape);
     }
 
+    /// Picks a suggestion while they show, as the web's message box does with either, and
+    /// otherwise goes on to the next field, or the one before (`TabScope`).
     pub(super) fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(InputEvent::Tab);
+        self.tab_or_pass(cx);
+    }
+
+    pub(super) fn shift_tab(&mut self, _: &ShiftTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.tab_or_pass(cx);
+    }
+
+    fn tab_or_pass(&mut self, cx: &mut Context<Self>) {
+        if self.suggesting {
+            cx.emit(InputEvent::Tab);
+        } else {
+            cx.propagate();
+        }
     }
 
     // --- The mouse ---

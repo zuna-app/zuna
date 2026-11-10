@@ -17,7 +17,7 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::onboarding::Onboarding;
-use super::text_input::{InputEvent, TextInput};
+use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::models::{SafetyCheck, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, RADIUS_L, RADIUS_M, RADIUS_XL};
@@ -362,6 +362,7 @@ impl Dialog {
             .bg(theme::color(theme::black_a(0.6)))
             .occlude()
             .track_focus(&self.focus)
+            .tab_scope(&self.focus)
             .on_mouse_down(gpui::MouseButton::Left, cx.listener(|dialog, _, _, cx| dialog.close(cx)))
             .on_key_down(cx.listener(|dialog, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {

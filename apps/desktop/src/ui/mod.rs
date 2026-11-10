@@ -57,6 +57,7 @@ pub fn bind_keys(cx: &mut App) {
 use crate::theme::{self, RAIL_WIDTH, RADIUS_L, RADIUS_M, TITLEBAR_HEIGHT};
 use components::*;
 use motion::{Enter, Motion};
+use text_input::TabScope;
 
 /// Where the project lives (lib/links.ts).
 pub const PROJECT_URL: &str = "https://github.com/SocketByte/zuna-chat";
@@ -396,6 +397,7 @@ impl Render for Root {
         let root = div()
             .size_full()
             .track_focus(&self.focus)
+            .tab_scope(&self.focus)
             .on_action(cx.listener(|root, _: &FocusSearch, window, cx| {
                 let list = root.conversations.clone();
                 list.update(cx, |list, cx| list.focus_search(window, cx));

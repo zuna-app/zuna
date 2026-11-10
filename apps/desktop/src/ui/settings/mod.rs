@@ -10,7 +10,7 @@ use serde_json::json;
 
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
-use super::text_input::{InputEvent, TextInput};
+use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::format::{MIN_PASSWORD, format_full};
 use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
@@ -294,6 +294,7 @@ impl Render for SettingsView {
             .bg(theme.bg_chat)
             .occlude()
             .track_focus(&self.focus)
+            .tab_scope(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
                     if view.confirming_keep {

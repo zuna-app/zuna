@@ -13,7 +13,7 @@ use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::invites::InvitePanel;
 use super::menu::{MenuEntry, open_menu};
-use super::text_input::{InputEvent, TextInput};
+use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::format::format_full;
 use crate::models::{BanView, ReportView, from_value, report_reason_label};
 use crate::state::{AppState, ServerState, ToastKind};
@@ -317,6 +317,7 @@ impl Render for ServerSettings {
             .bg(theme.bg_chat)
             .occlude()
             .track_focus(&self.focus)
+            .tab_scope(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
                     view.escape(cx);
