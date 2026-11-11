@@ -14,6 +14,9 @@ use crate::state::ToastKind;
 
 /// What the stage is filled with when it's the video watched together, among the videos' keys.
 pub const WATCH_FOCUS: &str = "watch";
+/// Whether this system has a player for the video, which only macOS has so far. Elsewhere this
+/// device never watches: the stage shows what's on and says where it plays.
+pub const PLAYS_HERE: bool = cfg!(target_os = "macos");
 /// Seeks go at most four a second, however fast someone drags.
 const SEEK_EVERY: Duration = Duration::from_millis(250);
 
@@ -63,8 +66,10 @@ impl Voice {
             cx.update(|cx| {
                 this.update(cx, |voice, cx| {
                     if let Some(watch) = now.and_then(|value| serde_json::from_value::<WatchView>(value).ok()).filter(|_| voice.channel_id.as_deref() == Some(&channel_id)) {
-                        // Whoever puts it on watches it.
-                        voice.watching = Some(watch.session.clone());
+                        // Whoever puts it on watches it, where it can play.
+                        if PLAYS_HERE {
+                            voice.watching = Some(watch.session.clone());
+                        }
                         voice.watch = Some(watch);
                         voice.focus = Some(WATCH_FOCUS.into());
                         cx.notify();
@@ -115,6 +120,7 @@ impl Voice {
 
     /// Plays what the room watches on this device, or stops playing it here only.
     pub fn set_watching(&mut self, on: bool, cx: &mut Context<Self>) {
+        let on = on && PLAYS_HERE;
         self.watching = if on { self.watch.as_ref().map(|watch| watch.session.clone()) } else { None };
         if on && self.watch.is_some() {
             self.focus = Some(WATCH_FOCUS.into());

@@ -310,7 +310,7 @@ impl VoiceStage {
         if watching {
             self.sync_player(watch, cx);
         }
-        let plays_here = cfg!(target_os = "macos");
+        let plays_here = crate::voice::watch::PLAYS_HERE;
         let state = self.state.clone();
         let play_youtube = state.read(cx).settings.play_youtube;
         let body: AnyElement = if watching {
