@@ -170,8 +170,8 @@ embed-resource = "3"
 # For the checks alone (apps/desktop/test): the app takes input and gives screenshots of its
 # window over a socket of its own (`test_control.rs`). Never in a build anyone uses.
 test-control = ["gpui/test-support", "gpui_platform/test-support"]
-# The screen share through LiveKit with someone watching, for test/key-log-check.mjs, which
-# `cargo test` would otherwise build each time.
+# The screen share through LiveKit with someone watching, for test/key-log-check.mjs,
+# test/codec-check.mjs and test/loss-check.mjs, which `cargo test` would otherwise build each time.
 share-check = []
 # For test/windows-update-check.mjs alone: the updater takes its keys and the address of the
 # releases from the environment, updates wherever it was installed, and writes down where it
@@ -182,9 +182,13 @@ update-check = []
 name = "share-check"
 required-features = ["share-check"]
 
-# LiveKit's webrtc-sys with Zuna's patch, which lets AV1 go out end to end encrypted
-# (patches/webrtc-sys.patch). scripts/webrtc-sys.mjs fetches it into .deps, as the app's scripts do
-# first, at the version Cargo.lock had for it from crates.io.
+[[example]]
+name = "loss-check"
+required-features = ["share-check"]
+
+# LiveKit's webrtc-sys with Zuna's patch, which lets AV1 go out end to end encrypted and has video
+# offered with a retransmission stream (patches/webrtc-sys.patch). scripts/webrtc-sys.mjs fetches
+# it into .deps, as the app's scripts do first, at the version Cargo.lock had for it from crates.io.
 [patch.crates-io]
 webrtc-sys = { path = ".deps/webrtc-sys" }
 

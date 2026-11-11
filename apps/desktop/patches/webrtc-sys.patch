@@ -268,3 +268,41 @@
    } else {
      return;
    }
+--- a/src/rtp_transceiver.cpp
++++ b/src/rtp_transceiver.cpp
+@@ -16,6 +16,8 @@
+ 
+ #include "livekit/rtp_transceiver.h"
+ 
++#include "absl/strings/match.h"
++
+ #include "api/peer_connection_interface.h"
+ #include "api/scoped_refptr.h"
+ 
+@@ -110,6 +112,26 @@
+   for (auto codec : codecs)
+     std_codecs.push_back(to_native_rtp_codec_capability(codec));
+ 
++  // Zuna: LiveKit's SDK asks for the one video codec it publishes in and leaves "rtx" out, and
++  // libwebrtc then offers that codec without a retransmission stream. Retransmissions still go
++  // out, on the media's own SSRC, but so does the padding the bandwidth estimate probes with, in
++  // the media's own sequence numbers: a padding packet lost on the way is a gap nobody can fill,
++  // which holds back every frame after it until the next keyframe. With "rtx" among the
++  // preferences libwebrtc adds each codec's own, and probes on that stream instead.
++  bool video = false;
++  bool rtx = false;
++  for (const auto& codec : std_codecs) {
++    video = video || codec.kind == webrtc::MediaType::VIDEO;
++    rtx = rtx || absl::EqualsIgnoreCase(codec.name, "rtx");
++  }
++  if (video && !rtx) {
++    webrtc::RtpCodecCapability capability;
++    capability.name = "rtx";
++    capability.kind = webrtc::MediaType::VIDEO;
++    capability.clock_rate = 90000;
++    std_codecs.push_back(capability);
++  }
++
+   auto error = transceiver_->SetCodecPreferences(std_codecs);
+   if (!error.ok())
+     throw std::runtime_error(serialize_error(to_error(error)));

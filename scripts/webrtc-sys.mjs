@@ -1,7 +1,8 @@
 // Fetches LiveKit's webrtc-sys, at the version apps/desktop/Cargo.lock pins and checked against
 // crates.io's SHA-256 for it, and applies Zuna's patch to it, which `[patch.crates-io]` in
-// apps/desktop/Cargo.toml builds the app with. The patch lets AV1 go out end to end encrypted
-// (apps/desktop/patches/webrtc-sys.patch says how). Update the version, its hash and the patch
+// apps/desktop/Cargo.toml builds the app with. The patch lets AV1 go out end to end encrypted, and
+// has every video the app sends offered with a retransmission stream, which LiveKit's SDK leaves
+// out (apps/desktop/patches/webrtc-sys.patch says how). Update the version, its hash and the patch
 // together, when LiveKit's crate moves.
 //
 //   node scripts/webrtc-sys.mjs     fetches it into apps/desktop/.deps, as the app's scripts do first
@@ -59,7 +60,8 @@ export async function ensureWebrtcSys(depsDir) {
   delete env.GIT_WORK_TREE;
   result = spawnSync("git", ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", patch], { cwd: crate, env, stdio: "inherit" });
   if (result.status !== 0) throw new Error(`Applying ${patch} to webrtc-sys ${version} failed`);
-  if (!readFileSync(join(crate, "src", "frame_cryptor.cpp"), "utf8").includes("Av1Envelope")) {
+  const reached = (file, mark) => readFileSync(join(crate, "src", file), "utf8").includes(mark);
+  if (!reached("frame_cryptor.cpp", "Av1Envelope") || !reached("rtp_transceiver.cpp", '"rtx"')) {
     throw new Error(`${patch} didn't reach webrtc-sys ${version}`);
   }
   renameSync(crate, dir);
