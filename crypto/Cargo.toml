@@ -18,8 +18,11 @@ uniffi = ["dep:uniffi"]
 
 [dependencies]
 # draft-ietf-mls-pq-ciphersuites: the suite with ML-KEM-768 and X25519 together, which
-# mls.rs uses, and X-Wing, which primitives.rs seals with (docs/POST_QUANTUM.md).
-openmls = { version = "0.9", features = ["draft-ietf-mls-pq-ciphersuites"] }
+# mls.rs uses, and X-Wing, which primitives.rs seals with (docs/POST_QUANTUM.md). It's the
+# traits' and the provider's: openmls's own only adds the suites to a leaf's default
+# capabilities, which mls.rs always sets, and names its optional SQLite storage's feature,
+# which would put a second SQLite in the desktop app's lockfile.
+openmls = "0.9"
 openmls_rust_crypto = { version = "0.6", features = ["draft-ietf-mls-pq-ciphersuites"] }
 openmls_traits = { version = "0.6", features = ["draft-ietf-mls-pq-ciphersuites"] }
 # ML-DSA (FIPS 204), signing beside Ed25519 (hybrid.rs). The version OpenMLS's provider uses.

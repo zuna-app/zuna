@@ -13,10 +13,4 @@ ignore = [
   # --target all` prints nothing.
   "RUSTSEC-2026-0330",
   "RUSTSEC-2026-0331",
-  # libcrux-hmac-drbg and libsqlite3-sys: Cargo.lock lists them since openmls's
-  # draft-ietf-mls-pq-ciphersuites feature names its optional libcrux provider's and SQLite
-  # storage's features, neither of which is built: `cargo tree -i libcrux-hmac-drbg --target all`,
-  # and the same for libsqlite3-sys, print nothing.
-  "RUSTSEC-2026-0329",
-  "RUSTSEC-2026-0459",
 ]
