@@ -299,6 +299,18 @@ With Docker, the data is in the `zuna-data` volume. From source on Linux, it's i
 
 A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
 
+### Restoring a backup
+
+The server keeps a log of every account's keys and devices, which every member's app reads and holds the server to. A restored backup's log is shorter than what those apps have seen, and they'd each warn that the server went back, for good. So once you've restored one, and before members come back, start the log again from what the database holds, once, with the server stopped:
+
+```bash
+sudo systemctl stop zuna
+sudo -u zuna env $(grep -v '^#' /etc/zuna/zuna.env | xargs) /usr/local/bin/zuna-server --new-log-era
+sudo systemctl start zuna
+```
+
+With Docker, `docker compose run --rm zuna --new-log-era` does the same, and with `--data` or `--database-url` of your own, give the same ones. It writes the log again under its next era, with the same key, and stops. Every member's app says once that the server started its record of keys again, and nothing they hold changes: a key that changed meanwhile still gives its warning. Don't use it for anything but a restored backup, as everyone is told.
+
 ## Moving to a new address
 
 Sign-in keys are bound to your server's address, so a key one server collects is no use on another. That means **nobody can sign in with their password or recovery key at a new address**, though devices already signed in carry on. To move a server, keep it reachable at its old address too, for signing in there, and keep `ZUNA_PUBLIC_URL` set to that old address. Picking an address you'll keep from the start avoids this.

@@ -1,6 +1,6 @@
 # Key transparency: plan
 
-**Status:** a plan, written on 2026-11-11 against commit `9b4d8fed`. Nothing here is built, and nobody independent has reviewed it. The owner made section 12's decisions the same day, each as the plan had assumed. Its questions for a reviewer are open, and are what a reviewer should look at first.
+**Status:** written on 2026-11-11 against commit `9b4d8fed`, and built the same day, all six stages, at the owner's word, ahead of review. Nobody independent has reviewed it. The owner made section 12's decisions the same day, each as the plan had assumed. Its questions for a reviewer are open, and are what a reviewer should look at first. Where what's built differs from what follows, "As built" at the end says how. The code is `server/internal/merkle`, `server/internal/store/log.go`, `server/internal/api/log.go`, `packages/core/src/transparency.ts` and `packages/core/src/session/directory.ts`, and the tests `packages/core/test/transparency.test.ts` and `server/internal/api/log_test.go`.
 
 **Scope:** which keys and devices each account on a server has. Today that's whatever the server says, held to the signatures it can't forge. This plan makes it a record the server can't change afterwards, can't show differently to different people without leaving proof, and that every account's own devices read.
 
@@ -463,3 +463,16 @@ The `log` frame says an era and a size, to everyone connected.
 ### On the device
 
 A local migration adds `log_records(idx, record, root, body)` at the end of `MIGRATIONS`. The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
+
+## As built
+
+Where the code differs from the plan above, which stays as it was decided:
+
+- **No first era from the tables.** The owner chose to start every server's database again rather than keep it, so a log starts empty, with its key, at era 1 (`ensureLog`). Writing the log from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
+- **Roots before now.** A device keeps the tree's frontier after every 256th record rather than a root after each (`log_records.frontier`), and works out a root from before from the nearest one, which is at most 256 records to hash again. A root after every record would have tripled the hashing of a first read.
+- **Bodies.** A device doesn't keep the bodies, only whether each record's came (`log_records.opened`), and what they say of each account, sealed, one row each (`log_accounts`), with the usernames held, by a keyed hash of the name (`log_names`).
+- **Every page is signed.** `GET /api/log` signs the head at the end of each page, not only the newest, so a device checks each page as it comes and keeps none it can't.
+- **Seal entries came with the server's part,** in Stage 1, and devices go by them from Stage 6.
+- **A floor.** The head an invite link or the manifest carries is a floor the log has to hold: a page that runs past it with another root is refused whole, as is a log that ends before it, which gets the warning.
+- **Timing.** A first read of 100,000 records, checked and hashed, took about half a second in Node, and the same hashing through the iOS host's crypto in JavaScriptCore without a JIT, as on a device, 2.9 seconds (`tests/e2e/test/performance.test.ts`), both on an M-series Mac. That's in the background and once, so hashing stays in the core. QuickJS, the native desktop app's, wasn't timed.
+
