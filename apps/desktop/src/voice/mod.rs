@@ -557,7 +557,8 @@ impl Voice {
     fn sync_videos(&mut self, cx: &mut Context<Self>) {
         let Some(room) = self.room.clone() else { return };
         let videos = room.videos();
-        let still_there = self.focus.as_ref().is_some_and(|focus| videos.iter().any(|video| &video.key == focus));
+        // The video watched together stays on the stage while it's on, as the web's store keeps it.
+        let still_there = self.focus.as_ref().is_some_and(|focus| (focus == watch::WATCH_FOCUS && self.watch.is_some()) || videos.iter().any(|video| &video.key == focus));
         // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
         let arrived = if self.settings.screen_focus { videos.iter().find(|video| video.source == VideoSource::Screen && !video.local && !self.videos.iter().any(|other| other.key == video.key)).map(|video| video.key.clone()) } else { None };
         self.focus = if still_there { self.focus.clone() } else { arrived };
