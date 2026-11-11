@@ -103,9 +103,10 @@ async function packages(dist) {
     ...sizes.map((name) => ({ src: join(icons, name), dst: `/usr/share/icons/hicolor/${name.replace(".png", "")}/apps/zuna.png`, file_info: { mode: 0o644 } })),
   ];
   // What the program links and loads, by each system's names: Wayland, Vulkan, fonts, PipeWire,
-  // and the portals, with a color emoji font and GeoClue for location recommended, and WebKitGTK
-  // with GStreamer's decoders, which zuna-watch plays a video watched together through. Without
-  // them the app runs, and says what to install when someone presses Watch.
+  // the portals, and WebKitGTK with GStreamer's good plugins, which zuna-watch plays a video
+  // watched together through, so that it plays wherever the app is installed from a package.
+  // Recommended: a color emoji font, GeoClue for location, and libav's decoders. The AppImage and
+  // the .tar.gz take what the system has, and the app says what to install when it's missing.
   const config = {
     name: "zuna",
     arch: "amd64",
@@ -122,16 +123,27 @@ async function packages(dist) {
     contents,
     overrides: {
       deb: {
-        depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal"],
-        recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0", "libwebkit2gtk-4.1-0", "gstreamer1.0-plugins-good", "gstreamer1.0-libav"],
+        depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal", "libwebkit2gtk-4.1-0", "gstreamer1.0-plugins-good"],
+        recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0", "gstreamer1.0-libav"],
       },
       rpm: {
-        depends: ["libxkbcommon.so.0()(64bit)", "libwayland-client.so.0()(64bit)", "libvulkan.so.1()(64bit)", "libfontconfig.so.1()(64bit)", "libfreetype.so.6()(64bit)", "libpipewire-0.3.so.0()(64bit)", "xdg-desktop-portal"],
-        recommends: ["mesa-vulkan-drivers", "geoclue2", "webkit2gtk4.1", "gstreamer1-plugins-good"],
+        // The good plugins are named one way on Fedora and another on openSUSE, either of which will do.
+        depends: [
+          "libxkbcommon.so.0()(64bit)",
+          "libwayland-client.so.0()(64bit)",
+          "libvulkan.so.1()(64bit)",
+          "libfontconfig.so.1()(64bit)",
+          "libfreetype.so.6()(64bit)",
+          "libpipewire-0.3.so.0()(64bit)",
+          "xdg-desktop-portal",
+          "libwebkit2gtk-4.1.so.0()(64bit)",
+          "(gstreamer1-plugins-good or gstreamer-plugins-good)",
+        ],
+        recommends: ["mesa-vulkan-drivers", "geoclue2"],
       },
       // nfpm writes no optdepends for pacman, so Arch gets only what the program needs.
       archlinux: {
-        depends: ["libxkbcommon", "wayland", "vulkan-icd-loader", "fontconfig", "freetype2", "pipewire", "xdg-desktop-portal"],
+        depends: ["libxkbcommon", "wayland", "vulkan-icd-loader", "fontconfig", "freetype2", "pipewire", "xdg-desktop-portal", "webkit2gtk-4.1", "gst-plugins-good"],
       },
     },
   };
