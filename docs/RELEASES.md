@@ -2,7 +2,7 @@
 
 How the native app gets from a push to `main` to an Update button in someone's title bar, with nobody deciding a version number or clicking through a release by hand.
 
-Only the native app is released: its Windows installer and its Linux packages, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). macOS isn't built there yet, as that needs a Developer ID and notarizing in CI's secrets. The iPhone app goes to TestFlight with the nightlies, for the team's own testers, as [below](#the-iphone-app-on-testflight). The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
+Only the native app is released: its Windows installer, its Linux packages and its macOS DMG, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). The iPhone app goes to TestFlight with the nightlies, for the team's own testers, as [below](#the-iphone-app-on-testflight). The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
 
 ## What happens
 
@@ -83,13 +83,15 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 | `checks` | stable only | `ci.yml`'s `test`, `advisories` and `desktop` jobs. The iPhone's and PostgreSQL's don't hold a desktop release back |
 | `windows` | the native app changed | `npm run dist:windows` on `windows-latest`, with the version, build and channel stamped in. Holds no secret |
 | `linux` | the native app changed | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. Holds no secret |
-| `publish` | the native app changed | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
+| `macos` | the native app changed | `node scripts/macos-app.mjs release` on `xcode-27`: the release build in its bundle, with FFmpeg built from its source, signed ad hoc, and the DMG's backgrounds drawn beside it. Holds no secret |
+| `notarize` | after `macos` | Runs in the `macos` environment. Signs the app with the Developer ID, has Apple notarize it, then its DMG, [below](#the-app-on-macos). Builds nothing |
+| `publish` | the native app changed | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, the DMG, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. Waits for every system, so a release that's out has all three. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
 | `ios` | a nightly, the iPhone app changed | The archive TestFlight gets, on `xcode-27`, with no signature. Holds no secret |
 | `testflight` | after `ios` | Runs in the `testflight` environment. Signs the archive, checks it and uploads it. Builds nothing |
 
 **Which apps a tag builds.** A stable release always builds the native app, and never the iPhone app. A nightly builds each app only if something it's built from changed since it last shipped, which `plan` reads from the deployments GitHub records for each job that runs in an environment: `nightly` and `release` for the native app, `testflight` for the iPhone app. So a nightly that only changed the iPhone app publishes no GitHub release and its tag stays without one, one that only changed the native app sends nothing to TestFlight, and an app whose run was cancelled or failed is built by the next tag, whatever that one changed. When GitHub can't say, the app is built.
 
-- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. `testflight` holds what signs and uploads the iPhone app. None has a reviewer, so a stable release waits for nobody's click. `nightly` and `testflight` only run for `v*-nightly.*` tags and `release` for `v*` tags.
+- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. `testflight` holds what signs and uploads the iPhone app, and `macos` what signs and notarizes the macOS app. None has a reviewer, so a stable release waits for nobody's click. `nightly` and `testflight` only run for `v*-nightly.*` tags, and `release` and `macos` for `v*` tags.
 - **Tags.** Three rulesets: only the repository's admins create `v*` tags, nobody moves one, and nobody deletes a stable one. Nightly tags can be deleted, which is how the workflow's cleanup removes them.
 - **A nightly that's overtaken is cancelled.** Two sessions ending close together leave one build, the newer.
 - **A failed build publishes nothing.** The next nightly carries its commits. A failed stable release is fixed and released under the next patch number, so its tag is never reused.
@@ -132,9 +134,33 @@ What this doesn't protect against: both maintainers can push a `v*` tag, and the
 
 **Code.** What's the same on every system, the releases, the manifest's checks, channels and the state the interface reads, is in `apps/desktop/src/platform/updates.rs`. Downloading, the installer and Authenticode are in `platform/windows/updates.rs`. The button is in `title_bar` (`ui/rail.rs`), the settings in `ui/settings/mod.rs`, and the question in a call in `ui/overlays/mod.rs`. `build.rs` and `platform/mod.rs` take `ZUNA_BUILD` and `ZUNA_CHANNEL`, which `appStamp` in `scripts/lib.mjs` gives every release build.
 
-**Linux and macOS** show the same version line and have no updater: on Linux updates come with the system's packages or a new AppImage, and macOS has no release yet.
+**Linux and macOS** show the same version line and have no updater: on Linux updates come with the system's packages or a new AppImage, and on macOS a new DMG, until its updater is built.
 
 **Its check.** `node apps/desktop/test/windows-update-check.mjs` builds the app twice with the `update-check` feature, as two builds, installs the older into a folder of its own, and serves releases from this machine signed with keys made for the run. It expects the newer build to be found, downloaded and ready, then pressing Update to quit the app, install the new build and start it. Then that a manifest nobody signed, one the other channel's key signed, a nightly for an app on stable, an older build and a changed file are each refused, that an update nobody pressed is installed as the app quits, and that one that didn't take is said so. Its installers make no shortcuts and write nothing to the registry, and its app keeps its window hidden, so it runs beside an installed Zuna.
+
+## The app on macOS
+
+Each release carries `Zuna-<label>-arm64.dmg`: the app for Apple silicon, from macOS 14.2, signed with the Developer ID under the hardened runtime, notarized by Apple and stapled, so that it opens without asking Apple, offline too. It has no updater yet, so a newer one is a new DMG.
+
+**Built with no secret.** The `macos` job runs `node scripts/macos-app.mjs release`: the app in Release, with FFmpeg built from its pinned source, in its bundle with the build number as the bundle's version, signed ad hoc, and the DMG's backgrounds drawn beside it.
+
+**Signed with nothing built.** The `notarize` job runs only Apple's tools and `node scripts/macos-dist.mjs sign`, which needs no npm install. It imports the Developer ID into a keychain of its own and signs FFmpeg's libraries, the media library and the app with it, timestamped, under the hardened runtime with the app's entitlements. Apple notarizes a zip of the app, and the ticket is stapled to it. Then dmgbuild, pinned by its hash, makes the DMG, which is signed, notarized and stapled too, and Gatekeeper is asked about both as it would be about a download. `npm run dist:macos` does the same on a Mac, with the keychain's Developer ID and the notary credentials saved there as `zuna-notary`, and adds the zip an updater would take.
+
+**The `macos` environment's secrets.**
+
+| Secret | What it is |
+|---|---|
+| `MACOS_DEVELOPER_ID_P12`, `MACOS_DEVELOPER_ID_P12_PASSWORD` | The Developer ID Application certificate with its private key, as .p12 in base64, and its password |
+| `NOTARY_KEY`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` | A team key for App Store Connect's API with Developer access, which notarizes: its .p8, its ID and its issuer's ID |
+
+Whoever took them could sign and notarize programs as this team's, which Gatekeeper would open, until the certificate is revoked on the developer site and the key in App Store Connect. Only the Account Holder makes a Developer ID, so its .p12 stays kept offline as well as in the environment. The key is replaced as the iPhone app's is.
+
+**Setting it up.** Once, and again when the certificate runs out, five years after it was made:
+
+1. Export the Developer ID from Keychain Access: the login keychain, My Certificates, "Developer ID Application: …", Export, as .p12 with a password, into a folder outside the checkout and outside iCloud Drive. Or take the .p12 kept offline.
+2. In App Store Connect, under Users and Access, Integrations, App Store Connect API: a new team key with Developer access. Download its `AuthKey_<ID>.p8` into the folder, and note the Issuer ID above the list.
+3. `node scripts/macos-dist.mjs secrets <folder> --issuer <issuer ID>` asks for the certificate's password, checks that it opens a Developer ID Application certificate with its key, and asks Apple's notary service whether the key may notarize. Only then does it set the five secrets with `gh`, showing none of them, making the environment if it isn't there and holding it to `v*` tags.
+4. Delete the exported .p12 and the .p8 from the folder.
 
 ## The iPhone app on TestFlight
 
@@ -185,6 +211,7 @@ A rule can be forgotten at the end of a long session, so `.claude/settings.json`
 
 - The `nightly` and `release` environments, with their tag rules, and the three tag rulesets.
 - The `testflight` environment and its secrets, by `node scripts/ios-dist.mjs secrets`, [above](#the-iphone-app-on-testflight).
+- The `macos` environment and its secrets, by `node scripts/macos-dist.mjs secrets`, [above](#the-app-on-macos).
 - Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline.
 - `gh`, signed in, on each machine Claude releases from, so it can watch a run and read why one failed.
 
@@ -196,12 +223,13 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The Linux packages a release carries:** they're built on CI and were never installed or run from there. `linux-check.mjs` and `linux-package-check.mjs` run on a developer's machine, on packages built there.
 - **Whether Windows Defender or SmartScreen leaves the unsigned installer alone** when it's downloaded in a browser.
 - **The Authenticode lock,** as no build is signed.
+- **The macOS app from CI.** `npm run dist:macos` signed, notarized and packaged the ad hoc release build on a Mac with its keychain. Building it on a runner, the Developer ID imported there from the environment, and notarizing with the key are first seen on the first release after the secrets are set.
 - **The iPhone app reaching testers from CI.** Nightly 1151 was archived, signed with the environment's certificate and profiles, checked and uploaded by altool with the Developer key, all on CI. What App Store Connect makes of it, and installing it from TestFlight, hasn't been seen from there.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
 
-- **macOS,** once a Developer ID and notarization are in CI's secrets, with the updater `docs/MACOS_APP_PLAN.md` describes, checked against the same manifest.
+- **macOS's updater,** as `docs/MACOS_APP_PLAN.md` describes, from a zip on each release, checked against the same manifest.
 - **An update button on Linux** isn't planned: updates there come with the system's packages or a new AppImage. A package repository would be the way.
 - **An Authenticode certificate,** for the first download's warning.
 - **The changelog as TestFlight's What to Test,** set through App Store Connect's API once a build is processed.

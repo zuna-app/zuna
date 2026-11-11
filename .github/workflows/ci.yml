@@ -205,6 +205,37 @@ jobs:
       # The app updating itself, from releases served on the runner (docs/RELEASES.md).
       - run: node apps/desktop/test/windows-update-check.mjs
 
+  # The same app on macOS, built as a release builds it (the macos job in
+  # release.yml, which this follows), signed ad hoc and notarized by nothing.
+  # Saves the Cargo cache release.yml's macos job reads. Only by hand:
+  # gh workflow run ci.yml -f jobs=macos
+  macos:
+    if: ${{ contains(inputs.jobs, 'macos') }}
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock') }}
+          restore-keys: macos-cargo-
+      - name: Get Xcode's Metal Toolchain
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      - run: npm ci
+      - run: node scripts/macos-app.mjs release
+      - run: codesign --verify --strict --deep --verbose=2 dist/macos/Zuna.app && ls -l dist/macos
+
   # The same app's Linux packages, built as a release builds them (the linux job
   # in release.yml, which this follows). Only by hand: gh workflow run ci.yml -f jobs=linux
   linux:

@@ -19,12 +19,22 @@ export interface Download {
   size?: number;
 }
 
+/** The macOS app's DMG, as scripts/macos-dist.mjs names it. */
+const MAC_DMG = /^Zuna-.*-arm64\.dmg$/;
+
+/**
+ * Whether the release linked to carries the macOS app. Releases have since the release workflow
+ * built it, so until the latest one does, the page says macOS is coming.
+ */
+export const MAC_RELEASED: boolean = RELEASE?.assets.some((asset) => MAC_DMG.test(asset.name)) ?? false;
+
 /**
  * What a release carries (docs/RELEASES.md), by the names the native app's scripts give them
- * (scripts/windows-app.mjs and linux-app.mjs). There's no macOS build on releases yet.
+ * (scripts/windows-app.mjs, linux-app.mjs and macos-dist.mjs).
  */
-const FILES: Record<"windows" | "linux", { label: string; match: RegExp }[]> = {
+const FILES: Record<"windows" | "linux" | "mac", { label: string; match: RegExp }[]> = {
   windows: [{ label: "Installer (.exe)", match: /^Zuna-Native-Setup-.*\.exe$/ }],
+  mac: [{ label: "Disk image (.dmg)", match: MAC_DMG }],
   linux: [
     { label: "AppImage", match: /\.AppImage$/ },
     { label: "Debian, Ubuntu (.deb)", match: /\.deb$/ },
@@ -34,7 +44,7 @@ const FILES: Record<"windows" | "linux", { label: string; match: RegExp }[]> = {
   ],
 };
 
-export function downloadsFor(system: "windows" | "linux"): Download[] {
+export function downloadsFor(system: "windows" | "linux" | "mac"): Download[] {
   return FILES[system].map(({ label, match }) => {
     const asset = RELEASE?.assets.find((a) => match.test(a.name));
     return asset ? { label, url: asset.url, size: Math.round(asset.size / 1e6) } : { label, url: RELEASES_PAGE };

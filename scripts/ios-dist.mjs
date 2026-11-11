@@ -15,14 +15,17 @@
 // then check every bundle of what they made against those files.
 
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { testOnlyCode } from "./check-ios-release.mjs";
 import { env, root } from "./lib.mjs";
-import { REPOSITORY, TESTFLIGHT } from "./release.mjs";
+import { TESTFLIGHT } from "./release.mjs";
+import { askHidden, connectKey, fail, field, folderAndIssuer, holdEnvironment, keychainWith, main, needSecrets, one, plist, plistOf, read, run, searchFirst, setSecrets } from "./signing.mjs";
+
+export { plist };
 
 const iosDir = join(root, "apps", "ios");
 const out = join(root, "dist", "ios");
@@ -42,48 +45,6 @@ export const PROFILES = {
 
 /** Everything `upload` needs, as the environment's secrets. */
 export const SECRETS = ["IOS_DISTRIBUTION_P12", "IOS_DISTRIBUTION_P12_PASSWORD", ...Object.values(PROFILES), "APP_STORE_CONNECT_KEY", "APP_STORE_CONNECT_KEY_ID", "APP_STORE_CONNECT_ISSUER_ID"];
-
-class Failure extends Error {}
-const fail = (message) => {
-  throw new Failure(message);
-};
-
-/** Runs a command where its output shows. */
-function run(command, args, options = {}) {
-  console.log(`> ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd: root, env, stdio: "inherit", ...options });
-  if (result.error) fail(`${command} couldn't start: ${result.error.message}`);
-  if (result.status !== 0) fail(`${command} failed.`);
-}
-
-/** Runs a command quietly and returns what it printed. A secret one's arguments stay out of any message. */
-function read(command, args, { input, secret = false } = {}) {
-  const result = spawnSync(command, args, { cwd: root, env, input, encoding: "utf8", maxBuffer: 256 << 20 });
-  if (result.error) fail(`${command} couldn't start: ${result.error.message}`);
-  if (result.status !== 0) fail(`${secret ? command : `${command} ${args.join(" ")}`} failed:\n${(result.stderr || result.stdout).trim()}`);
-  return result.stdout;
-}
-
-/** One value of a property list, as text. Undefined when it isn't there. */
-function field(path, key, input) {
-  const result = spawnSync("plutil", ["-extract", key, "raw", "-o", "-", input === undefined ? path : "-"], { input, encoding: "utf8" });
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-
-const plistOf = (path) => JSON.parse(read("plutil", ["-convert", "json", "-o", "-", path]));
-
-/** A property list's XML, for the export's options. */
-export function plist(value) {
-  const escape = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const write = (item, indent) => {
-    if (typeof item === "boolean") return `${indent}<${item}/>`;
-    if (typeof item === "string") return `${indent}<string>${escape(item)}</string>`;
-    if (Array.isArray(item)) return `${indent}<array>\n${item.map((each) => write(each, `${indent}  `)).join("\n")}\n${indent}</array>`;
-    const entries = Object.entries(item).map(([key, each]) => `${indent}  <key>${escape(key)}</key>\n${write(each, `${indent}  `)}`);
-    return `${indent}<dict>\n${entries.join("\n")}\n${indent}</dict>`;
-  };
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${write(value, "")}\n</plist>\n`;
-}
 
 /** The team the app is signed for, from the XcodeGen spec. */
 const team = () => /^\s*DEVELOPMENT_TEAM:\s*(\w+)/m.exec(readFileSync(join(iosDir, "project.yml"), "utf8"))[1];
@@ -156,32 +117,6 @@ export function profileProblem(profile, { bundle, team, certificate, now = new D
   return null;
 }
 
-/** A keychain of its own, holding the distribution certificate and its key, which codesign may use. */
-function keychainWith(work, p12, password) {
-  const keychain = join(work, "signing.keychain-db");
-  const unlock = randomBytes(32).toString("hex");
-  read("security", ["create-keychain", "-p", unlock, keychain], { secret: true });
-  const remove = () => spawnSync("security", ["delete-keychain", keychain]);
-  try {
-    read("security", ["set-keychain-settings", "-lut", "3600", keychain]);
-    read("security", ["unlock-keychain", "-p", unlock, keychain], { secret: true });
-    const file = join(work, "distribution.p12");
-    writeFileSync(file, p12, { mode: 0o600 });
-    try {
-      read("security", ["import", file, "-k", keychain, "-f", "pkcs12", "-P", password, "-T", "/usr/bin/codesign", "-T", "/usr/bin/security"], { secret: true });
-    } finally {
-      rmSync(file, { force: true });
-    }
-    read("security", ["set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", unlock, keychain], { secret: true });
-    const identity = /^\s*\d+\)\s+([0-9A-F]{40})\s+"(Apple Distribution: [^"]+)"/m.exec(read("security", ["find-identity", "-v", "-p", "codesigning", keychain]));
-    if (!identity) fail("The .p12 holds no valid Apple Distribution identity. It needs the certificate with its private key, as Xcode's Manage Certificates exports it.");
-    return { keychain, certificate: identity[1], identity: identity[2], remove };
-  } catch (error) {
-    remove();
-    throw error;
-  }
-}
-
 // --- Archiving ---
 
 /** Archives the app in Release with no signature, then signs each bundle ad hoc with its entitlements. */
@@ -238,18 +173,15 @@ function archive() {
 
 /** The certificate, profiles and App Store Connect key from the environment, put where Xcode and altool look. */
 function installSigning(work, teamId) {
-  const missing = SECRETS.filter((name) => !process.env[name]?.trim());
-  if (missing.length > 0) fail(`${missing.join(", ")} ${missing.length === 1 ? "isn't" : "aren't"} set. They're the ${ENVIRONMENT} environment's secrets: docs/RELEASES.md, "The iPhone app on TestFlight".`);
+  needSecrets(SECRETS, ENVIRONMENT, 'docs/RELEASES.md, "The iPhone app on TestFlight"');
   const undo = [];
   const remove = () => {
     for (const step of undo.reverse()) step();
   };
   try {
-    const searched = read("security", ["list-keychains", "-d", "user"]).split("\n").map((line) => line.trim().replace(/^"|"$/g, "")).filter(Boolean);
-    const signing = keychainWith(work, Buffer.from(process.env.IOS_DISTRIBUTION_P12, "base64"), process.env.IOS_DISTRIBUTION_P12_PASSWORD);
+    const signing = keychainWith(work, Buffer.from(process.env.IOS_DISTRIBUTION_P12, "base64"), process.env.IOS_DISTRIBUTION_P12_PASSWORD, "Apple Distribution");
     undo.push(signing.remove);
-    read("security", ["list-keychains", "-d", "user", "-s", signing.keychain, ...searched]);
-    undo.push(() => spawnSync("security", ["list-keychains", "-d", "user", "-s", ...searched]));
+    undo.push(searchFirst(signing.keychain));
     console.log(`Signing with ${signing.identity}.`);
 
     const folder = join(homedir(), "Library", "Developer", "Xcode", "UserData", "Provisioning Profiles");
@@ -348,61 +280,22 @@ function distribute(path, upload) {
 
 // --- The environment's secrets ---
 
-/** Asks for a line without showing it. */
-function askHidden(question) {
-  return new Promise((resolve) => {
-    const { stdin } = process;
-    let value = "";
-    process.stdout.write(question);
-    stdin.setRawMode(true);
-    stdin.setEncoding("utf8");
-    stdin.resume();
-    const onData = (chunk) => {
-      for (const char of chunk) {
-        if (char === "\u0003") process.exit(130);
-        if (char === "\r" || char === "\n") {
-          stdin.setRawMode(false);
-          stdin.pause();
-          stdin.off("data", onData);
-          process.stdout.write("\n");
-          return resolve(value);
-        }
-        value = char === "\u007f" ? value.slice(0, -1) : value + char;
-      }
-    };
-    stdin.on("data", onData);
-  });
-}
-
 /**
  * Checks the files in a folder, made as docs/RELEASES.md says, and makes them the testflight
  * environment's secrets, making the environment first if it isn't there. Nothing is shown.
  */
 async function secrets(args) {
-  const at = args.indexOf("--issuer");
-  const issuer = at >= 0 ? args[at + 1] : undefined;
-  const folder = args.find((arg, index) => !arg.startsWith("--") && index !== at + 1);
-  if (!folder || !issuer) fail("node scripts/ios-dist.mjs secrets <folder> --issuer <issuer ID>");
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(issuer)) fail(`"${issuer}" isn't an issuer ID. It's above the list of keys in App Store Connect, under Integrations.`);
-  if (!process.stdin.isTTY) fail("Run it in a terminal: it asks for the certificate's password.");
-  const dir = resolve(folder);
-  const files = readdirSync(dir);
-  const one = (what, list) => {
-    if (list.length !== 1) fail(`${dir} should hold one ${what}, and holds ${list.length === 0 ? "none" : list.join(", ")}.`);
-    return join(dir, list[0]);
-  };
-  const p12 = one("certificate as .p12", files.filter((name) => name.endsWith(".p12")));
-  const p8 = one("App Store Connect key, AuthKey_<ID>.p8", files.filter((name) => /^AuthKey_[A-Z0-9]+\.p8$/.test(name)));
-  const keyId = /^AuthKey_([A-Z0-9]+)\.p8$/.exec(basename(p8))[1];
-  const key = readFileSync(p8, "utf8").trim();
-  if (!key.startsWith("-----BEGIN PRIVATE KEY-----")) fail(`${basename(p8)} isn't a private key as App Store Connect gives it.`);
+  const { dir, issuer, files } = folderAndIssuer(args, "node scripts/ios-dist.mjs secrets <folder> --issuer <issuer ID>");
+  const p12 = one(dir, files, "certificate as .p12", (name) => name.endsWith(".p12"));
+  const key = connectKey(one(dir, files, "App Store Connect key, AuthKey_<ID>.p8", (name) => /^AuthKey_[A-Z0-9]+\.p8$/.test(name)));
+  if (!key.text.startsWith("-----BEGIN PRIVATE KEY-----")) fail(`AuthKey_${key.id}.p8 isn't a private key as App Store Connect gives it.`);
   const teamId = team();
 
   const password = await askHidden(`The password ${basename(p12)} was exported with: `);
   const work = mkdtempSync(join(tmpdir(), "zuna-ios-"));
-  const values = {};
+  const values = { IOS_DISTRIBUTION_P12: readFileSync(p12).toString("base64"), IOS_DISTRIBUTION_P12_PASSWORD: password };
   try {
-    const signing = keychainWith(work, readFileSync(p12), password);
+    const signing = keychainWith(work, readFileSync(p12), password, "Apple Distribution");
     signing.remove();
     console.log(`${basename(p12)} holds ${signing.identity}.`);
     // The file's name kept apart from the profile's own, which is whatever it was called on the developer site.
@@ -419,43 +312,16 @@ async function secrets(args) {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  Object.assign(values, { IOS_DISTRIBUTION_P12: readFileSync(p12).toString("base64"), IOS_DISTRIBUTION_P12_PASSWORD: password, APP_STORE_CONNECT_KEY: key, APP_STORE_CONNECT_KEY_ID: keyId, APP_STORE_CONNECT_ISSUER_ID: issuer });
+  Object.assign(values, { APP_STORE_CONNECT_KEY: key.text, APP_STORE_CONNECT_KEY_ID: key.id, APP_STORE_CONNECT_ISSUER_ID: issuer });
 
-  // The environment, which only nightly tags may reach. GitHub makes one with no rule by itself
-  // the first time a job names it, so the rule is checked even when it's there.
-  const environment = `repos/${REPOSITORY}/environments/${ENVIRONMENT}`;
-  const found = spawnSync("gh", ["api", environment, "--jq", ".deployment_branch_policy.custom_branch_policies"], { encoding: "utf8" });
-  if (found.status !== 0 && !/HTTP 404/.test(found.stderr)) fail(`gh couldn't read the ${ENVIRONMENT} environment:\n${found.stderr.trim()}`);
-  if (found.status !== 0 || found.stdout.trim() !== "true") {
-    read("gh", ["api", "-X", "PUT", environment, "-F", "deployment_branch_policy[protected_branches]=false", "-F", "deployment_branch_policy[custom_branch_policies]=true"]);
-  }
-  const rules = read("gh", ["api", `${environment}/deployment-branch-policies`, "--jq", '.branch_policies[] | "\\(.type) \\(.name)"']).split(/\r?\n/);
-  if (!rules.includes(`tag ${TAGS}`)) read("gh", ["api", "-X", "POST", `${environment}/deployment-branch-policies`, "-f", `name=${TAGS}`, "-f", "type=tag"]);
-  const others = rules.filter((rule) => rule && rule !== `tag ${TAGS}`);
-  if (others.length > 0) fail(`The ${ENVIRONMENT} environment also lets ${others.join(", ")} reach it. Remove ${others.length === 1 ? "that rule" : "those rules"} in the repository's settings, then run this again.`);
-  console.log(`The ${ENVIRONMENT} environment of ${REPOSITORY} is there, and only tags named ${TAGS} reach it.`);
-  for (const name of SECRETS) {
-    const set = spawnSync("gh", ["secret", "set", name, "--env", ENVIRONMENT, "--repo", REPOSITORY], { input: values[name], encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
-    if (set.status !== 0) fail(`gh couldn't set ${name}. The ones before it are set: run this again once it can.`);
-  }
+  holdEnvironment(ENVIRONMENT, TAGS);
+  setSecrets(ENVIRONMENT, Object.fromEntries(SECRETS.map((name) => [name, values[name]])));
   console.log(
     `\nSet the ${SECRETS.length} secrets of the ${ENVIRONMENT} environment. The next nightly that changes the iPhone app goes to TestFlight.\n` +
-      `Delete ${basename(p12)} and ${basename(p8)} now: GitHub has them, the certificate's key is in your keychain too, and a lost one is replaced by revoking it and making a new one.`,
+      `Delete ${basename(p12)} and AuthKey_${key.id}.p8 now: GitHub has them, the certificate's key is in your keychain too, and a lost one is replaced by revoking it and making a new one.`,
   );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [command, ...args] = process.argv.slice(2);
-  const commands = { archive: () => archive(), upload: () => distribute(args[0], true), export: () => distribute(args[0], false), secrets: () => secrets(args) };
-  if (!commands[command]) {
-    console.error(`There's no command "${command ?? ""}" here. It takes ${Object.keys(commands).join(", ")}.`);
-    process.exit(1);
-  }
-  try {
-    await commands[command]();
-  } catch (error) {
-    if (!(error instanceof Failure)) throw error;
-    console.error(error.message);
-    process.exit(1);
-  }
+  await main({ archive: () => archive(), upload: ([archived]) => distribute(archived, true), export: ([archived]) => distribute(archived, false), secrets }, process.argv.slice(2));
 }

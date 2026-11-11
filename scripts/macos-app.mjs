@@ -10,6 +10,10 @@
 //                                   build it, then start it as macOS starts an app, with `open`
 //   node scripts/macos-app.mjs build
 //                                   a release build in dist/macos/Zuna.app
+//   node scripts/macos-app.mjs release
+//                                   that, signed ad hoc, with its DMG's backgrounds beside it, for
+//                                   scripts/macos-dist.mjs to sign with the Developer ID, as
+//                                   .github/workflows/release.yml does
 //   node scripts/macos-app.mjs dist
 //                                   that, signed with the keychain's Developer ID, notarized and
 //                                   stapled, with a DMG and a zip of it beside it
@@ -25,23 +29,28 @@
 // credentials `xcrun notarytool store-credentials zuna-notary` saved there, by that name only.
 
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
+import { BACKGROUNDS, packageApp, signApp } from "./macos-dist.mjs";
+import { labelOf } from "./release.mjs";
+import { plist } from "./signing.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
-const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "dist", "bundle"]);
-const release = command === "build" || command === "dist" || flags.includes("--release");
+const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "release", "dist", "bundle"]);
+const release = command === "build" || command === "release" || command === "dist" || flags.includes("--release");
 const testControl = flags.includes("--test-control");
 
 const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the other systems' builds keep theirs, and kept between checkouts.
 const target = join(homedir(), "Library", "Caches", "zuna-desktop-target");
 const notaryProfile = "zuna-notary";
+// The version, build number and channel a release build is stamped with, and named by.
+const stamp = appStamp();
+const label = labelOf({ version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD });
 
 // A release people download is signed with the Developer ID, as only that can be notarized.
 const developerId = command === "dist" ? identity("Developer ID Application") : null;
@@ -63,6 +72,13 @@ function identity(kind) {
   const found = spawnSync("security", ["find-identity", "-v", "-p", "codesigning"], { encoding: "utf8" }).stdout ?? "";
   const line = found.split("\n").find((entry) => entry.includes(`"${kind}:`));
   return line?.match(/\b([0-9A-F]{40})\b/)?.[1] ?? null;
+}
+
+/** The Apple Development identity development builds are signed with, saying so when there's none. */
+function developmentIdentity() {
+  const found = identity("Apple Development");
+  if (!found) console.warn("> no Apple Development identity in the keychain, so this is signed ad hoc: macOS asks again for each permission and the device key after every build");
+  return found;
 }
 
 /** The app's icon, from the desktop's own sizes, as macOS takes it from a bundle. */
@@ -89,35 +105,12 @@ function icns(resources) {
   if (made.status !== 0) throw new Error("iconutil couldn't make the icon");
 }
 
-/** Plist XML for a value of strings, booleans, arrays and objects. */
-function plist(value, indent = "") {
-  if (typeof value === "boolean") return `${indent}<${value}/>`;
-  if (Array.isArray(value)) return `${indent}<array>\n${value.map((item) => plist(item, `${indent}  `)).join("\n")}\n${indent}</array>`;
-  if (typeof value === "object") {
-    const entries = Object.entries(value).map(([key, item]) => `${indent}  <key>${key}</key>\n${plist(item, `${indent}  `)}`);
-    return `${indent}<dict>\n${entries.join("\n")}\n${indent}</dict>`;
-  }
-  const text = String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return `${indent}<string>${text}</string>`;
-}
-
-/** A plist file's whole text, as Info.plist and entitlements are written. */
-function plistFile(value) {
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${plist(value)}\n</plist>\n`;
-}
-
-/** Writes entitlements for codesign where the build keeps its files, and gives their path. */
-function entitlements(name, value) {
-  const path = join(target, `${name}.entitlements`);
-  writeFileSync(path, plistFile(value));
-  return path;
-}
-
 /**
- * Wraps the program in an app bundle, with the media library beside it, and signs it, with the
- * Developer ID when it's given and the Apple Development identity otherwise.
+ * Wraps the program in an app bundle, with the media library beside it, and signs it with an
+ * identity, or ad hoc without one. A release build carries its build number as its bundle's
+ * version, and a development build the version alone.
  */
-function bundle(program, media, out, { name, id, developerId = null }) {
+function bundle(program, media, out, { name, id, signer, stamped = false }) {
   const app = join(out, `${name}.app`);
   rmSync(app, { recursive: true, force: true });
   const macos = join(app, "Contents", "MacOS");
@@ -147,7 +140,7 @@ function bundle(program, media, out, { name, id, developerId = null }) {
     CFBundleName: name,
     CFBundlePackageType: "APPL",
     CFBundleShortVersionString: version,
-    CFBundleVersion: version,
+    CFBundleVersion: stamped ? stamp.ZUNA_BUILD : version,
     CFBundleURLTypes: [{ CFBundleURLName: "Zuna invite link", CFBundleURLSchemes: ["zuna"] }],
     LSApplicationCategoryType: "public.app-category.social-networking",
     LSMinimumSystemVersion: "14.2",
@@ -159,140 +152,23 @@ function bundle(program, media, out, { name, id, developerId = null }) {
     NSLocationUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
     NSLocationWhenInUseUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
   };
-  writeFileSync(join(app, "Contents", "Info.plist"), plistFile(info));
+  writeFileSync(join(app, "Contents", "Info.plist"), plist(info));
   writeFileSync(join(app, "Contents", "PkgInfo"), "APPL????");
-
-  const signer = developerId ?? identity("Apple Development");
-  if (!signer) console.warn("> no Apple Development identity in the keychain, so this is signed ad hoc: macOS asks again for each permission and the device key after every build");
-  // Under the hardened runtime, which notarizing asks for, with the entitlements that let it reach
-  // the microphone, the camera and the location. A release's signature is timestamped, as
-  // notarizing also asks, and a development build's may be debugged. An ad hoc signature has no
-  // team for the runtime to check the libraries the app loads against, so it goes without.
-  const options = signer ? ["--options", "runtime", developerId ? "--timestamp" : "--timestamp=none"] : ["--timestamp=none"];
-  const debuggable = developerId ? {} : { "com.apple.security.get-task-allow": true };
-  // Audio input for the microphone, and for a share's sound, read from a tap's aggregate device.
-  const appRights = entitlements("zuna", {
-    "com.apple.security.device.audio-input": true,
-    "com.apple.security.device.camera": true,
-    "com.apple.security.personal-information.location": true,
-    ...debuggable,
-  });
-  const sign = (path, rights) => {
-    const signed = spawnSync("codesign", ["--force", "--sign", signer ?? "-", ...options, ...(signer && rights ? ["--entitlements", rights] : []), path], { stdio: ["ignore", "ignore", "inherit"] });
-    if (signed.status !== 0) throw new Error(`codesign couldn't sign ${path}`);
-  };
-  // What's inside first, then the bundle, which seals them.
-  for (const name of linked) sign(join(frameworks, name));
-  sign(app, appRights);
+  signApp(app, signer, { distribution: false });
   return app;
 }
 
-/** Zips a bundle as `ditto` keeps one, with its links and extended attributes, so that its signature holds. */
-function zip(app, out) {
-  rmSync(out, { force: true });
-  run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, out]);
-}
-
-/** Sends a zip or a DMG to Apple's notary service and waits for its answer, with Apple's log if it's refused. */
-function notarize(file) {
-  console.log(`> notarizing ${file}, which takes a few minutes`);
-  const sent = spawnSync("xcrun", ["notarytool", "submit", file, "--keychain-profile", notaryProfile, "--wait", "--output-format", "json"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
-  let answer = {};
-  try {
-    answer = JSON.parse((sent.stdout ?? "").trim().split("\n").at(-1));
-  } catch {}
-  if (answer.status === "Accepted") return;
-  if (answer.id) spawnSync("xcrun", ["notarytool", "log", answer.id, "--keychain-profile", notaryProfile], { stdio: "inherit" });
-  else console.error(`Notarizing takes the credentials saved in the keychain as "${notaryProfile}". Save them once with:\n\n  xcrun notarytool store-credentials ${notaryProfile}\n`);
-  console.error(`Apple's notary service didn't accept ${file}${answer.status ? `: ${answer.status}` : ""}.`);
-  process.exit(1);
-}
-
 /**
- * dmgbuild, which lays out a DMG's window as electron-builder's were: the bundle of it with its
- * own Python that electron-builder publishes, fetched once and pinned by the hash its dmg-builder
- * 26.18 pins.
+ * The DMG's window: apps/desktop/resources/dmg-background.svg drawn at 1× and 2× in the app's
+ * Inter, beside the app, where scripts/macos-dist.mjs takes them from.
  */
-async function dmgbuild() {
-  const name = "dmgbuild-bundle-arm64-75c8a6c.tar.gz";
-  const hash = "793404d0c96687e27d5ee40a668d498c92e36a64d6c2906df511031adb33cbeb";
-  const dir = join(target, "dmgbuild-75c8a6c");
-  const program = join(dir, "dmgbuild");
-  if (existsSync(program)) return program;
-  const response = await fetch(`https://github.com/electron-userland/electron-builder-binaries/releases/download/dmg-builder@1.2.5/${name}`);
-  if (!response.ok) throw new Error(`dmgbuild: HTTP ${response.status}`);
-  const archive = Buffer.from(await response.arrayBuffer());
-  if (createHash("sha256").update(archive).digest("hex") !== hash) throw new Error("dmgbuild's bundle isn't the one pinned.");
-  const unpacking = `${dir}.part`;
-  rmSync(unpacking, { recursive: true, force: true });
-  mkdirSync(unpacking, { recursive: true });
-  writeFileSync(join(unpacking, name), archive);
-  run("tar", ["-xzf", join(unpacking, name), "-C", unpacking]);
-  rmSync(join(unpacking, name));
-  renameSync(unpacking, dir);
-  return program;
-}
-
-/**
- * The DMG's window: apps/desktop/resources/dmg-background.svg drawn at 1× and 2×, which dmgbuild
- * makes one TIFF of, with Zuna and Applications where its cards are. Gives the settings' path.
- */
-function dmgLayout(app, folder) {
-  rmSync(folder, { recursive: true, force: true });
-  mkdirSync(folder, { recursive: true });
+function drawBackgrounds(folder) {
   const fonts = join(root, "apps", "desktop", "assets", "fonts");
   const font = { fontFiles: [join(fonts, "Inter-Medium.ttf")], loadSystemFonts: false, defaultFontFamily: "Inter" };
   const svg = readFileSync(join(root, "apps", "desktop", "resources", "dmg-background.svg"));
-  for (const [file, width] of [["background.png", 660], ["background@2x.png", 1320]]) {
+  for (const [file, width] of [[BACKGROUNDS[0], 660], [BACKGROUNDS[1], 1320]]) {
     writeFileSync(join(folder, file), new Resvg(svg, { fitTo: { mode: "width", value: width }, font }).render().asPng());
   }
-  const settings = join(folder, "settings.json");
-  writeFileSync(
-    settings,
-    JSON.stringify({
-      title: "Zuna",
-      icon: join(app, "Contents", "Resources", "zuna.icns"),
-      background: join(folder, "background.png"),
-      "icon-size": 128,
-      "text-size": 12,
-      window: { position: { x: 400, y: 240 }, size: { width: 660, height: 400 } },
-      format: "ULFO",
-      contents: [
-        { x: 170, y: 170, type: "file", path: app, hide_extension: true },
-        { x: 490, y: 170, type: "link", path: "/Applications" },
-      ],
-    }),
-  );
-  return settings;
-}
-
-/**
- * Notarizes the release and staples Apple's ticket to it, then makes a DMG of it to drag into
- * Applications, signed, notarized and stapled too, and a zip, as an update would be fetched.
- */
-async function packages(app, dist) {
-  run("codesign", ["--verify", "--strict", "--deep", "--verbose=2", app]);
-  // The app first, so that the one in the DMG carries its ticket and opens offline too.
-  const upload = join(target, "Zuna-notarize.zip");
-  zip(app, upload);
-  notarize(upload);
-  rmSync(upload, { force: true });
-  run("xcrun", ["stapler", "staple", app]);
-  // The DMG: the app beside a link to Applications, on its background.
-  const image = join(dist, `Zuna-${version}-arm64.dmg`);
-  const layout = join(target, "dmg");
-  rmSync(image, { force: true });
-  run(await dmgbuild(), ["-s", dmgLayout(app, layout), "Zuna", image]);
-  rmSync(layout, { recursive: true, force: true });
-  run("codesign", ["--sign", developerId, "--timestamp", image]);
-  notarize(image);
-  run("xcrun", ["stapler", "staple", image]);
-  const archive = join(dist, `Zuna-${version}-arm64.zip`);
-  zip(app, archive);
-  // What Gatekeeper decides about each, as it would for a download.
-  run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
-  run("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", image]);
-  console.log(`> wrote ${image} and ${archive}`);
 }
 
 checkMetal();
@@ -304,23 +180,35 @@ await ensureWebrtcSys(nativeAppDeps);
 bundleCore();
 
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];
-run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : appStamp()) } });
+run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : stamp) } });
 const program = join(target, release ? "release" : "debug", "zuna");
 // The app's media through FFmpeg, as a library of its own (apps/desktop/media-ffmpeg).
 run("cargo", ["build", ...(release ? ["--release"] : [])], { cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
 const media = join(target, release ? "release" : "debug", "libzuna_media_ffmpeg.dylib");
 
-if (command === "build" || command === "dist") {
+if (command === "build" || command === "release" || command === "dist") {
   const dist = join(root, "dist", "macos");
   mkdirSync(dist, { recursive: true });
-  const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop", developerId });
+  // A build to copy into Applications by hand is signed with the Apple Development identity. A
+  // release is signed ad hoc here, and with the Developer ID after.
+  const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop", signer: command === "build" ? developmentIdentity() : null, stamped: true });
+  if (command !== "build") drawBackgrounds(dist);
   console.log(`> wrote ${app}`);
-  if (command === "dist") await packages(app, dist);
+  if (command === "dist") {
+    signApp(app, developerId, { distribution: true });
+    const hint = `Notarizing takes the credentials saved in the keychain as "${notaryProfile}". Save them once with:\n\n  xcrun notarytool store-credentials ${notaryProfile}\n`;
+    try {
+      await packageApp(app, { signer: developerId, auth: ["--keychain-profile", notaryProfile], hint, backgrounds: dist, out: dist, label, zip: true });
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+  }
 } else if (command === "bundle") {
-  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
+  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev", signer: developmentIdentity() });
   console.log(`> wrote ${app}`);
 } else {
-  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
+  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev", signer: developmentIdentity() });
   const log = join(target, "zuna-dev.log");
   writeFileSync(log, "");
   const dataDir = process.env.ZUNA_DATA_DIR ?? devNativeAppData;

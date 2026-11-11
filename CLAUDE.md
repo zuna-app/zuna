@@ -29,7 +29,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 
 ## Releases
 
-Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer and the Linux packages. A nightly that changes the iPhone app also sends it to TestFlight, for the team's own testers, from `release.yml` and `scripts/ios-dist.mjs`: never upload one by hand, as its build number would be the next nightly's. `docs/RELEASES.md` says how all of it works.
+Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer, the Linux packages and the macOS DMG, signed with the Developer ID and notarized on CI (`scripts/macos-dist.mjs`). A nightly that changes the iPhone app also sends it to TestFlight, for the team's own testers, from `release.yml` and `scripts/ios-dist.mjs`: never upload one by hand, as its build number would be the next nightly's. `docs/RELEASES.md` says how all of it works.
 
 A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.1.0`, which becomes that release.
 
@@ -64,7 +64,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run build:server`, `npm run build:web` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, add its installer beside it, or install it on this computer with that installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run dist:windows`, `npm run install:windows` |
 | The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
-| The same app on macOS, on Apple silicon, always as a bundle under the hardened runtime, signed with this Mac's Apple Development identity and started with `open`: a debug build as "Zuna Dev", or a release one in `dist/macos/Zuna.app`; or that signed with the keychain's Developer ID, notarized and stapled, with a DMG and a zip beside it, after `xcrun notarytool store-credentials zuna-notary` once | `npm run dev:macos`, `npm run build:macos`, `npm run dist:macos` |
+| The same app on macOS, on Apple silicon, always as a bundle under the hardened runtime, signed with this Mac's Apple Development identity and started with `open`: a debug build as "Zuna Dev", or a release one in `dist/macos/Zuna.app`; or that signed with the keychain's Developer ID, notarized and stapled, with a DMG and a zip beside it, after `xcrun notarytool store-credentials zuna-notary` once, as `scripts/macos-dist.mjs` does for releases on CI | `npm run dev:macos`, `npm run build:macos`, `npm run dist:macos` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 

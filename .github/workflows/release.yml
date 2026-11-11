@@ -4,13 +4,12 @@ on:
   push:
     tags: ["v*"]
 
-# Releases the native app, for Windows and Linux, which scripts/release.mjs
-# tagged: v1.2.3 is a stable release, and v1.2.3-nightly.1108 a nightly. A
-# nightly also sends the iPhone app to TestFlight. Each app is built only when
-# something it's built from changed since it last shipped. macOS isn't built
-# here yet: it needs a Developer ID and notarizing in CI's secrets.
-# docs/RELEASES.md says how it all fits together. The server, zuna-web and their
-# images aren't released here yet (docs/ROADMAP.md).
+# Releases the native app, for Windows, Linux and macOS, which
+# scripts/release.mjs tagged: v1.2.3 is a stable release, and
+# v1.2.3-nightly.1108 a nightly. A nightly also sends the iPhone app to
+# TestFlight. Each app is built only when something it's built from changed
+# since it last shipped. docs/RELEASES.md says how it all fits together. The
+# server, zuna-web and their images aren't released here yet (docs/ROADMAP.md).
 #
 # Nothing runs with more than it needs. Each app is built by a job that holds no
 # secret and can't publish anything, and the jobs that sign and publish run no
@@ -140,11 +139,99 @@ jobs:
           path: dist/linux/packages/*
           if-no-files-found: error
 
+  # The macOS app for Apple silicon, built in Release with FFmpeg from its
+  # source, wrapped in its bundle, signed ad hoc, with its DMG's backgrounds
+  # drawn beside it. Holds no secret: the notarize job signs it. Runs on macOS
+  # 27 with Xcode 27, like the iPhone app's jobs.
+  macos:
+    needs: [plan]
+    if: ${{ needs.plan.outputs.desktop == 'true' }}
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      ZUNA_BUILD: ${{ needs.plan.outputs.build }}
+      ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      # What ci.yml's macos job saved on main, as for Windows.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock') }}
+          restore-keys: macos-cargo-
+      # GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once the toolchain is there.
+      - name: Get Xcode's Metal Toolchain
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      - run: npm ci
+      - run: node scripts/macos-app.mjs release
+      # Zipped by ditto, which keeps what upload-artifact wouldn't: the executables' mode and the bundle's links.
+      - run: ditto -c -k --keepParent dist/macos/Zuna.app dist/macos/Zuna.app.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: macos-build
+          path: |
+            dist/macos/Zuna.app.zip
+            dist/macos/dmg-background.png
+            dist/macos/dmg-background@2x.png
+          if-no-files-found: error
+
+  # Signs the app with the Developer ID under the hardened runtime, has Apple
+  # notarize it and staples the ticket, then makes its DMG, signed, notarized
+  # and stapled too. Runs in the macos environment, which every release's tag
+  # reaches and which holds the Developer ID's certificate and a notary key.
+  # Builds nothing, and runs nothing from npm or Cargo: only Apple's tools,
+  # scripts/macos-dist.mjs, which needs no npm install, and dmgbuild, pinned by
+  # its hash.
+  notarize:
+    needs: [plan, macos]
+    environment: macos
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      ZUNA_LABEL: ${{ needs.plan.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: macos-build
+          path: built
+      - run: ditto -x -k built/Zuna.app.zip built
+      - name: Sign, notarize and package
+        env:
+          MACOS_DEVELOPER_ID_P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: node scripts/macos-dist.mjs sign built/Zuna.app built
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: macos
+          path: dist/macos/Zuna-${{ needs.plan.outputs.label }}-arm64.dmg
+          if-no-files-found: error
+
   # Signs the manifest and publishes. A nightly doesn't wait for the checks,
   # which only run for a stable release.
   publish:
-    needs: [plan, checks, windows, linux]
-    if: ${{ !cancelled() && needs.plan.outputs.desktop == 'true' && needs.windows.result == 'success' && needs.linux.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
+    needs: [plan, checks, windows, linux, notarize]
+    if: ${{ !cancelled() && needs.plan.outputs.desktop == 'true' && needs.windows.result == 'success' && needs.linux.result == 'success' && needs.notarize.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
     environment: ${{ needs.plan.outputs.environment }}
     runs-on: ubuntu-latest
     permissions:
@@ -166,6 +253,10 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: linux
+          path: artifacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: macos
           path: artifacts
       - name: Write and sign the manifest
         env:

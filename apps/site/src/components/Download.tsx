@@ -1,6 +1,6 @@
 import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useState } from "react";
-import { detectSystem, downloadsFor, SYSTEM_NAMES, type System } from "../downloads";
+import { detectSystem, downloadsFor, MAC_RELEASED, SYSTEM_NAMES, type System } from "../downloads";
 
 /** The visitor's system, once the page can ask. The prerendered page shows the plain button. */
 export function useSystem(): System | null {
@@ -12,7 +12,7 @@ export function useSystem(): System | null {
 export function DownloadButton({ size = "large" }: { size?: "large" | "small" }) {
   const system = useSystem();
   const className = `button button-primary ${size === "small" ? "button-small" : ""}`;
-  if (system === "windows" || system === "linux") {
+  if (system === "windows" || system === "linux" || (system === "mac" && MAC_RELEASED)) {
     const [first] = downloadsFor(system);
     return (
       <a className={className} href={first!.url}>

@@ -59,6 +59,8 @@ export const APP_PATHS = [
   "scripts/linux-app.mjs",
   "scripts/linux-build-deps.sh",
   "scripts/macos-app.mjs",
+  "scripts/macos-dist.mjs",
+  "scripts/signing.mjs",
   "scripts/lib.mjs",
   "scripts/ffmpeg.mjs",
   "scripts/webrtc-sys.mjs",
@@ -85,6 +87,7 @@ export const IOS_PATHS = [
   "scripts/lib.mjs",
   "scripts/check-ios-release.mjs",
   "scripts/ios-dist.mjs",
+  "scripts/signing.mjs",
   "scripts/release.mjs",
   ".github/workflows/release.yml",
 ];
