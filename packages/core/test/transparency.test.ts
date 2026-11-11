@@ -13,7 +13,7 @@ import { equalBytes, fromHex, toBase64, toHex, utf8 } from "../src/encoding";
 import { Frontier, bodyFits, bodyHash, fromWireHead, headInput, headSigned, leafHash, linkHead, nameTag, parseBody, parseLinkHead, readRecord, toWireHead, userTag } from "../src/transparency";
 import { TestApp, loadCrypto, sendKeyOf, sleep, waitFor } from "./helpers";
 import { appendToLog, b64, entryOf, harmless, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
-import { alice, apiOf, groupWith, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
+import { alice, apiOf, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer();
 
@@ -176,6 +176,18 @@ describe("watching your own account", () => {
     expect(securityEvents(dave).slice(before).some((event) => event.message.includes("A new device just signed in"))).toBe(true);
     // Its own list never had it.
     expect((await apiOf(dave).user(dave.userId)).devices.some((device) => device.id === deviceId)).toBe(false);
+  });
+
+  it("tells the account's other devices when it signs in on another", async () => {
+    const dave = await person("dave");
+    expect(await caughtUp(dave)).toBe(true);
+    const phone = await new TestApp("dave's phone").open();
+    open.push(phone);
+    await phone.login(server.url, dave.session.getSelf().username);
+    await waitFor(() => warned(dave, "A new device just signed in"), "the laptop to hear of the phone");
+    // The phone came after itself, so it's told nothing.
+    expect(await caughtUp(phone)).toBe(true);
+    expect(warned(phone, "A new device just signed in")).toBe(false);
   });
 
   it("says nothing of devices from before this one", async () => {
