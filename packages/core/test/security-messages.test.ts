@@ -7,6 +7,7 @@ import { decode } from "../src/api";
 import { createCertificate, frameSigned, readSigned, randomId, sealEnvelope, sealSignal, sealVaultItem, subkey } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { TestApp, waitFor, sendKeyOf } from "./helpers";
+import { appendToLog, b64, entryOf } from "./log-setup";
 import {
   server,
   alice,
@@ -121,6 +122,8 @@ describe("a device key someone else's certificate names (Z3-07)", () => {
     const annKey = sessionOf(ann).account.devicePublic as Uint8Array;
     const device = randomId();
     const certificate = createCertificate(sessionOf(mal).account.core.identitySecret, { userId: mal.userId, deviceId: device, signatureKey: annKey, generation: 0 });
+    // The server logs it too, as it has to for anyone to count it.
+    appendToLog({ v: 1, t: "device", user: mal.userId, device, key: b64(annKey), cert: entryOf(certificate), enroll: entryOf(new Uint8Array(0)), seal: entryOf(new Uint8Array(8)) });
     withServerDatabase((db) => {
       db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at) VALUES(?, ?, ?, ?, ?, ?)").run(device, mal.userId, certificate, annKey, Date.now(), Date.now());
       const row = db.prepare("SELECT data FROM reactions WHERE group_id = ? AND message_id = ?").get(groupId, id) as { data: Uint8Array };

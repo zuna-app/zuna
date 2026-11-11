@@ -21,6 +21,11 @@ export interface TrustManifest {
   /** Up to which generation of their keys each person's verification holds. */
   trust: Record<string, number>;
   prefs?: unknown;
+  /**
+   * The key the server's log of keys is signed with, and the newest head of it the writing device
+   * held, so that a new device of this account starts from what its others checked.
+   */
+  log?: { key: string; era: number; size: number; root: string };
 }
 
 /** The most of a manifest one vault item holds: with its header and once sealed, well under the server's 256 KiB for an item. */
@@ -53,7 +58,12 @@ export function parseManifest(value: unknown): TrustManifest | null {
     !!item && typeof item === "object" && generation((item as { gen?: unknown }).gen) && typeof (item as { hash?: unknown }).hash === "string";
   if (!manifest || !Number.isSafeInteger(manifest.v) || manifest.v! < 1 || !record(manifest.pins, key) || !record(manifest.verified, key)) return null;
   if (!record(manifest.chains, position) || !record(manifest.trust, generation)) return null;
-  return { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, chains: manifest.chains, trust: manifest.trust, prefs: manifest.prefs };
+  const parsed: TrustManifest = { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, chains: manifest.chains, trust: manifest.trust, prefs: manifest.prefs };
+  const log = manifest.log;
+  if (log && typeof log === "object" && key(log.key) && generation(log.era) && log.era > 0 && generation(log.size) && key(log.root)) {
+    parsed.log = { key: log.key, era: log.era, size: log.size, root: log.root };
+  }
+  return parsed;
 }
 
 /**

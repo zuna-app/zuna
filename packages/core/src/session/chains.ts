@@ -7,6 +7,17 @@ import { equalBytes, fromBase64, toBase64 } from "../encoding";
 import { CONTINUITY_MS, rotationTiming, type IdentityState, type SealedIdentityState, signedFromApi } from "./shared";
 import { SessionVault } from "./vault";
 
+/** What a certificate counts for (`certificateStanding`). */
+export interface Standing {
+  cert: DeviceCertificate;
+  carried: boolean;
+  logged: boolean;
+  gone: boolean;
+}
+
+/** How long before links the log names, and the server hasn't handed over, are asked for again. */
+const CHAIN_RETRY_MS = 30_000;
+
 export abstract class SessionChains extends SessionVault {
   // --- Account generations ---
 
@@ -55,14 +66,25 @@ export abstract class SessionChains extends SessionVault {
    * the generation it names (the first key, for the very first), and if that's an
    * older one, its device has been on the list of every link since. That list is
    * what makes a certificate someone signs later with a stolen old key worth
-   * nothing. Null if it isn't signed, or is from further along than is known.
+   * nothing. And the server's log of keys names that device for that account, with
+   * that signing key and a certificate of that hash, so what it shows one person it
+   * shows everyone, the account's own devices too. `gone` is the log saying the device
+   * was removed, whatever the server lists, which makes it revoked, not false. Null if it
+   * isn't signed, is from further along than is known, or the log, read as far as the
+   * server says it goes, doesn't name it. `logged` is false while this device can't
+   * tell, when only what it counted before counts.
    */
-  protected certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): { cert: DeviceCertificate; carried: boolean } | null {
+  protected certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): Standing | null {
     const chain = this.chainOf(userId);
-    const key = [userId, toBase64(root), ...chain.map((link) => toBase64(link.hash)), toBase64(certificate)].join("|");
+    const key = [userId, toBase64(root), ...chain.map((link) => toBase64(link.hash)), toBase64(certificate), this.logVersion(userId)].join("|");
     const known = this.standingCache.get(key);
     if (known !== undefined) return known;
-    const standing = this.workOutStanding(root, chain, certificate);
+    let standing: Standing | null = null;
+    const signed = this.workOutStanding(root, chain, certificate);
+    if (signed) {
+      const logged = this.logStanding(userId, signed.cert.deviceId, signed.cert.signatureKey, certificate);
+      if (logged !== "absent") standing = { ...signed, logged: logged !== "unknown", gone: logged === "gone" };
+    }
     if (this.standingCache.size >= 4096) this.standingCache.clear();
     this.standingCache.set(key, standing);
     return standing;
@@ -172,6 +194,10 @@ export abstract class SessionChains extends SessionVault {
           prevIdentity: before?.identity ?? root,
         });
         if (!link) return this.noteFork(userId);
+        // The log names each generation's link, and one it names otherwise is a second story.
+        const logged = this.loggedLink(userId, link.gen);
+        if (logged && !equalBytes(logged, link.hash)) return this.noteFork(userId);
+        if (!logged && this.logCurrent()) break;
         const state = this.identityState(userId);
         if (state.known_generation === link.gen && state.known_hash && !equalBytes(state.known_hash, link.hash)) return this.noteFork(userId);
         // What was verified was the key this replaces, so it only carries over from a
@@ -186,6 +212,9 @@ export abstract class SessionChains extends SessionVault {
       }
       if (!advanced || wires.length < 200) break;
     }
+    // A generation the log has a link for that the server won't hand over is known to be missing,
+    // and asked for again, rather than its devices' new certificates being taken for false ones.
+    if (this.loggedGeneration(userId) > this.chainOf(userId).length) this.askForChainAgain(userId);
     if (!accepted) return;
     this.applyUser(await this.api.user(userId));
     if (lapsed) {
@@ -197,6 +226,20 @@ export abstract class SessionChains extends SessionVault {
     this.emitConversations();
     await this.saveTrust().catch(() => undefined);
   }
+
+  /** Asks for someone's links again in a while, as the log says there's one this device hasn't been given. */
+  protected askForChainAgain(userId: string): void {
+    if (this.chainRetries.has(userId) || this.stopped) return;
+    this.chainRetries.set(
+      userId,
+      setTimeout(() => {
+        this.chainRetries.delete(userId);
+        void this.followChain(userId).catch((error) => console.warn("[zuna] following a chain of keys", error));
+      }, CHAIN_RETRY_MS),
+    );
+  }
+
+  protected chainRetries = new Map<string, ReturnType<typeof setTimeout>>();
 
   protected hasContinuity(userId: string, deviceId: string): boolean {
     const row = this.db.get<{ at: Uint8Array }>("SELECT at FROM device_first_leaf WHERE user_id = ? AND device_id = ?", [userId, deviceId]);
@@ -275,15 +318,16 @@ export abstract class SessionChains extends SessionVault {
   protected certifiedKey(device: ApiDevice): Uint8Array | null {
     const { userId, core } = this.account;
     const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
-    if (!standing?.carried || standing.cert.userId !== userId || standing.cert.deviceId !== device.id) return null;
+    if (!standing?.carried || standing.gone || standing.cert.userId !== userId || standing.cert.deviceId !== device.id) return null;
     return equalBytes(standing.cert.signatureKey, decode(device.signature_key)) ? standing.cert.signatureKey : null;
   }
 
   /**
    * What to seal this account's key to for one of its devices, if that device signed
-   * it and it isn't older than what the device has said before. A server could
+   * it and it's the newest the log of keys has for that device. A server could
    * otherwise offer an old one again, and a copy of the device taken back then would
-   * go on working.
+   * go on working. While the log can't be read, it's held to what this device has
+   * seen, which one that's never seen a newer one can't tell.
    */
   protected sealKeyOf(device: ApiDevice, key: Uint8Array): Uint8Array | null {
     const { userId } = this.account;
@@ -293,10 +337,12 @@ export abstract class SessionChains extends SessionVault {
     const newest = seen[device.id] ?? -1;
     const generation = device.seal_generation;
     if (generation == null || !verifySealProof(key, userId, device.id, generation, seal, decode(device.seal_proof))) return null;
-    if (generation < newest) {
+    const logged = this.loggedSealKey(device, seal, generation);
+    if (logged === "older" || (logged === "unknown" && generation < newest)) {
       this.warnOnce(`old-seal/${device.id}/${generation}`, "The server offered an old key for one of your devices. It wasn't used.", userId);
       return null;
     }
+    if (logged === "unlogged") return null;
     if (generation > newest) this.setKv("seal_seen", { ...seen, [device.id]: generation });
     return seal;
   }

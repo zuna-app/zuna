@@ -2,7 +2,7 @@
 //
 // ServerSession is one class, written in parts that each extend the one before:
 // SessionBase, SessionLocal (local.ts), SessionVault (vault.ts), SessionChains (chains.ts),
-// SessionRotation (rotation.ts), SessionGroups (groups.ts), SessionJoining (joining.ts),
+// SessionDirectory (directory.ts), SessionRotation (rotation.ts), SessionGroups (groups.ts), SessionJoining (joining.ts),
 // SessionChanges (changes.ts), SessionIngest (ingest.ts), SessionConversations
 // (conversations.ts), SessionSending (sending.ts), SessionManagement (management.ts),
 // SessionChannels (channels.ts), SessionServer (server.ts), SessionLifecycle (lifecycle.ts),
@@ -13,7 +13,6 @@
 import * as wasm from "@zuna/crypto";
 import { Api, type ApiCall, type ApiChannel, type ApiDevice, type ApiGroup, type ApiMessage, type ApiSound, type ApiUser, type ApiVoiceState } from "../api";
 import type { AccountState } from "../account";
-import type { DeviceCertificate } from "../crypto";
 import type { Link } from "../generations";
 import { toBase64, utf8 } from "../encoding";
 import type { LocalDb } from "../db";
@@ -25,6 +24,8 @@ import { Socket, type SocketFrame } from "../socket";
 import type { SignedRoster } from "../roster";
 import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
 import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex } from "./shared";
+import type { LogStanding } from "./directory";
+import type { Standing } from "./chains";
 
 export abstract class SessionBase {
   readonly api: Api;
@@ -115,7 +116,7 @@ export abstract class SessionBase {
    * leaf of the tree many times, each a signature check, and the answer can't differ for the same
    * inputs, so nothing about it can go stale.
    */
-  protected standingCache = new Map<string, { cert: DeviceCertificate; carried: boolean } | null>();
+  protected standingCache = new Map<string, Standing | null>();
   protected rosters = new Map<string, { text: string; signed: SignedRoster | null }>();
   /** Leaves already warned about, so one ghost makes one warning. */
   protected warnedLeaves = new Set<string>();
@@ -235,11 +236,26 @@ export abstract class SessionBase {
   protected abstract loadChains(): void;
   protected abstract headOf(userId: string): Link | null;
   protected abstract headGeneration(userId: string): number;
-  protected abstract certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): { cert: DeviceCertificate; carried: boolean } | null;
+  protected abstract certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): Standing | null;
   protected abstract identityState(userId: string): IdentityState;
   protected abstract noteChainPosition(userId: string, position: { gen: number; hash: string }): void;
   protected abstract noteVerifiedPosition(userId: string, generation: number): void;
   protected abstract followChain(userId: string): Promise<void>;
+  protected abstract logCurrent(): boolean;
+  protected abstract logStanding(userId: string, deviceId: string, key: Uint8Array, certificate: Uint8Array): LogStanding;
+  protected abstract logVersion(userId: string): string;
+  protected abstract loggedGeneration(userId: string): number;
+  protected abstract loggedLink(userId: string, generation: number): Uint8Array | null;
+  protected abstract loggedRootDisagrees(userId: string): boolean;
+  protected abstract loggedSealKey(device: ApiDevice, seal: Uint8Array, generation: number): "newest" | "older" | "unlogged" | "unknown";
+  protected abstract noteNewlyKnown(userId: string): void;
+  protected abstract noteLogStatus(status: { era: number; size: number } | null | undefined): void;
+  protected abstract loggedRoot(userId: string): Uint8Array | null;
+  protected abstract syncLogIfBehind(since: number): Promise<void>;
+  protected abstract headForManifest(): { key: string; era: number; size: number; root: string } | undefined;
+  protected abstract manifestHeadBehind(held: { era: number; size: number } | undefined): boolean;
+  protected abstract noteManifestHeadWritten(): void;
+  protected abstract takeManifestHead(log: { key: string; era: number; size: number; root: string }): void;
   protected abstract sealKeyOf(device: ApiDevice, key: Uint8Array): Uint8Array | null;
   protected abstract checkRemovals(api: ApiUser): void;
   protected abstract rotateSoon(delay: number): void;

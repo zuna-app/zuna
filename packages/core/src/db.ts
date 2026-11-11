@@ -195,6 +195,16 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE tokens (id TEXT PRIMARY KEY, period INTEGER NOT NULL, size TEXT NOT NULL, token BLOB NOT NULL);`,
   // The item key the server holds for each message, which changing or deleting this account's own takes.
   `ALTER TABLE messages ADD COLUMN item_key BLOB;`,
+  // The server's log of who holds which keys (session/directory.ts): every record, the tree's
+  // frontier after every 256th, from which a root before can be worked out, whether its body came,
+  // and what the bodies say about each account, sealed, with the usernames taken, by a keyed hash
+  // of the name. Its head and frontier now are in kv.
+  `
+  CREATE TABLE log_records (idx INTEGER PRIMARY KEY, record BLOB NOT NULL, frontier BLOB, opened INTEGER NOT NULL);
+  CREATE INDEX log_records_unopened ON log_records(idx) WHERE opened = 0;
+  CREATE TABLE log_accounts (user_id TEXT PRIMARY KEY, sealed BLOB NOT NULL);
+  CREATE TABLE log_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

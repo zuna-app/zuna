@@ -50,9 +50,9 @@ import {
   type RotationIntent,
   signedFromApi,
 } from "./shared";
-import { SessionChains } from "./chains";
+import { SessionDirectory } from "./directory";
 
-export abstract class SessionRotation extends SessionChains {
+export abstract class SessionRotation extends SessionDirectory {
   // --- Rotating the account's keys ---
 
   protected rotateSoon(delay: number): void {
@@ -132,6 +132,8 @@ export abstract class SessionRotation extends SessionChains {
     const { userId, username, deviceId, devicePublic, deviceSecret, accountKey: oldKey, core } = this.account;
     const generation = core.generation + 1;
     const me = await this.api.user(userId);
+    // A device listed is in the log already, so it's read after the list: no sibling that just signed in is taken for a false one.
+    await this.syncLog().catch((error) => console.warn("[zuna] reading the log of keys", error));
     const accountKey = wasm.randomBytes(32);
     const identity = wasm.signingKeygen();
     const hpke = wasm.hpkeKeygen();

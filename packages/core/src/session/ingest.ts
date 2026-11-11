@@ -304,6 +304,8 @@ export abstract class SessionIngest extends SessionChanges {
     if (fresh && status === "sent" && fromOther) this.maybeNotify(view);
     if (body?.after && author) this.lookForEarlier(message, body, author.userId);
     if (body?.tokenKeys && fromOther) this.compareTokenKeys(body.tokenKeys, authorId);
+    // Their head of the log of keys, inside the encryption and under their signature, where the server can't touch it.
+    if (body?.log && fromOther) void this.compareHead(body.log, authorId).catch((error) => console.warn("[zuna] comparing a head of the log of keys", error));
   }
 
   /**

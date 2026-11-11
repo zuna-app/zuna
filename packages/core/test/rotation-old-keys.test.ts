@@ -10,6 +10,7 @@ import { toBase64, utf8 } from "../src/encoding";
 import { keyCommitment, sealBundle, signSealProof } from "../src/generations";
 import { joinManifestParts, manifestParts, readManifestPart, type TrustManifest } from "../src/manifest";
 import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
+import { appendToLog, b64, entryOf, useLogDatabase } from "./log-setup";
 import {
   server,
   alice,
@@ -261,6 +262,10 @@ describe("someone holding old keys, with the server's help", () => {
     const keys = wasm.signingKeygen();
     const fakeId = "e".repeat(32);
     const forged = createCertificate(oldSecret, { userId: dave.userId, deviceId: fakeId, signatureKey: keys.publicKey });
+    // With the server's help, so the log of keys names it, and only the link's list is left to say no.
+    useLogDatabase(serverDatabase);
+    appendToLog({ v: 1, t: "device", user: dave.userId, device: fakeId, key: b64(keys.publicKey), cert: entryOf(forged), enroll: entryOf(new Uint8Array(0)), seal: entryOf(new Uint8Array(8)) });
+    await sessionOf(alice).syncLog();
     const standing = sessionOf(alice).certificateStanding(dave.userId, sessionOf(alice).pinnedIdentity(dave.userId), forged);
     expect(standing.carried).toBe(false);
 

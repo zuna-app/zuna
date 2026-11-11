@@ -196,11 +196,11 @@ export abstract class SessionServer extends SessionChannels {
 
   async createInvite(maxUses: number, expiresInSeconds: number): Promise<string> {
     const { code } = await this.api.createInvite(maxUses, expiresInSeconds);
-    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin);
+    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin, this.headForLink());
   }
 
   linkForInvite(code: string): string {
-    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin);
+    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin, this.headForLink());
   }
 
   revokeInvite(code: string): Promise<unknown> {
@@ -304,7 +304,7 @@ export abstract class SessionServer extends SessionChannels {
       ownerKey: this.account.core.rootPublic,
       listed: view.listed,
       add: view.add,
-    });
+    }, this.headForLink());
   }
 
   /**

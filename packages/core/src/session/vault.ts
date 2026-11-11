@@ -193,6 +193,8 @@ export abstract class SessionVault extends SessionLocal {
     }
     for (const [userId, position] of Object.entries(manifest.chains)) this.noteChainPosition(userId, position);
     for (const [userId, generation] of Object.entries(manifest.trust)) this.noteVerifiedPosition(userId, generation);
+    // The log's key and a head another device of this account checked, which this one goes by.
+    if (manifest.log) this.takeManifestHead(manifest.log);
     this.manifest = manifest;
     this.setKv("manifest", manifest);
     if (manifest.prefs && !this.unsavedTrust().prefs) {
@@ -212,6 +214,7 @@ export abstract class SessionVault extends SessionLocal {
     const pins = this.db.all<{ user_id: string }>("SELECT user_id FROM pinned_identities");
     if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
     if (this.allVerified().some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
+    if (this.manifestHeadBehind(manifest.log)) return true;
     return !!this.db.get("SELECT 1 FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT 1");
   }
 
@@ -228,6 +231,7 @@ export abstract class SessionVault extends SessionLocal {
       const generation = this.identityState(user_id).trust_generation;
       if (generation > 0) trust[user_id] = generation;
     }
+    const log = this.headForManifest() ?? this.manifest?.log;
     return {
       v: (this.manifest?.v ?? 0) + 1,
       pins: entries(this.allPins()),
@@ -235,6 +239,7 @@ export abstract class SessionVault extends SessionLocal {
       chains,
       trust,
       prefs: this.prefs,
+      ...(log ? { log } : {}),
     };
   }
 
@@ -278,6 +283,7 @@ export abstract class SessionVault extends SessionLocal {
     }
     this.manifest = manifest;
     this.setKv("manifest", manifest);
+    if (manifest.log) this.noteManifestHeadWritten();
     const now = this.unsavedTrust();
     this.setKv(UNSAVED_TRUST, { verified: now.verified.filter((id) => !unsaved.verified.includes(id)), prefs: now.prefs && !unsaved.prefs });
     // A position that moved on while this was on its way is written next time.

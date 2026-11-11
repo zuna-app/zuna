@@ -53,6 +53,8 @@ export abstract class SessionLifecycle extends SessionServer {
     this.sendKeyFixes.clear();
     for (const timer of this.grantTimers.values()) clearTimeout(timer);
     this.grantTimers.clear();
+    for (const timer of this.chainRetries.values()) clearTimeout(timer);
+    this.chainRetries.clear();
     for (const timer of this.waitingNotifications) clearTimeout(timer);
     this.waitingNotifications.clear();
   }
@@ -190,6 +192,12 @@ export abstract class SessionLifecycle extends SessionServer {
     // which a new device must have before believing what the server says.
     await this.syncVault();
     this.checkManifestFloor();
+    // The log of who holds which keys comes before the list of people, which is judged by it.
+    // Not being able to read it leaves what was counted counted, and nothing new.
+    await this.syncLog().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] reading the log of keys", error);
+    });
     await this.syncUsers();
     await this.checkBotProofs();
     await this.saveTrust();
@@ -315,6 +323,9 @@ export abstract class SessionLifecycle extends SessionServer {
         break;
       case "account":
         this.syncAccountSoon();
+        break;
+      case "log":
+        this.noteLogStatus(data as { era: number; size: number });
         break;
       case "settings":
         this.info = data as ServerInfo;

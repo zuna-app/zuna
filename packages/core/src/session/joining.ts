@@ -158,6 +158,16 @@ export abstract class SessionJoining extends SessionGroups {
       const pinned = this.pinnedIdentity(cert.userId);
       if (!pinned) return { ...found, genuine: false, unchecked: true };
       const standing = this.certificateStanding(cert.userId, pinned, member.credential);
+      // A certificate from a generation the log has a link for, which the server hasn't handed over,
+      // is a real device's: it waits for the link rather than being removed over it.
+      if (!standing && cert.generation > this.headGeneration(cert.userId) && this.loggedGeneration(cert.userId) >= cert.generation) {
+        return { ...found, genuine: false, unchecked: true };
+      }
+      // While the log can't be read as far as the server says it goes, only a device counted before counts.
+      if (standing && !standing.logged) {
+        const known = this.users.get(cert.userId)?.devices.get(cert.deviceId);
+        if (!known || !equalBytes(known.signatureKey, standing.cert.signatureKey)) return { ...found, genuine: false, unchecked: true };
+      }
       return { ...found, genuine: !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey) };
     });
     // A device ID is only someone's together with whose it is: another account can claim the same one.
@@ -177,7 +187,16 @@ export abstract class SessionJoining extends SessionGroups {
 
   /** Looks up anyone in a group's tree not known yet, so they can be checked. */
   protected async learnTreeUsers(groupId: string): Promise<void> {
+    const asked = Date.now();
     const members = this.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
+    // A leaf the log doesn't name yet has the log read to its newest head first: a device is in it
+    // before it can join anything, so on an honest server it's there.
+    const unnamed = members.some((member) => {
+      const cert = parseCertificate(member.credential);
+      const pinned = cert && this.pinnedIdentity(cert.userId);
+      return !!cert && (!pinned || !this.certificateStanding(cert.userId, pinned, member.credential)?.logged);
+    });
+    if (unnamed) await this.syncLogIfBehind(asked);
     for (const member of members) {
       const cert = parseCertificate(member.credential);
       if (!cert) continue;

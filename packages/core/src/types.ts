@@ -55,6 +55,8 @@ export interface InvitePreview {
   communityKey: string | null;
   /** The pin of a server that makes its own certificate, from the link. */
   pin: string | null;
+  /** The key the server's log of keys is signed with and the inviter's head of it, as the link carries them, if it does. */
+  log?: string | null;
   setup: boolean;
   server: ServerInfo;
 }
@@ -231,6 +233,8 @@ export interface MessageBody {
   signal?: MessageSignal;
   /** A short hash of the token keys the sender's device was shown for a period, signed with the rest, which apps compare with their own. */
   tokenKeys?: { p: number; h: string };
+  /** The newest head of the server's log of keys the sender's device holds, signed by the server and with the rest, which apps compare with their own. */
+  log?: { e: number; n: number; r: string; s: string };
 }
 
 /**

@@ -54,6 +54,10 @@ const isObject = (value: unknown): value is Fields => !!value && typeof value ==
 
 const isCount = (value: unknown, max: number): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
 
+/** Standard base64 of exactly `bytes` bytes. */
+const isBase64Of = (value: unknown, bytes: number): boolean =>
+  typeof value === "string" && value.length === Math.ceil(bytes / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
+
 const isString = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 
 const absent = (value: unknown): value is null | undefined => value === undefined || value === null;
@@ -289,6 +293,11 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   const tokenKeys = value.tokenKeys;
   if (isObject(tokenKeys) && isCount(tokenKeys.p, Number.MAX_SAFE_INTEGER) && typeof tokenKeys.h === "string" && /^[0-9a-f]{16}$/.test(tokenKeys.h)) {
     body.tokenKeys = { p: tokenKeys.p, h: tokenKeys.h };
+  }
+  // Only a head that reads as one, which is compared, and is nothing to show.
+  const log = value.log;
+  if (isObject(log) && isCount(log.e, Number.MAX_SAFE_INTEGER) && log.e > 0 && isCount(log.n, Number.MAX_SAFE_INTEGER) && isBase64Of(log.r, 32) && isBase64Of(log.s, 64)) {
+    body.log = { e: log.e, n: log.n, r: log.r as string, s: log.s as string };
   }
   if (!absent(value.signal)) {
     // Something to act on is all such a message is, so one that's nothing known can't be shown as a message either.

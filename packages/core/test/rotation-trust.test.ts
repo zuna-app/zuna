@@ -458,6 +458,9 @@ describe("a leaf's certificate", () => {
     const session = sessionOf(alice);
     const realLinks = session.api.identityLinks;
     session.api.identityLinks = async (userId: string, after: number) => (userId === dave.userId ? [] : realLinks(userId, after));
+    // And the log of keys, whose entry for the link would tell her it's missing, so that it waits (transparency.test.ts).
+    const realLog = session.syncLogOnce;
+    session.syncLogOnce = async () => undefined;
     await dave.session.rotate();
     await sleep(100);
     expect(session.headGeneration(dave.userId)).toBe(0);
@@ -465,6 +468,7 @@ describe("a leaf's certificate", () => {
     await waitFor(() => securityEvents(dave).some((event) => event.message.includes("without permission")), "dave to hear", 15_000);
     await waitFor(() => securityEvents(alice).some((event) => event.message.includes("isn't really")), "alice to hear", 15_000);
     session.api.identityLinks = realLinks;
+    session.syncLogOnce = realLog;
     await session.followChain(dave.userId);
     await waitFor(() => session.treeMembers(groupId).some((member: { userId: string; genuine: boolean }) => member.userId === dave.userId && member.genuine), "dave's leaf to count again", 15_000);
   });

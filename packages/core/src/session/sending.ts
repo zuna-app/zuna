@@ -244,7 +244,7 @@ export abstract class SessionSending extends SessionConversations {
           const held = row ? this.storedBody(row) : null;
           // An edit says how long the message lasts as it first did, so it disappears all the same.
           const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
-          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body), this.signer);
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body, entry.groupId), this.signer);
           const item = this.heldItemSecret("message", entry.groupId, entry.id, row?.item_key ?? null);
           if (!item) throw new Error("This message can't be edited from this device.");
           this.ingest(await this.api.sealedEdit(entry.groupId, entry.id, await this.seal(entry.groupId, epoch, envelope.length, item), envelope), false);
@@ -264,7 +264,7 @@ export abstract class SessionSending extends SessionConversations {
         const after = this.getKv<EarlierMessage>(`sent/${groupId}`) ?? undefined;
         // It lasts as long as the chat says when it goes, whenever it was written.
         const expiresIn = this.disappearAfter(this.groups.get(groupId)) || undefined;
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }), this.signer);
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }, groupId), this.signer);
         const files = this.sharesOf(body);
         saved = await this.api.sealedSend(groupId, await this.seal(groupId, epoch, envelope.length), {
           id: entry.id,
@@ -354,7 +354,7 @@ export abstract class SessionSending extends SessionConversations {
     await this.withLock(groupId, async () => {
       await this.ensureReady(groupId);
       await this.sealAndRetry(groupId, async (epoch, key) => {
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, id, epoch, this.signedBody({ signal }), this.signer);
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, id, epoch, this.signedBody({ signal }, groupId), this.signer);
         const item_key = wasm.signingPublic(this.itemSecret("message", groupId, id));
         this.ingest(await this.api.sealedSend(groupId, await this.seal(groupId, epoch, envelope.length), { id, envelope, item_key, files: files?.length ? files : undefined, silent: true }), false);
       });
@@ -363,10 +363,12 @@ export abstract class SessionSending extends SessionConversations {
 
   /**
    * What goes under this device's signature: the message, when it was sent, who's sending it,
-   * and which token keys this device was shown, so that everyone can tell they were shown the same.
+   * which token keys this device was shown, and the newest head of the log of keys it holds,
+   * when it's newer than the one it last sent there, so that everyone can tell they were shown the same.
    */
-  protected signedBody(body: MessageBody): MessageBody & { sentAt: number; by: { user: string; device: string } } {
-    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId }, tokenKeys: this.tokenKeysTag() };
+  protected signedBody(body: MessageBody, groupId: string): MessageBody & { sentAt: number; by: { user: string; device: string } } {
+    const log = this.headForMessage(groupId);
+    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId }, tokenKeys: this.tokenKeysTag(), ...(log ? { log } : {}) };
   }
 
   /** A DM's first message is echoed before its group exists; this moves it there. */

@@ -146,6 +146,8 @@ export abstract class SessionLocal extends SessionBase {
     } finally {
       if (this.presenceWhileListing === live) this.presenceWhileListing = null;
     }
+    // Where the log is now, so that what it doesn't name yet waits for it.
+    this.noteLogStatus(response.log);
     this.online = new Set(response.online);
     for (const [id, online] of live) {
       if (online) this.online.add(id);
@@ -277,6 +279,9 @@ export abstract class SessionLocal extends SessionBase {
     if (pinned && !equalBytes(pinned, current)) return "changed";
     if (this.identityState(userId).forked) return "changed";
     const verified = this.verifiedIdentity(userId);
+    // A second account entry for them in the log, or one whose key isn't the one held, unless the
+    // key held is the one the emoji covered, which is the last word.
+    if (this.loggedRootDisagrees(userId) && !(verified && pinned && equalBytes(verified, pinned))) return "changed";
     if (!verified) return "unverified";
     if (!equalBytes(verified, current)) return "changed";
     // What was verified may since have been replaced, by someone who may have stolen it.
@@ -293,12 +298,15 @@ export abstract class SessionLocal extends SessionBase {
   protected applyUser(api: ApiUser): CachedUser {
     const identityKey = decode(api.identity_key);
     const isSelf = api.id === this.account.userId;
-    // Someone this account has verified is pinned to that key, whatever the server says now.
-    const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
-    if (!this.pinnedIdentity(api.id)) {
-      this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [api.id, this.sealPin(api.id, pinned ?? identityKey)]);
+    // Someone this account has verified is pinned to that key, whatever the server says now. Anyone
+    // else is pinned to what their entry in the log says, never to what the list shows.
+    const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id) ?? this.loggedRoot(api.id));
+    if (!this.pinnedIdentity(api.id) && pinned) {
+      this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [api.id, this.sealPin(api.id, pinned)]);
     }
     const previous = this.users.get(api.id);
+    // Someone new here may be in records of the log that came without their bodies.
+    if (!previous) this.noteNewlyKnown(api.id);
     const changedNow = !!pinned && !equalBytes(pinned, identityKey) && previous?.trust !== "changed";
     const trustedKey = pinned ?? identityKey;
 
@@ -313,6 +321,9 @@ export abstract class SessionLocal extends SessionBase {
         continue;
       }
       if (standing.cert.userId !== api.id || standing.cert.deviceId !== device.id) continue;
+      // While the log can't be read as far as the server says it goes, only what counted before counts.
+      const before = previous?.devices.get(device.id);
+      if (!standing.logged && !(before && equalBytes(before.signatureKey, standing.cert.signatureKey))) continue;
       // Certificates from an older generation only mean something if their device was
       // known before that generation ended. Someone with no history here can't tell.
       if (!standing.carried && previous && !previous.devices.has(device.id)) continue;
@@ -321,7 +332,7 @@ export abstract class SessionLocal extends SessionBase {
         signatureKey: standing.cert.signatureKey,
         createdAt: device.created_at,
         lastSeenAt: device.last_seen_at,
-        revoked: device.revoked_at != null || !standing.carried,
+        revoked: device.revoked_at != null || !standing.carried || standing.gone,
         enrollProof: device.enroll_proof ?? null,
         sealKey: device.seal_key ?? null,
       });
@@ -416,7 +427,13 @@ export abstract class SessionLocal extends SessionBase {
 
   /** Someone as the server has them now, and their chain followed to it. Throws when they can't be fetched. */
   protected async fetchUser(userId: string): Promise<CachedUser> {
+    const asked = Date.now();
     const api = await this.api.user(userId);
+    // A device listed that the log doesn't name may only be one this device hasn't read of yet.
+    const pinned = this.pinnedIdentity(userId) ?? this.loggedRoot(userId);
+    if (!pinned || api.devices.some((device) => device.revoked_at == null && !this.certificateStanding(userId, pinned, decode(device.certificate))?.logged)) {
+      await this.syncLogIfBehind(asked);
+    }
     const user = this.applyUser(api);
     if (userId === this.account.userId || api.key_generation <= this.headGeneration(userId)) return user;
     await this.followChain(userId);

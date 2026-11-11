@@ -36,6 +36,7 @@ import {
   type SlotKind,
 } from "./generations";
 import { manifestParts } from "./manifest";
+import { Frontier, bodyFits, headSigned, leafHash, linkHead, parseBody, parseLinkHead, readRecord, userTag, type PinnedHead } from "./transparency";
 import type { BotAdd, BotInfo, InvitePreview, Profile, Role } from "./types";
 
 /** Everything a device needs to act for its account. Stored encrypted at rest. */
@@ -64,6 +65,12 @@ export interface AccountState {
    * whatever a server says. `ownerKey` is its owner's identity key, as the link gave it.
    */
   bot?: BotInfo & { ownerKey?: string };
+  /**
+   * The key the server's log of who holds which keys is signed with, and a head that log has to
+   * hold, as the invite link this device joined with carried them, or as signing in checked them,
+   * all as base64. A device goes by these, and not by the server's first answer.
+   */
+  log?: { key: string; era: number; size: number; root: string };
 }
 
 /** A device signed in, and whatever has to happen next, in one go, for it to count. */
@@ -79,6 +86,8 @@ export interface ParsedInvite {
   code: string;
   communityKey: string | null;
   pin: string | null;
+  /** The log of keys' key and the inviter's head of it, as `&log=` carries them (transparency.ts). */
+  log: string | null;
   /** What a bot's setup link carries besides, for the bot it was made for. */
   bot: BotSetup | null;
 }
@@ -144,7 +153,7 @@ export function parseInviteLink(input: string): ParsedInvite | null {
   const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ""));
   const pin = pinIn(parsed.hash);
   if (pin) checkPinnable(url);
-  return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k"), pin, bot: parseBotSetup(fragment.get("bot")) };
+  return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k"), pin, log: fragment.get("log"), bot: parseBotSetup(fragment.get("bot")) };
 }
 
 /** A server's address, from what someone entered: the address itself, maybe with a pin, or any of its invite links. */
@@ -211,14 +220,22 @@ async function previewOpenServer(address: string, trust: (url: string, pin: stri
   return { url, code: "", communityKey: server.community_key ?? null, pin, setup: false, server };
 }
 
-export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined): string =>
-  `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}${pin ? `&pin=${pin}` : ""}`;
+/**
+ * An invite link. After the #, which never reaches the server, it carries the community key, a
+ * server's own certificate's pin, and the key the server's log of keys is signed with, with the
+ * inviter's head of it, which whoever joins holds the log they're given to.
+ */
+export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, log?: PinnedHead): string =>
+  `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}${pin ? `&pin=${pin}` : ""}${log ? `&log=${linkHead(log)}` : ""}`;
 
 /** A bot's setup link: its invite's, with who the bot is and the key that vouches for it after the #. */
-export function botSetupLink(serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, bot: BotSetup): string {
+export function botSetupLink(serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, bot: BotSetup, log?: PinnedHead): string {
   const carried = { id: bot.id, u: bot.username, n: bot.name, s: toBase64Url(bot.secret), o: bot.ownerId, k: toBase64Url(bot.ownerKey), l: bot.listed ? 1 : 0, a: bot.add };
-  return `${inviteLink(serverUrl, code, communityKey, pin)}&bot=${toBase64Url(utf8(JSON.stringify(carried)))}`;
+  return `${inviteLink(serverUrl, code, communityKey, pin, log)}&bot=${toBase64Url(utf8(JSON.stringify(carried)))}`;
 }
+
+/** The log's key and a head, as an account keeps them. */
+const keptHead = (head: PinnedHead): NonNullable<AccountState["log"]> => ({ key: toBase64(head.key), era: head.era, size: head.size, root: toBase64(head.root) });
 
 /** Makes this device, and shows it came from someone who could open a slot. */
 async function createDevice(api: Api, core: VaultCore, userId: string, slotSign: Uint8Array) {
@@ -333,6 +350,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   });
   if (input.bot && created.user_id !== input.bot.id) throw new Error("The server made another account than the one this link is for. Not continuing.");
   api.token = created.token;
+  // What the link says the log held, which the server never saw, and which this device holds it to.
+  const head = parseLinkHead(input.invite?.log);
 
   const device = await createDevice(api, core, created.user_id, passwordSlot.secrets.sign);
   return {
@@ -346,6 +365,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       accountKey,
       core,
       ...(input.bot ? { bot: { ownerId: input.bot.ownerId, listed: input.bot.listed, add: input.bot.add, ownerKey: toBase64(input.bot.ownerKey) } } : {}),
+      ...(head ? { log: keptHead(head) } : {}),
     },
     recoveryKey: toRecoveryText(recoveryKey),
   };
@@ -405,6 +425,56 @@ function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | 
 }
 
 /**
+ * Reads the server's log of keys before this device registers, with this account's own entries,
+ * which a session with no device is given, and holds what the sign-in handed over to it: the
+ * generation and head link have to be the newest the log has for the account. The head it checked
+ * is what the device goes by from then on.
+ */
+async function checkSignInLog(api: Api, session: LoginResponse): Promise<NonNullable<AccountState["log"]>> {
+  const unfit = new Error("The server handed this device another version of your account's keys than its own record of them shows. Not continuing.");
+  const info = await api.info();
+  if (!info.log_key) throw unfit;
+  const key = fromBase64(info.log_key);
+  let frontier = new Frontier();
+  let era = 0;
+  let links: Uint8Array[] = [];
+  for (;;) {
+    const page = await api.log(era, frontier.size, 2000);
+    // Asked about another era, the server answers from the start of its own.
+    if (page.era !== era) {
+      frontier = new Frontier();
+      links = [];
+      era = page.era;
+    }
+    for (const wire of page.records) {
+      const record = decode(wire.record);
+      const parts = readRecord(record);
+      if (wire.idx !== frontier.size || !parts) throw unfit;
+      frontier.append(leafHash(record));
+      if (!wire.body) {
+        // Every entry of this account's own has to come with its body.
+        if (equalBytes(userTag(session.user_id, parts.nonce), parts.userTag)) throw unfit;
+        continue;
+      }
+      const bytes = decode(wire.body);
+      const body = parseBody(bytes);
+      if (!body || body.user !== session.user_id || !bodyFits(parts, bytes, body)) throw unfit;
+      if (body.t !== "link") continue;
+      if (body.gen !== links.length + 1) throw unfit;
+      links.push(body.link);
+    }
+    const head = { era: page.head.era, size: page.head.size, root: decode(page.head.root), sig: decode(page.head.sig) };
+    if (head.era !== era || head.size !== frontier.size || !equalBytes(head.root, frontier.root()) || !headSigned(key, head)) throw unfit;
+    if (frontier.size >= page.size) break;
+  }
+  // One that got in between asking and reading is tried again.
+  if (links.length > session.generation) throw new ApiError(409, "stale_generation", unfit.message);
+  if (links.length !== session.generation) throw unfit;
+  if (session.generation > 0 && !equalBytes(links.at(-1)!, hash(decode(session.head_link?.payload)))) throw unfit;
+  return keptHead({ key, era, size: frontier.size, root: frontier.root() });
+}
+
+/**
  * A rotation may get in between fetching the keys and registering with them. It
  * ends sessions with no device, or this device is told it's behind, and it starts again.
  */
@@ -437,6 +507,7 @@ export function login(serverUrlInput: string, username: string, passwordText: st
     const session = await api.login(username, password.authKey);
     api.token = session.token;
     const { accountKey, core, slotSign } = openAccount(target, "password", password, session);
+    const log = await checkSignInLog(api, session);
     const device = await createDevice(api, core, session.user_id, slotSign);
     return {
       account: {
@@ -448,6 +519,7 @@ export function login(serverUrlInput: string, username: string, passwordText: st
         ...device,
         accountKey,
         core,
+        log,
       },
     };
   });
@@ -476,6 +548,7 @@ export function recover(
     const session = await api.recover(username, recovery.authKey);
     api.token = session.token;
     const { accountKey, core, slotSign } = openAccount(target, "recovery", recovery, session);
+    const log = await checkSignInLog(api, session);
 
     const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
     const password = derivePasswordKeys(newPassword, kdf, target);
@@ -495,6 +568,7 @@ export function recover(
         ...device,
         accountKey,
         core,
+        log,
       },
       plan,
     };

@@ -102,6 +102,29 @@ export interface ApiDevice {
   seal_proof?: string | null;
 }
 
+/** A place in the log of who holds which keys: its record, and its body if its account is there for this device. */
+export interface ApiLogRecord {
+  idx: number;
+  record: string;
+  body?: string | null;
+}
+
+/** The log at some size, signed with the server's log key. */
+export interface ApiLogHead {
+  era: number;
+  size: number;
+  root: string;
+  sig: string;
+}
+
+/** The records after a place, and the head where they end. */
+export interface ApiLogPage {
+  era: number;
+  size: number;
+  head: ApiLogHead;
+  records: ApiLogRecord[];
+}
+
 /** One step of someone's chain of identity keys. */
 export interface ApiLink {
   generation: number;
@@ -500,7 +523,8 @@ export class Api {
   }
 
   // Server
-  info = () => this.request<ServerInfo>("GET", "/api/info");
+  /** Someone signed in is also told the key the log of keys is signed with. */
+  info = () => this.request<ServerInfo & { log_key?: string }>("GET", "/api/info");
   inviteInfo = (code: string) =>
     this.request<{ setup: boolean; bot?: boolean; server: ServerInfo }>("GET", at`/api/invites/${code}`);
 
@@ -521,7 +545,10 @@ export class Api {
 
   // Users and devices
   users = (since = 0) =>
-    this.request<{ users: ApiUser[]; online: string[]; seen: Record<string, number>; now: number }>("GET", at`/api/users?since=${since}`);
+    this.request<{ users: ApiUser[]; online: string[]; seen: Record<string, number>; now: number; log?: { era: number; size: number } | null }>(
+      "GET",
+      at`/api/users?since=${since}`,
+    );
   user = (id: string) => this.request<ApiUser>("GET", at`/api/users/${id}`);
   updateMe = (body: { profile?: Uint8Array; profile_sig?: Uint8Array; avatar_file?: string | null; hide_last_seen?: boolean }) =>
     this.request("PATCH", "/api/me", body);
@@ -581,6 +608,12 @@ export class Api {
     this.request("PUT", at`/api/devices/${deviceId}/certificate`, { certificate });
   identityLinks = async (userId: string, after: number) =>
     (await this.request<{ links: ApiLink[] }>("GET", at`/api/users/${userId}/identity-links?after=${after}`)).links;
+
+  // The log of who holds which keys
+  /** The records after a place in an era, and the signed head where they end. Asked about another era, the server starts from the beginning of its own. */
+  log = (era: number, after: number, limit: number) => this.request<ApiLogPage>("GET", at`/api/log?era=${era}&after=${after}&limit=${limit}`);
+  /** Every body of one account's entries, for someone it has only now become there for. */
+  logBodies = (userId: string) => this.request<{ era: number; bodies: { idx: number; body: string }[] }>("GET", at`/api/log/bodies?user=${userId}`);
 
   // Groups
   groups = async () => (await this.request<{ groups: ApiGroup[] }>("GET", "/api/groups")).groups;
