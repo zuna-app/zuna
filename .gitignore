@@ -25,6 +25,7 @@ apps/ios/ZunaKit/Sources/CSQLite/
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-core.js
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-highlight.js
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-password.js
+apps/ios/ZunaKit/Sources/ZunaHost/Resources/watch.html
 apps/ios/ZunaKit/.build/
 apps/ios/ZunaKit/.swiftpm/
 apps/ios/*.xcodeproj/

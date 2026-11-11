@@ -305,6 +305,12 @@ What building phase 2 changed in the design:
 - **A seek adds how far the last one left the player behind the room,** measured once it's settled, rather than how long it took to play: a seek within what's buffered plays at once, and the time the first one took to load overshot by half a second.
 - **A player that isn't playing is sent to the room's place first if it's 0.1 s off,** as nobody sees that seek, so a video played again after a pause starts within a frame or two on every device. Playing, the 0.3 s stands.
 - **A change of speed is heard in any phase,** as catching up never changes the speed; only a play, a pause or a seek needs the player in step.
+- **Phase 3, iPhone and iPad: built** on 2026-11-11. `VoiceTests/testWatchesAVideoTogetherWithEveryoneInTheChannel` passes in the simulator against a peer, with the fake player. The same `watch.html` in a macOS WKWebView under `https://chat.zuna.mobile` played YouTube itself. Not yet watched on an iPhone during a call, which needs someone with one: the risk about WebKit and the call's audio session stands until then.
+
+What building phase 3 changed in the design:
+
+- **Consent and the video's mute are kept apart from the app's other settings** on iOS, which are decoded as one, where a new field would set the rest, App lock among them, back to their defaults.
+- **A check's fake player is plain HTTP, which WebKit won't frame in an HTTPS page,** so a development build pointed at one loads the page under `http://chat.zuna.mobile`. A release build can't be pointed anywhere but YouTube.
 
 ## Left out of the first version
 

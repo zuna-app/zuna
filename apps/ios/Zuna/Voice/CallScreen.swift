@@ -161,10 +161,30 @@ struct CallScreen: View {
         let cameras = Dictionary(voice.videos.filter { $0.source == .camera }.map { ($0.userId, $0) }, uniquingKeysWith: { first, _ in first })
         let screens = voice.videos.filter { $0.source == .screen }
         let focused = voice.focus.flatMap { key in voice.videos.first { $0.id == key } }
-        let tiles: [StageTile] = screens.filter { $0.id != focused?.id }.map(StageTile.screen)
+        let watch = voice.watch
+        let watchFocused = watch != nil && voice.focus == VoiceModel.watchFocus
+        let tiles: [StageTile] = (watch.map { watchFocused ? [] : [StageTile.watch($0)] } ?? [])
+            + screens.filter { $0.id != focused?.id }.map(StageTile.screen)
             + members.map { StageTile.person($0, cameras[$0.userId].flatMap { $0.id == focused?.id ? nil : $0 }) }
             + voice.ringingOthers.map(StageTile.ringing)
-        if let focused {
+        if watchFocused, let watch {
+            VStack(spacing: 8) {
+                WatchStage(watch: watch)
+                    .frame(maxHeight: .infinity)
+                    .padding(.horizontal, 8)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 8) {
+                        ForEach(tiles) { item in
+                            tile(item, focusedTile: false)
+                                .frame(width: 150, height: 100)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+                .frame(height: 100)
+            }
+            .padding(.vertical, 8)
+        } else if let focused {
             VStack(spacing: 8) {
                 tile(focused.source == .screen ? .screen(focused) : .person(members.first { $0.userId == focused.userId } ?? placeholder(focused.userId), focused), focusedTile: true)
                     .frame(maxHeight: .infinity)
@@ -231,12 +251,15 @@ struct CallScreen: View {
         case screen(CallVideo)
         /// Someone the call is ringing.
         case ringing(String)
+        /// The video watched together, while something else fills the stage.
+        case watch(WatchView)
 
         var id: String {
             switch self {
             case let .person(member, _): "person/\(member.deviceId)"
             case let .screen(tile): tile.id
             case let .ringing(userId): "ringing/\(userId)"
+            case .watch: VoiceModel.watchFocus
             }
         }
     }
@@ -270,6 +293,10 @@ struct CallScreen: View {
                 }
         case let .ringing(userId):
             RingingTile(server: server, userId: userId)
+        case let .watch(watch):
+            WatchThumb(watch: watch)
+                .onTapGesture { voice.focus = VoiceModel.watchFocus }
+                .accessibilityIdentifier(A11y.Voice.watchThumb)
         case let .screen(video):
             ScreenTile(name: name(of: video.userId), video: video, focused: focusedTile, watch: { watching = video.id })
                 .onTapGesture { voice.focus = focusedTile ? nil : video.id }
@@ -484,6 +511,12 @@ private struct CallControls: View {
     let chat: ConversationView?
     let chatKey: String?
     @State private var soundboard = false
+    @State private var watchStep: WatchStep?
+
+    private enum WatchStep: Identifiable {
+        case consent, link
+        var id: Self { self }
+    }
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -496,6 +529,12 @@ private struct CallControls: View {
         .frame(maxWidth: .infinity)
         .background(Theme.bg1.ignoresSafeArea(edges: .bottom))
         .sheet(isPresented: $soundboard) { SoundboardSheet() }
+        .sheet(item: $watchStep) { step in
+            switch step {
+            case .consent: WatchConsent(action: "Continue") { watchStep = .link }
+            case .link: WatchLinkSheet()
+            }
+        }
     }
 
     /// The server's soundboard plays in its voice channels and calls.
@@ -531,6 +570,11 @@ private struct CallControls: View {
             if hasSoundboard {
                 control("waveform", label: "Soundboard", size: size, id: A11y.Voice.soundboardButton) { soundboard = true }
             }
+            control("play.rectangle", label: voice.watchAllowed ? (voice.watch == nil ? "Watch together" : "Another video") : "Watching together is off in this channel", on: voice.watch != nil, size: size, id: A11y.Voice.watchButton) {
+                watchStep = voice.playYouTube ? .link : .consent
+            }
+            .disabled(!voice.watchAllowed)
+            .opacity(voice.watchAllowed ? 1 : 0.45)
             SwiftUIAudioRoutePickerButton()
                 .frame(width: size, height: size)
                 .background(Theme.bg3, in: .circle)

@@ -225,6 +225,58 @@ final class VoiceTests: XCTestCase {
         try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
     }
 
+    func testWatchesAVideoTogetherWithEveryoneInTheChannel() throws {
+        let carol = try Peer("carol")
+        let lounge = try channelId(carol, "Lounge")
+        try carol.call("setVoiceState", [lounge, here])
+        defer { _ = try? carol.call("setVoiceState", [NSNull(), NSNull()]) }
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let device = try phoneDevice()
+        zuna.tab("Channels").tap()
+        let row = zuna.element(A11y.Channels.row(lounge))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.person(device)).waitForExistence(timeout: 30))
+        try waitFor("carol to see bob come in") { try self.bobsPhone(carol)?["channelId"] as? String == lounge }
+
+        // Carol puts a video on, and until bob presses Watch his phone shows it and contacts nobody.
+        try carol.call("watchStart", [lounge, "https://youtu.be/aqz-KE-bpKQ?t=30"])
+        let watchHere = zuna.element(A11y.Voice.watchHere)
+        XCTAssertTrue(watchHere.waitForExistence(timeout: 20))
+        XCTAssertFalse(zuna.element(A11y.Voice.watchPlayer).exists)
+        zuna.screenshot("99c-watch-cover")
+        // The first time asks what Google learns.
+        watchHere.tap()
+        let agree = zuna.element(A11y.Voice.watchAgree)
+        XCTAssertTrue(agree.waitForExistence(timeout: 5))
+        XCTAssertTrue(zuna.app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Google learns this device's IP address")).firstMatch.exists)
+        agree.tap()
+
+        // His player plays it where carol's room is.
+        XCTAssertTrue(zuna.element(A11y.Voice.watchPlayer).waitForExistence(timeout: 10))
+        let player = zuna.app.webViews.firstMatch
+        XCTAssertTrue(player.staticTexts["playing"].waitForExistence(timeout: 20), "the player didn't play")
+        zuna.screenshot("99d-watch-playing")
+
+        // Carol pauses it, and it pauses here.
+        try carol.call("watchControl", [lounge, ["playing": false]])
+        XCTAssertTrue(player.staticTexts["paused"].waitForExistence(timeout: 10), "a pause in the room didn't pause the phone's player")
+
+        // Bob plays it from the player itself, and it plays for carol.
+        player.buttons["Play"].tap()
+        try waitFor("carol to see bob play it") { (try carol.call("getWatch", [lounge]) as? [String: Any])?["playing"] as? Bool == true }
+        XCTAssertEqual((try carol.call("getWatch", [lounge]) as? [String: Any])?["changedBy"] as? String, bobId)
+
+        // Stopped for everyone, it's gone here too.
+        try carol.call("watchStop", [lounge])
+        XCTAssertTrue(zuna.element(A11y.Voice.watchStage).waitForNonExistence(timeout: 10))
+
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("carol to see bob leave") { try self.bobsPhone(carol) == nil }
+    }
+
     func testSharesAtTheMostChosenInSettings() throws {
         let alice = try Peer("alice")
         let lounge = try channelId(alice, "Lounge")

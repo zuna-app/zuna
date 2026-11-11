@@ -129,6 +129,7 @@ struct ProfileView: View {
 struct PrivacyView: View {
     let serverId: String
     @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
     @State private var confirmingKeep = false
 
     var body: some View {
@@ -194,6 +195,14 @@ struct PrivacyView: View {
                 .accessibilityIdentifier(A11y.Settings.removeMetadata)
             } footer: {
                 Text("Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are.")
+            }
+            Section {
+                @Bindable var voice = voice
+                Toggle("Play YouTube videos", isOn: $voice.playYouTube)
+                    .tint(model.settings.accent.switchTint)
+                    .accessibilityIdentifier(A11y.Settings.playYouTube)
+            } footer: {
+                Text("A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first.")
             }
         }
         .alert("Send files with their metadata?", isPresented: $confirmingKeep) {

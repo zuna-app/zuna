@@ -563,9 +563,8 @@ final class AppModel {
             refresh("sounds", serverId)
         case let .sound(serverId, channelId, userId, soundId):
             voice.soundPlayed(serverId: serverId, channelId: channelId, userId: userId, soundId: soundId)
-        case .watch:
-            // The iPhone app doesn't watch YouTube together yet.
-            break
+        case let .watch(serverId, channelId, watch):
+            voice.watchChanged(serverId: serverId, channelId: channelId, watch: watch)
         case let .preferences(serverId):
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):

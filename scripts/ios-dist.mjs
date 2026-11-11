@@ -121,7 +121,7 @@ export function profileProblem(profile, { bundle, team, certificate, now = new D
 
 /** Archives the app in Release with no signature, then signs each bundle ad hoc with its entitlements. */
 function archive() {
-  for (const built of ["ZunaKit/Frameworks/ZunaCryptoFFI.xcframework", "ZunaKit/Sources/ZunaHost/Resources/zuna-core.js"]) {
+  for (const built of ["ZunaKit/Frameworks/ZunaCryptoFFI.xcframework", "ZunaKit/Sources/ZunaHost/Resources/zuna-core.js", "ZunaKit/Sources/ZunaHost/Resources/watch.html"]) {
     if (!existsSync(join(iosDir, built))) fail(`apps/ios/${built} isn't there: npm run build:ios first.`);
   }
   const build = process.env.ZUNA_BUILD || read("git", ["rev-list", "--count", "HEAD"]).trim();

@@ -160,8 +160,15 @@ await waitFor(inGeneral(bobLaptop, "Everyone on the server can read this, and th
 const horn = Int16Array.from({ length: SOUND_RATE * 3 }, (_, index) => Math.round(Math.sin((2 * Math.PI * (660 - (index / SOUND_RATE) * 120) * index) / SOUND_RATE) * 8000));
 await alice.session.addSound(new Blob([writeWav(horn)], { type: "audio/wav" }), "Airhorn", "📯");
 
-// A website for link previews: any page is an article with a picture.
+// A website for link previews: any page is an article with a picture. Under /embed/ it's a fake of YouTube's
+// player, which the app plays a video watched together in.
+const fakePlayer = readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8");
 const site = createServer((request, response) => {
+  if (request.url?.startsWith("/embed/")) {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(fakePlayer);
+    return;
+  }
   if (request.url?.endsWith(".png")) {
     response.writeHead(200, { "content-type": "image/png" });
     response.end(png(1200, 630));

@@ -154,6 +154,23 @@ final class VoiceModel {
     private(set) var keyEpoch: Int?
     /// Coming into a room that waits for the person's word, as it takes another of their devices out of voice.
     var moving: VoiceMove?
+    /// What the room watches together, as the core holds it, or nil when nothing's on.
+    private(set) var watch: WatchView?
+    /// The session this device's person pressed Watch for, which plays here until it ends or they stop it.
+    private(set) var watching: String?
+    /// This device may contact YouTube to play what a room watches, which its person agreed to once. Kept apart
+    /// from the other settings, as on the web (`playYouTube` in packages/ui/src/state/settings.ts).
+    var playYouTube = UserDefaults.standard.bool(forKey: VoiceModel.playYouTubeKey) {
+        didSet { UserDefaults.standard.set(playYouTube, forKey: Self.playYouTubeKey) }
+    }
+    /// A video watched together is silent here. A page can't set a video's volume on a phone, so there's only this.
+    var watchMuted = UserDefaults.standard.bool(forKey: VoiceModel.watchMutedKey) {
+        didSet { UserDefaults.standard.set(watchMuted, forKey: Self.watchMutedKey) }
+    }
+    /// What fills the stage when it's the video watched together, among the videos' keys.
+    nonisolated static let watchFocus = "watch"
+    private static let playYouTubeKey = "zuna-play-youtube"
+    private static let watchMutedKey = "zuna-watch-muted"
 
     /// Called when the call ends, or one stops ringing here, so the app can let go of what it kept running for it in the background.
     @ObservationIgnored var onEnded: (() -> Void)?
@@ -171,6 +188,9 @@ final class VoiceModel {
     /// What's playing from the soundboard, held until it ends.
     @ObservationIgnored private var soundPlayers: [AVAudioPlayer] = []
     @ObservationIgnored private var soundingEnds: [String: Task<Void, Never>] = [:]
+    /// Seeks go four a second at most, however fast someone drags.
+    @ObservationIgnored private var seekSentAt = Date.distantPast
+    @ObservationIgnored private var seekLater: Task<Void, Never>?
     /// The call as the system shows it, on the lock screen and in its call controls.
     @ObservationIgnored private let systemCall = SystemCall()
     /// How loud a share was before being silenced here, to go back to.
@@ -393,6 +413,9 @@ final class VoiceModel {
         focus = nil
         keyEpoch = nil
         sounding = [:]
+        watch = nil
+        watching = nil
+        seekLater?.cancel()
         forgetShare()
     }
 
@@ -1101,6 +1124,84 @@ final class VoiceModel {
             return
         }
         await playHere(serverId: serverId, soundId: soundId, userId: me.userId)
+    }
+
+    // MARK: Watching together
+
+    /// What the room watches changed, or it stopped.
+    func watchChanged(serverId: String, channelId: String, watch: WatchView?) {
+        guard serverId == self.serverId, channelId == self.channelId else { return }
+        let before = self.watch
+        self.watch = watch
+        // Pressing Watch is for one session, so a new one asks again.
+        if watching != watch?.session { watching = nil }
+        // A video put on is what everyone's there to see, unless they're already looking at something.
+        if watch != nil, before == nil, focus == nil { focus = Self.watchFocus }
+        if watch == nil, focus == Self.watchFocus { focus = nil }
+    }
+
+    /// Whether people may watch together in this room: always in a call, and in a voice channel unless its admins said no.
+    var watchAllowed: Bool {
+        guard let serverId, let channelId else { return false }
+        return isCall || app?.servers[serverId]?.channels.first { $0.id == channelId }?.watch ?? true
+    }
+
+    /// Puts a YouTube video on for everyone in the room, from a link, and watches it here. Throws with words for the person.
+    func watchStart(_ url: String) async throws {
+        guard let channelId, let session else { throw WatchFailure(errorDescription: "Join the voice channel to watch together.") }
+        try await session.watchStart(channelId, url: url)
+        let now = try? await session.getWatch(channelId)
+        guard channelId == self.channelId else { return }
+        watch = now
+        // Whoever puts it on watches it.
+        watching = now?.session
+        if now != nil { focus = Self.watchFocus }
+    }
+
+    /// Something this person did with the video, for everyone.
+    func watchControl(_ change: WatchChange) {
+        guard let channelId, let session else { return }
+        seekLater?.cancel()
+        let send = { [weak self] in
+            self?.seekSentAt = Date()
+            Task { [weak self] in
+                do {
+                    try await session.watchControl(channelId, change)
+                } catch {
+                    self?.app?.toast(ErrorText.describe(error), .error)
+                }
+            }
+        }
+        // Someone dragging the seek bar sends where they stopped, a few times a second.
+        let onlySeek = change.position != nil && change.playing == nil && change.rate == nil
+        let wait = 0.25 - Date().timeIntervalSince(seekSentAt)
+        if onlySeek, wait > 0 {
+            seekLater = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(wait))
+                guard !Task.isCancelled, self?.channelId == channelId else { return }
+                send()
+            }
+        } else {
+            send()
+        }
+    }
+
+    /// Stops the video for everyone.
+    func watchStop() {
+        guard let channelId, let session else { return }
+        Task { [weak self] in
+            do {
+                try await session.watchStop(channelId)
+            } catch {
+                self?.app?.toast(ErrorText.describe(error), .error)
+            }
+        }
+    }
+
+    /// Plays what the room watches on this device, or stops playing it here only.
+    func setWatching(_ on: Bool) {
+        watching = on ? watch?.session : nil
+        if on, watch != nil { focus = Self.watchFocus }
     }
 
     /// Someone else in the room played a sound.

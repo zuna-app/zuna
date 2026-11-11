@@ -65,6 +65,8 @@ final class AppUnderTest {
         if let bootSession { app.launchArguments += ["-ZunaBootSession", bootSession] }
         // Dynamic Type, as a UIContentSizeCategory name such as UICTContentSizeCategoryAccessibilityXL.
         if let textSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize] }
+        // A video watched together plays in the fake of YouTube's player that the test world serves, never YouTube's.
+        app.launchArguments += ["-ZunaWatchPlayer", World.current.siteUrl]
         app.launchEnvironment["TZ"] = "UTC"
         app.launch()
         control = try blocking { try await RPCSocket.connect(to: URL(string: "ws://127.0.0.1:\(port)")!) }

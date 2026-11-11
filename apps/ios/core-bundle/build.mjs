@@ -6,8 +6,11 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleCore } from "./bundle.mjs";
+import { buildWatchPage } from "../../../packages/watch/build.mjs";
 
 const resources = join(dirname(fileURLToPath(import.meta.url)), "..", "ZunaKit", "Sources", "ZunaHost", "Resources");
 // The JavaScriptCore in iOS 18 matches Safari 18.
 const written = await bundleCore({ target: "safari18", outDir: resources });
+// The page a video watched together plays in, in a WKWebView of the app's.
+written.push(await buildWatchPage(resources, "safari18"));
 console.log(`> wrote ${written.join(", ")}`);

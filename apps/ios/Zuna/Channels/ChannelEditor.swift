@@ -32,6 +32,7 @@ struct ChannelEditor: View {
     @State private var userLimit = 0
     @State private var screenLimit = 0
     @State private var sounds = true
+    @State private var watch = true
     @State private var slowOn = false
     /// Slow mode's time, in seconds, kept while it's off so turning it on again brings it back.
     @State private var slowMode = 30
@@ -224,10 +225,12 @@ struct ChannelEditor: View {
             .accessibilityIdentifier(A11y.Channels.editorScreenLimit)
             Toggle("Soundboard", isOn: $sounds)
                 .accessibilityIdentifier(A11y.Channels.editorSounds)
+            Toggle("Watch together", isOn: $watch)
+                .accessibilityIdentifier(A11y.Channels.editorWatch)
         } header: {
             Text("Voice")
         } footer: {
-            Text("Limit screen sharing to fewer at once than the server allows, or turn it off here. With the soundboard on, anyone in the channel can play the server's sounds.")
+            Text("Limit screen sharing to fewer at once than the server allows, or turn it off here. With the soundboard on, anyone in the channel can play the server's sounds. With watching together on, anyone in it can put a YouTube video on for everyone there, which plays only for those who press Watch.")
         }
     }
 
@@ -248,6 +251,7 @@ struct ChannelEditor: View {
             userLimit = channel.userLimit
             screenLimit = channel.screenLimit
             sounds = channel.sounds
+            watch = channel.watch
             slowOn = channel.slowMode > 0
             if channel.slowMode > 0 { slowMode = channel.slowMode }
         }
@@ -265,6 +269,7 @@ struct ChannelEditor: View {
             userLimit: voice ? userLimit : nil,
             screenLimit: voice ? screenLimit : nil,
             sounds: voice ? sounds : nil,
+            watch: voice ? watch : nil,
             slowMode: slowOn ? slowMode : nil
         )
         let channel = channel
@@ -274,7 +279,7 @@ struct ChannelEditor: View {
             defer { busy = false }
             do {
                 if let channel {
-                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds, slowMode: slowOn ? slowMode : 0))
+                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds, watch: made.watch, slowMode: slowOn ? slowMode : 0))
                     dismiss()
                 } else {
                     let id = try await session.createChannel(made)

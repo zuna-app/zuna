@@ -269,6 +269,18 @@ public struct SessionCalls: Sendable {
     /// throws with something to tell the person when the server says no, as while muted.
     public func playSound(_ channelId: String, soundId: String) async throws { try await run("playSound", [channelId, soundId]) }
 
+    // MARK: Watching together
+
+    /// What the voice channel or call this device is in watches together, or nil when nothing's on.
+    public func getWatch(_ channelId: String) async throws -> WatchView? { try await call("getWatch", [channelId]) }
+    /// Puts a YouTube video on for everyone in the room, from a link. This device fetches its title and picture, so
+    /// its person should have agreed to contact YouTube. It throws with words for them when the link isn't YouTube's.
+    public func watchStart(_ channelId: String, url: String) async throws { try await run("watchStart", [channelId, url]) }
+    /// A change this person made: play or pause, a seek, a speed.
+    public func watchControl(_ channelId: String, _ change: WatchChange) async throws { try await run("watchControl", [channelId, change]) }
+    /// Stops the video for everyone in the room.
+    public func watchStop(_ channelId: String) async throws { try await run("watchStop", [channelId]) }
+
     // MARK: Invites and verification
 
     public func invites() async throws -> [Invite] { try await call("invites") }
@@ -353,6 +365,21 @@ public struct SessionCalls: Sendable {
 }
 
 /// Server settings an admin can change, named as the server's API names them.
+/// A change to what a room watches together, for `watchControl`; nil fields stay as they are.
+public struct WatchChange: Codable, Sendable, Equatable {
+    public var playing: Bool?
+    /// Milliseconds into the video.
+    public var position: Double?
+    /// One of YouTube's speeds, 0.25 to 2.
+    public var rate: Double?
+
+    public init(playing: Bool? = nil, position: Double? = nil, rate: Double? = nil) {
+        self.playing = playing
+        self.position = position
+        self.rate = rate
+    }
+}
+
 public struct ServerSettingsChanges: Codable, Sendable, Equatable {
     public var name: String?
     public var registration: String?

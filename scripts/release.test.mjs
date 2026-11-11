@@ -90,6 +90,8 @@ test("only what the iPhone app is built from reaches it", () => {
   assert.ok(reachesIos(["apps/ios/ZunaKit/Sources/ZunaHost/CryptoBridge.swift"]));
   assert.ok(reachesIos(["apps/ios/project.yml"]));
   assert.ok(reachesIos(["packages/core/src/session/session.ts"]));
+  assert.ok(reachesIos(["packages/watch/src/sync.ts"]));
+  assert.ok(!reachesIos(["packages/watch/test/sync.test.ts", "packages/watch/fake/player.html"]));
   assert.ok(reachesIos(["crypto/src/native.rs"]));
   assert.ok(reachesIos(["scripts/build-crypto-apple.mjs"]));
   assert.ok(reachesIos(["scripts/ios-dist.mjs"]));

@@ -79,6 +79,8 @@ export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/"];
 export const IOS_PATHS = [
   "apps/ios/",
   "packages/core/",
+  // watch.html, the page a video watched together plays in, which the core bundle's build writes beside it.
+  "packages/watch/",
   "crypto/",
   "package.json",
   "package-lock.json",
@@ -93,7 +95,7 @@ export const IOS_PATHS = [
 ];
 
 /** Inside those, what never reaches the iPhone app's build. */
-export const NOT_IOS_PATHS = ["apps/ios/ZunaUITests/", "apps/ios/ZunaKit/Tests/", "apps/ios/scripts/", "packages/core/test/"];
+export const NOT_IOS_PATHS = ["apps/ios/ZunaUITests/", "apps/ios/ZunaKit/Tests/", "apps/ios/scripts/", "packages/core/test/", "packages/watch/test/", "packages/watch/fake/"];
 
 /** The crates whose version is kept the same as the root package.json's. */
 const CRATES = ["apps/desktop", "apps/desktop/screenshare", "apps/desktop/media-ffmpeg", "apps/desktop/test/driver", "crypto", "crypto/bindgen"];
