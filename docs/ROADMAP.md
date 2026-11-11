@@ -40,6 +40,7 @@ The iPhone app's approach carries over:
 |---|---|
 | iPhone and iPad | A share's sound, which LiveKit's Swift SDK only mixes into the microphone ([SCREEN_SHARE.md](SCREEN_SHARE.md#from-an-iphone-or-ipad)). Answering a phone call during a call, with CallKit, which has otherwise been tried on an iPhone: the lock screen, the Dynamic Island, muting and ending from the system's controls, and a phone call declined during one. |
 | Calls in direct messages and groups | Built everywhere, in the same rooms and with the same keys as voice channels, from that conversation's MLS group, ringing on the iPhone and iPad through CallKit, and waking a phone that isn't running through PushKit, or with an alert where CallKit is left out. Left: trying the ringing on an iPhone, which the simulator can't do. |
+| Watching YouTube together | Not started. A video in a voice channel or a call, played in step on every device, each of which fetches it from YouTube itself, and only once its person presses Watch. [WATCH_TOGETHER_PLAN.md](WATCH_TOGETHER_PLAN.md) has the design and its phases. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
 ## Other ideas

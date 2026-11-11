@@ -1,0 +1,283 @@
+# Watching YouTube together: plan
+
+People in a voice channel or a call put a YouTube video on, and it plays for each of them at the same moment: one pauses, and it pauses for everyone. Nothing here is built yet. This page is the design, what was decided, and the order to build it in.
+
+```
+someone presses pause in their player
+        │
+  the player's page (packages/watch) ── says what the person did ──▶ the app
+        │                                                             │
+        │                                                  the core: a new state, sealed
+        │                                                  under the room's key and signed
+        │                                                             │
+        │                                    chat server: hands it to the others in the room,
+        │                                    reads nothing, keeps nothing
+        │                                                             │
+  every other device's core opens it, checks who signed it ──▶ its app ──▶ its player seeks and pauses
+
+  each player ◀────── video and sound ────── YouTube   (straight from Google, to each device)
+```
+
+The video never passes through Zuna. Only "which video, playing or not, where, how fast" does, encrypted as a soundboard's sound is. Each device fetches the video from YouTube itself, which is what makes this the first thing in Zuna that contacts a third party, and why it only happens after a click.
+
+## Decisions
+
+Made on 2026-11-11:
+
+- **YouTube only, through its own embedded player.** YouTube allows nothing else. Reading its streams as yt-dlp does breaks its terms and breaks whenever YouTube changes, so it isn't an option.
+- **Everyone in the room controls it:** play, pause, seek, speed, another video, stop. There is no host.
+- **Speed is shared. Volume and captions are each person's own.**
+- **In voice channels and in calls,** as everything else a voice channel has.
+- **A device contacts YouTube only after its person presses Watch,** each time a video is put on in a room. The first time, it also asks, says what Google learns, and remembers the answer in a switch under Privacy.
+- **One video at a time in a room.** No queue in the first version.
+- **A voice channel has a switch for it,** for admins, as it has for the soundboard. A call always allows it.
+- **The native app plays it in the system's web view:** WebView2 on Windows and WKWebView on macOS, inside the stage, and on Linux in a window of its own through WebKitGTK, since nothing can be put inside another program's window under Wayland.
+
+Still to decide while building, with what this plan assumes:
+
+- Whether a new video in a session someone is already watching needs another press of Watch. Assumed: no. The press is for the session, which lasts until someone stops it or the room empties.
+- Whether a server needs one switch for all of it, calls included. Assumed: not in the first version.
+
+## What YouTube asks
+
+Checked against YouTube's pages on 2026-11-11: [required minimum functionality](https://developers.google.com/youtube/terms/required-minimum-functionality), [player parameters](https://developers.google.com/youtube/player_parameters) and the [IFrame API](https://developers.google.com/youtube/iframe_api_reference).
+
+- **A Referer that says who is embedding.** A browser sends it, unless the page forbids it, which `zuna-web` does today with `Referrer-Policy: no-referrer`. A web view sends none, so an app sets it: `https://` and the app's own ID, in lower case. Without it the player may refuse to play (error 153).
+- **The player is at least 200 by 200 pixels,** and nothing is drawn over any part of it.
+- **A video starts by itself only while more than half of its player shows.**
+- **Nothing about the player changes except through documented parameters.**
+- **Errors to show in words:** 100 (gone or private), 101 and 150 (its owner doesn't allow embedding), 5 (can't be played here), 153 (no Referer: a bug of ours).
+- YouTube's developer policies also ask an app that embeds its player to say so in its privacy policy and to link to Google's. Read them again when writing the consent's text and the site's page.
+
+What follows from these:
+
+- **YouTube's own controls stay on.** They're how each person picks captions, quality and, on a computer, volume. Zuna reads what the person did with them and tells the room. Hiding them (`controls=0`) would make captions need calls YouTube doesn't document.
+- **Zuna's own controls sit under the player,** never on it.
+- **A video plays only where its player is on screen.** A device whose stage is hidden pauses its own player and catches up when the stage is back. This is also why there's no mini player in the first version.
+- **Not every video plays.** Ones that forbid embedding, age-restricted ones and some music don't, and the tile says which.
+- **There are adverts,** as nobody is signed in to YouTube in the player. Someone watching one is behind for a while and catches up after it.
+
+## The shared state
+
+One state per room, held only by the devices in it. The last change wins.
+
+```ts
+// packages/core/src/watch.ts
+interface WatchState {
+  session: string;   // new each time a video is put on where nothing was
+  rev: number;       // one more with each change; the higher wins, then the later `at`, then the device ID
+  video: { id: string; title?: string; author?: string; image?: PreviewImage } | null;  // null: stopped
+  playing: boolean;
+  position: number;  // ms into the video at `at`
+  at: number;        // when that was, in ms, by the server's clock as the sender knew it
+  rate: number;      // 0.25 to 2
+  user: string;      // who made the change
+}
+```
+
+Where the video is now is `position + (now − at) × rate` while it plays, and `position` while it doesn't. Nobody sends the time as it passes: a state is only sent when someone changes something.
+
+A signal is sealed and signed exactly as a played sound is (`playSound` and `onSoundFrame` in `packages/core/src/session/server.ts`): `sealEnvelope` under the room's key for its current epoch, kind `"watch"`, framed with `frameSigned`. It's opened with `checkEnvelope`, only counts from a device the log of keys names, whose user is who the server says sent it, and goes through `parseWatch` in `validate.ts` before anything sees it. A `sent` time and a `nonce` keep one from being played back later, as `PLAY_FRESH_MS` and `playsSeen` do for sounds.
+
+There are two signals:
+
+- `state`: the whole state. Sent on every change. The video's title and picture ride along only when the video changes or someone asks.
+- `ask`: sent by a device as it comes into the room, and again when its socket reconnects. Devices that hold a state answer with it, sealed under the current key, each after a wait set by how long it's been in the room, and not at all once it hears someone else's answer. The answer goes only to the one who asked.
+
+An answer is signed by whoever answers, so `user` is their word for who made the last change. It only shows a name ("paused by…"), and everyone in the room can already do everything, so nothing rests on it.
+
+A stopped video stays as a state with no video, so that a late answer can't bring the old one back.
+
+### The video's title and picture
+
+Whoever puts a video on has their device fetch them, as it would for a link's preview (`makeLinkPreview` in `packages/core/src/links.ts`, with a smaller picture), and they travel inside the state. So the tile can say what's on before a device has touched YouTube. On the web that fetch is `zuna-web`'s, as previews are.
+
+The link is read by the core: `youtube.com/watch?v=`, `youtu.be/`, `/shorts/`, `/live/`, `/embed/`, `music.youtube.com`, with `t=` as where to start. Anything else is refused with words.
+
+### The clock
+
+Devices' clocks can be seconds apart, and the people watching hear each other, so they'd notice. Each device measures how far its clock is from the server's:
+
+- The server's `pong` carries its time (`pongFrame` in `server/internal/api/hub.go`, which stops being a constant).
+- While a room has a video on, the core pings a few times at once and then once a minute, and keeps the offset from the round trip that was quickest.
+- `at` in a state is on the server's clock. The core turns it to the device's own before the app sees it, so no interface deals with offsets.
+
+A server that lies about the time can only put people out of step. It learns nothing by it.
+
+### What the core gives the apps
+
+In a new `// --- Watching together ---` part of `packages/core/src/session/channels.ts`, after Calls:
+
+| Method or event | What it does |
+|---|---|
+| `getWatch(channelId)` | The room's state, or null |
+| `watchStart(channelId, url)` | Reads the link, fetches the title and picture, sends a new state |
+| `watchControl(channelId, { playing?, position?, rate? })` | A change by this person |
+| `watchStop(channelId)` | Stops it for everyone |
+| `{ type: "watch", serverId, channelId, watch }` | The state changed |
+
+Leaving the room forgets the state. `types.ts` gains `WatchView`, and with it `Models.swift` and `models.rs`.
+
+## The server
+
+It hands signals on and keeps nothing, as for sounds (`server/internal/api/sounds.go`).
+
+- `POST /api/channels/{id}/voice/watch` and `POST /api/groups/{id}/call/watch`, both `member`. The body is `{ data, to? }`. The sender's device must be in the room. Being muted or deafened doesn't matter here.
+- It goes to the room's other devices as a `watch` frame, or only to `to`.
+- At most 64 KB, and a limit of its own for each person, loose enough for someone dragging the seek bar. The apps send at most four seeks a second.
+- `channels.watch`, on by default, at the end of `migrations` and `postgresMigrations`. A voice channel with it off refuses with `watch_off`. `ChannelView` gains `watch`.
+- A bot is refused (`refuseBot`).
+
+What the server learns: that a device in a room sent a signal, when, and how big. Not which video, nor whether it was a pause or a seek.
+
+## The player
+
+One small package, `packages/watch`, used by every app, so that the fiddly part exists once:
+
+- `watch.html`: a page with nothing but the player's frame. The native apps load it in their web view.
+- A controller in TypeScript. The web app imports it. The native apps get it built into `watch.html`.
+
+It makes a frame of `https://www.youtube-nocookie.com/embed/<id>` with `enablejsapi=1`, `origin`, `playsinline=1`, and `referrerpolicy="strict-origin-when-cross-origin"`. It talks to the frame with `postMessage`, the messages YouTube's own script sends. **No script from YouTube ever runs in Zuna's page.** The frame is another origin, and can reach nothing of the app's.
+
+| To the controller | From it |
+|---|---|
+| `apply({ video, playing, position, age, rate })` | `intent({ playing?, position?, rate? })`: the person did this |
+| `setVolume`, `setMuted` | `status({ phase, position, duration, live, error? })` |
+| | `volume({ level, muted })`: changed in YouTube's own control |
+| | `blocked()`: the browser refused to start it, so the person has to press play once |
+
+### Telling what the person did from what we did
+
+This is where tools like this go wrong: a player that's catching up looks like someone seeking, and sends everyone back.
+
+- A player is **loading**, **catching up** or **in step**. Only one that's in step can speak for its person.
+- A pause or a play that the shared state didn't ask for, on a player in step, is the person's.
+- A jump of more than about 1.5 s between two readings a quarter of a second apart, on a player in step, is a seek. Standing still isn't: that's buffering or an advert.
+- For half a second after the controller itself seeks, plays or pauses, what the player reports is taken as the result of that.
+- A change of speed is the person's unless the controller just set it.
+
+### Keeping in step
+
+- Under 0.3 s off: left alone.
+- Over that: one seek to where it should be, plus however long this device's last seek took to start playing. No more than one every five seconds.
+- Nobody waits for someone who's buffering. They catch up.
+- At the end, a player in step says so as a pause at the end. The others say the same, which changes nothing.
+
+The numbers are a start, to be set by what phase 0 measures.
+
+### Volume, captions, speed
+
+- **Captions and quality:** YouTube's own buttons, each person's own, told to nobody.
+- **Volume:** a slider and a mute button under the player, kept on the device and set again on each video, since the player remembers nothing between sessions. YouTube's own volume control moves it too. On the iPhone a page can't set a video's volume, so there it's only mute, and the phone's buttons.
+- **Deafened:** the video is silent too.
+- **Speed:** from YouTube's menu, told to the room.
+
+## Consent and privacy
+
+What Google learns from a device that watches: its IP address, which video, and when. On the web also the address of the web app, from the Referer. In the native apps the Referer is the app's ID, the same for everyone.
+
+- **Until Watch is pressed, a device contacts nobody.** The tile shows the title and picture that came inside the state, who put it on, and a Watch button.
+- **The first press asks:** what Google will learn, with links to YouTube's terms and Google's privacy policy, and Watch or Cancel. Watch turns on **Privacy, Play YouTube videos**, which is off until then. Turning it off makes the next press ask again.
+- **Putting a video on goes through the same question first,** as the device fetches the title before anyone else sees it.
+- **The player keeps nothing:** the privacy-enhanced address, and in the native apps a web view with no stored data, so no cookie outlives a session.
+- **In the native apps the web view may open the player and nothing else.** A link pressed inside it opens in the browser. It's refused the camera, the microphone, the location, downloads and new windows. It talks to the app only in the controller's few messages, which are checked as anything from outside is.
+
+This sits beside the decision against GIF search, which was refused because a service would learn each person's address and what they look for. Here the person asks for it each time, knowing. It goes into "Decisions to keep" as the one exception when it's built.
+
+## Each platform
+
+### Web
+
+- `contentSecurityPolicy` in `server/internal/webhost/webhost.go`: `frame-src https://www.youtube-nocookie.com` in place of `'none'`, and its test. Nothing else opens: the picture is a data URL, and no script is added.
+- The frame carries `allow="autoplay; fullscreen; encrypted-media; picture-in-picture"` and its own referrer policy, which the page's header doesn't override for it.
+- `packages/ui/src/features/voice/Watch.tsx`: the tile, the bar under the player (title, who, volume, another video, stop, stop watching), the dialog for a link, the consent. It's a tile on the stage that takes its middle as a shared screen does (`ScreenTile` in `VoiceStage.tsx`).
+- `voice/store.ts`: the state from `watch` events, whether this device is watching, and the calls.
+- `features/voice/ChannelDialog.tsx`: the channel's switch. `features/overlays/Settings.tsx`: the Privacy switch.
+- Safari may refuse to start a video nobody on that device pressed play on. Then the bar says to press play once.
+
+### iPhone and iPad
+
+- `apps/ios/Zuna/Voice/Watch.swift`: a `WKWebView` with `watch.html` loaded with `baseURL` `https://chat.zuna.mobile`, which sets the Referer. No stored data, inline playback, playing without a tap, picture in picture off.
+- A message handler for the controller, and a navigation delegate that lets only the player through.
+- `VoiceModel.swift` for the state, `CallScreen.swift` for the tile, `CoreAPI.swift` and `Models.swift` for the core's new methods and types, `ChannelEditor.swift` and `Settings/AccountSettings.swift` for the two switches.
+- With the app in the background, or the call down to its bar, the player pauses, and catches up on return.
+
+### The native app on Windows and macOS
+
+- `wry` gives WebView2 and WKWebView behind one interface, made as a child of the app's window from the handle GPUI already gives (`platform/windows/mod.rs`, `platform/macos/mod.rs`). If it fights GPUI's event loop, the fallback is `webview2-com` and `objc2-web-kit` directly.
+- `apps/desktop/src/voice/watch/`: the state, the web view and its messages. `ui/voice_stage/watch.rs`: the tile and the bar, drawn by GPUI.
+- **The web view draws over everything GPUI draws inside its rectangle,** and can't be clipped or rounded. So its bounds follow the tile's each frame, and it's hidden whenever something of GPUI's has to be on top: a menu, a dialog, and above all the question about a new device, which must be over everything. If GPUI can't say when that is, it's a change to the fork.
+- The Referer is `https://chat.zuna.desktop`.
+- Windows needs the WebView2 runtime, which Windows 11 has. Where it's missing, the tile says so with a link.
+- YouTube's full screen button is off (`fs=0`). The stage's own full screen does it, and the web view follows.
+- `ui/settings/preferences.rs` for the Privacy switch, `ui/server_settings` for the channel's, `test_control.rs` for the checks.
+
+### The native app on Linux
+
+- A helper, `zuna-watch`, a crate of the app's workspace as `zuna-screenshare` is: a GTK window holding WebKitGTK through `wry`'s `build_gtk`, which the app starts and talks to in lines of JSON over its pipes.
+- The video is in that window. The tile on the stage shows the title and the bar, and says the video is in its own window. Closing the window stops watching on this device.
+- WebKitGTK and GStreamer's decoders are the system's. The .deb, .rpm and pacman packages recommend them without requiring them. The AppImage and the .tar.gz use what's there. Where the helper can't start, or the player can't decode, the tile says what to install.
+- `scripts/linux-build-deps.sh` gains WebKitGTK's development package, and `scripts/linux-app.mjs` puts the helper in the packages.
+
+### Echo in the native app
+
+The native app cancels echo by comparing the microphone with what the app itself played (`apps/desktop/src/voice/audio.rs`). A web view's sound comes from another process, so with speakers, the room is likely to hear the video again through that person's microphone. The fix is to give the canceller the web view's sound as well: Windows' loopback of one process and macOS's audio taps, both of which the screen share's sound already uses, and on Linux the helper's PipeWire node. It's a phase of its own, and a Known gap until then.
+
+Browsers and the iPhone cancel what the whole device plays, so they shouldn't need it. Phase 0 checks.
+
+## Phases
+
+Each ends pushed, with its checks run, its rows in `.agents/FEATURE_PARITY.md`, and a Known gap for every platform not there yet.
+
+| | What | Done when |
+|---|---|---|
+| 0 | **Proof of the risky parts,** thrown away after: the frame driven by `postMessage` alone in Chromium, Firefox and WebKit; a `WKWebView` playing during a CallKit call on a real iPhone; a `wry` child view in the GPUI window on macOS and Windows; the helper's window on Linux; echo with speakers on each | Each of "Risks" has an answer, written into this page |
+| 1 | **Core and server:** the state, the signals, the clock, the routes, the channel's switch | `packages/core/test/watch.test.ts` passes, in SQLite and PostgreSQL, with the server's tests |
+| 2 | **`packages/watch` and the web app** | The web check's new step passes in three browsers, and two people have watched a real video |
+| 3 | **iPhone and iPad** | `VoiceTests` has it against a desktop peer, and it's been watched on a phone during a call |
+| 4 | **Native app on macOS and Windows** | `mac-voice-check.mjs` has it, and it's been watched on both |
+| 5 | **Native app on Linux** | `linux-voice-check.mjs` has it, and `linux-package-check.mjs` finds the helper |
+| 6 | **Echo in the native app** | Someone on speakers sends none of the video back, measured |
+
+Phases 3, 4 and 5 don't depend on each other. Phases 1 to 3 and 5 on their own change nothing in the native app that anyone would notice, so the first nightly with something new is phase 4's.
+
+## Checks
+
+- **Core** (`packages/core/test/watch.test.ts`, against a real server): a state reaches only the others in the room; one from outside the room, from an unknown device, signed by the wrong person, or played back, changes nothing; two changes at once end the same on every device; someone coming in gets the state, sealed under a key they hold, after an epoch change too; a stop stays stopped; a channel with the switch off refuses; two devices with clocks set apart agree on where the video is.
+- **Server** (Go): the routes' access rules, the limit, the size, `to`, the migration in both databases.
+- **Controller** (`packages/watch/test`): against a fake player, a page that speaks the same messages, with buffering, adverts and seeks played out in it. The cases are the ones under "Telling what the person did from what we did".
+- **Web, iPhone, native:** each platform's own check, with the fake player in place of YouTube (the web check routes the player's address to it, the native apps take `ZUNA_WATCH_PLAYER`, as they take `ZUNA_FAKE_SCREEN`), so no check depends on YouTube or the network.
+- **By hand, once for each platform, against YouTube itself,** written into the parity file: a video that plays, one that forbids embedding, an advert, captions, and two devices side by side to hear how far apart they are.
+
+## What changes with it
+
+| Change | Also change |
+|---|---|
+| The web's content security policy | `docs/WEB_PLAN.md`, which says nothing third-party loads, and `docs/WEB.md` |
+| A device contacting YouTube | `SECURITY.md` and `docs/SECURITY_DETAILS.md`: a section on what Google and the server each learn, and when |
+| The same | `apps/site`: the privacy policy, and Features once it's on a platform people can get |
+| `packages/watch` | `APP_PATHS` and `IOS_PATHS` in `scripts/release.mjs`, its `versionFiles`, `npm run typecheck`, and the two native apps' copies of `watch.html` |
+| `types.ts` | `Models.swift`, `models.rs` |
+| The core's new methods | `CoreAPI.swift`, and the native app's `call("…")` strings |
+| When it's built | `CLAUDE.md`: the part's marker, a Quick reference row, "Decisions to keep", and `packages/watch` in "What has to change together" |
+
+## Risks
+
+Phase 0 is there to settle these before anything is built on them.
+
+- **`postMessage` without YouTube's script.** The messages are what its script sends, and have been stable for years, but they aren't documented. If they prove flaky, the native apps can load YouTube's script inside their web view's page, where there's nothing of Zuna's to reach. The web app can't, and would be left with a plainer player.
+- **Whether the privacy-enhanced address takes the same messages.** If not, `www.youtube.com/embed`, with what that costs in cookies said in the consent.
+- **A `WKWebView` playing during a call on an iPhone.** WebKit has changed an app's audio session under it before. If it takes the call's sound or the microphone, the iPhone waits for a fix or only shows what's on.
+- **The web view over GPUI:** hiding it in time, keyboard focus going in and not coming back, and WebView2 needing the right kind of thread.
+- **Linux's decoders.** YouTube sends VP9 or AV1 with Opus, or H.264 with AAC, and a system may have none of what WebKitGTK needs for them.
+- **Adverts and seeks told apart.** The rules above are a design, not a measurement.
+- **Live streams.** Where one is has no meaning to share. The first version plays one at its live edge and only shares playing or not.
+- **YouTube changing or blocking embedded playback.** Outside anyone's hands here. The tile's errors are in words so people know it isn't Zuna.
+
+## Left out of the first version
+
+- A queue, and searching YouTube from the app, which would need a key and tell Google what people look for.
+- Other sites, and a video file of someone's own.
+- A mini player while looking at another chat.
+- An icon beside someone in the channel list while they watch, which would tell the server who's watching.
+- One switch for a whole server.
