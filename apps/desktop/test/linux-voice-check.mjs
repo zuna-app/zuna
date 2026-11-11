@@ -360,10 +360,10 @@ try {
 
   // --- The channel's chat beside the stage ---
   // Without the member list a channel's chat has elsewhere, which took 240 of its 400 px.
-  await drive({ do: "click", x: 1020, y: 863 });
+  await drive({ do: "click", x: 1046, y: 863 });
   await sleep(800);
   const beside = await shot("04-chat-beside");
-  check("the channel's chat opens beside the stage without the member list", spreadIn(beside, [1176, 84, 200, 70]) < 0.02 && spreadIn(beside, [1130, 836, 250, 36]) > 0.05, `spread ${spreadIn(beside, [1176, 84, 200, 70]).toFixed(3)} where the list was`);
+  check("the channel's chat opens beside the stage without the member list", spreadIn(beside, [1176, 84, 200, 70]) < 0.02 && spreadIn(beside, [1160, 836, 220, 36]) > 0.05, `spread ${spreadIn(beside, [1176, 84, 200, 70]).toFixed(3)} where the list was`);
   await drive({ do: "click", x: 1150, y: 853 });
   await drive({ do: "type", text: "Hello from beside the call" });
   await drive({ do: "key", key: "enter" });
@@ -374,7 +374,7 @@ try {
   // Its ×, at the end of its header.
   await drive({ do: "click", x: 1374, y: 56 });
   await sleep(800);
-  check("and its × hides it", spreadIn(await shot("04-chat-hidden"), [1130, 836, 250, 36]) < 0.02);
+  check("and its × hides it", spreadIn(await shot("04-chat-hidden"), [1160, 836, 220, 36]) < 0.02);
 
   // --- Watching a video together: put on in the web app, played here in zuna-watch's window ---
   {
@@ -474,7 +474,7 @@ try {
 
   // --- Stream stats, with both microphones muted, copied with the mouse alone ---
   await page.getByRole("button", { name: "Mute", exact: true }).first().click();
-  await drive({ do: "click", x: 704, y: 863 });
+  await drive({ do: "click", x: 678, y: 863 });
   // Another app's copy, as Klipper holds one: no key has been pressed in the native app, and
   // KWin drops a selection older than the one it holds.
   spawn("wl-copy", ["Copied in another app"], { env: session, stdio: "ignore" });
@@ -502,7 +502,7 @@ try {
   await drive({ do: "click", x: 1369, y: 111 });
   await page.getByRole("button", { name: "Close stream stats" }).click();
   await page.getByRole("button", { name: "Unmute", exact: true }).first().click();
-  await drive({ do: "click", x: 704, y: 863 });
+  await drive({ do: "click", x: 678, y: 863 });
   await sleep(1000);
 
   // --- Cameras both ways ---
