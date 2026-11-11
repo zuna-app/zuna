@@ -54,7 +54,13 @@ export async function outside(script) {
   for (const dir of Object.values(xdg)) mkdirSync(dir, { recursive: true });
   // Playwright's browsers are where the person installed them, which it finds by XDG_CACHE_HOME.
   const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH || join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "ms-playwright");
-  const env = { ...process.env, ...xdg, PLAYWRIGHT_BROWSERS_PATH: browsers, MANGOHUD: "0", DISABLE_MANGOHUD: "1", XDG_CURRENT_DESKTOP: "KDE", WAYLAND_DISPLAY: `zuna-check-${run}` };
+  // The sound devices are on the person's own PipeWire, whose session manager gives each new
+  // stream the volume it remembers for a program of its name, and remembers what it's changed
+  // to: a person who turned Zuna down would have every check hear it that quiet. So whatever a
+  // check starts is given nothing remembered and leaves nothing behind, through PipeWire's own
+  // streams, as the app's are, and PulseAudio's, as WebKit's and Chromium's are.
+  const sound = { PIPEWIRE_PROPS: "{ state.restore-props = false }", "PULSE_PROP_state.restore-props": "false" };
+  const env = { ...process.env, ...xdg, ...sound, PLAYWRIGHT_BROWSERS_PATH: browsers, MANGOHUD: "0", DISABLE_MANGOHUD: "1", XDG_CURRENT_DESKTOP: "KDE", WAYLAND_DISPLAY: `zuna-check-${run}` };
   delete env.DISPLAY;
   const inner = spawnSync("dbus-run-session", ["--", process.execPath, fileURLToPath(script), ...process.argv.slice(2)], {
     stdio: "inherit",
