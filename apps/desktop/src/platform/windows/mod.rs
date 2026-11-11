@@ -9,6 +9,7 @@ pub mod ptt;
 pub mod screens;
 pub mod single;
 pub mod updates;
+pub mod watch_view;
 pub mod icons;
 mod quiet;
 pub mod tray;

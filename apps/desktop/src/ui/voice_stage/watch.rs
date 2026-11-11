@@ -15,7 +15,7 @@ use crate::models::WatchView;
 use crate::voice::watch::WATCH_FOCUS;
 
 /// The page the player is in, built from packages/watch by `apps/desktop/core-bundle/build.mjs`.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 const PAGE: &str = include_str!("../../../assets/core/watch.html");
 
 /// YouTube's player, or in a development build's checks the fake of it that `ZUNA_WATCH_PLAYER`
@@ -36,6 +36,9 @@ fn player_host() -> String {
 fn page_origin(host: &str) -> &'static str {
     if host.starts_with("http:") { "http://chat.zuna.desktop" } else { "https://chat.zuna.desktop" }
 }
+
+/// Where Microsoft offers the WebView2 Runtime, which a Windows without it is pointed to.
+const WEBVIEW2_DOWNLOAD: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 /// What the player says about itself, for the bar under it.
 #[derive(Clone, Default)]
@@ -59,7 +62,7 @@ fn error_words(error: &str) -> &'static str {
 /// YouTube's player in the system's web view, for one session.
 pub(super) struct WatchPlayer {
     session: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     view: Rc<crate::platform::watch_view::WatchView>,
     ready: bool,
     /// What the page was last told: the room's state, muted, held, and the volume.
@@ -97,7 +100,7 @@ impl VoiceStage {
             return;
         }
         self.watch_player = None;
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         {
             let (sender, mut messages) = futures::channel::mpsc::unbounded::<String>();
             let host = player_host();
@@ -115,15 +118,20 @@ impl VoiceStage {
                 let asked = this.update(cx, |stage, _| {
                     if let Some(player) = stage.watch_player.as_ref().filter(|player| player.ready) {
                         player.view.send(r#"{"type":"probe"}"#);
+                        // A check's picture of the player, where nothing else can take one.
+                        #[cfg(all(windows, debug_assertions))]
+                        if let Ok(path) = std::env::var("ZUNA_WATCH_SNAPSHOT") {
+                            player.view.snapshot(&path);
+                        }
                     }
                 });
                 if asked.is_err() {
                     break;
                 }
             });
-            self.watch_player = Some(WatchPlayer { session: watch.session.clone(), view: Rc::new(view), ready: false, sent: None, status: Rc::default(), _messages: task, _probe: probe, echo: EchoTap::Waiting });
+            self.watch_player = Some(WatchPlayer { session: watch.session.clone(), view: Rc::new(view), ready: false, sent: None, status: Rc::default(), _messages: task, _probe: probe, #[cfg(target_os = "macos")] echo: EchoTap::Waiting });
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", windows)))]
         let _ = (window, cx);
     }
 
@@ -137,7 +145,7 @@ impl VoiceStage {
                 player.sent = None;
                 let voice = self.voice.read(cx);
                 let muted = voice.settings.watch_muted || voice.deafened;
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 player.view.send(&json!({ "type": "start", "host": player_host(), "muted": muted, "fullscreen": false }).to_string());
                 let _ = muted;
                 cx.notify();
@@ -210,12 +218,14 @@ impl VoiceStage {
             player.echo = EchoTap::Off;
             return;
         }
+        let wanted = zuna_screenshare::sound::Wanted::Helpers(std::process::id());
+        log::info!("watch: taking the player's sound for the echo canceller ({wanted:?})");
         player.echo = EchoTap::Starting;
         let session = player.session.clone();
         let started = cx.background_executor().spawn(async move {
             let mut heard = false;
             zuna_screenshare::sound::Sound::start(
-                zuna_screenshare::sound::Wanted::Helpers(std::process::id()),
+                wanted,
                 std::time::Duration::from_secs(150),
                 move |samples| {
                     if !heard && samples.iter().any(|sample| sample.abs() > 1e-4) {
@@ -232,7 +242,10 @@ impl VoiceStage {
             this.update(cx, |stage, _| {
                 let Some(player) = stage.watch_player.as_mut().filter(|player| player.session == session) else { return };
                 player.echo = match started {
-                    Ok(sound) => EchoTap::Running(sound),
+                    Ok(sound) => {
+                        log::info!("watch: the player's sound is taken for the echo canceller");
+                        EchoTap::Running(sound)
+                    }
                     Err(problem) => {
                         log::warn!("watch: the player's sound can't reach the echo canceller: {problem}");
                         EchoTap::Off
@@ -256,7 +269,7 @@ impl VoiceStage {
             return;
         }
         let before = player.sent.clone();
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         {
             if before.as_ref().is_none_or(|(sent, ..)| sent != watch) {
                 let age = chrono_now() - watch.at;
@@ -310,11 +323,11 @@ impl VoiceStage {
         if watching {
             self.sync_player(watch, cx);
         }
-        let plays_here = crate::voice::watch::PLAYS_HERE;
+        let plays_here = crate::voice::watch::plays_here();
         let state = self.state.clone();
         let play_youtube = state.read(cx).settings.play_youtube;
         let body: AnyElement = if watching {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             let view = self.watch_player.as_ref().map(|player| player.view.clone());
             div()
                 .flex_1()
@@ -326,7 +339,7 @@ impl VoiceStage {
                     canvas(
                         |_, _, _| {},
                         move |bounds, _, _window, _| {
-                            #[cfg(target_os = "macos")]
+                            #[cfg(any(target_os = "macos", windows))]
                             if let Some(view) = &view {
                                 view.set_frame(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height));
                                 view.set_hidden(covered);
@@ -366,9 +379,14 @@ impl VoiceStage {
                         .when(!watch.video.author.is_empty(), |el| el.child(div().text_size(px(13.)).child(watch.video.author.clone())))
                         .child(div().text_size(px(13.)).text_color(theme::color(theme::white_a(0.75))).child(if plays_here {
                             format!("Put on by {put_on_by}. It plays from YouTube once you press Watch.")
+                        } else if cfg!(windows) {
+                            format!("Put on by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which Windows 11 comes with. Install it, then start Zuna again.")
                         } else {
-                            format!("Put on by {put_on_by}. This app plays it on macOS for now; the web app and the iPhone app play it everywhere.")
+                            format!("Put on by {put_on_by}. This app plays it on macOS and Windows for now; the web app and the iPhone app play it everywhere.")
                         }))
+                        .when(!plays_here && cfg!(windows), |el| {
+                            el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
+                        })
                         .when(plays_here, |el| {
                             el.child(button("watch-here", ButtonKind::Primary, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("tv", 16., theme.on_accent)).child("Watch").on_click(move |_, _, cx| {
                                 if play_youtube {

@@ -14,9 +14,25 @@ use crate::state::ToastKind;
 
 /// What the stage is filled with when it's the video watched together, among the videos' keys.
 pub const WATCH_FOCUS: &str = "watch";
-/// Whether this system has a player for the video, which only macOS has so far. Elsewhere this
-/// device never watches: the stage shows what's on and says where it plays.
-pub const PLAYS_HERE: bool = cfg!(target_os = "macos");
+/// Whether this device has a player for the video: macOS always, Windows with the WebView2
+/// Runtime, which Windows 11 comes with, and Linux not yet. Elsewhere this device never watches:
+/// the stage shows what's on and says where it plays.
+pub fn plays_here() -> bool {
+    #[cfg(target_os = "macos")]
+    return true;
+    #[cfg(windows)]
+    return runtime_here();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    return false;
+}
+
+/// Whether the WebView2 Runtime was installed as Zuna started. Installing it takes a restart.
+#[cfg(windows)]
+pub fn runtime_here() -> bool {
+    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(crate::platform::watch_view::available)
+}
+
 /// Seeks go at most four a second, however fast someone drags.
 const SEEK_EVERY: Duration = Duration::from_millis(250);
 
@@ -67,7 +83,7 @@ impl Voice {
                 this.update(cx, |voice, cx| {
                     if let Some(watch) = now.and_then(|value| serde_json::from_value::<WatchView>(value).ok()).filter(|_| voice.channel_id.as_deref() == Some(&channel_id)) {
                         // Whoever puts it on watches it, where it can play.
-                        if PLAYS_HERE {
+                        if plays_here() {
                             voice.watching = Some(watch.session.clone());
                         }
                         voice.watch = Some(watch);
@@ -120,7 +136,7 @@ impl Voice {
 
     /// Plays what the room watches on this device, or stops playing it here only.
     pub fn set_watching(&mut self, on: bool, cx: &mut Context<Self>) {
-        let on = on && PLAYS_HERE;
+        let on = on && plays_here();
         self.watching = if on { self.watch.as_ref().map(|watch| watch.session.clone()) } else { None };
         if on && self.watch.is_some() {
             self.focus = Some(WATCH_FOCUS.into());

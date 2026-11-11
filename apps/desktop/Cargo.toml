@@ -101,6 +101,9 @@ cpal = "0.16"
 [target.'cfg(windows)'.dependencies]
 # What windows's macro for declaring a COM interface expands to.
 windows-core = "0.61"
+# WebView2, which a video watched together plays in (platform/windows/watch_view.rs), at the
+# release built on the same windows crate as the app.
+webview2-com = "0.38"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
