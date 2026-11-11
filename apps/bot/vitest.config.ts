@@ -9,5 +9,13 @@ export default defineConfig({
     hookTimeout: 120_000,
     pool: "forks",
     maxWorkers: 1,
+    // Only with --coverage, as `npm run test:coverage` and the Coverage workflow run it. Paths are written from
+    // the repository's root, as Codecov reads them.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      reporter: ["text-summary", ["lcov", { projectRoot: "../.." }]],
+      reportsDirectory: "../../coverage/bot",
+    },
   },
 });

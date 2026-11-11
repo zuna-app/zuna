@@ -1,0 +1,22 @@
+# Coverage is shown, never enforced: nothing here fails a push. The Coverage workflow
+# (.github/workflows/coverage.yml) uploads one report per suite, flagged with its name.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# Nobody opens pull requests here.
+comment: false
+
+# Go writes paths by module, zuna/server, rather than by folder.
+fixes:
+  - "zuna/server/::server/"
+
+# A suite that didn't run on a commit keeps its last numbers, rather than counting as nothing.
+flag_management:
+  default_rules:
+    carryforward: true

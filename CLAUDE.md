@@ -9,7 +9,7 @@ Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds
 - **Pull first.** Run `git pull --rebase origin main` at the start of any work. Two people push to `main`.
 - **Always work on `main`, and push there.** Never create a branch or a pull request. If the push is refused, rebase onto `origin/main` and push again. Never force-push.
 - **Commit as you go,** without waiting to be asked: one small commit per change, pushed when it's done. Don't leave finished work uncommitted.
-- **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, and a nightly's run only builds, so nothing checks a push to `main`. `gh workflow run ci.yml -f jobs=desktop` runs a job of it by hand.
+- **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, and a nightly's run only builds, so nothing checks a push to `main` but `coverage.yml`, which runs the server's, crypto's, core's, watch's and `zuna-bot`'s tests to send their coverage to Codecov, and is no substitute for the type checks or the app's tests. `gh workflow run ci.yml -f jobs=desktop` runs a job of it by hand.
 - **The remote is `zuna-app/zuna`,** which was `SocketByte/zuna-chat` until 2026-11-10. `SocketByte/zuna` is a different repository: never push there.
 - **No Dependabot,** or anything else that opens branches. It was removed on purpose. Update dependencies by hand.
 - **No backward compatibility until the first stable release.** Nightlies don't count as one. Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
@@ -58,6 +58,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks: the core, the watch-together player, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace, `zuna-bot` and the example bot in `examples/simple-bot` | `npm run typecheck` |
 | All of the release script's, crypto, server, core, watch-together player and `zuna-bot` tests | `npm test` |
+| The same suites but the release script's, with coverage, into `coverage/`, as `coverage.yml` sends it to Codecov on each push to `main` that touches them: crypto's natively, after `cargo install cargo-llvm-cov` and `rustup component add llvm-tools-preview` | `npm run test:coverage [-- server crypto core watch bot]` |
 | What the next release of the native app would carry, and cutting a nightly or a stable one from a changelog ("Releases") | `npm run release:pending`, `npm run release:nightly -- <notes file>`, `npm run release:stable -- <notes file>`, each of the last two with `--dry-run` to only say what it would do |
 | `zuna-bot` as one file with the cryptography beside it (`dist/bot`), which Node 22.22+ runs anywhere, and its tests, which run grammY's echo bot on it against a real server | `npm run build:bot`, `npm run test:bot` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |

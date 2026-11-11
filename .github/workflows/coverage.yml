@@ -1,0 +1,99 @@
+name: Coverage
+
+# Measures the tests' coverage on main and sends it to Codecov, one report per suite
+# (scripts/coverage.mjs). Only pushes that change what the suites cover start it, and
+# a newer push stops one still running. It checks nothing else: CI is still ci.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - server/**
+      - crypto/**
+      - packages/core/**
+      - packages/watch/**
+      - apps/bot/**
+      - package-lock.json
+      - scripts/coverage.mjs
+      - codecov.yml
+      - .github/workflows/coverage.yml
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+# Third-party actions are pinned to full commits, since a tag can be moved.
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: server/go.mod
+          # setup-go keys its cache on a go.sum at the root by default.
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov
+      - uses: ./.github/actions/wasm-bindgen
+      - run: npm ci
+
+      - run: node scripts/coverage.mjs server
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/server.out
+          flags: server
+          disable_search: true
+          fail_ci_if_error: true
+
+      - run: node scripts/coverage.mjs crypto
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/crypto.lcov
+          flags: crypto
+          disable_search: true
+          fail_ci_if_error: true
+
+      # The core's and the bot's tests load the crypto core as WebAssembly.
+      - run: npm run build:crypto
+      - run: node scripts/coverage.mjs core
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/core/lcov.info
+          flags: core
+          disable_search: true
+          fail_ci_if_error: true
+
+      - run: node scripts/coverage.mjs watch
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/watch/lcov.info
+          flags: watch
+          disable_search: true
+          fail_ci_if_error: true
+
+      - run: node scripts/coverage.mjs bot
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/bot/lcov.info
+          flags: bot
+          disable_search: true
+          fail_ci_if_error: true
