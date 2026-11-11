@@ -537,8 +537,16 @@ rtc:
   tcp_port: $VOICE_TCP_PORT
   udp_port: $VOICE_UDP_PORT
 $media_address
+  packet_buffer_size_video: 4096
 key_file: /etc/zuna/livekit-keys.yaml
 EOF
+    VOICE_RESTART=1
+  fi
+  # How many of a video's packets LiveKit keeps to send again to someone who lost one: its own 500
+  # is under a third of a second of a share at 15 Mbit/s, less than asking again takes. Added to a
+  # config written before it. The same as LIVEKIT_CONFIG in scripts/lib.mjs.
+  if ! grep -q 'packet_buffer_size_video' /etc/zuna/livekit.yaml; then
+    sed -i 's/^rtc:$/rtc:\n  packet_buffer_size_video: 4096/' /etc/zuna/livekit.yaml
     VOICE_RESTART=1
   fi
   # LiveKit's codecs, with H.264's Baseline profile as well, which Chromium on macOS encodes on the

@@ -85,6 +85,10 @@ services:
           tcp_port: 7881
           udp_port: 7882
           use_external_ip: true
+          # How many of a video's packets are kept to send again to someone who lost one. LiveKit's
+          # own 500 is under a third of a second of a share at 15 Mbit/s. The same as LIVEKIT_CONFIG
+          # in scripts/lib.mjs and in docker-compose.proxy.yml.
+          packet_buffer_size_video: 4096
         key_file: /livekit/keys.yaml
         # LiveKit's codecs, with H.264's Baseline profile as well, which Chromium on macOS encodes
         # on the GPU. The same as LIVEKIT_CONFIG in scripts/lib.mjs and in docker-compose.proxy.yml.

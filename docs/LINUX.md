@@ -248,7 +248,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Build what's checked out, without pulling | `--no-pull` |
 
-The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. A `livekit.yaml` from before it had a `room:` section gets one added, with the codecs that let a Mac encode a shared screen on its GPU, which restarts LiveKit once. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
+The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. A `livekit.yaml` from before it had a `room:` section gets one added, with the codecs that let a Mac encode a shared screen on its GPU, and one from before it had `packet_buffer_size_video` gets that under `rtc:`, which keeps a shared screen going on a network that loses packets. Each restarts LiveKit once. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
 
 ```bash
 sudo systemctl restart zuna

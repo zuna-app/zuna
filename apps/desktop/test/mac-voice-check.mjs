@@ -25,7 +25,8 @@ const { work, check, start, startServer, startApp, finish } = session({ shots: p
 /** A LiveKit of its own on ports nothing else here takes, as the test server's media server. */
 function startLiveKit() {
   const port = 30000 + Math.floor(Math.random() * 20000);
-  const config = `${LIVEKIT_CONFIG}port: ${port}\nrtc:\n  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\n`;
+  // The ports go under the `rtc` LIVEKIT_CONFIG ends with.
+  const config = `${LIVEKIT_CONFIG}  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\nport: ${port}\n`;
   const media = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--config-body", config], process.env, "livekit");
   return { media, url: `ws://127.0.0.1:${port}` };
 }

@@ -85,6 +85,11 @@ export const LIVEKIT_TAG = "v1.13.11";
  * LiveKit's codecs, with H.264's Baseline profile as well as Constrained Baseline. Chromium on
  * macOS only encodes Baseline on the GPU, through VideoToolbox, and offers it first, so a share
  * goes out in hardware. LiveKit only takes a profile beyond its defaults by its exact fmtp line.
+ *
+ * And how many of a video's packets it keeps to send again to someone who lost one: 4,096, where
+ * it keeps 500 by itself, which is a third of a second of a share at 15 Mbit/s and an eighth at
+ * 40, less than asking again takes (docs/SCREEN_SHARE.md, "Lost packets"). `rtc` comes last, so
+ * that a check can put its own ports under it.
  */
 export const LIVEKIT_CONFIG = `room:
   enabled_codecs:
@@ -100,6 +105,8 @@ export const LIVEKIT_CONFIG = `room:
     - mime: video/av1
     - mime: video/h265
     - mime: video/rtx
+rtc:
+  packet_buffer_size_video: 4096
 `;
 
 /**

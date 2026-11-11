@@ -231,7 +231,7 @@ It doesn't need much, since it only passes media along. A small VPS is fine for 
 
 **With the installer,** it's part of the setup. Running `deploy/update.sh` yourself, add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
 
-**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` as well, which lets screens shared from a Mac be encoded on its GPU:
+**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` as well, which lets screens shared from a Mac be encoded on its GPU, and its `packet_buffer_size_video` under `rtc:`, without which a shared screen stops on a network that loses packets ([SCREEN_SHARE.md](SCREEN_SHARE.md#lost-packets)):
 
 | Setting | Environment | |
 |---|---|---|
