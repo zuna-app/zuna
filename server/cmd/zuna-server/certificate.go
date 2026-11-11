@@ -118,3 +118,12 @@ func urlHost(ip net.IP) string {
 	}
 	return ip.String()
 }
+
+// serverTLS is how the server speaks TLS itself, with its own certificate or one it's given.
+// Go's defaults agree on keys with X25519MLKEM768 first, ML-KEM-768 and X25519 together, so
+// that what a recorder keeps of a connection can't be opened by a quantum computer later,
+// and X25519 alone with a client that doesn't know it (docs/POST_QUANTUM.md). Nothing here
+// narrows them, which tls_test.go holds it to, as autocert's for a domain.
+func serverTLS(certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)) *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certificate}
+}

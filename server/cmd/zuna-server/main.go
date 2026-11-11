@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -253,7 +252,7 @@ func run(cfg config) error {
 		cfg.pin = pin
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
-		httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certificate}
+		httpServer.TLSConfig = serverTLS(certificate)
 		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
 	case cfg.domain != "":
 		listenAddress = ":443"
@@ -281,7 +280,7 @@ func run(cfg config) error {
 	case cfg.tlsCert != "":
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
-		httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		httpServer.TLSConfig = serverTLS(nil)
 		go func() { errs <- httpServer.ListenAndServeTLS(cfg.tlsCert, cfg.tlsKey) }()
 	default:
 		listenAddress = cfg.listen
