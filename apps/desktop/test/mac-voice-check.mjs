@@ -9,10 +9,12 @@
 // guest decodes with VideoToolbox and draws from the GPU, and sends voice and video messages
 // from the desktop's fixtures, which the owner reads and plays through the media library. Last,
 // a client in Node signs in as the owner's second device (second-device.ts) and says it's in
-// the voice channel, where the app asks before it comes in and takes that device out.
+// the voice channel, where the app asks before it comes in and takes that device out. Before
+// the share, both watch a video together in a fake of YouTube's player (packages/watch/fake).
 
 import { spawn } from "node:child_process";
-import { copyFileSync } from "node:fs";
+import { copyFileSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { build, here, root, session, sleep, until } from "./mac-session.mjs";
 import { LIVEKIT_CONFIG, ensureLiveKit, viteNodeArgs } from "../../../scripts/lib.mjs";
@@ -64,15 +66,34 @@ async function createAccount(app) {
   }, "the account to be made", 90_000);
 }
 
+/** A fake of YouTube's player, which a video watched together plays in here, so nothing contacts YouTube. */
+async function startFakePlayer() {
+  const page = readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8");
+  const server = createServer((_, response) => {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(page);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, url: `http://127.0.0.1:${server.address().port}` };
+}
+
+/** Where an app's player last said it was, and when by this machine's clock, from its log. */
+function playerAt(app) {
+  const found = [...app.log().matchAll(/watch: player (\S+) at (\d+) ms, (\d+)/g)].at(-1);
+  return found ? { phase: found[1], position: Number(found[2]), at: Number(found[3]) } : null;
+}
+
 let apps = [];
+let fakePlayer;
 try {
+  fakePlayer = await startFakePlayer();
   const { media, url: liveKitUrl } = startLiveKit();
   await sleep(1500);
   check("LiveKit starts", media.exitCode === null, media.output.slice(-300));
   const { setupLink, url: serverUrl } = await startServer(serverBinary, ["--livekit-url", liveKitUrl, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
 
   // Moving bars in place of a screen, past macOS's picker, which nobody's here to click.
-  const first = await startApp("first", { ZUNA_FAKE_MIC: "1", ZUNA_FAKE_SCREEN: "1", RUST_LOG: "info,zuna=debug" });
+  const first = await startApp("first", { ZUNA_FAKE_MIC: "1", ZUNA_FAKE_SCREEN: "1", ZUNA_WATCH_PLAYER: fakePlayer.url, RUST_LOG: "info,zuna=debug" });
   apps.push(first);
   await sleep(2000);
   await first.shot("welcome");
@@ -96,7 +117,7 @@ try {
   check("the owner makes an invite", typeof invite === "string", String(invite));
 
   // --- The other person, joining through the invite ---
-  const second = await startApp("second", { ZUNA_FAKE_MIC: "1", RUST_LOG: "info,zuna=debug" });
+  const second = await startApp("second", { ZUNA_FAKE_MIC: "1", ZUNA_WATCH_PLAYER: fakePlayer.url, RUST_LOG: "info,zuna=debug" });
   apps.push(second);
   await sleep(2000);
   await second.click(640, 502);
@@ -131,8 +152,38 @@ try {
   await first.shot("voice");
   await second.shot("voice");
 
+  // --- Watching a video together, in a WKWebView over the stage, with the fake player in YouTube's place ---
+  const channelId = channel.ok;
+  const guestServer = ((await second.core("listServers")).ok ?? [])[0]?.id;
+  const started = await first.core("watchStart", [channelId, "https://youtu.be/aqz-KE-bpKQ?t=30"], serverId);
+  check("the owner puts a video on", !started.error, JSON.stringify(started));
+  await until(async () => !!(await second.core("getWatch", [channelId], guestServer)).ok, "the guest to see the video", 15_000).catch(() => false);
+  await second.shot("watch-cover");
+  await first.send({ watchHere: true });
+  await second.send({ watchHere: true });
+  const inStep = await until(() => playerAt(first)?.phase === "in-step" && playerAt(second)?.phase === "in-step", "both players to come into step", 30_000).catch(() => false);
+  await sleep(2500);
+  // Each player against where the room is, by the one clock both apps run on.
+  const room = (await first.core("getWatch", [channelId], serverId)).ok;
+  const off = (app) => {
+    const at = playerAt(app);
+    return at && room ? Math.round(Math.abs(at.position - (room.position + (room.playing ? (at.at - room.at) * room.rate : 0)))) : Infinity;
+  };
+  check("both play it where the room is", inStep && off(first) < 500 && off(second) < 500, `owner ${off(first)} ms off, guest ${off(second)} ms off`);
+  await first.shot("watching");
+  // The guest pauses it, and the owner's player stops where the guest's did.
+  await second.core("watchControl", [channelId, { playing: false }], guestServer);
+  await sleep(2500);
+  const pausedAt = playerAt(first);
+  await sleep(2000);
+  const stillAt = playerAt(first);
+  check("a pause from the guest pauses the owner's player", !!pausedAt && !!stillAt && pausedAt.position === stillAt.position && stillAt.at > pausedAt.at, `${pausedAt?.position} then ${stillAt?.position}`);
+  await first.core("watchStop", [channelId], serverId);
+  const stopped = await until(async () => (await second.core("getWatch", [channelId], guestServer)).ok === null, "the guest to see it stopped", 15_000).catch(() => false);
+  check("Stop ends it for everyone", !!stopped);
+
   // --- Sharing a screen: bars from the owner, captured and encoded on the GPU, drawn as the guest decodes them ---
-  await first.click(855, 795);
+  await first.click(830, 795);
   await sleep(1200);
   await first.shot("screen-picker");
   await first.click(906, 625);
@@ -144,12 +195,12 @@ try {
   await second.shot("watching-share");
   await first.shot("sharing");
   // Stopping, from the same button.
-  await first.click(855, 795);
+  await first.click(830, 795);
   await sleep(1500);
 
   // --- Leaving, and the devices Core Audio lists ---
-  await first.click(1017, 795);
-  await second.click(1017, 795);
+  await first.click(1043, 795);
+  await second.click(1043, 795);
   await sleep(1500);
   await first.key("cmd-,");
   await sleep(600);
@@ -247,7 +298,7 @@ try {
   }, "the app to take the second device's place", 30_000).catch(() => false);
   check("Join here comes in, and takes the other device out", moved, laptop.output.trim().split("\n").slice(-2).join(" | "));
   await first.shot("voice-moved");
-  await first.click(1017, 795);
+  await first.click(1043, 795);
   await sleep(1000);
 
   // --- Someone else signing in as the owner: No removes their device, and asks for a new password ---
@@ -269,5 +320,6 @@ try {
   check("the check ran to its end", false, error.message);
 } finally {
   for (const app of apps) await app.quit();
+  fakePlayer?.server.close();
   finish();
 }

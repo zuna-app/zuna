@@ -99,6 +99,19 @@ impl VoiceStage {
                 }),
             )
             .child(crate::ui::soundboard::soundboard_button(&self.state, &self.voice, sounds, cx));
+        // A video to watch together, from a link, once this device may contact YouTube.
+        let (watch_on, allowed) = { let voice = self.voice.read(cx); (voice.watch.is_some(), voice.watch_allowed(cx)) };
+        let watch_label = if !allowed { "Watching together is off in this channel" } else if watch_on { "Another video" } else { "Watch together" };
+        let watch_state = self.state.clone();
+        bar = bar.child(
+            control("watch-control", "clapperboard", if watch_on { theme.on_accent } else { theme.text1 }, if watch_on { theme.accent } else { theme.bg3 }, watch_label.into(), !allowed).on_click(move |_, _, cx| {
+                if !allowed {
+                    return;
+                }
+                let overlay = if watch_state.read(cx).settings.play_youtube { Overlay::WatchLink } else { Overlay::WatchConsent { then_link: true } };
+                watch_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx));
+            }),
+        );
         if !self.room.call {
             let chat_open = self.chat_open;
             bar = bar.child(

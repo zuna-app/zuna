@@ -4,6 +4,7 @@
 
 mod tiles;
 mod controls;
+mod watch;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -68,6 +69,8 @@ pub struct VoiceStage {
     _tick: Task<()>,
     /// The screen stays on while the stage is open with a video on it (`voice/awake.rs`).
     _open: crate::voice::awake::StageOpen,
+    /// YouTube's player, while this device watches what the room has on and it fills the stage.
+    watch_player: Option<watch::WatchPlayer>,
 }
 
 impl VoiceStage {
@@ -91,7 +94,7 @@ impl VoiceStage {
                 break;
             }
         });
-        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick, _open: crate::voice::awake::StageOpen::new() }
+        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick, _open: crate::voice::awake::StageOpen::new(), watch_player: None }
     }
 
     /// The channel's chat beside it closed, from its ×.
@@ -211,6 +214,11 @@ impl Render for VoiceStage {
         }
         let focus = voice.focus.clone();
         let screen_share = voice.screen.clone();
+        let watch = voice.watch.clone();
+        let watch_focused = watch.is_some() && focus.as_deref() == Some(crate::voice::watch::WATCH_FOCUS);
+        let watching = watch.as_ref().is_some_and(|watch| voice.watching.as_deref() == Some(&watch.session));
+        // Anything of GPUI's over the stage, which the player's web view would cover.
+        let covered = crate::ui::something_on_top() || voice.stats_open;
         let channel = server.channels.iter().find(|channel| channel.id == self.room.id).cloned();
         let conversation = if self.room.call { voice::conversation_of_group(server, &self.room.id).cloned() } else { channel.as_ref().and_then(|channel| channel.conversation.clone()) };
         let title = if self.room.call { conversation.as_ref().map(|item| item.title.clone()).unwrap_or_default() } else { channel.as_ref().map(|item| item.name.clone()).unwrap_or_default() };
@@ -242,6 +250,7 @@ impl Render for VoiceStage {
         let chat_unread = conversation.as_ref().is_some_and(|conversation| conversation.unread > 0.);
         let header = self.header(&title, &topic, call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at), not_here, cx);
 
+        self.keep_player(watch.as_ref().filter(|_| watch_focused && watching && status != VoiceStatus::Connecting), window, cx);
         let stage_body: AnyElement = if status == VoiceStatus::Connecting {
             div()
                 .flex_1()
@@ -258,15 +267,18 @@ impl Render for VoiceStage {
         } else {
             let area = self.area.get();
             let (area_width, area_height) = (f32::from(area.size.width).max(200.), f32::from(area.size.height).max(120.));
-            let people = members.len() + ringing.len() + screens.len() + usize::from(native_self_share.is_some());
+            let people = members.len() + ringing.len() + screens.len() + usize::from(native_self_share.is_some()) + usize::from(watch.is_some() && !watch_focused);
             let mut tiles: Vec<AnyElement> = Vec::new();
-            let strip = focused.is_some();
+            let strip = focused.is_some() || watch_focused;
             // As the web's grid: columns of equal width, each tile as large as fits its cell, the cells filled row by row.
             let columns = (people.max(1) as f32).sqrt().ceil().min(4.) as usize;
             let rows = people.max(1).div_ceil(columns);
             let cell = ((area_width - GAP * (columns as f32 - 1.)) / columns as f32, (area_height - GAP * (rows as f32 - 1.)) / rows as f32);
             let size = if strip { (STRIP_WIDTH, STRIP_HEIGHT) } else { fit(cell.0, cell.1) };
             let tile_size = if strip { fit(STRIP_WIDTH, STRIP_HEIGHT) } else { size };
+            if let Some(watch) = watch.as_ref().filter(|_| !watch_focused) {
+                tiles.push(self.watch_thumb(watch, tile_size, cx));
+            }
             for tile in screens.iter().filter(|tile| Some(&tile.key) != focused.as_ref().map(|focused| &focused.key)) {
                 tiles.push(self.screen_tile(tile, false, tile_size, false, cx));
             }
@@ -315,7 +327,15 @@ impl Render for VoiceStage {
             .inset_0();
             let known = area.size.width > px(0.) && area.size.height > px(0.);
             let mut grid_area = div().flex_1().min_h_0().flex().flex_col().p(px(12.)).gap(px(GAP)).when(self.room.call, |el| el.pt_0());
-            if let Some(focused) = &focused {
+            if let Some(watch) = watch.as_ref().filter(|_| watch_focused) {
+                let content = self.watch_stage(watch, covered, cx);
+                grid_area = grid_area.child(
+                    div().relative().flex_1().min_h_0().flex().flex_col().gap(px(GAP)).child(measure).when(known, |el| {
+                        el.child(div().flex_1().min_h_0().flex().child(content))
+                            .child(div().id("voice-strip").flex_none().h(px(STRIP_HEIGHT)).flex().gap(px(8.)).overflow_x_scroll().children(tiles))
+                    }),
+                );
+            } else if let Some(focused) = &focused {
                 let focus_size = (area_width, (area_height - STRIP_HEIGHT - GAP).max(80.));
                 let content = if focused.source == VideoSource::Screen {
                     self.screen_tile(focused, true, fit(focus_size.0, focus_size.1), false, cx)

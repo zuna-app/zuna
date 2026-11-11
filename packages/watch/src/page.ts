@@ -18,7 +18,9 @@ export type ToPage =
   | { type: "apply"; video: string | null; playing: boolean; position: number; age: number; rate: number }
   | { type: "volume"; level: number }
   | { type: "muted"; muted: boolean }
-  | { type: "hold"; held: boolean };
+  | { type: "hold"; held: boolean }
+  /** Asks for a status now, with where the player is. */
+  | { type: "probe" };
 
 /** What the page says to the app. */
 export type FromPage =
@@ -86,6 +88,9 @@ function receive(raw: unknown): void {
       break;
     case "hold":
       controller?.hold(message.held === true);
+      break;
+    case "probe":
+      controller?.report();
       break;
   }
 }

@@ -29,6 +29,7 @@ fn main() {
     link_objc();
 
     println!("cargo:rerun-if-changed=assets/core/zuna-core.js");
+    println!("cargo:rerun-if-changed=assets/core/watch.html");
     if !Path::new("assets/core/zuna-core.js").exists() {
         panic!("The core bundle is missing. Build it first: node apps/desktop/core-bundle/build.mjs");
     }

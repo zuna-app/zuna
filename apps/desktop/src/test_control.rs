@@ -91,6 +91,18 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
         let found = asked.await.unwrap_or_default();
         return json!({ "ok": found.into_iter().map(|(title, body)| json!({ "title": title, "body": body })).collect::<Vec<_>>() });
     }
+    // Pressing Watch on what the room has on, as someone who agreed to YouTube would.
+    if request.get("watchHere").is_some() {
+        cx.update(|cx| {
+            if let Some(store) = cx.try_global::<crate::state::Store>() {
+                store.0.clone().update(cx, |state, cx| state.update_settings(|settings| settings.play_youtube = true, cx));
+            }
+            if let Some(voice) = crate::voice::get(cx) {
+                voice.update(cx, |voice, cx| voice.set_watching(true, cx));
+            }
+        });
+        return json!({ "ok": true });
+    }
     if request.get("quit").is_some() {
         cx.update(|cx| cx.dispatch_action(&crate::Quit));
         return json!({ "ok": true });

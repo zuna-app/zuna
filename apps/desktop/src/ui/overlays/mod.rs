@@ -41,6 +41,8 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
         Overlay::MoveVoice(moving) => cx.new(|cx| Dialog::new(state, DialogKind::MoveVoice(moving), window, cx)).into(),
         Overlay::InstallUpdate => cx.new(|cx| Dialog::new(state, DialogKind::InstallUpdate, window, cx)).into(),
+        Overlay::WatchConsent { then_link } => cx.new(|cx| Dialog::new(state, DialogKind::WatchConsent { then_link }, window, cx)).into(),
+        Overlay::WatchLink => cx.new(|cx| Dialog::new(state, DialogKind::WatchLink, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -121,6 +123,8 @@ enum DialogKind {
     AddMembers(String),
     ShareLocation(String),
     Channel { channel_id: Option<String>, kind: Option<String> },
+    WatchConsent { then_link: bool },
+    WatchLink,
 }
 
 /// What's being set for a channel, beside its name.
@@ -132,6 +136,7 @@ struct ChannelForm {
     bitrate: f64,
     screen_limit: f64,
     sounds: bool,
+    watch: bool,
     slow_on: bool,
     slow_mode: f64,
 }
@@ -179,6 +184,8 @@ pub struct Dialog {
     invite_panel: Option<Entity<super::invites::InvitePanel>>,
     /// Where this device was found, or why it wasn't, while sharing a location.
     location: Option<Result<(f64, f64, Option<f64>), String>>,
+    /// Why a link to watch together wasn't put on.
+    link_error: Option<String>,
     /// Holds focus where the dialog has no field to, so Escape closes it.
     focus: gpui::FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -192,6 +199,7 @@ impl Dialog {
         for (index, input) in [&name, &people_search].into_iter().enumerate() {
             subscriptions.push(cx.subscribe_in(input, window, move |view, _, event, _, cx| {
                 match event {
+                    InputEvent::Submit if index == 0 && matches!(view.kind, DialogKind::WatchLink) => view.put_on(cx),
                     InputEvent::Focused => view.focused = Some(index),
                     InputEvent::Blurred if view.focused == Some(index) => view.focused = None,
                     InputEvent::Escape => view.close(cx),
@@ -246,9 +254,14 @@ impl Dialog {
                 bitrate: channel.as_ref().map(|c| c.bitrate).unwrap_or(0.),
                 screen_limit: channel.as_ref().map(|c| c.screen_limit).unwrap_or(0.),
                 sounds: channel.as_ref().map(|c| c.sounds).unwrap_or(true),
+                watch: channel.as_ref().map(|c| c.watch).unwrap_or(true),
                 slow_on: channel.as_ref().is_some_and(|c| c.slow_mode > 0.),
                 slow_mode: channel.as_ref().map(|c| c.slow_mode).filter(|value| *value > 0.).unwrap_or(30.),
             });
+        }
+        if matches!(kind, DialogKind::WatchLink) {
+            name.update(cx, |input, cx| input.set_placeholder("https://www.youtube.com/watch?v=…", cx));
+            name.focus_handle(cx).focus(window, cx);
         }
         if matches!(kind, DialogKind::AddMembers(_)) {
             people_search.focus_handle(cx).focus(window, cx);
@@ -258,10 +271,10 @@ impl Dialog {
             people_search.focus_handle(cx).focus(window, cx);
         }
         let focus = cx.focus_handle();
-        if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate) {
+        if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate | DialogKind::WatchConsent { .. }) {
             window.focus(&focus, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, focus, _subscriptions: subscriptions };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, focus, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -468,6 +481,92 @@ impl Dialog {
     }
 }
 
+impl Dialog {
+    /// Asks once before this device first contacts YouTube, saying what Google learns, and
+    /// remembers the answer in Privacy (`WatchConsent` in Watch.tsx).
+    fn watch_consent(&mut self, then_link: bool, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let body = vec![
+            div().text_size(px(13.5)).child("Videos play from YouTube, in YouTube's own player. When you watch one, Google learns this device's IP address, which video it is and when, as it would if you opened it on YouTube. Nobody is signed in to YouTube here, so there may be adverts.").into_any_element(),
+            div().pt(px(10.)).text_size(px(13.5)).text_color(theme.text2).child("Your server only learns that something was sent in the room, never which video. Until you press Watch, this device contacts nobody. You can turn this off in Settings, Privacy.").into_any_element(),
+            div()
+                .pt(px(10.))
+                .flex()
+                .gap(px(14.))
+                .text_size(px(13.))
+                .child(div().id("youtube-terms").text_color(theme.accent).cursor_pointer().child("YouTube's Terms of Service").on_click(|_, _, cx| cx.open_url("https://www.youtube.com/t/terms")))
+                .child(div().id("google-privacy").text_color(theme.accent).cursor_pointer().child("Google's Privacy Policy").on_click(|_, _, cx| cx.open_url("https://policies.google.com/privacy")))
+                .into_any_element(),
+        ];
+        let state = self.state.clone();
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("watch-agree", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(if then_link { "Continue" } else { "Watch" }).on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.update_settings(|settings| settings.play_youtube = true, cx);
+                    state.set_overlay(if then_link { Some(Overlay::WatchLink) } else { None }, cx);
+                });
+                if !then_link {
+                    if let Some(voice) = crate::voice::get(cx) {
+                        voice.update(cx, |voice, cx| voice.set_watching(true, cx));
+                    }
+                }
+            }))
+            .into_any_element();
+        self.modal(Some("Play YouTube videos?".into()), 460., body, Some(footer), cx)
+    }
+
+    /// A YouTube link to put on for everyone in the room (`WatchLinkDialog`).
+    fn watch_link(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let focused = self.focused == Some(0);
+        let mut body = vec![field(Some("YouTube link"), self.name.clone(), self.link_error.clone(), None, focused, None, cx).into_any_element()];
+        if self.link_error.is_none() {
+            body.push(div().pt(px(8.)).text_size(px(12.5)).text_color(theme.text2).child("It plays for everyone here who presses Watch, at the same moment. Anyone in the room can pause it, skip, change its speed or stop it.").into_any_element());
+        }
+        let busy = self.busy;
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Putting it on…" } else { "Put it on" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
+            .into_any_element();
+        self.modal(Some("Watch together".into()), 460., body, Some(footer), cx)
+    }
+
+    fn put_on(&mut self, cx: &mut Context<Self>) {
+        let link = self.name.read(cx).text().trim().to_string();
+        if link.is_empty() || self.busy {
+            return;
+        }
+        let Some(voice) = crate::voice::get(cx) else { return };
+        self.busy = true;
+        self.link_error = None;
+        let dialog = cx.entity().downgrade();
+        voice.update(cx, |voice, cx| {
+            voice.watch_start(
+                link,
+                move |result, cx| {
+                    dialog
+                        .update(cx, |dialog, cx| {
+                            dialog.busy = false;
+                            match result {
+                                Ok(()) => dialog.close(cx),
+                                Err(message) => dialog.link_error = Some(message),
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                },
+                cx,
+            )
+        });
+        cx.notify();
+    }
+}
+
 impl Render for Dialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dialog = match &self.kind {
@@ -487,6 +586,11 @@ impl Render for Dialog {
                 self.move_voice(moving, cx)
             }
             DialogKind::InstallUpdate => self.install_update(cx),
+            DialogKind::WatchConsent { then_link } => {
+                let then_link = *then_link;
+                self.watch_consent(then_link, cx)
+            }
+            DialogKind::WatchLink => self.watch_link(cx),
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

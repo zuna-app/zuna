@@ -69,6 +69,14 @@ impl SettingsView {
             })),
             &theme,
         ));
+        let play_youtube = settings.play_youtube;
+        let state_y = self.state.clone();
+        parts.push(Self::row(
+            "Play YouTube videos",
+            Some("A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first."),
+            switch("play-youtube", play_youtube, cx).on_click(move |_, _, cx| state_y.update(cx, |state, cx| state.update_settings(|s| s.play_youtube = !play_youtube, cx))),
+            &theme,
+        ));
         parts
     }
 

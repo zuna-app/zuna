@@ -18,6 +18,8 @@ pub struct Settings {
     pub enter_to_send: bool,
     pub link_previews: bool,
     pub remove_metadata: bool,
+    /// This device may contact YouTube to play a video a voice channel or a call watches together, which its person agreed to once.
+    pub play_youtube: bool,
     /// The conversation list's width, which the web keeps apart.
     pub list_width: f32,
     /// Channel headings folded away, by name.
@@ -44,6 +46,7 @@ impl Default for Settings {
             enter_to_send: true,
             link_previews: true,
             remove_metadata: true,
+            play_youtube: false,
             list_width: 320.,
             collapsed_categories: Vec::new(),
             hide_member_list: false,

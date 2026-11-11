@@ -311,6 +311,13 @@ What building phase 3 changed in the design:
 
 - **Consent and the video's mute are kept apart from the app's other settings** on iOS, which are decoded as one, where a new field would set the rest, App lock among them, back to their defaults.
 - **A check's fake player is plain HTTP, which WebKit won't frame in an HTTPS page,** so a development build pointed at one loads the page under `http://chat.zuna.mobile`. A release build can't be pointed anywhere but YouTube.
+- **Phase 4, the native app: built on macOS** on 2026-11-11, through `objc2-web-kit` rather than `wry`, as the app already speaks to AppKit through `objc2` and the page wants the same `loadHTMLString:baseURL:` as iOS. `mac-voice-check.mjs` passes with it. Windows and Linux aren't built yet.
+
+What building phase 4 changed in the design:
+
+- **GPUI's view on macOS isn't flipped and never takes the keyboard back by itself,** so the player's frame is set from the bottom, and a local monitor of mouse clicks gives the keyboard back to GPUI's view when a click lands outside the player.
+- **The app asks the page where its player is each second** (`probe`), which its log says, so that a check can compare it with where the room is by the same clock. The page has no other use for it.
+- **The video's title and picture are still fetched from YouTube in that check,** by the owner's core, which nothing in it depends on.
 
 ## Left out of the first version
 

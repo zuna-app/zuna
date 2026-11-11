@@ -105,6 +105,17 @@ struct RailItem {
     has_new: bool,
 }
 
+thread_local! {
+    static ON_TOP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether something of GPUI's is drawn over the window's content as this frame is: a dialog,
+/// settings, a menu, a picker or the question about a new device. A web view laid over the window
+/// draws over all of that, so it hides while this is so.
+pub fn something_on_top() -> bool {
+    ON_TOP.get()
+}
+
 pub struct Root {
     state: Entity<AppState>,
     onboarding: Entity<onboarding::Onboarding>,
@@ -421,6 +432,8 @@ impl Render for Root {
         self.covered = covered;
         // Over everything, even a dialog, and taking keys from whatever was under it.
         let prompt = if matches!(self.state.read(cx).phase, Phase::Ready) { new_device::prompt(&self.state, &self.prompt_focus, cx) } else { None };
+        // What a web view laid over the window, as a video watched together plays in, has to get out of the way of.
+        ON_TOP.set(covered || prompt.is_some() || closing.is_some() || settings_closing.is_some() || menu::is_open(cx) || picker::is_open(cx));
         if prompt.is_some() && !self.prompting {
             window.focus(&self.prompt_focus, cx);
         } else if prompt.is_none() && self.prompting {

@@ -53,6 +53,9 @@ pub struct VoiceSettings {
     pub screen_focus: bool,
     /// How loud sounds from the soundboard are, from 0 to 1. At 0 none of them plays.
     pub soundboard_volume: f32,
+    /// How loud a video watched together is, from 0 to 1, as YouTube's player remembers nothing.
+    pub watch_volume: f32,
+    pub watch_muted: bool,
 }
 
 impl Default for VoiceSettings {
@@ -83,6 +86,8 @@ impl Default for VoiceSettings {
             screen_volume: 1.,
             screen_focus: true,
             soundboard_volume: 0.6,
+            watch_volume: 0.8,
+            watch_muted: false,
         }
     }
 }

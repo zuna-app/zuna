@@ -14,6 +14,7 @@ pub mod screen;
 pub mod settings;
 pub mod sounds;
 pub mod stats;
+pub mod watch;
 
 mod joining;
 mod controls;
@@ -138,6 +139,12 @@ pub struct Voice {
     pub soundboard_open: bool,
     /// Stream stats are open over the stage.
     pub stats_open: bool,
+    /// What the room watches together, as the core holds it, or nothing when nothing's on.
+    pub watch: Option<crate::models::WatchView>,
+    /// The session this device's person pressed Watch for, which plays here until it ends or they stop it.
+    pub watching: Option<String>,
+    seek_sent: Option<std::time::Instant>,
+    seek_later: Option<Task<()>>,
 
     room: Option<Arc<VoiceRoom>>,
     mic: Option<Microphone>,
@@ -210,6 +217,10 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         sounding: HashMap::new(),
         soundboard_open: false,
         stats_open: false,
+        watch: None,
+        watching: None,
+        seek_sent: None,
+        seek_later: None,
         room: None,
         mic: None,
         mic_source: None,
@@ -496,6 +507,9 @@ impl Voice {
         self.sounding.clear();
         self.soundboard_open = false;
         self.stats_open = false;
+        self.watch = None;
+        self.watching = None;
+        self.seek_later = None;
     }
 
     /// Tells everyone on the server what this device is doing, or the conversation's members in a call.
@@ -610,6 +624,10 @@ pub fn on_event(event: &Value, cx: &mut App) {
         }
         "calls" => voice.update(cx, |voice, cx| voice.update_ringing(cx)),
         "sound" => voice.update(cx, |voice, cx| voice.on_sound(&server_id, &text("channelId"), &text("userId"), &text("soundId"), cx)),
+        "watch" => {
+            let watch = event.get("watch").filter(|watch| !watch.is_null()).cloned().and_then(|watch| serde_json::from_value::<crate::models::WatchView>(watch).ok());
+            voice.update(cx, |voice, cx| voice.on_watch(&server_id, &text("channelId"), watch, cx));
+        }
         "signed_out" => voice.update(cx, |voice, cx| voice.on_server_gone(&server_id, cx)),
         _ => {}
     }

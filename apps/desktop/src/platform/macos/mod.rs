@@ -23,6 +23,7 @@ use gpui::{AnyWindowHandle, App, AsyncApp, Div, InteractiveElement, MouseButton,
 use objc2_app_kit::NSWorkspace;
 use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGEventType};
 
+pub mod watch_view;
 pub use awake::keep_screen_on;
 pub use menu::set_menus;
 

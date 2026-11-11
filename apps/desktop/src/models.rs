@@ -371,6 +371,33 @@ pub struct ChannelView {
     pub conversation: Option<ConversationView>,
 }
 
+/// The YouTube video a voice channel or a call watches together, as this device holds it (`WatchView`).
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WatchView {
+    /// New each time a video is put on where nothing was. Pressing Watch is for one session.
+    pub session: String,
+    pub video: WatchVideoView,
+    pub playing: bool,
+    /// Milliseconds into the video at `at`.
+    pub position: f64,
+    /// When that was, by this device's clock, in ms.
+    pub at: f64,
+    pub rate: f64,
+    /// Who made the last change.
+    pub changed_by: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WatchVideoView {
+    pub id: String,
+    pub started_by: String,
+    pub title: String,
+    pub author: String,
+    pub image: Option<PreviewImage>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct VoiceMember {

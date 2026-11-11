@@ -83,6 +83,11 @@ export class WatchController {
     this.sync.hold(held);
   }
 
+  /** Says how the player is now, with where it is, as `status`. */
+  report(): void {
+    this.events.status(this.status);
+  }
+
   /** 0 to 1. */
   setVolume(level: number): void {
     this.frame.setVolume(level * 100);

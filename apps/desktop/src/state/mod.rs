@@ -157,6 +157,11 @@ pub enum Overlay {
     Channel { channel_id: Option<String>, category: Option<String> },
     /// Asking before an update restarts the app in the middle of a call.
     InstallUpdate,
+    /// Asking before this device first contacts YouTube, for a video its room watches together,
+    /// and then asking for a link to put on, or watching what's on.
+    WatchConsent { then_link: bool },
+    /// A YouTube link to put on for everyone in the room.
+    WatchLink,
 }
 
 /// A media file decrypted to disk for playing.

@@ -270,7 +270,7 @@ impl AppState {
             _ => {}
         }
         // Voice reads this state, so it hears of its events once this update is over.
-        if matches!(kind.as_str(), "voice" | "voice_key" | "voice_ended" | "screen_ended" | "call" | "calls" | "sound" | "signed_out") {
+        if matches!(kind.as_str(), "voice" | "voice_key" | "voice_ended" | "screen_ended" | "call" | "calls" | "sound" | "watch" | "signed_out") {
             cx.defer(move |cx| crate::voice::on_event(&event, cx));
         }
         cx.notify();

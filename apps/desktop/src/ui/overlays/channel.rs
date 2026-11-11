@@ -178,6 +178,21 @@ impl Dialog {
                     })))
                     .into_any_element(),
             );
+            let watch = form.watch;
+            body.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Watch together")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Anyone in the channel can put a YouTube video on for everyone there. It only plays for those who press Watch.")))
+                    .child(switch("watch-together", watch, cx).on_click(cx.listener(|dialog, _, _, cx| {
+                        if let Some(form) = &mut dialog.channel_form {
+                            form.watch = !form.watch;
+                        }
+                        cx.notify();
+                    })))
+                    .into_any_element(),
+            );
         }
         body.push(div().text_size(px(12.5)).text_color(theme.text3).child("Everyone on this server can see and join channels. The name and everything said are end-to-end encrypted, so the server can't read them.").into_any_element());
         let busy = self.busy;
@@ -242,6 +257,7 @@ impl Dialog {
         }
         if !text {
             details["sounds"] = json!(form.sounds);
+            details["watch"] = json!(form.watch);
         }
         let call = {
             let state = self.state.read(cx);
