@@ -75,8 +75,23 @@ impl VoiceStage {
     pub(super) fn keep_player(&mut self, wanted: Option<&WatchView>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(watch) = wanted else {
             self.watch_player = None;
+            #[cfg(windows)]
+            {
+                self.watch_gave_up = None;
+            }
             return;
         };
+        // A player whose web view died is made again, which catches up with the room.
+        #[cfg(windows)]
+        {
+            if self.watch_player.as_ref().is_some_and(|player| player.view.failed()) {
+                self.watch_player = None;
+                self.note_player_failed(&watch.session, cx);
+            }
+            if self.watch_gave_up.as_deref() == Some(watch.session.as_str()) {
+                return;
+            }
+        }
         if self.watch_player.as_ref().is_some_and(|player| player.session == watch.session) {
             return;
         }
@@ -96,7 +111,14 @@ impl VoiceStage {
             });
             let probe = cx.spawn(async move |this, cx| loop {
                 cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
-                let asked = this.update(cx, |stage, _| {
+                let asked = this.update(cx, |stage, cx| {
+                    // Drawn again, which makes a new player in place of one whose web view died.
+                    #[cfg(windows)]
+                    if stage.watch_player.as_ref().is_some_and(|player| player.view.failed()) {
+                        cx.notify();
+                        return;
+                    }
+                    let _ = &cx;
                     if let Some(player) = stage.watch_player.as_ref().filter(|player| player.ready) {
                         player.view.send(r#"{"type":"probe"}"#);
                         // A check's picture of the player, where nothing else can take one.
@@ -114,6 +136,40 @@ impl VoiceStage {
         }
         #[cfg(not(any(target_os = "macos", windows)))]
         let _ = (window, cx);
+    }
+
+    /// The player's web view died. A new one is made at once, unless that keeps happening: after
+    /// three in a minute this device stops watching, and the person is told, with how to keep
+    /// RivaTuner Statistics Server's hooks out of WebView2 where it's running, as they've been
+    /// seen to crash it as the video seeks, which a player does whenever it catches up with the room.
+    #[cfg(windows)]
+    fn note_player_failed(&mut self, session: &str, cx: &mut Context<Self>) {
+        const WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+        const MOST: usize = 3;
+        let now = std::time::Instant::now();
+        self.watch_failures.retain(|at| now.duration_since(*at) < WINDOW);
+        self.watch_failures.push(now);
+        let rtss = crate::platform::watch_view::rtss_running();
+        let rtss_words = "RivaTuner Statistics Server, which comes with MSI Afterburner, is known to crash it. In RivaTuner, add msedgewebview2.exe and set its Application detection level to None.";
+        let gave_up = self.watch_failures.len() >= MOST;
+        log::warn!("watch: the player's web view died{}{}", if rtss { ", with RivaTuner Statistics Server running" } else { "" }, if gave_up { ", too often to start it again" } else { ", so it's started again" });
+        let message = if gave_up {
+            self.watch_failures.clear();
+            self.watch_gave_up = Some(session.to_string());
+            let voice = self.voice.clone();
+            // Out of drawing, which this is called from.
+            cx.defer(move |cx| voice.update(cx, |voice, cx| voice.set_watching(false, cx)));
+            Some(if rtss { format!("The video's player kept crashing, so it stopped. {rtss_words}") } else { "The video's player kept crashing, so it stopped. Press Watch to try again.".to_string() })
+        } else if rtss && !self.watch_told_rtss {
+            self.watch_told_rtss = true;
+            Some(format!("The video's player crashed, so it was started again. {rtss_words}"))
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            let state = self.state.clone();
+            cx.defer(move |cx| state.update(cx, |state, cx| state.toast(message, ToastKind::Error, cx)));
+        }
     }
 
     /// What the page said, which is checked as anything from outside is.

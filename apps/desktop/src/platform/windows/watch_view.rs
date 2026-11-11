@@ -8,6 +8,10 @@
 //! else it asks for. It draws over whatever GPUI draws inside its rectangle, so whoever holds it
 //! hides it while something of GPUI's is on top.
 //!
+//! WebView2's processes can die under it, as RivaTuner Statistics Server's hooks have been seen to
+//! crash its browser process as a video seeks, which leaves the view black and silent. The view
+//! then says it failed (`failed`), and whoever holds it makes a new one.
+//!
 //! WebView2 makes its environment and controller asynchronously, calling back on this thread as
 //! GPUI's message loop runs, so the view is there a moment after `new`, and what it's told before
 //! then is kept until it is.
@@ -54,6 +58,8 @@ pub struct WatchView {
     focused: Rc<Cell<bool>>,
     /// Whether GPUI's window is subclassed to give the keyboard back on a click (`watch_clicks`).
     subclassed: bool,
+    /// Whether WebView2 couldn't start, or a process the page needs died, so the view shows nothing.
+    failed: Rc<Cell<bool>>,
 }
 
 impl WatchView {
@@ -69,6 +75,7 @@ impl WatchView {
         std::fs::create_dir_all(&folder).ok()?;
         let shared = Rc::new(RefCell::new(Shared { parent, controller: None, webview: None, frame: None, hidden: true }));
         let focused = Rc::new(Cell::new(false));
+        let failed = Rc::new(Cell::new(false));
         let options = CoreWebView2EnvironmentOptions::default();
         // A video someone pressed Watch for plays with its sound, as WKWebView is told on macOS.
         #[allow(unused_mut)]
@@ -83,8 +90,13 @@ impl WatchView {
         unsafe { options.set_additional_browser_arguments(arguments) };
         let options: ICoreWebView2EnvironmentOptions = options.into();
         let (weak, focus, page, origin) = (Rc::downgrade(&shared), focused.clone(), page.to_string(), origin.trim_end_matches('/').to_string());
+        let (failed_to_start, failed_later) = (failed.clone(), failed.clone());
         let created = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |result, environment| {
-            result?;
+            if let Err(error) = result {
+                log::warn!("watch: WebView2's environment didn't start: {error}");
+                failed_to_start.set(true);
+                return Err(error);
+            }
             let Some(environment) = environment else { return Ok(()) };
             if weak.upgrade().is_none() {
                 return Ok(());
@@ -94,8 +106,13 @@ impl WatchView {
             // InPrivate, so no cookie or storage outlives the player.
             unsafe { options.SetIsInPrivateModeEnabled(true)? };
             let environment_for_setup = environment.clone();
+            let failed_to_start = failed_to_start.clone();
             let made = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |result, controller| {
-                result?;
+                if let Err(error) = result {
+                    log::warn!("watch: WebView2's controller didn't start: {error}");
+                    failed_to_start.set(true);
+                    return Err(error);
+                }
                 let Some(controller) = controller else { return Ok(()) };
                 let Some(shared) = weak.upgrade() else {
                     // It was let go of while WebView2 was starting.
@@ -103,8 +120,9 @@ impl WatchView {
                     unsafe { controller.Close().ok() };
                     return Ok(());
                 };
-                if let Err(error) = setup(&shared, &environment_for_setup, &controller, page, &origin, messages, focus) {
+                if let Err(error) = setup(&shared, &environment_for_setup, &controller, page, &origin, messages, focus, failed_later) {
                     log::warn!("watch: WebView2 couldn't be set up: {error}");
+                    failed_to_start.set(true);
                     // SAFETY: as above.
                     unsafe { controller.Close().ok() };
                 }
@@ -120,7 +138,13 @@ impl WatchView {
             return None;
         }
         let subclassed = watch_clicks(parent);
-        Some(WatchView { shared, focused, subclassed })
+        Some(WatchView { shared, focused, subclassed, failed })
+    }
+
+    /// Whether the view shows nothing and never will, as WebView2 didn't start or a process the page
+    /// needs died, so that a new one has to be made.
+    pub fn failed(&self) -> bool {
+        self.failed.get()
     }
 
     /// Where the player goes, in the window's own logical coordinates from its top left.
@@ -233,6 +257,27 @@ fn open_in_browser(url: &str) {
     unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
 }
 
+/// Whether RivaTuner Statistics Server is running, whose hooks have crashed WebView2's browser
+/// process as a video seeks, so that the app can say how to keep them out of it.
+pub fn rtss_running() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
+    // SAFETY: a snapshot of the system's processes, read and closed here.
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return false };
+        let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut found = false;
+        let mut more = Process32FirstW(snapshot, &mut entry).is_ok();
+        while more && !found {
+            let length = entry.szExeFile.iter().position(|&unit| unit == 0).unwrap_or(entry.szExeFile.len());
+            found = String::from_utf16_lossy(&entry.szExeFile[..length]).eq_ignore_ascii_case("RTSS.exe");
+            more = Process32NextW(snapshot, &mut entry).is_ok();
+        }
+        CloseHandle(snapshot).ok();
+        found
+    }
+}
+
 /// Sets the controller and its view up, once WebView2 has made them.
 fn setup(
     shared: &Rc<RefCell<Shared>>,
@@ -242,6 +287,7 @@ fn setup(
     origin: &str,
     messages: UnboundedSender<String>,
     focused: Rc<Cell<bool>>,
+    failed: Rc<Cell<bool>>,
 ) -> windows::core::Result<()> {
     let address = format!("{origin}/");
     let mut token = 0i64;
@@ -352,12 +398,24 @@ fn setup(
             &mut token,
         )?;
         webview.add_ProcessFailed(
-            &ProcessFailedEventHandler::create(Box::new(|_, args| {
+            &ProcessFailedEventHandler::create(Box::new(move |_, args| {
                 let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
                 if let Some(args) = args {
                     args.ProcessFailedKind(&mut kind)?;
                 }
                 log::warn!("watch: a WebView2 process failed ({})", kind.0);
+                // The browser's, or the page's or the player frame's renderer: what's left shows
+                // nothing and plays nothing. Chromium starts a GPU or utility process again itself.
+                if [
+                    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+                    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+                    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+                    COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
+                ]
+                .contains(&kind)
+                {
+                    failed.set(true);
+                }
                 Ok(())
             })),
             &mut token,

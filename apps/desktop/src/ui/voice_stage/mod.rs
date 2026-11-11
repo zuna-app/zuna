@@ -71,6 +71,14 @@ pub struct VoiceStage {
     _open: crate::voice::awake::StageOpen,
     /// YouTube's player, while this device watches what the room has on and it fills the stage.
     watch_player: Option<watch::WatchPlayer>,
+    /// When the player's web view died lately, the session given up on after it kept dying, until
+    /// this device stops watching, and whether the person was told about RivaTuner.
+    #[cfg(windows)]
+    watch_failures: Vec<std::time::Instant>,
+    #[cfg(windows)]
+    watch_gave_up: Option<String>,
+    #[cfg(windows)]
+    watch_told_rtss: bool,
 }
 
 impl VoiceStage {
@@ -94,7 +102,7 @@ impl VoiceStage {
                 break;
             }
         });
-        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick, _open: crate::voice::awake::StageOpen::new(), watch_player: None }
+        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick, _open: crate::voice::awake::StageOpen::new(), watch_player: None, #[cfg(windows)] watch_failures: Vec::new(), #[cfg(windows)] watch_gave_up: None, #[cfg(windows)] watch_told_rtss: false }
     }
 
     /// The channel's chat beside it closed, from its ×.
