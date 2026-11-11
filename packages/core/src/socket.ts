@@ -11,6 +11,11 @@ const DEAD_AFTER_MS = 70_000;
 const READY_WITHIN_MS = 15_000;
 /** How long a connection has to stay up before a drop starts the backoff over, so a server that accepts and then drops isn't retried every half second. */
 const STABLE_AFTER_MS = 60_000;
+/** How long a measurement of the server's clock counts, so that one from another network doesn't stay the best. */
+const CLOCK_SAMPLE_MS = 10 * 60_000;
+/** How many pings go to measure the clock at once, and how far apart. */
+const CLOCK_PINGS = 4;
+const CLOCK_PING_GAP_MS = 80;
 
 export interface SocketFrame {
   t: string;
@@ -34,6 +39,15 @@ export class Socket {
   private readyAt = 0;
   private lastFrameAt = 0;
   private active = false;
+  /** Pings waiting for their pong, by number, with when each went. */
+  private pings = new Map<number, number>();
+  private pingNumber = 0;
+  /** How far the server's clock is from this device's, from each round trip lately, and how long that took. */
+  private clockSamples: { offset: number; rtt: number; at: number }[] = [];
+  /** When the clock was last measured afresh, from which on older measurements stop counting, as the device's clock may have been set since. */
+  private measuredFrom = 0;
+  /** How far this device's clock is set apart from the computer's, which only tests set. */
+  skew = 0;
 
   constructor(
     private readonly baseUrl: string,
@@ -65,6 +79,60 @@ export class Socket {
 
   get connected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * How far ahead of this device's clock the server's is, in ms, from the quickest round trip
+   * lately, as the one least thrown by the network: the server's time is taken as halfway
+   * through it. Zero until a pong has come.
+   */
+  /** This device's clock, which is the computer's but in tests. */
+  now(): number {
+    return Date.now() + this.skew;
+  }
+
+  get clockOffset(): number {
+    const now = this.now();
+    let best: { offset: number; rtt: number } | null = null;
+    for (const sample of this.clockSamples) {
+      if (now - sample.at <= CLOCK_SAMPLE_MS && sample.at <= now && (!best || sample.rtt < best.rtt)) best = sample;
+    }
+    return best?.offset ?? this.clockSamples.at(-1)?.offset ?? 0;
+  }
+
+  /** Pings a few times, a moment apart, to learn the server's clock. Every ping counts too. */
+  measureClock(): void {
+    this.measuredFrom = this.now();
+    for (let index = 0; index < CLOCK_PINGS; index++) {
+      setTimeout(() => {
+        if (this.ws && !this.stopped) this.ping(this.ws);
+      }, index * CLOCK_PING_GAP_MS);
+    }
+  }
+
+  private ping(ws: WebSocket): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const n = ++this.pingNumber;
+    this.pings.set(n, this.now());
+    // Ones never answered, as on a connection that dropped, aren't kept for long.
+    for (const [number, sent] of this.pings) {
+      if (this.now() - sent > DEAD_AFTER_MS) this.pings.delete(number);
+    }
+    ws.send(JSON.stringify({ t: "ping", n }));
+  }
+
+  private onPong(data: { now?: unknown; n?: unknown } | undefined): void {
+    const sent = typeof data?.n === "number" ? this.pings.get(data.n) : undefined;
+    if (sent === undefined || typeof data?.now !== "number" || !Number.isFinite(data.now)) return;
+    this.pings.delete(data.n as number);
+    const now = this.now();
+    const rtt = now - sent;
+    if (rtt < 0) return;
+    this.clockSamples.push({ offset: data.now + rtt / 2 - now, rtt, at: now });
+    // A fresh measurement takes over from what came before it as soon as it has an answer.
+    const from = sent >= this.measuredFrom ? this.measuredFrom : 0;
+    // One from after now was taken before the device's clock went back.
+    this.clockSamples = this.clockSamples.filter((sample) => now - sample.at <= CLOCK_SAMPLE_MS && sample.at >= from && sample.at <= now).slice(-32);
   }
 
   /** Whether the person is using this device: sent now, and again after every reconnect. */
@@ -123,7 +191,9 @@ export class Socket {
         this.startPinging(ws);
         if (this.active) ws.send(JSON.stringify({ t: "active", active: true }));
         this.handlers.onReady();
-      } else if (frame.t !== "pong") {
+      } else if (frame.t === "pong") {
+        this.onPong(frame.d);
+      } else {
         this.handlers.onFrame(frame);
       }
     };
@@ -151,7 +221,7 @@ export class Socket {
         ws.close();
         return;
       }
-      if (ws.readyState === WebSocket.OPEN) ws.send('{"t":"ping"}');
+      this.ping(ws);
     }, PING_INTERVAL_MS);
   }
 

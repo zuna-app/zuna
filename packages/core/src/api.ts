@@ -194,6 +194,8 @@ export interface ApiChannel {
   screen_limit: number;
   /** Whether the soundboard plays there. */
   sounds: boolean;
+  /** Whether people may watch YouTube together there. */
+  watch: boolean;
   /** Slow mode: how long each person waits between messages, in seconds, or 0. */
   slow_mode: number;
   details: string;
@@ -641,10 +643,10 @@ export class Api {
 
   // Channels and voice
   channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
-  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; slow_mode?: number; proof: Uint8Array }) =>
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; watch?: boolean; slow_mode?: number; proof: Uint8Array }) =>
     this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
-  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number, sounds?: boolean, slowMode?: number) =>
-    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit, sounds, slow_mode: slowMode });
+  updateChannel = (id: string, details: Uint8Array, changes: { userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: changes.userLimit, screen_limit: changes.screenLimit, sounds: changes.sounds, watch: changes.watch, slow_mode: changes.slowMode });
   orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
   deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>
@@ -659,6 +661,8 @@ export class Api {
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
   voiceMute = (id: string, userId: string, muted: boolean) => this.request("PUT", at`/api/channels/${id}/voice/users/${userId}/mute`, { muted });
   playSound = (id: string, data: Uint8Array) => this.request("POST", at`/api/channels/${id}/voice/sound`, { data });
+  /** A signal about what a voice channel watches together, to everyone else in it, or to one device. */
+  watch = (id: string, data: Uint8Array, to?: string) => this.request("POST", at`/api/channels/${id}/voice/watch`, { data, to });
 
   // Calls in direct messages and groups
   calls = () => this.request<{ calls: ApiCall[]; voice: ApiVoiceState[] }>("GET", "/api/calls");
@@ -669,6 +673,7 @@ export class Api {
   ringCall = (groupId: string, users: string[]) => this.request("POST", at`/api/groups/${groupId}/call/ring`, { users });
   declineCall = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/call/decline`, {});
   playCallSound = (groupId: string, data: Uint8Array) => this.request("POST", at`/api/groups/${groupId}/call/sound`, { data });
+  callWatch = (groupId: string, data: Uint8Array, to?: string) => this.request("POST", at`/api/groups/${groupId}/call/watch`, { data, to });
 
   // Messages
   messages = async (groupId: string, options: { before?: number; after?: number; around?: number; limit?: number }) => {

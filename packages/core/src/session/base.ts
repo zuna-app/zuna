@@ -22,6 +22,7 @@ import { MEDIA_KINDS } from "../media";
 import { mediaTag } from "../search";
 import { Socket, type SocketFrame } from "../socket";
 import type { SignedRoster } from "../roster";
+import type { WatchState } from "../watch";
 import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
 import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex } from "./shared";
 import type { LogStanding } from "./directory";
@@ -155,6 +156,18 @@ export abstract class SessionBase {
    * last for, and whether it still has to say it's starting the call, which rings everyone else.
    */
   protected activeVoice: { channelId: string; update: VoiceUpdate; epoch: number; ring: boolean } | null = null;
+  /** What the room this device is in watches together, which is forgotten on leaving it. */
+  protected watch: { channelId: string; state: WatchState } | null = null;
+  /** The room this device has yet to ask what's on in, once the server says it's there. */
+  protected watchAskFor: string | null = null;
+  /** Signals about what's watched lately, by the value each was sealed with, so one handed on again counts once. */
+  protected watchSeen = new Map<string, number>();
+  /** Answers about to go to someone who came into the room, by their device. */
+  protected watchAnswers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each device was last told what's on because what it sent was behind. */
+  protected watchCorrected = new Map<string, number>();
+  /** How a video's title and picture are fetched on this device, if they are. */
+  videoPreview: ((id: string) => Promise<{ title?: string; author?: string; image?: { data: string; width: number; height: number } }>) | null = null;
   protected voiceKeyTimer: ReturnType<typeof setTimeout> | undefined;
   protected joiningChannels: Promise<void> | null = null;
   protected grantTimers = new Map<string, ReturnType<typeof setTimeout>>();

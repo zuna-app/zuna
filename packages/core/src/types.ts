@@ -458,12 +458,45 @@ export interface ChannelView {
   screenLimit: number;
   /** For a voice channel: whether the soundboard plays there. */
   sounds: boolean;
+  /** For a voice channel: whether people may watch YouTube together there. */
+  watch: boolean;
   /** Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins. */
   slowMode: number;
   /** The details couldn't be read or checked, so they aren't shown. */
   unreadable: boolean;
   /** Null until this device has joined it, which it does by itself. */
   conversation: ConversationView | null;
+}
+
+/**
+ * The YouTube video a voice channel or a call watches together, as this device holds it. Each
+ * device that watches plays it from YouTube itself, and only once its person pressed Watch.
+ */
+export interface WatchView {
+  /** New each time a video is put on where nothing was. Pressing Watch is for one session. */
+  session: string;
+  video: WatchVideoView;
+  playing: boolean;
+  /** Milliseconds into the video at `at`. */
+  position: number;
+  /** When that was, by this device's clock, in ms. While it plays, it's now at `position + (Date.now() - at) * rate`. */
+  at: number;
+  /** 0.25 to 2, as YouTube's player offers. */
+  rate: number;
+  /** Who made the last change, in their device's word. */
+  changedBy: string;
+}
+
+export interface WatchVideoView {
+  /** YouTube's ID for it. */
+  id: string;
+  /** Who put it on. */
+  startedBy: string;
+  /** What the device that put it on found about it, or empty. */
+  title: string;
+  author: string;
+  /** A small picture of it, as a data URL. */
+  image?: { data: string; width: number; height: number };
 }
 
 /** A sound on the server's soundboard. */
@@ -690,6 +723,8 @@ export type CoreEvent =
   | { type: "sounds"; serverId: string }
   /** Someone else in the voice channel or call this device is in played a sound. */
   | { type: "sound"; serverId: string; channelId: string; userId: string; soundId: string }
+  /** What the voice channel or call this device is in watches together changed, or it stopped: null. */
+  | { type: "watch"; serverId: string; channelId: string; watch: WatchView | null }
   | { type: "preferences"; serverId: string }
   | { type: "signed_out"; serverId: string; reason: string }
   /** A session that seemed to be over is working after all. */

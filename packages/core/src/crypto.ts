@@ -310,7 +310,7 @@ function unpad(data: Uint8Array): Uint8Array {
   return data.subarray(4, 4 + length);
 }
 
-export type ContentKind = "message" | "reaction" | "meta" | "read" | "typing" | "deletion" | "pin" | "channel" | "sound" | "play";
+export type ContentKind = "message" | "reaction" | "meta" | "read" | "typing" | "deletion" | "pin" | "channel" | "sound" | "play" | "watch";
 
 const contentAad = (kind: ContentKind, groupId: string, itemId: string, epoch: number) =>
   concat(label(`zuna/${kind}/v1|${groupId}|${itemId}|`), u64Bytes(epoch));

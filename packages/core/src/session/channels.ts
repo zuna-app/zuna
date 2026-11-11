@@ -1,13 +1,15 @@
-// ServerSession, in part (see base.ts): channels, voice channels, and calls.
+// ServerSession, in part (see base.ts): channels, voice channels, calls, and watching YouTube together in them.
 
 import { decode, type ApiCall, type ApiChannel, type ApiVoiceState } from "../api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../channels";
-import { randomId, sealHistoryGrant, verifyHpkeKey } from "../crypto";
+import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope, sealHistoryGrant, verifyHpkeKey } from "../crypto";
 import { equalBytes, toBase64, u64Bytes, utf8 } from "../encoding";
 import { VOICE_LABEL, voiceIdentity } from "../voice";
-import { parseChannelDetails } from "../validate";
-import type { CallView, ChannelType, ChannelView, ScreenAccess, VoiceAccess, VoiceMember, VoiceUpdate } from "../types";
-import { GRANT_JITTER_MS, voiceTiming, type CachedChannel, slowModeOf } from "./shared";
+import { parseChannelDetails, parseWatch } from "../validate";
+import { decodeFrameData } from "../socket";
+import { NOT_A_YOUTUBE_LINK, readYouTubeLink, sameWatch, WATCH_RATES, watchBeats, watchPosition, type WatchSignal, type WatchState, type WatchVideo } from "../watch";
+import type { CallView, ChannelType, ChannelView, ScreenAccess, VoiceAccess, VoiceMember, VoiceUpdate, WatchView } from "../types";
+import { GRANT_JITTER_MS, voiceTiming, WATCH_ANSWERERS, WATCH_ANSWER_STEP_MS, WATCH_CORRECT_EVERY_MS, WATCH_DETAILS_WAIT_MS, WATCH_FRESH_MS, type CachedChannel, slowModeOf } from "./shared";
 import { SessionManagement } from "./management";
 
 export abstract class SessionChannels extends SessionManagement {
@@ -48,6 +50,8 @@ export abstract class SessionChannels extends SessionManagement {
       versions[api.id] = version;
     }
     this.channels = next;
+    // Turned off where this device is watching: it stops, as the server refuses any more of it there.
+    if (this.watch && next.get(this.watch.channelId)?.api.watch === false) this.forgetWatch();
     if (!save) return;
     this.setKv("channels", list);
     this.setKv("channel_versions", versions);
@@ -160,6 +164,7 @@ export abstract class SessionChannels extends SessionManagement {
           userLimit: api.user_limit,
           screenLimit: api.screen_limit,
           sounds: api.sounds,
+          watch: api.watch !== false,
           slowMode: slowModeOf(api),
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
@@ -168,7 +173,7 @@ export abstract class SessionChannels extends SessionManagement {
   }
 
   /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
-  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; slowMode?: number }): Promise<string> {
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
     if (!details) throw new Error("A channel needs a name.");
@@ -181,6 +186,7 @@ export abstract class SessionChannels extends SessionManagement {
       user_limit: input.userLimit ?? 0,
       screen_limit: input.screenLimit ?? 0,
       sounds: input.sounds,
+      watch: input.watch,
       slow_mode: input.slowMode ?? 0,
       proof: channelProof(communityKey, id, this.account.userId),
     });
@@ -196,15 +202,15 @@ export abstract class SessionChannels extends SessionManagement {
   }
 
   /** Changes what a channel says about itself, for a server admin. */
-  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; slowMode?: number }): Promise<void> {
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }): Promise<void> {
     const channel = this.channels.get(id);
     if (!channel) throw new Error("That channel doesn't exist.");
-    const { userLimit, screenLimit, sounds, slowMode, ...text } = changes;
+    const { userLimit, screenLimit, sounds, watch, slowMode, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
     if (!details) throw new Error("A channel needs a name.");
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    await this.api.updateChannel(id, sealed, userLimit, screenLimit, sounds, slowMode);
+    await this.api.updateChannel(id, sealed, { userLimit, screenLimit, sounds, watch, slowMode });
     this.channels.set(id, {
       api: {
         ...channel.api,
@@ -212,6 +218,7 @@ export abstract class SessionChannels extends SessionManagement {
         user_limit: userLimit ?? channel.api.user_limit,
         screen_limit: screenLimit ?? channel.api.screen_limit,
         sounds: sounds ?? channel.api.sounds,
+        watch: watch ?? channel.api.watch,
         slow_mode: slowMode ?? channel.api.slow_mode,
       },
       details,
@@ -262,6 +269,11 @@ export abstract class SessionChannels extends SessionManagement {
     if (data.call ? !this.callsOn : !this.channelsOn) return;
     if (data.state) this.voiceStates.set(data.device_id, { ...data.state, call: !!data.call });
     else this.voiceStates.delete(data.device_id);
+    // Once the server says this device is in the room, it may ask what's on there.
+    if (data.state && data.device_id === this.account.deviceId && this.watchAskFor === data.channel_id && this.activeVoice?.channelId === data.channel_id) {
+      this.watchAskFor = null;
+      this.askWatch(data.channel_id);
+    }
     this.emit({
       type: "voice",
       serverId: this.serverId,
@@ -274,7 +286,10 @@ export abstract class SessionChannels extends SessionManagement {
 
   protected onVoiceEnded(data: { channel_id: string; reason: string }): void {
     if (!this.channelsOn && !this.callsOn) return;
-    if (this.activeVoice?.channelId === data.channel_id) this.activeVoice = null;
+    if (this.activeVoice?.channelId === data.channel_id) {
+      this.activeVoice = null;
+      this.forgetWatch();
+    }
     this.emit({ type: "voice_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
   }
 
@@ -360,10 +375,18 @@ export abstract class SessionChannels extends SessionManagement {
       this.activeVoice = null;
       clearTimeout(this.voiceKeyTimer);
       this.voiceKeyTimer = undefined;
+      this.forgetWatch();
+      this.watchAskFor = null;
       this.socket.sendVoice(null, null);
       return;
     }
-    if (this.activeVoice?.channelId !== channelId) this.watchVoiceKey(voiceTiming.checkEveryMs);
+    if (this.activeVoice?.channelId !== channelId) {
+      this.watchVoiceKey(voiceTiming.checkEveryMs);
+      // What another room watched is nothing to this one, which is asked once the server has this device in it.
+      this.forgetWatch();
+      this.watchAskFor = channelId;
+      this.socket.measureClock();
+    }
     const epoch = this.hasMlsGroup(channelId) ? this.mlsEpoch(channelId) : 0;
     const same = this.activeVoice?.channelId === channelId;
     this.activeVoice = { channelId, update, epoch: same ? this.activeVoice!.epoch : epoch, ring: (same && this.activeVoice!.ring) || (ring && this.isCall(channelId)) };
@@ -485,5 +508,256 @@ export abstract class SessionChannels extends SessionManagement {
   /** Mutes someone until an admin unmutes them. It's the media server that makes this stick. */
   async voiceMute(channelId: string, userId: string, muted: boolean): Promise<void> {
     await this.api.voiceMute(channelId, userId, muted);
+  }
+
+  // --- Watching together ---
+
+  /** The server's clock as near as this device can tell, which every state's time is on. */
+  protected serverNow(): number {
+    return this.socket.now() + this.socket.clockOffset;
+  }
+
+  protected watchView(state: WatchState): WatchView | null {
+    const video = state.video;
+    if (!video) return null;
+    return {
+      session: state.session,
+      video: { id: video.id, startedBy: video.by, title: video.title ?? "", author: video.author ?? "", image: video.image },
+      playing: state.playing,
+      position: state.position,
+      // On this device's clock, so that no app deals with how far it is from the server's.
+      at: state.at - this.socket.clockOffset,
+      rate: state.rate,
+      changedBy: state.user,
+    };
+  }
+
+  /** What a voice channel or a call this device is in watches together, or null when nothing's on. */
+  getWatch(channelId: string): WatchView | null {
+    const held = this.heldWatch(channelId);
+    return held ? this.watchView(held) : null;
+  }
+
+  /** The state this device holds for a room, if it's in that room. */
+  protected heldWatch(channelId: string): WatchState | null {
+    return this.activeVoice?.channelId === channelId && this.watch?.channelId === channelId ? this.watch.state : null;
+  }
+
+  /** Throws with something to tell the person when this device can't change what a room watches. */
+  protected watchable(channelId: string): void {
+    const call = this.isCall(channelId);
+    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error(call ? "Join the call to watch together." : "Join the voice channel to watch together.");
+    if (!call && this.channels.get(channelId)?.api.watch === false) throw new Error("Watching together is off in this voice channel.");
+  }
+
+  /**
+   * Puts a YouTube video on for everyone in the room, from a link. This device fetches its title
+   * and picture, as it would a link's preview, so the person should have agreed to contact
+   * YouTube first. The others' devices contact nobody until their people press Watch.
+   */
+  async watchStart(channelId: string, url: string): Promise<void> {
+    const link = readYouTubeLink(url);
+    if (!link) throw new Error(NOT_A_YOUTUBE_LINK);
+    this.watchable(channelId);
+    const preview = this.videoPreview;
+    let details: Partial<WatchVideo> = {};
+    if (preview) {
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), WATCH_DETAILS_WAIT_MS));
+      details = (await Promise.race([preview(link.id).catch(() => null), timeout])) ?? {};
+    }
+    // It may have been left meanwhile.
+    this.watchable(channelId);
+    const held = this.heldWatch(channelId);
+    const video: WatchVideo = { id: link.id, by: this.account.userId };
+    if (details.title) video.title = details.title;
+    if (details.author) video.author = details.author;
+    if (details.image) video.image = details.image;
+    await this.changeWatch(channelId, {
+      session: held?.video ? held.session : randomId(),
+      rev: (held?.rev ?? 0) + 1,
+      video,
+      playing: true,
+      position: link.start,
+      at: this.serverNow(),
+      rate: 1,
+      user: this.account.userId,
+      device: this.account.deviceId,
+    });
+  }
+
+  /** A change this person made to what the room watches: play or pause, a seek, a speed. */
+  async watchControl(channelId: string, change: { playing?: boolean; position?: number; rate?: number }): Promise<void> {
+    this.watchable(channelId);
+    const held = this.heldWatch(channelId);
+    if (!held?.video) throw new Error("Nothing is on.");
+    if (change.rate !== undefined && !(WATCH_RATES as readonly number[]).includes(change.rate)) throw new Error("YouTube can't play at that speed.");
+    if (change.position !== undefined && (!Number.isFinite(change.position) || change.position < 0)) throw new Error("That isn't a place in the video.");
+    const now = this.serverNow();
+    await this.changeWatch(channelId, {
+      ...held,
+      rev: held.rev + 1,
+      playing: change.playing ?? held.playing,
+      position: Math.round(change.position ?? watchPosition(held, now)),
+      at: now,
+      rate: change.rate ?? held.rate,
+      user: this.account.userId,
+      device: this.account.deviceId,
+    });
+  }
+
+  /** Stops the video for everyone in the room. */
+  async watchStop(channelId: string): Promise<void> {
+    this.watchable(channelId);
+    const held = this.heldWatch(channelId);
+    if (!held?.video) return;
+    await this.changeWatch(channelId, { ...held, rev: held.rev + 1, video: null, playing: false, position: 0, at: this.serverNow(), user: this.account.userId, device: this.account.deviceId });
+  }
+
+  /** Takes on a change of this device's at once, tells the room, and takes it back if the room wasn't told. */
+  protected async changeWatch(channelId: string, state: WatchState): Promise<void> {
+    const before = this.heldWatch(channelId);
+    const videoChanged = state.video?.id !== before?.video?.id || state.session !== before?.session;
+    this.setWatch(channelId, state);
+    try {
+      await this.sendWatchState(channelId, state, videoChanged);
+    } catch (error) {
+      if (this.watch?.state === state) {
+        if (before) this.setWatch(channelId, before);
+        else this.forgetWatch();
+      }
+      throw error;
+    }
+  }
+
+  protected setWatch(channelId: string, state: WatchState): void {
+    const before = this.watch?.channelId === channelId ? this.watch.state : null;
+    this.watch = { channelId, state };
+    // Where a video is depends on the clock, so it's measured as one comes on.
+    if (state.video && !before?.video) this.socket.measureClock();
+    this.emit({ type: "watch", serverId: this.serverId, channelId, watch: this.watchView(state) });
+  }
+
+  /** Forgets what the room watched, as on leaving it. */
+  protected forgetWatch(): void {
+    for (const timer of this.watchAnswers.values()) clearTimeout(timer);
+    this.watchAnswers.clear();
+    this.watchCorrected.clear();
+    const held = this.watch;
+    this.watch = null;
+    if (held?.state.video) this.emit({ type: "watch", serverId: this.serverId, channelId: held.channelId, watch: null });
+  }
+
+  /** A state, with the video's title and picture only when they're news to the others, or for one who asked. */
+  protected sendWatchState(channelId: string, state: WatchState, full: boolean, to?: string): Promise<void> {
+    const video = state.video && !full ? { id: state.video.id, by: state.video.by } : state.video;
+    return this.sendWatch(channelId, { kind: "state", state: { ...state, video }, sent: this.serverNow(), nonce: randomId() }, to);
+  }
+
+  /** Seals a signal under the room's key for its current epoch, signed by this device, as a played sound is. */
+  protected async sendWatch(channelId: string, signal: WatchSignal, to?: string): Promise<void> {
+    const epoch = this.rememberCurrentEpochKey(channelId);
+    const key = this.epochKey(channelId, epoch);
+    if (!key) throw new Error("This device can't watch here yet.");
+    const sealed = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "watch", channelId, this.account.userId, epoch, signal, this.signer));
+    await (this.isCall(channelId) ? this.api.callWatch(channelId, sealed, to) : this.api.watch(channelId, sealed, to));
+  }
+
+  /** Asks the others in the room what's on, as this device comes in or its connection comes back. */
+  protected askWatch(channelId: string): void {
+    const held = this.heldWatch(channelId);
+    const signal: WatchSignal = { kind: "ask", sent: this.serverNow(), nonce: randomId() };
+    if (held) signal.have = { session: held.session, rev: held.rev };
+    void this.sendWatch(channelId, signal).catch((error) => console.warn("[zuna] asking what's on", error));
+  }
+
+  /**
+   * Someone else in the room changed what it watches, answered what this device asked, or asked.
+   * It counts only if it opens under the room's key, was signed by the device the server says sent
+   * it, which the log of keys names, and is new: the server handing it on again changes nothing.
+   */
+  protected onWatchFrame(data: { channel_id: string; user_id: string; device_id: string; data: string }, again = false): void {
+    if (this.activeVoice?.channelId !== data.channel_id || data.device_id === this.account.deviceId) return;
+    const channelId = data.channel_id;
+    if (!this.isCall(channelId) && this.channels.get(channelId)?.api.watch === false) return;
+    const signed = readSigned(decodeFrameData(data.data));
+    if (!signed) return;
+    const current = this.hasMlsGroup(channelId) ? this.mlsEpoch(channelId) : -1;
+    const key = this.epochKey(channelId, signed.epoch) ?? (signed.epoch === current ? this.epochKey(channelId, this.rememberCurrentEpochKey(channelId)) : null);
+    if (!key) {
+      // Sealed under the key of a commit this device hasn't come to yet, such as the one that let in whoever sent it.
+      if (!again && current >= 0 && signed.epoch > current) {
+        void this.withLock(channelId, () => this.pullChanges(channelId))
+          .then(() => this.onWatchFrame(data, true))
+          .catch(() => undefined);
+      }
+      return;
+    }
+    const checked = checkEnvelope<unknown>(key, "watch", channelId, data.user_id, signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
+    if (checked.state === "unknown" && !again) {
+      void this.ensureUser(checked.signer.userId, true)
+        .then(() => this.onWatchFrame(data, true))
+        .catch(() => undefined);
+      return;
+    }
+    if (checked.state !== "signed" || checked.signer.userId !== data.user_id || checked.signer.deviceId !== data.device_id) return;
+    const signal = parseWatch(checked.value);
+    if (!signal) return;
+    const now = this.serverNow();
+    for (const [nonce, seen] of this.watchSeen) {
+      if (Date.now() - seen > WATCH_FRESH_MS) this.watchSeen.delete(nonce);
+    }
+    if (Math.abs(now - signal.sent) > WATCH_FRESH_MS || this.watchSeen.has(signal.nonce)) return;
+    this.watchSeen.set(signal.nonce, Date.now());
+    if (signal.kind === "ask") this.answerWatch(channelId, data.device_id, signal.have);
+    else this.takeWatch(channelId, signal.state, data.device_id);
+  }
+
+  /** Takes on a state someone else sent, if it wins over the one held. */
+  protected takeWatch(channelId: string, state: WatchState, from: string): void {
+    const held = this.heldWatch(channelId);
+    // The same video keeps what was found about it, which only came with it the first time.
+    if (state.video && held?.video?.id === state.video.id && !state.video.title && !state.video.image) {
+      state = { ...state, video: { ...held.video, by: state.video.by } };
+    }
+    if (held && sameWatch(state, held)) {
+      if (state.video && held.video && !held.video.title && (state.video.title || state.video.image)) this.setWatch(channelId, state);
+      return;
+    }
+    if (watchBeats(state, held)) {
+      this.setWatch(channelId, state);
+      return;
+    }
+    // Behind what this device holds, as one that missed something is: it's told what's on.
+    const last = this.watchCorrected.get(from) ?? 0;
+    if (!held || Date.now() - last < WATCH_CORRECT_EVERY_MS) return;
+    this.watchCorrected.set(from, Date.now());
+    void this.sendWatchState(channelId, held, true, from).catch(() => undefined);
+  }
+
+  /**
+   * Someone came into the room and asked what's on. The devices that have been in it longest
+   * answer, each after a wait set by how long, and only the one who asked hears it, under the
+   * key it holds now. One that already holds what's on, as after a moment offline, isn't told again.
+   */
+  protected answerWatch(channelId: string, asker: string, have: { session: string; rev: number } | undefined): void {
+    const held = this.heldWatch(channelId);
+    if (!held || (have && have.rev >= held.rev)) return;
+    const others = [...this.voiceStates.values()]
+      .filter((state) => state.channel_id === channelId && state.device_id !== asker)
+      .sort((a, b) => a.since - b.since || a.device_id.localeCompare(b.device_id));
+    const rank = others.findIndex((state) => state.device_id === this.account.deviceId);
+    if (rank < 0 || rank >= WATCH_ANSWERERS) return;
+    clearTimeout(this.watchAnswers.get(asker));
+    this.watchAnswers.set(
+      asker,
+      setTimeout(
+        () => {
+          this.watchAnswers.delete(asker);
+          const now = this.heldWatch(channelId);
+          if (now) void this.sendWatchState(channelId, now, true, asker).catch(() => undefined);
+        },
+        rank * WATCH_ANSWER_STEP_MS + Math.random() * 100,
+      ),
+    );
   }
 }

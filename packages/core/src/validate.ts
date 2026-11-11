@@ -4,6 +4,7 @@
 
 import { plainName } from "./hidden";
 import { checkPreview } from "./links";
+import { WATCH_RATES, YOUTUBE_ID, type WatchSignal, type WatchState, type WatchVideo } from "./watch";
 import type { Attachment, AvatarRef, BotAdd, BotCommand, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, MessageButton, MessageSignal, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
 
 /** The longest message text anyone may send, and that clients agree to show. */
@@ -412,6 +413,64 @@ export function parsePlay(value: unknown): { sound: string; user: string; at: nu
   if (!isObject(value) || !isString(value.sound, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.sound) || !isString(value.user, MAX_ID_LENGTH)) return null;
   if (typeof value.at !== "number" || !Number.isFinite(value.at) || !isString(value.nonce, 64) || value.nonce === "") return null;
   return { sound: value.sound, user: value.user, at: value.at, nonce: value.nonce };
+}
+
+const MAX_WATCH_TITLE = 200;
+const MAX_WATCH_AUTHOR = 100;
+/** A video's picture, which its sender made 320 pixels wide. */
+const MAX_WATCH_IMAGE = 48 << 10;
+/** A month, longer than any video YouTube plays but a live stream. */
+const MAX_WATCH_POSITION = 31 * 24 * 60 * 60_000;
+
+const watchText = (value: unknown, max: number): string | undefined => {
+  if (typeof value !== "string" || value.length > max * 4) return undefined;
+  const text = plainName(value).replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, max) : undefined;
+};
+
+function parseWatchVideo(value: unknown): WatchVideo | null {
+  if (!isObject(value) || typeof value.id !== "string" || !YOUTUBE_ID.test(value.id) || !isString(value.by, MAX_ID_LENGTH) || !value.by) return null;
+  const video: WatchVideo = { id: value.id, by: value.by };
+  const title = watchText(value.title, MAX_WATCH_TITLE);
+  const author = watchText(value.author, MAX_WATCH_AUTHOR);
+  if (title) video.title = title;
+  if (author) video.author = author;
+  const image = value.image;
+  if (isObject(image) && isString(image.data, MAX_WATCH_IMAGE) && THUMB.test(image.data) && isCount(image.width, MAX_PICTURE_SIDE) && isCount(image.height, MAX_PICTURE_SIDE) && image.width > 0 && image.height > 0) {
+    video.image = { data: image.data, width: image.width, height: image.height };
+  }
+  return video;
+}
+
+/** What a room watches, as someone's device sent it, or null if it makes no sense. */
+function parseWatchState(value: unknown): WatchState | null {
+  if (!isObject(value) || !isString(value.session, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.session)) return null;
+  if (typeof value.rev !== "number" || !Number.isSafeInteger(value.rev) || value.rev < 1) return null;
+  if (typeof value.playing !== "boolean" || typeof value.at !== "number" || !Number.isFinite(value.at)) return null;
+  if (typeof value.position !== "number" || !Number.isFinite(value.position) || value.position < 0 || value.position > MAX_WATCH_POSITION) return null;
+  if (typeof value.rate !== "number" || !(WATCH_RATES as readonly number[]).includes(value.rate)) return null;
+  if (!isString(value.user, MAX_ID_LENGTH) || !value.user || !isString(value.device, MAX_ID_LENGTH) || !value.device) return null;
+  let video: WatchVideo | null = null;
+  if (value.video !== null) {
+    video = parseWatchVideo(value.video);
+    if (!video) return null;
+  }
+  // Nothing plays once it's stopped.
+  return { session: value.session, rev: value.rev, video, playing: !!video && value.playing, position: video ? value.position : 0, at: value.at, rate: value.rate, user: value.user, device: value.device };
+}
+
+/** A signal about what a room watches together: a state, or someone asking for one. */
+export function parseWatch(value: unknown): WatchSignal | null {
+  if (!isObject(value) || typeof value.sent !== "number" || !Number.isFinite(value.sent) || !isString(value.nonce, 64) || value.nonce === "") return null;
+  if (value.kind === "ask") {
+    const have = value.have;
+    if (absent(have)) return { kind: "ask", sent: value.sent, nonce: value.nonce };
+    if (!isObject(have) || !isString(have.session, MAX_ID_LENGTH) || !MESSAGE_ID.test(have.session) || typeof have.rev !== "number" || !Number.isSafeInteger(have.rev) || have.rev < 1) return null;
+    return { kind: "ask", sent: value.sent, nonce: value.nonce, have: { session: have.session, rev: have.rev } };
+  }
+  if (value.kind !== "state") return null;
+  const state = parseWatchState(value.state);
+  return state ? { kind: "state", state, sent: value.sent, nonce: value.nonce } : null;
 }
 
 /** A channel's details, as someone's device signed them, or null if they make no sense. */

@@ -484,12 +484,47 @@ public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
     public var screenLimit: Int
     /// For a voice channel: whether the soundboard plays there.
     public var sounds: Bool
+    /// For a voice channel: whether people may watch YouTube together there.
+    public var watch: Bool
     /// Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins.
     public var slowMode: Int
     /// The details couldn't be read or checked, so they aren't shown.
     public var unreadable: Bool
     /// Nil until this device has joined it, which it does by itself.
     public var conversation: ConversationView?
+}
+
+/// The YouTube video a voice channel or a call watches together, as this device holds it. Mirrors `WatchView`.
+public struct WatchView: Codable, Sendable, Equatable {
+    public struct Video: Codable, Sendable, Equatable {
+        /// YouTube's ID for it.
+        public var id: String
+        /// Who put it on.
+        public var startedBy: String
+        /// What the device that put it on found about it, or empty.
+        public var title: String
+        public var author: String
+        /// A small picture of it, as a data URL.
+        public var image: LinkPreview.Image?
+    }
+
+    /// New each time a video is put on where nothing was. Pressing Watch is for one session.
+    public var session: String
+    public var video: Video
+    public var playing: Bool
+    /// Milliseconds into the video at `at`.
+    public var position: Double
+    /// When that was, by this device's clock, in ms. While it plays, it's at `position + (now - at) * rate`.
+    public var at: Double
+    /// 0.25 to 2, as YouTube's player offers.
+    public var rate: Double
+    /// Who made the last change.
+    public var changedBy: String
+
+    /// Where the video is at a time on this device's clock, in ms.
+    public func position(at now: Double) -> Double {
+        max(0, playing ? position + (now - at) * rate : position)
+    }
 }
 
 /// A sound on the server's soundboard. Mirrors `SoundView`.
@@ -625,10 +660,12 @@ public struct NewChannel: Codable, Sendable, Equatable {
     public var screenLimit: Int?
     /// For a voice channel: whether the soundboard plays there, which it does unless this says otherwise.
     public var sounds: Bool?
+    /// For a voice channel: whether people may watch YouTube together there, which they may unless this says otherwise.
+    public var watch: Bool?
     /// Slow mode, in seconds, or nil or 0 for off.
     public var slowMode: Int?
 
-    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, slowMode: Int? = nil) {
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, slowMode: Int? = nil) {
         self.type = type
         self.name = name
         self.topic = topic
@@ -637,6 +674,7 @@ public struct NewChannel: Codable, Sendable, Equatable {
         self.userLimit = userLimit
         self.screenLimit = screenLimit
         self.sounds = sounds
+        self.watch = watch
         self.slowMode = slowMode
     }
 }
@@ -651,10 +689,11 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
     public var userLimit: Int?
     public var screenLimit: Int?
     public var sounds: Bool?
+    public var watch: Bool?
     /// Slow mode, in seconds, or 0 to turn it off.
     public var slowMode: Int?
 
-    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, slowMode: Int? = nil) {
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, slowMode: Int? = nil) {
         self.name = name
         self.topic = topic
         self.category = category
@@ -662,6 +701,7 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
         self.userLimit = userLimit
         self.screenLimit = screenLimit
         self.sounds = sounds
+        self.watch = watch
         self.slowMode = slowMode
     }
 }
@@ -866,6 +906,8 @@ public enum CoreEvent: Sendable, Equatable {
     case sounds(serverId: String)
     /// Someone else in the voice channel or call this device is in played a sound.
     case sound(serverId: String, channelId: String, userId: String, soundId: String)
+    /// What the voice channel or call this device is in watches together changed, or it stopped (nil).
+    case watch(serverId: String, channelId: String, watch: WatchView?)
     case preferences(serverId: String)
     case signedOut(serverId: String, reason: String)
     /// A session that seemed to be over is working after all.
@@ -888,7 +930,7 @@ extension CoreEvent {
              let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .call(serverId, _, _), let .calls(serverId), let .message(serverId, _, _),
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
-             let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .preferences(serverId),
+             let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .watch(serverId, _, _), let .preferences(serverId),
              let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .newDevices(serverId, _), let .notify(serverId, _, _, _, _, _, _),
              let .activity(serverId, _):
             serverId
@@ -903,7 +945,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId, inUse
-        case channelId, deviceId, member, call, soundId, devices
+        case channelId, deviceId, member, call, soundId, devices, watch
     }
 
     public init(from decoder: Decoder) throws {
@@ -943,6 +985,7 @@ extension CoreEvent: Codable {
                 userId: try c.decode(String.self, forKey: .userId),
                 soundId: try c.decode(String.self, forKey: .soundId)
             )
+        case "watch": self = .watch(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), watch: try c.decodeIfPresent(WatchView.self, forKey: .watch))
         case "preferences": self = .preferences(serverId: serverId)
         case "signed_out": self = .signedOut(serverId: serverId, reason: try c.decode(String.self, forKey: .reason))
         case "signed_in": self = .signedIn(serverId: serverId)
@@ -1008,6 +1051,8 @@ extension CoreEvent: Codable {
         case let .sound(serverId, channelId, userId, soundId):
             try c.encode("sound", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId)
             try c.encode(userId, forKey: .userId); try c.encode(soundId, forKey: .soundId)
+        case let .watch(serverId, channelId, watch):
+            try c.encode("watch", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId); try c.encodeIfPresent(watch, forKey: .watch)
         case let .preferences(serverId):
             try c.encode("preferences", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .signedOut(serverId, reason):

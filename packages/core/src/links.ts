@@ -216,9 +216,9 @@ function attributes(tag: string): Map<string, string> {
 // the last one ended.
 
 /** The meta tags in a page's head. */
-function metaTags(head: string): string[] {
+function metaTags(head: string, element = "meta"): string[] {
   const tags: string[] = [];
-  const start = /<meta\b/gi;
+  const start = new RegExp(`<${element}\\b`, "gi");
   for (let match = start.exec(head); match; match = start.exec(head)) {
     const end = head.indexOf(">", match.index);
     if (end < 0) break;
@@ -303,6 +303,43 @@ export async function makeLinkPreview(web: WebAdapter, url: string): Promise<Lin
   if (!found.title && !found.description) return null;
   const image = found.image ? await shrink(web, found.image).catch(() => undefined) : undefined;
   return { url, title: found.title, description: found.description, siteName: found.siteName ?? host, image };
+}
+
+// A video's picture travels inside what a room watches, so it's kept smaller than a link's.
+const VIDEO_IMAGE_SIZE = 320;
+const AUTHOR_LENGTH = 100;
+
+/** Who made a YouTube video, as its page says just after `itemprop="author"`. */
+function authorIn(html: string): string | undefined {
+  const at = html.search(/itemprop\s*=\s*["']author["']/i);
+  if (at < 0) return undefined;
+  for (const found of metaTags(html.slice(at, at + 2048), "link")) {
+    const tag = attributes(found);
+    if (tag.get("itemprop")?.toLowerCase() === "name" && tag.get("content")) return clean(tag.get("content"), AUTHOR_LENGTH);
+  }
+  return undefined;
+}
+
+/**
+ * A YouTube video's title, who made it and a small picture, from its page, for what a room
+ * watches together. The device that puts the video on fetches them, as it would a link's
+ * preview, so that the others can say what's on before they've touched YouTube.
+ */
+export async function makeVideoPreview(web: WebAdapter, id: string): Promise<{ title?: string; author?: string; image?: LinkPreview["image"] }> {
+  const pageUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+  const page = await web.fetch(pageUrl, PAGE_BYTES);
+  const type = page.type.toLowerCase();
+  if (!type.includes("html")) return {};
+  const html = decodePage(type, page.body);
+  const found = readPage(html, page.url);
+  // The picture YouTube makes for every video, if the page names none.
+  const imageUrl = found.image ?? `https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`;
+  let image: LinkPreview["image"];
+  if (previewable(imageUrl)) {
+    const picture = await web.fetch(imageUrl, IMAGE_BYTES).catch(() => null);
+    if (picture?.type.toLowerCase().startsWith("image/")) image = (await web.shrinkImage(picture.body, VIDEO_IMAGE_SIZE).catch(() => null)) ?? undefined;
+  }
+  return { title: found.title, author: authorIn(html), image };
 }
 
 /**

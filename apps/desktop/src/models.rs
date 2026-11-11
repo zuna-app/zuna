@@ -365,6 +365,7 @@ pub struct ChannelView {
     pub user_limit: f64,
     pub screen_limit: f64,
     pub sounds: bool,
+    pub watch: bool,
     pub slow_mode: f64,
     pub unreadable: bool,
     pub conversation: Option<ConversationView>,

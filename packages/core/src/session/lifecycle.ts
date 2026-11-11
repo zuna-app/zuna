@@ -128,7 +128,12 @@ export abstract class SessionLifecycle extends SessionServer {
     }
     this.setConnection("syncing");
     // The server only gives a device that went quiet a moment to come back.
-    if (this.activeVoice) this.sayVoice();
+    if (this.activeVoice) {
+      // What the room watches may have changed meanwhile, so it's asked again once the server has this device back.
+      this.watchAskFor = this.activeVoice.channelId;
+      this.sayVoice();
+      if (this.watch?.state.video) this.socket.measureClock();
+    }
     try {
       await this.syncAll();
       if (this.socket.connected) this.setConnection("online");
@@ -344,6 +349,9 @@ export abstract class SessionLifecycle extends SessionServer {
         break;
       case "sound":
         this.onSoundFrame(data);
+        break;
+      case "watch":
+        this.onWatchFrame(data);
         break;
       case "device_revoked":
         if (data.device_id === this.account.deviceId) this.signedOut("device_revoked");

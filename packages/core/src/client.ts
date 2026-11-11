@@ -16,7 +16,7 @@ import type { RotationPlan } from "./generations";
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import { migrate, type DbProvider, type LocalDb, type SqlValue } from "./db";
 import type { FileAdapter } from "./files";
-import { findLink, makeLinkPreview, type WebAdapter } from "./links";
+import { findLink, makeLinkPreview, makeVideoPreview, type WebAdapter } from "./links";
 import { ServerSession } from "./session";
 import type { CoreEvent, InvitePreview, LinkPreview, MessageBody, Profile, ServerEntry, ServerInfo } from "./types";
 
@@ -246,7 +246,11 @@ export class ZunaClient {
       const sealed = wasm.aeadSeal(this.serverKey(serverId), utf8(encodeAccount(changed)), label("account"));
       index.run("UPDATE servers SET account = ? WHERE id = ?", [sealed, serverId]);
     };
-    if (this.options.web) session.linkPreview = (url) => this.linkPreview(url);
+    if (this.options.web) {
+      const web = this.options.web;
+      session.linkPreview = (url) => this.linkPreview(url);
+      session.videoPreview = (id) => makeVideoPreview(web, id);
+    }
     session.setActive(this.activeOn(serverId));
     this.sessions.set(serverId, session);
     return session;

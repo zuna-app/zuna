@@ -5,6 +5,7 @@ export { ApiError, normalizeServerUrl } from "./api";
 export { migrate, type DbProvider, type LocalDb, type SqlValue } from "./db";
 export { blobFiles, type FileAdapter } from "./files";
 export { findLink, type WebAdapter } from "./links";
+export { readYouTubeLink, watchPosition, WATCH_RATES } from "./watch";
 export { plainText } from "./plain-text";
 export { notifiedChats, previewCall, previewPush, type CallPreview, type PushPreview } from "./push";
 export { parseVoiceIdentity, voiceIdentity, voiceKeyIndex, voiceSenderKey, VOICE_KEY_RING, type VoiceIdentity } from "./voice";

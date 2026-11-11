@@ -69,6 +69,7 @@ const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   signOut: true, soundFile: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true, unreadMentions: true,
   updateChannel: true, updateGroupMeta: true, updatePreferences: true, updateProfile: true, updateServerIcon: true, updateServerSettings: true, updateSound: true,
   voiceAccess: true, voiceDisconnect: true, voiceKey: true, voiceMute: true, voiceScreenAccess: true, voiceScreenStop: true, voiceScreenStopOf: true,
+  getWatch: true, watchControl: true, watchStart: true, watchStop: true,
 };
 
 /** Runs in the worker: answers calls by invoking methods on the client or a session. */

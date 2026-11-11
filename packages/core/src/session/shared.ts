@@ -24,6 +24,22 @@ export const SYNC_CONCURRENCY = 4;
 export const VAULT_PAGE = 500;
 /** How far a sound someone played may be from now, by their clock, and how long it's remembered so it plays once. */
 export const PLAY_FRESH_MS = 5 * 60_000;
+/**
+ * How far a signal about what a room watches may be from now, by the server's clock as each
+ * device knows it, and how long it's remembered so that one handed on again counts once.
+ */
+export const WATCH_FRESH_MS = 2 * 60_000;
+/**
+ * The devices that have been in a room longest answer someone coming in, this far apart in
+ * that order, so that the one most likely to hold what's on answers first. Nobody hears
+ * another's answer, as it goes only to the one who asked, so only these few do.
+ */
+export const WATCH_ANSWERERS = 3;
+export const WATCH_ANSWER_STEP_MS = 400;
+/** How often one device is told what's on when what it sent was behind, at most. */
+export const WATCH_CORRECT_EVERY_MS = 1000;
+/** How long putting a video on waits for its title and picture before it goes without them. */
+export const WATCH_DETAILS_WAIT_MS = 6000;
 /** How far a typing signal's time may be from this device's, so an old one sent again shows nobody typing. */
 export const TYPING_FRESH_MS = 30_000;
 export const KEY_PACKAGE_TARGET = 40;

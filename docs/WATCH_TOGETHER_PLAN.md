@@ -1,6 +1,6 @@
 # Watching YouTube together: plan
 
-People in a voice channel or a call put a YouTube video on, and it plays for each of them at the same moment: one pauses, and it pauses for everyone. Nothing here is built yet. This page is the design, what was decided, and the order to build it in.
+People in a voice channel or a call put a YouTube video on, and it plays for each of them at the same moment: one pauses, and it pauses for everyone. This page is the design, what was decided, and the order to build it in. "Where it stands" at the end says what's built.
 
 ```
 someone presses pause in their player
@@ -38,6 +38,13 @@ Still to decide while building, with what this plan assumes:
 - Whether a new video in a session someone is already watching needs another press of Watch. Assumed: no. The press is for the session, which lasts until someone stops it or the room empties.
 - Whether a server needs one switch for all of it, calls included. Assumed: not in the first version.
 
+Decided while building phase 1, on 2026-11-11:
+
+- **The three devices longest in the room answer someone coming in,** 400 ms apart in that order, by when the server says each came in. An answer goes only to the one who asked, so nobody hears another's, and without a limit every device would answer.
+- **An ask says what the asker holds,** as after a moment offline, and only a newer state is sent back.
+- **A device that's sent a state behind its own is sent its own,** to that device alone and at most once a second, so a device that missed a change catches up the next time it changes something.
+- **A state says which device made the change,** which breaks a tie of `rev` and `at`, as the answerer's device can't, and **its video says who put it on,** for the tile.
+
 ## What YouTube asks
 
 Checked against YouTube's pages on 2026-11-11: [required minimum functionality](https://developers.google.com/youtube/terms/required-minimum-functionality), [player parameters](https://developers.google.com/youtube/player_parameters) and the [IFrame API](https://developers.google.com/youtube/iframe_api_reference).
@@ -66,12 +73,13 @@ One state per room, held only by the devices in it. The last change wins.
 interface WatchState {
   session: string;   // new each time a video is put on where nothing was
   rev: number;       // one more with each change; the higher wins, then the later `at`, then the device ID
-  video: { id: string; title?: string; author?: string; image?: PreviewImage } | null;  // null: stopped
+  video: { id: string; by: string; title?: string; author?: string; image?: PreviewImage } | null;  // null: stopped; `by` put it on
   playing: boolean;
   position: number;  // ms into the video at `at`
   at: number;        // when that was, in ms, by the server's clock as the sender knew it
-  rate: number;      // 0.25 to 2
+  rate: number;      // one of YouTube's: 0.25 to 2 in quarters
   user: string;      // who made the change
+  device: string;    // and on which device
 }
 ```
 
@@ -273,6 +281,21 @@ Phase 0 is there to settle these before anything is built on them.
 - **Adverts and seeks told apart.** The rules above are a design, not a measurement.
 - **Live streams.** Where one is has no meaning to share. The first version plays one at its live edge and only shares playing or not.
 - **YouTube changing or blocking embedded playback.** Outside anyone's hands here. The tile's errors are in words so people know it isn't Zuna.
+
+## Phase 0: what was found
+
+On 2026-11-11, on macOS 27, with a page of nothing but the frame (`https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ?enablejsapi=1&playsinline=1&origin=…`) served from `localhost` and driven by `postMessage` alone, in Playwright's Chromium and WebKit and in Firefox 159 from Mozilla through WebDriver BiDi:
+
+- **The privacy-enhanced address takes the same messages as `www.youtube.com/embed`,** with no script from YouTube in the page. So the first two of "Risks" are settled for the web, and so for every app.
+- The page sends `{"event":"listening","id":1,"channel":"widget"}` every 250 ms once the frame has loaded, until `initialDelivery` and `onReady` come, then `{"event":"command","func":"addEventListener","args":["onStateChange"],…}` for each event it wants. Commands are `{"event":"command","func":…,"args":[…],"id":1,"channel":"widget"}`: `playVideo`, `pauseVideo`, `seekTo` with seconds and `true`, `setPlaybackRate`, `setVolume`, `mute`, `unMute`, `loadVideoById` with `{ videoId, startSeconds }`.
+- What comes back: `initialDelivery` with everything (`duration`, `availablePlaybackRates`, `videoData` with the title and `isLive`), then `infoDelivery` with what changed, `currentTime` every 250 to 270 ms while it plays, `playerState`, `playbackRate`, `volume` and `muted` as they change; `onStateChange` (−1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued); and `onVideoProgress` with the time every 250 ms once listened for. A seek reports the new time within one reading, and buffering after it as state 3 in WebKit and Firefox.
+- Headless browsers started a video without a press. Whether Safari itself does is for phase 2.
+
+Not yet run: a `WKWebView` during a CallKit call (phase 3), `wry` in GPUI's window (phase 4), the Linux helper (phase 5), and echo with speakers (phase 6).
+
+## Where it stands
+
+- **Phase 1, core and server: built** on 2026-11-11. `packages/core/test/watch.test.ts` and `server/internal/api/watch_test.go` pass in SQLite and PostgreSQL.
 
 ## Left out of the first version
 
