@@ -25,7 +25,7 @@ export function Privacy() {
           </li>
           <li>GitHub, from the signed Windows app, to check for updates every six hours.</li>
           <li>
-            In the web app and on iPhone and iPad, YouTube, when you press Watch on a video your voice channel or call watches together, and asked about the first
+            In the web app, on iPhone and iPad, and on a Mac, YouTube, when you press Watch on a video your voice channel or call watches together, and asked about the first
             time. The video plays in YouTube's own player, which sees your IP address, which video and when, under{" "}
             <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Whoever puts a video on has their device fetch its title and picture, in
             the web app through its host.
