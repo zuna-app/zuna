@@ -674,7 +674,7 @@ try {
   await drive({ do: "click", x: 100, y: 205 });
   await sleep(1500);
   await shot("11-voice-settings");
-  for (const [y, name] of [[195, "12-microphones"], [327, "13-speakers"]]) {
+  for (const [y, name] of [[189, "12-microphones"], [602, "13-speakers"]]) {
     await drive({ do: "click", x: 809, y });
     await sleep(700);
     await shot(name);
@@ -683,11 +683,12 @@ try {
   }
 
   // --- Push to talk, through the global shortcuts portal ---
-  await drive({ do: "click", x: 707, y: 537 });
+  // Input mode's Push to talk.
+  await drive({ do: "click", x: 702, y: 318 });
   await sleep(800);
   await shot("14-push-to-talk");
   // The key, chosen by pressing it in the window.
-  await drive({ do: "click", x: 997, y: 596 });
+  await drive({ do: "click", x: 997, y: 383 });
   await sleep(400);
   await drive({ do: "key", key: "f8" });
   await sleep(800);
@@ -737,7 +738,8 @@ try {
   // A tone for the share's sound to carry, played where nobody hears it.
   const tone = join(sounds, "tone.wav");
   execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=660:duration=30", "-y", tone]);
-  await drive({ do: "click", x: 965, y: 758 });
+  // The picker's Share, with its one screen, which the portal asks about, chosen.
+  await drive({ do: "click", x: 965, y: 660 });
   await sleep(3000);
   await shot("21-portal-screen-chooser");
   // KDE's chooser: the KWin's one screen.
@@ -767,10 +769,11 @@ try {
   // --- Sharing a window, picked in the portal's dialog too ---
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(1500);
-  await drive({ do: "click", x: 519, y: 179 });
+  // Its Windows tab, and Share.
+  await drive({ do: "click", x: 519, y: 278 });
   await sleep(600);
   await shot("23-picker-window");
-  await drive({ do: "click", x: 965, y: 758 });
+  await drive({ do: "click", x: 965, y: 660 });
   await sleep(3000);
   await shot("24-portal-window-chooser");
   // KDE's chooser: the first of the two windows, both called Zuna.
