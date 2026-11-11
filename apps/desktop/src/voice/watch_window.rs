@@ -3,6 +3,8 @@
 //! Wayland. It's held here rather than by the stage, so it stays open while its person looks at
 //! a chat, and goes when they stop watching, the room stops the video, or they leave. Closing it
 //! stops watching on this device. The stage shows what's on, with the bar, and says where it plays.
+//! What the window plays goes to the echo canceller too, so that someone on speakers doesn't send
+//! the video back to the room.
 
 use futures::StreamExt;
 use gpui::{Context, Task};
@@ -56,6 +58,17 @@ pub struct WindowStatus {
     pub cant_decode: bool,
 }
 
+/// Where taking the window's sound for the echo canceller is at. It's started once the video
+/// plays, as WebKit's processes only play from then.
+#[derive(Default)]
+enum EchoTap {
+    #[default]
+    Waiting,
+    Starting,
+    Running(#[allow(dead_code)] zuna_screenshare::sound::Sound),
+    Off,
+}
+
 struct WatchWindow {
     session: String,
     view: Window,
@@ -64,6 +77,8 @@ struct WatchWindow {
     sent: Option<(WatchView, bool, f32)>,
     title: String,
     status: WindowStatus,
+    /// What WebKit plays in the window, which the echo canceller hears beside what the app plays.
+    echo: EchoTap,
     _events: Task<()>,
     /// Asks the page where the player is each second, which the log says, for the checks.
     _probe: Task<()>,
@@ -118,7 +133,7 @@ impl Voice {
                 }
             }
         });
-        self.watch_here.window = Some(WatchWindow { session, view, ready: false, sent: None, title, status: WindowStatus::default(), _events: events, _probe: probe });
+        self.watch_here.window = Some(WatchWindow { session, view, ready: false, sent: None, title, status: WindowStatus::default(), echo: EchoTap::Waiting, _events: events, _probe: probe });
     }
 
     /// The window couldn't open or play: this device stops watching, and the stage says why.
@@ -195,8 +210,12 @@ impl Voice {
                 if phase == "in-step" {
                     window.status.blocked = false;
                 }
+                let playing = phase == "in-step";
                 window.status.phase = phase;
                 window.status.error = error;
+                if playing {
+                    self.start_watch_echo(cx);
+                }
                 if changed {
                     cx.notify();
                 }
@@ -216,6 +235,55 @@ impl Voice {
             }
             _ => {}
         }
+    }
+
+    /// Starts taking the window's sound for the echo canceller, once, where echo cancelling is on:
+    /// what WebKit's processes under zuna-watch play, which PipeWire knows by the sandbox they're in.
+    fn start_watch_echo(&mut self, cx: &mut Context<Self>) {
+        let (cancelling, mixer) = (self.settings.echo_cancellation, self.mixer.clone());
+        let Some(window) = &mut self.watch_here.window else { return };
+        if !matches!(window.echo, EchoTap::Waiting) {
+            return;
+        }
+        if !cancelling {
+            window.echo = EchoTap::Off;
+            return;
+        }
+        window.echo = EchoTap::Starting;
+        let session = window.session.clone();
+        let started = cx.background_executor().spawn(async move {
+            let mut heard = false;
+            zuna_screenshare::sound::Sound::start(
+                zuna_screenshare::sound::Wanted::Helpers(std::process::id()),
+                std::time::Duration::from_secs(10),
+                move |samples| {
+                    if !heard && samples.iter().any(|sample| sample.abs() > 1e-4) {
+                        heard = true;
+                        log::info!("watch: the player's sound reaches the echo canceller");
+                    }
+                    mixer.hear_far_end(samples);
+                },
+                |problem| log::warn!("watch: the player's sound stopped reaching the echo canceller: {problem}"),
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let started = started.await;
+            this.update(cx, |voice, _| {
+                let Some(window) = voice.watch_here.window.as_mut().filter(|window| window.session == session) else { return };
+                window.echo = match started {
+                    Ok(sound) => {
+                        log::info!("watch: the player's sound is taken for the echo canceller");
+                        EchoTap::Running(sound)
+                    }
+                    Err(problem) => {
+                        log::warn!("watch: the player's sound can't reach the echo canceller: {problem}");
+                        EchoTap::Off
+                    }
+                };
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Tells the page whatever changed since it was last told, and the window its title.

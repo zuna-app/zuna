@@ -422,6 +422,9 @@ try {
     const webAt = await webPlayer();
     const apart = nativeAt && webAt ? Math.round(Math.abs(nativeAt.position + (webAt.now - nativeAt.at) - webAt.time * 1000)) : Infinity;
     check("it plays where the web app's player is", inStep && apart < 500, `${apart} ms apart`);
+    // What WebKit plays in the window, the fake's tone, reaches the echo canceller, so that speakers don't send it back.
+    const echoHeard = await until(() => /watch: the player's sound reaches the echo canceller/.test(app.output), "the video's sound to reach the echo canceller", 15_000).catch(() => false);
+    check("the video's sound reaches the echo canceller", echoHeard, app.output.split("\n").filter((line) => /watch: the player's sound/.test(line)).slice(-1)[0] ?? "nothing");
     await shot("05-watch-window");
     // The web app pauses in its player, and the window's stops where it did.
     await page.frameLocator(".watch-frame").getByRole("button", { name: "Pause" }).click();

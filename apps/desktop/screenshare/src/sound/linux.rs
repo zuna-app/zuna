@@ -105,6 +105,13 @@ fn descends(pid: u32, root: u32) -> bool {
     false
 }
 
+/// The process that started a WebKit web process's sandbox, from the instance its stream names,
+/// `webkit-<pid>-<n>`. In bubblewrap the web process says the pid it has in there, which means
+/// nothing out here; the process that started it is the app's web view, such as zuna-watch.
+fn sandboxed_by(instance: &str) -> Option<u32> {
+    instance.strip_prefix("webkit-")?.split('-').next()?.parse().ok().filter(|pid| *pid > 1)
+}
+
 /// Whether a program's channel goes into one of this stream's two: a side to its own
 /// side, the subwoofer's nowhere, and the rest to both.
 fn feeds(channel: &str, into: &str) -> bool {
@@ -145,9 +152,12 @@ impl State {
         // A program that plays through PipeWire's PulseAudio server says which process it is.
         // One that connects itself might not, and then its connection says.
         let client = props.get("client.id").and_then(|text| text.parse::<u32>().ok()).and_then(|client| self.clients.get(&client).copied());
-        let pid = props.get("application.process.id").and_then(|text| text.parse::<u32>().ok()).or(client);
+        let sandbox = props.get("pipewire.access.portal.instance_id").and_then(|instance| sandboxed_by(&instance));
+        let pid = sandbox.or_else(|| props.get("application.process.id").and_then(|text| text.parse::<u32>().ok())).or(client);
+        // Zuna's own sound is left out, but for its helpers' when they're what's wanted.
+        let helpers = matches!(self.wanted, Some(Wanted::Helpers(_)));
         if let (Some(pid), Some(root)) = (pid, self.exclude) {
-            if descends(pid, root) {
+            if descends(pid, root) && !(helpers && pid != root) {
                 return;
             }
         }
@@ -646,7 +656,16 @@ pub fn open(wanted: Wanted, exclude: Option<u32>, samples: SyncSender<Vec<u8>>) 
 
 #[cfg(test)]
 mod tests {
-    use super::feeds;
+    use super::{feeds, sandboxed_by};
+
+    #[test]
+    fn a_webkit_sandbox_names_the_process_that_started_it() {
+        assert_eq!(sandboxed_by("webkit-38779-4"), Some(38779));
+        assert_eq!(sandboxed_by("webkit-1-4"), None);
+        // A Flatpak app's own instance, which isn't WebKit's.
+        assert_eq!(sandboxed_by("1462371892"), None);
+        assert_eq!(sandboxed_by("webkit-x-4"), None);
+    }
 
     #[test]
     fn each_side_goes_to_its_own_side() {

@@ -131,7 +131,7 @@ People in a voice channel or a call can watch a YouTube video at the same moment
 - **The device that puts a video on fetches its title and picture**, as it would a link's preview, so YouTube sees that device's address, or in the web app its host's.
 - **Everyone in the room controls it.** A member could put on any video, or pause it for everyone; nobody outside the room can.
 - **A server that lies about the time** can only put people out of step, as each device sets its clock by the server's.
-- **On a Mac, the app hears the video's own sound** to keep it out of your microphone, so that the room doesn't hear it twice. It takes nothing but what WebKit plays for it, sends none of it and keeps none, but macOS calls that recording the computer's sound and asks once.
+- **On a Mac and on Linux, the app hears the video's own sound** to keep it out of your microphone, so that the room doesn't hear it twice. It takes nothing but what WebKit plays for it, sends none of it and keeps none. macOS calls that recording the computer's sound and asks once.
 
 ### Files and photos
 
