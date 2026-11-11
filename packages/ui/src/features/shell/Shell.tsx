@@ -220,7 +220,7 @@ export function Shell() {
           ) : channel && inThisVoice ? (
             <VoiceStage
               key={`${activeServerId}:${channel.id}`}
-              room={{ id: channel.id, call: false, title: channelTitle(channel), topic: channel.topic, conversation: channel.conversation, screenLimit: channel.screenLimit, sounds: channel.sounds }}
+              room={{ id: channel.id, call: false, title: channelTitle(channel), topic: channel.topic, conversation: channel.conversation, screenLimit: channel.screenLimit, sounds: channel.sounds, watch: channel.watch }}
             />
           ) : conversation ? (
             <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} voice={channel?.type === "voice"} />

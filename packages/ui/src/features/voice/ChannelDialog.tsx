@@ -35,6 +35,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [bitrate, setBitrate] = useState(channel?.bitrate ?? 0);
   const [screenLimit, setScreenLimit] = useState(channel?.screenLimit ?? 0);
   const [sounds, setSounds] = useState(channel?.sounds ?? true);
+  const [watch, setWatch] = useState(channel?.watch ?? true);
   const [slowOn, setSlowOn] = useState((channel?.slowMode ?? 0) > 0);
   const [slowMode, setSlowMode] = useState(channel?.slowMode || 30);
   const { busy, run } = useAction();
@@ -46,9 +47,9 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
     run(async () => {
       const details = { name: finalName, topic: topic.trim(), category: category.trim(), bitrate: type === "voice" && bitrate ? bitrate : undefined };
       if (channel) {
-        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, slowMode: slowOn ? slowMode : 0 });
+        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, slowMode: slowOn ? slowMode : 0 });
       } else {
-        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, slowMode: slowOn ? slowMode : 0 });
+        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, slowMode: slowOn ? slowMode : 0 });
         // Opening a voice channel is coming into it, which making one isn't asking for.
         if (type === "text") selectConversation(`group:${id}`);
       }
@@ -177,6 +178,13 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
               <span className="setting-hint">Anyone in the channel can play the server's sounds to everyone there.</span>
             </span>
             <Switch on={sounds} onChange={setSounds} label="Soundboard in this channel" />
+          </div>
+          <div className="field channel-switch">
+            <span className="grow">
+              <span className="field-label">Watch together</span>
+              <span className="setting-hint">Anyone in the channel can put a YouTube video on for everyone there. It only plays for those who press Watch.</span>
+            </span>
+            <Switch on={watch} onChange={setWatch} label="Watching together in this channel" />
           </div>
         </>
       )}

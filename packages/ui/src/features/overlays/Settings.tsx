@@ -228,6 +228,12 @@ function PrivacySection() {
           label="Remove metadata from files"
         />
       </SettingRow>
+      <SettingRow
+        title="Play YouTube videos"
+        hint="A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first."
+      >
+        <Switch on={settings.playYouTube} onChange={(value) => update({ playYouTube: value })} label="Play YouTube videos" />
+      </SettingRow>
       {confirmingKeep && (
         <KeepMetadataConfirm
           onCancel={() => setConfirmingKeep(false)}

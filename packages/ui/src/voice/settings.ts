@@ -46,6 +46,9 @@ export interface VoiceSettings {
   screenFocus: boolean;
   /** How loud sounds from the soundboard are, from 0 to 1. At 0 none of them plays. */
   soundboardVolume: number;
+  /** How loud a video watched together is, from 0 to 1, as YouTube's player remembers nothing. */
+  watchVolume: number;
+  watchMuted: boolean;
 }
 
 const KEY = "zuna-voice-settings";
@@ -75,6 +78,8 @@ export const VOICE_DEFAULTS: VoiceSettings = {
   screenVolume: 1,
   screenFocus: true,
   soundboardVolume: 0.6,
+  watchVolume: 0.8,
+  watchMuted: false,
 };
 
 export const SCREEN_HEIGHTS = [2160, 1440, 1080, 720, 480];

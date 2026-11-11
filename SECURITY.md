@@ -33,6 +33,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Typing** | That someone in a conversation is typing | Who |
 | **Channels** | That each exists, who made it, whether it's for text or voice, its place in the list, and its rules, such as how many fit and its slow mode | Its name, topic, heading and audio quality, and everything said in it |
 | **Soundboard** | How many sounds there are, who added each and how big its file is, and when someone played one | What each is called and sounds like, and which was played |
+| **Watching together** | That a device in a voice channel or call sent something about the video it watches, when, how big, and to whom when it answers someone coming in | Which video, whether it was a pause or a seek, and who's watching |
 | **Presence** | Online status, last seen, and which of your devices you're using and when you last used each | Hidden from other members if you choose, but not from the server. As on Telegram, whoever sees you write, type or read their messages sees you online for 30 seconds after, in their own app |
 | **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, which chats each phone was notified about since they were last read, and that a chat was read | What a push is about, and who sent the message it's for |
 | **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
@@ -122,6 +123,15 @@ Voice, video and shared screens are encrypted in the app, frame by frame, with a
 - **Ringing is the server's word.** It can say someone is calling who isn't, or not ring you. A call nobody made is an empty room.
 - **A phone woken for a call** tells the push relay and Apple that it's being rung, and when, but not by whom or in which conversation.
 
+### Watching YouTube together
+
+People in a voice channel or a call can watch a YouTube video at the same moment. Which video, whether it plays, where and how fast is sealed under the room's key and signed by the device that changed it, as a played sound is, so the server only learns that something was sent in the room. Each device that watches plays the video from YouTube itself, in YouTube's own privacy-enhanced player, which no script of Zuna's page can reach and which reaches nothing of Zuna's.
+
+- **A device contacts YouTube only after its person presses Watch**, and the first time it asks, saying what Google learns: the device's IP address, which video and when, and in the web app the app's address. Until then the tile shows the title and picture that came inside the room's state.
+- **The device that puts a video on fetches its title and picture**, as it would a link's preview, so YouTube sees that device's address, or in the web app its host's.
+- **Everyone in the room controls it.** A member could put on any video, or pause it for everyone; nobody outside the room can.
+- **A server that lies about the time** can only put people out of step, as each device sets its clock by the server's.
+
 ### Files and photos
 
 Each file is encrypted with its own key, which travels inside the message. Before a photo, video or drawing is sent, your device takes out what it says about where, when and on what it was made: the place, the camera or phone and its serial number, dates, the program, editing history and comments. Nothing is compressed again, so the picture stays exactly as it was. This is on unless you turn it off in Privacy settings. Documents, sound files and RAW photos are sent as they are, and nothing can take out what a picture shows, or the faint pattern a camera's sensor leaves, which can tie photos to the camera that took them.
@@ -194,7 +204,7 @@ These need the server against you: its operator, someone who broke into it, or s
 
 The web app's code comes from its host on every visit, so a malicious or hacked host could quietly send code that steals your keys, which defeats the purpose of end-to-end encryption. The installed apps don't have this problem, and remain the safer choice. The web app is for people who host it themselves, or trust whoever does as they'd trust their own computer.
 
-Its host is never a chat server, so a chat server, or someone who breaks into one, can't change its code. It loads nothing from anyone else. A build of it lists a checksum of every file it serves, so anyone who has that list can check what a host serves, though only at the moment they check. Releases don't carry the web app or its list yet. `docs/WEB.md` says how to run it.
+Its host is never a chat server, so a chat server, or someone who breaks into one, can't change its code. It loads nothing from anyone else, but YouTube's player once you press Watch on a video your room watches together. A build of it lists a checksum of every file it serves, so anyone who has that list can check what a host serves, though only at the moment they check. Releases don't carry the web app or its list yet. `docs/WEB.md` says how to run it.
 
 ## Installing
 

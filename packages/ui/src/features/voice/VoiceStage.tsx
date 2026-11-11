@@ -32,10 +32,11 @@ import { useScreenAwake } from "@/lib/awake";
 import { avatarColor } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import type { VideoTile } from "@/voice/room";
-import { selfIsSpeaking, useVoice } from "@/voice/store";
+import { selfIsSpeaking, useVoice, WATCH_FOCUS } from "@/voice/store";
 import { screenRefusal } from "@zuna/core/voice";
 import { ChatView } from "@/features/chat/ChatView";
 import { SoundboardButton } from "./Soundboard";
+import { WatchButton, WatchStage, WatchThumb } from "./Watch";
 // With what it measures, which needs LiveKit, only once someone opens it.
 const StreamStatsPanel = lazy(() => import("./StreamStatsPanel").then((module) => ({ default: module.StreamStatsPanel })));
 
@@ -287,6 +288,7 @@ function Controls({
   onToggleChat,
   shareRefusal,
   sounds,
+  watch,
 }: {
   chatOpen: boolean;
   /** Something new in the chat beside the call, which only those in it would want to know. */
@@ -297,6 +299,8 @@ function Controls({
   shareRefusal: string | null;
   /** Whether the soundboard plays here. */
   sounds: boolean;
+  /** Whether people may watch YouTube together here. */
+  watch: boolean;
 }) {
   const muted = useVoice((state) => state.muted);
   const deafened = useVoice((state) => state.deafened);
@@ -352,6 +356,7 @@ function Controls({
         </button>
       </Tooltip>
       <SoundboardButton roomSounds={sounds} />
+      <WatchButton allowed={watch} />
       {onToggleChat && (
         <Tooltip text={chatOpen ? "Hide chat" : "Show chat"} side="top">
           <button className={`voice-control${chatOpen ? " is-on" : ""}`} onClick={onToggleChat} aria-label={chatOpen ? "Hide chat" : "Show chat"} aria-pressed={chatOpen}>
@@ -383,6 +388,8 @@ export interface StageRoom {
   screenLimit: number;
   /** Whether the soundboard plays there, which it always does in a call. */
   sounds: boolean;
+  /** Whether people may watch YouTube together there, which they always may in a call. */
+  watch: boolean;
 }
 
 /** How long a call has gone on, as a call shows it. */
@@ -410,6 +417,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
   const focus = useVoice((state) => state.focus);
   const setFocus = useVoice((state) => state.setFocus);
   const ringAgain = useVoice((state) => state.ringAgain);
+  const watch = useVoice((state) => state.watch);
   const [chatOpen, setChatOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const menu = useMemberMenu();
@@ -424,8 +432,9 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
   const notHere = room.call && room.conversation?.kind === "group" && room.conversation.members.some((member) => !members.some((other) => other.userId === member.userId) && !ringing.includes(member.userId));
   const cameras = new Map(videos.filter((video) => video.source === "camera").map((video) => [video.userId, video]));
   const screens = videos.filter((video) => video.source === "screen");
+  const watchFocused = focus === WATCH_FOCUS && !!watch;
   const focused = focus ? videos.find((video) => video.key === focus) : undefined;
-  const people = members.length + ringing.length + screens.length;
+  const people = members.length + ringing.length + screens.length + (watch ? 1 : 0);
   const columns = Math.min(4, Math.ceil(Math.sqrt(Math.max(1, people))));
   const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, room.screenLimit);
   // A camera or a shared screen is watched rather than listened to, so the screen stays on while one is here.
@@ -495,7 +504,12 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
         ) : (
           <>
             {status === "reconnecting" && <div className="voice-banner">Reconnecting…</div>}
-            <div className={`voice-grid-area${focused ? " is-focused" : ""}`}>
+            <div className={`voice-grid-area${focused || watchFocused ? " is-focused" : ""}`}>
+              {watchFocused && watch && (
+                <div className="voice-focus">
+                  <WatchStage watch={watch} />
+                </div>
+              )}
               {focused && (
                 <div className="voice-focus">
                   {focused.source === "screen" ? (
@@ -507,7 +521,12 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
                   )}
                 </div>
               )}
-              <div className={focused ? "voice-strip" : "voice-grid"} style={focused ? undefined : { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+              <div className={focused || watchFocused ? "voice-strip" : "voice-grid"} style={focused || watchFocused ? undefined : { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+                {watch && !watchFocused && (
+                  <div className="voice-person">
+                    <WatchThumb watch={watch} />
+                  </div>
+                )}
                 {screens
                   .filter((tile) => tile.key !== focused?.key)
                   .map((tile) => (
@@ -536,6 +555,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
               onToggleChat={room.call ? undefined : () => setChatOpen(!chatOpen)}
               shareRefusal={shareRefusal}
               sounds={room.sounds}
+              watch={room.watch}
             />
           </>
         )}

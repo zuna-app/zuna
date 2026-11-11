@@ -1,0 +1,154 @@
+<!doctype html>
+<!--
+  A fake of YouTube's embedded player for checks, which speak to it as Zuna speaks to
+  YouTube's: the same messages over postMessage, from a page at /embed/<id>. Its video is
+  a clock that runs ten minutes. Its buttons are someone using the player, and `fake` says
+  what it's doing. The web check serves it in place of YouTube's, and the native apps load
+  it with ZUNA_WATCH_PLAYER, so no check depends on YouTube or the network.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fake player</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 14px system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+      #time { font-size: 32px; font-variant-numeric: tabular-nums; }
+      #bar { display: flex; gap: 6px; }
+      button, select { font: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="video"></div>
+    <div id="time">0:00</div>
+    <div id="state"></div>
+    <div id="bar">
+      <button id="toggle" type="button">Play</button>
+      <button id="back" type="button">Back 30 s</button>
+      <button id="ahead" type="button">Ahead 60 s</button>
+      <select id="speed" aria-label="Speed">
+        <option>0.25</option><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>1.75</option><option>2</option>
+      </select>
+    </div>
+    <script>
+      const DURATION = 600;
+      const query = new URLSearchParams(location.search);
+      const origin = query.get("origin") || "*";
+      const fake = (window.fake = {
+        id: location.pathname.split("/").filter(Boolean).pop(),
+        time: Number(query.get("start") || 0),
+        state: -1,
+        rate: 1,
+        volume: 100,
+        muted: false,
+        commands: [],
+        listening: false,
+        // The test sets these to stand in for what YouTube does by itself.
+        buffering: false,
+        refuseAutoplay: query.get("refuse") === "1",
+      });
+      let ready = false;
+      let id = 1;
+      let last = performance.now();
+      const send = (event, info) => parent.postMessage(JSON.stringify({ event, info, id, channel: "widget" }), origin);
+      const draw = () => {
+        const seconds = Math.floor(fake.time);
+        document.getElementById("video").textContent = `Video ${fake.id}`;
+        document.getElementById("time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+        document.getElementById("state").textContent = { [-1]: "unstarted", 0: "ended", 1: "playing", 2: "paused", 3: "buffering", 5: "cued" }[fake.state];
+        document.getElementById("toggle").textContent = fake.state === 1 ? "Pause" : "Play";
+        document.getElementById("speed").value = String(fake.rate);
+      };
+      const setState = (state) => {
+        if (fake.state === state) return;
+        fake.state = state;
+        if (fake.listening) {
+          send("infoDelivery", { playerState: state, currentTime: fake.time, duration: DURATION, playbackRate: fake.rate });
+          send("onStateChange", state);
+        }
+        draw();
+      };
+      const report = () => fake.listening && send("infoDelivery", { currentTime: fake.time });
+      const play = (byPerson) => {
+        if (fake.refuseAutoplay && !byPerson) {
+          if (fake.listening) send("onAutoplayBlocked");
+          return;
+        }
+        setState(fake.buffering ? 3 : 1);
+      };
+      setInterval(() => {
+        const now = performance.now();
+        if (fake.state === 1 && !fake.buffering) {
+          fake.time = Math.min(DURATION, fake.time + ((now - last) / 1000) * fake.rate);
+          if (fake.time >= DURATION) setState(0);
+        }
+        if (fake.state === 3 && !fake.buffering) setState(1);
+        if (fake.state === 1 && fake.buffering) setState(3);
+        last = now;
+        if (fake.state === 1) report();
+        draw();
+      }, 250);
+      addEventListener("message", (event) => {
+        if (event.source !== parent) return;
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        id = message.id ?? id;
+        if (message.event === "listening") {
+          fake.listening = true;
+          if (!ready) {
+            ready = true;
+            send("initialDelivery", { currentTime: fake.time, duration: DURATION, playerState: fake.state, playbackRate: fake.rate, volume: fake.volume, muted: fake.muted, availablePlaybackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], videoData: { video_id: fake.id, title: "A fake video", isLive: false } });
+            send("onReady");
+            // As YouTube's own player sometimes does: it stops as it starts, and says error 5 after a while.
+            if (window.fakeBreaks) {
+              setTimeout(() => send("onError", 5), 1500);
+              return;
+            }
+            if (query.get("autoplay") === "1") play(false);
+          }
+          return;
+        }
+        if (message.event !== "command") return;
+        const args = Array.isArray(message.args) ? message.args : [];
+        fake.commands.push(message.func);
+        switch (message.func) {
+          case "playVideo": play(false); break;
+          case "pauseVideo": setState(2); break;
+          case "seekTo": fake.time = Math.max(0, Math.min(DURATION, Number(args[0]) || 0)); report(); break;
+          case "setPlaybackRate":
+            fake.rate = Number(args[0]) || 1;
+            send("infoDelivery", { playbackRate: fake.rate });
+            send("onPlaybackRateChange", fake.rate);
+            break;
+          case "loadVideoById":
+          case "cueVideoById": {
+            const options = args[0] || {};
+            fake.id = options.videoId;
+            fake.time = Number(options.startSeconds) || 0;
+            if (message.func === "loadVideoById") play(false);
+            else setState(5);
+            break;
+          }
+          case "setVolume": fake.volume = Number(args[0]); send("infoDelivery", { volume: fake.volume, muted: fake.muted }); break;
+          case "mute": fake.muted = true; send("infoDelivery", { volume: fake.volume, muted: true }); break;
+          case "unMute": fake.muted = false; send("infoDelivery", { volume: fake.volume, muted: false }); break;
+        }
+        draw();
+      });
+      // Someone using the player.
+      document.getElementById("toggle").onclick = () => (fake.state === 1 ? setState(2) : play(true));
+      document.getElementById("back").onclick = () => ((fake.time = Math.max(0, fake.time - 30)), report(), draw());
+      document.getElementById("ahead").onclick = () => ((fake.time = Math.min(DURATION, fake.time + 60)), report(), draw());
+      document.getElementById("speed").onchange = (event) => {
+        fake.rate = Number(event.target.value);
+        send("infoDelivery", { playbackRate: fake.rate });
+        send("onPlaybackRateChange", fake.rate);
+      };
+      draw();
+    </script>
+  </body>
+</html>

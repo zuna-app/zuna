@@ -296,6 +296,15 @@ Not yet run: a `WKWebView` during a CallKit call (phase 3), `wry` in GPUI's wind
 ## Where it stands
 
 - **Phase 1, core and server: built** on 2026-11-11. `packages/core/test/watch.test.ts` and `server/internal/api/watch_test.go` pass in SQLite and PostgreSQL.
+- **Phase 2, `packages/watch` and the web app: built** on 2026-11-11. The web check's step passes in Chromium and WebKit with the fake player; Firefox doesn't reach it on this Mac, where the voice step before it waits on a silent microphone. Two accounts watched Big Buck Bunny from YouTube itself, by hand, in headless Chromium and WebKit.
+
+What building phase 2 changed in the design:
+
+- **Nothing is sent to the player while it first loads.** Where to start and whether to play go in its address, and the volume once it's started: a `seekTo` or a volume sent while YouTube's player starts a video by itself can stop it for good, and it says error 5 about twenty seconds later. That happens now and then by itself too, with two players starting on one machine at once, so the controller loads a video again once after error 5.
+- **A player that won't play is asked again every two seconds,** not with each reading.
+- **A seek adds how far the last one left the player behind the room,** measured once it's settled, rather than how long it took to play: a seek within what's buffered plays at once, and the time the first one took to load overshot by half a second.
+- **A player that isn't playing is sent to the room's place first if it's 0.1 s off,** as nobody sees that seek, so a video played again after a pause starts within a frame or two on every device. Playing, the 0.3 s stands.
+- **A change of speed is heard in any phase,** as catching up never changes the speed; only a play, a pause or a seek needs the player in step.
 
 ## Left out of the first version
 

@@ -1,0 +1,21 @@
+{
+  "name": "@zuna/watch",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "The YouTube player every app watches together through, driven by postMessage alone, and a fake of it for checks.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fake-player.html": "./fake/player.html"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  }
+}

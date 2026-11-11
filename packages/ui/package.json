@@ -19,6 +19,7 @@
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
     "@zuna/core": "*",
     "@zuna/crypto": "*",
+    "@zuna/watch": "*",
     "livekit-client": "2.23.0",
     "lucide-react": "^1.65.0",
     "motion": "^14.9.0",

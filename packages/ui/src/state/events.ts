@@ -326,6 +326,9 @@ export function coreEvents(
       case "sound":
         voiceHooks.onSound?.(event.serverId, event.channelId, event.userId, event.soundId);
         break;
+      case "watch":
+        voiceHooks.onWatch?.(event.serverId, event.channelId, event.watch);
+        break;
       case "preferences":
         void get()
           .session(event.serverId)

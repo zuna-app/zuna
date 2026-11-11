@@ -1,7 +1,7 @@
 // How what the core says about voice reaches the voice store, which depends on the
 // app's store, without the app's store depending on it in turn.
 
-import type { CallView, VoiceMember } from "@zuna/core";
+import type { CallView, VoiceMember, WatchView } from "@zuna/core";
 
 export const voiceHooks: {
   onKey: ((serverId: string, channelId: string) => void) | null;
@@ -16,4 +16,6 @@ export const voiceHooks: {
   onServerGone: ((serverId: string) => void) | null;
   /** Someone else in the voice channel or call this device is in played a sound from the soundboard. */
   onSound: ((serverId: string, channelId: string, userId: string, soundId: string) => void) | null;
-} = { onKey: null, onEnded: null, onScreenEnded: null, onMember: null, onLeft: null, onCall: null, onServerGone: null, onSound: null };
+  /** What the voice channel or call this device is in watches together changed, or it stopped. */
+  onWatch: ((serverId: string, channelId: string, watch: WatchView | null) => void) | null;
+} = { onKey: null, onEnded: null, onScreenEnded: null, onMember: null, onLeft: null, onCall: null, onServerGone: null, onSound: null, onWatch: null };

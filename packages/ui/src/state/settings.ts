@@ -14,6 +14,8 @@ export interface AppSettings {
   linkPreviews: boolean;
   /** Before a file is sent, this device takes out where, when and on what it was made. */
   removeMetadata: boolean;
+  /** This device may contact YouTube to play a video a voice channel or a call watches together, which its person agreed to once. */
+  playYouTube: boolean;
   /** How fast voice messages play, the same for all of them, as in Telegram. */
   voiceSpeed: VoiceSpeed;
 }
@@ -33,6 +35,7 @@ const DEFAULTS: AppSettings = {
   enterToSend: true,
   linkPreviews: true,
   removeMetadata: true,
+  playYouTube: false,
   voiceSpeed: 1,
 };
 

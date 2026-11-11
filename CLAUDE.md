@@ -56,8 +56,8 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.22+, Go 1.26+, 
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
-| Type checks: the core, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace, `zuna-bot` and the example bot in `examples/simple-bot` | `npm run typecheck` |
-| All of the release script's, crypto, server, core and `zuna-bot` tests | `npm test` |
+| Type checks: the core, the watch-together player, the web's interface, the web app, the site, the core bundle's shims for the native app and iOS, the e2e workspace, `zuna-bot` and the example bot in `examples/simple-bot` | `npm run typecheck` |
+| All of the release script's, crypto, server, core, watch-together player and `zuna-bot` tests | `npm test` |
 | What the next release of the native app would carry, and cutting a nightly or a stable one from a changelog ("Releases") | `npm run release:pending`, `npm run release:nightly -- <notes file>`, `npm run release:stable -- <notes file>`, each of the last two with `--dry-run` to only say what it would do |
 | `zuna-bot` as one file with the cryptography beside it (`dist/bot`), which Node 22.22+ runs anywhere, and its tests, which run grammY's echo bot on it against a real server | `npm run build:bot`, `npm run test:bot` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
@@ -164,6 +164,8 @@ Rules the core depends on:
 | Who an account is there for (`canSee`) | Who gets its log entries' bodies, `hiddenFrom` in `store/log.go` |
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
+| The YouTube player's controller (`packages/watch`) or how the apps talk to it | Its tests in `packages/watch/test`, its fake in `packages/watch/fake/player.html`, which the checks put in YouTube's place, and each app that embeds it: the web's `features/voice/Watch.tsx` and, once they have it, the native apps' copies of `watch.html` |
+| Which platforms watch YouTube together, or what they send YouTube | The privacy page in `apps/site` and "Watching together" in `docs/SECURITY_DETAILS.md`, which say which apps contact YouTube and when |
 | The site's content security policy or headers (`apps/site/policy.mjs`) | The Caddy example under "Hosting" in `docs/SITE_PLAN.md`, and what the server sends |
 | LiveKit's Rust SDK in the native app (`livekit` in `apps/desktop/Cargo.toml`), and with it `webrtc-sys` | The version and SHA-256 in `scripts/webrtc-sys.mjs`, and `apps/desktop/patches/webrtc-sys.patch` made again against the new crate |
 | GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
@@ -199,6 +201,7 @@ Rules the core depends on:
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/host/web.rs`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session/channels.ts`, `server/internal/api/channels.go`, `channel_message.rs`, `voice_stage/` and `voice.rs` in `apps/desktop/src/ui`, `packages/ui/src/features/voice` |
+| Watching YouTube together in voice channels and calls | `docs/WATCH_TOGETHER_PLAN.md`, `packages/core/src/watch.ts`, `// --- Watching together ---` in `session/channels.ts`, `server/internal/api/watch.go`, `packages/watch` (the player, kept in step through `postMessage` alone, and a fake of it), `packages/ui/src/features/voice/Watch.tsx` |
 | Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `apps/desktop/src/voice`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
 | Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/desktop/screenshare`, the capture, encoder and a share's sound, which the app runs in its own process, and `apps/desktop/src/voice/screen/`, which starts it, or on macOS captures through `apps/desktop/src/platform/macos/screen_capture.rs`. `apps/desktop/test/key-log-check.mjs` shares through it with someone watching, and `codec-check.mjs` beside it compares H.264 with AV1 that way, which `screenshare/examples/codec-bench.rs` compares on a scene of its own |
 | The native app's host: the core in QuickJS, storage, network, device key | `apps/desktop/src/host` |
@@ -228,6 +231,7 @@ Rules the core depends on:
 - The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own (`docs/WEB_PLAN.md`).
 - Pinned messages live in the pins drawer, with no bar above the chat.
 - No GIF search. Tenor, Giphy or any service like them would learn each person's IP address and what they look for.
+- Watching YouTube together is the one exception: a device contacts YouTube only after its person presses Watch on a video their voice channel or call has on, and the first time it asks, saying what Google learns. YouTube's own player plays it, in a frame no script of Zuna's page shares, driven by `postMessage` alone. Everyone in the room controls it, one video at a time, and no queue or search, which would tell Google what people look for.
 - No scheduled messages. A message is sealed for the MLS epoch it's sent in, so the server can't hold one and send it later, and one that waits for the sender's device to be online isn't worth having.
 - Linux is built for Wayland. X11 is legacy: what works there along the way stays working, but nothing is built or chased just for it, such as hardware decoding under X11.
 - macOS is built for Apple silicon, from macOS 14.2. A share's picture there is captured in the app through macOS's own picker and ScreenCaptureKit and goes out from the app's own connection, and video stays on the GPU both ways (`docs/MACOS_APP_PLAN.md`).

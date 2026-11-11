@@ -3,7 +3,7 @@
 // group's, in a room of its own under the conversation's group, and everything a voice channel
 // has works the same in it.
 
-import type { VoiceMember } from "@zuna/core";
+import type { VoiceMember, WatchView } from "@zuna/core";
 import { screenTerms } from "@zuna/core/voice";
 import { create } from "zustand";
 import { conversationOfGroup, useApp, type ServerState } from "@/state/store";
@@ -61,6 +61,10 @@ interface VoiceState {
   sounding: Record<string, string>;
   /** Coming into a room that waits for the person's word, as it takes another of their devices out of voice. */
   moving: VoiceMove | null;
+  /** What the room watches together, as the core holds it, or null when nothing's on. */
+  watch: WatchView | null;
+  /** The session this device's person pressed Watch for, which plays here until it ends or they stop it. */
+  watching: string | null;
 
   /**
    * Comes into a voice channel or a call, asking first if that takes another of this person's devices
@@ -86,6 +90,14 @@ interface VoiceState {
   toggleLocalMute(userId: string): void;
   /** Plays a sound from the soundboard to everyone in the voice channel or call, here too. */
   playSound(soundId: string): Promise<void>;
+  /** Puts a YouTube video on for everyone in the room, from a link, and watches it here. Throws with words for the person. */
+  watchStart(url: string): Promise<void>;
+  /** Something this person did with the video, for everyone. Seeks go four a second at most. */
+  watchControl(change: { playing?: boolean; position?: number; rate?: number }): void;
+  /** Stops the video for everyone. */
+  watchStop(): void;
+  /** Plays what the room watches on this device, or stops playing it here only. */
+  setWatching(on: boolean): void;
   setFocus(key: string | null): void;
   updateSettings(changes: Partial<VoiceSettings>): void;
   setKeyHeld(down: boolean): void;
@@ -138,6 +150,8 @@ const NOT_IN_VOICE = {
   screen: null,
   focus: null,
   sounding: {},
+  watch: null,
+  watching: null,
 };
 
 const RECONNECT_ATTEMPTS = 3;
@@ -175,6 +189,13 @@ const soundBuffers = new Map<string, Promise<AudioBuffer>>();
 /** How long someone shows as playing a sound past its end, so a short one is seen. */
 const SOUNDING_HOLD_MS = 600;
 const soundingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** What the stage is filled with when it's the video watched together, among the videos' keys. */
+export const WATCH_FOCUS = "watch";
+/** Seeks go at most four a second, however fast someone drags. */
+const SEEK_EVERY_MS = 250;
+let seekSentAt = 0;
+let seekTimer: ReturnType<typeof setTimeout> | undefined;
 
 const readings = new Set<(reading: MicReading) => void>();
 
@@ -224,7 +245,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     if (!room) return;
     const videos = room.videos();
     const { focus, screen, videos: before, settings } = get();
-    const stillThere = !focus || videos.some((video) => video.key === focus);
+    const stillThere = !focus || (focus === WATCH_FOCUS && !!get().watch) || videos.some((video) => video.key === focus);
     // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
     const arrived = settings.screenFocus ? videos.find((video) => video.source === "screen" && !video.local && !before.some((other) => other.key === video.key)) : undefined;
     set({ videos, focus: stillThere && focus ? focus : (arrived?.key ?? null), camera: room.cameraOn });
@@ -468,6 +489,18 @@ export const useVoice = create<VoiceState>((set, get) => {
       }, buffer.duration * 1000 + SOUNDING_HOLD_MS),
     );
   };
+  voiceHooks.onWatch = (serverId, channelId, watch) => {
+    if (get().serverId !== serverId || get().channelId !== channelId) return;
+    const { focus, watching, watch: before } = get();
+    set({
+      watch,
+      // Pressing Watch is for one session, so a new one asks again.
+      watching: watch && watching === watch.session ? watching : null,
+      // A video put on is what everyone's there to see, unless they're already looking at something.
+      focus: watch && !before && !focus ? WATCH_FOCUS : !watch && focus === WATCH_FOCUS ? null : focus,
+    });
+  };
+
   voiceHooks.onSound = (serverId, channelId, userId, soundId) => {
     if (get().serverId !== serverId || get().channelId !== channelId) return;
     void playHere(serverId, soundId, userId).catch((error) => console.warn("[zuna] playing a sound", error));
@@ -688,6 +721,51 @@ export const useVoice = create<VoiceState>((set, get) => {
         return;
       }
       await playHere(serverId, soundId, self.userId).catch((error) => console.warn("[zuna] playing a sound", error));
+    },
+
+    async watchStart(url) {
+      const { serverId, channelId } = get();
+      if (!serverId || !channelId) throw new Error("Join the voice channel to watch together.");
+      const session = useApp.getState().session(serverId);
+      await session.watchStart(channelId, url);
+      const watch = await session.getWatch(channelId);
+      if (get().channelId !== channelId) return;
+      // Whoever puts it on watches it.
+      set({ watch, watching: watch?.session ?? null, focus: watch ? WATCH_FOCUS : get().focus });
+    },
+
+    watchControl(change) {
+      const { serverId, channelId } = get();
+      if (!serverId || !channelId) return;
+      clearTimeout(seekTimer);
+      const send = (what: typeof change) => {
+        seekSentAt = Date.now();
+        void useApp
+          .getState()
+          .session(serverId)
+          .watchControl(channelId, what)
+          .catch((error) => useApp.getState().toast((error as Error).message, "error"));
+      };
+      // Someone dragging the seek bar sends where they stopped, a few times a second.
+      const onlySeek = change.position !== undefined && change.playing === undefined && change.rate === undefined;
+      const wait = SEEK_EVERY_MS - (Date.now() - seekSentAt);
+      if (onlySeek && wait > 0) seekTimer = setTimeout(() => send(change), wait);
+      else send(change);
+    },
+
+    watchStop() {
+      const { serverId, channelId } = get();
+      if (!serverId || !channelId) return;
+      void useApp
+        .getState()
+        .session(serverId)
+        .watchStop(channelId)
+        .catch((error) => useApp.getState().toast((error as Error).message, "error"));
+    },
+
+    setWatching(on) {
+      const { watch } = get();
+      set({ watching: on && watch ? watch.session : null, focus: on && watch ? WATCH_FOCUS : get().focus });
     },
 
     setFocus(focus) {

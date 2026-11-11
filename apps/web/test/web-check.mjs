@@ -73,6 +73,29 @@ async function waitFor(output, text, what) {
   throw new Error(`${what} didn't start:\n${output()}`);
 }
 
+// YouTube's player, as a fake that speaks the same messages, and its pages for a video's title and picture,
+// in place of YouTube's own: nothing here contacts YouTube.
+const fakePlayer = readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8");
+const VIDEO = "aqz-KE-bpKQ";
+async function fakeYouTube(browserContext, { breaksFirst = false } = {}) {
+  // The first player can break as it starts, as YouTube's sometimes does, which the app gets past by loading it again.
+  let players = 0;
+  await browserContext.route("https://www.youtube-nocookie.com/**", (route) => {
+    const body = breaksFirst && players++ === 0 ? fakePlayer.replace("<script>", "<script>window.fakeBreaks = true;</script>\n    <script>") : fakePlayer;
+    return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body });
+  });
+  // The video's page and picture, fetched by zuna-web for whoever puts it on, as a link's preview is.
+  await browserContext.route(/\/_zuna\/preview\?/, async (route) => {
+    const url = new URL(route.request().url()).searchParams.get("url") ?? "";
+    if (url.startsWith("https://www.youtube.com/watch")) {
+      const body = `<html><head><meta property="og:title" content="A film about a rabbit"><meta property="og:image" content="https://i.ytimg.com/vi/${VIDEO}/maxresdefault.jpg"></head><body><span itemprop="author"><link itemprop="name" content="Blender"></span></body></html>`;
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "X-Zuna-Url": url }, body });
+    }
+    if (url.startsWith("https://i.ytimg.com/")) return route.fulfill({ status: 200, contentType: "image/png", headers: { "X-Zuna-Url": url }, body: picture });
+    return route.continue();
+  });
+}
+
 // A page with a title, a description and a picture, for link previews.
 let picture = Buffer.alloc(0);
 const siteHits = [];
@@ -770,6 +793,87 @@ async function runIn(name) {
     await gone.getByRole("button", { name: "Continue" }).click();
     await gone.locator(".conv-row").first().waitFor({ timeout: 20_000 });
     await again.locator(".conv-row", { hasText: "Lee Leaving" }).waitFor({ timeout: 20_000 });
+
+    // Watching a video together in a voice channel, with the fake player in place of YouTube's.
+    await fakeYouTube(fresh, { breaksFirst: true });
+    await fakeYouTube(leaver);
+    const playerOf = (where) => where.frameLocator(".watch-frame");
+    const fakeOf = async (where) => {
+      const frame = where.frames().find((item) => item.url().startsWith("https://www.youtube-nocookie.com/embed/"));
+      return frame ? frame.evaluate(() => ({ id: window.fake.id, time: window.fake.time, state: window.fake.state, rate: window.fake.rate })) : null;
+    };
+    await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    await gone.locator(".channel-row", { hasText: "Lounge" }).click({ timeout: 20_000 });
+    await gone.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    await again.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Watch together" }).click();
+    const consent = again.locator(".modal", { hasText: "Play YouTube videos?" });
+    await consent.waitFor({ timeout: 5_000 });
+    const consentText = await consent.innerText();
+    await consent.getByRole("button", { name: "Continue" }).click();
+    await fill(again.getByLabel("YouTube link"), "https://vimeo.com/1");
+    await again.getByRole("button", { name: "Put it on" }).click();
+    const refused = await again.locator(".field-error").innerText({ timeout: 5_000 });
+    await fill(again.getByLabel("YouTube link"), `https://youtu.be/${VIDEO}?t=30`);
+    await again.getByRole("button", { name: "Put it on" }).click();
+    await again.locator(".watch-frame").waitFor({ timeout: 15_000 });
+    let loadedAgain = null;
+    for (let i = 0; i < 40 && loadedAgain?.state !== 1; i++, await sleep(250)) loadedAgain = await fakeOf(again);
+    check("a player that breaks as it starts is loaded again, and plays", loadedAgain?.state === 1, `state ${loadedAgain?.state}`);
+    check(
+      "putting a video on asks first what Google learns, and refuses what isn't YouTube's",
+      consentText.includes("Google learns this device's IP address") && /isn't a link to a YouTube video/.test(refused),
+      refused,
+    );
+    // Until Lee presses Watch, their device shows what came inside the room's state and contacts nobody.
+    const cover = gone.locator(".watch-cover");
+    await cover.waitFor({ timeout: 15_000 });
+    const coverText = await cover.innerText();
+    const before = await fakeOf(gone);
+    check("the video shows to the others with its title and picture, and loads nothing until Watch", coverText.includes("A film about a rabbit") && coverText.includes("Alex Rivera") && (await gone.locator(".watch-cover img").count()) === 1 && before === null, coverText.replace(/\n/g, " "));
+    await sleep(300);
+    await gone.screenshot({ path: prefix("08b-watch-cover") });
+    await cover.getByRole("button", { name: "Watch" }).click();
+    await gone.locator(".modal", { hasText: "Play YouTube videos?" }).getByRole("button", { name: "Watch" }).click();
+    await gone.locator(".watch-frame").waitFor({ timeout: 15_000 });
+    const playing = async () => {
+      const [a, b] = await Promise.all([fakeOf(again), fakeOf(gone)]);
+      return a && b && a.state === 1 && b.state === 1 && a.id === VIDEO && b.id === VIDEO ? Math.abs(a.time - b.time) : null;
+    };
+    let apart = null;
+    for (let i = 0; i < 60 && (apart === null || apart > 0.5); i++, await sleep(250)) apart = await playing();
+    check("both play it at the same moment", apart !== null && apart < 0.5, `${apart?.toFixed(2)} s apart`);
+    await sleep(500);
+    await again.screenshot({ path: prefix("08b-watch") });
+    // Lee pauses in the player itself, and it pauses for alex.
+    await playerOf(gone).getByRole("button", { name: "Pause" }).click();
+    let paused = null;
+    for (let i = 0; i < 40 && paused?.state !== 2; i++, await sleep(250)) paused = await fakeOf(again);
+    const pausedHere = await fakeOf(gone);
+    check("a pause in one person's player pauses everyone's, where it was paused", paused?.state === 2 && pausedHere && Math.abs(paused.time - pausedHere.time) < 0.5 && (await again.locator(".watch-bar").innerText()).includes("Paused by Lee Leaving"));
+    // Alex skips ahead, and plays it again.
+    await playerOf(again).getByRole("button", { name: "Ahead 60 s" }).click();
+    await sleep(600);
+    await playerOf(again).getByRole("button", { name: "Play" }).click();
+    let ahead = null;
+    for (let i = 0; i < 40 && !(ahead?.state === 1 && ahead.time > 90); i++, await sleep(250)) ahead = await fakeOf(gone);
+    check("a seek and a play in one player reach the other", ahead?.state === 1 && ahead.time > 90, `${ahead?.time.toFixed(1)} s, state ${ahead?.state}`);
+    // The speed is shared.
+    await playerOf(gone).getByRole("combobox", { name: "Speed" }).selectOption("1.5");
+    let faster = null;
+    for (let i = 0; i < 40 && faster?.rate !== 1.5; i++, await sleep(250)) faster = await fakeOf(again);
+    check("a change of speed reaches everyone", faster?.rate === 1.5);
+    // Stopping watching here leaves it on for everyone else, and Stop ends it for all.
+    await gone.getByRole("button", { name: "Stop watching here" }).click();
+    await gone.locator(".watch-cover").waitFor({ timeout: 5_000 });
+    const stillOn = await fakeOf(again);
+    await again.getByRole("button", { name: "Stop for everyone" }).click();
+    await gone.locator(".watch-stage").waitFor({ state: "detached", timeout: 10_000 });
+    await again.locator(".watch-stage").waitFor({ state: "detached", timeout: 10_000 });
+    check("stopping watching here leaves it on for the others, and Stop ends it for everyone", stillOn?.state === 1 && (await fakeOf(gone)) === null);
+    await again.getByRole("button", { name: "Disconnect from voice" }).click();
+    await gone.getByRole("button", { name: "Disconnect from voice" }).click();
+    await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
 
     // They report someone from the bottom of that person's profile, and the admins see whom and why alone.
     await gone.locator(".conv-row", { hasText: "Priya Nair" }).click();
