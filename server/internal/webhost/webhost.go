@@ -165,7 +165,10 @@ func contentSecurityPolicy(servers, mediaServers []string) string {
 		"object-src 'none'",
 		"base-uri 'none'",
 		"form-action 'none'",
-		"frame-src 'none'",
+		// YouTube's player alone, for watching a video together, which a device only loads
+		// once its person has pressed Watch. It's a frame of its own origin, which can reach
+		// nothing of the app's, and no script of YouTube's runs in the page.
+		"frame-src https://www.youtube-nocookie.com",
 		"frame-ancestors 'none'",
 	}, "; ")
 }

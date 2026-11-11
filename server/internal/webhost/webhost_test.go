@@ -61,10 +61,14 @@ func TestEveryFileHasTheSecurityHeaders(t *testing.T) {
 		rec := get(t, handler, target, nil)
 		headers := rec.Header()
 		csp := headers.Get("Content-Security-Policy")
-		for _, want := range []string{"default-src 'self'", "script-src 'self' 'wasm-unsafe-eval'", "frame-ancestors 'none'", "object-src 'none'", "img-src 'self' data: blob:"} {
+		for _, want := range []string{"default-src 'self'", "script-src 'self' 'wasm-unsafe-eval'", "frame-ancestors 'none'", "object-src 'none'", "img-src 'self' data: blob:", "frame-src https://www.youtube-nocookie.com;"} {
 			if !strings.Contains(csp, want) {
 				t.Errorf("%s: the policy lacks %q: %s", target, want, csp)
 			}
+		}
+		// YouTube's player is the one frame, and nothing of YouTube's may load in the page itself.
+		if strings.Count(csp, "youtube") != 1 {
+			t.Errorf("%s: YouTube is allowed more than its player: %s", target, csp)
 		}
 		for name, want := range map[string]string{
 			"X-Content-Type-Options":       "nosniff",
