@@ -34,7 +34,10 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 # HTTP and WebSocket at the versions LiveKit's signalling has, so there's one copy of each.
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# aws-lc-rs, which agrees on keys with X25519MLKEM768 first, ML-KEM-768 and X25519 together, so that
+# what's recorded of a connection can't be opened by a quantum computer later (docs/POST_QUANTUM.md).
+# Its assembly comes built for Windows, so the build needs no NASM.
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum", "std", "tls12"] }
 rustls-native-certs = "0.8"
 webpki-roots = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-no-provider", "http2", "stream"] }

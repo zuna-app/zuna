@@ -52,6 +52,7 @@ fn main() {
         logger.filter_module("libwebrtc", log::LevelFilter::Off);
     }
     logger.init();
+    host::tls::install();
     let args: Vec<String> = std::env::args().collect();
     if let Some(code) = checks(&args) {
         std::process::exit(code);

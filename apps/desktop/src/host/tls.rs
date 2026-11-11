@@ -1,6 +1,11 @@
-//! Certificates. A server reached by its IP address makes its own certificate, and is
-//! trusted by its pin from its links (`pinServer`), and by nothing else; every other
+//! TLS, and certificates. A server reached by its IP address makes its own certificate, and
+//! is trusted by its pin from its links (`pinServer`), and by nothing else; every other
 //! certificate is the system's roots to judge. As PinnedServers.swift does on iOS.
+//!
+//! Keys are agreed with aws-lc-rs, offering X25519MLKEM768 first, ML-KEM-768 and X25519
+//! together, which servers and proxies that know it take, and X25519 to those that don't
+//! (docs/POST_QUANTUM.md). It's the process's default too (`install`), so LiveKit's
+//! signalling, which makes its own configuration, agrees on keys the same way.
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -103,7 +108,14 @@ impl ServerCertVerifier for Verifier {
 }
 
 fn provider() -> Arc<CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
+    Arc::new(rustls::crypto::aws_lc_rs::default_provider())
+}
+
+/// Makes aws-lc-rs the provider of every TLS connection in this process that doesn't name its
+/// own, before any is made.
+pub fn install() {
+    // Only fails if one was installed already, which nothing here does before this.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
 fn roots() -> RootCertStore {
@@ -131,10 +143,29 @@ static VERIFIER: LazyLock<Arc<Verifier>> = LazyLock::new(|| {
 pub fn client_config(alpn: &[&[u8]]) -> ClientConfig {
     let mut config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
-        .expect("ring supports the default protocol versions")
+        .expect("aws-lc-rs supports the default protocol versions")
         .dangerous()
         .with_custom_certificate_verifier(VERIFIER.clone())
         .with_no_client_auth();
     config.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
     config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustls::NamedGroup;
+
+    #[test]
+    fn keys_are_agreed_with_ml_kem_first_and_x25519_after() {
+        let config = client_config(&[b"h2"]);
+        let groups: Vec<NamedGroup> = config.crypto_provider().kx_groups.iter().map(|group| group.name()).collect();
+        assert_eq!(groups.first(), Some(&NamedGroup::X25519MLKEM768));
+        // A server or proxy that doesn't know it still connects, with X25519 alone.
+        assert!(groups.contains(&NamedGroup::X25519));
+        // And so does whatever else in the process makes its own configuration, as LiveKit's signalling does.
+        install();
+        let default = CryptoProvider::get_default().expect("installed");
+        assert_eq!(default.kx_groups.first().map(|group| group.name()), Some(NamedGroup::X25519MLKEM768));
+    }
 }

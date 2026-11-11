@@ -7,7 +7,7 @@ mod db;
 pub mod device_key;
 mod js;
 mod runtime;
-mod tls;
+pub(crate) mod tls;
 pub mod web;
 
 use std::collections::HashMap;
