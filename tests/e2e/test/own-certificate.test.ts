@@ -29,12 +29,13 @@ afterAll(async () => {
 
 describe("an iOS client and a server without a domain", () => {
   it("is refused without the pin, or with another, and then joins with it", async () => {
-    expect(invite).toMatch(/&pin=[A-Za-z0-9_-]{43}$/);
-    await expect(phone.core.client.previewInvite(invite.replace(/&pin=.*$/, ""))).rejects.toThrow();
-    await expect(phone.core.client.previewInvite(invite.replace(/pin=.*$/, `pin=${"A".repeat(43)}`))).rejects.toThrow();
+    // The log of keys' head comes after the pin.
+    expect(invite).toMatch(/&pin=[A-Za-z0-9_-]{43}(&|$)/);
+    await expect(phone.core.client.previewInvite(invite.replace(/&pin=[^&]*/, ""))).rejects.toThrow();
+    await expect(phone.core.client.previewInvite(invite.replace(/pin=[^&]*/, `pin=${"A".repeat(43)}`))).rejects.toThrow();
     await phone.register(invite, "bob");
     const [entry] = await phone.core.client.listServers();
-    expect(entry!.address).toBe(`${server.url}#pin=${invite.replace(/^.*pin=/, "")}`);
+    expect(entry!.address).toBe(`${server.url}#pin=${invite.match(/pin=([^&]*)/)![1]}`);
   });
 
   it("talks with the desktop both ways", async () => {

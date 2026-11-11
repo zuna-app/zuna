@@ -43,6 +43,38 @@ describe.skipIf(!enabled)("performance of the iOS host", () => {
     expect(timings.noJit).toBeGreaterThan(0);
   });
 
+  it("hashes a first read of a log of keys of 100,000 records", { timeout: 600_000 }, async () => {
+    const host = await new HostApp("log-reader").open();
+    hosts.push(host);
+    // What a first read costs through the host's crypto: a record's user tag, its body's hash and
+    // its leaf, the tree's nodes above it, and its body parsed (packages/core/src/transparency.ts).
+    const script = `(() => {
+      const c = __zunaCrypto;
+      const enc = new TextEncoder();
+      const concat = (...parts) => { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
+      const user = "0123456789abcdef0123456789abcdef";
+      const tagPrefix = enc.encode("zuna/log/user/v1|" + user + "|");
+      const bodyPrefix = enc.encode("zuna/log/body/v1|");
+      const text = JSON.stringify({ v: 1, t: "revoked", user, device: user });
+      const body = enc.encode(text);
+      const leaf = new Uint8Array([0]), node = new Uint8Array([1]);
+      const start = Date.now();
+      const roots = [];
+      for (let size = 0; size < 100000; size++) {
+        const nonce = c.randomBytes(16);
+        const tag = c.sha256(concat(tagPrefix, nonce)).subarray(0, 16);
+        const hash = c.sha256(concat(bodyPrefix, nonce, body));
+        if (JSON.parse(text).user !== user) throw new Error("no");
+        roots.push(c.sha256(concat(leaf, nonce, tag, nonce, hash)));
+        for (let n = size; n % 2 === 1; n = Math.floor(n / 2)) { const right = roots.pop(); const left = roots.pop(); roots.push(c.sha256(concat(node, left, right))); }
+      }
+      return Date.now() - start;
+    })()`;
+    const took = Number(await host.evaluate(script));
+    console.log(`[perf] a first read of 100,000 records of the log of keys: ${took} ms`);
+    expect(took).toBeGreaterThan(0);
+  });
+
   it(`syncs ${count} messages onto a new device`, { timeout: 1_800_000 }, async () => {
     const phone = await new HostApp("bob-iphone").open();
     hosts.push(phone);
