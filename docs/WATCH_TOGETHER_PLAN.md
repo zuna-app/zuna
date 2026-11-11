@@ -319,6 +319,8 @@ What building phase 4 changed in the design:
 - **The app asks the page where its player is each second** (`probe`), which its log says, so that a check can compare it with where the room is by the same clock. The page has no other use for it.
 - **The video's title and picture are still fetched from YouTube in that check,** by the owner's core, which nothing in it depends on.
 
+Left to build, as of 2026-11-11: the native app on Windows (WebView2, as a child of the window GPUI gives, the rest of phase 4) and on Linux (the `zuna-watch` helper, phase 5), neither of which this Mac can build or run, and the echo of the video's sound in the native app (phase 6), which wants speakers and a microphone to measure. Left to check by hand: an iPhone during a call, YouTube itself in the native app, and captions, an advert, a video that forbids embedding and a live stream anywhere.
+
 ## Left out of the first version
 
 - A queue, and searching YouTube from the app, which would need a key and tell Google what people look for.
