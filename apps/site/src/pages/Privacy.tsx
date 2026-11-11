@@ -11,7 +11,7 @@ export function Privacy() {
           that they can't read them. The project itself runs two things: this website, and zuna-push, the relay that wakes iPhones and iPads. Neither sees what
           you write.
         </p>
-        <p className="prose-updated">Last changed on 6 November 2026.</p>
+        <p className="prose-updated">Last changed on 11 November 2026.</p>
 
         <h2>The apps</h2>
         <p>The apps for Windows, macOS, Linux, the web, iPhone and iPad send the project nothing: no analytics, no crash reports, and no account with us.</p>
@@ -24,6 +24,12 @@ export function Privacy() {
             your server's admins run.
           </li>
           <li>GitHub, from the signed Windows app, to check for updates every six hours.</li>
+          <li>
+            In the web app, YouTube, when you press Watch on a video your voice channel or call watches together, and asked about the first time. The video plays
+            in YouTube's own player, which sees your IP address, which video and when, under{" "}
+            <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Whoever puts a video on has the page fetch its title and picture, through
+            the web app's host.
+          </li>
         </ul>
 
         <h2>Your server</h2>
