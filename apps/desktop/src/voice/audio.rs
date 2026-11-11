@@ -89,7 +89,14 @@ struct MixerState {
     held: usize,
     /// It's been opened since the output last looked, for something about to play.
     opened: bool,
+    /// What something else in this app plays on its own, as a video watched together plays from
+    /// WebKit's process: interleaved stereo at 48 kHz, which the echo canceller hears beside the
+    /// mix, but which isn't played again.
+    far_end: VecDeque<f32>,
 }
+
+/// The most of `far_end` kept waiting, past which the oldest goes: 200 ms.
+const FAR_END_KEPT: usize = RATE as usize / 5 * 2;
 
 impl MixerState {
     /// Whether anything still needs the output. The output asks every `IDLE_CHECK`, and asking
@@ -171,6 +178,15 @@ impl Mixer {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         self.state.lock().sources.insert(id, Source { buffer: VecDeque::new(), volume, live: true, waiting: true, once: false });
         id
+    }
+
+    /// What's played by something else in this app, interleaved stereo at 48 kHz, for the echo
+    /// canceller to hear with the mix: a video's sound from the system's web view.
+    pub fn hear_far_end(&self, samples: &[f32]) {
+        let mut state = self.state.lock();
+        state.far_end.extend(samples.iter().copied());
+        let over = state.far_end.len().saturating_sub(FAR_END_KEPT);
+        state.far_end.drain(..over & !1);
     }
 
     /// Plays a sound once, interleaved stereo at 48 kHz.
@@ -306,9 +322,14 @@ fn output_filler(rate: u32, channels: usize, state: Arc<Mutex<MixerState>>, proc
         if needed > 0 {
             mix(&state, needed, &mut mixed);
             pending.extend(mixed.iter());
-            // What's played goes to the echo canceller, in 10 ms of mono.
-            for pair in mixed.chunks(2) {
-                reverse.push((((pair[0] + pair[1]) * 0.5).clamp(-1., 1.) * 32767.) as i16);
+            // What's played goes to the echo canceller, in 10 ms of mono, with what the app's web
+            // views play themselves, which the speakers play too.
+            {
+                let mut state = state.lock();
+                for pair in mixed.chunks(2) {
+                    let (left, right) = if state.far_end.len() >= 2 { (state.far_end.pop_front().unwrap_or(0.), state.far_end.pop_front().unwrap_or(0.)) } else { (0., 0.) };
+                    reverse.push((((pair[0] + pair[1] + left + right) * 0.5).clamp(-1., 1.) * 32767.) as i16);
+                }
             }
             if reverse.len() >= FRAME {
                 let whole = reverse.len() / FRAME * FRAME;
@@ -481,6 +502,53 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How much of what the speakers play the microphone's processing lets through, in dB, over
+    /// the last two of eight seconds: a video's sound, played by the system's web view rather than
+    /// the mixer, which the microphone hears 40 ms later at half the level, with that sound handed
+    /// to the mixer as the far end (`hear_far_end`) or not.
+    fn echo_left(far_end: bool) -> f64 {
+        let processing: SharedProcessing = Arc::new(Mutex::new(Some(Processing(livekit::webrtc::native::apm::AudioProcessingModule::new(true, false, false, false)))));
+        let mixer = Mixer::new(processing.clone());
+        let mut fill = output_filler(RATE, 2, mixer.state.clone(), processing.clone());
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut random = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f32 / (1u64 << 53) as f32 * 2. - 1.
+        };
+        let delay = RATE as usize / 25;
+        let mut room: VecDeque<f32> = std::iter::repeat_n(0., delay).collect();
+        let (mut heard, mut left) = (0f64, 0f64);
+        let frames = 8 * RATE as usize / FRAME;
+        for index in 0..frames {
+            let video: Vec<f32> = (0..FRAME).flat_map(|_| {
+                let sample = random() * 0.3;
+                [sample, sample]
+            }).collect();
+            if far_end {
+                mixer.hear_far_end(&video);
+            }
+            fill(&mut |_, _| {}, FRAME);
+            room.extend(video.chunks(2).map(|pair| pair[0]));
+            let mut microphone: Vec<i16> = room.drain(..FRAME).map(|sample| (sample * 0.5 * 32767.) as i16).collect();
+            let before: f64 = microphone.iter().map(|&sample| (sample as f64).powi(2)).sum();
+            processing.lock().as_mut().unwrap().0.process_stream(&mut microphone, RATE as i32, 1).ok();
+            if index >= frames - 2 * RATE as usize / FRAME {
+                heard += before;
+                left += microphone.iter().map(|&sample| (sample as f64).powi(2)).sum::<f64>();
+            }
+        }
+        10. * (left.max(1.) / heard.max(1.)).log10()
+    }
+
+    #[test]
+    fn a_videos_sound_handed_over_as_the_far_end_is_taken_out_of_the_microphone() {
+        let (with, without) = (echo_left(true), echo_left(false));
+        eprintln!("the video's echo: {with:.1} dB left with the far end, {without:.1} dB without");
+        assert!(with < -20. && with < without - 15., "{with:.1} dB left with the far end, {without:.1} dB without");
+    }
 
     /// How often a steady voice goes quiet over ten minutes, handed over 10 ms at a time on
     /// LiveKit's own timer, usually up to 2 ms late and now and then up to `late` seconds, and

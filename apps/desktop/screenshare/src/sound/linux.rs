@@ -160,6 +160,7 @@ impl State {
             Some(Wanted::Everything) => true,
             Some(Wanted::Program(wanted)) => *wanted == program,
             Some(Wanted::Tree(root)) => pid.is_some_and(|pid| descends(pid, *root)),
+            Some(Wanted::Helpers(root)) => pid.is_some_and(|pid| pid != *root && descends(pid, *root)),
             None => false,
         };
         self.players.insert(id, Player { program, name, pid, wanted });

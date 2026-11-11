@@ -68,6 +68,22 @@ pub(super) struct WatchPlayer {
     _messages: Task<()>,
     /// Asks the page where the player is each second, which the log says, for the checks.
     _probe: Task<()>,
+    /// The video's sound as WebKit plays it, which the echo canceller hears, so that someone on
+    /// speakers doesn't send it back to the room. It's started once the video plays, as WebKit's
+    /// process only has sound to take from then.
+    #[cfg(target_os = "macos")]
+    echo: EchoTap,
+}
+
+/// Where taking the video's sound for the echo canceller is at.
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+enum EchoTap {
+    #[default]
+    Waiting,
+    Starting,
+    Running(zuna_screenshare::sound::Sound),
+    Off,
 }
 
 impl VoiceStage {
@@ -105,7 +121,7 @@ impl VoiceStage {
                     break;
                 }
             });
-            self.watch_player = Some(WatchPlayer { session: watch.session.clone(), view: Rc::new(view), ready: false, sent: None, status: Rc::default(), _messages: task, _probe: probe });
+            self.watch_player = Some(WatchPlayer { session: watch.session.clone(), view: Rc::new(view), ready: false, sent: None, status: Rc::default(), _messages: task, _probe: probe, echo: EchoTap::Waiting });
         }
         #[cfg(not(target_os = "macos"))]
         let _ = (window, cx);
@@ -156,9 +172,15 @@ impl VoiceStage {
                 if phase == "in-step" {
                     held.blocked = false;
                 }
+                let playing = phase == "in-step";
                 held.phase = phase;
                 held.error = error;
                 drop(held);
+                #[cfg(target_os = "macos")]
+                if playing {
+                    self.start_echo_tap(cx);
+                }
+                let _ = playing;
                 cx.notify();
             }
             "volume" => {
@@ -172,6 +194,54 @@ impl VoiceStage {
             }
             _ => {}
         }
+    }
+
+    /// Starts taking the video's sound for the echo canceller, once, where echo cancelling is on.
+    /// The first time, macOS asks the person whether Zuna may record the computer's sound.
+    #[cfg(target_os = "macos")]
+    fn start_echo_tap(&mut self, cx: &mut Context<Self>) {
+        let voice = self.voice.read(cx);
+        let (cancelling, mixer) = (voice.settings.echo_cancellation, voice.mixer.clone());
+        let Some(player) = &mut self.watch_player else { return };
+        if !matches!(player.echo, EchoTap::Waiting) {
+            return;
+        }
+        if !cancelling {
+            player.echo = EchoTap::Off;
+            return;
+        }
+        player.echo = EchoTap::Starting;
+        let session = player.session.clone();
+        let started = cx.background_executor().spawn(async move {
+            let mut heard = false;
+            zuna_screenshare::sound::Sound::start(
+                zuna_screenshare::sound::Wanted::Helpers(std::process::id()),
+                std::time::Duration::from_secs(150),
+                move |samples| {
+                    if !heard && samples.iter().any(|sample| sample.abs() > 1e-4) {
+                        heard = true;
+                        log::info!("watch: the player's sound reaches the echo canceller");
+                    }
+                    mixer.hear_far_end(samples);
+                },
+                |problem| log::warn!("watch: the player's sound stopped reaching the echo canceller: {problem}"),
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let started = started.await;
+            this.update(cx, |stage, _| {
+                let Some(player) = stage.watch_player.as_mut().filter(|player| player.session == session) else { return };
+                player.echo = match started {
+                    Ok(sound) => EchoTap::Running(sound),
+                    Err(problem) => {
+                        log::warn!("watch: the player's sound can't reach the echo canceller: {problem}");
+                        EchoTap::Off
+                    }
+                };
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Tells the page whatever changed since it was last told.

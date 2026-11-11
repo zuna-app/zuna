@@ -148,7 +148,7 @@ function bundle(program, media, out, { name, id, signer, stamped = false }) {
     NSSupportsAutomaticGraphicsSwitching: true,
     NSMicrophoneUsageDescription: "Zuna uses the microphone for voice messages and voice channels.",
     NSCameraUsageDescription: "Zuna uses the camera when you turn it on in a voice channel.",
-    NSAudioCaptureUsageDescription: "Zuna records your computer's sound only while you share your screen with sound.",
+    NSAudioCaptureUsageDescription: "Zuna records your computer's sound only while you share your screen with sound, and hears a video you watch together so that it's kept out of your microphone.",
     NSLocationUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
     NSLocationWhenInUseUsageDescription: "Zuna uses your location only when you choose to share it in a chat.",
   };

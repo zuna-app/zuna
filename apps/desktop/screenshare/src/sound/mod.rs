@@ -43,6 +43,9 @@ pub enum Wanted {
     Program(String),
     /// One process's and those it started, which is what a window's app is.
     Tree(u32),
+    /// What a process's helpers play, without the process itself: on macOS the web views'
+    /// processes that play the app's videos, which the app's echo canceller has to hear.
+    Helpers(u32),
 }
 
 impl Wanted {

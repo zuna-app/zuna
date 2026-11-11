@@ -170,6 +170,9 @@ try {
     return at && room ? Math.round(Math.abs(at.position - (room.position + (room.playing ? (at.at - room.at) * room.rate : 0)))) : Infinity;
   };
   check("both play it where the room is", inStep && off(first) < 500 && off(second) < 500, `owner ${off(first)} ms off, guest ${off(second)} ms off`);
+  // What WebKit plays, the fake's tone, reaches each app's echo canceller, so that speakers don't send it back.
+  const echoHeard = await until(() => [first, second].every((app) => /watch: the player's sound reaches the echo canceller/.test(app.log())), "the video's sound to reach the echo cancellers", 15_000).catch(() => false);
+  check("the video's sound reaches each app's echo canceller", echoHeard, [first, second].map((app) => app.log().split("\n").filter((line) => /watch: the player's sound/.test(line)).slice(-1)[0] ?? "nothing").join(" | "));
   await first.shot("watching");
   // The guest pauses it, and the owner's player stops where the guest's did.
   await second.core("watchControl", [channelId, { playing: false }], guestServer);

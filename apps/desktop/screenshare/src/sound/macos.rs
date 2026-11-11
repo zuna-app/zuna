@@ -192,12 +192,13 @@ struct Chosen {
 }
 
 fn choose(wanted: &Wanted, exclude: Option<u32>) -> Chosen {
-    let (everything, root) = match wanted {
-        Wanted::Everything => (true, exclude.unwrap_or(0) as i32),
-        Wanted::Tree(pid) => (false, *pid as i32),
+    let (everything, root, skip) = match wanted {
+        Wanted::Everything => (true, exclude.unwrap_or(0) as i32, None),
+        Wanted::Tree(pid) => (false, *pid as i32, None),
+        Wanted::Helpers(pid) => (false, *pid as i32, Some(*pid as i32)),
         Wanted::Program(_) => unreachable!("taken apart in open"),
     };
-    let objects = processes().into_iter().filter(|process| belongs(process.pid, root)).map(|process| process.object).collect();
+    let objects = processes().into_iter().filter(|process| belongs(process.pid, root) && Some(process.pid) != skip).map(|process| process.object).collect();
     Chosen { everything, objects }
 }
 

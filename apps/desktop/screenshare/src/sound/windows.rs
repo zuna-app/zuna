@@ -272,6 +272,7 @@ pub fn open(wanted: Wanted, exclude: Option<u32>, samples: SyncSender<Vec<u8>>) 
         Wanted::Tree(pid) => (pid, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE),
         Wanted::Everything => (exclude.ok_or("Everything but the app needs --exclude-pid")?, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE),
         Wanted::Program(id) => return Err(format!("On Windows an app's sound is taken by its process, as pid:N, not {id}")),
+        Wanted::Helpers(_) => return Err("A process's helpers alone aren't taken on Windows yet".into()),
     };
     let stop = Arc::new(AtomicBool::new(false));
     let failure = Arc::new(Mutex::new(None));

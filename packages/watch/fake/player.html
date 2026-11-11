@@ -59,9 +59,30 @@
         document.getElementById("toggle").textContent = fake.state === 1 ? "Pause" : "Play";
         document.getElementById("speed").value = String(fake.rate);
       };
+      // A quiet tone while it plays, as a video's sound, for checks that follow where that goes.
+      let tone = null;
+      const sound = (on) => {
+        try {
+          if (on && !tone) {
+            const context = new AudioContext();
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            oscillator.frequency.value = 440;
+            gain.gain.value = 0.2;
+            oscillator.connect(gain).connect(context.destination);
+            oscillator.start();
+            tone = context;
+          } else if (tone) {
+            void (on ? tone.resume() : tone.suspend());
+          }
+        } catch {
+          // A browser without sound plays nothing, which is all the same to the checks that don't listen.
+        }
+      };
       const setState = (state) => {
         if (fake.state === state) return;
         fake.state = state;
+        sound(state === 1 && !fake.muted);
         if (fake.listening) {
           send("infoDelivery", { playerState: state, currentTime: fake.time, duration: DURATION, playbackRate: fake.rate });
           send("onStateChange", state);
@@ -134,8 +155,8 @@
             break;
           }
           case "setVolume": fake.volume = Number(args[0]); send("infoDelivery", { volume: fake.volume, muted: fake.muted }); break;
-          case "mute": fake.muted = true; send("infoDelivery", { volume: fake.volume, muted: true }); break;
-          case "unMute": fake.muted = false; send("infoDelivery", { volume: fake.volume, muted: false }); break;
+          case "mute": fake.muted = true; sound(false); send("infoDelivery", { volume: fake.volume, muted: true }); break;
+          case "unMute": fake.muted = false; sound(fake.state === 1); send("infoDelivery", { volume: fake.volume, muted: false }); break;
         }
         draw();
       });
