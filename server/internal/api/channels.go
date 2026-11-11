@@ -57,6 +57,8 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		ScreenLimit int    `json:"screen_limit"`
 		// Left out, the soundboard plays there.
 		Sounds *bool `json:"sounds"`
+		// Left out, people may watch YouTube together there.
+		Watch *bool `json:"watch"`
 		// Seconds each person waits between messages, or 0.
 		SlowMode int    `json:"slow_mode"`
 		Proof    []byte `json:"proof"`
@@ -68,7 +70,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.SlowMode, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.Watch == nil || *body.Watch, body.SlowMode, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -88,6 +90,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		UserLimit   *int   `json:"user_limit"`
 		ScreenLimit *int   `json:"screen_limit"`
 		Sounds      *bool  `json:"sounds"`
+		Watch       *bool  `json:"watch"`
 		SlowMode    *int   `json:"slow_mode"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
@@ -98,7 +101,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds, body.SlowMode); err != nil {
+	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds, body.Watch, body.SlowMode); err != nil {
 		writeFailure(w, err)
 		return
 	}

@@ -20,6 +20,8 @@ type clientFrame struct {
 	Active  bool   `json:"active,omitempty"`
 	// What someone is doing in the voice channel named by GroupID, or nothing if they left.
 	Voice *voiceUpdate `json:"voice,omitempty"`
+	// A ping's number, which its pong carries back.
+	N int64 `json:"n,omitempty"`
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +169,7 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) erro
 		case "voice":
 			s.updateVoice(ctx, c, frame)
 		case "ping":
-			c.deliver(pongFrame)
+			c.deliver(pongFrame(frame.N))
 		}
 	}
 }

@@ -460,6 +460,7 @@ func TestWhatABotMayNotDo(t *testing.T) {
 	}
 	bot.joinChannel(voice.ID, false)
 	refused("joining a voice channel's room", "POST", "/api/channels/"+voice.ID+"/voice", nil)
+	refused("watching a video in a voice channel", "POST", "/api/channels/"+voice.ID+"/voice/watch", map[string]any{"data": []byte("which")})
 
 	// Allowed files again, it may.
 	h.mustDo("PATCH", "/api/bots/"+bot.userID, owner.token, map[string]any{"files": true}, nil)

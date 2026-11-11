@@ -28,13 +28,15 @@ type Channel struct {
 	// Slow mode: how long each person waits between messages, in seconds, or 0. It
 	// doesn't hold back the channel's admins.
 	SlowMode int `json:"slow_mode"`
+	// Whether people in a voice channel may watch YouTube together there.
+	Watch bool `json:"watch"`
 }
 
-const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds, slow_mode`
+const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds, slow_mode, watch`
 
 func scanChannel(row interface{ Scan(...any) error }) (*Channel, error) {
 	var c Channel
-	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds, &c.SlowMode); err != nil {
+	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds, &c.SlowMode, &c.Watch); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -68,7 +70,7 @@ func (d *DB) Channel(ctx context.Context, id string) (*Channel, error) {
 
 // CreateChannel makes a channel at the end of the list, with its creator as its
 // first member. Everyone else joins by themselves.
-func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds bool, slowMode int, proof []byte) (*Channel, error) {
+func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds, watch bool, slowMode int, proof []byte) (*Channel, error) {
 	now := Now()
 	err := d.tx(ctx, func(tx handle) error {
 		var count, last int64
@@ -84,8 +86,8 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 			}
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, slow_mode, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-			id, channelType, last+1, userLimit, screenLimit, sounds, slowMode, details, creator, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, watch, slow_mode, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+			id, channelType, last+1, userLimit, screenLimit, sounds, watch, slowMode, details, creator, now); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof) VALUES(?, ?, 'admin', ?, ?)`, id, creator, now, proof)
@@ -98,9 +100,9 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 }
 
 // UpdateChannel replaces a channel's sealed details and, if given, its limits, whether
-// the soundboard plays there, and its slow mode.
-func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds *bool, slowMode *int) error {
-	res, err := d.sql.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds), slow_mode = COALESCE(?, slow_mode) WHERE id = ?`, details, userLimit, screenLimit, sounds, slowMode, id)
+// the soundboard plays there, whether people may watch together there, and its slow mode.
+func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds, watch *bool, slowMode *int) error {
+	res, err := d.sql.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds), watch = COALESCE(?, watch), slow_mode = COALESCE(?, slow_mode) WHERE id = ?`, details, userLimit, screenLimit, sounds, watch, slowMode, id)
 	if err != nil {
 		return err
 	}

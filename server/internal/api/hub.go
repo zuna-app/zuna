@@ -44,7 +44,12 @@ type Event struct {
 	Data any    `json:"d,omitempty"`
 }
 
-var pongFrame = encodeEvent(Event{Type: "pong"})
+// pongFrame answers a ping with the server's time, in ms, which apps set their clocks by
+// for what a room watches together, and the number the ping came with, which says which
+// of the app's pings it answers.
+func pongFrame(n int64) []byte {
+	return encodeEvent(Event{Type: "pong", Data: map[string]int64{"now": time.Now().UnixMilli(), "n": n}})
+}
 
 type conn struct {
 	userID   string

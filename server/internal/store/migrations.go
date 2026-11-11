@@ -587,4 +587,7 @@ CREATE TABLE log_entries (
 	PRIMARY KEY (era, idx)
 );
 CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
+`, `
+-- Whether people in a voice channel may watch YouTube together there.
+ALTER TABLE channels ADD COLUMN watch INTEGER NOT NULL DEFAULT 1;
 `}

@@ -149,6 +149,7 @@ type Server struct {
 	voice        *voiceRooms
 	voiceLimiter *ratelimit.Keyed
 	soundLimiter *ratelimit.Keyed
+	watchLimiter *ratelimit.Keyed
 	liveKit      *http.Client
 
 	// work counts the sockets and background loops the server waits for when it stops,
@@ -227,6 +228,8 @@ func New(cfg Config, db *store.DB) *Server {
 		voice:             newVoiceRooms(),
 		voiceLimiter:      ratelimit.NewKeyed(rate.Limit(1), 20),
 		soundLimiter:      ratelimit.NewKeyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
+		// The apps send four seeks a second at most, while someone drags, and answer those who come in.
+		watchLimiter:      ratelimit.NewKeyed(rate.Limit(8), 40),
 		liveKit:           &http.Client{Timeout: liveKitTimeout},
 		pushClient:        &http.Client{Timeout: pushTimeout},
 
@@ -418,6 +421,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
 	mux.HandleFunc("DELETE /api/channels/{id}/voice/users/{user}/screen", s.admin(s.handleStopScreenOf))
 	mux.HandleFunc("POST /api/channels/{id}/voice/sound", s.member(s.handlePlaySound(false)))
+	mux.HandleFunc("POST /api/channels/{id}/voice/watch", s.member(s.handleWatch(false)))
 
 	// Calls in direct messages and groups, in rooms of their own on the same media server
 	mux.HandleFunc("GET /api/calls", s.withDevice(s.handleCalls))
@@ -427,6 +431,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/groups/{id}/call/ring", s.member(s.handleRing))
 	mux.HandleFunc("POST /api/groups/{id}/call/decline", s.member(s.handleDecline))
 	mux.HandleFunc("POST /api/groups/{id}/call/sound", s.member(s.handlePlaySound(true)))
+	mux.HandleFunc("POST /api/groups/{id}/call/watch", s.member(s.handleWatch(true)))
 
 	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
 		mux.Handle("/livekit/", s.liveKitProxy())

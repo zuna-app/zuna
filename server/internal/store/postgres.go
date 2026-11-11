@@ -663,4 +663,6 @@ CREATE TABLE log_entries (
 	PRIMARY KEY (era, idx)
 );
 CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
+`, `
+ALTER TABLE channels ADD COLUMN watch BIGINT NOT NULL DEFAULT 1;
 `}
