@@ -92,8 +92,12 @@ final class SettingsTests: XCTestCase {
         change.tap()
         XCTAssertTrue(zuna.toast(startingWith: "Password changed").waitForExistence(timeout: 30))
 
-        // A new device signs in with it, and shows up in the list.
+        // A new device signs in with it, which was the person, and shows up in the list.
         try WorldControl.newDevice(for: username, password: next)
+        let mine = zuna.element(A11y.NewDevice.mine)
+        XCTAssertTrue(mine.waitForExistence(timeout: 30))
+        mine.tap()
+        XCTAssertTrue(zuna.element(A11y.NewDevice.prompt).waitForNonExistence(timeout: 10))
         zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
         zuna.element(A11y.Settings.security).tap()
         let devices = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Settings.device("")))

@@ -28,6 +28,11 @@ function startLiveKit() {
   return { media, url: `ws://127.0.0.1:${port}` };
 }
 
+/** Where the question about a new device has its answers, and after No, Change password, in the window's points. */
+const NEW_DEVICE_YES = [780, 482];
+const NEW_DEVICE_NO = [660, 482];
+const NEW_DEVICE_SECURE = [775, 482];
+
 /** Onboarding as the server's owner, from the welcome screen. */
 async function owner(app, setupLink) {
   await app.click(640, 502);
@@ -200,6 +205,22 @@ try {
   /** The owner's devices in voice, as the app has heard. */
   const ownerIn = async () => ((await first.core("getVoiceMembers", [], serverId)).ok ?? []).filter((member) => member.userId === ownerId).map((member) => member.deviceId);
   await until(() => /"ready"/.test(laptop.output), "the owner's second device to sign in", 90_000);
+  // The app asks whether that was the owner, over everything, until they answer.
+  const laptopId = JSON.parse(laptop.output.split("\n").find((line) => line.includes('"ready"'))).deviceId;
+  const asked = async () => ((await first.core("getNewDevices", [], serverId)).ok ?? []).map((device) => device.id);
+  await until(async () => (await asked()).includes(laptopId), "the app to ask about the second device", 30_000);
+  await sleep(1200);
+  await first.shot("new-device");
+  await first.key("escape");
+  await first.click(60, 60);
+  await sleep(800);
+  await first.shot("new-device-kept");
+  check("a device signing in to the account is asked about, and Escape or a click outside doesn't send it away", (await asked()).includes(laptopId));
+  await first.click(NEW_DEVICE_YES[0], NEW_DEVICE_YES[1]);
+  const answered = await until(async () => (await asked()).length === 0, "Yes, it was me to answer it", 10_000).then(() => true, () => false);
+  check("Yes, it was me answers it, and keeps the device", answered && ((await first.core("getDevices", [], serverId)).ok ?? []).some((device) => device.id === laptopId));
+  if (!answered) await first.core("answerNewDevice", [laptopId, true], serverId);
+  await sleep(800);
   laptop.stdin.write(`${JSON.stringify({ voice: channel.ok })}\n`);
   await until(async () => (await ownerIn()).length === 1, "the app to hear the second device is in the channel", 20_000);
   await sleep(500);
@@ -228,6 +249,22 @@ try {
   await first.shot("voice-moved");
   await first.click(1017, 795);
   await sleep(1000);
+
+  // --- Someone else signing in as the owner: No removes their device, and asks for a new password ---
+  const thief = start(...viteNodeArgs(join(here, "second-device.ts"), serverUrl, "owner", "mac-voice-check-owner"), process.env, "someone else", join(root, "packages", "core"));
+  await until(() => /"ready"/.test(thief.output), "someone else to sign in as the owner", 90_000);
+  const thiefId = JSON.parse(thief.output.split("\n").find((line) => line.includes('"ready"'))).deviceId;
+  await until(async () => (await asked()).includes(thiefId), "the app to ask about it", 30_000);
+  await sleep(1200);
+  await first.click(NEW_DEVICE_NO[0], NEW_DEVICE_NO[1]);
+  const removed = await until(async () => !((await first.core("getDevices", [], serverId)).ok ?? []).some((device) => device.id === thiefId), "No, remove it to remove it", 20_000).then(() => true, () => false);
+  await sleep(1000);
+  await first.shot("new-device-removed");
+  check("No, remove it removes the device", removed && (await asked()).length === 0);
+  await first.click(NEW_DEVICE_SECURE[0], NEW_DEVICE_SECURE[1]);
+  await sleep(1500);
+  await first.shot("new-device-security");
+  thief.kill();
 } catch (error) {
   check("the check ran to its end", false, error.message);
 } finally {

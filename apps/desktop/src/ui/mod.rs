@@ -34,6 +34,7 @@ pub mod voice_settings;
 pub mod voice_stage;
 
 mod main_area;
+mod new_device;
 mod rail;
 
 use gpui::{
@@ -130,6 +131,9 @@ pub struct Root {
     focus: gpui::FocusHandle,
     /// Whether a dialog or settings was open last frame, to give focus back when they close.
     covered: bool,
+    /// What a new device of the person's is asked about with, which keys go to while it is.
+    prompt_focus: gpui::FocusHandle,
+    prompting: bool,
 }
 
 impl Root {
@@ -179,7 +183,7 @@ impl Root {
             root.update(cx, |root, cx| root.key_with_selection(&event.keystroke, window, cx)).ok();
         })
         .detach();
-        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false, prompt_focus: cx.focus_handle(), prompting: false }
     }
 
 }
@@ -206,7 +210,7 @@ impl Root {
     /// Whether the message box may take focus: no dialog, settings, menu or picker is open, and
     /// no other field has it (`focusComposer` and `onKeyDown` in lib/focus.ts).
     fn composer_may_focus(&self, window: &Window, cx: &App) -> bool {
-        self.overlay.is_none() && self.settings.is_none() && !menu::is_open(cx) && !picker::is_open(cx) && !text_input::any_focused(window)
+        self.overlay.is_none() && self.settings.is_none() && !self.prompting && !menu::is_open(cx) && !picker::is_open(cx) && !text_input::any_focused(window)
     }
 
     /// The person did something in the window, which says they're here where the system can't
@@ -415,6 +419,17 @@ impl Render for Root {
             }
         }
         self.covered = covered;
+        // Over everything, even a dialog, and taking keys from whatever was under it.
+        let prompt = if matches!(self.state.read(cx).phase, Phase::Ready) { new_device::prompt(&self.state, &self.prompt_focus, cx) } else { None };
+        if prompt.is_some() && !self.prompting {
+            window.focus(&self.prompt_focus, cx);
+        } else if prompt.is_none() && self.prompting {
+            match &self.chat {
+                Some((_, chat)) if !covered => chat.update(cx, |chat, cx| chat.focus_composer(window, cx)),
+                _ => window.focus(&self.focus, cx),
+            }
+        }
+        self.prompting = prompt.is_some();
         let calls = if matches!(self.state.read(cx).phase, Phase::Ready) && has_servers { voice::incoming_calls(&self.state, &self.voice, cx) } else { None };
         let root = div()
             .size_full()
@@ -480,6 +495,7 @@ impl Render for Root {
             )
             .when_some(closing, |el, closing| el.child(closing))
             .when_some(overlay, |el, overlay| el.child(overlay))
+            .when_some(prompt, |el, prompt| el.child(prompt))
             .child(self.toasts(window, cx))
             .child(self.menu.clone())
             .child(self.picker.clone());

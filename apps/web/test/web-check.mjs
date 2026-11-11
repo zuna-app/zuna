@@ -710,6 +710,19 @@ async function runIn(name) {
     await fill(other.getByLabel("Username"), "alex");
     await fill(other.locator('input[type="password"]'), "web-check-only-Pass-9182");
     await other.getByRole("button", { name: "Sign in", exact: true }).click();
+    // The device alex was on asks whether that was them, over everything, until they answer.
+    const newDevice = again.locator(".new-device");
+    await newDevice.waitFor({ timeout: 30_000 });
+    await again.keyboard.press("Escape");
+    await again.mouse.click(8, 8);
+    await sleep(300);
+    check(
+      "a device signing in to the account is asked about on the other, and Escape or a click outside doesn't send it away",
+      (await newDevice.count()) === 1 && (await newDevice.innerText()).includes("Was this you?"),
+    );
+    await again.screenshot({ path: prefix("08-new-device") });
+    await newDevice.getByRole("button", { name: "Yes, it was me" }).click();
+    await newDevice.waitFor({ state: "detached", timeout: 10_000 });
     await other.locator(".channel-row", { hasText: "Lounge" }).click({ timeout: 45_000 });
     await other.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
     await again.locator(".voice-occupant").waitFor({ timeout: 15_000 });

@@ -3,6 +3,7 @@
 
 import { ApiError, decode, type ApiDevice } from "../api";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
+import { verifyEnrollment, type SlotKind } from "../generations";
 import { mediaTag } from "../search";
 import {
   Frontier,
@@ -23,8 +24,11 @@ import {
   type PinnedHead,
   type WireHead,
 } from "../transparency";
+import type { NewDevice } from "../types";
 import { SessionChains } from "./chains";
 
+/** Where the devices waiting for the person's answer are kept. */
+const NEW_DEVICES = "new_devices";
 /** How many records one request reads. */
 const LOG_PAGE = 2000;
 /** A frontier is kept every this many records, which is the most a root from before has to be worked out from. */
@@ -96,7 +100,6 @@ const WARNINGS = {
   era: "The server started its record of who holds which keys again, as after restoring a backup. Nothing this device trusts changed.",
   nameTaken: "The server signed someone else up under your username. Their account counts for nothing to the apps, but compare emoji with the people who matter to you.",
   ownLeftOut: "The server left this device out of its record of who holds which keys, so the people you write to won't accept it.",
-  newDevice: "A new device just signed in to your account. If this wasn't you, change your password and remove that device in Settings.",
   ownHistory: "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
 } as const;
 
@@ -422,7 +425,7 @@ export abstract class SessionDirectory extends SessionChains {
           if (!equalBytes(body.key, this.account.devicePublic)) this.warnOnce("log/own-device", WARNINGS.ownHistory, self);
         } else if (state.own !== null && idx > state.own && idx >= state.quietBelow) {
           // From the entry, so the server can't leave a new device of this account unsaid.
-          this.warnOnce(`new-device/${body.device}`, WARNINGS.newDevice, self);
+          this.noteNewDevice(body.device);
         }
         break;
       }
@@ -445,6 +448,8 @@ export abstract class SessionDirectory extends SessionChains {
         const device = account.devices[body.device];
         if (!device) odd();
         else device.revoked ??= idx;
+        // Removed, here or anywhere else, so there's nothing left to ask about it.
+        if (body.user === self) this.dropNewDevice(body.device);
         break;
       }
       case "link": {
@@ -474,6 +479,63 @@ export abstract class SessionDirectory extends SessionChains {
         break;
       }
     }
+  }
+
+  // Devices that signed in to this account after this one, which the person is asked about, each
+  // on every one of the account's devices that was there before it, until they say whether it was
+  // them. An answer isn't passed to the account's other devices: whoever signed in could give it.
+
+  protected newDeviceList(): { id: string; at: number; secret?: SlotKind }[] {
+    return this.getKv<{ id: string; at: number; secret?: SlotKind }[]>(NEW_DEVICES) ?? [];
+  }
+
+  protected noteNewDevice(deviceId: string): void {
+    const list = this.newDeviceList();
+    if (list.some((item) => item.id === deviceId)) return;
+    this.setKv(NEW_DEVICES, [...list, { id: deviceId, at: Date.now() }]);
+    this.emitNewDevices();
+  }
+
+  protected dropNewDevice(deviceId: string): void {
+    const list = this.newDeviceList();
+    if (!list.some((item) => item.id === deviceId)) return;
+    this.setKv(NEW_DEVICES, list.filter((item) => item.id !== deviceId));
+    this.emitNewDevices();
+  }
+
+  protected emitNewDevices(): void {
+    this.emit({ type: "new_devices", serverId: this.serverId, devices: this.getNewDevices() });
+  }
+
+  /** The devices this device asks the person about, oldest first (`answerNewDevice`). */
+  getNewDevices(): NewDevice[] {
+    const self = this.users.get(this.account.userId);
+    const list = this.newDeviceList();
+    let learned = false;
+    const devices = list.flatMap((item) => {
+      const device = self?.devices.get(item.id);
+      if (device?.revoked) return [];
+      // Kept once it's known, as the slot it opened may be replaced before the person answers.
+      if (!item.secret && device) {
+        const secret = this.enrolledWith(item.id, device);
+        if (secret) [item.secret, learned] = [secret, true];
+      }
+      return [{ id: item.id, name: this.deviceNames.get(item.id) ?? "Device", createdAt: device?.createdAt ?? item.at, secret: item.secret ?? null }];
+    });
+    if (learned) this.setKv(NEW_DEVICES, list);
+    return devices;
+  }
+
+  /** Which of the account's secrets a device of it signed in with, from the proof it gave, if this device can tell. */
+  protected enrolledWith(deviceId: string, device: { signatureKey: Uint8Array; enrollProof?: string | null }): SlotKind | null {
+    const proof = decode(device.enrollProof);
+    if (proof.length === 0) return null;
+    const { core, userId } = this.account;
+    for (const kind of ["password", "recovery"] as const) {
+      const slot = core.slots[kind];
+      if (slot && verifyEnrollment(slot.sign, userId, deviceId, device.signatureKey, proof)) return kind;
+    }
+    return null;
   }
 
   /** A record that came without its body: if it's about someone this device knows, the server is keeping it back. */
@@ -583,6 +645,8 @@ export abstract class SessionDirectory extends SessionChains {
       this.emit({ type: "users", serverId: this.serverId });
       this.emitConversations();
     }
+    // When a new device signed in, as the server says, now that its entry is in the list.
+    if (touched.includes(this.account.userId) && this.newDeviceList().length > 0) this.emitNewDevices();
   }
 
   // --- What the log says, for the checks that go by it ---

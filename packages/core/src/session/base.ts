@@ -265,6 +265,7 @@ export abstract class SessionBase {
   protected abstract topUpKeyPackages(): Promise<void>;
   protected abstract dmWith(userId: string): CachedGroup | undefined;
   protected abstract warnOnce(key: string, message: string, userId?: string): void;
+  protected abstract emitNewDevices(): void;
   protected abstract applyGroup(api: ApiGroup): CachedGroup;
   protected abstract isGroupAdmin(group: CachedGroup, userId: string): boolean;
   protected abstract emitConversations(): void;

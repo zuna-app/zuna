@@ -202,6 +202,7 @@ export abstract class SessionLifecycle extends SessionServer {
       console.warn("[zuna] reading the log of keys", error);
     });
     await this.syncUsers();
+    this.emitNewDevices();
     await this.checkBotProofs();
     await this.saveTrust();
     await this.processWelcomes();

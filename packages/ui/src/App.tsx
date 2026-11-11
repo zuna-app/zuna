@@ -5,6 +5,7 @@ import { Logo, Toasts } from "@/components/ui";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { Shell } from "@/features/shell/Shell";
 import { Overlays } from "@/features/overlays/Overlays";
+import { NewDevicePrompt } from "@/features/overlays/NewDevice";
 import { applySettings, saveSettings } from "@/state/settings";
 import { useApp } from "@/state/store";
 import { watchActivity } from "@/state/activity";
@@ -153,6 +154,7 @@ export function App() {
           )}
         </div>
         <Overlays />
+        <NewDevicePrompt />
         <Toasts />
         <UpdateNotice />
       </div>

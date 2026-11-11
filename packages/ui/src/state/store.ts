@@ -10,6 +10,7 @@ import type {
   EmoteSet,
   MediaKind,
   MessageView,
+  NewDevice,
   Preferences,
   ServerEntry,
   ServerInfo,
@@ -52,6 +53,8 @@ export interface ServerState {
   activeKey: string | null;
   /** groupId -> userId -> time the typing indicator expires. */
   typing: Record<string, Record<string, number>>;
+  /** Devices that signed in to this account after this one, which the person has to answer for. */
+  newDevices: NewDevice[];
 }
 
 export interface MessageList {
@@ -97,6 +100,9 @@ export interface AppState {
   overlay: Overlay;
   panel: Panel;
   toasts: Toast[];
+  /** A new device the person said wasn't them was removed: where, and the secret it signed in with, which they're asked to change next. */
+  deviceRemoved: { serverId: string; secret: NewDevice["secret"] } | null;
+  setDeviceRemoved(removed: AppState["deviceRemoved"]): void;
   settings: AppSettings;
   windowFocused: boolean;
   /** Whether the person is here (activity.ts): the window has focus, with input in the last 30 s. Only then does a chat on screen count as read. */
@@ -188,7 +194,7 @@ function closedList(list: MessageList | undefined): MessageList | null | undefin
 
 /** Everything the interface keeps about a server, read from its session. Boot and adding a server both start from it. */
 async function fetchServerState(session: RemoteSession, entry: ServerEntry): Promise<ServerState> {
-  const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls, sounds] = await Promise.all([
+  const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls, sounds, newDevices] = await Promise.all([
     session.getConversations(),
     session.getUsers(),
     session.getEmotes(),
@@ -200,6 +206,7 @@ async function fetchServerState(session: RemoteSession, entry: ServerEntry): Pro
     session.getVoiceMembers(),
     session.getCalls(),
     session.getSounds(),
+    session.getNewDevices(),
   ]);
   return {
     entry,
@@ -217,6 +224,7 @@ async function fetchServerState(session: RemoteSession, entry: ServerEntry): Pro
     prefs,
     activeKey: null,
     typing: {},
+    newDevices,
   };
 }
 
@@ -280,6 +288,10 @@ export const useApp = create<AppState>((set, get) => {
     overlay: null,
     panel: null,
     toasts: [],
+    deviceRemoved: null,
+    setDeviceRemoved(deviceRemoved) {
+      set({ deviceRemoved });
+    },
     settings: loadSettings(),
     windowFocused: document.hasFocus(),
     personHere: false,

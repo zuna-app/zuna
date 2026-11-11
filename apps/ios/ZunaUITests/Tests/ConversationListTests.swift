@@ -140,17 +140,31 @@ final class ConversationListTests: XCTestCase {
         XCTAssertEqual(try zuna.serverCount(), 0)
     }
 
-    func testWarnsLongerAboutANewDeviceOnTheAccount() throws {
+    func testAsksAboutANewDeviceOnTheAccountUntilAnswered() throws {
         try zuna.launch()
         _ = try zuna.register("ivan", password: "correct horse battery staple")
         try zuna.waitForChats()
 
         try WorldControl.newDevice(for: "ivan", password: "correct horse battery staple")
-        let toast = zuna.toast(startingWith: "A new device just signed in to your account")
-        XCTAssertTrue(toast.waitForExistence(timeout: 30))
-        zuna.screenshot("56-new-device-alert")
-        // Security alerts stay longer than the 4.5 seconds of other toasts.
-        RunLoop.current.run(until: Date().addingTimeInterval(6))
-        XCTAssertTrue(toast.exists)
+        let prompt = zuna.element(A11y.NewDevice.prompt)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 30))
+        XCTAssertTrue(zuna.app.staticTexts["Was this you?"].exists)
+        zuna.screenshot("56-new-device-prompt")
+        // Nothing but an answer sends it away.
+        zuna.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.04)).tap()
+        zuna.app.swipeDown()
+        XCTAssertTrue(prompt.exists)
+
+        // Not ivan: it's removed, and ivan is asked to change the password it signed in with.
+        zuna.element(A11y.NewDevice.notMine).tap()
+        XCTAssertTrue(zuna.app.staticTexts["The device was removed"].waitForExistence(timeout: 30))
+        zuna.screenshot("57-new-device-removed")
+        zuna.element(A11y.NewDevice.secure).tap()
+        XCTAssertTrue(zuna.element(A11y.Settings.changePassword).waitForExistence(timeout: 10))
+        let devices = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Settings.device("")))
+        try waitFor("the device to be gone") { devices.count == 1 }
+        zuna.element(A11y.NewDevice.done).tap()
+        XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+        XCTAssertFalse(zuna.element(A11y.Settings.changePassword).exists)
     }
 }

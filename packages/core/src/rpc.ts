@@ -56,11 +56,11 @@ const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   stop: true, suspend: true
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
-  addMembers: true, addSound: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
+  addMembers: true, addSound: true, answerNewDevice: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
   createBot: true, deleteBot: true, getBots: true, newBotLink: true, setBotChannels: true, updateBot: true, updateBotProfile: true,
   declineCall: true, deleteMessage: true, deleteMessages: true, deleteSound: true, discardMessage: true, downloadChunk: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
   flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getCalls: true, getChannels: true, getConnectionState: true, getConversations: true,
-  getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getBans: true, getReports: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, hearsChat: true, holdsKeys: true, invites: true,
+  getDevices: true, getEmotes: true, getInfo: true, getNewDevices: true, getPreferences: true, getBans: true, getReports: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, hearsChat: true, holdsKeys: true, invites: true,
   isActiveElsewhere: true, leaveGroup: true, linkForInvite: true, loadAround: true, loadMedia: true, loadMessages: true, loadNewer: true, loadPins: true, markChatRead: true, markRead: true,
   markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, playSound: true, prepareCall: true, prepareNewDevice: true, pressButton: true, previewText: true, refreshEmotes: true,
   regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, reportUser: true, resume: true, retryMessage: true, ringCall: true, revokeDevice: true, revokeInvite: true, rotate: true,

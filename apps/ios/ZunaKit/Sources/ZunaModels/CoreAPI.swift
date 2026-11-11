@@ -79,6 +79,9 @@ public struct SessionCalls: Sendable {
     public func updatePreferences(_ changes: PreferenceChanges) async throws { try await run("updatePreferences", [changes]) }
     public func getEmotes() async throws -> EmoteSet { try await call("getEmotes") }
     public func getDevices() async throws -> [DeviceView] { try await call("getDevices") }
+    public func getNewDevices() async throws -> [NewDevice] { try await call("getNewDevices") }
+    /// Whether a device that signed in after this one was the person. One that wasn't is removed.
+    public func answerNewDevice(_ deviceId: String, mine: Bool) async throws { try await run("answerNewDevice", [deviceId, mine]) }
 
     // MARK: Messages
 

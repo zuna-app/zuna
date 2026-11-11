@@ -261,6 +261,11 @@ impl AppState {
                 }
             }
             "security" => self.toast(text("message"), ToastKind::Security, cx),
+            "new_devices" => {
+                if let Some(server) = self.servers.get_mut(&server_id) {
+                    server.new_devices = from_value(event.get("devices").cloned().unwrap_or_default());
+                }
+            }
             "notify" => self.notify(&event, cx),
             _ => {}
         }

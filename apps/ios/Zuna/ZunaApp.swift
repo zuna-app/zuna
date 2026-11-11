@@ -121,6 +121,7 @@ struct RootView: View {
                 }
                 .overlay(alignment: .top) { ToastStack() }
                 .overlay { AppLockGate() }
+                .modifier(NewDeviceWindowHost(model: model))
                 .environment(model)
                 .environment(model.voice)
                 .environment(images)

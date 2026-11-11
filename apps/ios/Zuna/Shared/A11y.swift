@@ -280,6 +280,15 @@ enum A11y {
         static let item = "toast"
     }
 
+    enum NewDevice {
+        static let prompt = "newDevice.prompt"
+        static let mine = "newDevice.mine"
+        static let notMine = "newDevice.notMine"
+        static let later = "newDevice.later"
+        static let secure = "newDevice.secure"
+        static let done = "newDevice.done"
+    }
+
     enum Voice {
         static let stage = "voice.stage"
         static let connecting = "voice.connecting"

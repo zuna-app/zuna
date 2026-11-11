@@ -14,6 +14,7 @@ export abstract class SessionVault extends SessionLocal {
   protected async syncVault(): Promise<void> {
     let cursor = this.getKv<number>("vault_cursor") ?? 0;
     const touchedGroups = new Set<string>();
+    let named = false;
     fetching: for (;;) {
       const items = await this.api.vaultItems(cursor, VAULT_PAGE);
       if (items.length === 0) break;
@@ -46,6 +47,7 @@ export abstract class SessionVault extends SessionLocal {
         } else if (item.id.startsWith("device:")) {
           this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
           this.setKv("device_names", Object.fromEntries(this.deviceNames));
+          named = true;
         }
       }
       this.setKv("vault_cursor", cursor);
@@ -53,6 +55,8 @@ export abstract class SessionVault extends SessionLocal {
       if (items.length < VAULT_PAGE) break;
     }
     for (const groupId of touchedGroups) this.retryUndecryptable(groupId);
+    // A new device names itself in the vault, which is how the person asked about it knows it.
+    if (named) this.emitNewDevices();
   }
 
   protected refreshTrust(userId: string): void {

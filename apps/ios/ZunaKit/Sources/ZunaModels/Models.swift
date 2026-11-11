@@ -740,6 +740,23 @@ public struct DeviceView: Codable, Sendable, Equatable, Identifiable {
     public var name: String
 }
 
+/// A device that signed in to this account after this one, which the person is asked about until
+/// they answer (`answerNewDevice`).
+public struct NewDevice: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var createdAt: Int
+    /// "password" or "recovery": the secret it signed in with, if the core can tell.
+    public var secret: String?
+
+    public init(id: String, name: String, createdAt: Int, secret: String?) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+        self.secret = secret
+    }
+}
+
 public struct SearchResult: Codable, Sendable, Equatable {
     public var message: MessageView
     public var conversationKey: String
@@ -854,6 +871,8 @@ public enum CoreEvent: Sendable, Equatable {
     /// A session that seemed to be over is working after all.
     case signedIn(serverId: String)
     case security(serverId: String, userId: String, message: String)
+    /// Every device the person is asked about now on this server, whenever that changes.
+    case newDevices(serverId: String, devices: [NewDevice])
     /// A new message to tell the person about. `inUse` is whether the server took this device to be in use
     /// when it came, which is when it pushes a phone nothing: the app shows it itself then.
     case notify(serverId: String, title: String, body: String, conversationKey: String, groupId: String, messageId: String, inUse: Bool)
@@ -870,7 +889,7 @@ extension CoreEvent {
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .preferences(serverId),
-             let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .notify(serverId, _, _, _, _, _, _),
+             let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .newDevices(serverId, _), let .notify(serverId, _, _, _, _, _, _),
              let .activity(serverId, _):
             serverId
         }
@@ -884,7 +903,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId, inUse
-        case channelId, deviceId, member, call, soundId
+        case channelId, deviceId, member, call, soundId, devices
     }
 
     public init(from decoder: Decoder) throws {
@@ -928,6 +947,7 @@ extension CoreEvent: Codable {
         case "signed_out": self = .signedOut(serverId: serverId, reason: try c.decode(String.self, forKey: .reason))
         case "signed_in": self = .signedIn(serverId: serverId)
         case "security": self = .security(serverId: serverId, userId: try c.decode(String.self, forKey: .userId), message: try c.decode(String.self, forKey: .message))
+        case "new_devices": self = .newDevices(serverId: serverId, devices: try c.decode([NewDevice].self, forKey: .devices))
         case "notify":
             self = .notify(
                 serverId: serverId,
@@ -996,6 +1016,8 @@ extension CoreEvent: Codable {
             try c.encode("signed_in", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .security(serverId, userId, message):
             try c.encode("security", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(userId, forKey: .userId); try c.encode(message, forKey: .message)
+        case let .newDevices(serverId, devices):
+            try c.encode("new_devices", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(devices, forKey: .devices)
         case let .notify(serverId, title, body, conversationKey, groupId, messageId, inUse):
             try c.encode("notify", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(title, forKey: .title); try c.encode(body, forKey: .body); try c.encode(conversationKey, forKey: .conversationKey)
             try c.encode(groupId, forKey: .groupId); try c.encode(messageId, forKey: .messageId); try c.encode(inUse, forKey: .inUse)

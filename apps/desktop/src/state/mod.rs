@@ -39,6 +39,8 @@ pub struct ServerState {
     pub active_key: Option<String>,
     /// groupId -> userId -> when their typing stops showing (ms).
     pub typing: HashMap<String, HashMap<String, f64>>,
+    /// Devices that signed in to this account after this one, which the person has to answer for.
+    pub new_devices: Vec<NewDevice>,
 }
 
 impl ServerState {
@@ -230,6 +232,11 @@ pub struct AppState {
     pub overlay: Option<Overlay>,
     pub panel: Option<Panel>,
     pub toasts: Vec<Toast>,
+    /// The new device being answered for, while the core removes it or forgets it.
+    pub answering_device: Option<String>,
+    /// A new device the person said wasn't them was removed: on which server, and the secret
+    /// it signed in with, which they're asked to change next.
+    pub device_removed: Option<(String, Option<String>)>,
     pub settings: Settings,
     pub window_focused: bool,
     /// When the window last came in front, which counts as input (`person_here`), as Telegram
@@ -376,6 +383,8 @@ impl AppState {
             overlay: None,
             panel: None,
             toasts: Vec::new(),
+            answering_device: None,
+            device_removed: None,
             settings,
             window_focused: false,
             in_front_since: None,
@@ -435,6 +444,33 @@ impl AppState {
                 state.toast(error.message, ToastKind::Error, cx);
             }
         });
+    }
+
+    /// The person says whether a new device of their account on a server was them. If it
+    /// wasn't, the core removes it, and they're asked to change the secret it signed in with.
+    pub fn answer_new_device(&mut self, server_id: &str, device_id: &str, mine: bool, cx: &mut Context<Self>) {
+        if self.answering_device.is_some() {
+            return;
+        }
+        self.answering_device = Some(device_id.to_string());
+        let secret = self.servers.get(server_id).and_then(|server| server.new_devices.iter().find(|device| device.id == device_id)).and_then(|device| device.secret.clone());
+        let (server, device) = (server_id.to_string(), device_id.to_string());
+        self.call(Some(server_id), "answerNewDevice", vec![json!(device_id), json!(mine)], cx, move |state, result, cx| {
+            state.answering_device = None;
+            match result {
+                Ok(_) => {
+                    if let Some(entry) = state.servers.get_mut(&server) {
+                        entry.new_devices.retain(|item| item.id != device);
+                    }
+                    if !mine {
+                        state.device_removed = Some((server, secret));
+                    }
+                }
+                Err(error) => state.toast(error.message, ToastKind::Error, cx),
+            }
+            cx.notify();
+        });
+        cx.notify();
     }
 
     pub fn active(&self) -> Option<&ServerState> {
@@ -667,7 +703,7 @@ pub struct MediaClock;
 async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
     let id = entry.id.clone();
     let get = |method: &'static str| core.call(Some(&id), method, vec![]);
-    let (conversations, users, emotes, prefs, me, connection, info, channels, voice, calls, sounds) = futures::join!(
+    let (conversations, users, emotes, prefs, me, connection, info, channels, voice, calls, sounds, new_devices) = futures::join!(
         get("getConversations"),
         get("getUsers"),
         get("getEmotes"),
@@ -679,6 +715,7 @@ async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
         get("getVoiceMembers"),
         get("getCalls"),
         get("getSounds"),
+        get("getNewDevices"),
     );
     let mut server = ServerState {
         entry,
@@ -701,6 +738,7 @@ async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
         prefs: prefs.map(from_value).unwrap_or_default(),
         active_key: None,
         typing: HashMap::new(),
+        new_devices: new_devices.map(from_value).unwrap_or_default(),
     };
     server.set_users(users.map(from_value).unwrap_or_default());
     server

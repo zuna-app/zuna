@@ -492,6 +492,18 @@ pub struct DeviceView {
     pub name: String,
 }
 
+/// A device that signed in to this account after this one, which the person is asked about
+/// until they answer (`answerNewDevice`).
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NewDevice {
+    pub id: String,
+    pub name: String,
+    pub created_at: f64,
+    /// "password" or "recovery": the secret it signed in with, if the core can tell.
+    pub secret: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SearchResult {

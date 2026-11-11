@@ -237,6 +237,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .modal-head h2 { font-size: 16px; flex: 1; }
 .modal-body { padding: 10px 20px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 16px; }
+/* Asking about a new device: over every dialog, menu and panel, and only its answers close it. */
+.new-device-layer { z-index: 85; }
+.new-device:focus { outline: none; }
+.new-device .modal-head { padding-top: 18px; }
+.new-device-icon { color: var(--amber); flex: none; }
+.new-device .modal-body { font-size: 13.5px; }
 
 /* Marks a bot wherever its name shows. */
 .bot-badge {

@@ -352,6 +352,9 @@ export function coreEvents(
       case "security":
         get().toast(event.message, "security");
         break;
+      case "new_devices":
+        patchServer(event.serverId, { newDevices: event.devices });
+        break;
       case "notify":
         notify(event);
         break;

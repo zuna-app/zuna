@@ -344,19 +344,6 @@ export abstract class SessionLocal extends SessionBase {
         if (key && device.id !== this.account.deviceId) this.sealKeyOf(device, key);
       }
     }
-    if (isSelf && previous) {
-      for (const device of devices.values()) {
-        if (!previous.devices.has(device.id) && device.id !== this.account.deviceId) {
-          this.emit({
-            type: "security",
-            serverId: this.serverId,
-            userId: api.id,
-            message: "A new device just signed in to your account. If this wasn't you, change your password and remove that device in Settings.",
-          });
-        }
-      }
-    }
-
     const head = this.headOf(api.id);
     const opened = !api.profile
       ? null

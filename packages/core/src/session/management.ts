@@ -63,6 +63,22 @@ export abstract class SessionManagement extends SessionSending {
     this.rotateSoon(rotationTiming.gatherMs);
   }
 
+  /**
+   * The person says whether a new device of their account was them (`getNewDevices`). If it
+   * wasn't, it's removed, as `revokeDevice` does, which replaces the account's keys too. Whoever
+   * signed in on it still knows the secret it signed in with, which only changing keeps out.
+   */
+  async answerNewDevice(deviceId: string, mine: boolean): Promise<void> {
+    if (!mine) {
+      const device = this.users.get(this.account.userId)?.devices.get(deviceId);
+      if (device && !device.revoked) await this.revokeDevice(deviceId);
+      // One the server keeps out of this device's list has nothing to remove, and counts for
+      // nobody once the account's keys are replaced without it.
+      else this.rotateSoon(rotationTiming.gatherMs);
+    }
+    this.dropNewDevice(deviceId);
+  }
+
   async changePassword(current: string, next: string): Promise<void> {
     const { username, core } = this.account;
     await this.rotate(await planPasswordChange(this.api, username, current, next, core));

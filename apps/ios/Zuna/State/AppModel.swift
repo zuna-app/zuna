@@ -29,6 +29,8 @@ final class AppModel {
         /// The server's soundboard, for its voice channels and calls.
         var sounds: [SoundView]
         var prefs: Preferences
+        /// Devices that signed in to this account after this one, which the person has to answer for.
+        var newDevices: [NewDevice] = []
 
         init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], calls: [CallView] = [], users: [String: UserView], emotes: EmoteSet, sounds: [SoundView] = [], prefs: Preferences) {
             self.entry = entry
@@ -355,7 +357,8 @@ final class AppModel {
             async let me = session.getSelf()
             async let connection = session.getConnectionState()
             async let info = session.getInfo()
-            return ServerState(
+            async let newDevices = session.getNewDevices()
+            var server = ServerState(
                 entry: entry,
                 info: try await info,
                 connection: try await connection,
@@ -369,6 +372,8 @@ final class AppModel {
                 sounds: try await sounds,
                 prefs: try await prefs
             )
+            server.newDevices = try await newDevices
+            return server
         } catch {
             toast("Couldn't load \(entry.name). \(ErrorText.describe(error))", .error)
             return nil
@@ -431,6 +436,45 @@ final class AppModel {
     func open(link: String) {
         pendingLink = link
         if !onboarding { joining = true }
+    }
+
+    // --- New devices ---
+
+    /// A new device the person said wasn't them was removed: where, and the secret it signed in
+    /// with, which they're asked to change next.
+    struct RemovedDevice: Equatable {
+        let serverId: String
+        let secret: String?
+    }
+
+    var deviceRemoved: RemovedDevice?
+    /// The new device being answered for, while the core removes it or forgets it.
+    private(set) var answeringDevice: String?
+
+    /// The first device the person is asked about, on any server, in the order of the servers.
+    var askedDevice: (serverId: String, device: NewDevice)? {
+        for id in order {
+            if let device = servers[id]?.newDevices.first { return (id, device) }
+        }
+        return nil
+    }
+
+    /// Whether a device that signed in after this one was the person. One that wasn't is removed,
+    /// and they're asked next to change the secret it signed in with. Says what went wrong, if
+    /// anything did, for the question to show, as it covers the toasts.
+    func answerNewDevice(_ deviceId: String, on serverId: String, mine: Bool) async -> String? {
+        guard answeringDevice == nil else { return nil }
+        answeringDevice = deviceId
+        defer { answeringDevice = nil }
+        let secret = servers[serverId]?.newDevices.first { $0.id == deviceId }?.secret
+        do {
+            try await core.session(serverId).answerNewDevice(deviceId, mine: mine)
+            servers[serverId]?.newDevices.removeAll { $0.id == deviceId }
+            if !mine { deviceRemoved = RemovedDevice(serverId: serverId, secret: secret) }
+            return nil
+        } catch {
+            return ErrorText.describe(error)
+        }
     }
 
     /// Makes a server the active one, for its chats and its settings.
@@ -535,6 +579,8 @@ final class AppModel {
             servers[serverId]?.entry.signedOut = nil
         case let .security(_, _, message):
             toast(message, .security)
+        case let .newDevices(serverId, devices):
+            servers[serverId]?.newDevices = devices
         case let .notify(serverId, _, _, _, groupId, messageId, inUse):
             onNotify?(serverId, groupId, messageId, inUse)
         case .activity:

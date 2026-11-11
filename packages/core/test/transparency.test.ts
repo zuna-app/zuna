@@ -173,27 +173,78 @@ describe("watching your own account", () => {
     const before = securityEvents(dave).length;
     appendToLog({ v: 1, t: "device", user: dave.userId, device: deviceId, key: b64(fake.publicKey), cert: entryOf(certificate), enroll: entryOf(new Uint8Array(64)), seal: entryOf(new Uint8Array(8)) });
     await self.syncLog();
-    expect(securityEvents(dave).slice(before).some((event) => event.message.includes("A new device just signed in"))).toBe(true);
+    expect(securityEvents(dave).length).toBe(before);
+    expect(self.getNewDevices()).toMatchObject([{ id: deviceId, secret: null }]);
     // Its own list never had it.
     expect((await apiOf(dave).user(dave.userId)).devices.some((device) => device.id === deviceId)).toBe(false);
+    // Not dave: there's nothing on the server to remove, and nothing left to ask.
+    await self.answerNewDevice(deviceId, false);
+    expect(self.getNewDevices()).toEqual([]);
   });
 
-  it("tells the account's other devices when it signs in on another", async () => {
+  it("asks the account's other devices about one it signs in on, until they answer", async () => {
     const dave = await person("dave");
     expect(await caughtUp(dave)).toBe(true);
     const phone = await new TestApp("dave's phone").open();
     open.push(phone);
     await phone.login(server.url, dave.session.getSelf().username);
-    await waitFor(() => warned(dave, "A new device just signed in"), "the laptop to hear of the phone");
-    // The phone came after itself, so it's told nothing.
+    const phoneId: string = sessionOf(phone).account.deviceId;
+    await waitFor(() => dave.session.getNewDevices().length === 1, "the laptop to ask about the phone");
+    expect(dave.session.getNewDevices()).toMatchObject([{ id: phoneId, secret: "password" }]);
+    expect(dave.events.some((event) => event.type === "new_devices" && event.devices.some((device) => device.id === phoneId))).toBe(true);
+    // The phone came after itself, so it asks nothing.
     expect(await caughtUp(phone)).toBe(true);
-    expect(warned(phone, "A new device just signed in")).toBe(false);
+    expect(phone.session.getNewDevices()).toEqual([]);
+    // Asked again after a restart, until it's answered.
+    await dave.restart();
+    expect(dave.session.getNewDevices().map((device) => device.id)).toEqual([phoneId]);
+    await dave.session.answerNewDevice(phoneId, true);
+    expect(dave.session.getNewDevices()).toEqual([]);
+    expect(dave.session.getDevices().some((device) => device.id === phoneId)).toBe(true);
+    await dave.restart();
+    expect(dave.session.getNewDevices()).toEqual([]);
   });
 
-  it("says nothing of devices from before this one", async () => {
+  it("removes a new device that wasn't the person, which the account's others stop asking about", async () => {
     const dave = await person("dave");
     await caughtUp(dave);
-    expect(securityEvents(dave).some((event) => event.message.includes("A new device just signed in"))).toBe(false);
+    const username = dave.session.getSelf().username;
+    const laptop = await new TestApp("dave's laptop").open();
+    open.push(laptop);
+    await laptop.login(server.url, username);
+    await waitFor(() => dave.session.getNewDevices().length === 1, "dave to ask about the laptop");
+    await dave.session.answerNewDevice(sessionOf(laptop).account.deviceId, true);
+    await caughtUp(laptop);
+    const thief = await new TestApp("someone else").open();
+    open.push(thief);
+    await thief.login(server.url, username);
+    const thiefId: string = sessionOf(thief).account.deviceId;
+    const asks = (app: TestApp) => app.session.getNewDevices().some((device) => device.id === thiefId);
+    await waitFor(() => asks(dave) && asks(laptop), "both of dave's devices to ask about it");
+    await dave.session.answerNewDevice(thiefId, false);
+    expect(asks(dave)).toBe(false);
+    expect(dave.session.getDevices().some((device) => device.id === thiefId)).toBe(false);
+    await waitFor(() => !asks(laptop), "the laptop to stop asking, as it's gone");
+  });
+
+  it("says which secret a new device signed in with", async () => {
+    const invite = await alice.session.createInvite(0, 0);
+    const erin = await new TestApp("erin").open();
+    open.push(erin);
+    const recoveryKey = await erin.register(invite, `erin${Date.now()}`);
+    await caughtUp(erin);
+    const other = await new TestApp("erin's other device").open();
+    open.push(other);
+    other.serverId = await other.client.recover(server.url, erin.session.getSelf().username, recoveryKey, "a brand new password");
+    await other.online();
+    await waitFor(() => erin.session.getNewDevices().length === 1, "erin to ask about it");
+    expect(erin.session.getNewDevices()[0]?.secret).toBe("recovery");
+  });
+
+  it("asks nothing of devices from before this one", async () => {
+    const dave = await person("dave");
+    await caughtUp(dave);
+    expect(dave.session.getNewDevices()).toEqual([]);
   });
 
   it("warns whoever has a username another account was made under", async () => {

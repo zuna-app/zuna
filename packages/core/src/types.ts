@@ -605,6 +605,19 @@ export interface DeviceView {
   name: string;
 }
 
+/**
+ * A device that signed in to this account after this one did, which this device asks the person
+ * about until they say whether it was them (`answerNewDevice`).
+ */
+export interface NewDevice {
+  id: string;
+  name: string;
+  /** When it signed in, as the server says. */
+  createdAt: number;
+  /** Which of the account's secrets it signed in with, as its proof shows, if this device can tell. */
+  secret: "password" | "recovery" | null;
+}
+
 export interface SearchResult {
   message: MessageView;
   conversationKey: string;
@@ -682,6 +695,8 @@ export type CoreEvent =
   /** A session that seemed to be over is working after all. */
   | { type: "signed_in"; serverId: string }
   | { type: "security"; serverId: string; userId: string; message: string }
+  /** Every device the person is asked about now on this server, whenever that changes. */
+  | { type: "new_devices"; serverId: string; devices: NewDevice[] }
   /** For a bot: someone pressed a button under one of its messages. `id` is the press's own, which is new each time. */
   | { type: "button"; serverId: string; groupId: string; messageId: string; userId: string; data: string; id: string }
   /**

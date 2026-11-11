@@ -231,7 +231,7 @@ Rules the core depends on:
 - No scheduled messages. A message is sealed for the MLS epoch it's sent in, so the server can't hold one and send it later, and one that waits for the sender's device to be online isn't worth having.
 - Linux is built for Wayland. X11 is legacy: what works there along the way stays working, but nothing is built or chased just for it, such as hardware decoding under X11.
 - macOS is built for Apple silicon, from macOS 14.2. A share's picture there is captured in the app through macOS's own picker and ScreenCaptureKit and goes out from the app's own connection, and video stays on the GPU both ways (`docs/MACOS_APP_PLAN.md`).
-- Security fixes may not add a step, prompt or setting for people using the app. The one exception is removing metadata from files: a switch in Privacy, on by default, that explains what turning it off shows and asks to be sure.
+- Security fixes may not add a step, prompt or setting for people using the app. There are two exceptions. Removing metadata from files is a switch in Privacy, on by default, that explains what turning it off shows and asks to be sure. A device signing in to someone's account is a question on each of their devices from before it, over everything, which only their answer closes: No removes the device and asks them to change the password or recovery key it signed in with (`answerNewDevice`).
 
 ## Gotchas
 

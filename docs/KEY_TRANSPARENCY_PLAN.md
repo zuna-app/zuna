@@ -170,7 +170,7 @@ A device with no pin for someone takes it from their `account` entry. It no long
 The entries tagged for this account get the checks a device already makes of what the server says about itself, but now nothing can be kept from it:
 
 - **Its `account` entry** has the root its slot named and its own username.
-- **Each `device` entry** is this device, or passes `ownDeviceAccepted`: carried by the head link, or enrolled through a slot. The "new device just signed in" alert is raised from the entry, so the server can't skip it. One that fails is the fake device of the rotation's design, handled as it is today.
+- **Each `device` entry** is this device, or passes `ownDeviceAccepted`: carried by the head link, or enrolled through a slot. The question whether a new device was the person is asked from the entry, so the server can't skip it ("As built"). One that fails is the fake device of the rotation's design, handled as it is today.
 - **Each `link` entry** is one this account's devices made. Anything else is the existing "different history of your account's keys" warning.
 - **A name tag that fits its username** on another account's entry gets a warning that someone was signed up under its name.
 
@@ -467,6 +467,8 @@ A local migration adds `log_records(idx, record, root, body)` at the end of `MIG
 ## As built
 
 Where the code differs from the plan above, which stays as it was decided:
+
+- **A new device is a question, not an alert.** At the owner's word on 2026-11-11, which makes an exception to the constraint at the top, a device of the account after this one's own entry is kept until the person answers whether it was them, and each app asks over everything, with nothing but an answer to close it (`getNewDevices`, `answerNewDevice`, the `new_devices` event). No removes it and asks them to change the secret its enrollment proof names (`enrolledWith`). The answer isn't passed to the account's other devices, as whoever signed in could give it; each asks, and stops when a `revoked` entry for that device comes. The list-based alert in `applyUser` is gone, as the log's is the one the server can't skip.
 
 - **No first era from the tables.** The owner chose to start every server's database again rather than keep it, so a log starts empty, with its key, at era 1 (`ensureLog`). Writing the log from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 - **Roots before now.** A device keeps the tree's frontier after every 256th record rather than a root after each (`log_records.frontier`), and works out a root from before from the nearest one, which is at most 256 records to hash again. A root after every record would have tripled the hashing of a first read.
