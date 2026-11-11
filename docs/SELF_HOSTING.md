@@ -305,7 +305,7 @@ The server keeps a log of every account's keys and devices, which every member's
 
 ```bash
 sudo systemctl stop zuna
-sudo -u zuna env $(grep -v '^#' /etc/zuna/zuna.env | xargs) /usr/local/bin/zuna-server --new-log-era
+sudo -u zuna env $(sudo grep -v '^#' /etc/zuna/zuna.env | xargs) /usr/local/bin/zuna-server --new-log-era
 sudo systemctl start zuna
 ```
 
