@@ -7,21 +7,17 @@ description = "The window a video watched together plays in on Linux: WebKitGTK,
 publish = false
 
 # A program of its own, which the app starts (src/platform/linux/watch_view.rs), so that the app
-# runs without WebKitGTK, which its packages only recommend. A member of the app's workspace,
-# with its lockfile and target folder, but not a default one: it's built by scripts/linux-app.mjs
-# and the Linux checks, with `-p zuna-watch`, and `cargo run` on any system stays the app's.
+# runs without WebKitGTK, which only zuna-watch needs. A member of the app's workspace, with its
+# lockfile and target folder, but not a default one: it's built by scripts/linux-app.mjs and the
+# Linux checks, with `-p zuna-watch`, and `cargo run` on any system stays the app's.
 
 [dependencies]
 serde_json = "1"
 
-# WebKitGTK 4.1, on GTK 3, which more systems have than 6.0, as Tauri's apps and GNOME's help
-# need it, and its GStreamer, loaded as it is to ask which decoders there are.
+# WebKitGTK 6.0, on GTK 4, which gives GTK, GLib and JavaScriptCore at the versions it was built
+# with, and its GStreamer, loaded as it is to ask which decoders there are.
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
-webkit2gtk = { version = "2", features = ["v2_40"] }
-glib = "0.18"
-gio = "0.18"
-javascriptcore = { package = "javascriptcore-rs", version = "1", features = ["v2_28"] }
+webkit6 = "0.5"
 futures-channel = "0.3"
 futures-util = "0.3"
 libc = "0.2"

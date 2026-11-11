@@ -103,7 +103,7 @@ async function packages(dist) {
     ...sizes.map((name) => ({ src: join(icons, name), dst: `/usr/share/icons/hicolor/${name.replace(".png", "")}/apps/zuna.png`, file_info: { mode: 0o644 } })),
   ];
   // What the program links and loads, by each system's names: Wayland, Vulkan, fonts, PipeWire,
-  // the portals, and WebKitGTK with GStreamer's good plugins, which zuna-watch plays a video
+  // the portals, and WebKitGTK 6.0 with GStreamer's good plugins, which zuna-watch plays a video
   // watched together through, so that it plays wherever the app is installed from a package.
   // Recommended: a color emoji font, GeoClue for location, and libav's decoders. The AppImage and
   // the .tar.gz take what the system has, and the app says what to install when it's missing.
@@ -123,7 +123,7 @@ async function packages(dist) {
     contents,
     overrides: {
       deb: {
-        depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal", "libwebkit2gtk-4.1-0", "gstreamer1.0-plugins-good"],
+        depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal", "libwebkitgtk-6.0-4", "gstreamer1.0-plugins-good"],
         recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0", "gstreamer1.0-libav"],
       },
       rpm: {
@@ -136,14 +136,14 @@ async function packages(dist) {
           "libfreetype.so.6()(64bit)",
           "libpipewire-0.3.so.0()(64bit)",
           "xdg-desktop-portal",
-          "libwebkit2gtk-4.1.so.0()(64bit)",
+          "libwebkitgtk-6.0.so.4()(64bit)",
           "(gstreamer1-plugins-good or gstreamer-plugins-good)",
         ],
         recommends: ["mesa-vulkan-drivers", "geoclue2"],
       },
       // nfpm writes no optdepends for pacman, so Arch gets only what the program needs.
       archlinux: {
-        depends: ["libxkbcommon", "wayland", "vulkan-icd-loader", "fontconfig", "freetype2", "pipewire", "xdg-desktop-portal", "webkit2gtk-4.1", "gst-plugins-good"],
+        depends: ["libxkbcommon", "wayland", "vulkan-icd-loader", "fontconfig", "freetype2", "pipewire", "xdg-desktop-portal", "webkitgtk-6.0", "gst-plugins-good"],
       },
     },
   };

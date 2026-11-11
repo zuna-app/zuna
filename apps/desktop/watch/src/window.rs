@@ -9,12 +9,9 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use futures_channel::mpsc;
-use gtk::prelude::*;
 use serde_json::{Value, json};
-use webkit2gtk::{
-    AutoplayPolicy, DownloadExt, NavigationPolicyDecision, NavigationPolicyDecisionExt, PermissionRequestExt, PolicyDecisionExt, PolicyDecisionType, SettingsExt, URIRequestExt, UserContentManager,
-    UserContentManagerExt, WebContext, WebContextExt, WebProcessTerminationReason, WebView, WebViewExt, WebsitePolicies,
-};
+use webkit6::prelude::*;
+use webkit6::{AutoplayPolicy, NavigationPolicyDecision, NetworkSession, PolicyDecisionType, UserContentManager, WebProcessTerminationReason, WebView, WebsitePolicies, gio, glib, gtk};
 
 /// The name the page posts its messages to (`window.webkit.messageHandlers.zuna`).
 const HANDLER: &str = "zuna";
@@ -57,14 +54,15 @@ fn host_of(uri: &str) -> Option<String> {
 /// What a link pressed in the player opens: the browser, for the web's own addresses alone.
 fn open_in_browser(window: &gtk::Window, uri: &str) {
     if host_of(uri).is_some() {
-        if let Err(error) = gtk::show_uri_on_window(Some(window), uri, gtk::current_event_time()) {
+        let context = WidgetExt::display(window).app_launch_context();
+        if let Err(error) = gio::AppInfo::launch_default_for_uri(uri, Some(&context)) {
             eprintln!("zuna-watch: couldn't open a link in the browser: {error}");
         }
     }
 }
 
-/// Whether WebKit's web processes can run in bubblewrap here, as they do where WebKitGTK is
-/// asked to sandbox them: bwrap and xdg-dbus-proxy installed, and user namespaces allowed.
+/// Whether WebKit's web processes can run in bubblewrap here, as WebKitGTK 6.0 always runs them:
+/// bwrap and xdg-dbus-proxy installed, and user namespaces allowed.
 fn sandbox_works() -> bool {
     let found = |name: &str| std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()));
     found("bwrap")
@@ -82,6 +80,14 @@ pub fn run() -> i32 {
     if !keep_output() {
         eprintln!("zuna-watch: couldn't keep standard output for the app");
         return 1;
+    }
+    // WebKitGTK 6.0 always sandboxes its web processes, and a web process that can't start
+    // plays nothing, so where bubblewrap can't run here they go without it, as before 6.0 they
+    // always did. Set before any thread starts, which might read the environment meanwhile.
+    if !sandbox_works() {
+        eprintln!("zuna-watch: WebKit's web processes run without bubblewrap, which isn't usable here");
+        // SAFETY: nothing else runs yet to read the environment as it changes.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1") };
     }
     // Shown as Zuna by the desktop, whose zuna.desktop names the icon: Wayland's app ID is this.
     glib::set_prgname(Some("zuna"));
@@ -102,7 +108,9 @@ pub fn run() -> i32 {
         }
         lines.close_channel();
     });
+    let main_loop = glib::MainLoop::new(None, false);
     let player: Rc<RefCell<Option<Player>>> = Rc::default();
+    let quit = main_loop.clone();
     glib::MainContext::default().spawn_local(async move {
         use futures_util::StreamExt;
         while let Some(line) = incoming.next().await {
@@ -110,10 +118,10 @@ pub fn run() -> i32 {
             let text = |key: &str| message.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
             match message.get("type").and_then(Value::as_str).unwrap_or_default() {
                 "load" if player.borrow().is_none() => {
-                    *player.borrow_mut() = Player::open(&text("page"), &text("origin"), &text("title"));
+                    *player.borrow_mut() = Player::open(&text("page"), &text("origin"), &text("title"), &quit);
                     if player.borrow().is_none() {
                         say(json!({ "type": "failed", "problem": "the page couldn't be loaded" }));
-                        gtk::main_quit();
+                        quit.quit();
                     }
                 }
                 "page" => {
@@ -123,7 +131,7 @@ pub fn run() -> i32 {
                 }
                 "title" => {
                     if let Some(player) = player.borrow().as_ref() {
-                        player.window.set_title(&text("title"));
+                        player.window.set_title(Some(&text("title")));
                     }
                 }
                 "raise" => {
@@ -135,7 +143,7 @@ pub fn run() -> i32 {
             }
         }
         // The app is done with it, or gone.
-        gtk::main_quit();
+        quit.quit();
     });
 
     // Whether GStreamer can decode YouTube's video, asked once the window is up, off GTK's thread.
@@ -145,7 +153,7 @@ pub fn run() -> i32 {
         }
     });
 
-    gtk::main();
+    main_loop.run();
     0
 }
 
@@ -156,7 +164,7 @@ struct Player {
 
 impl Player {
     /// The window, with the page loaded in it under `origin`.
-    fn open(page: &str, origin: &str, title: &str) -> Option<Player> {
+    fn open(page: &str, origin: &str, title: &str, main_loop: &glib::MainLoop) -> Option<Player> {
         let page_host = host_of(origin)?;
         if page.is_empty() {
             return None;
@@ -165,17 +173,12 @@ impl Player {
         let player_host = page.split("frame-src ").nth(1).and_then(|rest| rest.split(['"', ';', ' ']).next()).and_then(host_of);
 
         // It keeps nothing: no cookie outlives a session.
-        let context = WebContext::new_ephemeral();
-        if sandbox_works() {
-            context.set_sandbox_enabled(true);
-        } else {
-            eprintln!("zuna-watch: WebKit's web processes run without bubblewrap, which isn't usable here");
-        }
+        let session = NetworkSession::new_ephemeral();
         // Nothing is downloaded.
-        context.connect_download_started(|_, download| download.cancel());
+        session.connect_download_started(|_, download| download.cancel());
         let content = UserContentManager::new();
-        content.register_script_message_handler(HANDLER);
-        let settings = webkit2gtk::Settings::new();
+        content.register_script_message_handler(HANDLER, None);
+        let settings = webkit6::Settings::new();
         settings.set_enable_developer_extras(false);
         settings.set_enable_write_console_messages_to_stdout(false);
         settings.set_javascript_can_open_windows_automatically(false);
@@ -188,23 +191,22 @@ impl Player {
         settings.set_enable_fullscreen(true);
         settings.set_enable_back_forward_navigation_gestures(false);
         let policies = WebsitePolicies::builder().autoplay(AutoplayPolicy::Allow).build();
-        let web = WebView::builder().web_context(&context).user_content_manager(&content).settings(&settings).website_policies(&policies).build();
+        let web = WebView::builder().network_session(&session).user_content_manager(&content).settings(&settings).website_policies(&policies).build();
 
-        let window = gtk::Window::new(gtk::WindowType::Toplevel);
-        window.set_title(if title.is_empty() { "Watching together" } else { title });
+        let window = gtk::Window::new();
+        window.set_title(Some(if title.is_empty() { "Watching together" } else { title }));
         window.set_icon_name(Some("zuna"));
         window.set_default_size(960, 540);
-        window.add(&web);
+        window.set_child(Some(&web));
 
         // What the page says, which the app checks as anything from outside. A frame of YouTube's
         // can post here too, as WebKitGTK says nothing of which frame posted, but it can say
         // nothing the player in it couldn't already say of itself by playing or pausing.
-        content.connect_script_message_received(Some(HANDLER), |_, result| {
-            let Some(value) = result.js_value() else { return };
-            if !javascriptcore::ValueExt::is_string(&value) {
+        content.connect_script_message_received(Some(HANDLER), |_, value| {
+            if !value.is_string() {
                 return;
             }
-            let text = javascriptcore::ValueExt::to_str(&value).to_string();
+            let text = value.to_str().to_string();
             if text.len() <= LONGEST {
                 say(json!({ "type": "page", "message": text }));
             }
@@ -215,8 +217,8 @@ impl Player {
         let link_window = window.clone();
         let (own_host, framed_host) = (page_host.clone(), player_host.clone());
         web.connect_decide_policy(move |_, decision, kind| {
-            let navigation = decision.downcast_ref::<NavigationPolicyDecision>().and_then(|decision| decision.navigation_action());
-            let uri = navigation.as_ref().and_then(|action| action.request()).and_then(|request| request.uri()).map(|uri| uri.to_string()).unwrap_or_default();
+            let mut navigation = decision.downcast_ref::<NavigationPolicyDecision>().and_then(|decision| decision.navigation_action());
+            let uri = navigation.as_mut().and_then(|action| action.request()).and_then(|request| request.uri()).map(|uri| uri.to_string()).unwrap_or_default();
             match kind {
                 PolicyDecisionType::NewWindowAction => {
                     open_in_browser(&link_window, &uri);
@@ -226,7 +228,7 @@ impl Player {
                 PolicyDecisionType::NavigationAction => {
                     let host = host_of(&uri);
                     let ours = host.as_deref() == Some(own_host.as_str()) || (host.is_some() && host == framed_host);
-                    if ours || !navigation.is_some_and(|action| action.is_user_gesture()) {
+                    if ours || !navigation.is_some_and(|mut action| action.is_user_gesture()) {
                         return false;
                     }
                     open_in_browser(&link_window, &uri);
@@ -268,14 +270,15 @@ impl Player {
                 say(json!({ "type": "failed", "problem": "WebKit's web process keeps crashing" }));
             }
         });
-        window.connect_delete_event(|_, _| {
+        let quit = main_loop.clone();
+        window.connect_close_request(move |_| {
             say(json!({ "type": "closed" }));
-            gtk::main_quit();
+            quit.quit();
             glib::Propagation::Proceed
         });
 
         web.load_html(page, Some(origin));
-        window.show_all();
+        window.present();
         Some(Player { window, web })
     }
 

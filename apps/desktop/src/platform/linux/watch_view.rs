@@ -202,11 +202,11 @@ fn family() -> &'static str {
 /// What to install for WebKitGTK, which the window is, by this system's name for it.
 pub fn webkit_package() -> &'static str {
     match family() {
-        "arch" => "webkit2gtk-4.1",
-        "debian" => "libwebkit2gtk-4.1-0",
-        "fedora" => "webkit2gtk4.1",
-        "suse" => "libwebkit2gtk-4_1-0",
-        _ => "WebKitGTK 4.1",
+        "arch" => "webkitgtk-6.0",
+        "debian" => "libwebkitgtk-6.0-4",
+        "fedora" => "webkitgtk6.0",
+        "suse" => "libwebkitgtk-6_0-4",
+        _ => "WebKitGTK 6.0",
     }
 }
 
