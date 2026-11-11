@@ -118,7 +118,7 @@ server {
     server_name chat.example.com;
     # your ssl_certificate lines here
 
-    client_max_body_size 2m;
+    client_max_body_size 64m;
 
     location / {
         proxy_pass http://127.0.0.1:9660;

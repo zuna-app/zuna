@@ -109,7 +109,7 @@ For each domain, the proxy must:
 - **forward WebSockets,** which the server uses for everything live;
 - **add the client's address to `X-Forwarded-For`,** which both services use for rate limiting. Only the entries the proxy added count, so a caller can't make up their own;
 - **keep no access log of `/api/sealed/`,** where everything people add to a conversation goes without a name: the server keeps no address with it, but a log of every request's address would go a long way to saying who sent each message;
-- **allow request bodies of at least 2 MB.** Files upload in 1 MiB chunks, so the limit doesn't need to match the largest file.
+- **allow request bodies of at least 64 MB.** Files upload in 1 MiB chunks, so that's not for them: a change to who's in a group carries the group's whole tree, a few kilobytes for each device with post-quantum keys, which in a group of a thousand devices is tens of megabytes. With less, adding someone to a large group fails. A site the installer wrote before November 2026 allows 2 MB, which is enough for groups of up to about fifty devices.
 
 The web app's domain needs only HTTPS and `X-Forwarded-For`. Don't add security headers there: the web app sends its own, and a proxy that changes them can weaken them.
 
@@ -137,7 +137,7 @@ server {
     server_name chat.example.com;
     # your ssl_certificate lines here
 
-    client_max_body_size 2m;
+    client_max_body_size 64m;
 
     location / {
         proxy_pass http://10.0.0.5:9660;

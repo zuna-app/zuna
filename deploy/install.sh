@@ -696,6 +696,32 @@ proxy_name() {
   case "$PROXY_KIND" in caddy) echo Caddy ;; nginx) echo nginx ;; apache) echo Apache ;; *) echo "your proxy" ;; esac
 }
 
+# Whether $1 is a version at least $2, as dotted numbers.
+version_at_least() {
+  [ -n "$1" ] && [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" = "$2" ]
+}
+
+# What connections to this server agree on keys with. ML-KEM-768 and X25519 together, which a
+# quantum computer can't open later, where whatever speaks TLS in front of Zuna knows them: Zuna
+# itself, Caddy from 2.10, and nginx or Apache on OpenSSL 3.5 or newer (docs/POST_QUANTUM.md).
+# Anything older agrees on X25519 alone, and the apps still connect.
+key_agreement() {
+  local both="ML-KEM-768 with X25519" version
+  if [ -n "$IP" ]; then echo "$both, by Zuna itself"; return; fi
+  if [ -n "$CLOUDFLARE_MODE" ]; then echo "Cloudflare's, which offers $both"; return; fi
+  if [ "$PROXY" != auto ]; then echo "your proxy's: $both from Caddy 2.10, or nginx and Apache on OpenSSL 3.5"; return; fi
+  case "$PROXY_KIND" in
+    caddy)
+      version="$(caddy version 2>/dev/null | grep -o '^v[0-9][0-9.]*' | tr -d v || true)"
+      if [ "$PROXY_NEW" = 1 ] || version_at_least "$version" 2.10; then echo "$both, by Caddy"; else echo "X25519 alone: Caddy ${version:-here} is older than 2.10"; fi
+      ;;
+    *)
+      version="$(openssl version 2>/dev/null | awk '{ print $2 }' | grep -o '^[0-9][0-9.]*' || true)"
+      if version_at_least "$version" 3.5; then echo "$both, by $(proxy_name)"; else echo "X25519 alone: this system's OpenSSL ${version:-} is older than 3.5"; fi
+      ;;
+  esac
+}
+
 ask_certificate() {
   CERT_SOURCE=""
   [ -n "$DOMAIN" ] && [ "$PROXY" = auto ] || return 0
@@ -866,6 +892,7 @@ summary() {
       rows+=("Proxy|yours, $( [ "$PROXY_WHERE" = elsewhere ] && echo "on $PROXY_ADDRESS, reaching" || echo "reaching") http://$(url_host "$LISTEN"):$SERVER_PORT")
     fi
   fi
+  rows+=("Key agreement|$(key_agreement)")
   rows+=("Voice channels|on $DOT media on $VOICE_TCP_PORT/tcp and $VOICE_UDP_PORT/udp, at $PUBLIC_IP")
   if [ -n "$DATABASE_URL" ]; then rows+=("Data|PostgreSQL, files in /var/lib/zuna"); else rows+=("Data|in /var/lib/zuna"); fi
   rows+=("Notifications|through the project's push relay, which only sees sealed pushes")
@@ -1087,8 +1114,8 @@ nginx_listen() {
 nginx_proxy() {
   cat <<EOF
 
-    # Files upload in 1 MiB chunks.
-    client_max_body_size 2m;
+    # Files upload in 1 MiB chunks, and a change to a large group carries its whole tree.
+    client_max_body_size 64m;
 
     location / {
         proxy_pass http://$(upstream);
@@ -1141,8 +1168,8 @@ apache_proxy() {
     # WebSockets, for messages as they arrive and for voice channels.
     ProxyPass / http://$(upstream)/ upgrade=websocket timeout=3600
     ProxyPassReverse / http://$(upstream)/
-    # Files upload in 1 MiB chunks.
-    LimitRequestBody 2097152
+    # Files upload in 1 MiB chunks, and a change to a large group carries its whole tree.
+    LimitRequestBody 67108864
 EOF
 }
 
@@ -1262,7 +1289,7 @@ show_manual() {
   alert "${B}The proxy has to pass WebSockets on,${R} at /api/ws for messages as they arrive" \
     "and at /livekit/ for voice channels. Without them the apps sign in, but nothing" \
     "arrives until they reload, and nobody can join a call." \
-    "It also has to allow uploads of 2 MB, and add X-Forwarded-For, so that limits" \
+    "It also has to allow uploads of 64 MB, and add X-Forwarded-For, so that limits" \
     "count each person rather than the proxy."
   if [ "$SELINUX_FIX" = 1 ]; then
     say "SELinux stops $(proxy_name) connecting to Zuna until you let it:"
