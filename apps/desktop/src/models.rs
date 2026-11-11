@@ -70,6 +70,9 @@ pub struct InvitePreview {
     pub code: String,
     pub community_key: Option<String>,
     pub pin: Option<String>,
+    /// The key the server's log of keys is signed with and the inviter's head of it, from the link,
+    /// which signing up hands back to the core as it came.
+    pub log: Option<String>,
     pub setup: bool,
     pub server: ServerInfo,
 }
