@@ -186,7 +186,10 @@ export abstract class SessionLifecycle extends SessionServer {
       if (error instanceof ApiError && error.status === 401) throw error;
       console.warn("[zuna] catching up on this account's keys", error);
     });
-    this.info = await info;
+    const server = await info;
+    // The log's key is the core's alone (logKey), and isn't part of what the apps are told.
+    delete server.log_key;
+    this.info = server;
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
     // The vault comes next: it holds the keys this account already trusts,
     // which a new device must have before believing what the server says.
