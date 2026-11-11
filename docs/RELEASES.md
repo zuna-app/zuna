@@ -196,7 +196,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The Linux packages a release carries:** they're built on CI and were never installed or run from there. `linux-check.mjs` and `linux-package-check.mjs` run on a developer's machine, on packages built there.
 - **Whether Windows Defender or SmartScreen leaves the unsigned installer alone** when it's downloaded in a browser.
 - **The Authenticode lock,** as no build is signed.
-- **The iPhone app's upload from CI.** The archive, its ad hoc signature and the entitlements an export keeps were checked on a Mac, exported with Xcode's own account. Signing with the environment's certificate and profiles on a runner, and altool's upload with a Developer key, are first seen on the first nightly after the secrets are set.
+- **The iPhone app reaching testers from CI.** Nightly 1151 was archived, signed with the environment's certificate and profiles, checked and uploaded by altool with the Developer key, all on CI. What App Store Connect makes of it, and installing it from TestFlight, hasn't been seen from there.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
