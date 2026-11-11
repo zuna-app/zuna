@@ -228,7 +228,8 @@ jobs:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock') }}
+            apps/desktop/.deps/ffmpeg-*.tar.xz
+          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock', 'scripts/ffmpeg.mjs') }}
           restore-keys: macos-cargo-
       - name: Get Xcode's Metal Toolchain
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain

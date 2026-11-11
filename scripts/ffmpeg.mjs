@@ -65,12 +65,24 @@ function buildFromSource(source, dir) {
   run("make", ["install"]);
 }
 
+// Tried a few times, waiting longer each time: ffmpeg.org reset a runner's connection once, before
+// a byte of it came.
 async function download(url, file) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   const partial = `${file}.partial`;
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(partial));
-  renameSync(partial, file);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(partial));
+      renameSync(partial, file);
+      return;
+    } catch (error) {
+      const why = error.cause?.message ?? error.message;
+      if (attempt === 5) throw new Error(`${url} couldn't be fetched: ${why}`);
+      console.log(`${url}: ${why}, trying again`);
+      await new Promise((resolve) => setTimeout(resolve, attempt * 5000));
+    }
+  }
 }
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");

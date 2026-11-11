@@ -161,13 +161,15 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      # What ci.yml's macos job saved on main, as for Windows.
+      # What ci.yml's macos job saved on main, as for Windows, and FFmpeg's source, which
+      # scripts/ffmpeg.mjs checks against its hash before it's used, as ffmpeg.org drops connections.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock') }}
+            apps/desktop/.deps/ffmpeg-*.tar.xz
+          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock', 'scripts/ffmpeg.mjs') }}
           restore-keys: macos-cargo-
       # GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once the toolchain is there.
       - name: Get Xcode's Metal Toolchain
