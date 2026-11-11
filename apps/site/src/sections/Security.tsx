@@ -10,8 +10,11 @@ const EMOJI = ["🐶", "🦁", "🦄", "🐼", "🐧", "🐙", "🦋", "🌵", "
 const SEES = ["Your username and when you signed up", "Who is in each conversation", "When a message was sent there, and roughly how big", "Your IP address and online status"];
 const NEVER = ["What you write, reply or react with", "Who in a chat sent each message", "Photos, files and their names", "Group names, pictures and descriptions", "Links, their previews, and what you search for"];
 
-/** Each from SECURITY.md: MLS through the audited OpenMLS, the password stretched with Argon2id, and every message signed by its device. */
-const CREDENTIALS = ["MLS · RFC 9420", "OpenMLS, independently audited", "Argon2id", "Every message signed"];
+/**
+ * Each from SECURITY.md: MLS through the audited OpenMLS, keys agreed with ML-KEM-768 beside X25519 and signed with ML-DSA beside
+ * Ed25519 (docs/POST_QUANTUM.md), the password stretched with Argon2id, and every message signed by its device.
+ */
+const CREDENTIALS = ["MLS · RFC 9420", "OpenMLS, independently audited", "Post-quantum: ML-KEM and ML-DSA", "Argon2id", "Every message signed"];
 
 // A noise of ciphertext behind what the server can't read, made once so the page renders the same on the server and in the browser.
 const NOISE = "9f2c a71e 04bd e83a 5c19 f6d0 2b8e 71a4 c03f 8e5d 1a97 d24c 6b0e 3f81 a5c7 0d62 e94b 27f3 b81c 4e06 9a3d f15b 08c2 7de9 c4a0 3b7f e612 58d4 0f9e a2b6 ".repeat(6);
@@ -41,7 +44,8 @@ export function Security() {
               <h3>Every chat is an MLS group</h3>
               <p>
                 Direct messages too, on MLS (RFC 9420), the IETF's standard for group encryption, through the independently audited OpenMLS. Keys change whenever
-                someone joins or leaves, and at least weekly in active chats.
+                someone joins or leaves, and at least weekly in active chats. They're agreed with ML-KEM-768 and X25519 together, so what someone records today
+                can't be opened by a quantum computer later.
               </p>
             </div>
             <EpochDemo />

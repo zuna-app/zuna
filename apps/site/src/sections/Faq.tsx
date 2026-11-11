@@ -27,7 +27,7 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
   },
   {
     q: "Has it been audited?",
-    a: "The MLS library at its core, OpenMLS, has been independently audited. Zuna's own code, including how it uses that library, hasn't yet. It's on the roadmap, and we'd rather say so than let you assume.",
+    a: "The MLS library at its core, OpenMLS, has been independently audited, though the post-quantum code it now uses is newer than that audit. Zuna's own code, including how it uses that library, hasn't been yet. It's on the roadmap, and we'd rather say so than let you assume.",
   },
   {
     q: "Do I need a phone number?",
