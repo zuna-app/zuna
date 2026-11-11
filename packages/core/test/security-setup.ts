@@ -33,6 +33,8 @@ export async function groupWith(owner: TestApp, members: TestApp[], history = fa
   for (const member of members) {
     await waitFor(() => member.session.getConversations().some((item) => item.groupId === groupId && item.ready), "them to join");
     await waitFor(() => (member.session as any).hasMlsGroup(groupId), "their keys");
+    // And the roster, which waits for the device that signed it to be known.
+    await waitFor(() => !!(member.session as any).rosterOf((member.session as any).groups.get(groupId)), "the roster");
   }
   return groupId;
 }

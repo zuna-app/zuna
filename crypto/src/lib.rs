@@ -6,6 +6,7 @@
 //! UniFFI (`native.rs`, with the `uniffi` feature). The bindings expose the same
 //! functions with the same results.
 
+pub mod hybrid;
 pub mod mls;
 pub mod primitives;
 

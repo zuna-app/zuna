@@ -25,8 +25,8 @@ const (
 	// The largest body a sealed route takes: an envelope at the server's limit, as base64
 	// in JSON, with room for what goes beside it.
 	maxSealedBody = maxEnvelopeBytes*4/3 + 16<<10
-	// A typing signal, which is a short sealed frame.
-	maxTypingBytes = 1024
+	// A typing signal, which is a short sealed frame, signed with a device's hybrid key.
+	maxTypingBytes = 4 << 10
 )
 
 // sealedInput is what a sealed request is signed over, by the group's send key and, to

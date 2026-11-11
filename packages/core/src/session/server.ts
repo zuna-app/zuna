@@ -2,8 +2,8 @@
 
 import * as wasm from "@zuna/crypto";
 import { decode, type ApiBot, type ApiMessage, type ApiSound, type FileShare } from "../api";
-import { botProofInput, botSetupLink, inviteLink } from "../account";
-import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope } from "../crypto";
+import { botProofInput, botSetupLink, inviteLink, ownerKeyHash } from "../account";
+import { checkEnvelope, frameSigned, lastingKeyFromSeed, randomId, readSigned, sealEnvelope } from "../crypto";
 import { fromBase64, toBase64, toBase64Url } from "../encoding";
 import { decodeFrameData } from "../socket";
 import { openSoundDetails, sealSoundDetails } from "../soundboard";
@@ -289,7 +289,9 @@ export abstract class SessionServer extends SessionChannels {
   }
 
   protected setupLinkFor(bot: ApiBot, code: string, name?: string): string {
-    const keys = wasm.signingKeygen() as { publicKey: Uint8Array; secretKey: Uint8Array };
+    // A lasting key the link carries the seed of, so it's 32 bytes there.
+    const seed = wasm.randomBytes(32);
+    const keys = lastingKeyFromSeed(seed);
     const setups = this.getKv<BotSetups>(BOT_SETUPS) ?? {};
     const called = name?.trim() || setups[bot.id]?.name || bot.username;
     setups[bot.id] = { key: toBase64(keys.publicKey), name: called };
@@ -299,9 +301,9 @@ export abstract class SessionServer extends SessionChannels {
       id: bot.id,
       username: bot.username,
       name: called,
-      secret: keys.secretKey,
+      seed,
       ownerId: this.account.userId,
-      ownerKey: this.account.core.rootPublic,
+      ownerKeyHash: ownerKeyHash(this.account.core.rootPublic),
       listed: view.listed,
       add: view.add,
     }, this.headForLink());

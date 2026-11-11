@@ -133,14 +133,17 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		return
 	}
 	var body struct {
-		ExpectedEpoch int64                `json:"expected_epoch"`
-		Commit        []byte               `json:"commit"`
-		GroupInfo     []byte               `json:"group_info"`
-		SendKey       []byte               `json:"send_key"`
-		Kind          string               `json:"kind"`
-		AddUsers      []string             `json:"add_users"`
-		RemoveUsers   []string             `json:"remove_users"`
-		Welcomes      []store.Welcome      `json:"welcomes"`
+		ExpectedEpoch int64    `json:"expected_epoch"`
+		Commit        []byte   `json:"commit"`
+		GroupInfo     []byte   `json:"group_info"`
+		SendKey       []byte   `json:"send_key"`
+		Kind          string   `json:"kind"`
+		AddUsers      []string `json:"add_users"`
+		RemoveUsers   []string `json:"remove_users"`
+		// One welcome, for every device it adds: with hybrid keys it carries a tree of several
+		// kilobytes a device, so it goes up once (docs/POST_QUANTUM.md).
+		Welcome       []byte               `json:"welcome"`
+		WelcomeTo     []string             `json:"welcome_to"`
 		Meta          []byte               `json:"meta"`
 		MetaEpoch     *int64               `json:"meta_epoch"`
 		HistoryGrants []store.HistoryGrant `json:"history_grants"`
@@ -162,6 +165,14 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		writeError(w, http.StatusBadRequest, "invalid_commit", "That isn't a valid commit for this conversation.")
 		return
 	}
+	if (len(body.Welcome) == 0) != (len(body.WelcomeTo) == 0) || (len(body.Welcome) > 0 && !validWelcomeFrame(body.Welcome)) {
+		writeError(w, http.StatusBadRequest, "invalid_commit", "That isn't a valid commit for this conversation.")
+		return
+	}
+	welcomes := make([]store.Welcome, 0, len(body.WelcomeTo))
+	for _, device := range body.WelcomeTo {
+		welcomes = append(welcomes, store.Welcome{DeviceID: device, Data: body.Welcome})
+	}
 	before, err := s.db.GroupMemberIDs(r.Context(), groupID)
 	if err != nil {
 		writeFailure(w, err)
@@ -178,7 +189,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		Kind:          body.Kind,
 		AddUsers:      body.AddUsers,
 		RemoveUsers:   body.RemoveUsers,
-		Welcomes:      body.Welcomes,
+		Welcomes:      welcomes,
 		Meta:          body.Meta,
 		MetaEpoch:     body.MetaEpoch,
 		HistoryGrants: body.HistoryGrants,
@@ -203,7 +214,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	if len(body.RemoveUsers) > 0 {
 		s.endVoiceOf(r.Context(), groupID, body.RemoveUsers)
 	}
-	if len(body.Welcomes) > 0 {
+	if len(welcomes) > 0 {
 		s.hub.ToUsers(memberIDs(group), Event{Type: "welcome", Data: map[string]string{"group_id": groupID}})
 	}
 	// A private bot is there for everyone in the group from now on.
@@ -379,7 +390,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.Data) > 1024 {
+	if len(body.Data) > maxReadStateBytes {
 		writeError(w, http.StatusBadRequest, "bad_request", "The read state is too large.")
 		return
 	}
@@ -441,10 +452,14 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 const (
 	maxEnvelopeBytes = 256 << 10
 	// The longest a disappearing message may last, in seconds: a year.
-	maxExpiresIn     = 366 * 24 * 60 * 60
-	maxReactionBytes = 2 << 10
-	maxProofBytes    = 2 << 10
-	maxProofBody     = 8 << 10
+	maxExpiresIn = 366 * 24 * 60 * 60
+	// A reaction, pin or deletion is a short envelope its device signed, with a hybrid
+	// signature of 2,485 bytes inside (docs/POST_QUANTUM.md).
+	maxReactionBytes = 5 << 10
+	maxProofBytes    = 5 << 10
+	maxProofBody     = 16 << 10
+	// A read position, the same, framed with its epoch.
+	maxReadStateBytes = 4 << 10
 )
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {

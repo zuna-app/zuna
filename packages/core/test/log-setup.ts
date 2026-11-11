@@ -4,6 +4,7 @@
 import * as wasm from "@zuna/crypto";
 import { execFileSync } from "node:child_process";
 import type { DatabaseSync } from "node:sqlite";
+import { HPKE_PUBLIC_BYTES, LASTING_SIGNATURE_BYTES, lastingKeyFromSeed, newLastingKey } from "../src/crypto";
 import { concat, fromBase64, toBase64, utf8 } from "../src/encoding";
 import { Frontier, bodyHash, headInput, leafHash, nameTag, userTag, type LogHead } from "../src/transparency";
 import { withServerDatabase as securityDatabase } from "./security-setup";
@@ -27,12 +28,12 @@ export function useLogDatabase(open: () => Db): void {
 
 const setting = (db: Db, key: string): string => (db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string }).value;
 
-/** The log as the server keeps it: its key's seed, its era and its tree. */
+/** The log as the server keeps it: its key, a lasting hybrid one from the seed it keeps, its era and its tree. */
 export function serverLog(db: Db): { seed: Uint8Array; era: number; frontier: Frontier } {
   const size = Number(setting(db, "log_size"));
   const roots = fromBase64(setting(db, "log_frontier"));
   const frontier = new Frontier(size, Array.from({ length: roots.length / 32 }, (_, i) => roots.slice(i * 32, i * 32 + 32)));
-  return { seed: fromBase64(setting(db, "log_key")), era: Number(setting(db, "log_era")), frontier };
+  return { seed: lastingKeyFromSeed(fromBase64(setting(db, "log_key"))).secretKey, era: Number(setting(db, "log_era")), frontier };
 }
 
 function saveFrontier(db: Db, frontier: Frontier): void {
@@ -98,11 +99,18 @@ export function serverHead(): LogHead {
   });
 }
 
-/** The server's log key's seed, for a test that signs a second log with it. */
+/** The server's log key, for a test that signs a second log with it. */
 export const logSeed = (): Uint8Array => withServerDatabase((db) => serverLog(db).seed);
 
 /** An entry's body as the server writes one, with bytes as base64. */
 export const b64 = (bytes: Uint8Array): string => toBase64(bytes);
+
+/** What an account's entry holds of its keys, of the shapes they are: a lasting hybrid key, an X-Wing one, and a lasting signature. */
+export const accountKeys = (root: Uint8Array = newLastingKey().publicKey) => ({
+  root: b64(root),
+  hpke: b64(wasm.randomBytes(HPKE_PUBLIC_BYTES)),
+  hpke_sig: b64(wasm.randomBytes(LASTING_SIGNATURE_BYTES)),
+});
 
 /** The hash an entry holds of something. */
 export const entryOf = (data: Uint8Array): string => toBase64(wasm.sha256(data));
@@ -119,7 +127,7 @@ export function makeEntry(body: Record<string, unknown> & { user: string }): { r
 export const harmless = (): Record<string, unknown> & { user: string } => {
   const user = wasm.randomBytes(16);
   const id = Array.from(user, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return { v: 1, t: "account", user: id, username: `nobody-${id.slice(0, 12)}`, root: b64(wasm.randomBytes(32)), hpke: b64(wasm.randomBytes(32)), hpke_sig: b64(wasm.randomBytes(64)) };
+  return { v: 1, t: "account", user: id, username: `nobody-${id.slice(0, 12)}`, ...accountKeys() };
 };
 
 /** Every entry in the server's log now, with its body. */

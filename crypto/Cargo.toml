@@ -17,10 +17,13 @@ crate-type = ["rlib"]
 uniffi = ["dep:uniffi"]
 
 [dependencies]
-openmls = "0.9"
-openmls_rust_crypto = "0.6"
-openmls_basic_credential = "0.6"
-openmls_traits = "0.6"
+# draft-ietf-mls-pq-ciphersuites: the suite with ML-KEM-768 and X25519 together, which
+# mls.rs uses, and X-Wing, which primitives.rs seals with (docs/POST_QUANTUM.md).
+openmls = { version = "0.9", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_rust_crypto = { version = "0.6", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_traits = { version = "0.6", features = ["draft-ietf-mls-pq-ciphersuites"] }
+# ML-DSA (FIPS 204), signing beside Ed25519 (hybrid.rs). The version OpenMLS's provider uses.
+ml-dsa = "0.1"
 tls_codec = "0.5"
 getrandom = "0.2"
 chacha20poly1305 = "0.10"
@@ -55,3 +58,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# The tests make key packages as plain OpenMLS would, with one algorithm alone, which
+# the client has to refuse.
+[dev-dependencies]
+openmls_basic_credential = { version = "0.6", features = ["draft-ietf-mls-pq-ciphersuites"] }

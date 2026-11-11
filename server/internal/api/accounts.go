@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"zuna/server/internal/clientip"
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/ratelimit"
 	"zuna/server/internal/store"
 )
@@ -163,8 +164,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.RecoveryAuthKey) != 32 ||
-		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || !validNewSlots(body.Slots) || len(body.VaultCore) == 0 ||
-		len(body.Items) > maxSignUpItems || !validVaultItems(body.Items) || (len(body.BotProof) != 0 && len(body.BotProof) != 64) {
+		!hybrid.IsPublic(body.IdentityKey, hybrid.Lasting) || len(body.HpkeKey) != hpkePublicSize || len(body.HpkeKeySig) != hybrid.LastingSignatureSize ||
+		!validNewSlots(body.Slots) || len(body.VaultCore) == 0 || len(body.VaultCore) > maxVaultCoreBytes ||
+		len(body.Items) > maxSignUpItems || !validVaultItems(body.Items) || (len(body.BotProof) != 0 && len(body.BotProof) != hybrid.LastingSignatureSize) {
 		writeError(w, http.StatusBadRequest, "bad_request", "The sign-up data is incomplete.")
 		return
 	}

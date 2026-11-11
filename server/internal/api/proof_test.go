@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -19,10 +19,8 @@ import (
 func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	private := newHybridKey(t, hybrid.Device)
+	public := private.Public()
 	var login struct {
 		Token string `json:"token"`
 	}
@@ -121,12 +119,10 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 }
 
 // signingDevice signs in as the owner on a device of its own, and gives its key.
-func signingDevice(h *harness) (string, ed25519.PrivateKey) {
+func signingDevice(h *harness) (string, *hybrid.Key) {
 	h.t.Helper()
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		h.t.Fatal(err)
-	}
+	private := newHybridKey(h.t, hybrid.Device)
+	public := private.Public()
 	var login struct {
 		Token string `json:"token"`
 	}
@@ -135,8 +131,12 @@ func signingDevice(h *harness) (string, ed25519.PrivateKey) {
 	return login.Token, private
 }
 
-func proofHeaders(private ed25519.PrivateKey, method, path string, body []byte, at time.Time) map[string]string {
+func proofHeaders(private *hybrid.Key, method, path string, body []byte, at time.Time) map[string]string {
 	sum := sha256.Sum256(body)
 	input := append([]byte(fmt.Sprintf("zuna/request/v1|%s|%s|%d|", method, path, at.UnixMilli())), sum[:]...)
-	return map[string]string{"X-Zuna-Proof": base64.StdEncoding.EncodeToString(ed25519.Sign(private, input)), "X-Zuna-Time": strconv.FormatInt(at.UnixMilli(), 10)}
+	signature, err := private.Sign(input)
+	if err != nil {
+		panic(err)
+	}
+	return map[string]string{"X-Zuna-Proof": base64.StdEncoding.EncodeToString(signature), "X-Zuna-Time": strconv.FormatInt(at.UnixMilli(), 10)}
 }

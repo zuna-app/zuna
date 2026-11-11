@@ -2,9 +2,11 @@
 //!
 //! Nothing here invents new cryptography: these are thin, misuse-resistant
 //! wrappers around Argon2id (RFC 9106), HKDF-SHA-256 (RFC 5869),
-//! XChaCha20-Poly1305, Ed25519 and HPKE (RFC 9180).
+//! XChaCha20-Poly1305, Ed25519 with ML-DSA (`hybrid.rs`), and HPKE (RFC 9180)
+//! with X-Wing, ML-KEM-768 and X25519 together.
 
 use argon2::{Algorithm, Argon2, Params, Version};
+use ed25519_dalek::Signer as _;
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     XChaCha20Poly1305, XNonce,
@@ -13,10 +15,12 @@ use hkdf::Hkdf;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{
     crypto::OpenMlsCrypto,
-    types::{HpkeAeadType, HpkeCiphertext, HpkeConfig, HpkeKdfType, HpkeKemType, SignatureScheme},
+    types::{HpkeAeadType, HpkeCiphertext, HpkeConfig, HpkeKdfType, HpkeKemType},
 };
 use sha2::{Digest, Sha256};
 use tls_codec::{Deserialize as _, Serialize as _};
+
+use crate::hybrid;
 
 pub const NONCE_LEN: usize = 24;
 pub const KEY_LEN: usize = 32;
@@ -27,8 +31,12 @@ pub const KEY_LEN: usize = 32;
 const SAFETY_MEMORY_KIB: u32 = 64 * 1024;
 const SAFETY_ITERATIONS: u32 = 3;
 
+/// HPKE for slots, bundles and grants: X-Wing (draft-connolly-cfrg-xwing-kem-06), which
+/// is ML-KEM-768 and X25519 together, as the MLS suite's KEM is (`mls.rs`), so that what's
+/// sealed today can't be opened by whoever records it and later has a quantum computer.
+/// A public key is 1,216 bytes, a secret the 32-byte seed it comes from.
 const HPKE_CONFIG: HpkeConfig = HpkeConfig(
-    HpkeKemType::DhKem25519,
+    HpkeKemType::XWingKemDraft6,
     HpkeKdfType::HkdfSha256,
     HpkeAeadType::ChaCha20Poly1305,
 );
@@ -144,31 +152,47 @@ pub fn stream_open(
         .map_err(err("stream open"))
 }
 
-/// Returns `(public, secret)`.
+/// A device's signing key, Ed25519 and ML-DSA-44 together (`hybrid.rs`). Returns
+/// `(public, secret)`. The core makes lasting keys from a seed of its own, with the
+/// kind in front, as `sign` and `signing_public` take either.
 pub fn signing_keygen() -> Result<(Vec<u8>, Vec<u8>)> {
-    let (secret, public) = RustCrypto::default()
-        .signature_key_gen(SignatureScheme::ED25519)
-        .map_err(err("sign keygen"))?;
-    Ok((public, secret))
+    let secret = hybrid::generate(hybrid::DEVICE)?;
+    Ok((hybrid::public(&secret)?, secret))
 }
 
+/// Signs with a hybrid secret of either kind, or with Ed25519 alone from a 32-byte seed.
+/// Only send and item keys are that (docs/SEALED_SENDER.md), which the server checks and
+/// no app does, and which a quantum computer forging gives nothing but what the server
+/// itself always could (docs/POST_QUANTUM.md).
 pub fn sign(secret: &[u8], message: &[u8]) -> Result<Vec<u8>> {
-    RustCrypto::default()
-        .sign(SignatureScheme::ED25519, message, secret)
-        .map_err(err("sign"))
+    if hybrid::is_secret(secret) {
+        return hybrid::sign(secret, message);
+    }
+    let seed: [u8; 32] = secret.try_into().map_err(|_| "sign: that isn't a signing key".to_string())?;
+    Ok(ed25519_dalek::SigningKey::from_bytes(&seed).sign(message).to_bytes().to_vec())
 }
 
+/// Whether a hybrid signature holds, both halves of it. Nothing an app checks is signed
+/// with Ed25519 alone, so a key or a signature of that shape is refused.
 pub fn verify(public: &[u8], message: &[u8], signature: &[u8]) -> bool {
-    RustCrypto::default()
-        .verify_signature(SignatureScheme::ED25519, message, public, signature)
-        .is_ok()
+    hybrid::verify(public, message, signature)
 }
 
-/// The public half of an Ed25519 key from its 32-byte seed, which is what
-/// `signing_keygen` returns as the secret and `sign` takes. A seed can come from
-/// anywhere 32 bytes do, such as the MLS exporter.
+/// Ed25519 alone, strictly: only for what was signed that way before anything else was,
+/// as an update manifest's first signature is.
+pub fn ed25519_verify(public: &[u8], message: &[u8], signature: &[u8]) -> bool {
+    let (Ok(public), Ok(signature)) = (<[u8; 32]>::try_from(public), <[u8; 64]>::try_from(signature)) else { return false };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&public) else { return false };
+    key.verify_strict(message, &ed25519_dalek::Signature::from_bytes(&signature)).is_ok()
+}
+
+/// The public key of what `sign` takes: a hybrid secret's, or an Ed25519 seed's. A seed can
+/// come from anywhere 32 bytes do, such as the MLS exporter.
 pub fn signing_public(secret: &[u8]) -> Result<Vec<u8>> {
-    let seed: [u8; 32] = secret.try_into().map_err(|_| "signing key: a seed is 32 bytes".to_string())?;
+    if hybrid::is_secret(secret) {
+        return hybrid::public(secret);
+    }
+    let seed: [u8; 32] = secret.try_into().map_err(|_| "signing key: that isn't a signing key".to_string())?;
     Ok(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key().to_bytes().to_vec())
 }
 
@@ -269,7 +293,8 @@ pub fn hpke_open(secret: &[u8], info: &[u8], aad: &[u8], sealed: &[u8]) -> Resul
         .map_err(err("hpke open"))
 }
 
-/// Digest behind the anti-MITM emoji check.
+/// Digest behind the anti-MITM emoji check, of both people's whole identity keys, so
+/// that both halves of each hybrid key are what the emoji vouch for.
 ///
 /// Both people compute the same value because the keys are sorted first.
 /// Argon2id makes each attempt at keys whose emoji match expensive, and keeps
@@ -285,7 +310,7 @@ pub fn safety_digest(key_a: &[u8], key_b: &[u8]) -> Vec<u8> {
     input.extend_from_slice(first);
     input.extend_from_slice(&(second.len() as u32).to_be_bytes());
     input.extend_from_slice(second);
-    argon2id(&input, b"zuna/safety/v2", SAFETY_MEMORY_KIB, SAFETY_ITERATIONS, 1, 64)
+    argon2id(&input, b"zuna/safety/v3", SAFETY_MEMORY_KIB, SAFETY_ITERATIONS, 1, 64)
         .expect("fixed Argon2id parameters are valid")
 }
 
@@ -337,10 +362,17 @@ mod tests {
     fn a_seed_signs_for_its_public_key() {
         let (public, secret) = signing_keygen().unwrap();
         assert_eq!(signing_public(&secret).unwrap(), public);
+        assert_eq!(public[0], hybrid::DEVICE);
+        // A bare seed is an Ed25519 key, as send and item keys are, which only ed25519_verify takes.
         let seed = random_bytes(32).unwrap();
         let sig = sign(&seed, b"msg").unwrap();
-        assert!(verify(&signing_public(&seed).unwrap(), b"msg", &sig));
+        let ed_public = signing_public(&seed).unwrap();
+        assert_eq!((ed_public.len(), sig.len()), (32, 64));
+        assert!(ed25519_verify(&ed_public, b"msg", &sig));
+        assert!(!ed25519_verify(&ed_public, b"other", &sig));
+        assert!(!verify(&ed_public, b"msg", &sig));
         assert!(signing_public(&[1u8; 31]).is_err());
+        assert!(sign(&[1u8; 31], b"msg").is_err());
     }
 
     fn hex(text: &str) -> Vec<u8> {
@@ -429,6 +461,22 @@ mod tests {
         let sealed = hpke_seal(&public, b"info", b"aad", b"secret").unwrap();
         assert_eq!(hpke_open(&secret, b"info", b"aad", &sealed).unwrap(), b"secret");
         assert!(hpke_open(&secret, b"nope", b"aad", &sealed).is_err());
+        assert!(hpke_open(&secret, b"info", b"other", &sealed).is_err());
+        let (_, stranger) = hpke_keygen().unwrap();
+        assert!(hpke_open(&stranger, b"info", b"aad", &sealed).is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn hpke_is_x_wing() {
+        // X-Wing's sizes: an encapsulation key of 1,184 bytes of ML-KEM-768 and 32 of
+        // X25519, a ciphertext of 1,088 and 32, and a 32-byte seed for the secret.
+        let (public, secret) = hpke_keygen().unwrap();
+        assert_eq!((public.len(), secret.len()), (1216, 32));
+        let sealed = HpkeCiphertext::tls_deserialize_exact(hpke_seal(&public, b"", b"", b"").unwrap()).unwrap();
+        assert_eq!(sealed.kem_output.as_slice().len(), 1120);
+        // A key of the old shape is refused, never sealed to with X25519 alone.
+        assert!(hpke_seal(&[9u8; 32], b"", b"", b"").is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -451,11 +499,12 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn safety_digest_matches_its_golden_value() {
-        // Every app has to show the same emoji, so this value can never change.
+        // Every app has to show the same emoji, so this value only changes with its label
+        // (zuna/safety/v3 since identity keys became hybrid), on every platform at once.
         let digest = safety_digest(&[1u8; 32], &[2u8; 32]);
         assert_eq!(
             digest[..16],
-            [244, 182, 10, 184, 43, 202, 251, 120, 99, 118, 108, 154, 215, 52, 156, 53]
+            [128, 228, 102, 249, 50, 212, 0, 85, 59, 210, 33, 127, 147, 153, 126, 126]
         );
     }
 }

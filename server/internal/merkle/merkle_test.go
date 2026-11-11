@@ -1,13 +1,14 @@
 package merkle
 
 import (
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"zuna/server/internal/hybrid"
 )
 
 // The roots RFC 6962's test data gives for trees of its first one to eight leaves.
@@ -132,12 +133,19 @@ func makeVectors(t *testing.T) vectors {
 		v.Frontiers = append(v.Frontiers, hex.EncodeToString(f.Bytes()))
 	}
 	seed := unhex(t, "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
-	key := ed25519.NewKeyFromSeed(seed)
+	key, err := hybrid.NewKey(append([]byte{hybrid.Lasting}, seed...))
+	if err != nil {
+		t.Fatal(err)
+	}
 	root := f.Root()
 	input := HeadInput(3, f.Size, root)
-	v.Head.Seed, v.Head.Public = hex.EncodeToString(seed), hex.EncodeToString(key.Public().(ed25519.PublicKey))
+	v.Head.Seed, v.Head.Public = hex.EncodeToString(seed), hex.EncodeToString(key.Public())
 	v.Head.Era, v.Head.Size, v.Head.Root = 3, f.Size, hex.EncodeToString(root[:])
-	v.Head.Input, v.Head.Signature = hex.EncodeToString(input), hex.EncodeToString(ed25519.Sign(key, input))
+	signature, err := key.Sign(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.Head.Input, v.Head.Signature = hex.EncodeToString(input), hex.EncodeToString(signature)
 	return v
 }
 
@@ -166,6 +174,12 @@ func TestSharedVectors(t *testing.T) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatal(err)
 	}
+	// ML-DSA's half is hedged, so a head is signed differently each time: the one kept has
+	// to hold for the key and head these make, and the rest has to be the same.
+	if !hybrid.Verify(unhex(t, made.Head.Public), unhex(t, made.Head.Input), unhex(t, stored.Head.Signature)) {
+		t.Fatal("the shared vectors' head signature doesn't hold")
+	}
+	made.Head.Signature = stored.Head.Signature
 	if !reflect.DeepEqual(stored, made) {
 		t.Fatal("the shared vectors aren't what this package makes")
 	}

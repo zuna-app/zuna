@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -12,6 +11,7 @@ import (
 	"errors"
 	"strconv"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/merkle"
 )
 
@@ -250,7 +250,7 @@ func (d *DB) ensureLog(ctx context.Context) error {
 		if held > 0 {
 			return nil
 		}
-		seed := randomBytes(ed25519.SeedSize)
+		seed := randomBytes(hybrid.SeedSize)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?)`, settingLogKey, base64.StdEncoding.EncodeToString(seed)); err != nil {
 			return err
 		}
@@ -258,8 +258,9 @@ func (d *DB) ensureLog(ctx context.Context) error {
 	})
 }
 
-// LogKey is the key the log's heads are signed with, which never changes.
-func (d *DB) LogKey(ctx context.Context) (ed25519.PrivateKey, error) {
+// LogKey is the key the log's heads are signed with, which never changes: a lasting
+// hybrid key, Ed25519 and ML-DSA-65, from the seed the database keeps.
+func (d *DB) LogKey(ctx context.Context) (*hybrid.Key, error) {
 	d.logKeyMu.Lock()
 	defer d.logKeyMu.Unlock()
 	if d.logKey != nil {
@@ -270,10 +271,14 @@ func (d *DB) LogKey(ctx context.Context) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	seed, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(seed) != ed25519.SeedSize {
+	if err != nil || len(seed) != hybrid.SeedSize {
 		return nil, errors.New("the log of keys has no key")
 	}
-	d.logKey = ed25519.NewKeyFromSeed(seed)
+	key, err := hybrid.NewKey(append([]byte{hybrid.Lasting}, seed...))
+	if err != nil {
+		return nil, err
+	}
+	d.logKey = key
 	return d.logKey, nil
 }
 
@@ -283,7 +288,7 @@ func (d *DB) LogPublicKey(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return key.Public().(ed25519.PublicKey), nil
+	return key.Public(), nil
 }
 
 func (d *DB) signHead(ctx context.Context, era, size int64, root merkle.Hash) (LogHead, error) {
@@ -291,7 +296,11 @@ func (d *DB) signHead(ctx context.Context, era, size int64, root merkle.Hash) (L
 	if err != nil {
 		return LogHead{}, err
 	}
-	return LogHead{Era: era, Size: size, Root: root[:], Sig: ed25519.Sign(key, merkle.HeadInput(uint64(era), uint64(size), root))}, nil
+	sig, err := key.Sign(merkle.HeadInput(uint64(era), uint64(size), root))
+	if err != nil {
+		return LogHead{}, err
+	}
+	return LogHead{Era: era, Size: size, Root: root[:], Sig: sig}, nil
 }
 
 // LogStatus is the log's era and size now, which tells a device whether it has all of it.

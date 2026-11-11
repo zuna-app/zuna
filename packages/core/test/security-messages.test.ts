@@ -402,7 +402,8 @@ describe("a Welcome delivered as being for another group (Z-46)", () => {
       send_key: sendKeyOf(session.mls, own, true),
       kind: "members",
       add_users: [victim.userId],
-      welcomes: [{ device_id: deviceId, data: forged.welcome }],
+      welcome: forged.welcome,
+      welcome_to: [deviceId],
     });
     session.mls.mergePending(utf8(own));
 

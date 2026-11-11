@@ -236,7 +236,7 @@ describe("a bot's standing", () => {
     const [address, fragment] = link.split("#") as [string, string];
     const parts = new URLSearchParams(fragment);
     const carried = JSON.parse(fromUtf8(fromBase64Url(parts.get("bot")!)));
-    carried.s = toBase64Url((wasm.signingKeygen() as { secretKey: Uint8Array }).secretKey);
+    carried.s = toBase64Url(wasm.randomBytes(32));
     parts.set("bot", toBase64Url(utf8(JSON.stringify(carried))));
     const app = await new TestApp("impostor").open();
     await app.registerBot(`${address}#${parts}`);

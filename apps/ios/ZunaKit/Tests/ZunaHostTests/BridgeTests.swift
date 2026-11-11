@@ -64,7 +64,8 @@ final class BridgeTests: XCTestCase {
             [pair.publicKey.length, signature.length, __zunaCrypto.verify(pair.publicKey, message, signature),
              __zunaCrypto.verify(pair.publicKey, new Uint8Array([5]), signature)].join(',')
             """)
-        XCTAssertEqual(result.toString(), "32,64,true,false")
+        // A device's hybrid key, Ed25519 and ML-DSA-44 (crypto/src/hybrid.rs), and its signature.
+        XCTAssertEqual(result.toString(), "1345,2485,true,false")
     }
 
     func testDatabaseRunsMigrationsAndRoundTripsBlobs() throws {

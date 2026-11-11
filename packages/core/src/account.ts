@@ -7,6 +7,9 @@ import {
   createCertificate,
   derivePasswordKeys,
   deriveRecoveryKeys,
+  lastingKeyFromSeed,
+  newDeviceKey,
+  newLastingKey,
   openVaultCore,
   randomId,
   sealProfile,
@@ -36,7 +39,7 @@ import {
   type SlotKind,
 } from "./generations";
 import { manifestParts } from "./manifest";
-import { Frontier, bodyFits, headSigned, leafHash, linkHead, parseBody, parseLinkHead, readRecord, userTag, type PinnedHead } from "./transparency";
+import { Frontier, bodyFits, headSigned, leafHash, linkHead, logKeyHash, parseBody, parseLinkHead, readRecord, userTag, type PinnedHead } from "./transparency";
 import type { BotAdd, BotInfo, InvitePreview, Profile, Role } from "./types";
 
 /** Everything a device needs to act for its account. Stored encrypted at rest. */
@@ -101,14 +104,25 @@ export interface BotSetup {
   id: string;
   username: string;
   name: string;
-  /** Signs the bot's identity key, so that its owner's app knows the key is the one this link made. */
-  secret: Uint8Array;
+  /**
+   * The seed of a lasting key, which signs the bot's identity key, so that its owner's app
+   * knows the key is the one this link made. Both halves of the hybrid key come from it,
+   * so the link carries 32 bytes for it.
+   */
+  seed: Uint8Array;
   ownerId: string;
-  /** Its owner's identity key, which the bot goes by from the start, whatever the server says it is. */
-  ownerKey: Uint8Array;
+  /**
+   * The hash of its owner's identity key (`ownerKeyHash`), which the bot goes by from the
+   * start, whatever the server says it is: it signs up only if the key the server lists for
+   * its owner is the one this names.
+   */
+  ownerKeyHash: Uint8Array;
   listed: boolean;
   add: BotAdd;
 }
+
+/** What a bot's setup link names its owner's identity key by: a hybrid key is two kilobytes. */
+export const ownerKeyHash = (identityKey: Uint8Array): Uint8Array => wasm.sha256(concat(utf8("zuna/bot-owner/v1|"), identityKey));
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 
@@ -119,11 +133,11 @@ function parseBotSetup(encoded: string | null): BotSetup | null {
     const { id, u, n, s, o, k, l, a } = raw;
     if (typeof id !== "string" || !ACCOUNT_ID.test(id) || typeof o !== "string" || !ACCOUNT_ID.test(o)) return null;
     if (typeof u !== "string" || typeof n !== "string" || typeof s !== "string" || typeof k !== "string") return null;
-    const secret = fromBase64Url(s);
-    const ownerKey = fromBase64Url(k);
-    if (secret.length < 32 || ownerKey.length !== 32) return null;
+    const seed = fromBase64Url(s);
+    const ownerHash = fromBase64Url(k);
+    if (seed.length !== 32 || ownerHash.length !== 32) return null;
     const listed = l === 1;
-    return { id, username: u, name: n, secret, ownerId: o, ownerKey, listed, add: listed && (a === "admins" || a === "anyone") ? a : "owner" };
+    return { id, username: u, name: n, seed, ownerId: o, ownerKeyHash: ownerHash, listed, add: listed && (a === "admins" || a === "anyone") ? a : "owner" };
   } catch {
     return null;
   }
@@ -222,24 +236,24 @@ async function previewOpenServer(address: string, trust: (url: string, pin: stri
 
 /**
  * An invite link. After the #, which never reaches the server, it carries the community key, a
- * server's own certificate's pin, and the key the server's log of keys is signed with, with the
- * inviter's head of it, which whoever joins holds the log they're given to.
+ * server's own certificate's pin, and the hash of the key the server's log of keys is signed
+ * with, with the inviter's head of it, which whoever joins holds the log they're given to.
  */
 export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, log?: PinnedHead): string =>
   `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}${pin ? `&pin=${pin}` : ""}${log ? `&log=${linkHead(log)}` : ""}`;
 
-/** A bot's setup link: its invite's, with who the bot is and the key that vouches for it after the #. */
+/** A bot's setup link: its invite's, with who the bot is and the seed of the key that vouches for it after the #. */
 export function botSetupLink(serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined, bot: BotSetup, log?: PinnedHead): string {
-  const carried = { id: bot.id, u: bot.username, n: bot.name, s: toBase64Url(bot.secret), o: bot.ownerId, k: toBase64Url(bot.ownerKey), l: bot.listed ? 1 : 0, a: bot.add };
+  const carried = { id: bot.id, u: bot.username, n: bot.name, s: toBase64Url(bot.seed), o: bot.ownerId, k: toBase64Url(bot.ownerKeyHash), l: bot.listed ? 1 : 0, a: bot.add };
   return `${inviteLink(serverUrl, code, communityKey, pin, log)}&bot=${toBase64Url(utf8(JSON.stringify(carried)))}`;
 }
 
 /** The log's key and a head, as an account keeps them. */
-const keptHead = (head: PinnedHead): NonNullable<AccountState["log"]> => ({ key: toBase64(head.key), era: head.era, size: head.size, root: toBase64(head.root) });
+const keptHead = (head: Omit<PinnedHead, "keyHash"> & { key: Uint8Array }): NonNullable<AccountState["log"]> => ({ key: toBase64(head.key), era: head.era, size: head.size, root: toBase64(head.root) });
 
 /** Makes this device, and shows it came from someone who could open a slot. */
 async function createDevice(api: Api, core: VaultCore, userId: string, slotSign: Uint8Array) {
-  const device = wasm.signingKeygen();
+  const device = newDeviceKey();
   const deviceId = randomId();
   const certificate = createCertificate(core.identitySecret, { userId, deviceId, signatureKey: device.publicKey, generation: core.generation });
   const seal = wasm.hpkeKeygen();
@@ -310,7 +324,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     communityKey = fromBase64Url(info.community_key);
   }
 
-  const identity = wasm.signingKeygen();
+  const identity = newLastingKey();
   const hpke = wasm.hpkeKeygen();
   const core: VaultCore = {
     identityPublic: identity.publicKey,
@@ -346,14 +360,32 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     vault_core: sealVaultCore(accountKey, core),
     items: manifest.map(({ id, data, version }) => ({ id, data: sealVaultItem(accountKey, id, data, 0), version })),
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
-    bot_proof: input.bot ? wasm.sign(input.bot.secret, botProofInput(input.bot.id, core.identityPublic)) : undefined,
+    bot_proof: input.bot ? wasm.sign(lastingKeyFromSeed(input.bot.seed).secretKey, botProofInput(input.bot.id, core.identityPublic)) : undefined,
   });
   if (input.bot && created.user_id !== input.bot.id) throw new Error("The server made another account than the one this link is for. Not continuing.");
   api.token = created.token;
   // What the link says the log held, which the server never saw, and which this device holds it to.
-  const head = parseLinkHead(input.invite?.log);
+  // The link names the log's key by its hash, which the key the server gives a session has to have.
+  const linked = parseLinkHead(input.invite?.log);
+  let head: Parameters<typeof keptHead>[0] | null = null;
+  if (linked) {
+    const info = await api.info();
+    const key = info.log_key ? fromBase64(info.log_key) : null;
+    if (!key || !equalBytes(logKeyHash(key), linked.keyHash)) {
+      throw new Error("This server's log of keys isn't the one the invite link names. Not continuing.");
+    }
+    head = { key, era: linked.era, size: linked.size, root: linked.root };
+  }
 
   const device = await createDevice(api, core, created.user_id, passwordSlot.secrets.sign);
+  // A bot goes by its owner's identity key from the start: the one the link names by its hash.
+  let ownerKey: Uint8Array | null = null;
+  if (input.bot) {
+    ownerKey = decode((await api.user(input.bot.ownerId)).identity_key);
+    if (!equalBytes(ownerKeyHash(ownerKey), input.bot.ownerKeyHash)) {
+      throw new Error("The server lists another key for this bot's owner than the setup link names. Not continuing.");
+    }
+  }
   return {
     account: {
       serverUrl,
@@ -364,7 +396,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       ...device,
       accountKey,
       core,
-      ...(input.bot ? { bot: { ownerId: input.bot.ownerId, listed: input.bot.listed, add: input.bot.add, ownerKey: toBase64(input.bot.ownerKey) } } : {}),
+      ...(input.bot && ownerKey ? { bot: { ownerId: input.bot.ownerId, listed: input.bot.listed, add: input.bot.add, ownerKey: toBase64(ownerKey) } } : {}),
       ...(head ? { log: keptHead(head) } : {}),
     },
     recoveryKey: toRecoveryText(recoveryKey),

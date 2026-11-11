@@ -8,7 +8,6 @@ package store
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -21,6 +20,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "modernc.org/sqlite" // Pure Go driver, so the server needs no C toolchain.
+
+	"zuna/server/internal/hybrid"
 )
 
 var (
@@ -56,7 +57,7 @@ type DB struct {
 	onLog func()
 	// logKey is the key the log's heads are signed with, once it's been read.
 	logKeyMu sync.Mutex
-	logKey   ed25519.PrivateKey
+	logKey   *hybrid.Key
 }
 
 // handle runs statements on the whole database or in one transaction, turning

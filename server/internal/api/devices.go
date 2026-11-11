@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -27,8 +28,11 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		writeError(w, http.StatusConflict, "conflict", "This session already has a device.")
 		return
 	}
-	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || len(body.SignatureKey) != 32 ||
-		body.Generation == nil || len(body.SealKey) != 32 || body.SealGeneration == nil || len(body.SealProof) != 64 || len(body.EnrollProof) != 64 {
+	// A device signs with a hybrid key of a device's kind, and its enrollment proof is by a
+	// slot's, which is a lasting one (docs/POST_QUANTUM.md).
+	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || !hybrid.IsPublic(body.SignatureKey, hybrid.Device) ||
+		body.Generation == nil || len(body.SealKey) != hpkePublicSize || body.SealGeneration == nil || len(body.SealProof) != hybrid.DeviceSignatureSize ||
+		len(body.EnrollProof) != hybrid.LastingSignatureSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "The device data is incomplete.")
 		return
 	}
@@ -84,9 +88,15 @@ func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusBadRequest, "bad_request", "Too many key packages at once.")
 		return
 	}
-	for _, data := range append(slices.Clone(body.KeyPackages), body.LastResort) {
+	for i, data := range append(slices.Clone(body.KeyPackages), body.LastResort) {
 		if len(data) > maxKeyPackageBytes {
 			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "A key package is too large.")
+			return
+		}
+		// A last-resort package may be left out. Anything else has to be of the one suite.
+		lastResortLeftOut := i == len(body.KeyPackages) && len(data) == 0
+		if !lastResortLeftOut && !validKeyPackageFrame(data) {
+			writeError(w, http.StatusBadRequest, "bad_request", "That isn't a key package this server takes.")
 			return
 		}
 	}

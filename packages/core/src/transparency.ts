@@ -6,6 +6,7 @@
 // docs/KEY_TRANSPARENCY_PLAN.md.
 
 import * as wasm from "@zuna/crypto";
+import { DEVICE_PUBLIC_BYTES, HPKE_PUBLIC_BYTES, LASTING_PUBLIC_BYTES, LASTING_SIGNATURE_BYTES, isDeviceKey, isLastingKey } from "./crypto";
 import { concat, equalBytes, fromBase64, fromBase64Url, fromUtf8, toBase64, toBase64Url, u32Bytes, u64Bytes, utf8 } from "./encoding";
 
 export const HASH_BYTES = 32;
@@ -138,17 +139,17 @@ export function parseBody(bytes: Uint8Array): LogBody | null {
   const hash = (field: string) => bytesOf(raw[field], HASH_BYTES);
   switch (raw.t) {
     case "account": {
-      const root = bytesOf(raw.root, 32);
-      const hpke = bytesOf(raw.hpke, 32);
-      const hpkeSig = bytesOf(raw.hpke_sig, 64);
+      const root = bytesOf(raw.root, LASTING_PUBLIC_BYTES);
+      const hpke = bytesOf(raw.hpke, HPKE_PUBLIC_BYTES);
+      const hpkeSig = bytesOf(raw.hpke_sig, LASTING_SIGNATURE_BYTES);
       // A deleted account's username is gone when the log is written again.
-      if (typeof raw.username !== "string" || raw.username.length > 64 || !root || !hpke || !hpkeSig) return null;
+      if (typeof raw.username !== "string" || raw.username.length > 64 || !root || !isLastingKey(root) || !hpke || !hpkeSig) return null;
       return { t: "account", user, username: raw.username, root, hpke, hpkeSig };
     }
     case "device": {
-      const key = bytesOf(raw.key, 32);
+      const key = bytesOf(raw.key, DEVICE_PUBLIC_BYTES);
       const [cert, enroll, seal] = [hash("cert"), hash("enroll"), hash("seal")];
-      return device && key && cert && enroll && seal ? { t: "device", user, device, key, cert, enroll, seal } : null;
+      return device && key && isDeviceKey(key) && cert && enroll && seal ? { t: "device", user, device, key, cert, enroll, seal } : null;
     }
     case "certificate": {
       const cert = hash("cert");
@@ -197,10 +198,10 @@ export interface LogHead {
   sig?: Uint8Array;
 }
 
-export const headInput = (era: number, size: number, root: Uint8Array): Uint8Array => concat(utf8("zuna/log/head/v1|"), u64Bytes(era), u64Bytes(size), root);
+export const headInput = (era: number, size: number, root: Uint8Array): Uint8Array => concat(utf8("zuna/log/head/v2|"), u64Bytes(era), u64Bytes(size), root);
 
 export function headSigned(key: Uint8Array, head: LogHead): boolean {
-  return !!head.sig && head.root.length === HASH_BYTES && wasm.verify(key, headInput(head.era, head.size, head.root), head.sig);
+  return !!head.sig && head.root.length === HASH_BYTES && isLastingKey(key) && wasm.verify(key, headInput(head.era, head.size, head.root), head.sig);
 }
 
 /** A head as signed messages carry it. */
@@ -220,21 +221,28 @@ export function fromWireHead(value: unknown): LogHead | null {
   try {
     const root = fromBase64(wire.r);
     const sig = fromBase64(wire.s);
-    return root.length === HASH_BYTES && sig.length === 64 ? { era: wire.e!, size: wire.n!, root, sig } : null;
+    return root.length === HASH_BYTES && sig.length === LASTING_SIGNATURE_BYTES ? { era: wire.e!, size: wire.n!, root, sig } : null;
   } catch {
     return null;
   }
 }
 
-/** The log's key and a head an inviter held, as an invite link carries them after `&log=`. */
+/**
+ * The log's key and a head an inviter held, as an invite link carries them after `&log=`.
+ * The key is a lasting hybrid one, two kilobytes, so the link carries its hash, and whoever
+ * joins holds the key the server gives to it (`logKeyHash`).
+ */
 export interface PinnedHead {
-  key: Uint8Array;
+  keyHash: Uint8Array;
   era: number;
   size: number;
   root: Uint8Array;
 }
 
-export const linkHead = (head: PinnedHead): string => toBase64Url(concat(head.key, u32Bytes(head.era), u64Bytes(head.size), head.root));
+/** What an invite link names the log's key by. */
+export const logKeyHash = (key: Uint8Array): Uint8Array => wasm.sha256(concat(utf8("zuna/log/key/v1|"), key));
+
+export const linkHead = (head: PinnedHead): string => toBase64Url(concat(head.keyHash, u32Bytes(head.era), u64Bytes(head.size), head.root));
 
 export function parseLinkHead(text: string | null | undefined): PinnedHead | null {
   if (!text) return null;
@@ -249,5 +257,5 @@ export function parseLinkHead(text: string | null | undefined): PinnedHead | nul
   const era = view.getUint32(32);
   const size = Number(view.getBigUint64(36));
   if (era < 1 || !Number.isSafeInteger(size)) return null;
-  return { key: bytes.slice(0, 32), era, size, root: bytes.slice(44) };
+  return { keyHash: bytes.slice(0, 32), era, size, root: bytes.slice(44) };
 }

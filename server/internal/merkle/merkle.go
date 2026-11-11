@@ -143,9 +143,9 @@ func Record(nonce, userTag, nameTag []byte, bodyHash Hash) []byte {
 	return append(out, bodyHash[:]...)
 }
 
-// HeadInput is what the log key signs of a head.
+// HeadInput is what the log key signs of a head, with both halves of its hybrid key.
 func HeadInput(era, size uint64, root Hash) []byte {
-	out := []byte("zuna/log/head/v1|")
+	out := []byte("zuna/log/head/v2|")
 	out = binary.BigEndian.AppendUint64(out, era)
 	out = binary.BigEndian.AppendUint64(out, size)
 	return append(out, root[:]...)

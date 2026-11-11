@@ -384,7 +384,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     const vector = (data: Uint8Array) => new Uint8Array([data.length, ...data]);
     const u64 = u64Bytes(epoch);
     const commit = new Uint8Array([0, 1, 0, 2, ...vector(id), ...u64, 3, ...vector(new Uint8Array(0)), ...vector(new Uint8Array(8).fill(9)), ...vector(new Uint8Array(32).fill(9))]);
-    const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 3, ...vector(id), ...u64Bytes(epoch + 1), ...new Uint8Array(40).fill(7)]);
+    const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 0x52, ...vector(id), ...u64Bytes(epoch + 1), ...new Uint8Array(40).fill(7)]);
     return { commit, info };
   }
 

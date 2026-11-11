@@ -28,16 +28,26 @@ import (
 const (
 	// What one JSON request may hold. A commit carries a whole group's tree, and
 	// a vault upload many keys; nothing else comes close to these.
-	maxJSONBody   = 1 << 20
-	maxCommitBody = 16 << 20
+	maxJSONBody = 1 << 20
+	// A commit and its welcome each carry the group's whole tree, several kilobytes a device
+	// with hybrid keys (docs/POST_QUANTUM.md): this takes a group of about two thousand.
+	maxCommitBody = 64 << 20
 	maxVaultBody  = 4 << 20
 	maxSignInBody = 8 << 10
-	maxSignUpBody = 64 << 10
+	// A sign-up carries hybrid keys and signatures, and slots sealed with X-Wing, a few
+	// kilobytes each (docs/POST_QUANTUM.md).
+	maxSignUpBody = 256 << 10
 	// What a sign-up may put in the vault: its manifest, and room to spare.
 	maxSignUpItems = 4
 	// A profile or a group's details: a few short texts and a picture's reference.
 	maxDetailsBody = 64 << 10
 	maxDetailBytes = 16 << 10
+	// An account's vault core: its hybrid keys and the public halves of its slots, and
+	// older keys, which each rotation adds to.
+	maxVaultCoreBytes = 64 << 10
+	// X-Wing's public key, ML-KEM-768's 1,184 bytes and X25519's 32: slots', devices' seal
+	// keys and accounts' HPKE keys, as the clients' crypto/src/primitives.rs makes them.
+	hpkePublicSize = 1216
 
 	defaultUploadMB = 100
 	// A person's files together, if the server doesn't say otherwise.
@@ -120,19 +130,19 @@ type Server struct {
 	authLimiter *ratelimit.Keyed
 	// Sealed requests name nobody, so they're held by address alone, as typing is
 	// in each group too. What's kept is held by tokens.
-	sealedLimiter *ratelimit.Keyed
-	typingLimiter *ratelimit.Keyed
-	writeLimiter  *ratelimit.Keyed
-	readLimiter       *ratelimit.Keyed
-	emoteLimiter      *ratelimit.Keyed
-	socketLimiter     *ratelimit.Keyed
-	publicLimiter     *ratelimit.Keyed
-	pageLimiter       *ratelimit.Keyed
-	claimLimiter      *ratelimit.Keyed
-	targetLimiter     *ratelimit.Keyed
-	rotateLimiter     *ratelimit.Keyed
-	signInFailures    *ratelimit.Backoff
-	accountAttempts   *ratelimit.Backoff
+	sealedLimiter   *ratelimit.Keyed
+	typingLimiter   *ratelimit.Keyed
+	writeLimiter    *ratelimit.Keyed
+	readLimiter     *ratelimit.Keyed
+	emoteLimiter    *ratelimit.Keyed
+	socketLimiter   *ratelimit.Keyed
+	publicLimiter   *ratelimit.Keyed
+	pageLimiter     *ratelimit.Keyed
+	claimLimiter    *ratelimit.Keyed
+	targetLimiter   *ratelimit.Keyed
+	rotateLimiter   *ratelimit.Keyed
+	signInFailures  *ratelimit.Backoff
+	accountAttempts *ratelimit.Backoff
 
 	// How many reports each person sends, and whom they've reported today, kept
 	// in memory alone.
@@ -191,12 +201,12 @@ func New(cfg Config, db *store.DB) *Server {
 		panic(err)
 	}
 	s := &Server{
-		cfg:            cfg,
-		db:             db,
-		hub:            newHub(db, cfg.PresenceLinger),
-		files:          filepath.Join(cfg.DataDir, "files"),
-		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
-		callers:        callers,
+		cfg:         cfg,
+		db:          db,
+		hub:         newHub(db, cfg.PresenceLinger),
+		files:       filepath.Join(cfg.DataDir, "files"),
+		emotes:      emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
+		callers:     callers,
 		authLimiter: ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		// Friends behind one home router share an address, and a bot may answer in many
 		// chats at once, so this only stops a flood.
@@ -229,9 +239,9 @@ func New(cfg Config, db *store.DB) *Server {
 		voiceLimiter:      ratelimit.NewKeyed(rate.Limit(1), 20),
 		soundLimiter:      ratelimit.NewKeyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
 		// The apps send four seeks a second at most, while someone drags, and answer those who come in.
-		watchLimiter:      ratelimit.NewKeyed(rate.Limit(8), 40),
-		liveKit:           &http.Client{Timeout: liveKitTimeout},
-		pushClient:        &http.Client{Timeout: pushTimeout},
+		watchLimiter: ratelimit.NewKeyed(rate.Limit(8), 40),
+		liveKit:      &http.Client{Timeout: liveKitTimeout},
+		pushClient:   &http.Client{Timeout: pushTimeout},
 
 		reportLimiter:       ratelimit.NewKeyed(rate.Every(time.Hour), 10),
 		reportTargetLimiter: ratelimit.NewKeyed(rate.Every(24*time.Hour), 1),

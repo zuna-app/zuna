@@ -63,7 +63,7 @@ describe("the send key", () => {
     const vector = (data: Uint8Array) => new Uint8Array([data.length, ...data]);
     const u64 = (n: number) => new Uint8Array(new BigUint64Array([BigInt(n)]).buffer).reverse();
     const commit = new Uint8Array([0, 1, 0, 2, ...vector(id), ...u64(before.epoch), 3, ...vector(new Uint8Array(0)), ...vector(new Uint8Array(8).fill(9)), ...vector(new Uint8Array(32).fill(9))]);
-    const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 3, ...vector(id), ...u64(before.epoch + 1), ...new Uint8Array(40).fill(7)]);
+    const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 0x52, ...vector(id), ...u64(before.epoch + 1), ...new Uint8Array(40).fill(7)]);
     await apiOf(cat).commit(groupId, { expected_epoch: before.epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
     await waitFor(async () => (await heldSendKey(ann, groupId)).epoch === before.epoch, "it to be undone", 20_000);
     expect(equalBytes((await heldSendKey(ann, groupId)).key, before.key)).toBe(true);

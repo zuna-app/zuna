@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -13,12 +12,15 @@ import (
 	"sync"
 	"time"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
 // What can't be undone, or acts for the whole server, needs more than a session
 // token, which can end up somewhere on its own, such as a proxy's log: the
-// device the session is for signs the request with its key.
+// device the session is for signs the request with its hybrid key, Ed25519 and ML-DSA-44
+// together. The signature goes in a header, X-Zuna-Proof, which at 3,316 characters of
+// base64 is well under what proxies pass: 8 KiB a header for nginx and Apache.
 const (
 	// How far a request's time may be from the server's.
 	proofWindow = 5 * time.Minute
@@ -36,10 +38,11 @@ func requestProofInput(method, path string, at int64, body []byte) []byte {
 	return append([]byte(fmt.Sprintf("zuna/request/v1|%s|%s|%d|", method, path, at)), sum[:]...)
 }
 
-// seenProofs remembers signatures until they're too old to be accepted anyway.
+// seenProofs remembers signatures until they're too old to be accepted anyway, by
+// their hash, as a hybrid signature is a few kilobytes.
 type seenProofs struct {
 	mu   sync.Mutex
-	seen map[string]time.Time
+	seen map[[sha256.Size]byte]time.Time
 }
 
 // first reports whether a signature hasn't been seen, and remembers it.
@@ -47,9 +50,9 @@ func (p *seenProofs) first(signature []byte, now time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.seen == nil {
-		p.seen = map[string]time.Time{}
+		p.seen = map[[sha256.Size]byte]time.Time{}
 	}
-	key := string(signature)
+	key := sha256.Sum256(signature)
 	if _, ok := p.seen[key]; ok {
 		return false
 	}
@@ -108,8 +111,8 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	signature, err := base64.StdEncoding.DecodeString(encoded)
 	at, timeErr := strconv.ParseInt(r.Header.Get("X-Zuna-Time"), 10, 64)
-	if err != nil || timeErr != nil || len(key) != ed25519.PublicKeySize ||
-		!ed25519.Verify(key, requestProofInput(r.Method, r.URL.EscapedPath(), at, body), signature) {
+	if err != nil || timeErr != nil ||
+		!hybrid.VerifyKind(hybrid.Device, key, requestProofInput(r.Method, r.URL.EscapedPath(), at, body), signature) {
 		writeError(w, http.StatusUnauthorized, "proof_invalid", "This request couldn't be checked. Please try again.")
 		return false
 	}

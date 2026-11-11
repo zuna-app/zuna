@@ -5,7 +5,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
-import { createCertificate, sealVaultItem } from "../src/crypto";
+import { createCertificate, newLastingKey, sealVaultItem } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { keyCommitment, sealBundle, signSealProof } from "../src/generations";
 import { joinManifestParts, manifestParts, readManifestPart, type TrustManifest } from "../src/manifest";
@@ -338,7 +338,7 @@ describe("someone holding old keys, with the server's help", () => {
     await waitFor(() => sessionOf(alice).headGeneration(dave.userId) === 1, "alice to follow");
     const held = sessionOf(alice).headOf(dave.userId);
 
-    const other = wasm.signingKeygen();
+    const other = newLastingKey();
     const device = wasm.signingKeygen();
     const fork = buildLink(
       {
@@ -402,7 +402,7 @@ describe("someone holding old keys, with the server's help", () => {
     await waitFor(() => sessionOf(dave).manifest?.chains[erin.userId]?.gen === 1, "dave's position in the vault");
 
     const { buildLink, rootHash, slotsHash } = await import("../src/generations");
-    const other = wasm.signingKeygen();
+    const other = newLastingKey();
     const device = wasm.signingKeygen();
     const fork = buildLink(
       {
@@ -433,8 +433,8 @@ describe("someone holding old keys, with the server's help", () => {
 
   it("refuses a link missing any one of its signatures", async () => {
     const { buildLink, rootHash, slotsHash, verifyLink } = await import("../src/generations");
-    const previous = wasm.signingKeygen();
-    const next = wasm.signingKeygen();
+    const previous = newLastingKey();
+    const next = newLastingKey();
     const device = wasm.signingKeygen();
     const signed = buildLink(
       {

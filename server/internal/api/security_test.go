@@ -45,7 +45,7 @@ func commitFrame(groupID string, epoch int64) []byte {
 // groupInfoFrame is what a group info looks like from outside.
 func groupInfoFrame(groupID string, epoch int64) []byte {
 	frame := mlsHeader(4)
-	frame = append(frame, 0, 1, 0, 3)
+	frame = append(frame, 0, 1, 0, mlsSuite)
 	frame = append(frame, mlsVector([]byte(groupID))...)
 	frame = binary.BigEndian.AppendUint64(frame, uint64(epoch))
 	return append(frame, []byte("the rest of it, which only clients can check")...)
@@ -332,10 +332,10 @@ func TestACommitCantDoWhatTheAPIForbids(t *testing.T) {
 	}
 
 	// Welcomes go to people joining, not to whoever a member likes.
-	if status, _ := bob.commit(group, epoch, map[string]any{"welcomes": []map[string]any{{"device_id": carol.device, "data": []byte("w")}}}); status != http.StatusForbidden {
+	if status, _ := bob.commit(group, epoch, map[string]any{"welcome": welcomeFrame("w"), "welcome_to": []string{carol.device}}); status != http.StatusForbidden {
 		t.Fatalf("a welcome for someone not joining gave %d", status)
 	}
-	if status, _ := owner.commit(group, epoch, map[string]any{"welcomes": []map[string]any{{"device_id": store.NewID(), "data": []byte("w")}}}); status != http.StatusForbidden {
+	if status, _ := owner.commit(group, epoch, map[string]any{"welcome": welcomeFrame("w"), "welcome_to": []string{store.NewID()}}); status != http.StatusForbidden {
 		t.Fatalf("a welcome for a device that doesn't exist gave %d", status)
 	}
 
@@ -350,7 +350,8 @@ func TestACommitCantDoWhatTheAPIForbids(t *testing.T) {
 	if status, resp := owner.commit(group, epoch, map[string]any{
 		"add_users":      []string{carol.userID},
 		"history_grants": []map[string]any{{"user_id": carol.userID, "data": []byte("keys")}},
-		"welcomes":       []map[string]any{{"device_id": carol.device, "data": []byte("w")}},
+		"welcome":        welcomeFrame("w"),
+		"welcome_to":     []string{carol.device},
 	}); status != http.StatusOK {
 		t.Fatalf("adding carol: %d %v", status, resp)
 	}

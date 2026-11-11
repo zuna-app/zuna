@@ -1,14 +1,13 @@
 package api_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"zuna/server/internal/api"
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -18,30 +17,32 @@ import (
 type keyed struct {
 	*client
 	h      *harness
-	root   ed25519.PrivateKey
-	head   ed25519.PrivateKey
-	device ed25519.PrivateKey
+	root   *hybrid.Key
+	head   *hybrid.Key
+	device *hybrid.Key
 	links  [][]byte
 }
 
-func newKey(t *testing.T) ed25519.PrivateKey {
+// newKey is a new identity key, a lasting hybrid one, and newDeviceKey a device's.
+func newKey(t *testing.T) *hybrid.Key {
 	t.Helper()
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return private
+	return newHybridKey(t, hybrid.Lasting)
 }
 
-func publicOf(key ed25519.PrivateKey) []byte {
-	return []byte(key.Public().(ed25519.PublicKey))
+func newDeviceKey(t *testing.T) *hybrid.Key {
+	t.Helper()
+	return newHybridKey(t, hybrid.Device)
+}
+
+func publicOf(key *hybrid.Key) []byte {
+	return key.Public()
 }
 
 // signUp makes an account whose identity key and device key the test holds.
 func (h *harness) signUp(name, invite string) *keyed {
 	h.t.Helper()
 	root := newKey(h.t)
-	device := newKey(h.t)
+	device := newDeviceKey(h.t)
 	var out struct {
 		UserID string `json:"user_id"`
 		Token  string `json:"token"`
@@ -54,8 +55,8 @@ func (h *harness) signUp(name, invite string) *keyed {
 		"recovery_auth_key": bytesOf(32, name[0]+1),
 		"slots":             newSlots(),
 		"identity_key":      publicOf(root),
-		"hpke_key":          bytesOf(32, 2),
-		"hpke_key_sig":      bytesOf(64, 3),
+		"hpke_key":          hpkeShape(2),
+		"hpke_key_sig":      bytesOf(hybrid.LastingSignatureSize, 3),
 		"vault_core":        []byte("vault"),
 		"profile":           []byte("encrypted-profile"),
 	}, &out)
@@ -67,12 +68,16 @@ func (h *harness) signUp(name, invite string) *keyed {
 	return &keyed{client: c, h: h, root: root, head: root, device: device}
 }
 
-func signed(key ed25519.PrivateKey, payload []byte) []byte {
-	return ed25519.Sign(key, append([]byte("zuna/identity-link/v1"), payload...))
+func signed(key *hybrid.Key, payload []byte) []byte {
+	signature, err := key.Sign(append([]byte("zuna/identity-link/v1"), payload...))
+	if err != nil {
+		panic(err)
+	}
+	return signature
 }
 
 // rotation builds a valid request for the account's next generation.
-func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[string]any, ed25519.PrivateKey) {
+func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[string]any, *hybrid.Key) {
 	k.h.t.Helper()
 	next := newKey(k.h.t)
 	generation := int64(len(k.links)) + 1
@@ -87,7 +92,7 @@ func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[strin
 		list = append(list, map[string]any{"id": id, "key": key})
 	}
 	payload, err := json.Marshal(map[string]any{
-		"v": 1, "user": k.userID, "gen": generation, "prev": prev[:], "identity": publicOf(next), "hpke": bytesOf(32, 5),
+		"v": 1, "user": k.userID, "gen": generation, "prev": prev[:], "identity": publicOf(next), "hpke": hpkeShape(5),
 		"key_commit": bytesOf(32, 6), "slots_hash": bytesOf(32, 7), "devices": list, "removed": removed, "signer": k.client.device,
 	})
 	if err != nil {
@@ -189,7 +194,7 @@ func TestRotationAccountsForEveryDevice(t *testing.T) {
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
 	second := store.NewID()
-	secondKey := newKey(t)
+	secondKey := newDeviceKey(t)
 	h.mustDo("POST", "/api/devices", login.Token, newDevice(second, publicOf(secondKey)), nil)
 
 	body, _ := owner.rotation(carried, []string{})
@@ -198,14 +203,14 @@ func TestRotationAccountsForEveryDevice(t *testing.T) {
 	}
 
 	// A device listed with another key than the one it has.
-	both := map[string][]byte{owner.client.device: publicOf(owner.device), second: publicOf(newKey(t))}
+	both := map[string][]byte{owner.client.device: publicOf(owner.device), second: publicOf(newDeviceKey(t))}
 	body, _ = owner.rotation(both, []string{})
 	if status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil); status != http.StatusConflict || resp["error"] != "devices_changed" {
 		t.Fatalf("got %d %v", status, resp)
 	}
 
 	// Listed as removed, it goes, along with its sessions.
-	var next ed25519.PrivateKey
+	var next *hybrid.Key
 	body, next = owner.rotation(carried, []string{second})
 	h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
 	if status, _ := h.do("GET", "/api/users", login.Token, nil, nil); status != http.StatusUnauthorized {
@@ -229,7 +234,7 @@ func TestRotationEndsSessionsWithNoDevice(t *testing.T) {
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
 	owner.rotate()
-	device := newDevice(store.NewID(), bytesOf(32, 1))
+	device := newDevice(store.NewID(), publicOf(newDeviceKey(t)))
 	device["generation"] = 1
 	status, _ := h.do("POST", "/api/devices", login.Token, device, nil)
 	if status != http.StatusUnauthorized {
@@ -346,14 +351,14 @@ func TestADeviceOnlyChangesWhatsItsOwn(t *testing.T) {
 	h := newHarness(t)
 	owner := h.signUp("owner", h.invite)
 	other := store.NewID()
-	sealKey := map[string]any{"seal_key": bytesOf(32, 1), "seal_generation": 0, "seal_proof": bytesOf(64, 2)}
+	sealKey := map[string]any{"seal_key": hpkeShape(1), "seal_generation": 0, "seal_proof": bytesOf(hybrid.DeviceSignatureSize, 2)}
 	if status, _ := h.do("PUT", "/api/devices/"+other+"/seal-key", owner.token, sealKey, nil); status != http.StatusForbidden {
 		t.Fatalf("someone else's seal key gave %d", status)
 	}
 	if status, _ := h.do("PUT", "/api/devices/"+other+"/certificate", owner.token, map[string]any{"certificate": []byte("c")}, nil); status != http.StatusForbidden {
 		t.Fatalf("someone else's certificate gave %d", status)
 	}
-	if status, _ := h.do("PUT", "/api/devices/"+owner.client.device+"/seal-key", owner.token, map[string]any{"seal_key": bytesOf(32, 1), "seal_proof": bytesOf(64, 2)}, nil); status != http.StatusBadRequest {
+	if status, _ := h.do("PUT", "/api/devices/"+owner.client.device+"/seal-key", owner.token, map[string]any{"seal_key": hpkeShape(1), "seal_proof": bytesOf(hybrid.DeviceSignatureSize, 2)}, nil); status != http.StatusBadRequest {
 		t.Fatalf("a seal key that doesn't say its generation gave %d", status)
 	}
 	h.mustDo("PUT", "/api/devices/"+owner.client.device+"/seal-key", owner.token, sealKey, nil)
@@ -382,7 +387,7 @@ func TestADeviceOnlyChangesWhatsItsOwn(t *testing.T) {
 func TestSlotsFromTheStartAndAfter(t *testing.T) {
 	h := newHarness(t)
 	slot := func(kind string) map[string]any {
-		return map[string]any{"kind": kind, "seal_key": bytesOf(32, 1), "sign_key": bytesOf(32, 2), "sealed_secret": []byte("secret-" + kind), "sealed_key": []byte("key-" + kind)}
+		return map[string]any{"kind": kind, "seal_key": hpkeShape(1), "sign_key": lastingShape(2), "sealed_secret": []byte("secret-" + kind), "sealed_key": []byte("key-" + kind)}
 	}
 	var out struct {
 		Token string `json:"token"`
@@ -392,7 +397,7 @@ func TestSlotsFromTheStartAndAfter(t *testing.T) {
 			"invite_code": h.invite, "username": "owner",
 			"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
 			"auth_key": bytesOf(32, 'o'), "recovery_auth_key": bytesOf(32, 'r'),
-			"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "hpke_key_sig": bytesOf(64, 3), "vault_core": []byte("vault"),
+			"identity_key": lastingShape(1), "hpke_key": hpkeShape(2), "hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("vault"),
 		}
 		for key, value := range extra {
 			body[key] = value

@@ -3,7 +3,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/merkle"
 	"zuna/server/internal/store"
 )
@@ -54,7 +54,7 @@ func (h *harness) readLog(token string, limit int) (int64, []loggedEntry) {
 		LogKey []byte `json:"log_key"`
 	}
 	h.mustDo("GET", "/api/info", token, nil, &info)
-	if len(info.LogKey) != ed25519.PublicKeySize {
+	if !hybrid.IsPublic(info.LogKey, hybrid.Lasting) {
 		h.t.Fatalf("no log key for someone signed in: %v", info.LogKey)
 	}
 	var frontier merkle.Frontier
@@ -85,7 +85,7 @@ func (h *harness) readLog(token string, limit int) (int64, []loggedEntry) {
 		if page.Head.Size != int64(frontier.Size) || page.Head.Era != page.Era || !bytes.Equal(page.Head.Root, root[:]) {
 			h.t.Fatalf("a head that isn't the records': %+v", page.Head)
 		}
-		if !ed25519.Verify(info.LogKey, merkle.HeadInput(uint64(page.Era), frontier.Size, root), page.Head.Sig) {
+		if !hybrid.Verify(info.LogKey, merkle.HeadInput(uint64(page.Era), frontier.Size, root), page.Head.Sig) {
 			h.t.Fatal("a head the log key didn't sign")
 		}
 		if int64(frontier.Size) >= page.Size {
@@ -148,7 +148,7 @@ func TestEachChangeToKeysIsInTheLog(t *testing.T) {
 			h.mustDo("PUT", "/api/devices/"+owner.device+"/certificate", owner.token, map[string]any{"certificate": []byte("cert 2")}, nil)
 		}, []string{"certificate"}},
 		{"a seal key", func() {
-			h.mustDo("PUT", "/api/devices/"+owner.device+"/seal-key", owner.token, map[string]any{"seal_key": bytesOf(32, 9), "seal_generation": 0, "seal_proof": bytesOf(64, 9)}, nil)
+			h.mustDo("PUT", "/api/devices/"+owner.device+"/seal-key", owner.token, map[string]any{"seal_key": hpkeShape(9), "seal_generation": 0, "seal_proof": bytesOf(hybrid.DeviceSignatureSize, 9)}, nil)
 		}, []string{"seal"}},
 	}
 	for _, step := range steps {

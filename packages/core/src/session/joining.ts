@@ -1,12 +1,16 @@
 // ServerSession, in part (see base.ts): joining groups, and committing to them.
 
 import * as wasm from "@zuna/crypto";
-import { ApiError, decode, type ApiGroup } from "../api";
+import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
 import { equalBytes, u64Bytes, utf8 } from "../encoding";
 import { sealRoster, type Roster } from "../roster";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
 import { SessionGroups } from "./groups";
+
+/** A commit's welcome, once, with every device it adds, or nothing for a commit that adds none. */
+const welcomeFor = (welcome: Uint8Array | null, packages: { deviceId: string }[]): Pick<CommitRequest, "welcome" | "welcome_to"> =>
+  welcome && packages.length > 0 ? { welcome, welcome_to: packages.map((item) => item.deviceId) } : {};
 
 export abstract class SessionJoining extends SessionGroups {
   // --- Groups: joining ---
@@ -433,7 +437,7 @@ export abstract class SessionJoining extends SessionGroups {
         send_key: wasm.signingPublic(this.mls.exportPendingSecret(groupBytes, SEND_LABEL, u64Bytes(newEpoch), 32)),
         kind: "init",
         add_users: extraUsers,
-        welcomes: pending.welcome ? packages.map((item) => ({ device_id: item.deviceId, data: pending.welcome! })) : [],
+        ...welcomeFor(pending.welcome, packages),
         meta: meta ? this.sealGroupDetails(group.id, key, newEpoch, meta, 1) : undefined,
         meta_epoch: meta ? newEpoch : undefined,
       });
@@ -518,7 +522,7 @@ export abstract class SessionJoining extends SessionGroups {
           kind: plan.kind,
           add_users: plan.addUsers,
           remove_users: plan.removeUsers,
-          welcomes: pending.welcome ? packages.map((item) => ({ device_id: item.deviceId, data: pending.welcome! })) : [],
+          ...welcomeFor(pending.welcome, packages),
           meta: shouldSealMeta ? this.sealGroupDetails(groupId, key, newEpoch, meta, Math.max(group.metaVersion ?? 0, 1)) : undefined,
           meta_epoch: shouldSealMeta ? newEpoch : undefined,
           history_grants: plan.grants,

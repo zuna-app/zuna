@@ -3,6 +3,7 @@
 // this can't do, is in docs/ACCOUNT_KEY_ROTATION.md.
 
 import * as wasm from "@zuna/crypto";
+import { HPKE_PUBLIC_BYTES, isDeviceKey, isLastingKey, newLastingKey } from "./crypto";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 
 const label = (text: string) => utf8(text);
@@ -43,7 +44,7 @@ export interface SlotSecrets {
 /** Makes a slot. Its secrets are only ever kept encrypted under the key the secret derives. */
 export function createSlot(kind: SlotKind, slotKey: Uint8Array, root: Uint8Array): { slot: NewSlot; secrets: SlotSecrets } {
   const seal = wasm.hpkeKeygen();
-  const sign = wasm.signingKeygen();
+  const sign = newLastingKey();
   const secrets: SlotSecrets = { seal: seal.secretKey as Uint8Array, sign: sign.secretKey as Uint8Array, root };
   const json = JSON.stringify({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign), root: toBase64(root) });
   return {
@@ -63,7 +64,7 @@ export function openSlot(kind: SlotKind, slotKey: Uint8Array, sealedSecret: Uint
   return { seal: fromBase64(json.seal), sign: fromBase64(json.sign), root: fromBase64(json.root) };
 }
 
-const slotInfo = (kind: SlotKind, who: string, generation: number) => label(`zuna/account-slot/v1/key|${kind}|${who.toLowerCase()}|${generation}`);
+const slotInfo = (kind: SlotKind, who: string, generation: number) => label(`zuna/account-slot/v2/key|${kind}|${who.toLowerCase()}|${generation}`);
 
 /** `who` is the username, since a new account's slots are made before it has an ID. */
 export const sealToSlot = (seal: Uint8Array, kind: SlotKind, who: string, generation: number, linkHash: Uint8Array, accountKey: Uint8Array) =>
@@ -103,7 +104,7 @@ export const signEnrollment = (slotSign: Uint8Array, user: string, device: strin
 export const verifyEnrollment = (slotSign: Uint8Array, user: string, device: string, signingKey: Uint8Array, proof: Uint8Array) =>
   wasm.verify(slotSign, enrollInput(user, device, signingKey), proof);
 
-const bundleInfo = (user: string, device: string, generation: number) => label(`zuna/account-bundle/v1|${user}|${device}|${generation}`);
+const bundleInfo = (user: string, device: string, generation: number) => label(`zuna/account-bundle/v2|${user}|${device}|${generation}`);
 
 export const sealBundle = (seal: Uint8Array, user: string, device: string, generation: number, linkHash: Uint8Array, accountKey: Uint8Array) =>
   wasm.hpkeSeal(seal, bundleInfo(user, device, generation), linkHash, accountKey);
@@ -227,7 +228,7 @@ export function readHeldLink(signed: SignedLink): Link | null {
 export function verifyLink(signed: SignedLink, expected: { user: string; gen: number; prev: Uint8Array; prevIdentity: Uint8Array }): Link | null {
   const link = readHeldLink(signed);
   if (!link || link.user !== expected.user || link.gen !== expected.gen || !equalBytes(link.prev, expected.prev)) return null;
-  if (link.identity.length !== 32 || link.hpke.length !== 32) return null;
+  if (!isLastingKey(link.identity) || link.hpke.length !== HPKE_PUBLIC_BYTES || !link.devices.every((device) => isDeviceKey(device.key))) return null;
   const signer = link.devices.find((device) => device.id === link.signer);
   if (!signer) return null;
   const input = linkInput(signed.payload);

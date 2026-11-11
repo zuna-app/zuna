@@ -6,6 +6,7 @@ import {
   coreFromJson,
   coreToJson,
   createCertificate,
+  newLastingKey,
   openVaultCore,
   openVaultItem,
   parseCertificate,
@@ -135,7 +136,7 @@ export abstract class SessionRotation extends SessionDirectory {
     // A device listed is in the log already, so it's read after the list: no sibling that just signed in is taken for a false one.
     await this.syncLog().catch((error) => console.warn("[zuna] reading the log of keys", error));
     const accountKey = wasm.randomBytes(32);
-    const identity = wasm.signingKeygen();
+    const identity = newLastingKey();
     const hpke = wasm.hpkeKeygen();
 
     // Any device with a good certificate that's new to this one gets the usual alert now, before it could be carried.

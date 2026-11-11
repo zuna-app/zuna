@@ -295,9 +295,10 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   if (isObject(tokenKeys) && isCount(tokenKeys.p, Number.MAX_SAFE_INTEGER) && typeof tokenKeys.h === "string" && /^[0-9a-f]{16}$/.test(tokenKeys.h)) {
     body.tokenKeys = { p: tokenKeys.p, h: tokenKeys.h };
   }
-  // Only a head that reads as one, which is compared, and is nothing to show.
+  // Only a head that reads as one, which is compared, and is nothing to show. Its signature is the
+  // log key's, a lasting hybrid one (`LASTING_SIGNATURE_BYTES` in crypto.ts, which the interface doesn't load).
   const log = value.log;
-  if (isObject(log) && isCount(log.e, Number.MAX_SAFE_INTEGER) && log.e > 0 && isCount(log.n, Number.MAX_SAFE_INTEGER) && isBase64Of(log.r, 32) && isBase64Of(log.s, 64)) {
+  if (isObject(log) && isCount(log.e, Number.MAX_SAFE_INTEGER) && log.e > 0 && isCount(log.n, Number.MAX_SAFE_INTEGER) && isBase64Of(log.r, 32) && isBase64Of(log.s, 3374)) {
     body.log = { e: log.e, n: log.n, r: log.r as string, s: log.s as string };
   }
   if (!absent(value.signal)) {

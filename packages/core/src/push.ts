@@ -105,8 +105,12 @@ async function openServer(options: { db: DbProvider; deviceKey: Uint8Array }, se
   return { key, server, account, db, read, user, nameOf };
 }
 
-/** How much of one group's MLS state a preview takes into memory, in bytes as stored: an extension has about 24 MB for everything. */
-const MAX_FOLLOWED_STATE = 512 << 10;
+/**
+ * How much of one group's MLS state a preview takes into memory, in bytes as stored: an extension
+ * has about 24 MB for everything. With hybrid keys a device's leaf takes about 38 KB as stored, so
+ * this follows groups of up to about fifty devices (docs/POST_QUANTUM.md, "What it costs").
+ */
+const MAX_FOLLOWED_STATE = 2 << 20;
 /** How far a preview reads on in a group's changes for the commits it's missing: pages, and how much is on each. */
 const FOLLOWED_PAGES = 5;
 const FOLLOWED_PAGE = 100;

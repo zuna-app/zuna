@@ -4,7 +4,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
-import { randomId, sealEnvelope } from "../src/crypto";
+import { createCertificate, newLastingKey, randomId, sealEnvelope } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { parseGroupDetails, parseMessageBody, parseProfile } from "../src/validate";
 import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
@@ -232,8 +232,8 @@ describe("a leaf naming someone nobody can check yet (Z-43)", () => {
     const before = securityEvents(carol).length;
     const keys = wasm.signingKeygen();
     const device = randomId();
-    const payload = utf8(JSON.stringify({ v: 1, user: bob.userId, device, key: toBase64(keys.publicKey), gen: 0 }));
-    const forged = utf8(JSON.stringify({ p: toBase64(payload), h: toBase64(new Uint8Array(64)) }));
+    // A certificate for a device of Bob's, signed by a key that isn't his.
+    const forged = createCertificate(newLastingKey().secretKey, { userId: bob.userId, deviceId: device, signatureKey: keys.publicKey, generation: 0 });
     const ghost = new wasm.MlsClient(keys.publicKey, keys.secretKey, forged, [] as unknown as any[]);
     const info = await malApi.groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };

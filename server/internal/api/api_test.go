@@ -3,7 +3,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"zuna/server/internal/api"
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 	"zuna/server/internal/store/storetest"
 )
@@ -28,7 +28,7 @@ type harness struct {
 	dir    string
 	invite string
 	// keys is what each session's device signs its requests with, as the app does.
-	keys map[string]ed25519.PrivateKey
+	keys map[string]*hybrid.Key
 	// signedAt is the time the last request was signed at. The same request signed
 	// twice in one millisecond would be the same signature, which is refused.
 	signedAt time.Time
@@ -75,30 +75,56 @@ func newHarness(t *testing.T, configure ...func(*api.Config)) *harness {
 	if code == "" {
 		t.Fatal("a fresh server should have a setup invite")
 	}
-	return &harness{t: t, url: ts.URL, srv: srv, db: db, dir: dir, invite: code, keys: map[string]ed25519.PrivateKey{}}
+	return &harness{t: t, url: ts.URL, srv: srv, db: db, dir: dir, invite: code, keys: map[string]*hybrid.Key{}}
 }
 
 // deviceKey makes a key for the device a session registers, which the harness
 // then signs that session's requests with.
 func (h *harness) deviceKey(token string) []byte {
 	h.t.Helper()
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		h.t.Fatal(err)
-	}
+	key := newHybridKey(h.t, hybrid.Device)
 	h.signing.Lock()
-	h.keys[token] = private
+	h.keys[token] = key
 	h.signing.Unlock()
-	return public
+	return key.Public()
 }
 
 func bytesOf(n int, b byte) []byte { return bytes.Repeat([]byte{b}, n) }
+
+// newHybridKey is a new hybrid key of a kind, which signs as an app's does.
+func newHybridKey(t *testing.T, kind byte) *hybrid.Key {
+	t.Helper()
+	key, err := hybrid.NewKey(hybrid.NewSecret(kind))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+// lastingShape and hpkeShape are bytes of the shape of a lasting hybrid key and of an X-Wing
+// one, where the server only measures what it's given.
+func lastingShape(b byte) []byte {
+	key := bytesOf(hybrid.LastingPublicSize, b)
+	key[0] = hybrid.Lasting
+	return key
+}
+
+func hpkeShape(b byte) []byte { return bytesOf(1216, b) }
+
+// mlsSuite is the one suite every group is made with, 0x0052 (crypto/src/mls.rs).
+const mlsSuite = 0x52
+
+// keyPackageFrame and welcomeFrame are what a key package and a welcome look like from outside:
+// MLS's version, a welcome's wire format, and the one suite.
+func keyPackageFrame(data string) []byte { return append([]byte{0, 1, 0, mlsSuite}, data...) }
+
+func welcomeFrame(data string) []byte { return append(mlsHeader(3), append([]byte{0, mlsSuite}, data...)...) }
 
 // newSlots are an account's slots for its password and recovery key, as an app
 // sends them at sign-up. The server can't open any of it.
 func newSlots() []map[string]any {
 	slot := func(kind string) map[string]any {
-		return map[string]any{"kind": kind, "seal_key": bytesOf(32, 1), "sign_key": bytesOf(32, 2), "sealed_secret": []byte("secret-" + kind), "sealed_key": []byte("key-" + kind)}
+		return map[string]any{"kind": kind, "seal_key": hpkeShape(1), "sign_key": lastingShape(2), "sealed_secret": []byte("secret-" + kind), "sealed_key": []byte("key-" + kind)}
 	}
 	return []map[string]any{slot("password"), slot("recovery")}
 }
@@ -108,7 +134,7 @@ func newSlots() []map[string]any {
 func newDevice(id string, key []byte) map[string]any {
 	return map[string]any{
 		"id": id, "certificate": []byte("cert"), "signature_key": key, "generation": 0,
-		"seal_key": bytesOf(32, 6), "seal_generation": 0, "seal_proof": bytesOf(64, 7), "enroll_proof": bytesOf(64, 8),
+		"seal_key": hpkeShape(6), "seal_generation": 0, "seal_proof": bytesOf(hybrid.DeviceSignatureSize, 7), "enroll_proof": bytesOf(hybrid.LastingSignatureSize, 8),
 	}
 }
 
@@ -192,9 +218,9 @@ func (h *harness) register(name, invite string) *client {
 		"auth_key":          bytesOf(32, name[0]),
 		"recovery_auth_key": bytesOf(32, name[0]+1),
 		"slots":             newSlots(),
-		"identity_key":      bytesOf(32, 1),
-		"hpke_key":          bytesOf(32, 2),
-		"hpke_key_sig":      bytesOf(64, 3),
+		"identity_key":      lastingShape(1),
+		"hpke_key":          hpkeShape(2),
+		"hpke_key_sig":      bytesOf(hybrid.LastingSignatureSize, 3),
 		"vault_core":        []byte("vault"),
 		"profile":           []byte("encrypted-profile"),
 	}, &out)
@@ -260,7 +286,7 @@ func TestInviteRequiredByDefault(t *testing.T) {
 		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
 		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
 		"slots":        newSlots(),
-		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
+		"identity_key": lastingShape(1), "hpke_key": hpkeShape(2), "hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("v"),
 	}, nil)
 	if status != http.StatusForbidden || resp["error"] != "invite_required" {
 		t.Fatalf("got %d %v", status, resp)
@@ -311,7 +337,7 @@ func TestKDFDowngradeRejectedAtRegistration(t *testing.T) {
 		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 8, "iterations": 1, "parallelism": 1},
 		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
 		"slots":        newSlots(),
-		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
+		"identity_key": lastingShape(1), "hpke_key": hpkeShape(2), "hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("v"),
 	}, nil)
 	if status != http.StatusBadRequest {
 		t.Fatalf("weak KDF gave %d", status)
@@ -327,7 +353,7 @@ func TestCommitCompareAndSwapOrdersEpochs(t *testing.T) {
 		t.Fatal("both sides must get the same DM")
 	}
 
-	status, resp := owner.commit(group.ID, 0, map[string]any{"welcomes": []map[string]any{{"device_id": bob.device, "data": []byte("welcome")}}})
+	status, resp := owner.commit(group.ID, 0, map[string]any{"welcome": welcomeFrame("welcome"), "welcome_to": []string{bob.device}})
 	if status != http.StatusOK || resp["epoch"].(float64) != 1 {
 		t.Fatalf("first commit: %d %v", status, resp)
 	}
@@ -344,8 +370,8 @@ func TestCommitCompareAndSwapOrdersEpochs(t *testing.T) {
 		Welcomes []store.Welcome `json:"welcomes"`
 	}
 	h.mustDo("GET", "/api/welcomes", bob.token, nil, &welcomes)
-	if len(welcomes.Welcomes) != 1 || string(welcomes.Welcomes[0].Data) != "welcome" {
-		t.Fatalf("welcomes = %+v", welcomes.Welcomes)
+	if len(welcomes.Welcomes) != 1 || string(welcomes.Welcomes[0].Data) != string(welcomeFrame("welcome")) {
+		t.Fatalf("%d welcomes", len(welcomes.Welcomes))
 	}
 	h.mustDo("DELETE", fmt.Sprintf("/api/welcomes/%d", welcomes.Welcomes[0].ID), bob.token, nil, nil)
 	h.mustDo("GET", "/api/welcomes", bob.token, nil, &welcomes)
@@ -582,8 +608,8 @@ func TestKeyPackageClaiming(t *testing.T) {
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
 	h.mustDo("POST", "/api/key-packages", bob.token, map[string]any{
-		"key_packages": [][]byte{[]byte("kp1")},
-		"last_resort":  []byte("resort"),
+		"key_packages": [][]byte{keyPackageFrame("kp1")},
+		"last_resort":  keyPackageFrame("resort"),
 	}, nil)
 	claim := func() string {
 		var out struct {
@@ -595,11 +621,11 @@ func TestKeyPackageClaiming(t *testing.T) {
 		}
 		return string(out.KeyPackages[0].Data)
 	}
-	if got := claim(); got != "kp1" {
+	if got := claim(); got != string(keyPackageFrame("kp1")) {
 		t.Fatalf("first claim = %q", got)
 	}
 	for range 2 {
-		if got := claim(); got != "resort" {
+		if got := claim(); got != string(keyPackageFrame("resort")) {
 			t.Fatalf("the last-resort package should be reused, got %q", got)
 		}
 	}

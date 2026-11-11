@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -107,8 +108,8 @@ func TestWhoMayMakeBotsAndHowMany(t *testing.T) {
 	invite := owner.newInvite()
 	status, body := h.do("POST", "/api/auth/register", "", map[string]any{
 		"invite_code": invite, "username": "helper", "kdf": map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
-		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2), "slots": newSlots(), "identity_key": bytesOf(32, 1),
-		"hpke_key": bytesOf(32, 2), "hpke_key_sig": bytesOf(64, 3), "vault_core": []byte("vault"), "profile": []byte("profile"),
+		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2), "slots": newSlots(), "identity_key": lastingShape(1),
+		"hpke_key": hpkeShape(2), "hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("vault"), "profile": []byte("profile"),
 	}, nil)
 	if status != http.StatusConflict || body["error"] != "username_taken" {
 		t.Fatalf("someone signing up under a waiting bot's name gave %d %v", status, body)
@@ -168,9 +169,9 @@ func TestABotSignsUpOnceThroughItsSetupLink(t *testing.T) {
 	signUp := func(code, username string) (int, map[string]any) {
 		return h.do("POST", "/api/auth/register", "", map[string]any{
 			"invite_code": code, "username": username, "kdf": map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
-			"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2), "slots": newSlots(), "identity_key": bytesOf(32, 1),
-			"hpke_key": bytesOf(32, 2), "hpke_key_sig": bytesOf(64, 3), "vault_core": []byte("vault"), "profile": []byte("profile"),
-			"bot_proof": bytesOf(64, 9),
+			"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2), "slots": newSlots(), "identity_key": lastingShape(1),
+			"hpke_key": hpkeShape(2), "hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("vault"), "profile": []byte("profile"),
+			"bot_proof": bytesOf(hybrid.LastingSignatureSize, 9),
 		}, nil)
 	}
 	// Only as the bot it was made for.
@@ -200,8 +201,8 @@ func TestABotSignsUpOnceThroughItsSetupLink(t *testing.T) {
 	// Its owner's app gets what shows the bot's key is the one its link made. Nobody else does.
 	var account store.PublicUser
 	h.mustDo("GET", "/api/users/"+made.Bot.ID, owner.token, nil, &account)
-	if account.Bot == nil || account.Bot.OwnerID != owner.userID || len(account.Bot.Proof) != 64 || account.Role != "member" {
-		t.Fatalf("the bot's account, for its owner: %+v %+v", account, account.Bot)
+	if account.Bot == nil || account.Bot.OwnerID != owner.userID || len(account.Bot.Proof) != hybrid.LastingSignatureSize || account.Role != "member" {
+		t.Fatalf("the bot's account, for its owner: %s %s, a proof of %d bytes", account.ID, account.Role, len(account.Bot.Proof))
 	}
 	var bots struct {
 		Bots []store.Bot `json:"bots"`
@@ -305,7 +306,7 @@ func TestOnlyWhoItsOwnerLetsAddsABot(t *testing.T) {
 	carol := h.register("carol", invite)
 	h.mustDo("PUT", "/api/admin/users/"+carol.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
 	bot := owner.runBot("helper", map[string]any{"listed": true})
-	h.mustDo("POST", "/api/key-packages", bot.token, map[string]any{"last_resort": []byte("resort")}, nil)
+	h.mustDo("POST", "/api/key-packages", bot.token, map[string]any{"last_resort": keyPackageFrame("resort")}, nil)
 
 	claim := func(as *client, groupID string) int {
 		status, _ := h.do("POST", "/api/users/"+bot.userID+"/key-packages/claim", as.token, map[string]any{"group_id": groupID}, nil)

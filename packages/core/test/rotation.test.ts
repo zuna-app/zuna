@@ -5,7 +5,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
-import { openVaultItem, sealVaultItem } from "../src/crypto";
+import { HPKE_PUBLIC_BYTES, openVaultItem, sealVaultItem } from "../src/crypto";
 import { toBase64 } from "../src/encoding";
 import { TestApp, sleep, waitFor } from "./helpers";
 import {
@@ -57,7 +57,7 @@ describe("slots and seal keys", () => {
     const phone = await secondDevice(dave, "dave-phone");
     const me = await apiOf(dave).user(dave.userId);
     const device = me.devices.find((item) => item.id === phone.session.getSelf().deviceId)!;
-    expect(decode(device.seal_key).length).toBe(32);
+    expect(decode(device.seal_key).length).toBe(HPKE_PUBLIC_BYTES);
 
     // The server hands out a key of its own for that device.
     const theirs = wasm.hpkeKeygen();

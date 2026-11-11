@@ -9,8 +9,15 @@ import "encoding/binary"
 const (
 	mlsVersion10 = 1
 
+	// The one suite every group is made with (crypto/src/mls.rs): ML-KEM-768 and X25519
+	// together, ChaCha20-Poly1305, SHA-384, and the draft's ML-DSA-44 code point, which in
+	// Zuna is a device's hybrid key. Anything of another suite is refused, so that no group
+	// goes on in one a recorder could later open (docs/POST_QUANTUM.md).
+	mlsSuite = 0x0052
+
 	wirePublicMessage  = 1
 	wirePrivateMessage = 2
+	wireWelcome        = 3
 	wireGroupInfo      = 4
 
 	contentCommit = 3
@@ -128,8 +135,23 @@ func validGroupInfoFrame(data []byte, groupID string, epoch int64) bool {
 		return false
 	}
 	r.u16() // the version again, in the group's context
-	r.u16() // the ciphersuite
+	suite := r.u16()
 	id := r.vector()
 	at := r.u64()
-	return r.ok && string(id) == groupID && at == uint64(epoch)
+	return r.ok && suite == mlsSuite && string(id) == groupID && at == uint64(epoch)
+}
+
+// validWelcomeFrame reports whether data is an MLS welcome of the one suite. Only its
+// recipient can open it, and checks the rest.
+func validWelcomeFrame(data []byte) bool {
+	r := &frameReader{data: data, ok: true}
+	return r.wireFormat() == wireWelcome && r.u16() == mlsSuite && r.ok
+}
+
+// validKeyPackageFrame reports whether data starts as a key package of the one suite:
+// a key package goes bare, its version and then its suite. Whoever adds its device
+// checks the rest, its signatures most of all.
+func validKeyPackageFrame(data []byte) bool {
+	r := &frameReader{data: data, ok: true}
+	return r.u16() == mlsVersion10 && r.u16() == mlsSuite && r.ok
 }

@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	// A channel's sealed details: a few short texts.
-	maxChannelDetails = 8 << 10
+	// A channel's sealed details: a few short texts, and the hybrid signature of whoever set them.
+	maxChannelDetails = 16 << 10
 	maxChannelProof   = 256
 	maxUserLimit      = 99
 	// The longest slow mode, as Discord's: six hours.

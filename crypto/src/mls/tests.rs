@@ -387,3 +387,289 @@ fn the_roster_reaches_everyone_and_only_a_commit_changes_it() {
     dave.join_from_welcome(&pending.welcome.unwrap(), plain).unwrap();
     assert_eq!(dave.roster(plain).unwrap(), None);
 }
+
+/// A key package as plain OpenMLS would make it for this group's suite, signed by
+/// `signer` and naming `signature_key`, which the client mustn't take unless it's a
+/// device's hybrid key and signature.
+fn foreign_key_package(ciphersuite: Ciphersuite, signer: &impl Signer, signature_key: Vec<u8>) -> Vec<u8> {
+    let provider = openmls_rust_crypto::OpenMlsRustCrypto::default();
+    let credential = CredentialWithKey { credential: BasicCredential::new(b"mallory".to_vec()).into(), signature_key: signature_key.into() };
+    let capabilities = Capabilities::builder().extensions(vec![ExtensionType::Unknown(ROSTER_EXTENSION)]).build();
+    KeyPackage::builder()
+        .leaf_node_capabilities(capabilities)
+        .build(ciphersuite, &provider, signer, credential)
+        .unwrap()
+        .key_package()
+        .tls_serialize_detached()
+        .unwrap()
+}
+
+/// Signs with Ed25519 alone, calling it the suite's scheme.
+struct Ed25519Only(ed25519_dalek::SigningKey);
+
+impl Signer for Ed25519Only {
+    fn sign(&self, payload: &[u8]) -> std::result::Result<Vec<u8>, SignerError> {
+        use ed25519_dalek::Signer as _;
+        Ok(self.0.sign(payload).to_bytes().to_vec())
+    }
+
+    fn signature_scheme(&self) -> SignatureScheme {
+        SignatureScheme::MLDSA44
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn groups_and_key_packages_are_under_the_post_quantum_suite() {
+    let alice = client("alice");
+    alice.create_group(GROUP, None).unwrap();
+    // A group info is an MLS message: version and wire format, then its context's version and
+    // the suite, here MLKEM768X25519/ChaCha20/SHA-384/ML-DSA-44. A key package goes bare: its
+    // version, then the suite.
+    let info = alice.export_group_info(GROUP).unwrap();
+    assert_eq!(info[6..8], [0x00, 0x52]);
+    let package = alice.generate_key_package(false).unwrap();
+    assert_eq!(package[2..4], [0x00, 0x52]);
+    // Every leaf's key is the device's hybrid one.
+    let member = &alice.members(GROUP).unwrap()[0];
+    assert_eq!(member.signature_key[0], crate::hybrid::DEVICE);
+    assert_eq!(member.signature_key.len(), crate::hybrid::public_len(crate::hybrid::DEVICE).unwrap());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_key_package_signed_with_one_algorithm_alone_isnt_taken() {
+    let alice = client("alice");
+    alice.create_group(GROUP, None).unwrap();
+
+    // Ed25519 alone, under the suite's code point.
+    let ed = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+    let ed_public = ed.verifying_key().to_bytes().to_vec();
+    let ed_only = foreign_key_package(CIPHERSUITE, &Ed25519Only(ed), ed_public);
+    assert!(alice.key_package_credential(&ed_only).is_err());
+    assert!(alice.commit_changes(GROUP, &[ed_only], &[], None).is_err());
+
+    // ML-DSA-44 alone, as the draft's suite means it everywhere else.
+    let ml = openmls_basic_credential::SignatureKeyPair::new(SignatureScheme::MLDSA44).unwrap();
+    let ml_only = foreign_key_package(CIPHERSUITE, &ml, ml.public().to_vec());
+    assert!(alice.key_package_credential(&ml_only).is_err());
+    assert!(alice.commit_changes(GROUP, &[ml_only], &[], None).is_err());
+
+    // A device key under the old suite, with X25519 alone.
+    let old = openmls_basic_credential::SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+    let old_suite = foreign_key_package(Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519, &old, old.public().to_vec());
+    assert!(alice.key_package_credential(&old_suite).is_err());
+    assert!(alice.commit_changes(GROUP, &[old_suite], &[], None).is_err());
+
+    // And the group goes on as it was.
+    let bob = client("bob");
+    let kp = bob.generate_key_package(false).unwrap();
+    let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
+    alice.merge_pending(GROUP).unwrap();
+    bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
+    assert_eq!(exported(&alice), exported(&bob));
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_commit_whose_signature_is_broken_in_either_half_isnt_applied() {
+    let (alice, bob) = pair();
+    let pending = alice.commit_changes(GROUP, &[], &[], None).unwrap();
+    // A member's commit is a PrivateMessage, encrypted, so a flipped byte anywhere fails
+    // MLS before the signature's even read: what this shows is that nothing broken is
+    // applied, and the group still takes the real one.
+    for at in [pending.commit.len() / 2, pending.commit.len() - 20] {
+        let mut broken = pending.commit.clone();
+        broken[at] ^= 1;
+        assert!(bob.process_commit(GROUP, &broken).is_err());
+    }
+    alice.merge_pending(GROUP).unwrap();
+    bob.process_commit(GROUP, &pending.commit).unwrap();
+    assert_eq!(exported(&alice), exported(&bob));
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_group_info_signed_with_ed25519_alone_isnt_joined() {
+    let alice = client("alice");
+    alice.create_group(GROUP, None).unwrap();
+    let info = alice.export_group_info(GROUP).unwrap();
+    // The group info ends with its signature, a hybrid one as a TLS vector: cutting it to
+    // its Ed25519 half leaves a group info nobody may join from.
+    let signature_len = crate::hybrid::signature_len(crate::hybrid::DEVICE).unwrap();
+    let body = &info[..info.len() - signature_len - 2];
+    let mut ed_only = body.to_vec();
+    ed_only.extend_from_slice(&[0x40, 0x41]);
+    ed_only.extend_from_slice(&info[info.len() - signature_len..info.len() - signature_len + 65]);
+    let joiner = client("joiner");
+    assert!(joiner.join_external(GROUP, &ed_only).is_err());
+    assert!(joiner.join_external(GROUP, &info).is_ok());
+}
+
+/// What docs/POST_QUANTUM.md's table of sizes says, made again:
+/// `cargo test --release --lib measure_groups -- --ignored --nocapture` natively. For each
+/// size of group, under this suite, with credentials of the sizes the core makes: the key
+/// package, a commit, the welcome to one more device, the group info a commit carries, the
+/// state a device keeps, and the time to commit and to join. Groups are filled by one
+/// commit of everyone, then devices spread across the tree each commit, 64 of them or 24
+/// past a hundred, so that most of its inner nodes are filled, as in a group that's been
+/// going a while.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore]
+fn measure_groups() {
+    use std::time::Instant;
+    let credential_len: usize = std::env::var("ZUNA_CREDENTIAL_BYTES").ok().and_then(|value| value.parse().ok()).unwrap_or(4800);
+    let credential = |i: usize| {
+        let mut bytes = format!("device {i} ").into_bytes();
+        bytes.resize(credential_len, b'.');
+        bytes
+    };
+    println!("credential: {credential_len} bytes");
+    for size in [10usize, 100, 1000] {
+        let make = |i: usize| {
+            let (public, secret) = crate::primitives::signing_keygen().unwrap();
+            MlsClient::new(public, secret, credential(i), vec![])
+        };
+        let creator = make(0);
+        creator.create_group(GROUP, None).unwrap();
+        let mut members = Vec::new();
+        let mut packages = Vec::new();
+        for i in 1..size {
+            let member = make(i);
+            packages.push(member.generate_key_package(false).unwrap());
+            members.push(member);
+        }
+        let key_package = packages[0].len();
+        let filled = creator.commit_changes(GROUP, &packages, &[], None).unwrap();
+        creator.merge_pending(GROUP).unwrap();
+        let welcome = filled.welcome.unwrap();
+        // Fill the tree's inner nodes, as members updating over time would. Only the devices that
+        // commit join, spread across the tree, so that a thousand of them aren't held in memory.
+        let committers: Vec<usize> = {
+            let count = members.len().min(if size > 100 { 24 } else { 64 });
+            (0..count).map(|index| index * members.len() / count).collect()
+        };
+        for &at in &committers {
+            members[at].join_from_welcome(&welcome, GROUP).unwrap();
+        }
+        for &at in &committers {
+            let commit = members[at].commit_changes(GROUP, &[], &[], None).unwrap();
+            members[at].merge_pending(GROUP).unwrap();
+            creator.process_commit(GROUP, &commit.commit).unwrap();
+            for &other in &committers {
+                if other != at {
+                    members[other].process_commit(GROUP, &commit.commit).unwrap();
+                }
+            }
+        }
+        let newcomer = make(size);
+        let started = Instant::now();
+        let commit = creator.commit_changes(GROUP, &[newcomer.generate_key_package(false).unwrap()], &[], None).unwrap();
+        let commit_time = started.elapsed();
+        creator.merge_pending(GROUP).unwrap();
+        let started = Instant::now();
+        newcomer.join_from_welcome(commit.welcome.as_ref().unwrap(), GROUP).unwrap();
+        let join_time = started.elapsed();
+        let state: usize = {
+            let mut creator = creator;
+            creator.take_changes().set.iter().map(|(key, value)| key.len() + value.len()).sum()
+        };
+        let update = members[0].commit_changes(GROUP, &[], &[], None).unwrap();
+        println!(
+            "{size:>5} devices: key package {:>6} B, commit (an update) {:>8} B, welcome {:>9} B, group info {:>9} B, state {:>9} B, commit {:>6.1} ms, join {:>6.1} ms",
+            key_package,
+            update.commit.len(),
+            commit.welcome.as_ref().unwrap().len(),
+            commit.group_info.as_ref().unwrap().len(),
+            state,
+            commit_time.as_secs_f64() * 1000.0,
+            join_time.as_secs_f64() * 1000.0,
+        );
+    }
+}
+
+/// The same, for the suite of before, X25519 and Ed25519 under plain OpenMLS, with a certificate of
+/// the size it was (JSON, about 300 bytes): `cargo test --release --lib measure_groups_before --
+/// --ignored --nocapture`. What docs/POST_QUANTUM.md compares the suite with.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore]
+fn measure_groups_before() {
+    use openmls_basic_credential::SignatureKeyPair;
+    use openmls_rust_crypto::OpenMlsRustCrypto;
+    use std::time::Instant;
+    const BEFORE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
+    struct Before {
+        provider: OpenMlsRustCrypto,
+        signer: SignatureKeyPair,
+        credential: CredentialWithKey,
+    }
+    let make = |i: usize| {
+        let signer = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+        let mut bytes = format!("device {i} ").into_bytes();
+        bytes.resize(300, b'.');
+        let credential = CredentialWithKey { credential: BasicCredential::new(bytes).into(), signature_key: signer.public().into() };
+        Before { provider: OpenMlsRustCrypto::default(), signer, credential }
+    };
+    let create = MlsGroupCreateConfig::builder().ciphersuite(BEFORE).use_ratchet_tree_extension(true).wire_format_policy(MIXED_CIPHERTEXT_WIRE_FORMAT_POLICY).build();
+    let join = MlsGroupJoinConfig::builder().use_ratchet_tree_extension(true).wire_format_policy(MIXED_CIPHERTEXT_WIRE_FORMAT_POLICY).build();
+    let package = |device: &Before| KeyPackage::builder().build(BEFORE, &device.provider, &device.signer, device.credential.clone()).unwrap().key_package().clone();
+    let encoded = |message: &MlsMessageOut| message.tls_serialize_detached().unwrap();
+    let welcomed = |device: &Before, welcome: &[u8]| {
+        let MlsMessageBodyIn::Welcome(welcome) = MlsMessageIn::tls_deserialize_exact(welcome).unwrap().extract() else { panic!() };
+        StagedWelcome::build_from_welcome(&device.provider, &join, welcome).unwrap().build().unwrap().into_group(&device.provider).unwrap()
+    };
+    let apply = |device: &Before, group: &mut MlsGroup, commit: &[u8]| {
+        let message = MlsMessageIn::tls_deserialize_exact(commit).unwrap().try_into_protocol_message().unwrap();
+        let ProcessedMessageContent::StagedCommitMessage(staged) = group.process_message(&device.provider, message).unwrap().into_content() else { panic!() };
+        group.merge_staged_commit(&device.provider, *staged).unwrap();
+    };
+    for size in [10usize, 100, 1000] {
+        let creator = make(0);
+        let mut group = MlsGroup::new_with_group_id(&creator.provider, &creator.signer, &create, GroupId::from_slice(GROUP), creator.credential.clone()).unwrap();
+        let members: Vec<Before> = (1..size).map(make).collect();
+        let packages: Vec<KeyPackage> = members.iter().map(package).collect();
+        let key_package = packages[0].tls_serialize_detached().unwrap().len();
+        let (_, welcome, _) = group.add_members(&creator.provider, &creator.signer, &packages).unwrap();
+        group.merge_pending_commit(&creator.provider).unwrap();
+        let welcome = encoded(&welcome);
+        let count = members.len().min(if size > 100 { 24 } else { 64 });
+        let committers: Vec<usize> = (0..count).map(|index| index * members.len() / count).collect();
+        let mut joined: Vec<(usize, MlsGroup)> = committers.iter().map(|&at| (at, welcomed(&members[at], &welcome))).collect();
+        for turn in 0..joined.len() {
+            let at = joined[turn].0;
+            let (commit, _, _) = joined[turn].1.self_update(&members[at].provider, &members[at].signer, LeafNodeParameters::default()).unwrap().into_messages();
+            joined[turn].1.merge_pending_commit(&members[at].provider).unwrap();
+            let commit = encoded(&commit);
+            apply(&creator, &mut group, &commit);
+            for (other, (index, member_group)) in joined.iter_mut().enumerate() {
+                if other != turn {
+                    apply(&members[*index], member_group, &commit);
+                }
+            }
+        }
+        let newcomer = make(size);
+        let started = Instant::now();
+        let (_, welcome, info) = group.add_members(&creator.provider, &creator.signer, &[package(&newcomer)]).unwrap();
+        let commit_time = started.elapsed();
+        group.merge_pending_commit(&creator.provider).unwrap();
+        let welcome = encoded(&welcome);
+        let started = Instant::now();
+        welcomed(&newcomer, &welcome);
+        let join_time = started.elapsed();
+        let state: usize = creator.provider.storage().values.read().unwrap().iter().map(|(key, value)| key.len() + value.len()).sum();
+        let (at, member_group) = &mut joined[0];
+        let (update, _, _) = member_group.self_update(&members[*at].provider, &members[*at].signer, LeafNodeParameters::default()).unwrap().into_messages();
+        println!(
+            "{size:>5} devices: key package {:>6} B, commit (an update) {:>8} B, welcome {:>9} B, group info {:>9} B, state {:>9} B, commit {:>6.1} ms, join {:>6.1} ms",
+            key_package,
+            encoded(&update).len(),
+            welcome.len(),
+            encoded(&MlsMessageOut::from(info.unwrap())).len(),
+            state,
+            commit_time.as_secs_f64() * 1000.0,
+            join_time.as_secs_f64() * 1000.0,
+        );
+    }
+}

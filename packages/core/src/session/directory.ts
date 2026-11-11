@@ -13,6 +13,7 @@ import {
   fromWireHead,
   headSigned,
   leafHash,
+  logKeyHash,
   nameTag,
   parseBody,
   readRecord,
@@ -793,11 +794,11 @@ export abstract class SessionDirectory extends SessionChains {
     return toWireHead(head);
   }
 
-  /** What an invite link carries of the log: the key, and the head this device holds, which whoever joins holds the log to. */
+  /** What an invite link carries of the log: the key's hash, and the head this device holds, which whoever joins holds the log to. */
   protected headForLink(): PinnedHead | undefined {
     const state = this.logState();
     const head = this.heldHead();
-    return head && state.key ? { key: fromBase64(state.key), era: head.era, size: head.size, root: head.root } : undefined;
+    return head && state.key ? { keyHash: logKeyHash(fromBase64(state.key)), era: head.era, size: head.size, root: head.root } : undefined;
   }
 
   /** What the manifest says of the log: the key, and the head this device holds. */

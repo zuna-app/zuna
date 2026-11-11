@@ -310,7 +310,12 @@ export interface CommitRequest {
   kind: string;
   add_users?: string[];
   remove_users?: string[];
-  welcomes?: { device_id: string; data: Uint8Array }[];
+  /**
+   * The commit's welcome, once, for every device it adds (`welcome_to`): with hybrid keys it carries
+   * the group's tree at a few kilobytes a device, which going up once for each would multiply.
+   */
+  welcome?: Uint8Array;
+  welcome_to?: string[];
   meta?: Uint8Array;
   meta_epoch?: number;
   history_grants?: { user_id: string; data: Uint8Array }[];

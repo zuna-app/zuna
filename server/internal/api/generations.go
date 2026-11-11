@@ -2,13 +2,13 @@ package api
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -21,7 +21,7 @@ const identityLinkLabel = "zuna/identity-link/v1"
 const maxLinksRead = 200
 
 func validSlot(slot store.Slot) bool {
-	return (slot.Kind == "password" || slot.Kind == "recovery") && len(slot.SealKey) == 32 && len(slot.SignKey) == 32 &&
+	return (slot.Kind == "password" || slot.Kind == "recovery") && len(slot.SealKey) == hpkePublicSize && hybrid.IsPublic(slot.SignKey, hybrid.Lasting) &&
 		len(slot.SealedSecret) > 0 && len(slot.SealedSecret) <= maxDetailBytes && len(slot.SealedKey) > 0 && len(slot.SealedKey) <= maxDetailBytes
 }
 
@@ -60,7 +60,7 @@ func rootLinkHash(userID string, root []byte) []byte {
 }
 
 func signedLink(public, payload, signature []byte) bool {
-	return len(public) == ed25519.PublicKeySize && ed25519.Verify(public, append([]byte(identityLinkLabel), payload...), signature)
+	return hybrid.Verify(public, append([]byte(identityLinkLabel), payload...), signature)
 }
 
 // checkLink is the honest server's part: a link has to follow from the one before
@@ -68,7 +68,7 @@ func signedLink(public, payload, signature []byte) bool {
 // so this only stops a mistake from reaching every contact.
 func checkLink(payload linkPayload, link store.IdentityLink, userID, deviceID string, expected int64, head []byte, previous *store.IdentityLink) bool {
 	if payload.V != 1 || payload.User != userID || payload.Gen != expected+1 || payload.Signer != deviceID ||
-		len(payload.Identity) != ed25519.PublicKeySize || len(payload.Hpke) != 32 || link.Generation != payload.Gen {
+		!hybrid.IsPublic(payload.Identity, hybrid.Lasting) || len(payload.Hpke) != hpkePublicSize || link.Generation != payload.Gen {
 		return false
 	}
 	var prev []byte
@@ -117,7 +117,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this account's keys. Please wait a moment.")
 		return
 	}
-	valid := len(body.VaultCore) > 0 && len(body.VaultCore) <= maxDetailBytes && len(body.ProfileSig) <= ed25519.SignatureSize && validVaultItems(body.Items)
+	valid := len(body.VaultCore) > 0 && len(body.VaultCore) <= maxVaultCoreBytes && len(body.ProfileSig) <= hybrid.LastingSignatureSize && validVaultItems(body.Items)
 	for _, slot := range body.Slots {
 		// A slot that isn't new keeps what it had, and only gets the new key.
 		slotValid := slot.Kind == "password" || slot.Kind == "recovery"
@@ -273,7 +273,7 @@ func (s *Server) handleCloseGeneration(w http.ResponseWriter, r *http.Request, s
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.VaultCore) == 0 || len(body.VaultCore) > maxDetailBytes {
+	if len(body.VaultCore) == 0 || len(body.VaultCore) > maxVaultCoreBytes {
 		writeError(w, http.StatusBadRequest, "bad_request", "The vault data isn't valid.")
 		return
 	}
@@ -306,7 +306,7 @@ func (s *Server) handleSealKey(w http.ResponseWriter, r *http.Request, sess *sto
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.SealKey) != 32 || body.SealGeneration == nil || len(body.SealProof) != ed25519.SignatureSize {
+	if len(body.SealKey) != hpkePublicSize || body.SealGeneration == nil || len(body.SealProof) != hybrid.DeviceSignatureSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "That key isn't valid.")
 		return
 	}

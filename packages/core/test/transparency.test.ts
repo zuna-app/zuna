@@ -8,11 +8,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
-import { createCertificate, randomId } from "../src/crypto";
+import { createCertificate, lastingKeyFromSeed, newLastingKey, randomId } from "../src/crypto";
 import { equalBytes, fromHex, toBase64, toHex, utf8 } from "../src/encoding";
-import { Frontier, bodyFits, bodyHash, fromWireHead, headInput, headSigned, leafHash, linkHead, nameTag, parseBody, parseLinkHead, readRecord, toWireHead, userTag } from "../src/transparency";
+import { Frontier, bodyFits, bodyHash, fromWireHead, headInput, headSigned, leafHash, linkHead, logKeyHash, nameTag, parseBody, parseLinkHead, readRecord, toWireHead, userTag } from "../src/transparency";
 import { TestApp, loadCrypto, sendKeyOf, sleep, waitFor } from "./helpers";
-import { appendToLog, b64, entryOf, harmless, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
+import { accountKeys, appendToLog, b64, entryOf, harmless, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
 import { alice, apiOf, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer();
@@ -49,13 +49,21 @@ describe("the log's formats", () => {
     });
     const { head } = vectors;
     expect(toHex(headInput(head.era, head.size, fromHex(head.root)))).toBe(head.input);
-    expect(toHex(wasm.sign(fromHex(head.seed), fromHex(head.input)))).toBe(head.signature);
+    // The server's log key is a lasting hybrid one from the seed, and signs as these do, hedged, so
+    // what's compared is that the server's signature holds, and one made here does too.
+    expect(toHex(lastingKeyFromSeed(fromHex(head.seed)).publicKey)).toBe(head.public);
+    const signedHere = wasm.sign(lastingKeyFromSeed(fromHex(head.seed)).secretKey, fromHex(head.input));
+    expect(headSigned(fromHex(head.public), { era: head.era, size: head.size, root: fromHex(head.root), sig: signedHere })).toBe(true);
     expect(headSigned(fromHex(head.public), { era: head.era, size: head.size, root: fromHex(head.root), sig: fromHex(head.signature) })).toBe(true);
     expect(headSigned(fromHex(head.public), { era: head.era, size: head.size + 1, root: fromHex(head.root), sig: fromHex(head.signature) })).toBe(false);
+    // Ed25519's half alone, under its own key, is no head signature.
+    const edOnly = { era: head.era, size: head.size, root: fromHex(head.root), sig: fromHex(head.signature).subarray(1, 65) };
+    expect(headSigned(fromHex(head.public).subarray(1, 33), edOnly)).toBe(false);
   });
 
   it("carry a head in an invite link in about a hundred characters", () => {
-    const pinned = { key: wasm.randomBytes(32), era: 2, size: 123456, root: wasm.randomBytes(32) };
+    const key = newLastingKey().publicKey;
+    const pinned = { keyHash: logKeyHash(key), era: 2, size: 123456, root: wasm.randomBytes(32) };
     const text = linkHead(pinned);
     expect(text.length).toBeLessThan(110);
     expect(parseLinkHead(text)).toEqual(pinned);
@@ -251,7 +259,7 @@ describe("watching your own account", () => {
     const dave = await person("dave");
     await caughtUp(dave);
     const username = dave.session.getSelf().username;
-    appendToLog({ v: 1, t: "account", user: randomId(), username: username.toUpperCase(), root: b64(wasm.randomBytes(32)), hpke: b64(wasm.randomBytes(32)), hpke_sig: b64(wasm.randomBytes(64)) });
+    appendToLog({ v: 1, t: "account", user: randomId(), username: username.toUpperCase(), ...accountKeys() });
     await sessionOf(dave).syncLog();
     expect(warned(dave, "under your username")).toBe(true);
   });
@@ -266,7 +274,7 @@ describe("watching your own account", () => {
       const page = await real(...args);
       return { ...page, records: page.records.map((record: { idx: number }) => (record.idx === hidden ? { ...record, body: null } : record)) };
     };
-    const hidden = appendToLog({ v: 1, t: "account", user: randomId(), username: dave.session.getSelf().username, root: b64(wasm.randomBytes(32)), hpke: b64(wasm.randomBytes(32)), hpke_sig: b64(wasm.randomBytes(64)) });
+    const hidden = appendToLog({ v: 1, t: "account", user: randomId(), username: dave.session.getSelf().username, ...accountKeys() });
     try {
       await session.syncLog();
     } finally {
@@ -410,7 +418,7 @@ describe("only what's in the log counts", () => {
   it("encrypts nothing to a second account under a name another holds", async () => {
     const dave = await person("dave");
     const fakeId = randomId();
-    const identity = wasm.signingKeygen();
+    const identity = newLastingKey();
     const device = wasm.signingKeygen();
     const deviceId = randomId();
     const certificate = createCertificate(identity.secretKey, { userId: fakeId, deviceId, signatureKey: device.publicKey, generation: 0 });
@@ -426,7 +434,7 @@ describe("only what's in the log counts", () => {
       db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at) VALUES(?, ?, ?, ?, ?, ?)").run(deviceId, fakeId, certificate, device.publicKey, Date.now(), Date.now());
       db.prepare("INSERT INTO key_packages(device_id, data, last_resort, created_at) VALUES(?, ?, 0, ?)").run(deviceId, keyPackage, Date.now());
     });
-    appendToLog({ v: 1, t: "account", user: fakeId, username, root: b64(identity.publicKey), hpke: b64(wasm.randomBytes(32)), hpke_sig: b64(wasm.randomBytes(64)) });
+    appendToLog({ v: 1, t: "account", user: fakeId, username, ...accountKeys(identity.publicKey) });
     appendToLog({ v: 1, t: "device", user: fakeId, device: deviceId, key: b64(device.publicKey), cert: entryOf(certificate), enroll: entryOf(new Uint8Array(64)), seal: entryOf(new Uint8Array(8)) });
     await sessionOf(dave).syncLog();
     const user = await sessionOf(dave).ensureUser(fakeId, true);
@@ -500,7 +508,7 @@ describe("heads in messages", () => {
     const groupId = await groupWith(dave, [erin]);
     await caughtUp(erin);
     const head = heldHead(erin);
-    const other = wasm.signingKeygen();
+    const other = newLastingKey();
     sessionOf(erin).headForMessage = () => ({ e: head.era, n: head.size, r: toBase64(head.root), s: toBase64(wasm.sign(other.secretKey, headInput(head.era, head.size, head.root))) });
     await sentAndSeen(erin, [dave], groupId, "signed with something else");
     await waitFor(() => warned(dave, "didn't sign for you"), "the milder warning");
@@ -651,7 +659,7 @@ describe("eras and seal keys", () => {
     const erin = await person("erin");
     await sessionOf(dave).ensureUser(erin.userId, true);
     await caughtUp(dave);
-    withServerDatabase((db) => db.prepare("UPDATE users SET identity_key = ? WHERE id = ?").run(wasm.randomBytes(32), erin.userId));
+    withServerDatabase((db) => db.prepare("UPDATE users SET identity_key = ? WHERE id = ?").run(newLastingKey().publicKey, erin.userId));
     startNewEra(dataDir());
     await sessionOf(dave).syncLog();
     await waitFor(() => dave.session.safetyCheck(erin.userId)!.trust === "changed", "erin to show as changed");

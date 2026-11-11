@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): each account's chain of generations: following it, and the standing of each device's certificate.
 
 import { decode, type ApiDevice, type ApiUser } from "../api";
-import { parseCertificate, verifyCertificate, type DeviceCertificate } from "../crypto";
+import { HPKE_PUBLIC_BYTES, parseCertificate, verifyCertificate, type DeviceCertificate } from "../crypto";
 import { carries, rootHash, verifyEnrollment, verifyLink, verifySealProof, type Link } from "../generations";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
 import { CONTINUITY_MS, rotationTiming, type IdentityState, type SealedIdentityState, signedFromApi } from "./shared";
@@ -332,7 +332,7 @@ export abstract class SessionChains extends SessionVault {
   protected sealKeyOf(device: ApiDevice, key: Uint8Array): Uint8Array | null {
     const { userId } = this.account;
     const seal = decode(device.seal_key);
-    if (seal.length !== 32) return null;
+    if (seal.length !== HPKE_PUBLIC_BYTES) return null;
     const seen = this.getKv<Record<string, number>>("seal_seen") ?? {};
     const newest = seen[device.id] ?? -1;
     const generation = device.seal_generation;

@@ -49,6 +49,44 @@ const NO_SALT = new Uint8Array(0);
 
 export const randomId = (): string => toHex(wasm.randomBytes(16));
 
+// --- Kinds of key ---
+//
+// Every signature an app checks is hybrid, Ed25519 and ML-DSA together, so that forging one
+// takes breaking both (crypto/src/hybrid.rs, docs/POST_QUANTUM.md). A key's first byte says
+// which ML-DSA: a device's, which signs everything it sends, is ML-DSA-44, and a key that
+// lasts and signs rarely, an identity key, a slot's, a bot's setup key, the log's, is ML-DSA-65.
+// A secret is that byte and a 32-byte seed. Agreeing on a key is X-Wing, ML-KEM-768 and X25519.
+
+export const DEVICE_KEY = 1;
+export const LASTING_KEY = 2;
+export const DEVICE_PUBLIC_BYTES = 1 + 32 + 1312;
+export const LASTING_PUBLIC_BYTES = 1 + 32 + 1952;
+export const DEVICE_SIGNATURE_BYTES = 1 + 64 + 2420;
+export const LASTING_SIGNATURE_BYTES = 1 + 64 + 3309;
+/** An X-Wing public key, which slots, seal keys and accounts' HPKE keys are. */
+export const HPKE_PUBLIC_BYTES = 1216;
+
+export const isDeviceKey = (key: Uint8Array): boolean => key.length === DEVICE_PUBLIC_BYTES && key[0] === DEVICE_KEY;
+export const isLastingKey = (key: Uint8Array): boolean => key.length === LASTING_PUBLIC_BYTES && key[0] === LASTING_KEY;
+
+export interface SigningKeyPair {
+  publicKey: Uint8Array;
+  secretKey: Uint8Array;
+}
+
+/** A lasting key from a 32-byte seed, as a bot's setup link carries one. */
+export function lastingKeyFromSeed(seed: Uint8Array): SigningKeyPair {
+  if (seed.length !== 32) throw new Error("A key's seed is 32 bytes.");
+  const secretKey = concat(new Uint8Array([LASTING_KEY]), seed);
+  return { publicKey: wasm.signingPublic(secretKey), secretKey };
+}
+
+/** A new lasting key: an identity key, a slot's, or a bot's setup key. */
+export const newLastingKey = (): SigningKeyPair => lastingKeyFromSeed(wasm.randomBytes(32));
+
+/** A new device's key. */
+export const newDeviceKey = (): SigningKeyPair => wasm.signingKeygen() as SigningKeyPair;
+
 /** What a long-term key protects. Each gets a key of its own, so no two kinds of data are ever under one key. */
 export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "channel" | "sound" | "author";
 
@@ -210,33 +248,45 @@ export interface DeviceCertificate {
   generation?: number;
 }
 
+/** A certificate's format, its first byte. */
+const CERTIFICATE_VERSION = 3;
+const CERTIFICATE_LABEL = "zuna/device-cert/v3";
+
 /**
  * A device certificate is the MLS credential of each device. It is signed by the
  * user's identity key of the generation it names, and names the key that device
  * signs with. Certificates are public, so holding one proves nothing: a leaf only
  * belongs to a device if it really uses the signing key its certificate names.
+ *
+ * Every leaf of every group carries one, so it's bytes, not JSON: the version, the
+ * account and device with a byte of length each, the generation, the device's key,
+ * and the identity key's signature of all that before it.
  */
 export function createCertificate(identitySecret: Uint8Array, cert: DeviceCertificate): Uint8Array {
-  const payload = utf8(JSON.stringify({ v: 1, user: cert.userId, device: cert.deviceId, key: toBase64(cert.signatureKey), gen: cert.generation ?? 0 }));
-  const signature = wasm.sign(identitySecret, concat(label("zuna/device-cert/v2"), payload));
-  return utf8(JSON.stringify({ p: toBase64(payload), h: toBase64(signature) }));
+  const user = utf8(cert.userId);
+  const device = utf8(cert.deviceId);
+  if (user.length > 255 || device.length > 255 || !isDeviceKey(cert.signatureKey)) throw new Error("That isn't a device a certificate can be made for.");
+  const payload = concat(new Uint8Array([CERTIFICATE_VERSION, user.length]), user, new Uint8Array([device.length]), device, u32Bytes(cert.generation ?? 0), cert.signatureKey);
+  return concat(payload, wasm.sign(identitySecret, concat(label(CERTIFICATE_LABEL), payload)));
 }
 
 export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { generation: number; payload: Uint8Array; signature: Uint8Array }) | null {
+  if (bytes.length < 2 || bytes[0] !== CERTIFICATE_VERSION) return null;
+  const userEnd = 2 + bytes[1]!;
+  if (bytes.length <= userEnd) return null;
+  const deviceEnd = userEnd + 1 + bytes[userEnd]!;
+  const keyEnd = deviceEnd + 4 + DEVICE_PUBLIC_BYTES;
+  if (bytes.length !== keyEnd + LASTING_SIGNATURE_BYTES) return null;
+  const signatureKey = bytes.slice(deviceEnd + 4, keyEnd);
+  if (!isDeviceKey(signatureKey)) return null;
   try {
-    const outer = JSON.parse(fromUtf8(bytes));
-    const payload = fromBase64(outer.p);
-    const inner = JSON.parse(fromUtf8(payload));
-    if (inner.v !== 1 || typeof inner.user !== "string" || typeof inner.device !== "string" || typeof inner.key !== "string" || typeof outer.h !== "string") return null;
-    const generation = inner.gen;
-    if (!Number.isSafeInteger(generation) || generation < 0) return null;
     return {
-      userId: inner.user,
-      deviceId: inner.device,
-      signatureKey: fromBase64(inner.key),
-      generation,
-      payload,
-      signature: fromBase64(outer.h),
+      userId: fromUtf8(bytes.subarray(2, userEnd)),
+      deviceId: fromUtf8(bytes.subarray(userEnd + 1, deviceEnd)),
+      signatureKey,
+      generation: readU32(bytes.subarray(deviceEnd)),
+      payload: bytes.subarray(0, keyEnd),
+      signature: bytes.subarray(keyEnd),
     };
   } catch {
     return null;
@@ -246,13 +296,13 @@ export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { gene
 /** Checks a certificate against the identity key of the generation it names. */
 export function verifyCertificate(identityPublic: Uint8Array, bytes: Uint8Array): DeviceCertificate | null {
   const cert = parseCertificate(bytes);
-  if (!cert) return null;
-  return wasm.verify(identityPublic, concat(label("zuna/device-cert/v2"), cert.payload), cert.signature) ? cert : null;
+  if (!cert || !isLastingKey(identityPublic)) return null;
+  return wasm.verify(identityPublic, concat(label(CERTIFICATE_LABEL), cert.payload), cert.signature) ? cert : null;
 }
 
 // --- Encrypted profiles ---
 
-/** Profiles are readable by server members only, and signed by their owner. */
+/** Profiles are readable by server members only, and signed by their owner's identity key, the signature first. */
 export function sealProfile(communityKey: Uint8Array, identitySecret: Uint8Array, username: string, profile: object): Uint8Array {
   const ciphertext = wasm.aeadSeal(subkey(communityKey, "profile"), utf8(JSON.stringify(profile)), label(`zuna/profile/v1/${username.toLowerCase()}`));
   const signature = wasm.sign(identitySecret, concat(label("zuna/profile-sig/v1"), ciphertext));
@@ -260,9 +310,9 @@ export function sealProfile(communityKey: Uint8Array, identitySecret: Uint8Array
 }
 
 export function openProfile<T>(communityKey: Uint8Array, identityPublic: Uint8Array, username: string, sealed: Uint8Array): T | null {
-  if (sealed.length < 64) return null;
-  const signature = sealed.subarray(0, 64);
-  const ciphertext = sealed.subarray(64);
+  if (sealed.length < LASTING_SIGNATURE_BYTES) return null;
+  const signature = sealed.subarray(0, LASTING_SIGNATURE_BYTES);
+  const ciphertext = sealed.subarray(LASTING_SIGNATURE_BYTES);
   if (!wasm.verify(identityPublic, concat(label("zuna/profile-sig/v1"), ciphertext), signature)) return null;
   try {
     return JSON.parse(fromUtf8(wasm.aeadOpen(subkey(communityKey, "profile"), ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
@@ -278,11 +328,11 @@ const profileHeadInput = (userId: string, generation: number, ciphertext: Uint8A
  * rotation, which can't seal it again. From then on, this one by the current key does.
  */
 export const signProfileAtGeneration = (identitySecret: Uint8Array, userId: string, generation: number, sealed: Uint8Array) =>
-  wasm.sign(identitySecret, profileHeadInput(userId, generation, sealed.subarray(64)));
+  wasm.sign(identitySecret, profileHeadInput(userId, generation, sealed.subarray(LASTING_SIGNATURE_BYTES)));
 
 export function openProfileAtGeneration<T>(communityKey: Uint8Array, identityPublic: Uint8Array, userId: string, username: string, generation: number, sealed: Uint8Array, signature: Uint8Array): T | null {
-  if (sealed.length < 64) return null;
-  const ciphertext = sealed.subarray(64);
+  if (sealed.length < LASTING_SIGNATURE_BYTES) return null;
+  const ciphertext = sealed.subarray(LASTING_SIGNATURE_BYTES);
   if (!wasm.verify(identityPublic, profileHeadInput(userId, generation, ciphertext), signature)) return null;
   try {
     return JSON.parse(fromUtf8(wasm.aeadOpen(subkey(communityKey, "profile"), ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
@@ -316,7 +366,7 @@ const contentAad = (kind: ContentKind, groupId: string, itemId: string, epoch: n
   concat(label(`zuna/${kind}/v1|${groupId}|${itemId}|`), u64Bytes(epoch));
 
 /** The envelope's version, the first byte inside its encryption. */
-const ENVELOPE_VERSION = 3;
+const ENVELOPE_VERSION = 4;
 
 /**
  * Binds a signature to the very key it's under. The authenticated data and body alone
@@ -331,14 +381,15 @@ const keyCommitment = (epochKey: Uint8Array) => wasm.hkdfSha256(epochKey, NO_SAL
  * another account's certificate, so the signature itself says whose it is.
  */
 const signatureInput = (aad: Uint8Array, commitment: Uint8Array, body: Uint8Array, signer: Signer) =>
-  concat(label(`zuna/envelope-sig/v3|${signer.userId}|${signer.deviceId}|`), wasm.sha256(aad), commitment, wasm.sha256(body));
+  concat(label(`zuna/envelope-sig/v4|${signer.userId}|${signer.deviceId}|`), wasm.sha256(aad), commitment, wasm.sha256(body));
 
 /**
  * Encrypts content under an epoch key, signed with the sender's device key. All
  * members share the epoch key, so only the signature proves who wrote it, and it's
  * inside the encryption with who signed, so that the server can't try each
  * member's key on it to find out whose it is.
- * Wire format: nonce || XChaCha20-Poly1305(pad(version || user || device || signature(64) || body)).
+ * Wire format: nonce || XChaCha20-Poly1305(pad(version || user || device || signature || body)), where the
+ * signature is a device's hybrid one, Ed25519 and ML-DSA-44 together (`DEVICE_SIGNATURE_BYTES`).
  */
 export function sealEnvelope(
   epochKey: Uint8Array,
@@ -391,10 +442,10 @@ export function openEnvelope<T>(epochKey: Uint8Array, kind: ContentKind, groupId
   const userEnd = 2 + inner[1]!;
   if (inner.length <= userEnd) return null;
   const deviceEnd = userEnd + 1 + inner[userEnd]!;
-  if (inner.length < deviceEnd + 64) return null;
+  if (inner.length < deviceEnd + DEVICE_SIGNATURE_BYTES) return null;
   const signer = { userId: fromUtf8(inner.subarray(2, userEnd)), deviceId: fromUtf8(inner.subarray(userEnd + 1, deviceEnd)) };
-  const signature = inner.subarray(deviceEnd, deviceEnd + 64);
-  const body = inner.subarray(deviceEnd + 64);
+  const signature = inner.subarray(deviceEnd, deviceEnd + DEVICE_SIGNATURE_BYTES);
+  const body = inner.subarray(deviceEnd + DEVICE_SIGNATURE_BYTES);
   let value: T | undefined;
   try {
     value = JSON.parse(fromUtf8(body));
@@ -480,7 +531,7 @@ export interface Signer {
 }
 
 const grantSignatureInput = (groupId: string, recipient: string, signer: Signer, keys: string) =>
-  concat(label(`zuna/history-grant-sig/v2|${groupId}|${recipient}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(keys)));
+  concat(label(`zuna/history-grant-sig/v3|${groupId}|${recipient}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(keys)));
 
 /**
  * Hands older epoch keys to someone joining. Anyone can seal to a public key, so
@@ -496,8 +547,8 @@ export function sealHistoryGrant(
 ): Uint8Array {
   const text = JSON.stringify(keys);
   const signature = wasm.sign(deviceSecret, grantSignatureInput(groupId, recipient, signer, text));
-  const grant = { v: 2, keys: text, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) };
-  return wasm.hpkeSeal(recipientHpke, label("zuna/history-grant/v2"), label(groupId), utf8(JSON.stringify(grant)));
+  const grant = { v: 3, keys: text, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) };
+  return wasm.hpkeSeal(recipientHpke, label("zuna/history-grant/v3"), label(groupId), utf8(JSON.stringify(grant)));
 }
 
 export interface OpenedHistoryGrant {
@@ -508,8 +559,8 @@ export interface OpenedHistoryGrant {
 }
 
 export function openHistoryGrant(hpkeSecret: Uint8Array, groupId: string, recipient: string, sealed: Uint8Array): OpenedHistoryGrant {
-  const grant = JSON.parse(fromUtf8(wasm.hpkeOpen(hpkeSecret, label("zuna/history-grant/v2"), label(groupId), sealed)));
-  if (grant?.v !== 2 || typeof grant.keys !== "string" || typeof grant.user !== "string" || typeof grant.device !== "string" || typeof grant.signature !== "string") {
+  const grant = JSON.parse(fromUtf8(wasm.hpkeOpen(hpkeSecret, label("zuna/history-grant/v3"), label(groupId), sealed)));
+  if (grant?.v !== 3 || typeof grant.keys !== "string" || typeof grant.user !== "string" || typeof grant.device !== "string" || typeof grant.signature !== "string") {
     throw new Error("That history grant isn't valid.");
   }
   const signer = { userId: grant.user, deviceId: grant.device };

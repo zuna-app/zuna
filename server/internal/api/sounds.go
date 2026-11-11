@@ -8,12 +8,13 @@ import (
 )
 
 const (
-	// A sound's sealed details: a name, an emoji and the key to its file.
-	maxSoundDetails = 4 << 10
+	// A sound's sealed details: a name, an emoji and the key to its file, and the hybrid
+	// signature of whoever added it.
+	maxSoundDetails = 12 << 10
 	// A sound is a few seconds of WAV, which apps keep to five, in one channel at 48 kHz.
 	maxSoundFileBytes = 1 << 20
-	// Which sound is played, sealed with the room's key.
-	maxSoundSignal = 1024
+	// Which sound is played, sealed with the room's key and signed by the device that played it.
+	maxSoundSignal = 4 << 10
 )
 
 // handleSounds lists the soundboard, which every device fetches all of.
