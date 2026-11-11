@@ -40,6 +40,11 @@ const log = (message: string) => console.log(`[notify-run] ${message}`);
 const WAIT = 30_000;
 /** And while they use both. */
 const BOTH = 1_500;
+/**
+ * How long the server holds every push, since nothing says who sent a message: long enough for
+ * the sender's own read to spare their phones (`defaultPushHold` in server/internal/api/push.go).
+ */
+const HOLD = 1_500;
 const PASSWORD = "notify-check-Pass-Bob-4417";
 
 // --- The phone ---
@@ -232,15 +237,19 @@ try {
     pushes.find((push) => (handle === "ipad" ? push.handle === "ipad" : phoneHandles.has(push.handle)) && push.type === "alert" && openPush(keyFor(push)!, push)?.m === messageId)?.at;
   const activeElsewhere = () => ipad.session.isActiveElsewhere();
 
-  /** Whether something came when it should: at once, after the wait, after a moment's wait, or never. */
-  type When = "now" | "waited" | "moment" | "never";
+  /** Whether something came when it should: at once, after the server's hold on every push, after the wait, after a moment's wait, or never. */
+  type When = "now" | "held" | "waited" | "moment" | "never";
   const judge = (name: string, at: number | undefined, sent: number, when: When) => {
     const delay = at === undefined ? undefined : at - sent;
     const ok =
       when === "never"
         ? delay === undefined
         : delay !== undefined &&
-          (when === "now" ? delay < BOTH : when === "moment" ? delay >= BOTH - 300 && delay < 8_000 : delay >= WAIT - 1_000 && delay < WAIT + 10_000);
+          (when === "now"
+            ? delay < BOTH
+            : when === "held"
+              ? delay >= HOLD - 300 && delay < HOLD + 3_000
+              : when === "moment" ? delay >= BOTH - 300 && delay < 8_000 : delay >= WAIT - 1_000 && delay < WAIT + 10_000);
     check(name, ok, delay === undefined ? "nothing" : `after ${(delay / 1000).toFixed(1)} s`);
   };
   const send = (chat: string, text: string) => ({ id: alice.session.sendMessage(chat, { text }).id, text, sent: Date.now() });
@@ -255,7 +264,7 @@ try {
   await sleep(1_000);
   const a = send(chats.dm!, "Are you there?");
   await sleep(WAIT + 10_000);
-  judge("used last, the phone is pushed at once", pushedAt("iphone", a.id), a.sent, "now");
+  judge("used last, the phone is pushed once the server's hold is over", pushedAt("iphone", a.id), a.sent, "held");
   judge("the other phone waits, as bob was on the first one more recently", pushedAt("ipad", a.id), a.sent, "waited");
   judge("so does the desktop", await onDesktop(a.text), a.sent, "waited");
 
