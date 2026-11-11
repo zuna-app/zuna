@@ -14,15 +14,16 @@ use crate::state::ToastKind;
 
 /// What the stage is filled with when it's the video watched together, among the videos' keys.
 pub const WATCH_FOCUS: &str = "watch";
-/// Whether this device has a player for the video: macOS always, Windows with the WebView2
-/// Runtime, which Windows 11 comes with, and Linux not yet. Elsewhere this device never watches:
-/// the stage shows what's on and says where it plays.
+/// Whether this device has a player for the video: macOS always, over the stage, Windows with the
+/// WebView2 Runtime, which Windows 11 comes with, and Linux in a window of its own, which says
+/// what to install where WebKitGTK is missing. Elsewhere this device never watches: the stage
+/// shows what's on and says where it plays.
 pub fn plays_here() -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     return true;
     #[cfg(windows)]
     return runtime_here();
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     return false;
 }
 
@@ -35,6 +36,48 @@ pub fn runtime_here() -> bool {
 
 /// Seeks go at most four a second, however fast someone drags.
 const SEEK_EVERY: Duration = Duration::from_millis(250);
+
+/// The page the player is in, built from packages/watch by `apps/desktop/core-bundle/build.mjs`.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+pub const PAGE: &str = include_str!("../../assets/core/watch.html");
+
+/// YouTube's player, or in a development build's checks the fake of it that `ZUNA_WATCH_PLAYER`
+/// names (packages/watch/fake/player.html), which the page may frame and nothing else.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+pub fn player_host() -> String {
+    #[cfg(debug_assertions)]
+    if let Ok(fake) = std::env::var("ZUNA_WATCH_PLAYER") {
+        let origin = fake.trim_end_matches('/');
+        if (origin.starts_with("http://") || origin.starts_with("https://")) && !origin["https://".len().min(origin.len())..].contains('/') {
+            return origin.to_string();
+        }
+    }
+    "https://www.youtube-nocookie.com".into()
+}
+
+/// The address the page is loaded under, which YouTube is told as the Referer: `https://` and the
+/// app's ID. A check's fake player is plain HTTP, which WebKit won't frame in an HTTPS page.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+pub fn page_origin(host: &str) -> &'static str {
+    if host.starts_with("http:") { "http://chat.zuna.desktop" } else { "https://chat.zuna.desktop" }
+}
+
+/// A change the person made in the player, as the page said it, with only what's of use kept
+/// from it: whether it plays, where in ms, and how fast. The page is checked as anything from outside.
+pub fn intent_of(message: &Value) -> Option<Value> {
+    let change = message.get("change").and_then(Value::as_object)?;
+    let mut kept = serde_json::Map::new();
+    if let Some(playing) = change.get("playing").and_then(Value::as_bool) {
+        kept.insert("playing".into(), json!(playing));
+    }
+    if let Some(position) = change.get("position").and_then(Value::as_f64).filter(|value| value.is_finite()) {
+        kept.insert("position".into(), json!(position.max(0.)));
+    }
+    if let Some(rate) = change.get("rate").and_then(Value::as_f64).filter(|value| value.is_finite()) {
+        kept.insert("rate".into(), json!(rate));
+    }
+    (!kept.is_empty()).then_some(Value::Object(kept))
+}
 
 impl Voice {
     /// What the room watches changed, or it stopped.
@@ -137,6 +180,11 @@ impl Voice {
     /// Plays what the room watches on this device, or stops playing it here only.
     pub fn set_watching(&mut self, on: bool, cx: &mut Context<Self>) {
         let on = on && plays_here();
+        // Pressed again after the window couldn't open, it tries again.
+        #[cfg(target_os = "linux")]
+        if on {
+            self.watch_here.forget_problem();
+        }
         self.watching = if on { self.watch.as_ref().map(|watch| watch.session.clone()) } else { None };
         if on && self.watch.is_some() {
             self.focus = Some(WATCH_FOCUS.into());

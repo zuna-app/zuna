@@ -5,7 +5,8 @@
 // the microphone, and what it plays is recorded. The web app's microphone is Chromium's fake
 // device, and what reaches it is measured in its page. The native app's camera is a
 // v4l2loopback device, fed FFmpeg's test pattern in YUYV, or in the pixel format
-// `ZUNA_CHECK_CAMERA_FORMAT` names.
+// `ZUNA_CHECK_CAMERA_FORMAT` names. They also watch a video together, which the native app
+// plays in zuna-watch's window, with a fake of YouTube's player (packages/watch/fake) in its place.
 //
 //   npm run build -w @zuna/web && node apps/desktop/test/linux-voice-check.mjs [screenshot-dir]
 //
@@ -16,10 +17,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { createServer as createTlsServer } from "node:tls";
 import { chromium } from "playwright-core";
 import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
-import { appBinary, inside, outside, sleep, until } from "./linux-session.mjs";
+import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
 // KWin's own global shortcuts, which the portal's push to talk goes through.
@@ -221,6 +223,15 @@ try {
   start("pw-loopback", ["-m", "[ MONO ]", `--capture-props=media.class=Audio/Sink node.name=${feed} node.description=Zuna_check_feed`, `--playback-props=media.class=Audio/Source node.name=${microphone} node.description=Zuna_check_microphone`], process.env, "microphone");
   await sleep(1000);
 
+  // --- A fake of YouTube's player, which a video watched together plays in here, so nothing contacts YouTube ---
+  const fakePlayer = readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8");
+  const fakeServer = createServer((_, response) => {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(fakePlayer);
+  });
+  await new Promise((resolve) => fakeServer.listen(0, "127.0.0.1", resolve));
+  const fakePlayerUrl = `http://127.0.0.1:${fakeServer.address().port}`;
+
   // --- The native app, the server's owner, with a voice channel ---
   const appData = join(work, "app");
   const preview = core(appData, ["previewInvite", setupLink]);
@@ -232,7 +243,8 @@ try {
 
   const { drive, windowOf } = await startDriver();
   // The system's default devices too, for messages recorded and played, are the check's own.
-  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ...trust }, "app");
+  // The player's window plays through GStreamer, which goes to the check's speakers too.
+  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info,zuna::voice::watch_window=debug", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ZUNA_WATCH_PLAYER: fakePlayerUrl, PULSE_SINK: speakers, ...trust }, "app");
   const first = await until(windowOf, "the app's window", 30_000);
   /** Whether the app last asked for the screen to stay on, or to sleep, and what it asked through. */
   const screenAwake = () => [...app.output.matchAll(/keeping the screen on|letting the screen sleep/g)].at(-1)?.[0] === "keeping the screen on";
@@ -363,6 +375,102 @@ try {
   await drive({ do: "click", x: 1374, y: 56 });
   await sleep(800);
   check("and its × hides it", spreadIn(await shot("04-chat-hidden"), [1130, 836, 250, 36]) < 0.02);
+
+  // --- Watching a video together: put on in the web app, played here in zuna-watch's window ---
+  {
+    const VIDEO = "aqz-KE-bpKQ";
+    const cover = execFileSync("magick", ["-size", "320x180", "gradient:#2a6f97-#f4a261", "png:-"]);
+    await browser.route("https://www.youtube-nocookie.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: fakePlayer }));
+    // The video's page and picture, fetched by zuna-web for whoever puts it on, as a link's preview is.
+    await browser.route(/\/_zuna\/preview\?/, (route) => {
+      const url = new URL(route.request().url()).searchParams.get("url") ?? "";
+      if (url.startsWith("https://www.youtube.com/watch")) {
+        const body = `<html><head><meta property="og:title" content="A film about a rabbit"><meta property="og:image" content="https://i.ytimg.com/vi/${VIDEO}/maxresdefault.jpg"></head></html>`;
+        return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "X-Zuna-Url": url }, body });
+      }
+      if (url.startsWith("https://i.ytimg.com/")) return route.fulfill({ status: 200, contentType: "image/png", headers: { "X-Zuna-Url": url }, body: cover });
+      return route.continue();
+    });
+    /** Where the web app's player is, and when by this machine's clock. */
+    const webPlayer = async () => {
+      const frame = page.frames().find((item) => item.url().startsWith("https://www.youtube-nocookie.com/embed/"));
+      return frame ? frame.evaluate(() => ({ time: window.fake.time, state: window.fake.state, now: Date.now() })) : null;
+    };
+    /** Where the native app's player last said it was, and when by the same clock, from its log. */
+    const nativePlayer = () => {
+      const found = [...app.output.matchAll(/watch: player (\S+) at (\d+) ms, (\d+)/g)].at(-1);
+      return found ? { phase: found[1], position: Number(found[2]), at: Number(found[3]) } : null;
+    };
+    const playerWindow = () => drive({ do: "windows" }).then((answer) => answer.windows?.find((window) => window.appId === "zuna" && window.title.includes("A film about a rabbit")));
+    await page.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Watch together" }).click();
+    await page.locator(".modal", { hasText: "Play YouTube videos?" }).getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("YouTube link").fill(`https://youtu.be/${VIDEO}?t=30`);
+    await page.getByRole("button", { name: "Put it on" }).click();
+    await page.locator(".watch-frame").waitFor({ timeout: 15_000 });
+    await sleep(2500);
+    await shot("05-watch-cover");
+    // Watch, on the stage's cover, and Watch again in the question of what Google learns.
+    await drive({ do: "click", x: 891, y: 407 });
+    await sleep(1200);
+    await shot("05-watch-consent");
+    await drive({ do: "click", x: 873, y: 582 });
+    const opened = await until(playerWindow, "the player's window", 20_000).catch(() => null);
+    check("Watch opens the video in zuna-watch's window, titled with what's on", !!opened, opened ? `${opened.width}x${opened.height}` : app.output.split("\n").filter((line) => /watch/.test(line)).slice(-3).join(" | "));
+    const inStep = await until(() => nativePlayer()?.phase === "in-step", "the window's player to come into step", 30_000).catch(() => false);
+    await sleep(2500);
+    const nativeAt = nativePlayer();
+    const webAt = await webPlayer();
+    const apart = nativeAt && webAt ? Math.round(Math.abs(nativeAt.position + (webAt.now - nativeAt.at) - webAt.time * 1000)) : Infinity;
+    check("it plays where the web app's player is", inStep && apart < 500, `${apart} ms apart`);
+    await shot("05-watch-window");
+    // The web app pauses in its player, and the window's stops where it did.
+    await page.frameLocator(".watch-frame").getByRole("button", { name: "Pause" }).click();
+    await sleep(2500);
+    const pausedAt = nativePlayer();
+    await sleep(2000);
+    const stillAt = nativePlayer();
+    const webPaused = await webPlayer();
+    check(
+      "a pause in the web app pauses the window's player, where it was paused",
+      !!pausedAt && !!stillAt && pausedAt.position === stillAt.position && stillAt.at > pausedAt.at && Math.abs(stillAt.position - (webPaused?.time ?? 0) * 1000) < 500,
+      `${pausedAt?.position} then ${stillAt?.position} ms, the web app's at ${Math.round((webPaused?.time ?? 0) * 1000)}`,
+    );
+    // The window's own player plays, and skips ahead, and the web app's follows, once it's in step
+    // with the pause, as a player catching up doesn't speak for its person.
+    await until(() => nativePlayer()?.phase === "in-step" && nativePlayer().at > stillAt.at, "the window's player to be in step", 10_000).catch(() => undefined);
+    const inWindow = await playerWindow();
+    await drive({ do: "click", x: inWindow.x + 355, y: inWindow.y + 321 });
+    let played = null;
+    for (let i = 0; i < 40 && played?.state !== 1; i++, await sleep(250)) played = await webPlayer();
+    check("a play in the window's player reaches the web app", played?.state === 1, `state ${played?.state}`);
+    await drive({ do: "click", x: inWindow.x + 522, y: inWindow.y + 321 });
+    let ahead = null;
+    for (let i = 0; i < 40 && !(ahead?.time > 90); i++, await sleep(250)) ahead = await webPlayer();
+    check("and a seek in it", ahead?.time > 90, `${ahead?.time.toFixed(1)} s`);
+    // Behind the app, the stage says where it plays, and asks the desktop for the window.
+    await drive({ do: "minimize", appId: "zuna", title: "A film about a rabbit" });
+    await sleep(1000);
+    await shot("05-watch-stage");
+    await drive({ do: "click", x: 891, y: 417 });
+    const wanted = await until(async () => {
+      const window = await playerWindow();
+      return window && (!window.minimized || window.demandsAttention);
+    }, "the window to be asked for", 5_000).catch(() => false);
+    check("the stage's Show its window asks the desktop for it", wanted, JSON.stringify(await playerWindow()));
+    // Closing the window stops watching here alone, and Stop in the web app closes it for all.
+    await drive({ do: "close", appId: "zuna", title: "A film about a rabbit" });
+    const closed = await until(async () => !(await playerWindow()), "the window to close", 10_000).catch(() => false);
+    await sleep(1000);
+    const goesOn = await webPlayer();
+    check("closing the window stops watching here, and the web app's goes on", closed && /the player's window was closed/.test(app.output) && goesOn?.state === 1, `state ${goesOn?.state}`);
+    await drive({ do: "click", x: 891, y: 407 });
+    const again = await until(playerWindow, "the player's window again", 15_000).catch(() => null);
+    await page.getByRole("button", { name: "Stop for everyone" }).click();
+    const stopped = await until(async () => !(await playerWindow()), "the window to go", 10_000).catch(() => false);
+    check("Watch opens it again without asking, and Stop in the web app closes it", !!again && stopped);
+    await sleep(1000);
+    await shot("05-watch-stopped");
+  }
 
   // --- Stream stats, with both microphones muted, copied with the mouse alone ---
   await page.getByRole("button", { name: "Mute", exact: true }).first().click();

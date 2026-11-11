@@ -4,7 +4,8 @@
 //
 //   node scripts/linux-app.mjs run [--release] [-- app args]   build and start it
 //   node scripts/linux-app.mjs build                            a release build in dist/linux, with
-//                                                               the screen share's encoder and FFmpeg in lib
+//                                                               the screen share's encoder and FFmpeg in lib,
+//                                                               and zuna-watch beside it
 //   node scripts/linux-app.mjs dist                             that, as a .deb, an .rpm, a pacman
 //                                                               package, an AppImage and a .tar.gz
 //
@@ -41,17 +42,21 @@ const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?
 // What a build anyone installs says it is, as on Windows: its version, build number and channel.
 const stamp = command === "run" ? { ZUNA_VERSION: version } : appStamp();
 const released = { version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD };
+// The window a video watched together plays in (apps/desktop/watch), which the app finds beside
+// itself, and which isn't a default member of its workspace, so that `cargo run` stays the app's.
+run("cargo", ["build", ...(release ? ["--release"] : []), "-p", "zuna-watch"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...stamp } });
 run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
 
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
   mkdirSync(dist, { recursive: true });
   copyFileSync(join(target, "release", "zuna"), join(dist, "zuna"));
+  copyFileSync(join(target, "release", "zuna-watch"), join(dist, "zuna-watch"));
   // The screen share's encoder and FFmpeg's libraries, which the build gathered and the program
   // finds at $ORIGIN/lib.
   rmSync(join(dist, "lib"), { recursive: true, force: true });
   cpSync(join(target, "release", "lib"), join(dist, "lib"), { recursive: true });
-  console.log(`> wrote ${join(dist, "zuna")}, with its libraries in ${join(dist, "lib")}`);
+  console.log(`> wrote ${join(dist, "zuna")} and zuna-watch, with its libraries in ${join(dist, "lib")}`);
   if (command === "dist") await packages(dist);
 }
 
@@ -90,6 +95,7 @@ async function packages(dist) {
   run("desktop-file-validate", [desktop]);
   const contents = [
     { src: join(dist, "zuna"), dst: "/usr/lib/zuna/zuna", file_info: { mode: 0o755 } },
+    { src: join(dist, "zuna-watch"), dst: "/usr/lib/zuna/zuna-watch", file_info: { mode: 0o755 } },
     { src: join(dist, "lib"), dst: "/usr/lib/zuna/lib", type: "tree" },
     { src: "/usr/lib/zuna/zuna", dst: "/usr/bin/zuna", type: "symlink" },
     { src: desktop, dst: "/usr/share/applications/zuna.desktop", file_info: { mode: 0o644 } },
@@ -97,7 +103,9 @@ async function packages(dist) {
     ...sizes.map((name) => ({ src: join(icons, name), dst: `/usr/share/icons/hicolor/${name.replace(".png", "")}/apps/zuna.png`, file_info: { mode: 0o644 } })),
   ];
   // What the program links and loads, by each system's names: Wayland, Vulkan, fonts, PipeWire,
-  // and the portals, with a color emoji font and GeoClue for location recommended.
+  // and the portals, with a color emoji font and GeoClue for location recommended, and WebKitGTK
+  // with GStreamer's decoders, which zuna-watch plays a video watched together through. Without
+  // them the app runs, and says what to install when someone presses Watch.
   const config = {
     name: "zuna",
     arch: "amd64",
@@ -115,11 +123,11 @@ async function packages(dist) {
     overrides: {
       deb: {
         depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal"],
-        recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0"],
+        recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0", "libwebkit2gtk-4.1-0", "gstreamer1.0-plugins-good", "gstreamer1.0-libav"],
       },
       rpm: {
         depends: ["libxkbcommon.so.0()(64bit)", "libwayland-client.so.0()(64bit)", "libvulkan.so.1()(64bit)", "libfontconfig.so.1()(64bit)", "libfreetype.so.6()(64bit)", "libpipewire-0.3.so.0()(64bit)", "xdg-desktop-portal"],
-        recommends: ["mesa-vulkan-drivers", "geoclue2"],
+        recommends: ["mesa-vulkan-drivers", "geoclue2", "webkit2gtk4.1", "gstreamer1-plugins-good"],
       },
       // nfpm writes no optdepends for pacman, so Arch gets only what the program needs.
       archlinux: {
@@ -164,6 +172,7 @@ async function packages(dist) {
   rmSync(appDir, { recursive: true, force: true });
   mkdirSync(join(appDir, "usr", "lib", "zuna"), { recursive: true });
   copyFileSync(join(dist, "zuna"), join(appDir, "usr", "lib", "zuna", "zuna"));
+  copyFileSync(join(dist, "zuna-watch"), join(appDir, "usr", "lib", "zuna", "zuna-watch"));
   cpSync(join(dist, "lib"), join(appDir, "usr", "lib", "zuna", "lib"), { recursive: true });
   symlinkSync("usr/lib/zuna/zuna", join(appDir, "AppRun"));
   // The runtime's own .desktop file and icon, for tools that look; the app writes its own as it starts.
@@ -184,6 +193,7 @@ async function packages(dist) {
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged);
   copyFileSync(join(dist, "zuna"), join(staged, "zuna"));
+  copyFileSync(join(dist, "zuna-watch"), join(staged, "zuna-watch"));
   cpSync(join(dist, "lib"), join(staged, "lib"), { recursive: true });
   run("tar", ["-czf", join(out, `Zuna-${label}-x86_64.tar.gz`), "-C", dist, folder]);
   rmSync(staged, { recursive: true, force: true });

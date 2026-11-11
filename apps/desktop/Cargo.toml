@@ -14,7 +14,7 @@ path = "src/main.rs"
 # why), with this lockfile and target folder, and its tests run with the app's. The media library
 # on macOS and the Linux checks' driver are built apart, each with a lockfile of its own.
 [workspace]
-members = ["screenshare"]
+members = ["screenshare", "watch"]
 default-members = [".", "screenshare"]
 exclude = ["media-ffmpeg", "test/driver"]
 

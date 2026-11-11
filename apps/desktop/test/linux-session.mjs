@@ -37,6 +37,8 @@ export async function outside(script) {
   await ensureFfmpeg(nativeAppDeps);
   await ensureWebrtcSys(nativeAppDeps);
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
+  // The window a video watched together plays in, beside the app, which isn't a default member of its workspace.
+  execFileSync("cargo", ["build", "-p", "zuna-watch"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
   const server = join(tmpdir(), "zuna-linux-check-server");
   execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });

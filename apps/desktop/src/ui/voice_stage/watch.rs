@@ -8,34 +8,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use futures::StreamExt;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(any(target_os = "macos", windows))]
+use serde_json::json;
 
 use super::*;
 use crate::models::WatchView;
 use crate::voice::watch::WATCH_FOCUS;
-
-/// The page the player is in, built from packages/watch by `apps/desktop/core-bundle/build.mjs`.
 #[cfg(any(target_os = "macos", windows))]
-const PAGE: &str = include_str!("../../../assets/core/watch.html");
-
-/// YouTube's player, or in a development build's checks the fake of it that `ZUNA_WATCH_PLAYER`
-/// names (packages/watch/fake/player.html), which the page may frame and nothing else.
-fn player_host() -> String {
-    #[cfg(debug_assertions)]
-    if let Ok(fake) = std::env::var("ZUNA_WATCH_PLAYER") {
-        let origin = fake.trim_end_matches('/');
-        if (origin.starts_with("http://") || origin.starts_with("https://")) && !origin["https://".len().min(origin.len())..].contains('/') {
-            return origin.to_string();
-        }
-    }
-    "https://www.youtube-nocookie.com".into()
-}
-
-/// The address the page is loaded under, which YouTube is told as the Referer: `https://` and the
-/// app's ID. A check's fake player is plain HTTP, which WebKit won't frame in an HTTPS page.
-fn page_origin(host: &str) -> &'static str {
-    if host.starts_with("http:") { "http://chat.zuna.desktop" } else { "https://chat.zuna.desktop" }
-}
+use crate::voice::watch::{PAGE, page_origin, player_host};
 
 /// Where Microsoft offers the WebView2 Runtime, which a Windows without it is pointed to.
 const WEBVIEW2_DOWNLOAD: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
@@ -151,19 +132,8 @@ impl VoiceStage {
                 cx.notify();
             }
             "intent" => {
-                let Some(change) = message.get("change").and_then(Value::as_object) else { return };
-                let mut kept = serde_json::Map::new();
-                if let Some(playing) = change.get("playing").and_then(Value::as_bool) {
-                    kept.insert("playing".into(), json!(playing));
-                }
-                if let Some(position) = change.get("position").and_then(Value::as_f64).filter(|value| value.is_finite()) {
-                    kept.insert("position".into(), json!(position.max(0.)));
-                }
-                if let Some(rate) = change.get("rate").and_then(Value::as_f64).filter(|value| value.is_finite()) {
-                    kept.insert("rate".into(), json!(rate));
-                }
-                if !kept.is_empty() {
-                    self.voice.update(cx, |voice, cx| voice.watch_control(Value::Object(kept), cx));
+                if let Some(change) = crate::voice::watch::intent_of(&message) {
+                    self.voice.update(cx, |voice, cx| voice.watch_control(change, cx));
                 }
             }
             "status" => {
@@ -307,6 +277,17 @@ impl VoiceStage {
         let title = if watch.video.title.is_empty() { "A YouTube video".to_string() } else { watch.video.title.clone() };
         let put_on_by = self.person_name(&watch.video.started_by, cx);
         let status = self.watch_player.as_ref().map(|player| player.status.borrow().clone()).unwrap_or_default();
+        // On Linux the window it plays in is held by voice, and so is what its player says.
+        #[cfg(target_os = "linux")]
+        let status = voice.watch_here.status().map(|here| PlayerStatus { phase: here.phase.clone(), error: here.error.as_deref().map(|error| error_words(error).to_string()), blocked: here.blocked }).unwrap_or(status);
+        #[cfg(target_os = "linux")]
+        let (problem, decode_note) = (
+            voice.watch_here.problem(&watch.session).map(str::to_string),
+            voice.watch_here.status().is_some_and(|here| here.cant_decode).then(|| format!("To play YouTube's videos here, install {}.", crate::platform::watch_view::decoder_packages())),
+        );
+        #[cfg(not(target_os = "linux"))]
+        let (problem, decode_note) = (None::<String>, None::<String>);
+        let in_window = watching && cfg!(target_os = "linux");
         let note = if let Some(error) = &status.error {
             error.clone()
         } else if status.blocked {
@@ -326,7 +307,7 @@ impl VoiceStage {
         let plays_here = crate::voice::watch::plays_here();
         let state = self.state.clone();
         let play_youtube = state.read(cx).settings.play_youtube;
-        let body: AnyElement = if watching {
+        let body: AnyElement = if watching && !in_window {
             #[cfg(any(target_os = "macos", windows))]
             let view = self.watch_player.as_ref().map(|player| player.view.clone());
             div()
@@ -377,17 +358,29 @@ impl VoiceStage {
                         .text_color(gpui::white())
                         .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(title.clone()))
                         .when(!watch.video.author.is_empty(), |el| el.child(div().text_size(px(13.)).child(watch.video.author.clone())))
-                        .child(div().text_size(px(13.)).text_color(theme::color(theme::white_a(0.75))).child(if plays_here {
+                        .child(div().id("watch-where").text_size(px(13.)).text_color(theme::color(theme::white_a(0.75))).child(if in_window {
+                            decode_note.unwrap_or_else(|| "It's playing in a window of its own. Closing that window stops it here.".into())
+                        } else if let Some(problem) = problem {
+                            problem
+                        } else if plays_here {
                             format!("Put on by {put_on_by}. It plays from YouTube once you press Watch.")
                         } else if cfg!(windows) {
                             format!("Put on by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which Windows 11 comes with. Install it, then start Zuna again.")
                         } else {
-                            format!("Put on by {put_on_by}. This app plays it on macOS and Windows for now; the web app and the iPhone app play it everywhere.")
+                            format!("Put on by {put_on_by}. This app doesn't play it on this system; the web app and the iPhone app do.")
                         }))
                         .when(!plays_here && cfg!(windows), |el| {
                             el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
                         })
-                        .when(plays_here, |el| {
+                        .when(in_window, |el| {
+                            let voice = voice.clone();
+                            el.child(button("watch-raise", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("app-window", 16., theme.text1)).child("Show its window").on_click(move |_, _, cx| {
+                                #[cfg(target_os = "linux")]
+                                voice.read(cx).watch_here.raise();
+                                let _ = (&voice, cx);
+                            }))
+                        })
+                        .when(plays_here && !in_window, |el| {
                             el.child(button("watch-here", ButtonKind::Primary, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("tv", 16., theme.on_accent)).child("Watch").on_click(move |_, _, cx| {
                                 if play_youtube {
                                     voice.update(cx, |voice, cx| voice.set_watching(true, cx));

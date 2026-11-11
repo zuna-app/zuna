@@ -9,9 +9,11 @@
 set -eu
 
 apt-get update
-# What the build links or reads headers of, and what makes the packages.
+# What the build links or reads headers of, and what makes the packages. WebKitGTK is zuna-watch's,
+# the window a video watched together plays in.
 apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd unzip build-essential cmake pkg-config \
   libxkbcommon-dev libwayland-dev libfontconfig-dev libfreetype-dev libpipewire-0.3-dev libglib2.0-dev libva-dev libdrm-dev libgbm-dev libegl-dev libdbus-1-dev \
+  libwebkit2gtk-4.1-dev \
   desktop-file-utils squashfs-tools
 
 curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/keyrings/llvm.asc

@@ -16,6 +16,7 @@ mod settings;
 mod sound;
 pub mod tray;
 pub mod updates;
+pub mod watch_view;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};

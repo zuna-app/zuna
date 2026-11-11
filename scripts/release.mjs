@@ -100,7 +100,7 @@ export const IOS_PATHS = [
 export const NOT_IOS_PATHS = ["apps/ios/ZunaUITests/", "apps/ios/ZunaKit/Tests/", "apps/ios/scripts/", "packages/core/test/", "packages/watch/test/", "packages/watch/fake/"];
 
 /** The crates whose version is kept the same as the root package.json's. */
-const CRATES = ["apps/desktop", "apps/desktop/screenshare", "apps/desktop/media-ffmpeg", "apps/desktop/test/driver", "crypto", "crypto/bindgen"];
+const CRATES = ["apps/desktop", "apps/desktop/screenshare", "apps/desktop/watch", "apps/desktop/media-ffmpeg", "apps/desktop/test/driver", "crypto", "crypto/bindgen"];
 
 /** The changelog's headings, and the level each one's commits count as. */
 export const HEADINGS = [

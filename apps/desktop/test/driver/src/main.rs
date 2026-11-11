@@ -198,6 +198,13 @@ impl Driver {
         self.queue.roundtrip(&mut self.state).map(|_| ()).map_err(|error| error.to_string())
     }
 
+    /// The window a command names by `appId`, and by `title` where it gives one, which its title holds.
+    fn window_named(&self, command: &Value) -> Result<&Window, String> {
+        let app_id = command.get("appId").and_then(Value::as_str).unwrap_or_default();
+        let title = command.get("title").and_then(Value::as_str).unwrap_or_default();
+        self.state.windows.iter().find(|window| !window.unmapped && (app_id.is_empty() || window.app_id == app_id) && window.title.contains(title)).ok_or_else(|| "no such window".to_string())
+    }
+
     fn key(&mut self, code: u32, down: bool) {
         self.input.keyboard_key(code, down as u32);
     }
@@ -317,18 +324,20 @@ impl Driver {
             }
             "sleep" => self.pause(number("ms").unwrap_or(100.) as u64)?,
             // What the taskbar does with a window: bring it back from minimized, and to the front.
+            // A window is named by its app ID, and by what its title holds where one app has two.
             "restore" | "activate" => {
                 self.sync()?;
-                let app_id = command.get("appId").and_then(Value::as_str).unwrap_or_default();
-                let window = self.state.windows.iter().find(|window| !window.unmapped && (app_id.is_empty() || window.app_id == app_id)).ok_or("no such window")?;
-                window.proxy.set_state(0x1 | 0x2, 0x1);
+                self.window_named(command)?.proxy.set_state(0x1 | 0x2, 0x1);
             }
             // What a window's minimize button does.
             "minimize" => {
                 self.sync()?;
-                let app_id = command.get("appId").and_then(Value::as_str).unwrap_or_default();
-                let window = self.state.windows.iter().find(|window| !window.unmapped && (app_id.is_empty() || window.app_id == app_id)).ok_or("no such window")?;
-                window.proxy.set_state(0x2, 0x2);
+                self.window_named(command)?.proxy.set_state(0x2, 0x2);
+            }
+            // What a window's close button does.
+            "close" => {
+                self.sync()?;
+                self.window_named(command)?.proxy.close();
             }
             "windows" => {
                 self.sync()?;

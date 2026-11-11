@@ -15,6 +15,8 @@ pub mod settings;
 pub mod sounds;
 pub mod stats;
 pub mod watch;
+#[cfg(target_os = "linux")]
+pub mod watch_window;
 
 mod joining;
 mod controls;
@@ -143,6 +145,9 @@ pub struct Voice {
     pub watch: Option<crate::models::WatchView>,
     /// The session this device's person pressed Watch for, which plays here until it ends or they stop it.
     pub watching: Option<String>,
+    /// The window it plays in on Linux, which outlives the stage.
+    #[cfg(target_os = "linux")]
+    pub watch_here: watch_window::WatchHere,
     seek_sent: Option<std::time::Instant>,
     seek_later: Option<Task<()>>,
 
@@ -219,6 +224,8 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         stats_open: false,
         watch: None,
         watching: None,
+        #[cfg(target_os = "linux")]
+        watch_here: Default::default(),
         seek_sent: None,
         seek_later: None,
         room: None,
@@ -249,6 +256,9 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
     });
     cx.set_global(GlobalVoice(voice.clone()));
     awake::start(&voice, cx);
+    // The window a video watched together plays in on Linux follows whatever changes here.
+    #[cfg(target_os = "linux")]
+    cx.observe(&voice, |voice, cx| voice.update(cx, |voice, cx| voice.keep_watch_window(cx))).detach();
     // Listed now, off this thread, so a call's device menus have them the first time they open.
     crate::devices::sound(true);
     crate::devices::sound(false);
