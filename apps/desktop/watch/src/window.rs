@@ -89,6 +89,17 @@ pub fn run() -> i32 {
         // SAFETY: nothing else runs yet to read the environment as it changes.
         unsafe { std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1") };
     }
+    // A video's volume is the app's own slider, which YouTube's player sets on its video, and
+    // WebKit on the stream it plays through. PipeWire's session manager would keep that as
+    // Zuna's volume, by the name below, which the app's own streams share, and give it to the
+    // next of them: everyone's voices as quiet as the last video, or silent after one that was
+    // muted. So it's told to keep nothing of what WebKit's web processes play and to give them
+    // nothing, through PulseAudio, which GStreamer plays through, and for PipeWire's own streams.
+    // SAFETY: as above.
+    unsafe {
+        std::env::set_var("PULSE_PROP_state.restore-props", "false");
+        std::env::set_var("PIPEWIRE_PROPS", "{ state.restore-props = false }");
+    }
     // Shown as Zuna by the desktop, whose zuna.desktop names the icon: Wayland's app ID is this.
     glib::set_prgname(Some("zuna"));
     glib::set_application_name("Zuna");
