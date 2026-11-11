@@ -50,7 +50,9 @@ export async function outside(script) {
   const work = mkdtempSync(join(tmpdir(), "zuna-linux-check-"));
   const xdg = Object.fromEntries(["config", "data", "cache", "state"].map((name) => [`XDG_${name.toUpperCase()}_HOME`, join(work, name)]));
   for (const dir of Object.values(xdg)) mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, ...xdg, MANGOHUD: "0", DISABLE_MANGOHUD: "1", XDG_CURRENT_DESKTOP: "KDE", WAYLAND_DISPLAY: `zuna-check-${run}` };
+  // Playwright's browsers are where the person installed them, which it finds by XDG_CACHE_HOME.
+  const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH || join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "ms-playwright");
+  const env = { ...process.env, ...xdg, PLAYWRIGHT_BROWSERS_PATH: browsers, MANGOHUD: "0", DISABLE_MANGOHUD: "1", XDG_CURRENT_DESKTOP: "KDE", WAYLAND_DISPLAY: `zuna-check-${run}` };
   delete env.DISPLAY;
   const inner = spawnSync("dbus-run-session", ["--", process.execPath, fileURLToPath(script), ...process.argv.slice(2)], {
     stdio: "inherit",
