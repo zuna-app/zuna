@@ -123,6 +123,9 @@ public struct InvitePreview: Codable, Sendable, Hashable {
     public var communityKey: String?
     /// The pin of a server that makes its own certificate, from the link.
     public var pin: String?
+    /// The key the server's log of keys is signed with and the inviter's head of it, from the
+    /// link, which signing up hands back to the core as it came.
+    public var log: String?
     public var setup: Bool
     public var server: ServerInfo
 }
