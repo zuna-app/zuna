@@ -3,9 +3,12 @@
 //! (docs/RELEASES.md). Downloading, the installer and Authenticode are Windows's own, in
 //! `windows/updates.rs`. Linux and macOS don't update themselves yet.
 //!
-//! A release carries `update.json`, its manifest, and `update.json.sig`, an Ed25519 signature
-//! of the manifest's bytes. The app carries the public keys, one pair for each channel. It
-//! checks, in order: the signature; that the manifest's channel is the one its key may sign,
+//! A release carries `update.json`, its manifest, `update.json.sig`, an Ed25519 signature of
+//! the manifest's bytes, and `update.json.sig2`, an ML-DSA-65 one (FIPS 204), which a quantum
+//! computer doesn't forge as it would Ed25519 (docs/POST_QUANTUM.md). Builds from before the
+//! second check the first alone, as they always did, so every installed build still updates.
+//! The app carries the public keys, two pairs for each channel. It checks, in order: both
+//! signatures, by keys of the same channel; that the manifest's channel is the one its key may sign,
 //! and one this app follows; that its build is higher than the app's own, so an old release
 //! can't be replayed as a downgrade; then the downloaded file's size and SHA-256. Only then is
 //! the update ready. No environment variable or file can swap the keys or the address in a
@@ -42,6 +45,20 @@ pub const STABLE_KEYS: &[&str] = &["GUNhiJO8B8ejuIUnMRQB0Tuw+aNcpndXUKl9nsJvGp0=
 /// The keys a nightly's manifest is signed with: the `nightly` environment's, and its spare.
 /// An app on stable takes nothing these signed.
 pub const NIGHTLY_KEYS: &[&str] = &["C7wqzUsCH0J4j7FNPsvmPSsAvQNUsJ5GpIR4QESqYCA=", "dyNEr4EXnQ3UBcaYsGU4BUFvgQhR9awXphizE5nVNDQ="];
+
+/// The ML-DSA-65 keys a stable release's `update.json.sig2` is signed with, each FIPS 204's
+/// 1,952 bytes in base64: the `release` environment's `UPDATE_SIGNING_KEY_PQ`, and a spare whose
+/// private half was never on GitHub.
+pub const STABLE_PQ_KEYS: &[&str] = &[
+    "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",
+];
+
+/// The ML-DSA-65 keys a nightly's `update.json.sig2` is signed with: the `nightly` environment's, and its spare.
+pub const NIGHTLY_PQ_KEYS: &[&str] = &[
+    "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",
+];
 
 /// Where releases are listed, and where their files are.
 const API: &str = "https://api.github.com/repos/zuna-app/zuna";
@@ -155,33 +172,61 @@ impl std::fmt::Display for Refused {
     }
 }
 
+/// One channel's public keys: Ed25519's, which sign `update.json.sig`, and ML-DSA-65's,
+/// which sign `update.json.sig2`.
+struct ChannelKeys {
+    ed25519: Vec<Vec<u8>>,
+    ml_dsa: Vec<Vec<u8>>,
+}
+
+impl ChannelKeys {
+    fn new(ed25519: &[&str], ml_dsa: &[&str]) -> ChannelKeys {
+        let decode = |keys: &[&str], len: usize| keys.iter().filter_map(|key| base64::engine::general_purpose::STANDARD.decode(key.trim()).ok()).filter(|key| key.len() == len).collect();
+        ChannelKeys { ed25519: decode(ed25519, 32), ml_dsa: decode(ml_dsa, 1952) }
+    }
+
+    /// Whether a key of each kind of this channel signed these bytes: both have to have.
+    fn signed(&self, bytes: &[u8], ed25519: &[u8], ml_dsa: &[u8]) -> bool {
+        self.ed25519.iter().any(|key| zuna_crypto::primitives::ed25519_verify(key, bytes, ed25519))
+            && self.ml_dsa.iter().any(|key| zuna_crypto::hybrid::ml_dsa65_verify(key, bytes, ml_dsa))
+    }
+}
+
 /// The public keys manifests are checked against.
 pub struct Keys {
-    stable: Vec<Vec<u8>>,
-    nightly: Vec<Vec<u8>>,
+    stable: ChannelKeys,
+    nightly: ChannelKeys,
 }
 
 impl Keys {
-    pub fn new(stable: &[&str], nightly: &[&str]) -> Keys {
-        let decode = |keys: &[&str]| keys.iter().filter_map(|key| base64::engine::general_purpose::STANDARD.decode(key.trim()).ok()).filter(|key| key.len() == 32).collect();
-        Keys { stable: decode(stable), nightly: decode(nightly) }
+    pub fn new(stable: &[&str], nightly: &[&str], stable_pq: &[&str], nightly_pq: &[&str]) -> Keys {
+        Keys { stable: ChannelKeys::new(stable, stable_pq), nightly: ChannelKeys::new(nightly, nightly_pq) }
     }
 
     /// The keys this build trusts: the ones compiled into it, always, in a build anyone uses.
     fn trusted() -> Keys {
         #[cfg(feature = "update-check")]
-        if let (Ok(stable), Ok(nightly)) = (std::env::var("ZUNA_UPDATE_STABLE_KEYS"), std::env::var("ZUNA_UPDATE_NIGHTLY_KEYS")) {
-            return Keys::new(&stable.split(',').collect::<Vec<_>>(), &nightly.split(',').collect::<Vec<_>>());
+        if let (Ok(stable), Ok(nightly), Ok(stable_pq), Ok(nightly_pq)) = (
+            std::env::var("ZUNA_UPDATE_STABLE_KEYS"),
+            std::env::var("ZUNA_UPDATE_NIGHTLY_KEYS"),
+            std::env::var("ZUNA_UPDATE_STABLE_PQ_KEYS"),
+            std::env::var("ZUNA_UPDATE_NIGHTLY_PQ_KEYS"),
+        ) {
+            let list = |keys: &str| keys.split(',').map(str::to_string).collect::<Vec<_>>();
+            let (stable, nightly, stable_pq, nightly_pq) = (list(&stable), list(&nightly), list(&stable_pq), list(&nightly_pq));
+            fn borrow(keys: &[String]) -> Vec<&str> {
+                keys.iter().map(String::as_str).collect()
+            }
+            return Keys::new(&borrow(&stable), &borrow(&nightly), &borrow(&stable_pq), &borrow(&nightly_pq));
         }
-        Keys::new(STABLE_KEYS, NIGHTLY_KEYS)
+        Keys::new(STABLE_KEYS, NIGHTLY_KEYS, STABLE_PQ_KEYS, NIGHTLY_PQ_KEYS)
     }
 
-    /// Which channel's key signed these bytes, if any did.
-    fn signer(&self, bytes: &[u8], signature: &[u8]) -> Option<Channel> {
-        let signed = |keys: &[Vec<u8>]| keys.iter().any(|key| zuna_crypto::primitives::verify(key, bytes, signature));
-        if signed(&self.stable) {
+    /// Which channel's keys signed these bytes, both kinds of them, if any did.
+    fn signer(&self, bytes: &[u8], ed25519: &[u8], ml_dsa: &[u8]) -> Option<Channel> {
+        if self.stable.signed(bytes, ed25519, ml_dsa) {
             Some(Channel::Stable)
-        } else if signed(&self.nightly) {
+        } else if self.nightly.signed(bytes, ed25519, ml_dsa) {
             Some(Channel::Nightly)
         } else {
             None
@@ -226,10 +271,12 @@ fn parse_tag(tag: &str) -> Option<([u32; 3], Option<u32>)> {
 }
 
 /// The manifest's checks, in the order the module's comment gives them. Nothing in the
-/// manifest is read before its signature holds.
-pub fn accept(manifest: &[u8], signature: &str, following: Channel, own_build: u32, keys: &Keys) -> Result<Update, Refused> {
-    let signature = base64::engine::general_purpose::STANDARD.decode(signature.trim()).map_err(|_| Refused::Signature)?;
-    let signer = keys.signer(manifest, &signature).ok_or(Refused::Signature)?;
+/// manifest is read before its signatures hold. `signature` is `update.json.sig`'s, Ed25519's,
+/// and `signature2` is `update.json.sig2`'s, ML-DSA-65's, each in base64.
+pub fn accept(manifest: &[u8], signature: &str, signature2: &str, following: Channel, own_build: u32, keys: &Keys) -> Result<Update, Refused> {
+    let decode = |text: &str| base64::engine::general_purpose::STANDARD.decode(text.trim()).map_err(|_| Refused::Signature);
+    let (ed25519, ml_dsa) = (decode(signature)?, decode(signature2)?);
+    let signer = keys.signer(manifest, &ed25519, &ml_dsa).ok_or(Refused::Signature)?;
     let manifest: Manifest = serde_json::from_slice(manifest).map_err(|_| Refused::Malformed)?;
     let channel = Channel::parse(&manifest.channel).ok_or(Refused::Malformed)?;
     if channel != signer {
@@ -644,7 +691,9 @@ mod running {
             }
             let Some(manifest) = get(&client, &format!("{downloads}/{tag}/update.json"), 1 << 16)? else { continue };
             let Some(signature) = get(&client, &format!("{downloads}/{tag}/update.json.sig"), 1 << 10)? else { continue };
-            match accept(&manifest, &String::from_utf8_lossy(&signature), following, crate::platform::BUILD, &keys) {
+            // A release from before the second signature has none, and isn't taken.
+            let Some(signature2) = get(&client, &format!("{downloads}/{tag}/update.json.sig2"), 8 << 10)? else { continue };
+            match accept(&manifest, &String::from_utf8_lossy(&signature), &String::from_utf8_lossy(&signature2), following, crate::platform::BUILD, &keys) {
                 Ok(update) if best.as_ref().is_none_or(|best| update.build > best.build) => best = Some(update),
                 Ok(_) => {}
                 Err(Refused::Old) => {}
@@ -758,18 +807,46 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// A channel's two signing keys, as a test holds them: Ed25519's and ML-DSA-65's, each a seed.
     struct Signing {
         public: String,
+        public_pq: String,
         secret: Vec<u8>,
+        secret_pq: Vec<u8>,
     }
 
     fn key() -> Signing {
-        let (public, secret) = zuna_crypto::primitives::signing_keygen().unwrap();
-        Signing { public: base64::engine::general_purpose::STANDARD.encode(public), secret }
+        let base64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+        let secret = zuna_crypto::primitives::random_bytes(32).unwrap();
+        let secret_pq = zuna_crypto::primitives::random_bytes(32).unwrap();
+        Signing {
+            public: base64(&zuna_crypto::primitives::signing_public(&secret).unwrap()),
+            public_pq: base64(&zuna_crypto::hybrid::ml_dsa65_public(&secret_pq).unwrap()),
+            secret,
+            secret_pq,
+        }
     }
 
-    fn sign(key: &Signing, bytes: &[u8]) -> String {
-        base64::engine::general_purpose::STANDARD.encode(zuna_crypto::primitives::sign(&key.secret, bytes).unwrap())
+    /// A release's two signatures, as `update.json.sig` and `update.json.sig2` hold them.
+    struct Signed(String, String);
+
+    fn sign(key: &Signing, bytes: &[u8]) -> Signed {
+        let base64 = |bytes: Vec<u8>| base64::engine::general_purpose::STANDARD.encode(bytes);
+        Signed(
+            base64(zuna_crypto::primitives::sign(&key.secret, bytes).unwrap()),
+            base64(zuna_crypto::hybrid::ml_dsa65_sign(&key.secret_pq, bytes).unwrap()),
+        )
+    }
+
+    fn keys_of(stable: &[&Signing], nightly: &[&Signing]) -> Keys {
+        fn list<'a>(keys: &[&'a Signing], pq: bool) -> Vec<&'a str> {
+            keys.iter().map(|key| if pq { key.public_pq.as_str() } else { key.public.as_str() }).collect()
+        }
+        Keys::new(&list(stable, false), &list(nightly, false), &list(stable, true), &list(nightly, true))
+    }
+
+    fn accept_signed(manifest: &[u8], signed: &Signed, following: Channel, own_build: u32, keys: &Keys) -> Result<Update, Refused> {
+        accept(manifest, &signed.0, &signed.1, following, own_build, keys)
     }
 
     fn manifest(channel: &str, build: u32) -> Vec<u8> {
@@ -780,95 +857,123 @@ mod tests {
     }
 
     #[test]
-    fn every_key_is_an_ed25519_public_key_and_no_two_are_the_same() {
+    fn every_key_is_a_public_key_of_its_kind_and_no_two_are_the_same() {
         let all: Vec<&str> = STABLE_KEYS.iter().chain(NIGHTLY_KEYS).copied().collect();
         for key in &all {
             assert_eq!(base64::engine::general_purpose::STANDARD.decode(key).expect("base64").len(), 32);
         }
-        let distinct: std::collections::HashSet<&str> = all.iter().copied().collect();
-        assert_eq!(distinct.len(), all.len());
+        let all_pq: Vec<&str> = STABLE_PQ_KEYS.iter().chain(NIGHTLY_PQ_KEYS).copied().collect();
+        for key in &all_pq {
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(key).expect("base64").len(), 1952);
+        }
+        let distinct: std::collections::HashSet<&str> = all.iter().chain(&all_pq).copied().collect();
+        assert_eq!(distinct.len(), all.len() + all_pq.len());
         let keys = Keys::trusted();
-        assert_eq!((keys.stable.len(), keys.nightly.len()), (STABLE_KEYS.len(), NIGHTLY_KEYS.len()));
+        assert_eq!((keys.stable.ed25519.len(), keys.nightly.ed25519.len()), (STABLE_KEYS.len(), NIGHTLY_KEYS.len()));
+        assert_eq!((keys.stable.ml_dsa.len(), keys.nightly.ml_dsa.len()), (STABLE_PQ_KEYS.len(), NIGHTLY_PQ_KEYS.len()));
+        // Each channel has one in use and a spare, of each kind.
+        assert!(STABLE_PQ_KEYS.len() == 2 && NIGHTLY_PQ_KEYS.len() == 2);
+    }
+
+    #[test]
+    fn a_manifest_signed_with_one_of_the_two_is_refused() {
+        let (stable, nightly) = (key(), key());
+        let keys = keys_of(&[&stable], &[&nightly]);
+        let bytes = manifest("nightly", 1120);
+        let Signed(ed25519, ml_dsa) = sign(&nightly, &bytes);
+        assert!(accept(&bytes, &ed25519, &ml_dsa, Channel::Nightly, 1112, &keys).is_ok());
+        // Either signature alone, as a release from before the second would be, or a broken one.
+        assert_eq!(accept(&bytes, &ed25519, "", Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept(&bytes, "", &ml_dsa, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        let mut broken = base64::engine::general_purpose::STANDARD.decode(&ml_dsa).unwrap();
+        broken[100] ^= 1;
+        let broken = base64::engine::general_purpose::STANDARD.encode(broken);
+        assert_eq!(accept(&bytes, &ed25519, &broken, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        // The two from different channels, or with the files swapped, sign for neither.
+        let Signed(stable_ed25519, stable_ml_dsa) = sign(&stable, &bytes);
+        assert_eq!(accept(&bytes, &ed25519, &stable_ml_dsa, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept(&bytes, &stable_ed25519, &ml_dsa, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept(&bytes, &ml_dsa, &ed25519, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
     }
 
     #[test]
     fn an_update_its_channel_s_key_signed_is_taken() {
         let (stable, nightly) = (key(), key());
-        let keys = Keys::new(&[&stable.public], &[&nightly.public]);
+        let keys = keys_of(&[&stable], &[&nightly]);
         let bytes = manifest("nightly", 1120);
-        let update = accept(&bytes, &sign(&nightly, &bytes), Channel::Nightly, 1112, &keys).unwrap();
+        let update = accept_signed(&bytes, &sign(&nightly, &bytes), Channel::Nightly, 1112, &keys).unwrap();
         assert_eq!((update.build, update.channel, update.tag.as_str()), (1120, Channel::Nightly, "v0.12.0-nightly.1120"));
         assert_eq!(update.name, "Zuna-Native-Setup-0.12.0-nightly.1120.exe");
         assert_eq!(update.label(), "0.12.0 nightly 1120");
         // An app on nightly takes a stable release too, and one on stable takes it.
         let bytes = manifest("stable", 1130);
         for following in [Channel::Nightly, Channel::Stable] {
-            let update = accept(&bytes, &sign(&stable, &bytes), following, 1112, &keys).unwrap();
+            let update = accept_signed(&bytes, &sign(&stable, &bytes), following, 1112, &keys).unwrap();
             assert_eq!((update.label().as_str(), update.page().as_str()), ("0.12.0", "https://github.com/zuna-app/zuna/releases/tag/v0.12.0"));
         }
         // The spare key of a channel signs for it as the first does.
         let spare = key();
-        let keys = Keys::new(&[&stable.public, &spare.public], &[&nightly.public]);
-        assert!(accept(&bytes, &sign(&spare, &bytes), Channel::Stable, 1112, &keys).is_ok());
+        let keys = keys_of(&[&stable, &spare], &[&nightly]);
+        assert!(accept_signed(&bytes, &sign(&spare, &bytes), Channel::Stable, 1112, &keys).is_ok());
     }
 
     #[test]
     fn a_manifest_nobody_signed_or_that_was_changed_is_refused() {
         let (stable, nightly, stranger) = (key(), key(), key());
-        let keys = Keys::new(&[&stable.public], &[&nightly.public]);
+        let keys = keys_of(&[&stable], &[&nightly]);
         let bytes = manifest("nightly", 1120);
-        assert_eq!(accept(&bytes, &sign(&stranger, &bytes), Channel::Nightly, 1112, &keys), Err(Refused::Signature));
-        assert_eq!(accept(&bytes, "", Channel::Nightly, 1112, &keys), Err(Refused::Signature));
-        assert_eq!(accept(&bytes, "not base64", Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept_signed(&bytes, &sign(&stranger, &bytes), Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept(&bytes, "", "", Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept(&bytes, "not base64", "not base64", Channel::Nightly, 1112, &keys), Err(Refused::Signature));
         let signature = sign(&nightly, &bytes);
         let mut changed = bytes.clone();
         let at = changed.iter().position(|byte| *byte == b'3').unwrap();
         changed[at] = b'4';
-        assert_eq!(accept(&changed, &signature, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept_signed(&changed, &signature, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
         // It isn't read before its signature holds, so even nonsense says no more than that.
-        assert_eq!(accept(b"{", &signature, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
+        assert_eq!(accept_signed(b"{", &signature, Channel::Nightly, 1112, &keys), Err(Refused::Signature));
     }
 
     #[test]
     fn the_nightly_key_can_t_reach_an_app_on_stable() {
         let (stable, nightly) = (key(), key());
-        let keys = Keys::new(&[&stable.public], &[&nightly.public]);
+        let keys = keys_of(&[&stable], &[&nightly]);
         // A nightly, signed as one.
         let bytes = manifest("nightly", 1120);
-        assert_eq!(accept(&bytes, &sign(&nightly, &bytes), Channel::Stable, 1112, &keys), Err(Refused::Channel));
+        assert_eq!(accept_signed(&bytes, &sign(&nightly, &bytes), Channel::Stable, 1112, &keys), Err(Refused::Channel));
         // A manifest that says stable, signed with the nightly key, reaches nobody.
         let bytes = manifest("stable", 1120);
         for following in [Channel::Stable, Channel::Nightly] {
-            assert_eq!(accept(&bytes, &sign(&nightly, &bytes), following, 1112, &keys), Err(Refused::WrongKey));
+            assert_eq!(accept_signed(&bytes, &sign(&nightly, &bytes), following, 1112, &keys), Err(Refused::WrongKey));
         }
         // Nor does the stable key sign nightlies.
         let bytes = manifest("nightly", 1120);
-        assert_eq!(accept(&bytes, &sign(&stable, &bytes), Channel::Nightly, 1112, &keys), Err(Refused::WrongKey));
+        assert_eq!(accept_signed(&bytes, &sign(&stable, &bytes), Channel::Nightly, 1112, &keys), Err(Refused::WrongKey));
     }
 
     #[test]
     fn an_older_release_is_never_installed_over_a_newer_one() {
         let (stable, nightly) = (key(), key());
-        let keys = Keys::new(&[&stable.public], &[&nightly.public]);
+        let keys = keys_of(&[&stable], &[&nightly]);
         let bytes = manifest("nightly", 1120);
         let signature = sign(&nightly, &bytes);
-        assert_eq!(accept(&bytes, &signature, Channel::Nightly, 1120, &keys), Err(Refused::Old));
-        assert_eq!(accept(&bytes, &signature, Channel::Nightly, 1121, &keys), Err(Refused::Old));
-        assert!(accept(&bytes, &signature, Channel::Nightly, 1119, &keys).is_ok());
+        assert_eq!(accept_signed(&bytes, &signature, Channel::Nightly, 1120, &keys), Err(Refused::Old));
+        assert_eq!(accept_signed(&bytes, &signature, Channel::Nightly, 1121, &keys), Err(Refused::Old));
+        assert!(accept_signed(&bytes, &signature, Channel::Nightly, 1119, &keys).is_ok());
         // Going back to stable from a nightly waits for a stable release that passes it.
         let bytes = manifest("stable", 1118);
-        assert_eq!(accept(&bytes, &sign(&stable, &bytes), Channel::Stable, 1120, &keys), Err(Refused::Old));
+        assert_eq!(accept_signed(&bytes, &sign(&stable, &bytes), Channel::Stable, 1120, &keys), Err(Refused::Old));
     }
 
     #[test]
     fn a_signed_manifest_still_has_to_name_a_plain_file() {
         let (stable, nightly) = (key(), key());
-        let keys = Keys::new(&[&stable.public], &[&nightly.public]);
+        let keys = keys_of(&[&stable], &[&nightly]);
         let with = |change: &dyn Fn(&mut serde_json::Value)| {
             let mut value: serde_json::Value = serde_json::from_slice(&manifest("nightly", 1120)).unwrap();
             change(&mut value);
             let bytes = serde_json::to_vec(&value).unwrap();
-            accept(&bytes, &sign(&nightly, &bytes), Channel::Nightly, 1112, &keys)
+            accept_signed(&bytes, &sign(&nightly, &bytes), Channel::Nightly, 1112, &keys)
         };
         assert!(with(&|_| {}).is_ok());
         assert_eq!(with(&|value| value["files"][SYSTEM]["name"] = "..\\..\\Startup\\run.exe".into()), Err(Refused::Malformed));

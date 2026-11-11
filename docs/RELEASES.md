@@ -45,7 +45,7 @@ One script, with no dependency beyond git, Node and, for the keys and the cleanu
 | `npm run release:nightly -- <notes file>` | Cuts a nightly from `origin/main` |
 | `npm run release:stable -- <notes file>` | Cuts a stable release. `--major` makes it the next major one |
 | `node scripts/release.mjs owed` | For the hook below: fails when pushed app commits have no nightly |
-| `node scripts/release.mjs keygen <stable\|nightly> --out <folder> [--spare]` | Makes an update signing key. The private half goes straight into its environment's secret and into a file in the folder, and is never shown. A spare only goes into the file |
+| `node scripts/release.mjs keygen <stable\|nightly> --out <folder> [--spare] [--pq]` | Makes an update signing key, Ed25519's, or with `--pq` ML-DSA-65's. The private half goes straight into its environment's secret, `UPDATE_SIGNING_KEY` or `UPDATE_SIGNING_KEY_PQ`, and into a file in the folder, and is never shown. A spare only goes into the file |
 | `node scripts/release.mjs plan`, `manifest`, `prune` | What the workflow calls, below |
 
 `--dry-run` after either of the two says what would be released and pushes nothing. `npm run test:release` runs the script's own tests, which `npm test` does too.
@@ -85,13 +85,13 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 | `linux` | the native app changed | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. Holds no secret |
 | `macos` | the native app changed | `node scripts/macos-app.mjs release` on `xcode-27`: the release build in its bundle, with FFmpeg built from its source, signed ad hoc, and the DMG's backgrounds drawn beside it. Holds no secret |
 | `notarize` | after `macos` | Runs in the `macos` environment. Signs the app with the Developer ID, has Apple notarize it, then its DMG, [below](#the-app-on-macos). Builds nothing |
-| `publish` | the native app changed | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, the DMG, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. Waits for every system, so a release that's out has all three. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
+| `publish` | the native app changed | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, the DMG, `update.json`, `update.json.sig`, `update.json.sig2`, `SHA256SUMS`, and the tag's message as the notes. Waits for every system, so a release that's out has all three. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
 | `ios` | a nightly, the iPhone app changed | The archive TestFlight gets, on `xcode-27`, with no signature. Holds no secret |
 | `testflight` | after `ios` | Runs in the `testflight` environment. Signs the archive, checks it and uploads it. Builds nothing |
 
 **Which apps a tag builds.** A stable release always builds the native app, and never the iPhone app. A nightly builds each app only if something it's built from changed since it last shipped, which `plan` reads from the deployments GitHub records for each job that runs in an environment: `nightly` and `release` for the native app, `testflight` for the iPhone app. So a nightly that only changed the iPhone app publishes no GitHub release and its tag stays without one, one that only changed the native app sends nothing to TestFlight, and an app whose run was cancelled or failed is built by the next tag, whatever that one changed. When GitHub can't say, the app is built.
 
-- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. `testflight` holds what signs and uploads the iPhone app, and `macos` what signs and notarizes the macOS app. None has a reviewer, so a stable release waits for nobody's click. `nightly` and `testflight` only run for `v*-nightly.*` tags, and `release` and `macos` for `v*` tags.
+- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own keys, as `UPDATE_SIGNING_KEY` and `UPDATE_SIGNING_KEY_PQ`. `testflight` holds what signs and uploads the iPhone app, and `macos` what signs and notarizes the macOS app. None has a reviewer, so a stable release waits for nobody's click. `nightly` and `testflight` only run for `v*-nightly.*` tags, and `release` and `macos` for `v*` tags.
 - **Tags.** Three rulesets: only the repository's admins create `v*` tags, nobody moves one, and nobody deletes a stable one. Nightly tags can be deleted, which is how the workflow's cleanup removes them.
 - **A nightly that's overtaken is cancelled.** Two sessions ending close together leave one build, the newer.
 - **A failed build publishes nothing.** The next nightly carries its commits. A failed stable release is fixed and released under the next patch number, so its tag is never reused.
@@ -104,10 +104,11 @@ On a runner with nothing cached the Windows build takes about 11 minutes and the
 
 The app carries the public keys its updates must be signed with, as Telegram's does. No certificate is involved.
 
-- **Each release has a manifest,** `update.json`: version, build, channel, tag, commit, and for each system that updates itself the installer's name, size and SHA-256. `update.json.sig` is an Ed25519 signature of its bytes, in base64, made in `publish` with Node's own `crypto`.
-- **Two keys, one for each channel.** The stable key is a secret of the `release` environment and the nightly key of `nightly`. Both public halves are compiled into the app (`STABLE_KEYS` and `NIGHTLY_KEYS` in `apps/desktop/src/platform/updates.rs`). `publish` refuses to sign with a key the app at that commit doesn't carry.
+- **Each release has a manifest,** `update.json`: version, build, channel, tag, commit, and for each system that updates itself the installer's name, size and SHA-256. `update.json.sig` is an Ed25519 signature of its bytes, in base64, and `update.json.sig2` an ML-DSA-65 one (FIPS 204, empty context), which a quantum computer doesn't forge as it would Ed25519 ([POST_QUANTUM.md](POST_QUANTUM.md)), both made in `publish` with Node's own `crypto`, Node 24's OpenSSL for ML-DSA. An ML-DSA-65 key is kept as the 32-byte seed it's made from, and `crypto/src/testdata/ml-dsa-node.json` holds Node's signing to what the app checks.
+- **Two pairs of keys, one for each channel.** The stable keys are secrets of the `release` environment and the nightly keys of `nightly`. Their public halves are compiled into the app (`STABLE_KEYS`, `NIGHTLY_KEYS`, `STABLE_PQ_KEYS` and `NIGHTLY_PQ_KEYS` in `apps/desktop/src/platform/updates.rs`). `publish` refuses to sign with a key the app at that commit doesn't carry.
+- **Builds from before `update.json.sig2` check the first signature alone,** as they always did, and update to a build that checks both. A build that checks both takes no release without the second, so every release from then on carries it.
 - **An app on stable only takes a manifest the stable key signed.** One on nightly takes either. A manifest that says stable and was signed with the nightly key reaches nobody.
-- **The app checks, in order:** the signature, with the Ed25519 the crypto core already has, before anything in the manifest is read; that the manifest's channel is the one its key may sign, and one this app follows; that its build is higher than the app's own, so an old release can't be replayed as a downgrade; that the tag and the file's name are what a release's are, as they become part of an address and a path; then the downloaded file's size and SHA-256, and again right before the installer is started. Only then is the update ready.
+- **The app checks, in order:** both signatures, by keys of one channel, with the Ed25519 and ML-DSA the crypto core already has, before anything in the manifest is read; that the manifest's channel is the one its key may sign, and one this app follows; that its build is higher than the app's own, so an old release can't be replayed as a downgrade; that the tag and the file's name are what a release's are, as they become part of an address and a path; then the downloaded file's size and SHA-256, and again right before the installer is started. Only then is the update ready.
 - **Authenticode stays as a second lock.** If the running app is signed, the update must be signed by the same publisher too. No build is signed yet: a certificate remains on the roadmap, for the SmartScreen warning on a first download. Updates the app downloads itself don't meet SmartScreen.
 - **A lost key strands every installed app,** so each private key also has a copy kept offline, and the app carries a spare public key for each channel, whose private half was never on GitHub, to move to if one leaks.
 
@@ -196,7 +197,7 @@ Whoever took them could sign this team's apps and upload builds of them to App S
 
 That's the one exception to "no backward compatibility until the first stable release". From the first nightly on, these only change in ways the oldest build still installed can follow:
 
-- The manifest: `update.json` and `update.json.sig`, their names, and the fields read from them. An app ignores fields it doesn't know.
+- The manifest: `update.json`, `update.json.sig` and `update.json.sig2`, their names, and the fields read from them. An app ignores fields it doesn't know.
 - The keys. A new key is compiled into the app first, and only signs once every build that should follow it carries it.
 - The installer's flags, `/S` and `/relaunch`, and the installer's name, which the app takes from the manifest.
 - Where releases are: the repository's releases on GitHub, and the `releases/latest` and `releases` API calls.
@@ -212,7 +213,7 @@ A rule can be forgotten at the end of a long session, so `.claude/settings.json`
 - The `nightly` and `release` environments, with their tag rules, and the three tag rulesets.
 - The `testflight` environment and its secrets, by `node scripts/ios-dist.mjs secrets`, [above](#the-iphone-app-on-testflight).
 - The `macos` environment and its secrets, by `node scripts/macos-dist.mjs secrets`, [above](#the-app-on-macos).
-- Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline.
+- Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline. And four more with `--pq`, for `update.json.sig2`, the same way.
 - `gh`, signed in, on each machine Claude releases from, so it can watch a run and read why one failed.
 
 To replace a key: make the new one with `keygen --spare`, add its public half to the app, release, and only once the builds that matter carry it, set it as the environment's secret.

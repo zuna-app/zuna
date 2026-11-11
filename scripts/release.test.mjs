@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { appKeys, bump, changedApps, classify, compareVersions, headingsIn, labelOf, manifestOf, newKey, nextVersion, parseNotes, parseTag, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
+import { appKeys, bump, changedApps, classify, compareVersions, headingsIn, labelOf, manifestOf, newKey, newPqKey, nextVersion, parseNotes, parseTag, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
 
 const commit = (hash, subject, ...files) => ({ hash: hash.padEnd(40, "0"), subject, files });
 const app = "apps/desktop/src/main.rs";
@@ -201,12 +201,38 @@ test("a manifest is signed by the key the app carries, and by no other", () => {
   assert.ok(signedBy(key.public, bytes, signed.signature));
   assert.ok(!signedBy(other.public, bytes, signed.signature));
   assert.ok(!signedBy(key.public, Buffer.concat([bytes, Buffer.from(" ")]), signed.signature));
+
+  // And with ML-DSA-65, in update.json.sig2, which a key kept as its seed signs.
+  const [pqKey, pqOther] = [newPqKey(), newPqKey()];
+  assert.equal(Buffer.from(pqKey.secret, "base64").length, 32);
+  const pqSigned = pqSignWith(pqKey.secret, bytes);
+  assert.equal(pqSigned.public, pqKey.public);
+  assert.equal(Buffer.from(pqKey.public, "base64").length, 1952);
+  assert.equal(Buffer.from(pqSigned.signature, "base64").length, 3309);
+  assert.ok(pqSignedBy(pqKey.public, bytes, pqSigned.signature));
+  assert.ok(!pqSignedBy(pqOther.public, bytes, pqSigned.signature));
+  assert.ok(!pqSignedBy(pqKey.public, Buffer.concat([bytes, Buffer.from(" ")]), pqSigned.signature));
+  assert.throws(() => pqSignWith(Buffer.alloc(31).toString("base64"), bytes));
+});
+
+// The seed Node's ML-DSA-65 key comes from makes the key FIPS 204 says, which the app checks with:
+// crypto/src/testdata/ml-dsa-node.json, which crypto/src/hybrid/tests.rs holds Rust to as well.
+test("an ML-DSA-65 key from its seed is the one the app checks with", () => {
+  const vector = JSON.parse(readFileSync(new URL("../crypto/src/testdata/ml-dsa-node.json", import.meta.url), "utf8"));
+  const secret = Buffer.from(vector.seed, "hex").toString("base64");
+  const message = Buffer.from(vector.message, "hex");
+  const signed = pqSignWith(secret, message);
+  assert.equal(Buffer.from(signed.public, "base64").toString("hex"), vector.public);
+  assert.ok(pqSignedBy(signed.public, message, Buffer.from(vector.signature, "hex").toString("base64")));
 });
 
 test("the app's keys are read from its source", () => {
-  const source = `pub const STABLE_KEYS: &[&str] = &[\n    // The key in use.\n    "AAAA+/8=",\n    "BBBB",\n];\npub const NIGHTLY_KEYS: &[&str] = &["CCCC"];\n`;
-  assert.deepEqual(appKeys(source), { stable: ["AAAA+/8=", "BBBB"], nightly: ["CCCC"] });
-  assert.deepEqual(appKeys("const STABLE_KEYS: &[&str] = &[];\nconst NIGHTLY_KEYS: &[&str] = &[];"), { stable: [], nightly: [] });
+  const source = `pub const STABLE_KEYS: &[&str] = &[\n    // The key in use.\n    "AAAA+/8=",\n    "BBBB",\n];\npub const NIGHTLY_KEYS: &[&str] = &["CCCC"];\npub const STABLE_PQ_KEYS: &[&str] = &["DDDD"];\npub const NIGHTLY_PQ_KEYS: &[&str] = &["EEEE", "FFFF"];\n`;
+  assert.deepEqual(appKeys(source), { stable: ["AAAA+/8=", "BBBB"], nightly: ["CCCC"], stablePq: ["DDDD"], nightlyPq: ["EEEE", "FFFF"] });
+  const none = "const STABLE_KEYS: &[&str] = &[];\nconst NIGHTLY_KEYS: &[&str] = &[];\nconst STABLE_PQ_KEYS: &[&str] = &[];\nconst NIGHTLY_PQ_KEYS: &[&str] = &[];";
+  assert.deepEqual(appKeys(none), { stable: [], nightly: [], stablePq: [], nightlyPq: [] });
+  // An app without the ML-DSA-65 keys is one no update could be signed for.
+  assert.throws(() => appKeys("const STABLE_KEYS: &[&str] = &[];\nconst NIGHTLY_KEYS: &[&str] = &[];"));
   assert.throws(() => appKeys("nothing"));
 });
 

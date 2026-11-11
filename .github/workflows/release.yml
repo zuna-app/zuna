@@ -16,9 +16,10 @@ on:
 # build. Third-party actions are pinned to full commits, since a tag can be
 # moved.
 #
-# What an installed app trusts is the manifest's signature, made with its
-# channel's key: the stable key is a secret of the "release" environment and
-# the nightly key of "nightly", both of which only v* tags reach. An app on
+# What an installed app trusts is the manifest's signatures, made with its
+# channel's keys, Ed25519's and ML-DSA-65's (UPDATE_SIGNING_KEY and
+# UPDATE_SIGNING_KEY_PQ): the stable keys are secrets of the "release"
+# environment and the nightly keys of "nightly", both of which only v* tags reach. An app on
 # stable takes nothing the nightly key signed, so whatever cuts nightlies can't
 # reach anyone who didn't choose them. A stable release also waits for ci.yml's
 # tests, and a nightly's run only builds.
@@ -248,6 +249,10 @@ jobs:
       # For the release script and the keys the app carries, and the tag's message.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+      # Node 24, whose OpenSSL signs with ML-DSA-65, for update.json.sig2.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: windows
@@ -263,6 +268,7 @@ jobs:
       - name: Write and sign the manifest
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          UPDATE_SIGNING_KEY_PQ: ${{ secrets.UPDATE_SIGNING_KEY_PQ }}
           ZUNA_VERSION: ${{ needs.plan.outputs.version }}
           ZUNA_BUILD: ${{ needs.plan.outputs.build }}
           ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}

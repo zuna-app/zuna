@@ -1,8 +1,9 @@
 // Checks that the app updates itself on Windows, from releases served by this machine and signed
 // with keys made for the run: a build is installed, finds a newer one, and pressing Update quits
 // it, installs the new build and starts that. Then that everything an update must pass is held
-// to: a manifest nobody signed, one the other channel's key signed, a nightly for an app on
-// stable, an older build, and a file that was changed are each refused. And that an update
+// to: a manifest nobody signed, one signed with Ed25519 alone or with another's ML-DSA-65 key,
+// one the other channel's key signed, a nightly for an app on stable, an older build, and a file
+// that was changed are each refused. And that an update
 // nobody pressed is installed as the app quits, and one that didn't take is said so.
 //
 //   node apps/desktop/test/windows-update-check.mjs [--keep] [--built]
@@ -23,7 +24,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { manifestOf, newKey, signWith, tagOf, windowsInstaller } from "../../../scripts/release.mjs";
+import { manifestOf, newKey, newPqKey, pqSignWith, signWith, tagOf, windowsInstaller } from "../../../scripts/release.mjs";
 
 if (process.platform !== "win32") {
   console.error("This checks the app's updates on Windows.");
@@ -61,19 +62,25 @@ for (const build of [OLD, NEW]) {
 
 // --- Releases, served from here ---
 
-const keys = { stable: newKey(), nightly: newKey(), stranger: newKey() };
+// Each signs with Ed25519, update.json.sig, and with ML-DSA-65, update.json.sig2, as a release is.
+const signer = () => ({ ...newKey(), pq: newPqKey() });
+const keys = { stable: signer(), nightly: signer(), stranger: signer() };
 const installer = readFileSync(installerOf(NEW));
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 /** What the feed offers right now: releases by tag, each with its files, and which is "latest". */
 let feed = { releases: {}, latest: null };
 
-/** A release of the new build's installer, or of whatever `file` is, signed with `signer`. */
-function release({ build = NEW, channel = "nightly", signer = keys[channel], file = installer, says = {} }) {
+/**
+ * A release of the new build's installer, or of whatever `file` is, signed with `signer`, and its
+ * second signature with `signer2`'s ML-DSA-65 key, or none when that's null.
+ */
+function release({ build = NEW, channel = "nightly", signer = keys[channel], signer2 = signer, file = installer, says = {} }) {
   const described = releaseOf(build, channel);
   const name = windowsInstaller(described);
   const manifest = Buffer.from(manifestOf({ ...described, commit: "0".repeat(40), files: { "windows-x86_64": { name, size: installer.length, sha256: sha256(installer), ...says } } }));
-  return { tag: tagOf(described), files: { "update.json": manifest, "update.json.sig": Buffer.from(`${signWith(signer.secret, manifest).signature}\n`), [name]: file } };
+  const second = signer2 ? { "update.json.sig2": Buffer.from(`${pqSignWith(signer2.pq.secret, manifest).signature}\n`) } : {};
+  return { tag: tagOf(described), files: { "update.json": manifest, "update.json.sig": Buffer.from(`${signWith(signer.secret, manifest).signature}\n`), ...second, [name]: file } };
 }
 
 function offer(...releases) {
@@ -106,7 +113,7 @@ const home = join(work, "app");
 const data = join(work, "data");
 const exe = join(home, "Zuna.exe");
 const status = join(data, "updates", "status.json");
-const env = { ...process.env, ZUNA_DATA_DIR: data, ZUNA_UPDATE_FEED: address, ZUNA_UPDATE_STABLE_KEYS: keys.stable.public, ZUNA_UPDATE_NIGHTLY_KEYS: keys.nightly.public, RUST_LOG: "info" };
+const env = { ...process.env, ZUNA_DATA_DIR: data, ZUNA_UPDATE_FEED: address, ZUNA_UPDATE_STABLE_KEYS: keys.stable.public, ZUNA_UPDATE_NIGHTLY_KEYS: keys.nightly.public, ZUNA_UPDATE_STABLE_PQ_KEYS: keys.stable.pq.public, ZUNA_UPDATE_NIGHTLY_PQ_KEYS: keys.nightly.pq.public, RUST_LOG: "info" };
 mkdirSync(join(data, "updates"), { recursive: true });
 
 /** Installs a build quietly into the run's folder, as its installer installs an update. */
@@ -180,6 +187,9 @@ try {
 
   // --- Everything an update must pass ---
   await refuses("a manifest nobody signed", [release({ signer: keys.stranger })], "isn't signed with one of Zuna's keys");
+  await refuses("a manifest signed with Ed25519 alone, as releases from before were", [release({ signer2: null })], null);
+  await refuses("a manifest whose ML-DSA-65 signature is someone else's", [release({ signer2: keys.stranger })], "isn't signed with one of Zuna's keys");
+  await refuses("a manifest whose ML-DSA-65 signature is the other channel's", [release({ signer2: keys.stable })], "isn't signed with one of Zuna's keys");
   await refuses("a stable release the nightly key signed", [release({ channel: "stable", signer: keys.nightly })], "signed with the other channel's key");
   await refuses("a nightly, for an app on stable", [release({})], "it's a nightly, and this app follows stable releases", "stable");
   await refuses("an older build", [release({ build: OLD - 1 })], null);

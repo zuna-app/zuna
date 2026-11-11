@@ -7,12 +7,12 @@
 //   node scripts/release.mjs nightly <notes> [--dry-run]     cuts a nightly from origin/main
 //   node scripts/release.mjs stable <notes> [--dry-run] [--major]   cuts a stable release
 //   node scripts/release.mjs owed [--hook]                   fails when pushed app commits have no nightly
-//   node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare]   makes an update signing key
+//   node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare] [--pq]   makes an update signing key, Ed25519's or ML-DSA-65's
 //
 // And for the workflow:
 //
 //   node scripts/release.mjs plan <tag>          checks a pushed tag, and says what it releases and which apps it builds
-//   node scripts/release.mjs manifest <folder>   writes and signs update.json for the installers there
+//   node scripts/release.mjs manifest <folder>   writes update.json for the installers there and signs it with both keys
 //   node scripts/release.mjs prune               deletes all but the newest nightlies
 //
 // The notes are a changelog: every commit since the last release, by its short hash, under one of
@@ -26,7 +26,7 @@
 //   - 9a8b7c6 docs: said how releases work
 
 import { spawnSync } from "node:child_process";
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -288,10 +288,46 @@ export function signedBy(publicKey, bytes, signature) {
   return verify(null, bytes, key, Buffer.from(signature, "base64"));
 }
 
-/** The public keys the app carries for each channel, read from its source. */
+// The second signature, update.json.sig2, is ML-DSA-65 (FIPS 204), which a quantum computer
+// doesn't break as it would Ed25519 (docs/POST_QUANTUM.md). Its key is kept as the 32-byte seed
+// FIPS 204 makes it from, and carried in the app as its 1,952-byte public key. Node signs with
+// OpenSSL's ML-DSA, hedged, with an empty context, which crypto/src/hybrid.rs checks as the app does.
+
+/** PKCS #8 for an ML-DSA-65 key given by its seed alone, which the seed follows. */
+const ML_DSA_65_SEED = Buffer.from("3034020100300b060960864801650304031204228020", "hex");
+
+function pqPrivate(secret) {
+  const seed = Buffer.from(secret.trim(), "base64");
+  if (seed.length !== 32) throw new Error("An ML-DSA-65 signing key is kept as its 32-byte seed.");
+  return createPrivateKey({ key: Buffer.concat([ML_DSA_65_SEED, seed]), format: "der", type: "pkcs8" });
+}
+
+/** A public key as the app carries it: its 1,952 bytes, in base64. */
+const pqPublicOf = (key) => Buffer.from(key.export({ format: "jwk" }).pub, "base64url").toString("base64");
+
+/** A new ML-DSA-65 signing key: its seed as it's kept, and the public key as the app carries it. */
+export function newPqKey() {
+  const secret = randomBytes(32).toString("base64");
+  return { secret, public: pqPublicOf(createPublicKey(pqPrivate(secret))) };
+}
+
+export function pqSignWith(secret, bytes) {
+  const key = pqPrivate(secret);
+  return { signature: sign(null, bytes, key).toString("base64"), public: pqPublicOf(createPublicKey(key)) };
+}
+
+export function pqSignedBy(publicKey, bytes, signature) {
+  const key = createPublicKey({ key: { kty: "AKP", alg: "ML-DSA-65", pub: Buffer.from(publicKey, "base64").toString("base64url") }, format: "jwk" });
+  return verify(null, bytes, key, Buffer.from(signature, "base64"));
+}
+
+/**
+ * The public keys the app carries for each channel, read from its source: Ed25519's, and
+ * ML-DSA-65's under `stablePq` and `nightlyPq`.
+ */
 export function appKeys(source) {
   const keys = {};
-  for (const [channel, name] of [["stable", "STABLE_KEYS"], ["nightly", "NIGHTLY_KEYS"]]) {
+  for (const [channel, name] of [["stable", "STABLE_KEYS"], ["nightly", "NIGHTLY_KEYS"], ["stablePq", "STABLE_PQ_KEYS"], ["nightlyPq", "NIGHTLY_PQ_KEYS"]]) {
     const list = new RegExp(`const ${name}: &\\[&str\\] = &\\[([^\\]]*)\\]`).exec(source);
     if (!list) throw new Error(`${name} isn't in the app's source`);
     keys[channel] = [...list[1].matchAll(/"([A-Za-z0-9+/=]+)"/g)].map((match) => match[1]);
@@ -523,21 +559,25 @@ function keygen(args) {
   const channel = args.find((arg) => arg === "stable" || arg === "nightly");
   const out = args[args.indexOf("--out") + 1];
   const spare = args.includes("--spare");
-  if (!channel || !args.includes("--out") || !out) fail("node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare]");
-  const file = join(resolve(out), `zuna-update-${channel}${spare ? "-spare" : ""}.key`);
+  // The ML-DSA-65 key that signs update.json.sig2, beside the Ed25519 one that signs update.json.sig.
+  const pq = args.includes("--pq");
+  if (!channel || !args.includes("--out") || !out) fail("node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare] [--pq]");
+  const file = join(resolve(out), `zuna-update-${channel}${spare ? "-spare" : ""}${pq ? "-pq" : ""}.key`);
   if (existsSync(file)) fail(`${file} is there already. A key is never made over another.`);
-  const key = newKey();
+  const key = pq ? newPqKey() : newKey();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `# Zuna's update signing key for ${channel}${spare ? ", the spare" : ""}. Whoever has this can sign updates: keep it offline.\n# Public: ${key.public}\n${key.secret}\n`, { mode: 0o600 });
+  writeFileSync(file, `# Zuna's ${pq ? "ML-DSA-65 " : ""}update signing key for ${channel}${spare ? ", the spare" : ""}. Whoever has this can sign updates: keep it offline.\n# Public: ${key.public}\n${key.secret}\n`, { mode: 0o600 });
   console.log(`Wrote the private key to ${file}. Move it somewhere offline.`);
+  const secret = pq ? "UPDATE_SIGNING_KEY_PQ" : "UPDATE_SIGNING_KEY";
   if (!spare) {
     // Straight into its environment's secret, without showing it.
     const environment = channel === "stable" ? "release" : "nightly";
-    const set = spawnSync("gh", ["secret", "set", "UPDATE_SIGNING_KEY", "--env", environment, "--repo", REPOSITORY], { input: key.secret, encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
-    if (set.status !== 0) fail(`gh couldn't set UPDATE_SIGNING_KEY in the ${environment} environment. Set it there by hand, to the last line of ${file}.`);
-    console.log(`Set UPDATE_SIGNING_KEY in the ${environment} environment of ${REPOSITORY}.`);
+    const set = spawnSync("gh", ["secret", "set", secret, "--env", environment, "--repo", REPOSITORY], { input: key.secret, encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
+    if (set.status !== 0) fail(`gh couldn't set ${secret} in the ${environment} environment. Set it there by hand, to the last line of ${file}.`);
+    console.log(`Set ${secret} in the ${environment} environment of ${REPOSITORY}.`);
   }
-  console.log(`The public key, for ${channel === "stable" ? "STABLE_KEYS" : "NIGHTLY_KEYS"} in apps/desktop/src/platform/updates.rs:\n${key.public}`);
+  const list = `${channel === "stable" ? "STABLE" : "NIGHTLY"}${pq ? "_PQ" : ""}_KEYS`;
+  console.log(`The public key, for ${list} in apps/desktop/src/platform/updates.rs:\n${key.public}`);
 }
 
 /** The environment the iPhone app is signed and uploaded to TestFlight in (scripts/ios-dist.mjs). */
@@ -602,14 +642,17 @@ function plan(args) {
 
 /**
  * In the workflow: writes update.json for the installers in a folder, signs it with
- * UPDATE_SIGNING_KEY as update.json.sig, and lists every file's SHA-256. Refuses when the key
- * isn't one the app at this commit carries for the channel, as nobody could install that update.
+ * UPDATE_SIGNING_KEY as update.json.sig and with UPDATE_SIGNING_KEY_PQ as update.json.sig2, and
+ * lists every file's SHA-256. Builds from before the second check the first alone, and newer ones
+ * both. Refuses when either key isn't one the app at this commit carries for the channel, as
+ * nobody could install that update.
  */
 function manifest(args) {
   const folder = resolve(args[0] ?? "");
-  const { ZUNA_VERSION: version, ZUNA_CHANNEL: channel, ZUNA_BUILD: build, ZUNA_COMMIT: commit, UPDATE_SIGNING_KEY: secret } = process.env;
+  const { ZUNA_VERSION: version, ZUNA_CHANNEL: channel, ZUNA_BUILD: build, ZUNA_COMMIT: commit, UPDATE_SIGNING_KEY: secret, UPDATE_SIGNING_KEY_PQ: pqSecret } = process.env;
   if (!args[0] || !version || !channel || !build || !commit) fail("node scripts/release.mjs manifest <folder>, with ZUNA_VERSION, ZUNA_CHANNEL, ZUNA_BUILD and ZUNA_COMMIT set");
   if (!secret) fail("UPDATE_SIGNING_KEY isn't set, so the manifest can't be signed.");
+  if (!pqSecret) fail("UPDATE_SIGNING_KEY_PQ isn't set, so the manifest can't be signed with ML-DSA-65.");
   const release = { version, channel, build: Number(build) };
   const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
   const files = {};
@@ -618,10 +661,16 @@ function manifest(args) {
   files["windows-x86_64"] = { name: windowsInstaller(release), size: statSync(installer).size, sha256: sha256(installer) };
   const bytes = Buffer.from(manifestOf({ ...release, commit, files }));
   const signed = signWith(secret, bytes);
-  const carried = appKeys(readFileSync(join(root, "apps", "desktop", "src", "platform", "updates.rs"), "utf8"))[channel];
+  const pqSigned = pqSignWith(pqSecret, bytes);
+  const keys = appKeys(readFileSync(join(root, "apps", "desktop", "src", "platform", "updates.rs"), "utf8"));
+  if (!keys[`${channel}Pq`].includes(pqSigned.public) || !pqSignedBy(pqSigned.public, bytes, pqSigned.signature)) {
+    fail(`The ${channel} ML-DSA-65 key in this environment isn't one the app carries for ${channel}, so no installed app would take this update.`);
+  }
+  const carried = keys[channel];
   if (!carried.includes(signed.public) || !signedBy(signed.public, bytes, signed.signature)) fail(`The ${channel} key in this environment isn't one the app carries for ${channel}, so no installed app would take this update.`);
   writeFileSync(join(folder, "update.json"), bytes);
   writeFileSync(join(folder, "update.json.sig"), `${signed.signature}\n`);
+  writeFileSync(join(folder, "update.json.sig2"), `${pqSigned.signature}\n`);
   const sums = readdirSync(folder).filter((name) => name !== "SHA256SUMS").sort().map((name) => `${sha256(join(folder, name))}  ${name}`);
   writeFileSync(join(folder, "SHA256SUMS"), `${sums.join("\n")}\n`);
   console.log(`Wrote and signed the manifest of ${labelOf(release)} in ${folder}.`);
