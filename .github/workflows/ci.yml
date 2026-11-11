@@ -79,8 +79,10 @@ jobs:
             (cd "$crate" && cargo audit)
           done
 
-  # The iOS app: its quick checks, the iOS core host against desktop clients,
-  # the Release guard and the UI tests in a simulator (docs/IOS_TESTING.md).
+  # The iOS app: the archive a nightly sends to TestFlight, made as release.yml
+  # makes it but uploaded nowhere, its quick checks, the iOS core host against
+  # desktop clients, the Release guard and the UI tests in a simulator
+  # (docs/IOS_TESTING.md).
   # It runs on macOS 27 with Xcode 27, like the development Mac; the macos-15
   # and macos-26 images only have Xcode 26.
   ios:
@@ -110,6 +112,7 @@ jobs:
       - run: npm ci
       - run: npm run build:crypto
       - run: npm run build:ios
+      - run: node scripts/ios-dist.mjs archive
       - run: npm run test:ios:check
       - run: npm run test:ios
       - run: npm run test:ios:release

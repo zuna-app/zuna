@@ -1,6 +1,7 @@
-// Releases the native app: works out the next version from a changelog, tags it, and leaves the
-// build and the publishing to .github/workflows/release.yml, which also calls this for what a
-// release is checked and signed with. docs/RELEASES.md says how it all fits together.
+// Releases the native app, and with each nightly the iPhone app to TestFlight: works out the next
+// version from a changelog, tags it, and leaves the build and the publishing to
+// .github/workflows/release.yml, which also calls this for what a release builds, is checked and
+// signed with. docs/RELEASES.md says how it all fits together.
 //
 //   node scripts/release.mjs pending                         the commits since each channel's last release
 //   node scripts/release.mjs nightly <notes> [--dry-run]     cuts a nightly from origin/main
@@ -10,7 +11,7 @@
 //
 // And for the workflow:
 //
-//   node scripts/release.mjs plan <tag>          checks a pushed tag, and says what it releases
+//   node scripts/release.mjs plan <tag>          checks a pushed tag, and says what it releases and which apps it builds
 //   node scripts/release.mjs manifest <folder>   writes and signs update.json for the installers there
 //   node scripts/release.mjs prune               deletes all but the newest nightlies
 //
@@ -43,8 +44,8 @@ export const NIGHTLIES_KEPT = 30;
 
 /**
  * What the native app is built from. A commit that touches none of it changes nothing in the
- * app, so it cuts no nightly and can only be "Under the hood". Add to it whenever the app
- * starts being built from somewhere new.
+ * app, so it can only be "Under the hood", and cuts no nightly unless it changes the iPhone app
+ * (IOS_PATHS). Add to it whenever the app starts being built from somewhere new.
  */
 export const APP_PATHS = [
   "apps/desktop/",
@@ -67,6 +68,29 @@ export const APP_PATHS = [
 
 /** Inside those, what never reaches a build: tests and checks. */
 export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/"];
+
+/**
+ * What the iPhone app is built from. A commit that touches any of it makes a nightly too, which
+ * goes to TestFlight (scripts/ios-dist.mjs). The version is the native app's, so in the changelog
+ * such a commit is still only "Under the hood" unless it reaches the native app as well.
+ */
+export const IOS_PATHS = [
+  "apps/ios/",
+  "packages/core/",
+  "crypto/",
+  "package.json",
+  "package-lock.json",
+  "scripts/build-crypto-apple.mjs",
+  "scripts/fetch-sqlite.mjs",
+  "scripts/lib.mjs",
+  "scripts/check-ios-release.mjs",
+  "scripts/ios-dist.mjs",
+  "scripts/release.mjs",
+  ".github/workflows/release.yml",
+];
+
+/** Inside those, what never reaches the iPhone app's build. */
+export const NOT_IOS_PATHS = ["apps/ios/ZunaUITests/", "apps/ios/ZunaKit/Tests/", "apps/ios/scripts/", "packages/core/test/"];
 
 /** The crates whose version is kept the same as the root package.json's. */
 const CRATES = ["apps/desktop", "apps/desktop/screenshare", "apps/desktop/media-ffmpeg", "apps/desktop/test/driver", "crypto", "crypto/bindgen"];
@@ -140,11 +164,13 @@ export const windowsInstaller = (release) => `Zuna-Native-Setup-${labelOf(releas
 
 // --- The changelog ---
 
+const within = (file, paths) => paths.some((path) => (path.endsWith("/") ? file.startsWith(path) : file === path));
+
 /** Whether any of a commit's files is something the app is built from. */
-export function reachesApp(files) {
-  const within = (file, paths) => paths.some((path) => (path.endsWith("/") ? file.startsWith(path) : file === path));
-  return files.some((file) => within(file, APP_PATHS) && !within(file, NOT_APP_PATHS));
-}
+export const reachesApp = (files) => files.some((file) => within(file, APP_PATHS) && !within(file, NOT_APP_PATHS));
+
+/** Whether any of a commit's files is something the iPhone app is built from. */
+export const reachesIos = (files) => files.some((file) => within(file, IOS_PATHS) && !within(file, NOT_IOS_PATHS));
 
 export const isVersionCommit = (subject) => subject.startsWith(VERSION_COMMIT);
 
@@ -363,20 +389,29 @@ function commitsSince(base, ref) {
     });
 }
 
-/** What a channel's next release would carry: where it starts from, and the commits since. */
+/** What a channel's next release would carry: where it starts from, the commits since, and which apps they change. */
 function pendingFor(channel, ref) {
   const { stable, newest } = lastReleases(ref);
   const last = channel === "stable" ? stable : newest;
   const commits = commitsSince(last ? last.tag : BEGAN, ref);
-  return { last, stable, commits, reaches: commits.some((commit) => !isVersionCommit(commit.subject) && reachesApp(commit.files)) };
+  const counted = commits.filter((commit) => !isVersionCommit(commit.subject));
+  return { last, stable, commits, reaches: counted.some((commit) => reachesApp(commit.files)), reachesIos: counted.some((commit) => reachesIos(commit.files)) };
 }
+
+/** What a channel's release builds, by which apps changed: the iPhone app only goes out with nightlies. */
+export function changedApps(channel, { reaches, reachesIos: ios }) {
+  return [reaches && "the app", channel === "nightly" && ios && "the iPhone app"].filter(Boolean);
+}
+
+const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 
 // --- Commands ---
 
 function pending() {
   git("fetch", "--quiet", "--tags", "origin", "main");
   for (const channel of ["nightly", "stable"]) {
-    const { last, commits, reaches } = pendingFor(channel, "origin/main");
+    const pending = pendingFor(channel, "origin/main");
+    const { last, commits } = pending;
     console.log(`\n${channel === "nightly" ? "Nightly" : "Stable"}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}`);
     // What nightlies since the last stable release already called each commit, where their tags are still here.
     const known = new Map();
@@ -387,12 +422,15 @@ function pending() {
     }
     for (const commit of commits) {
       const short = commit.hash.slice(0, 7);
-      const marks = [isVersionCommit(commit.subject) ? "sets the version, needs no line" : reachesApp(commit.files) ? "reaches the app" : "not in the app", known.get(short) && `was under ${known.get(short)}`].filter(Boolean);
+      const reached = [reachesApp(commit.files) && "the app", reachesIos(commit.files) && "the iPhone app"].filter(Boolean);
+      const marks = [isVersionCommit(commit.subject) ? "sets the version, needs no line" : reached.length > 0 ? `reaches ${reached.join(" and ")}` : "not in the app", known.get(short) && `was under ${known.get(short)}`].filter(Boolean);
       console.log(`  ${short} ${commit.subject}  [${marks.join(", ")}]`);
       if (channel === "nightly") for (const file of commit.files) console.log(`      ${file}`);
     }
+    const changed = changedApps(channel, pending);
     if (commits.length === 0) console.log("  Nothing to release.");
-    else console.log(reaches ? "  The app changed, so there's a release to cut." : "  Nothing the app is built from changed, so there's no release to cut.");
+    else if (changed.length > 0) console.log(`  ${sentence(changed.join(" and "))} changed, so there's a release to cut.`);
+    else console.log(`  Nothing ${channel === "nightly" ? "the app or the iPhone app" : "the app"} is built from changed, so there's no release to cut.`);
   }
 }
 
@@ -408,11 +446,13 @@ function cut(channel, args) {
   if (git("status", "--porcelain", "--untracked-files=no")) fail("There are changes that aren't committed.");
   if (git("rev-parse", "HEAD") !== git("rev-parse", "origin/main")) fail("main isn't at origin/main. Pull and push first, so the release is what's on GitHub.");
 
-  const { last, stable, commits, reaches } = pendingFor(channel, "HEAD");
+  const pending = pendingFor(channel, "HEAD");
+  const { last, stable, commits } = pending;
   const { groups, level, problems } = classify(readFileSync(notesFile, "utf8"), commits);
   if (problems.length > 0) fail(`The notes don't match the ${commits.length} commits since ${last ? last.tag : "releases began"}:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
-  if (!reaches) {
-    console.log(`Nothing the app is built from changed since ${last ? last.tag : "releases began"}, so there's no ${channel} release to cut.`);
+  const changed = changedApps(channel, pending);
+  if (changed.length === 0) {
+    console.log(`Nothing ${channel === "nightly" ? "the app or the iPhone app" : "the app"} is built from changed since ${last ? last.tag : "releases began"}, so there's no ${channel} release to cut.`);
     return;
   }
 
@@ -426,7 +466,7 @@ function cut(channel, args) {
   if (gitOk("rev-parse", "--verify", "--quiet", `refs/tags/${tag}`)) fail(`${tag} is there already. A tag is never moved or reused.`);
   const notes = renderNotes(groups);
 
-  console.log(`${channel === "nightly" ? "Nightly" : "Stable"} ${labelOf(release)}, build ${build}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}, the highest of them ${level}.\n`);
+  console.log(`${channel === "nightly" ? "Nightly" : "Stable"} ${labelOf(release)}, build ${build}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}, the highest of them ${level}. They change ${changed.join(" and ")}.\n`);
   console.log(notes);
   if (dryRun) {
     console.log(`A dry run: ${renumber ? `the version would go from ${current} to ${version}, and ` : ""}${tag} would be pushed.`);
@@ -462,10 +502,10 @@ function owed(args) {
   }
   if (!gitOk("rev-parse", "--verify", "--quiet", "origin/main")) return;
   const { last, commits } = pendingFor("nightly", "origin/main");
-  const waiting = commits.filter((commit) => !isVersionCommit(commit.subject) && reachesApp(commit.files));
+  const waiting = commits.filter((commit) => !isVersionCommit(commit.subject) && (reachesApp(commit.files) || reachesIos(commit.files)));
   if (waiting.length === 0) return;
   console.error(
-    `${waiting.length} pushed ${waiting.length === 1 ? "commit changes" : "commits change"} the native app since ${last ? last.tag : "releases began"}, with no nightly:\n` +
+    `${waiting.length} pushed ${waiting.length === 1 ? "commit changes" : "commits change"} the native app or the iPhone app since ${last ? last.tag : "releases began"}, with no nightly:\n` +
       waiting.map((commit) => `  ${commit.hash.slice(0, 7)} ${commit.subject}`).join("\n") +
       "\nOnce the work is done and its checks pass, cut one: npm run release:pending, then npm run release:nightly -- <notes file> (CLAUDE.md, \"Releases\").",
   );
@@ -493,6 +533,44 @@ function keygen(args) {
   console.log(`The public key, for ${channel === "stable" ? "STABLE_KEYS" : "NIGHTLY_KEYS"} in apps/desktop/src/platform/updates.rs:\n${key.public}`);
 }
 
+/** The environment the iPhone app is signed and uploaded to TestFlight in (scripts/ios-dist.mjs). */
+export const TESTFLIGHT = "testflight";
+
+/**
+ * The commit an app last shipped from: the newest of its environments' deployments that
+ * succeeded, which GitHub records for each job that runs in one. Null when there's none, or
+ * when GitHub can't say.
+ */
+function lastShipped(environments) {
+  const gh = (path, jq) => {
+    const result = spawnSync("gh", ["api", path, "--jq", jq], { encoding: "utf8" });
+    return result.status === 0 ? result.stdout.split(/\r?\n/).filter(Boolean) : null;
+  };
+  let newest = null;
+  for (const environment of environments) {
+    const deployments = gh(`repos/${REPOSITORY}/deployments?environment=${environment}&per_page=50`, ".[] | [.id, .sha] | @tsv");
+    if (!deployments) {
+      console.log(`GitHub didn't list the ${environment} environment's deployments, so it counts as having shipped nothing.`);
+      return null;
+    }
+    for (const line of deployments) {
+      const [id, sha] = line.split("\t");
+      const states = gh(`repos/${REPOSITORY}/deployments/${id}/statuses?per_page=100`, ".[].state");
+      if (!states) return null;
+      if (!states.includes("success")) continue;
+      if (gitOk("cat-file", "-e", `${sha}^{commit}`) && (!newest || buildOf(sha) > buildOf(newest))) newest = sha;
+      break;
+    }
+  }
+  return newest;
+}
+
+/** Whether anything an app is built from changed after the commit it last shipped from. Not knowing counts as changed. */
+function changedSince(shipped, commit, reaches) {
+  if (!shipped || !gitOk("merge-base", "--is-ancestor", shipped, commit)) return true;
+  return commitsSince(shipped, commit).some((each) => !isVersionCommit(each.subject) && reaches(each.files));
+}
+
 /** In the workflow: refuses a tag that isn't a release as this script cuts one, and says what it releases. */
 function plan(args) {
   const tag = args[0] ?? process.env.GITHUB_REF_NAME;
@@ -505,7 +583,11 @@ function plan(args) {
   if (version !== release.version) fail(`${tag} is on a commit whose package.json says ${version}.`);
   const build = buildOf(commit);
   if (release.channel === "nightly" && release.build !== build) fail(`${tag} is on a commit that is build ${build}.`);
-  const outputs = { channel: release.channel, version: release.version, build, label: labelOf({ ...release, build }), commit, environment: release.channel === "stable" ? "release" : "nightly" };
+  // A stable release always has the installers. A nightly builds each app only if something it's
+  // built from changed since it last shipped, so one that was cancelled or failed is made up for.
+  const desktop = release.channel === "stable" || changedSince(lastShipped(["nightly", "release"]), commit, reachesApp);
+  const ios = release.channel === "nightly" && changedSince(lastShipped([TESTFLIGHT]), commit, reachesIos);
+  const outputs = { channel: release.channel, version: release.version, build, label: labelOf({ ...release, build }), commit, environment: release.channel === "stable" ? "release" : "nightly", desktop, ios };
   const lines = Object.entries(outputs).map(([name, value]) => `${name}=${value}`).join("\n");
   if (process.env.GITHUB_OUTPUT) writeFileSync(process.env.GITHUB_OUTPUT, `${lines}\n`, { flag: "a" });
   console.log(lines);

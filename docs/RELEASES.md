@@ -2,12 +2,13 @@
 
 How the native app gets from a push to `main` to an Update button in someone's title bar, with nobody deciding a version number or clicking through a release by hand.
 
-Only the native app is released: its Windows installer and its Linux packages, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). macOS isn't built there yet, as that needs a Developer ID and notarizing in CI's secrets. The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
+Only the native app is released: its Windows installer and its Linux packages, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). macOS isn't built there yet, as that needs a Developer ID and notarizing in CI's secrets. The iPhone app goes to TestFlight with the nightlies, for the team's own testers, as [below](#the-iphone-app-on-testflight). The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
 
 ## What happens
 
 - **Claude picks the version.** Every change is read and counted as minor, patch or build.
 - **A nightly after every session that pushed.** Built and published as a prerelease, with a changelog of its commits. It's tested on the machine the session ran on, not on CI.
+- **The iPhone app on TestFlight with each nightly that changes it.** Signed and uploaded by CI, for the team's own testers.
 - **A stable release on "release a new stable version".** Published only after CI has run its tests.
 - **The app updates itself on Windows.** A channel switch in Settings, stable or nightly. When a newer build is out, an Update button shows beside the window's buttons. Pressing it closes the app, installs the update and starts the app again.
 
@@ -16,7 +17,7 @@ Only the native app is released: its Windows installer and its Linux packages, o
 A version is `MAJOR.MINOR.PATCH` and a build number.
 
 - **The build number is how many commits `main` has at the commit released** (`git rev-list --count`). `main` is never force-pushed, so it only goes up, needs no file to keep it, and is the same on every machine. The updater compares build numbers and nothing else.
-- **The three-part number is what the next stable release will be called.** It lives in the root `package.json`, with every other file that says it kept the same by the release script: each workspace's `package.json`, `package-lock.json`, and the crates' `Cargo.toml` and `Cargo.lock`. iOS's `MARKETING_VERSION` and build number stay the iPhone app's own.
+- **The three-part number is what the next stable release will be called.** It lives in the root `package.json`, with every other file that says it kept the same by the release script: each workspace's `package.json`, `package-lock.json`, and the crates' `Cargo.toml` and `Cargo.lock`. iOS's `MARKETING_VERSION` in `apps/ios/project.yml` stays the iPhone app's own, and its build number on TestFlight is the same commit count, set as it's archived.
 - **A nightly is `0.1.1-nightly.1150`,** tagged `v0.1.1-nightly.1150`. **A stable release is `0.1.0`,** tagged `v0.1.0`, with its build number in its manifest. Both carry it as the fourth part of the exe's Windows version.
 
 What each change counts as:
@@ -32,7 +33,7 @@ The next version is the last stable's, raised once by the highest level among th
 
 The level comes from reading each commit's diff, not just its subject, and the decision is written down as the changelog: every commit since the last release under **New**, **Fixed and changed** or **Under the hood**. The script works the level out from those headings, so the changelog and the version can't disagree.
 
-A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three levels, and a `core:` one can reach the app or not. What reaches the app is decided by the paths a commit touched: `APP_PATHS` in `scripts/release.mjs` lists what the app is built from. A commit that touches none of it can only go under the hood.
+A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three levels, and a `core:` one can reach the app or not. What reaches the app is decided by the paths a commit touched: `APP_PATHS` in `scripts/release.mjs` lists what the app is built from. A commit that touches none of it can only go under the hood. `IOS_PATHS` beside it lists what the iPhone app is built from: a commit that touches it makes a nightly owed too, but stays under the hood unless it reaches the native app as well, as the version is the native app's.
 
 ## `scripts/release.mjs`
 
@@ -66,7 +67,7 @@ Cutting a release:
 
 1. Refuses unless this is `main`, with nothing uncommitted or unpushed and `HEAD` at `origin/main`.
 2. Refuses unless the notes name every commit since the last release exactly once, by its short hash, under one of the three headings, and nothing that doesn't reach the app is above Under the hood. The last release is the newest stable one for a stable release, and the newest of either kind for a nightly. Only what follows the hash on a line is ignored: the published changelog takes each commit's subject as it stands.
-3. Stops, saying so, when no commit touches what the app is built from. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
+3. Stops, saying so, when no commit touches what the app is built from, nor for a nightly what the iPhone app is. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
 4. Works out the version. If the files don't say it yet, sets it in all of them, commits `release: numbered the next release 0.12.0` and pushes. That commit needs no line in any notes.
 5. Makes an annotated tag whose message is the changelog, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
 
@@ -78,13 +79,17 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 
 | Job | Runs for | What it does |
 |---|---|---|
-| `plan` | every tag | Reads the channel, version and build from the tag. Fails unless the tag is annotated, its commit is on `main`, `package.json` agrees with it, and a nightly's number is the commit count |
+| `plan` | every tag | Reads the channel, version and build from the tag. Fails unless the tag is annotated, its commit is on `main`, `package.json` agrees with it, and a nightly's number is the commit count. Says which apps to build, below |
 | `checks` | stable only | `ci.yml`'s `test`, `advisories` and `desktop` jobs. The iPhone's and PostgreSQL's don't hold a desktop release back |
-| `windows` | every tag | `npm run dist:windows` on `windows-latest`, with the version, build and channel stamped in. Holds no secret |
-| `linux` | every tag | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. Holds no secret |
-| `publish` | every tag | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
+| `windows` | the native app changed | `npm run dist:windows` on `windows-latest`, with the version, build and channel stamped in. Holds no secret |
+| `linux` | the native app changed | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. Holds no secret |
+| `publish` | the native app changed | Runs in the channel's environment. Writes and signs the manifest, then publishes the release: the installer, the Linux packages, `update.json`, `update.json.sig`, `SHA256SUMS`, and the tag's message as the notes. A nightly is marked a prerelease, and only a stable release becomes "latest". Builds nothing |
+| `ios` | a nightly, the iPhone app changed | The archive TestFlight gets, on `xcode-27`, with no signature. Holds no secret |
+| `testflight` | after `ios` | Runs in the `testflight` environment. Signs the archive, checks it and uploads it. Builds nothing |
 
-- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. Neither has a reviewer, so a stable release waits for nobody's click. `nightly` only runs for `v*-nightly.*` tags and `release` for `v*` tags.
+**Which apps a tag builds.** A stable release always builds the native app, and never the iPhone app. A nightly builds each app only if something it's built from changed since it last shipped, which `plan` reads from the deployments GitHub records for each job that runs in an environment: `nightly` and `release` for the native app, `testflight` for the iPhone app. So a nightly that only changed the iPhone app publishes no GitHub release and its tag stays without one, one that only changed the native app sends nothing to TestFlight, and an app whose run was cancelled or failed is built by the next tag, whatever that one changed. When GitHub can't say, the app is built.
+
+- **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own key, as `UPDATE_SIGNING_KEY`. `testflight` holds what signs and uploads the iPhone app. None has a reviewer, so a stable release waits for nobody's click. `nightly` and `testflight` only run for `v*-nightly.*` tags and `release` for `v*` tags.
 - **Tags.** Three rulesets: only the repository's admins create `v*` tags, nobody moves one, and nobody deletes a stable one. Nightly tags can be deleted, which is how the workflow's cleanup removes them.
 - **A nightly that's overtaken is cancelled.** Two sessions ending close together leave one build, the newer.
 - **A failed build publishes nothing.** The next nightly carries its commits. A failed stable release is fixed and released under the next patch number, so its tag is never reused.
@@ -131,6 +136,36 @@ What this doesn't protect against: both maintainers can push a `v*` tag, and the
 
 **Its check.** `node apps/desktop/test/windows-update-check.mjs` builds the app twice with the `update-check` feature, as two builds, installs the older into a folder of its own, and serves releases from this machine signed with keys made for the run. It expects the newer build to be found, downloaded and ready, then pressing Update to quit the app, install the new build and start it. Then that a manifest nobody signed, one the other channel's key signed, a nightly for an app on stable, an older build and a changed file are each refused, that an update nobody pressed is installed as the app quits, and that one that didn't take is said so. Its installers make no shortcuts and write nothing to the registry, and its app keeps its window hidden, so it runs beside an installed Zuna.
 
+## The iPhone app on TestFlight
+
+Each nightly that changes the iPhone app sends it to TestFlight, marked for internal testing only: the team's own testers get it once App Store Connect has processed it, and it can't go to outside testers or the App Store. Stable releases don't go there. `scripts/ios-dist.mjs` does both halves.
+
+**Its numbers.** The version is `MARKETING_VERSION` in `apps/ios/project.yml`, and the build number is the commit count, the same as the nightly's: TestFlight's 0.1.0 (1150) is `v0.1.0-nightly.1150`. `CURRENT_PROJECT_VERSION` there only numbers development builds. TestFlight refuses a build number it already has, so a build uploaded by hand would take a nightly's number and that nightly's upload would fail: nobody uploads one.
+
+**Built with no secret.** The `ios` job runs `npm run build:ios`, then `node scripts/ios-dist.mjs archive`: a Release archive with signing turned off and the build number set, each bundle in it then signed ad hoc by `codesign` with its entitlements file from `apps/ios`, the team's prefix filled in, and the app checked for test-only code as `npm run test:ios:release` does. The ad hoc signature is there for the entitlements. Xcode refuses to sign an iPhone app ad hoc itself, and an export takes each bundle's entitlements from its signature: on 2026-11-11 an archive with no signature at all came out of an export that said it succeeded with no push, app group or shared keychain.
+
+**Signed with nothing built.** The `testflight` job runs only Xcode and `node scripts/ios-dist.mjs upload`, which needs no npm install. It imports the distribution certificate into a keychain of its own, puts the four App Store profiles where Xcode looks, and exports the archive for App Store Connect with them. Then it checks every bundle of what it made: signed with an Apple Distribution certificate, the archive's build, and the entitlements its file asks for, with push on Apple's production service, not debuggable, and marked for TestFlight. Only then does `xcrun altool --upload-package` send it, with the App Store Connect key.
+
+**The `testflight` environment's secrets.**
+
+| Secret | What it is |
+|---|---|
+| `IOS_DISTRIBUTION_P12`, `IOS_DISTRIBUTION_P12_PASSWORD` | An Apple Distribution certificate with its private key, as .p12 in base64, and its password |
+| `IOS_PROFILE_APP`, `IOS_PROFILE_NOTIFICATIONS`, `IOS_PROFILE_BROADCAST`, `IOS_PROFILE_SHARE` | The App Store profiles of `chat.zuna.mobile` and its three extensions, made with that certificate, in base64 |
+| `APP_STORE_CONNECT_KEY`, `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID` | A team key for App Store Connect's API with the Developer role, which uploads builds: its .p8, its ID and its issuer's ID |
+
+Whoever took them could sign this team's apps and upload builds of them to App Store Connect, for its testers. Revoking the certificate on the developer site and the key in App Store Connect ends both, and nothing installed depends on either, as Apple signs what TestFlight installs again. So they're kept nowhere but in the environment, and one that's lost is replaced, not recovered.
+
+**Setting it up.** Once, and again each year, as the certificate and the profiles made with it last a year:
+
+1. In Xcode: Settings, Accounts, the team, Manage Certificates, then **+** and Apple Distribution. Right-click the new certificate, Export Certificate, with a password, into a folder outside the checkout and outside iCloud Drive.
+2. On the developer site, under Certificates, Identifiers & Profiles: a new profile of the App Store Connect kind for each of `chat.zuna.mobile`, `chat.zuna.mobile.notifications`, `chat.zuna.mobile.broadcast` and `chat.zuna.mobile.share`, choosing that certificate. Download them into the same folder.
+3. In App Store Connect, under Users and Access, Integrations, App Store Connect API: a new team key with Developer access. Download its `AuthKey_<ID>.p8` into the folder, which can only be done once, and note the Issuer ID above the list.
+4. `node scripts/ios-dist.mjs secrets <folder> --issuer <issuer ID>` asks for the certificate's password and checks that it opens a certificate with its key, and that each profile is an App Store one of its bundle, of the team, unexpired and made with that certificate. Only then does it set the nine secrets with `gh`, showing none of them. It makes the environment if it isn't there, and holds it to `v*-nightly.*` tags either way, as GitHub makes one with no rule by itself the first time a job names it.
+5. Delete the .p12 and the .p8.
+
+**Locally.** `npm run dist:ios` builds, archives and exports as a nightly does, signed with Xcode's own account instead, and checks the result the same way. It keeps the IPA in `dist/ios` and uploads nothing.
+
 ## An installed build must always be able to update
 
 That's the one exception to "no backward compatibility until the first stable release". From the first nightly on, these only change in ways the oldest build still installed can follow:
@@ -149,6 +184,7 @@ A rule can be forgotten at the end of a long session, so `.claude/settings.json`
 ## What was set up once
 
 - The `nightly` and `release` environments, with their tag rules, and the three tag rulesets.
+- The `testflight` environment and its secrets, by `node scripts/ios-dist.mjs secrets`, [above](#the-iphone-app-on-testflight).
 - Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline.
 - `gh`, signed in, on each machine Claude releases from, so it can watch a run and read why one failed.
 
@@ -160,6 +196,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The Linux packages a release carries:** they're built on CI and were never installed or run from there. `linux-check.mjs` and `linux-package-check.mjs` run on a developer's machine, on packages built there.
 - **Whether Windows Defender or SmartScreen leaves the unsigned installer alone** when it's downloaded in a browser.
 - **The Authenticode lock,** as no build is signed.
+- **The iPhone app's upload from CI.** The archive, its ad hoc signature and the entitlements an export keeps were checked on a Mac, exported with Xcode's own account. Signing with the environment's certificate and profiles on a runner, and altool's upload with a Developer key, are first seen on the first nightly after the secrets are set.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
@@ -167,4 +204,5 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **macOS,** once a Developer ID and notarization are in CI's secrets, with the updater `docs/MACOS_APP_PLAN.md` describes, checked against the same manifest.
 - **An update button on Linux** isn't planned: updates there come with the system's packages or a new AppImage. A package repository would be the way.
 - **An Authenticode certificate,** for the first download's warning.
+- **The changelog as TestFlight's What to Test,** set through App Store Connect's API once a build is processed.
 - **The server and `zuna-web` back on releases,** when they're ready to be.

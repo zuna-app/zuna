@@ -5,14 +5,16 @@ on:
     tags: ["v*"]
 
 # Releases the native app, for Windows and Linux, which scripts/release.mjs
-# tagged: v1.2.3 is a stable release, and v1.2.3-nightly.1108 a nightly. macOS
-# isn't built here yet: it needs a Developer ID and notarizing in CI's secrets. docs/RELEASES.md says how it all
-# fits together. The server, zuna-web and their images aren't released here
-# yet (docs/ROADMAP.md).
+# tagged: v1.2.3 is a stable release, and v1.2.3-nightly.1108 a nightly. A
+# nightly also sends the iPhone app to TestFlight. Each app is built only when
+# something it's built from changed since it last shipped. macOS isn't built
+# here yet: it needs a Developer ID and notarizing in CI's secrets.
+# docs/RELEASES.md says how it all fits together. The server, zuna-web and their
+# images aren't released here yet (docs/ROADMAP.md).
 #
-# Nothing runs with more than it needs. The app is built by a job that holds no
-# secret and can't publish anything, and the job that signs and publishes runs
-# no build. Third-party actions are pinned to full commits, since a tag can be
+# Nothing runs with more than it needs. Each app is built by a job that holds no
+# secret and can't publish anything, and the jobs that sign and publish run no
+# build. Third-party actions are pinned to full commits, since a tag can be
 # moved.
 #
 # What an installed app trusts is the manifest's signature, made with its
@@ -33,8 +35,16 @@ concurrency:
 jobs:
   # What the tag releases. Fails unless it's annotated, on main, and agrees with
   # the version in package.json and, for a nightly, with its commit's number.
+  # Says which apps to build, from the deployments of the environments that
+  # ship each: a stable release always has the installers, and the iPhone app
+  # only goes out with nightlies.
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
       channel: ${{ steps.plan.outputs.channel }}
       version: ${{ steps.plan.outputs.version }}
@@ -42,6 +52,8 @@ jobs:
       label: ${{ steps.plan.outputs.label }}
       commit: ${{ steps.plan.outputs.commit }}
       environment: ${{ steps.plan.outputs.environment }}
+      desktop: ${{ steps.plan.outputs.desktop }}
+      ios: ${{ steps.plan.outputs.ios }}
     steps:
       # All of main's history, as the build number is how many commits there are.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,6 +74,7 @@ jobs:
 
   windows:
     needs: [plan]
+    if: ${{ needs.plan.outputs.desktop == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -95,6 +108,7 @@ jobs:
   # that the program runs wherever glibc is that old or newer.
   linux:
     needs: [plan]
+    if: ${{ needs.plan.outputs.desktop == 'true' }}
     runs-on: ubuntu-latest
     container: debian:12
     timeout-minutes: 60
@@ -130,7 +144,7 @@ jobs:
   # which only run for a stable release.
   publish:
     needs: [plan, checks, windows, linux]
-    if: ${{ !cancelled() && needs.windows.result == 'success' && needs.linux.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
+    if: ${{ !cancelled() && needs.plan.outputs.desktop == 'true' && needs.windows.result == 'success' && needs.linux.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
     environment: ${{ needs.plan.outputs.environment }}
     runs-on: ubuntu-latest
     permissions:
@@ -177,3 +191,78 @@ jobs:
       - name: Delete the nightlies past the newest
         if: ${{ needs.plan.outputs.channel == 'nightly' }}
         run: node scripts/release.mjs prune
+
+  # The iPhone app, archived in Release with no signature, each bundle then
+  # signed ad hoc with its entitlements so that the export keeps them, and
+  # checked for test-only code. Holds no secret. Runs on macOS 27 with Xcode 27,
+  # like ci.yml's ios job.
+  ios:
+    needs: [plan]
+    if: ${{ needs.plan.outputs.ios == 'true' }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      ZUNA_BUILD: ${{ needs.plan.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - run: npm ci
+      - run: npm run build:ios
+      - run: node scripts/ios-dist.mjs archive
+      # Zipped by ditto, which keeps what upload-artifact wouldn't: the executables' mode and the signatures' attributes.
+      - run: ditto -c -k --keepParent dist/ios/Zuna.xcarchive dist/ios/Zuna.xcarchive.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios
+          path: dist/ios/Zuna.xcarchive.zip
+          if-no-files-found: error
+
+  # Signs the archive for the App Store, checks every bundle's signature, build
+  # and entitlements, and uploads it to TestFlight, marked for the team's own
+  # testers. Runs in the testflight environment, which only nightly tags reach
+  # and which holds the distribution certificate, the App Store profiles and an
+  # App Store Connect key. Builds nothing, and runs nothing from npm, Cargo or
+  # Swift's packages: only Xcode and scripts/ios-dist.mjs, which needs no npm
+  # install.
+  testflight:
+    needs: [ios]
+    environment: testflight
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ios
+          path: artifacts
+      - run: ditto -x -k artifacts/Zuna.xcarchive.zip artifacts
+      - name: Sign, check and upload to TestFlight
+        env:
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROFILE_APP: ${{ secrets.IOS_PROFILE_APP }}
+          IOS_PROFILE_NOTIFICATIONS: ${{ secrets.IOS_PROFILE_NOTIFICATIONS }}
+          IOS_PROFILE_BROADCAST: ${{ secrets.IOS_PROFILE_BROADCAST }}
+          IOS_PROFILE_SHARE: ${{ secrets.IOS_PROFILE_SHARE }}
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: node scripts/ios-dist.mjs upload artifacts/Zuna.xcarchive

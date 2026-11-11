@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { appKeys, bump, classify, compareVersions, headingsIn, labelOf, manifestOf, newKey, nextVersion, parseNotes, parseTag, prunable, reachesApp, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
+import { appKeys, bump, changedApps, classify, compareVersions, headingsIn, labelOf, manifestOf, newKey, nextVersion, parseNotes, parseTag, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
 
 const commit = (hash, subject, ...files) => ({ hash: hash.padEnd(40, "0"), subject, files });
 const app = "apps/desktop/src/main.rs";
@@ -83,6 +83,34 @@ test("only what the app is built from reaches it", () => {
   // A file that only starts with a listed file's name isn't it.
   assert.ok(!reachesApp(["package.json.bak", "scripts/lib.mjs.old"]));
   assert.ok(!reachesApp([]));
+});
+
+test("only what the iPhone app is built from reaches it", () => {
+  assert.ok(reachesIos(["apps/ios/Zuna/Chat/ChatView.swift"]));
+  assert.ok(reachesIos(["apps/ios/ZunaKit/Sources/ZunaHost/CryptoBridge.swift"]));
+  assert.ok(reachesIos(["apps/ios/project.yml"]));
+  assert.ok(reachesIos(["packages/core/src/session/session.ts"]));
+  assert.ok(reachesIos(["crypto/src/native.rs"]));
+  assert.ok(reachesIos(["scripts/build-crypto-apple.mjs"]));
+  assert.ok(reachesIos(["scripts/ios-dist.mjs"]));
+  assert.ok(!reachesIos(["apps/desktop/src/ui/rail.rs", "scripts/windows-app.mjs", "apps/web/src/main.tsx", "server/internal/api/server.go"]));
+  // Its tests and the icon's tool are in its folder, and in no build.
+  assert.ok(!reachesIos(["apps/ios/ZunaUITests/ChatTests.swift", "apps/ios/ZunaKit/Tests/ZunaHostTests/HostTests.swift", "apps/ios/scripts/make-icon.mjs", "packages/core/test/security.test.ts"]));
+  assert.ok(!reachesIos([]));
+});
+
+test("a nightly builds whichever app changed, and a stable release only the native one", () => {
+  assert.deepEqual(changedApps("nightly", { reaches: true, reachesIos: true }), ["the app", "the iPhone app"]);
+  assert.deepEqual(changedApps("nightly", { reaches: false, reachesIos: true }), ["the iPhone app"]);
+  assert.deepEqual(changedApps("nightly", { reaches: false, reachesIos: false }), []);
+  assert.deepEqual(changedApps("stable", { reaches: true, reachesIos: true }), ["the app"]);
+  assert.deepEqual(changedApps("stable", { reaches: false, reachesIos: true }), []);
+});
+
+test("a commit only in the iPhone app is still under the hood", () => {
+  const commits = [commit("aaaaaaa", "ios: added a button", "apps/ios/Zuna/Chat/ChatView.swift")];
+  assert.match(classify("## New\n- aaaaaaa\n", commits).problems[0], /touches nothing the app is built from/);
+  assert.deepEqual(classify("## Under the hood\n- aaaaaaa\n", commits).problems, []);
 });
 
 test("the notes are commits under the three headings", () => {

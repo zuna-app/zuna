@@ -29,7 +29,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 
 ## Releases
 
-Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer and the Linux packages. `docs/RELEASES.md` says how all of it works.
+Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer and the Linux packages. A nightly that changes the iPhone app also sends it to TestFlight, for the team's own testers, from `release.yml` and `scripts/ios-dist.mjs`: never upload one by hand, as its build number would be the next nightly's. `docs/RELEASES.md` says how all of it works.
 
 A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.1.0`, which becomes that release.
 
@@ -42,7 +42,7 @@ A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `
 
 - **The changelog decides the version.** `npm run release:pending` lists the commits since the last release with the files each touched. The notes file names every one of them once, by its short hash, under `## New` (minor), `## Fixed and changed` (patch) or `## Under the hood` (build), and `scripts/release.mjs` works the version out from the headings, so the two can't disagree. The script sets the version's files itself, in a commit of its own that needs no line.
 - **Read each commit's diff to place it,** not just its subject. A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three, and a `core:` one can reach the app or not.
-- **What reaches the app is what it's built from:** `APP_PATHS` in `scripts/release.mjs`. A commit that touches none of it can only go under the hood, and a session with none cuts no nightly.
+- **What reaches the app is what it's built from:** `APP_PATHS` in `scripts/release.mjs`. A commit that touches none of it can only go under the hood. A session with none, and none of what the iPhone app is built from (`IOS_PATHS` beside it), cuts no nightly. One that only changed the iPhone app cuts one all under the hood, which goes to TestFlight and publishes no GitHub release.
 - **A hook keeps a nightly from being forgotten.** `.claude/settings.json`, checked in, runs `node scripts/release.mjs owed --hook` as a turn ends, which holds the turn once while this checkout has pushed app commits with no nightly.
 - **A tag is the release.** The script pushes an annotated tag whose message is the changelog, and `.github/workflows/release.yml` builds, signs and publishes from it. A nightly's run only builds. A stable release's also runs `ci.yml`'s `test`, `advisories` and `desktop` jobs first. A failed run publishes nothing, and the next release carries its commits.
 
@@ -98,7 +98,7 @@ The landing page has a check of its own, in the same browsers: `npm run build -w
 
 The server's installer has a check too, on a machine with Lima and expect: `deploy/test/install-check.sh [scenario ...]` runs `deploy/install.sh` and `deploy/install-relay.sh`, and `deploy/update.sh` through them, in Debian, Ubuntu and Fedora VMs, with Caddy, nginx and certbot, Apache under SELinux and firewalld, a server without a domain, and its menus driven by keys. Certificates come from Pebble, Let's Encrypt's test server, inside each VM. Run it after changing any of the three.
 
-iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, `npm run test:ios:voice` for a call with the web app, `npm run test:ios:notify` for which of someone's devices is notified when (both after `npm run build -w @zuna/web`), and `swift test` in `apps/ios/ZunaKit`. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
+iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, `npm run test:ios:voice` for a call with the web app, `npm run test:ios:notify` for which of someone's devices is notified when (both after `npm run build -w @zuna/web`), and `swift test` in `apps/ios/ZunaKit`. `npm run dist:ios` makes the archive a nightly sends to TestFlight and exports it signed with Xcode's own account, checking it as the upload does, and uploads nothing. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
 
 ## Architecture
 
@@ -168,6 +168,9 @@ Rules the core depends on:
 | LiveKit's Rust SDK in the native app (`livekit` in `apps/desktop/Cargo.toml`), and with it `webrtc-sys` | The version and SHA-256 in `scripts/webrtc-sys.mjs`, and `apps/desktop/patches/webrtc-sys.patch` made again against the new crate |
 | GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
 | What the native app is built from | `APP_PATHS` in `scripts/release.mjs`, or a session that only touched the new place cuts no nightly |
+| What the iPhone app is built from | `IOS_PATHS` in `scripts/release.mjs`, or a change only there never reaches TestFlight |
+| An app extension, or a bundle's identifier, in `apps/ios/project.yml` | `PROFILES` in `scripts/ios-dist.mjs`, an App Store profile for it in the `testflight` environment (`node scripts/ios-dist.mjs secrets`), and the upload step's secrets in `release.yml` |
+| The iPhone app's entitlements (the `.entitlements` files in `apps/ios`) | The App IDs' capabilities on the developer site, and new App Store profiles in the `testflight` environment, or the next upload fails its check |
 | Which files say the version: a new workspace's `package.json`, or a new crate | `CRATES` and `versionFiles` in `scripts/release.mjs`, which keeps them the same |
 | The update manifest, or what's in a release (`publish` in `release.yml`, `manifest` in `scripts/release.mjs`) | `apps/desktop/src/platform/updates.rs`, which reads them, `apps/desktop/test/windows-update-check.mjs`, "Updates" in `docs/SECURITY_DETAILS.md`, and `docs/RELEASES.md` |
 | The installer's flags (`apps/desktop/installer/zuna.nsi`), or how the app starts it (`run_installer`) | Both, and `windows-update-check.mjs`. A build already installed starts whichever installer comes next with `/S /relaunch` |

@@ -9,6 +9,7 @@ dist/
 *.p8
 *.cer
 *.certSigningRequest
+*.mobileprovision
 
 # Build output
 crypto/target/

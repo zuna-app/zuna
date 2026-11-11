@@ -542,7 +542,7 @@ Work that needs a decision was set aside, as agreed, so the rest could go on:
 
 1. **App Store requirements that need new server features:** deleting an account from the app (guideline 5.1.1(v)), and reporting content and blocking people (guideline 1.2). Until then, TestFlight with internal testers or ad hoc builds only.
 2. **AGPL-3.0 on the App Store** (see risk 3): the project moved from AGPL-3.0 to GPL-3.0 and back to AGPL-3.0 on 2026-10-31. Distributing through the App Store still needs an extra permission under section 7 of the AGPL from both authors, or another decision.
-3. **Signing and TestFlight:** done on 2026-10-31 at the owner's go-ahead. Version 1.0.0, build 10, was archived with Xcode's automatic signing (`-allowProvisioningUpdates`) and uploaded to App Store Connect with `xcodebuild -exportArchive` (method `app-store-connect`, destination `upload`).
+3. **Signing and TestFlight:** done on 2026-10-31 at the owner's go-ahead. Version 1.0.0, build 10, was archived with Xcode's automatic signing (`-allowProvisioningUpdates`) and uploaded to App Store Connect with `xcodebuild -exportArchive` (method `app-store-connect`, destination `upload`). Builds up to 21 went that way by hand. Since 2026-11-11 each nightly that changes the app sends it to TestFlight from CI, numbered by the commit count ("The iPhone app on TestFlight" in `docs/RELEASES.md`).
 4. **Look:** chat wallpapers, left open since F1. A light theme was ruled out on 2026-10-31.
 5. **Notifications:** built and tested on the simulator; see "Notifications" below. The relay runs at `https://relay.zuna.chat`, and both the app and the servers' default point at it. What's left needs the owner: the APNs key on the relay, and applying for the notification filtering entitlement.
 
