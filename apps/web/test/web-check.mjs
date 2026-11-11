@@ -851,7 +851,9 @@ async function runIn(name) {
     for (let i = 0; i < 40 && paused?.state !== 2; i++, await sleep(250)) paused = await fakeOf(again);
     const pausedHere = await fakeOf(gone);
     check("a pause in one person's player pauses everyone's, where it was paused", paused?.state === 2 && pausedHere && Math.abs(paused.time - pausedHere.time) < 0.5 && (await again.locator(".watch-bar").innerText()).includes("Paused by Lee Leaving"));
-    // Alex skips ahead, and plays it again.
+    // Alex skips ahead, and plays it again, past what the player has loaded: it buffers at the new
+    // place first, as YouTube's does, which was once taken for a player catching up and undone.
+    await again.frames().find((item) => item.url().startsWith("https://www.youtube-nocookie.com/embed/")).evaluate(() => (window.fake.seekBuffers = true));
     await playerOf(again).getByRole("button", { name: "Ahead 60 s" }).click();
     await sleep(600);
     await playerOf(again).getByRole("button", { name: "Play" }).click();

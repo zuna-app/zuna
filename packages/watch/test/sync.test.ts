@@ -261,6 +261,68 @@ describe("hearing the person", () => {
     expect(intents).toHaveLength(4);
   });
 
+  it("hears a seek into what isn't loaded yet, which buffers there first, and a play after it", () => {
+    // As YouTube's player reports a seek while paused, then a play: buffering at the new place, then playing there.
+    player.pause();
+    run(250);
+    expect(intents).toEqual([{ playing: false, position: Math.round(player.time * 1000) }]);
+    // A paused player says nothing until something changes.
+    clock += 5000;
+    player.time = 160;
+    player.state = "buffering";
+    run(250);
+    run(500);
+    // Nothing is pulled back while it buffers there.
+    expect(player.calls.filter((call) => call.startsWith("seek"))).toEqual([]);
+    player.state = "playing";
+    run(250);
+    expect(intents[1]).toEqual({ position: 160_250, playing: true });
+    run(1000);
+    expect(intents).toHaveLength(2);
+    expect(player.calls.filter((call) => call === "pause" || call.startsWith("seek"))).toEqual(["pause"]);
+    expect(player.state).toBe("playing");
+    expect(sync.phase).toBe("in-step");
+  });
+
+  it("hears a seek that buffers and stays paused", () => {
+    player.pause();
+    run(250);
+    clock += 5000;
+    player.time = 300;
+    player.state = "buffering";
+    run(250);
+    player.state = "paused";
+    run(250);
+    expect(intents.at(-1)).toEqual({ position: 300_000 });
+    expect(intents).toHaveLength(2);
+    expect(player.time).toBe(300);
+  });
+
+  it("hears a seek while paused, however long since the player last said anything", () => {
+    player.pause();
+    run(250);
+    // A paused player says nothing until something changes, as YouTube's doesn't.
+    clock += 5000;
+    player.seek(200);
+    sync.onReading(player.reading());
+    expect(intents.at(-1)).toEqual({ position: 200_000 });
+    expect(sync.phase).toBe("in-step");
+    run(1000);
+    expect(player.time).toBe(200);
+  });
+
+  it("doesn't take buffering that lasts too long after a jump for someone's seek", () => {
+    player.time = 200;
+    player.state = "buffering";
+    run(SYNC.seekSettleMs + 500);
+    expect(intents).toEqual([]);
+    player.state = "playing";
+    run(250);
+    // Given up on, the room is where the player goes back to.
+    expect(intents).toEqual([]);
+    expect(player.calls.some((call) => call.startsWith("seek"))).toBe(true);
+  });
+
   it("hears a change of speed, but not one it made", () => {
     player.setRate(2);
     run(250);

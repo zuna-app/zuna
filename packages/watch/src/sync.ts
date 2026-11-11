@@ -60,8 +60,13 @@ export const SYNC = {
   startMs: 100,
   /** A jump bigger than this between two readings, on a player in step, is a seek. */
   seekJumpMs: 1500,
-  /** Readings further apart than this aren't compared for a jump. */
+  /** Readings further apart than this aren't compared for a jump, unless the first was of a paused player. */
   readingGapMs: 1000,
+  /**
+   * A jump to a place that buffers is someone's seek once the player plays or pauses there, if it
+   * does within this long. YouTube's player reports a seek past what it has loaded that way.
+   */
+  seekSettleMs: 15_000,
   /** What a player reports this soon after it was steered is the result of that. */
   ownMs: 500,
   /** A playing player is sent somewhere else at most this often. */
@@ -108,6 +113,8 @@ export class WatchSync {
   private saidBlocked = false;
   /** Held paused while it can't be seen. */
   private held = false;
+  /** Where a player in step jumped to as it began buffering, and when: someone's seek, once it plays or pauses there. */
+  private jumpedTo: { position: number; at: number } | null = null;
 
   constructor(
     private readonly player: Player,
@@ -131,6 +138,7 @@ export class WatchSync {
     const now = this.now();
     const target: Target = { ...next, ref: now - next.age };
     this.target = target;
+    this.jumpedTo = null;
     if (!target.video) {
       this.loaded = null;
       this.setPhase("idle");
@@ -167,6 +175,7 @@ export class WatchSync {
   hold(held: boolean): void {
     if (this.held === held) return;
     this.held = held;
+    this.jumpedTo = null;
     const now = this.now();
     if (held) {
       this.own(now);
@@ -200,6 +209,7 @@ export class WatchSync {
       return;
     }
     if (this.current === "in-step" && now >= this.ownUntil && this.heard(reading, last, target, now)) return;
+    this.jumpedTo = null;
     this.steer(now, false);
   }
 
@@ -211,13 +221,29 @@ export class WatchSync {
       if (!target.playing) return false;
       return this.tell({ playing: false, position: Math.round(reading.duration * 1000 || time) }, now);
     }
+    // A seek past what's loaded buffers first, at the new place, and is the person's once it plays or pauses there.
+    const jumped = this.jumpedTo;
+    if (jumped) {
+      if (reading.state === "buffering") return now - jumped.at < SYNC.seekSettleMs;
+      this.jumpedTo = null;
+      const since = reading.state === "playing" ? (now - jumped.at) * reading.rate : 0;
+      if (reading.live || Math.abs(time - jumped.position - since) >= SYNC.seekJumpMs) return false;
+      const playing = reading.state === "playing";
+      return this.tell(playing === target.playing ? { position: Math.round(time) } : { position: Math.round(time), playing }, now);
+    }
     if (reading.state === "paused" && target.playing) return this.tell({ playing: false, position: Math.round(time) }, now);
     if (reading.state === "playing" && !target.playing) return this.tell({ playing: true, position: Math.round(time) }, now);
-    // A jump, which standing still while it buffers or shows an advert isn't.
-    if (!reading.live && last && now - last.at <= SYNC.readingGapMs && reading.state !== "buffering" && last.state !== "buffering") {
+    // A jump, which standing still while it buffers or shows an advert isn't. One into buffering
+    // waits until the player plays or pauses there. A paused player says nothing until something
+    // changes, and its time doesn't move, so it's compared however long ago it last said anything.
+    if (!reading.live && last && (now - last.at <= SYNC.readingGapMs || last.state === "paused") && last.state !== "buffering") {
       const moved = time - last.time * 1000;
       const ought = last.state === "playing" ? (now - last.at) * last.rate : 0;
-      if (Math.abs(moved - ought) > SYNC.seekJumpMs && moved !== 0) return this.tell({ position: Math.round(time) }, now);
+      if (Math.abs(moved - ought) > SYNC.seekJumpMs && moved !== 0) {
+        if (reading.state !== "buffering") return this.tell({ position: Math.round(time) }, now);
+        this.jumpedTo = { position: time, at: now };
+        return true;
+      }
     }
     return false;
   }

@@ -45,6 +45,9 @@
         listening: false,
         // The test sets these to stand in for what YouTube does by itself.
         buffering: false,
+        // A seek in its own buttons buffers at the new place for a moment, then goes on as before, or
+        // plays if Play was pressed meanwhile, as YouTube's does past what it has loaded.
+        seekBuffers: false,
         refuseAutoplay: query.get("refuse") === "1",
       });
       let ready = false;
@@ -97,13 +100,28 @@
         }
         setState(fake.buffering ? 3 : 1);
       };
+      // A seek of the person's that buffers: what it goes on to once it has.
+      let settling = null;
+      const personSeek = (time) => {
+        fake.time = time;
+        if (!fake.seekBuffers) return (report(), draw());
+        const resume = settling ? settling.resume : fake.state === 3 ? 1 : fake.state;
+        clearTimeout(settling?.timer);
+        settling = { resume, timer: setTimeout(() => {
+          const next = settling.resume;
+          settling = null;
+          setState(next);
+        }, 700) };
+        if (fake.state === 3) report();
+        else setState(3);
+      };
       setInterval(() => {
         const now = performance.now();
         if (fake.state === 1 && !fake.buffering) {
           fake.time = Math.min(DURATION, fake.time + ((now - last) / 1000) * fake.rate);
           if (fake.time >= DURATION) setState(0);
         }
-        if (fake.state === 3 && !fake.buffering) setState(1);
+        if (fake.state === 3 && !fake.buffering && !settling) setState(1);
         if (fake.state === 1 && fake.buffering) setState(3);
         last = now;
         if (fake.state === 1) report();
@@ -161,9 +179,12 @@
         draw();
       });
       // Someone using the player.
-      document.getElementById("toggle").onclick = () => (fake.state === 1 ? setState(2) : play(true));
-      document.getElementById("back").onclick = () => ((fake.time = Math.max(0, fake.time - 30)), report(), draw());
-      document.getElementById("ahead").onclick = () => ((fake.time = Math.min(DURATION, fake.time + 60)), report(), draw());
+      document.getElementById("toggle").onclick = () => {
+        if (settling) return void (settling.resume = settling.resume === 1 ? 2 : 1);
+        fake.state === 1 ? setState(2) : play(true);
+      };
+      document.getElementById("back").onclick = () => personSeek(Math.max(0, fake.time - 30));
+      document.getElementById("ahead").onclick = () => personSeek(Math.min(DURATION, fake.time + 60));
       document.getElementById("speed").onchange = (event) => {
         fake.rate = Number(event.target.value);
         send("infoDelivery", { playbackRate: fake.rate });
