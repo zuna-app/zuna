@@ -131,7 +131,7 @@ password --Argon2id--> master --HKDF--> auth key   (proves identity to the serve
 recovery key --HKDF--> recovery auth key, recovery slot key
 
 slot key --> slot's secrets (sealed on the server)
-               \--> account key (sealed to the slot's public key)
+               \--> account key (sealed to the slot's public key, with X-Wing)
 
 account key (random, one per generation)
   |- vault core: identity key, HPKE key, community key, older keys
@@ -147,6 +147,8 @@ file key (random, per file) --> STREAM-encrypted chunks
 ```
 
 Each device also has an MLS signing key, certified by the identity key, and a seal key that new account keys are sealed to.
+
+Every key that agrees on a key is X-Wing, ML-KEM-768 and X25519 together: MLS's, slots', seal keys and the HPKE key grants are sealed to. Every key a signature is checked with is hybrid, Ed25519 and ML-DSA made from one seed and checked together: ML-DSA-44 for a device's key, ML-DSA-65 for identity keys, slots' signing keys, a bot's setup key and the log's key. Only the send key and item keys, which the server alone checks, are Ed25519 alone. `docs/POST_QUANTUM.md` says why, and what it costs.
 
 An account's keys are replaced as **generations**, in the background, whenever a device goes or a secret changes. Each publishes a link, signed by the old and new identity keys and by a device, which lists the devices that stay. `docs/ACCOUNT_KEY_ROTATION.md` has the design, and what happens at each step.
 

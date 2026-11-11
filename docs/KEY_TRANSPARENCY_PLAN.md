@@ -33,7 +33,7 @@ Three limits, stated plainly because they decide whether this is worth building:
 | Body | What the entry says, as JSON. Only those the account is there for get it. |
 | Tag | A short hash in a record that whoever knows an account's ID, or its username, can recognize, and nobody else can. |
 | Head | An era, a size and the root of the tree at that size, signed with the log key. |
-| Log key | An Ed25519 key the server makes once, and signs heads with. |
+| Log key | A lasting hybrid key, Ed25519 and ML-DSA-65, which the server makes once from a seed it keeps, and signs heads with ([POST_QUANTUM.md](POST_QUANTUM.md)). |
 | Era | A number that goes up when a server starts its log again, as after restoring a backup. |
 | Frontier | The roots of the full subtrees a tree of some size is made of, at most one for each bit of the size. It's all a device needs to keep to append to a tree and find its root. |
 
@@ -434,17 +434,20 @@ cert   = H(certificate)
 enroll = H(enrollment proof)
 seal   = H(seal key | generation as 8 bytes | seal proof)
 link   = H(link payload)
+
+root and key are hybrid keys: an account's first identity key, a lasting one of 1,985 bytes, and a
+device's key, of 1,345. hpke is an X-Wing key, of 1,216, and hpke_sig a lasting signature, of 3,374.
 ```
 
 ### Heads
 
 ```
 head      = { era, size, root }
-signature = Sign(log key, "zuna/log/head/v1|" | era as 8 bytes | size as 8 bytes | root)
+signature = Sign(log key, "zuna/log/head/v2|" | era as 8 bytes | size as 8 bytes | root), Ed25519 and ML-DSA-65 both
 
 in a message    log: { e: era, n: size, r: root, s: signature }
 in the manifest log: { key, era, size, root }
-in a link       &log= base64url(key (32) | era as 4 bytes | size as 8 bytes | root (32))
+in a link       &log= base64url(H("zuna/log/key/v1|" | key) (32) | era as 4 bytes | size as 8 bytes | root (32))
 ```
 
 ### Server

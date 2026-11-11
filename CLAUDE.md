@@ -72,6 +72,8 @@ There's no linter or formatter. The strict check is the type checks, which fail 
 
 The native app has no type check of its own. Build it on this system (`npm run dev:windows`, `dev:linux` or `dev:macos`), and run its tests with `cargo test` in `apps/desktop` after `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and, on Windows and Linux, `node scripts/ffmpeg.mjs`, which its build needs; on Windows with `+stable-x86_64-pc-windows-msvc` and `CARGO_TARGET_DIR` at `%LOCALAPPDATA%\zuna-windows-target`, as `scripts/windows-app.mjs` sets them, and `node scripts/windows-app.mjs test [--release] [-- cargo's arguments]` does all of that. That runs the tests of its screen share's crate too, `apps/desktop/screenshare`, which is in its workspace. It only builds for the system it's on, so say in the commit message which of Windows, Linux and macOS weren't built, as for Swift. The screen share's crate needs neither LiveKit nor GPUI, so its code for the others can be type-checked from any system: `ZUNA_CHECK_ONLY=1 cargo check -p zuna-screenshare --target x86_64-unknown-linux-gnu` in `apps/desktop`, or `aarch64-apple-darwin`, after `rustup target add` and `node scripts/webrtc-sys.mjs`.
 
+The crypto crate's tests also run natively, which the hybrid vectors are written by and the sizes in `docs/POST_QUANTUM.md` measured with: on Windows `cargo +stable-x86_64-pc-windows-msvc test --lib` in `crypto`, with a `CARGO_TARGET_DIR` of its own, and `cargo test --release --lib measure_groups -- --ignored --nocapture` for the measurements, which take a while at a thousand devices.
+
 One test at a time:
 
 ```bash
@@ -104,7 +106,7 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 ## Architecture
 
-The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
+The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and `docs/POST_QUANTUM.md`, which says why every key is hybrid and what that costs, and add an end-to-end test in `packages/core/test` for the behavior.
 
 **One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app (`packages/ui/src/core/serve.ts`, started by `apps/web/src/worker.ts`), in Node in `zuna-bot` (`apps/bot/src/host.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
@@ -123,6 +125,7 @@ Rules the core depends on:
 - MLS work on a group runs under `withLock`, commits go through `commitWithRetry`, and sends through `sealAndRetry`, which retries when the epoch moved.
 - A group's server-side sequence number orders everything. The server refuses a commit or message for an old epoch with `409 stale_epoch`, and clients retry from the new state.
 - Keys for the current epoch only come from the MLS exporter (`rememberCurrentEpochKey`). Vault and grant keys only fill gaps from before.
+- Every signature an app checks is hybrid, Ed25519 and ML-DSA made from one seed and checked together (`crypto/src/hybrid.rs`), and `verify` takes nothing else. A key's first byte is its kind: a device's (ML-DSA-44) or a lasting one's (ML-DSA-65: identity keys, slots', a bot's setup key, the log's), and what a key is for is checked where it comes in (`isDeviceKey`, `isLastingKey`). Only send and item keys, which the server alone checks, are bare Ed25519 seeds. Keys are agreed with X-Wing, ML-KEM-768 and X25519, in MLS and HPKE alike, and groups take one suite (`CIPHERSUITE` in `mls.rs`, `mlsSuite` in the server's `mlsframe.go`).
 - `ensureTreeClean` removes anyone who shouldn't hold a group's keys before this device encrypts.
 - Nothing local is erased on the server's word. Being signed out or removed keeps the data, for 30 days or until the person clears it.
 - What arrives decrypted is still untrusted, so it goes through `validate.ts` before anything shows it.
@@ -148,6 +151,8 @@ Rules the core depends on:
 |---|---|
 | The envelope (`sealEnvelope`, `openEnvelope`, `frameSigned` in `crypto.ts`) | `previewPush` in `push.ts`, which opens messages without a session, and "Message content" in `docs/SECURITY_DETAILS.md` |
 | A crypto function | `mls.rs`, `wasm.rs`, `native.rs`, `apps/ios/core-bundle/src/crypto.ts`, `ZunaHost/CryptoBridge.swift` and `apps/desktop/src/host/crypto.rs` |
+| The hybrid signatures (`crypto/src/hybrid.rs`): their input, derivation or a kind's sizes | `server/internal/hybrid`, which the server checks with, the shared vectors in `crypto/src/testdata` (`UPDATE_HYBRID_VECTORS=1` natively in `crypto` and in `go test ./internal/hybrid`), the sizes in `packages/core/src/crypto.ts` and `validate.ts`, and the server's checks of keys' shapes |
+| The MLS suite (`CIPHERSUITE` in `mls.rs`) | `mlsSuite` in `server/internal/api/mlsframe.go`, which refuses any other, and the tests' frames that name it |
 | `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` and `apps/desktop/src/models.rs` |
 | What the iOS core bundle asks of its host (`apps/ios/core-bundle/src/natives.d.ts`) | `ZunaHost` and `apps/desktop/src/host`, which give the same functions |
 | A public `ZunaClient` or `ServerSession` method the UI uses | Its callers in `apps/desktop/src`, which name it in a string (`call("…")`, so a rename isn't a type error there), in `packages/ui`, and `ZunaModels/CoreAPI.swift` |
@@ -179,7 +184,7 @@ Rules the core depends on:
 | The update manifest, or what's in a release (`publish` in `release.yml`, `manifest` in `scripts/release.mjs`) | `apps/desktop/src/platform/updates.rs`, which reads them, `apps/desktop/test/windows-update-check.mjs`, "Updates" in `docs/SECURITY_DETAILS.md`, and `docs/RELEASES.md` |
 | The installer's flags (`apps/desktop/installer/zuna.nsi`), or how the app starts it (`run_installer`) | Both, and `windows-update-check.mjs`. A build already installed starts whichever installer comes next with `/S /relaunch` |
 | What the Linux build needs (`scripts/linux-build-deps.sh`) | Nothing else: `release.yml` and `ci.yml` both run it |
-| An update signing key | The public key in `apps/desktop/src/platform/updates.rs`, the environment's `UPDATE_SIGNING_KEY` secret and the offline copy, in that order: an app must carry the new key before anything is signed with it |
+| An update signing key | The public key in `apps/desktop/src/platform/updates.rs`, the environment's `UPDATE_SIGNING_KEY` secret, or `UPDATE_SIGNING_KEY_PQ` for an ML-DSA-65 one, and the offline copy, in that order: an app must carry the new key before anything is signed with it |
 
 ## Feature parity
 

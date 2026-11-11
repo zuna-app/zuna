@@ -52,7 +52,7 @@ The iPhone app's approach carries over:
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealing commits that change nobody,** so that renewing a group's keys names nobody either ([SEALED_SENDER.md](SEALED_SENDER.md), "Later").
 - **Key transparency:** a log of every change to who holds which keys, which each server keeps and every device reads, so that a server can't hand out a false key or hide a device without the account's owner seeing it. [KEY_TRANSPARENCY_PLAN.md](KEY_TRANSPARENCY_PLAN.md) is the plan, and nothing of it is built.
-- **Post-quantum cryptography:** key agreement and signatures a quantum computer can't break, beside the ones there now, starting with what could be recorded today and opened later. [POST_QUANTUM_PLAN.md](POST_QUANTUM_PLAN.md) is the plan, and nothing of it is built.
+- **Starting a group again under a new suite,** which a second change of post-quantum algorithms would need, as a group keeps the MLS suite it was made with: stage 5 of the post-quantum work, which can come after 1.0.0 and has to come before anything forces a second change. [POST_QUANTUM.md](POST_QUANTUM.md), "Not done", says what it takes.
 - **Hiding who's in a conversation** from the server, which delivers by membership today.
 - **Encrypted backups** you can export and import yourself.
 - **An independent security audit.**

@@ -38,7 +38,7 @@ There's no separate MLS change for eviction. A removed device's leaves already g
 | Link | The signed statement that moves an account from one generation to the next. |
 | Carried device | A device listed in a link, so its older certificate stays valid. |
 | Sibling | Another device of the same account. |
-| Seal key | An X25519 key pair belonging to one device, used only to receive account keys. |
+| Seal key | An X-Wing key pair, ML-KEM-768 and X25519, belonging to one device, used only to receive account keys. |
 | Slot | A public-key wrapper for the password or recovery key: a key pair whose private half is encrypted under a key only that secret derives. |
 | Enrollment proof | A signature by a slot's key over a new device, proving that device's owner opened the slot. |
 | Bundle | A generation's account key, sealed to one device's seal key. |
@@ -163,7 +163,7 @@ There's one slot for the password and one for the recovery key:
 
 ```
 slot key    = HKDF(Argon2id master or recovery key, "zuna/slot/v1|kind|server|username")   (lowercase username)
-seal pair   = hpkeKeygen()                  (X25519)
+seal pair   = hpkeKeygen()                  (X-Wing: ML-KEM-768 and X25519)
 sign pair   = signingKeygen()               (Ed25519)
 
 sealed_secret = AEAD(slot key, seal secret + sign secret + IK_0)   changes only with the secret
@@ -508,7 +508,7 @@ This document, and answers to section 13. The owner chose to build ahead of this
 10. **Replay within a generation.** A server can still serve an older copy of a vault item under the same key, for instance a `verified:` from before a re-verification, since items have no version. That's possible today. Should items carry a counter, and how much does that matter here?
 11. **Credential changes in MLS.** Is changing a `BasicCredential` in a self-update, keeping the signature key, sound in RFC 9420 terms, given that the tree check is what validates it? OpenMLS 0.9.2 accepts it, including for members who joined afterwards by Welcome and by external commit (`a_commit_gives_a_leaf_its_new_certificate` in `mls.rs`), which says it works, not that it's sound.
 12. **Seal keys.** Do you agree with rejecting the conversion of Ed25519 device keys to X25519 (section 7.5), given that it would remove the late-delivery case entirely?
-13. **Post-quantum.** Slots and bundles are classical X25519 and could be recorded now and opened later. MLS here is classical too (`mls.rs:15`), so this doesn't seem the place to start, but it's a long-lived key, so do you agree? [POST_QUANTUM_PLAN.md](POST_QUANTUM_PLAN.md) plans both for the same stage.
+13. **Post-quantum.** Built since this was asked, with MLS in the same change, as either alone leaves the other open ([POST_QUANTUM.md](POST_QUANTUM.md)): slots, bundles and grants are sealed with X-Wing, ML-KEM-768 and X25519 together, under `zuna/account-slot/v2` and `zuna/account-bundle/v2`, and identity keys, slots' signing keys and links are signed with Ed25519 and ML-DSA-65 together. Is anything in a rotation's design weaker for the larger keys, or for a link checked with hybrid signatures?
 15. **Seal key generations.** A seal key now also has a signature saying its generation, and the log of keys has an entry for each one a device registers, so a rotation seals only to the newest the log has for that device, which a device that never saw it can tell too. What a device has seen is only what's left while the log can't be read. Should a rotation also refuse a seal key from too far behind the current generation, at the cost of leaving out a device that's been away?
 16. **What a slot proves.** A slot's sealed secret names the root, and whoever signs in requires a core that can sign with its secret. That stops a server alone, but not a holder, who has the root secret. Is there something a device can publish without the secret, that someone who signs in can check, that a holder can't make? Slots can't be rewritten without their secret, so it would have to come from the slot's public half or a link.
 
