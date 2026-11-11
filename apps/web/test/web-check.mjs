@@ -798,9 +798,11 @@ async function runIn(name) {
     await fakeYouTube(fresh, { breaksFirst: true });
     await fakeYouTube(leaver);
     const playerOf = (where) => where.frameLocator(".watch-frame");
+    // Nothing until the fake's script has run: a frame just made has its address before its page.
     const fakeOf = async (where) => {
       const frame = where.frames().find((item) => item.url().startsWith("https://www.youtube-nocookie.com/embed/"));
-      return frame ? frame.evaluate(() => ({ id: window.fake.id, time: window.fake.time, state: window.fake.state, rate: window.fake.rate })) : null;
+      if (!frame) return null;
+      return frame.evaluate(() => (window.fake ? { id: window.fake.id, time: window.fake.time, state: window.fake.state, rate: window.fake.rate } : null)).catch(() => null);
     };
     await again.locator(".channel-row", { hasText: "Lounge" }).click();
     await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
