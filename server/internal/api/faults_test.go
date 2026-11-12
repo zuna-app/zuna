@@ -361,3 +361,213 @@ func TestFailingDatabase(t *testing.T) {
 		h.sweep(t, r)
 	}
 }
+
+// The routes that need a media server, a push relay, 7TV or keys the test holds.
+func TestFailingDatabaseElsewhere(t *testing.T) {
+	_, liveKit := newFakeLiveKit(t)
+	relay := newFakeRelay(t)
+	upstream := fake7TV(t)
+	h := newHarness(t, withLiveKit(liveKit), func(cfg *api.Config) {
+		cfg.Unlimited, cfg.TokenScale = true, 1000
+		cfg.PushRelays = []string{relay.URL}
+	})
+	h.srv.Emotes().APIBase = upstream.URL
+	h.srv.Emotes().CDNBase = upstream.URL
+	// The relay is told of every push, which nothing here waits for.
+	go func() {
+		for range relay.pushes {
+		}
+	}()
+	w := &world{h: h}
+	w.owner = h.owner()
+	w.bob = h.register("bob", w.owner.newInvite())
+	w.carol = h.register("carol", w.owner.newInvite())
+	w.voice = w.owner.createChannel("voice", 0)
+	w.owner.setScreenRules(nil)
+	w.owner.setSettings(map[string]any{"max_bots": 1000})
+	for _, c := range []*client{w.owner, w.bob, w.carol} {
+		c.joinChannel(w.voice.ID, false)
+	}
+	inVoice := func(c *client) { c.inVoice(w.voice.ID) }
+	keyed := func() *keyed { return h.signUp(w.name("k"), w.owner.newInvite()) }
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytesOf(32, 1)...)
+
+	recipes := []recipe{
+		// Generations of an account's keys.
+		{"rotate", http.StatusOK, func() func() int {
+			k := keyed()
+			body, _ := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
+			return w.status("POST", "/api/account/rotate", k.client, body)
+		}},
+		{"rotate with a new password", http.StatusOK, func() func() int {
+			k := keyed()
+			body, _ := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
+			body["slots"] = newSlots()
+			body["password"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(32, 'k'+1), "kdf": map[string]any{"salt": bytesOf(16, 9), "memory": 65536, "iterations": 3, "parallelism": 1}, "auth_key": bytesOf(32, 'z')}
+			return w.status("POST", "/api/account/rotate", k.client, body)
+		}},
+		{"rotate with a new recovery key", http.StatusOK, func() func() int {
+			k := keyed()
+			body, _ := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
+			body["slots"] = newSlots()
+			body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(32, 'y')}
+			return w.status("POST", "/api/account/rotate", k.client, body)
+		}},
+		{"bundles", http.StatusOK, func() func() int {
+			k := keyed()
+			k.rotate()
+			return w.status("POST", "/api/account/bundles", k.client, map[string]any{"generation": 1, "bundles": []map[string]any{{"device_id": k.client.device, "data": []byte("d")}}})
+		}},
+		{"close a generation", http.StatusOK, func() func() int {
+			k := keyed()
+			k.rotate()
+			return w.status("POST", "/api/account/core", k.client, map[string]any{"generation": 1, "vault_core": []byte("closed")})
+		}},
+		{"reseal the vault", http.StatusOK, func() func() int {
+			k := keyed()
+			h.mustDo("PUT", "/api/vault", k.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": "ek:g:1", "data": []byte("one")}, {"id": "pin:x", "data": []byte("two")}}}, nil)
+			k.rotate()
+			return w.status("POST", "/api/vault/reseal", k.client, map[string]any{"generation": 1, "items": []map[string]any{{"id": "ek:g:1", "data": []byte("again")}}, "delete": []string{"pin:x"}})
+		}},
+		{"seal key", http.StatusOK, func() func() int {
+			k := keyed()
+			return w.status("PUT", "/api/devices/"+k.client.device+"/seal-key", k.client, map[string]any{"seal_key": hpkeShape(1), "seal_generation": 0, "seal_proof": bytesOf(hybrid.DeviceSignatureSize, 2)})
+		}},
+		{"certificate", http.StatusOK, func() func() int {
+			k := keyed()
+			return w.status("PUT", "/api/devices/"+k.client.device+"/certificate", k.client, map[string]any{"certificate": []byte("cert 2")})
+		}},
+
+		// Groups' commits, welcomes and grants.
+		{"void a commit", http.StatusOK, func() func() int {
+			group := w.owner.newGroup()
+			w.owner.commit(group.ID, 0, map[string]any{"add_users": []string{w.bob.userID}})
+			w.bob.commit(group.ID, 1, nil)
+			return w.status("POST", "/api/groups/"+group.ID+"/void-commits", w.owner, map[string]any{"from_epoch": 2, "to_epoch": 1, "group_info": groupInfoFrame(group.ID, 1), "send_key": sendKeyFor(group.ID, 1)})
+		}},
+		{"delete a welcome", http.StatusOK, func() func() int {
+			group := w.owner.newGroup()
+			w.owner.commit(group.ID, 0, map[string]any{"add_users": []string{w.bob.userID}, "welcome": welcomeFrame("w"), "welcome_to": []string{w.bob.device}})
+			var welcomes struct {
+				Welcomes []store.Welcome `json:"welcomes"`
+			}
+			h.mustDo("GET", "/api/welcomes", w.bob.token, nil, &welcomes)
+			return w.status("DELETE", fmt.Sprintf("/api/welcomes/%d", welcomes.Welcomes[len(welcomes.Welcomes)-1].ID), w.bob, nil)
+		}},
+		{"commit with history grants and admins", http.StatusOK, func() func() int {
+			group := w.owner.newGroup()
+			body := map[string]any{"expected_epoch": 0, "commit": commitFrame(group.ID, 0), "group_info": groupInfoFrame(group.ID, 1), "send_key": sendKeyFor(group.ID, 1), "kind": "update",
+				"add_users": []string{w.bob.userID, w.carol.userID}, "history_grants": []map[string]any{{"user_id": w.bob.userID, "data": []byte("sealed-keys")}}, "admins": []string{w.owner.userID, w.bob.userID}}
+			return w.status("POST", "/api/groups/"+group.ID+"/commit", w.owner, body)
+		}},
+		{"commit removing someone", http.StatusOK, func() func() int {
+			group := w.owner.group(w.bob, w.carol)
+			body := map[string]any{"expected_epoch": 1, "commit": commitFrame(group.ID, 1), "group_info": groupInfoFrame(group.ID, 2), "send_key": sendKeyFor(group.ID, 2), "kind": "update", "remove_users": []string{w.carol.userID}}
+			return w.status("POST", "/api/groups/"+group.ID+"/commit", w.owner, body)
+		}},
+		{"delete a history grant", http.StatusOK, func() func() int {
+			group := w.owner.newGroup()
+			w.owner.commit(group.ID, 0, map[string]any{"add_users": []string{w.carol.userID}, "history_grants": []map[string]any{{"user_id": w.carol.userID, "data": []byte("sealed-keys")}}})
+			var grants struct {
+				Grants []store.HistoryGrant `json:"grants"`
+			}
+			h.mustDo("GET", "/api/history-grants", w.carol.token, nil, &grants)
+			if len(grants.Grants) == 0 {
+				t.Fatal("no grant to delete")
+			}
+			return w.status("DELETE", fmt.Sprintf("/api/history-grants/%d", grants.Grants[len(grants.Grants)-1].ID), w.carol, nil)
+		}},
+		{"channel history grant", http.StatusOK, func() func() int {
+			channel := w.owner.createChannel("text", 0)
+			w.carol.joinChannel(channel.ID, true)
+			return w.status("POST", "/api/channels/"+channel.ID+"/history-grants", w.owner, map[string]any{"user_id": w.carol.userID, "data": []byte("sealed")})
+		}},
+
+		// Pushes.
+		{"register for pushes", http.StatusOK, w.same("PUT", "/api/push", w.bob, map[string]any{"relay": relay.URL, "handle": "bob-phone", "call_handle": "bob-voip", "key": bytesOf(32, 4), "registration": store.NewID(), "muted": []string{store.NewID()}, "muted_until": map[string]int64{store.NewID(): store.Now() + 60_000}, "filters": true})},
+
+		// Voice channels and calls.
+		{"voice token", http.StatusOK, w.same("POST", "/api/channels/"+w.voice.ID+"/voice", w.bob, map[string]any{})},
+		{"start and stop a screen", http.StatusOK, func() func() int {
+			inVoice(w.bob)
+			return func() int {
+				status, _ := h.do("POST", "/api/channels/"+w.voice.ID+"/voice/screen", w.bob.token, map[string]any{"sound": true}, nil)
+				if status != http.StatusOK {
+					return status
+				}
+				status, _ = h.do("DELETE", "/api/channels/"+w.voice.ID+"/voice/screen", w.bob.token, nil, nil)
+				return status
+			}
+		}},
+		{"stop someone's screen", http.StatusOK, func() func() int {
+			inVoice(w.bob)
+			h.do("POST", "/api/channels/"+w.voice.ID+"/voice/screen", w.bob.token, map[string]any{}, nil)
+			return w.status("DELETE", "/api/channels/"+w.voice.ID+"/voice/users/"+w.bob.userID+"/screen", w.owner, nil)
+		}},
+		{"mute someone", http.StatusOK, func() func() int {
+			inVoice(w.carol)
+			return w.status("PUT", "/api/channels/"+w.voice.ID+"/voice/users/"+w.carol.userID+"/mute", w.owner, map[string]any{"muted": true})
+		}},
+		{"disconnect someone", http.StatusOK, func() func() int {
+			inVoice(w.carol)
+			return w.status("POST", "/api/channels/"+w.voice.ID+"/voice/users/"+w.carol.userID+"/disconnect", w.owner, map[string]any{})
+		}},
+		{"watch together", http.StatusOK, func() func() int {
+			inVoice(w.bob)
+			return w.status("POST", "/api/channels/"+w.voice.ID+"/voice/watch", w.bob, map[string]any{"data": []byte("which")})
+		}},
+		{"call token, ring and decline", http.StatusOK, func() func() int {
+			group := w.owner.group(w.bob)
+			w.owner.inCall(group.ID, false)
+			return func() int {
+				status, _ := h.do("POST", "/api/groups/"+group.ID+"/call", w.owner.token, map[string]any{}, nil)
+				if status != http.StatusOK {
+					return status
+				}
+				status, _ = h.do("POST", "/api/groups/"+group.ID+"/call/ring", w.owner.token, map[string]any{"users": []string{w.bob.userID}}, nil)
+				if status != http.StatusOK {
+					return status
+				}
+				status, _ = h.do("POST", "/api/groups/"+group.ID+"/call/decline", w.bob.token, map[string]any{}, nil)
+				return status
+			}
+		}},
+
+		// Administration.
+		{"icon", http.StatusOK, func() func() int {
+			return func() int {
+				status, _ := h.do("PUT", "/api/admin/icon", w.owner.token, png, nil)
+				if status != http.StatusOK {
+					return status
+				}
+				status, _ = h.do("GET", "/api/icon", "", nil, nil)
+				return status
+			}
+		}},
+		{"emote set", http.StatusOK, w.same("PUT", "/api/admin/emote-set", w.owner, map[string]any{"set": "01ABCDEFGHIJKLMNOP"})},
+		{"sounds", http.StatusOK, func() func() int {
+			file := w.owner.uploadOwn([]byte("a sound"))
+			id := store.NewID()
+			return func() int {
+				status, _ := h.do("POST", "/api/sounds", w.owner.token, map[string]any{"id": id, "details": []byte("sealed"), "file_id": file}, nil)
+				if status != http.StatusCreated {
+					return status
+				}
+				status, _ = h.do("PATCH", "/api/sounds/"+id, w.owner.token, map[string]any{"details": []byte("renamed")}, nil)
+				if status != http.StatusOK {
+					return status
+				}
+				status, _ = h.do("DELETE", "/api/sounds/"+id, w.owner.token, nil, nil)
+				return status
+			}
+		}},
+		{"bot channels", http.StatusOK, func() func() int {
+			bot := w.owner.runBot(w.name("bot"), map[string]any{"listed": true, "add": "anyone"})
+			text := w.owner.createChannel("text", 0)
+			return w.status("PUT", "/api/bots/"+bot.userID+"/channels", w.owner, map[string]any{"channels": []string{text.ID, w.voice.ID}})
+		}},
+	}
+	for _, r := range recipes {
+		h.sweep(t, r)
+	}
+}
