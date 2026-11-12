@@ -4,6 +4,8 @@
 //! desktop, the web and the iPhone open what this sends and the other way round.
 
 mod shared;
+#[cfg(test)]
+mod tests;
 
 use shared::watch;
 

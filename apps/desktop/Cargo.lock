@@ -1877,21 +1877,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "device-info"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2ca8e71544c1b67dcdbc2699ab258828aff985e5bc8d5f6b486d90d7df2f848"
-dependencies = [
- "core-foundation",
- "jni",
- "libc",
- "thiserror 2.0.21",
- "wasm-bindgen",
- "web-sys",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4791,11 +4776,8 @@ dependencies = [
 [[package]]
 name = "livekit-signaling"
 version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62ffccb3c6dcd01855b2eac592298919048ab261a19d52951c808769b7c9c5db"
 dependencies = [
  "base64 0.21.7",
- "device-info",
  "flate2",
  "http",
  "livekit-common",
@@ -4803,7 +4785,6 @@ dependencies = [
  "livekit-protocol",
  "livekit-region",
  "log",
- "os_info",
  "parking_lot",
  "prost",
  "serde_json",
@@ -5827,16 +5808,9 @@ dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
  "objc2 0.6.5",
- "objc2-cloud-kit",
- "objc2-core-data 0.3.2",
  "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-core-image 0.3.2",
- "objc2-core-location",
- "objc2-core-text",
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
- "objc2-user-notifications",
 ]
 
 [[package]]
@@ -6068,22 +6042,6 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
-]
-
-[[package]]
-name = "os_info"
-version = "3.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cf20a545b305cf1da722b236b5155c9bb35f1d5ceb28c048bd96ca842f41b5b"
-dependencies = [
- "android_system_properties",
- "log",
- "nix",
- "objc2 0.6.5",
- "objc2-foundation 0.3.2",
- "objc2-ui-kit",
- "serde",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10639,6 +10597,7 @@ dependencies = [
  "env_logger",
  "fancy-regex",
  "ffmpeg-next",
+ "flate2",
  "futures",
  "gpui",
  "gpui_platform",
@@ -10648,6 +10607,7 @@ dependencies = [
  "libc",
  "libloading",
  "livekit",
+ "livekit-protocol",
  "log",
  "nnnoiseless",
  "objc2 0.6.5",
@@ -10665,6 +10625,7 @@ dependencies = [
  "oo7",
  "parking_lot",
  "pipewire",
+ "prost",
  "raw-window-handle",
  "regex",
  "reqwest",

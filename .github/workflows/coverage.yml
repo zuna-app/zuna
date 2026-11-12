@@ -186,7 +186,7 @@ jobs:
           restore-keys: desktop-coverage-cargo-
       - run: npm ci
       # What the app's build needs first (CLAUDE.md): the core's bundle, the patched
-      # webrtc-sys and the pinned FFmpeg.
+      # LiveKit crates and the pinned FFmpeg.
       - run: node apps/desktop/core-bundle/build.mjs
       - run: node scripts/webrtc-sys.mjs
       - run: node scripts/ffmpeg.mjs

@@ -1,0 +1,62 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -52,9 +52,6 @@
+ version = "0.21"
+ features = ["std"]
+ 
+-[dependencies.device-info]
+-version = "0.1.1"
+-
+ [dependencies.flate2]
+ version = "1"
+ 
+@@ -76,9 +73,6 @@
+ [dependencies.log]
+ version = "0.4"
+ 
+-[dependencies.os_info]
+-version = "3.14.0"
+-
+ [dependencies.parking_lot]
+ version = "0.12"
+ 
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1149,8 +1149,9 @@
+         }
+     }
+ 
+-    let os_info = os_info::get();
+-    let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
++    // Zuna: the media server is told neither the system nor the device's model, which it has no
++    // use for and writes to its log.
++    let (os, os_version, device_model) = (String::new(), String::new(), String::new());
+ 
+     if use_v1_path {
+         // For v1 path (single PC mode): only join_request param
+@@ -1160,9 +1161,9 @@
+             reconnect,
+             reconnect_reason,
+             participant_sid,
+-            os_info.os_type().to_string(),
+-            os_info.version().to_string(),
+-            device_model.to_string(),
++            os,
++            os_version,
++            device_model,
+             publisher_offer,
+         );
+         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
+@@ -1171,9 +1172,9 @@
+         lk_url
+             .query_pairs_mut()
+             .append_pair("sdk", options.sdk_options.sdk.as_str())
+-            .append_pair("os", os_info.os_type().to_string().as_str())
+-            .append_pair("os_version", os_info.version().to_string().as_str())
+-            .append_pair("device_model", device_model.to_string().as_str())
++            .append_pair("os", &os)
++            .append_pair("os_version", &os_version)
++            .append_pair("device_model", &device_model)
+             .append_pair("protocol", options.protocol_version.to_string().as_str())
+             .append_pair("client_protocol", options.client_protocol.to_string().as_str())
+             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })

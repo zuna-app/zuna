@@ -172,6 +172,10 @@ embed-resource = "3"
 # GPUI's test platform, for the interface's tests (src/testing): windows nobody sees, drawn as
 # they would be, with a stand-in for the core giving them what to show.
 [dev-dependencies]
+# For what the app tells the media server as it joins (src/voice/room/tests.rs).
+livekit-protocol = "0.8"
+prost = "0.14"
+flate2 = "1"
 gpui = { git = "https://github.com/zuna-app/zed", rev = "0ee988dd10fe3b69a5c96b4003e81b3bcd0fa28c", default-features = false, features = ["font-kit", "wayland", "windows-manifest", "test-support"] }
 
 [features]
@@ -195,10 +199,13 @@ name = "loss-check"
 required-features = ["share-check"]
 
 # LiveKit's webrtc-sys with Zuna's patch, which lets AV1 go out end to end encrypted and has video
-# offered with a retransmission stream (patches/webrtc-sys.patch). scripts/webrtc-sys.mjs fetches
-# it into .deps, as the app's scripts do first, at the version Cargo.lock had for it from crates.io.
+# offered with a retransmission stream (patches/webrtc-sys.patch), and its livekit-signaling, which
+# tells the media server neither the system nor the device's model (patches/livekit-signaling.patch).
+# scripts/webrtc-sys.mjs fetches them into .deps, as the app's scripts do first, at the versions
+# Cargo.lock had for them from crates.io.
 [patch.crates-io]
 webrtc-sys = { path = ".deps/webrtc-sys" }
+livekit-signaling = { path = ".deps/livekit-signaling" }
 
 [profile.dev]
 # The core's argon2 and MLS are far too slow unoptimized.
