@@ -7,10 +7,12 @@ package api_test
 // Then it's made with nothing failing, and must do what it's for.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/hybrid"
@@ -569,5 +571,51 @@ func TestFailingDatabaseElsewhere(t *testing.T) {
 	}
 	for _, r := range recipes {
 		h.sweep(t, r)
+	}
+}
+
+// What only the server's own upkeep does to the database, which no request reaches, made to
+// fail at each statement in turn over a world with something of everything in it.
+func TestFailingDatabaseForUpkeep(t *testing.T) {
+	w := newWorld(t)
+	h := w.h
+	k := h.signUp("keyed", w.owner.newInvite())
+	k.rotate()
+	w.owner.send(w.dm.ID, 1, store.NewID())
+	h.mustDo("PATCH", "/api/admin/settings", w.owner.token, map[string]any{"retention_days": 1}, nil)
+	ctx := context.Background()
+	future := store.Now() + 1000*time.Hour.Milliseconds()
+	jobs := map[string]func() error{
+		"a new era of the log":       func() error { _, err := h.db.StartLogEra(ctx); return err },
+		"recounting storage":         func() error { return h.db.RecountStorage(ctx) },
+		"retention":                  func() error { _, err := h.db.DeleteMessagesOlderThan(ctx, future); return err },
+		"disappearing messages":      func() error { _, err := h.db.DeleteExpiredMessages(ctx, future); return err },
+		"old commits":                func() error { return h.db.PruneCommits(ctx) },
+		"old tokens":                 func() error { return h.db.PruneTokens(ctx) },
+		"old uploads":                func() error { return h.db.PruneUploads(ctx) },
+		"unattached files":           func() error { _, err := h.db.UnattachedFiles(ctx, future); return err },
+		"abandoned uploads":          func() error { _, err := h.db.AbandonedUploads(ctx, future); return err },
+		"expired sessions":           func() error { return h.db.DeleteExpiredSessions(ctx) },
+		"sign-in attempts":           func() error { _, err := h.db.RecentSignInAttempts(ctx, 0); return err },
+		"forgetting sign-in tries":   func() error { return h.db.DeleteSignInAttemptsBefore(ctx, future) },
+		"chats phones were told of":  func() error { _, err := h.db.PushNotified(ctx); return err },
+		"an account's log bodies":    func() error { _, _, err := h.db.LogBodies(ctx, w.owner.userID); return err },
+	}
+	for name, job := range jobs {
+		for n := int64(1); ; n++ {
+			var made atomic.Int64
+			h.db.FailStatements(func(string) bool { return made.Add(1) == n })
+			err := job()
+			h.db.FailStatements(nil)
+			if made.Load() < n {
+				if err != nil {
+					t.Errorf("%s failed with nothing failing: %v", name, err)
+				}
+				break
+			}
+			if n > 400 {
+				t.Fatalf("%s never finished", name)
+			}
+		}
 	}
 }

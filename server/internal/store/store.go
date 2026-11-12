@@ -96,9 +96,6 @@ type handle struct {
 
 // failed reports whether a test said this statement fails.
 func (h handle) failed(query string) bool {
-	if h.failing == nil {
-		return false
-	}
 	match := h.failing.Load()
 	return match != nil && (*match)(query)
 }
