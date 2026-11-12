@@ -30,6 +30,7 @@
     "@zxcvbn-ts/language-pl": "^4.1.1"
   },
   "devDependencies": {
+    "@livekit/protocol": "^1.52.1",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0",
     "undici": "^7.30.2",
