@@ -169,6 +169,11 @@ libloading = "0.8"
 # The app's icon, compiled into the exe as Windows expects.
 embed-resource = "3"
 
+# GPUI's test platform, for the interface's tests (src/testing): windows nobody sees, drawn as
+# they would be, with a stand-in for the core giving them what to show.
+[dev-dependencies]
+gpui = { git = "https://github.com/zuna-app/zed", rev = "0ee988dd10fe3b69a5c96b4003e81b3bcd0fa28c", default-features = false, features = ["font-kit", "wayland", "windows-manifest", "test-support"] }
+
 [features]
 # For the checks alone (apps/desktop/test): the app takes input and gives screenshots of its
 # window over a socket of its own (`test_control.rs`). Never in a build anyone uses.

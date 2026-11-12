@@ -16,6 +16,8 @@ mod settings;
 mod state;
 #[cfg(all(feature = "test-control", unix))]
 mod test_control;
+#[cfg(test)]
+mod testing;
 mod theme;
 mod ui;
 mod voice;

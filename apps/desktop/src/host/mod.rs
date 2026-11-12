@@ -50,7 +50,14 @@ struct Inner {
     tasks: Sender<Task>,
     pending: Mutex<HashMap<u64, Reply>>,
     next: AtomicU64,
+    /// A stand-in's answers, in tests, in place of the core's thread.
+    #[cfg(test)]
+    fake: Option<Answer>,
 }
+
+/// What a stand-in for the core answers each call with, in tests.
+#[cfg(test)]
+pub(crate) type Answer = Box<dyn Fn(Option<&str>, &str, &[Value]) -> Result<Value, CoreError> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct Core {
@@ -116,7 +123,13 @@ impl Core {
     pub fn start(dir: PathBuf) -> (Core, mpsc::UnboundedReceiver<Value>) {
         let (tasks, inbox) = std::sync::mpsc::channel::<Task>();
         let (events_tx, events) = mpsc::unbounded::<Value>();
-        let inner = Arc::new(Inner { tasks: tasks.clone(), pending: Mutex::new(HashMap::new()), next: AtomicU64::new(1) });
+        let inner = Arc::new(Inner {
+            tasks: tasks.clone(),
+            pending: Mutex::new(HashMap::new()),
+            next: AtomicU64::new(1),
+            #[cfg(test)]
+            fake: None,
+        });
 
         let weak = Arc::downgrade(&inner);
         let post = Arc::new(move |channel: u32, json: String| {
@@ -212,17 +225,37 @@ impl Core {
 
     /// Calls a method of the client, or of a server's session.
     pub fn call(&self, server: Option<&str>, method: &str, args: Vec<Value>) -> impl Future<Output = Result<Value, CoreError>> + use<> {
-        let id = self.inner.next.fetch_add(1, Ordering::Relaxed);
         let (reply, wait) = oneshot::channel();
-        self.inner.pending.lock().insert(id, reply);
-        let message = json!({ "kind": "call", "id": id, "serverId": server, "method": method, "args": args });
-        let sent = self.inner.tasks.send(Task::Receive { channel: UI_CHANNEL, json: message.to_string() });
+        let sent = self.ask(server, method, args, reply);
         async move {
-            if sent.is_err() {
+            if !sent {
                 return Err(CoreError { message: "The core stopped.".into(), code: None, status: None });
             }
             wait.await.unwrap_or_else(|_| Err(CoreError { message: "The core stopped.".into(), code: None, status: None }))
         }
+    }
+}
+
+impl Core {
+    /// Hands the core a call, whose answer comes back through `reply`, and says whether it went.
+    fn ask(&self, server: Option<&str>, method: &str, args: Vec<Value>, reply: Reply) -> bool {
+        #[cfg(test)]
+        if let Some(fake) = &self.inner.fake {
+            reply.send(fake(server, method, &args)).ok();
+            return true;
+        }
+        let id = self.inner.next.fetch_add(1, Ordering::Relaxed);
+        self.inner.pending.lock().insert(id, reply);
+        let message = json!({ "kind": "call", "id": id, "serverId": server, "method": method, "args": args });
+        self.inner.tasks.send(Task::Receive { channel: UI_CHANNEL, json: message.to_string() }).is_ok()
+    }
+
+    /// A stand-in for the core, answering each call at once, on the thread that makes it, as
+    /// GPUI's test platform needs. Anything else asked of it fails as of a core that stopped.
+    #[cfg(test)]
+    pub(crate) fn fake(answer: Answer) -> Core {
+        let (tasks, _inbox) = std::sync::mpsc::channel();
+        Core { inner: Arc::new(Inner { tasks, pending: Mutex::new(HashMap::new()), next: AtomicU64::new(1), fake: Some(answer) }) }
     }
 }
 
@@ -234,6 +267,10 @@ pub fn tls_config() -> rustls::ClientConfig {
 /// Fetches something a server serves openly, such as its icon or an emote, with the
 /// same certificate rules as the core. It never carries anything of the account.
 pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
+    // Tests reach no network, and answer at once on the thread that asked, as GPUI's test platform needs.
+    if cfg!(test) {
+        return futures::future::Either::Left(futures::future::ready(Err(format!("Tests reach no network, so not {url}."))));
+    }
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     let client = CLIENT
         .get_or_init(|| {
@@ -262,7 +299,7 @@ pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
         }
         Ok(body)
     });
-    async move { task.await.map_err(|error| error.to_string())? }
+    futures::future::Either::Right(async move { task.await.map_err(|error| error.to_string())? })
 }
 
 /// An argument left out in the middle of a call, which JSON's null can't say (wire.ts).
