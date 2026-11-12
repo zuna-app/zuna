@@ -6,7 +6,7 @@ import { manifestParts, parseManifest, readManifestPart, joinManifestParts, mani
 import { readRoster, rosterHash, rosterJump } from "../src/roster";
 import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
-import { utf8 } from "../src/encoding";
+import { fromRecoveryText, toRecoveryText, utf8 } from "../src/encoding";
 import { loadCrypto } from "./helpers";
 
 beforeAll(loadCrypto);
@@ -60,6 +60,13 @@ describe("a soundboard's sound", () => {
     expect(broken((_, view) => view.setUint32(40, 3, true))).toBeNull();
     expect(readWav(wav.slice(0, 36))).toBeNull();
     expect(readWav(wav, 10)).toBeNull();
+    // A file of nothing but its header and an unknown chunk has no sound in it.
+    const noData = wav.slice(0, 44);
+    noData.set(utf8("junk"), 36);
+    new DataView(noData.buffer).setUint32(40, 0, true);
+    expect(readWav(noData)).toBeNull();
+    // Data before its format, or of an odd size.
+    expect(broken((bytes) => bytes.set(utf8("junk"), 12))).toBeNull();
   });
 });
 
@@ -114,5 +121,15 @@ describe("a group's roster", () => {
     expect(rosterJump(held, signed(3, ["a"], ["a"], "a", rosterHash(held.bytes)), context)).toBeNull();
     expect(rosterJump(held, signed(5, ["a"], ["a"], "a"), context)).toBeNull();
     expect(rosterJump(held, signed(5, ["b"], ["a", "b"], "b"), context)).toMatch(/wasn't an admin/);
+  });
+});
+
+describe("a recovery key as words", () => {
+  it("reads back what it wrote, taking the letters people mix up for the digits, and nothing else", () => {
+    const key = new Uint8Array([1, 2, 3, 250, 99]);
+    const text = toRecoveryText(key);
+    expect(fromRecoveryText(text.toLowerCase())).toEqual(key);
+    expect(fromRecoveryText(text.replace(/0/g, "O").replace(/1/g, "I"))).toEqual(key);
+    expect(fromRecoveryText("not-a-key-U")).toBeNull();
   });
 });
