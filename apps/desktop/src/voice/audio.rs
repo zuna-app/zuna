@@ -360,6 +360,10 @@ fn output_filler(rate: u32, channels: usize, state: Arc<Mutex<MixerState>>, proc
 
 #[cfg(target_os = "linux")]
 fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<super::pipewire::Stream> {
+    // Tests make no sound: a ring or a sound mixes as it would, for no device.
+    if cfg!(test) {
+        return None;
+    }
     // PipeWire takes 48 kHz stereo and converts it for the device.
     let mut fill = output_filler(RATE, 2, state, processing);
     super::pipewire::play(device, super::pipewire::Playing::Voice, RATE, move |data, frames| fill(&mut |index, value| data[index] = value, frames), failed)
@@ -367,6 +371,10 @@ fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedPr
 
 #[cfg(any(windows, target_os = "macos"))]
 fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<cpal::Stream> {
+    // Tests make no sound: a ring or a sound mixes as it would, for no device.
+    if cfg!(test) {
+        return None;
+    }
     let device = find(false, device)?;
     let config = device.default_output_config().ok()?;
     let rate = config.sample_rate().0;
