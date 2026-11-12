@@ -337,6 +337,7 @@ func TestAccountsThatArentRight(t *testing.T) {
 	run(t, []expect{
 		{"a profile too large", http.StatusRequestEntityTooLarge, registration("large", func(b map[string]any) { b["profile"] = bytesOf(20<<10, 1) })},
 		{"a username that can't be", http.StatusBadRequest, registration("!", func(map[string]any) {})},
+		{"an invite that isn't one", http.StatusBadRequest, registration("nobodyinvited", func(b map[string]any) { b["invite_code"] = "made-up" })},
 		{"with vault items", http.StatusCreated, registration("items", func(b map[string]any) {
 			b["items"] = []map[string]any{{"id": "manifest", "generation": 7, "data": []byte("m")}}
 		})},
