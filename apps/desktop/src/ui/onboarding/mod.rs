@@ -1,6 +1,8 @@
 //! Joining with an invite, signing in and recovering an account
 //! (packages/ui/src/features/onboarding/Onboarding.tsx).
 
+#[cfg(test)]
+mod tests;
 mod view;
 
 use std::time::Duration;
