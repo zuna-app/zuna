@@ -117,6 +117,9 @@ type Config struct {
 	PresenceLinger time.Duration
 	// TokenScale multiplies how many tokens a person or a bot may be issued in a period. Zero is once.
 	TokenScale int
+	// Unlimited takes away the limits on how often anyone may ask for anything, for tests that
+	// make one request a great many times. A server never sets it.
+	Unlimited bool
 }
 
 type Server struct {
@@ -200,6 +203,12 @@ func New(cfg Config, db *store.DB) *Server {
 	if err != nil {
 		panic(err)
 	}
+	keyed := func(limit rate.Limit, burst int) *ratelimit.Keyed {
+		if cfg.Unlimited {
+			limit = rate.Inf
+		}
+		return ratelimit.NewKeyed(limit, burst)
+	}
 	s := &Server{
 		cfg:         cfg,
 		db:          db,
@@ -207,44 +216,44 @@ func New(cfg Config, db *store.DB) *Server {
 		files:       filepath.Join(cfg.DataDir, "files"),
 		emotes:      emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		callers:     callers,
-		authLimiter: ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
+		authLimiter: keyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		// Friends behind one home router share an address, and a bot may answer in many
 		// chats at once, so this only stops a flood.
-		sealedLimiter: ratelimit.NewKeyed(rate.Limit(50), 500),
-		typingLimiter: ratelimit.NewKeyed(rate.Limit(2), 10),
+		sealedLimiter: keyed(rate.Limit(50), 500),
+		typingLimiter: keyed(rate.Limit(2), 10),
 		// Far beyond what using the app needs, even while uploading a large file.
-		writeLimiter: ratelimit.NewKeyed(rate.Limit(50), 300),
+		writeLimiter: keyed(rate.Limit(50), 300),
 		// Reads too, some of which load every user and device, so that one person
 		// can't keep the server busy. Catching up after a month, or fetching a large
 		// file, stays well inside them.
-		readLimiter: ratelimit.NewKeyed(rate.Limit(100), 2000),
+		readLimiter: keyed(rate.Limit(100), 2000),
 		// Apps fetch a server's whole emote set at once, by address, signed in or not.
-		emoteLimiter:  ratelimit.NewKeyed(rate.Limit(100), 3000),
-		socketLimiter: ratelimit.NewKeyed(rate.Limit(2), 60),
-		publicLimiter: ratelimit.NewKeyed(rate.Limit(5), 60),
-		pageLimiter:   ratelimit.NewKeyed(rate.Limit(20), 200),
-		claimLimiter:  ratelimit.NewKeyed(rate.Limit(5), 600),
-		targetLimiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
+		emoteLimiter:  keyed(rate.Limit(100), 3000),
+		socketLimiter: keyed(rate.Limit(2), 60),
+		publicLimiter: keyed(rate.Limit(5), 60),
+		pageLimiter:   keyed(rate.Limit(20), 200),
+		claimLimiter:  keyed(rate.Limit(5), 600),
+		targetLimiter: keyed(rate.Every(2*time.Second), 20),
 		// Each rotation is a link for every contact to follow, so they stay rare.
-		rotateLimiter:   ratelimit.NewKeyed(rate.Every(time.Minute), 30),
+		rotateLimiter:   keyed(rate.Every(time.Minute), 30),
 		signInFailures:  ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
 		accountAttempts: ratelimit.NewBackoff(accountFreeAttempts, signInFirstWait, accountLongestWait),
 		// Per person in a group. The burst is less than store.UndoableCommits, so that
 		// what one person sends in one go can always be undone by anyone else.
-		commitLimiter:     ratelimit.NewKeyed(rate.Limit(1), 30),
-		userCommitLimiter: ratelimit.NewKeyed(rate.Limit(5), 300),
-		voidLimiter:       ratelimit.NewKeyed(rate.Every(10*time.Second), 5),
+		commitLimiter:     keyed(rate.Limit(1), 30),
+		userCommitLimiter: keyed(rate.Limit(5), 300),
+		voidLimiter:       keyed(rate.Every(10*time.Second), 5),
 		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
 		voice:             newVoiceRooms(),
-		voiceLimiter:      ratelimit.NewKeyed(rate.Limit(1), 20),
-		soundLimiter:      ratelimit.NewKeyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
+		voiceLimiter:      keyed(rate.Limit(1), 20),
+		soundLimiter:      keyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
 		// The apps send four seeks a second at most, while someone drags, and answer those who come in.
-		watchLimiter: ratelimit.NewKeyed(rate.Limit(8), 40),
+		watchLimiter: keyed(rate.Limit(8), 40),
 		liveKit:      &http.Client{Timeout: liveKitTimeout},
 		pushClient:   &http.Client{Timeout: pushTimeout},
 
-		reportLimiter:       ratelimit.NewKeyed(rate.Every(time.Hour), 10),
-		reportTargetLimiter: ratelimit.NewKeyed(rate.Every(24*time.Hour), 1),
+		reportLimiter:       keyed(rate.Every(time.Hour), 10),
+		reportTargetLimiter: keyed(rate.Every(24*time.Hour), 1),
 	}
 	for i := range s.pushQueues {
 		s.pushQueues[i] = make(chan pushJob, pushQueueLength)

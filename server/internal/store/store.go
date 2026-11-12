@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -58,6 +59,19 @@ type DB struct {
 	// logKey is the key the log's heads are signed with, once it's been read.
 	logKeyMu sync.Mutex
 	logKey   *hybrid.Key
+	// failing is what FailStatements was given, shared with every handle.
+	failing *atomic.Pointer[func(string) bool]
+}
+
+// FailStatements makes every statement the database is given from now on fail, as it
+// would if the database went away, when match says so of its text, and BEGIN and COMMIT
+// for transactions, until it's given nil. It's for tests of what the server does then.
+func (d *DB) FailStatements(match func(query string) bool) {
+	if match == nil {
+		d.failing.Store(nil)
+		return
+	}
+	d.failing.Store(&match)
 }
 
 // handle runs statements on the whole database or in one transaction, turning
@@ -76,9 +90,32 @@ type handle struct {
 	// logged is set, on a transaction's handle, once it appends to the log of keys,
 	// so that whoever is connected can be told once it's kept.
 	logged *bool
+	// failing is the DB's: which statements to fail, for tests.
+	failing *atomic.Pointer[func(string) bool]
+}
+
+// failed reports whether a test said this statement fails.
+func (h handle) failed(query string) bool {
+	if h.failing == nil {
+		return false
+	}
+	match := h.failing.Load()
+	return match != nil && (*match)(query)
+}
+
+// context is ctx, or one already ended for a statement a test said fails, which the
+// database then refuses as it would a request given up on.
+func (h handle) context(ctx context.Context, query string) context.Context {
+	if !h.failed(query) {
+		return ctx
+	}
+	ended, cancel := context.WithCancel(ctx)
+	cancel()
+	return ended
 }
 
 func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	ctx = h.context(ctx, query)
 	if h.postgres {
 		query, args = rebind(query), postgresArgs(args)
 	}
@@ -90,6 +127,7 @@ func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql
 }
 
 func (h handle) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	ctx = h.context(ctx, query)
 	if h.postgres {
 		query, args = rebind(query), postgresArgs(args)
 	}
@@ -97,6 +135,7 @@ func (h handle) QueryContext(ctx context.Context, query string, args ...any) (*s
 }
 
 func (h handle) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	ctx = h.context(ctx, query)
 	if h.postgres {
 		query, args = rebind(query), postgresArgs(args)
 	}
@@ -124,7 +163,8 @@ func Open(path string) (*DB, error) {
 }
 
 func open(conn *sql.DB, postgres bool) (*DB, error) {
-	db := &DB{conn: conn, sql: handle{conn, postgres, nil, nil}, postgres: postgres}
+	failing := &atomic.Pointer[func(string) bool]{}
+	db := &DB{conn: conn, sql: handle{q: conn, postgres: postgres, failing: failing}, postgres: postgres, failing: failing}
 	if !postgres {
 		db.writing = &sync.Mutex{}
 		db.sql.writing = db.writing
@@ -165,14 +205,17 @@ func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 }
 
 func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle) error) error {
-	tx, err := d.conn.BeginTx(ctx, options)
+	tx, err := d.conn.BeginTx(d.sql.context(ctx, "BEGIN"), options)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	logged := false
-	if err := fn(handle{tx, d.postgres, nil, &logged}); err != nil {
+	if err := fn(handle{q: tx, postgres: d.postgres, logged: &logged, failing: d.failing}); err != nil {
 		return err
+	}
+	if d.sql.failed("COMMIT") {
+		return context.Canceled
 	}
 	if err := tx.Commit(); err != nil {
 		return err

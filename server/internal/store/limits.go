@@ -57,12 +57,12 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 	if d.postgres {
 		options.Isolation = sql.LevelRepeatableRead
 	}
-	snapshot, err := d.conn.BeginTx(ctx, options)
+	snapshot, err := d.conn.BeginTx(d.sql.context(ctx, "BEGIN"), options)
 	if err != nil {
 		return err
 	}
 	defer snapshot.Rollback()
-	read := handle{snapshot, d.postgres, nil, nil}
+	read := handle{q: snapshot, postgres: d.postgres, failing: d.failing}
 	stored := map[string]int64{}
 	commits := map[string]int64{}
 	add := func(totals map[string]int64, query string) error {
