@@ -981,6 +981,7 @@ impl Plugins {
             }
             "fault" => match message.get("reason").and_then(Value::as_str) {
                 Some("memory") => self.turn_off(uid, "It used more memory than a plugin may.", cx),
+                Some("flood") => self.turn_off(uid, "It sent more than a plugin may.", cx),
                 _ => self.strike(uid, false, cx),
             },
             _ => self.turn_off(uid, "It sent what a plugin can't.", cx),

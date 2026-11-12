@@ -9,6 +9,9 @@ use std::sync::mpsc::Sender;
 
 use super::protocol::{MAX_FROM_HOST, read_frame, write_frame};
 
+/// The most messages a plugin's host may send in a second.
+const MAX_PER_SECOND: u32 = 2000;
+
 pub struct Process {
     child: Child,
     writer: Sender<String>,
@@ -47,9 +50,24 @@ impl Process {
             .name("plugin-reader".into())
             .spawn(move || {
                 let mut input = BufReader::new(stdout);
+                // A plugin that floods the app, whose main thread answers each message, is ended
+                // rather than kept up with.
+                let mut window = std::time::Instant::now();
+                let mut count = 0u32;
                 loop {
                     match read_frame(&mut input, MAX_FROM_HOST) {
-                        Ok(Some(message)) => heard(Some(message)),
+                        Ok(Some(message)) => {
+                            if window.elapsed() > std::time::Duration::from_secs(1) {
+                                window = std::time::Instant::now();
+                                count = 0;
+                            }
+                            count += 1;
+                            if count > MAX_PER_SECOND {
+                                heard(Some("{\"t\":\"fault\",\"reason\":\"flood\"}".into()));
+                                break;
+                            }
+                            heard(Some(message))
+                        }
                         Ok(None) => break,
                         Err(error) => {
                             log::warn!(target: "plugins", "a plugin's host sent what it shouldn't: {error}");
