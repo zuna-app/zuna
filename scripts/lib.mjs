@@ -147,7 +147,9 @@ export function ensureLiveKit() {
   // That commit and no other, as a tag can be moved.
   run("git", ["init", "--quiet"], inSource);
   run("git", ["fetch", "--quiet", "--depth", "1", "https://github.com/livekit/livekit", commit], inSource);
-  run("git", ["-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"], inSource);
+  // With its lines ending as LiveKit's do, which the patch's do too: a Windows whose git turns
+  // them into CRLF on the way out would have a checkout the patch doesn't apply to.
+  run("git", ["-c", "advice.detachedHead=false", "-c", "core.autocrlf=false", "checkout", "--quiet", "FETCH_HEAD"], inSource);
   const head = spawnSync("git", ["rev-parse", "HEAD"], { ...inSource, encoding: "utf8" }).stdout.trim();
   if (head !== commit) throw new Error(`Fetched LiveKit ${head}, not ${commit}`);
   // The patch reaches into LiveKit's protocol module, so a copy of it from Go's module cache,
