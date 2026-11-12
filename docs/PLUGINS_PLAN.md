@@ -43,11 +43,19 @@ What was asked for, on 2026-11-12:
 - **A manifest, and a marketplace** the team puts verified plugins on.
 - **Third-party plugins and one's own can be loaded,** behind a very obvious warning.
 
-What this plan assumes, each to be confirmed before the stage that depends on it ("Questions" at the end):
+What the owner chose the same day, when asked:
 
-- "Almost any part" means a wide set of extension points with permissions, not code that runs inside the core or patches the interface. "Alternatives considered" says why.
-- "Upload third-party plugins" means loading one into the app from a file or a folder. Listing unreviewed plugins on the marketplace is left out of the first version.
-- The marketplace is on GitHub, as releases are, so opening it tells nobody new that this address runs Zuna.
+- **Every plugin runs behind the broker, with permissions.** There is no kind without limits, not for a plugin from a file and not for a developer's folder. "Almost any part" grows by adding extension points, never by code that runs inside the core or patches the interface. "Alternatives considered" says why.
+- **The marketplace lists verified plugins only.** One nobody reviewed is loaded from a file or a folder, and is never listed.
+- **A verified plugin may contact a third party,** such as a translation or a GIF service, as the person chose to install it. Every host is named on its page and in its install dialog, and review checks that it contacts nothing else. Zuna itself still has no GIF search.
+- **No plugin comes with the app.** A device where none was installed never contacts the marketplace, and what everyone should have belongs in the app.
+- **The marketplace is on GitHub,** in `zuna-app/plugins`, where the app already goes for updates, so opening it tells no new host that this address runs Zuna.
+- **A verified plugin's source is open, under any license the OSI approves.** It needn't be the AGPL: a plugin that uses only the plugin API isn't bound by the app's license, and the docs will say so.
+- **One maintainer reviews, signs and publishes a plugin,** as one releases the app.
+- **A filter says what happens when it fails.** By default what it was asked about goes out unchanged. One the plugin marks as required keeps it from going out.
+
+What this plan still assumes:
+
 - A plugin is installed for the whole app, and sees every server the device is on.
 
 ## What a plugin can do to someone's privacy
@@ -116,7 +124,7 @@ QuickJS is C, and plugins bring it code written to break it, which the core neve
 
 **The broker** (`apps/desktop/src/plugins/broker.rs`) is the other end of the pipe, in the app. Every message from a plugin is a request it checks: is this plugin running, does its grant cover this, are the arguments the shape and size they should be. It trusts nothing the host process says about which plugin is asking beyond the channel it arrived on. What comes back from a plugin is untrusted, as what arrives decrypted is, and is checked before anything shows it.
 
-**Deadlines.** The app never waits on a plugin without one. A filter (below) that doesn't answer in time, or throws, is skipped: the app goes on as if the plugin weren't there and says so in a toast that names it, and three in a row turn the plugin off. Drawing never waits at all: what a plugin adds to a message appears when it arrives.
+**Deadlines.** The app never waits on a plugin without one. A filter (below) that doesn't answer in time, or throws, is skipped: the app goes on as if the plugin weren't there and says so in a toast that names it. A filter the plugin registered as required, `onOutgoing(filter, { required: true })`, is the exception: what it was asked about doesn't go out, so a plugin whose whole point is to change what's sent is never quietly left out. A message it held is drawn in the chat as an unsent one is, with the same retry and discard, and is kept by the app until then, as the core never got it. Retry asks the filter again. Either way, three failures in a row turn the plugin off, which the toast says, and a retry after that sends without it. Drawing never waits at all: what a plugin adds to a message appears when it arrives.
 
 ## What a plugin can reach
 
@@ -230,7 +238,7 @@ No permission reaches these, and no table entry may:
 
 ## Trust: verified plugins
 
-**A verified plugin's source is in `zuna-app/plugins`.** Someone outside the team offers theirs as a pull request there. The team reads it, and CI builds the package from that source with a lockfile, so what's signed is what was read, and nothing arrives as a built file. The review's rules are written in that repository: no script fetched and run at runtime, no host the plugin doesn't need, permissions no wider than what it does, and every third party it contacts named in its description.
+**A verified plugin's source is in `zuna-app/plugins`.** Someone outside the team offers theirs as a pull request there. The team reads it, and CI builds the package from that source with a lockfile, so what's signed is what was read, and nothing arrives as a built file. The review's rules are written in that repository: source under a license the OSI approves, no script fetched and run at runtime, no host the plugin doesn't need, permissions no wider than what it does, and every third party it contacts named in its description. Either maintainer reviews, merges and publishes, as either releases the app, with the same caveat as there: one stolen maintainer account could ship a plugin.
 
 **It's signed with a key of the plugins' own,** hybrid, Ed25519 and ML-DSA-65 from one seed, as every signature an app checks is (`crypto/src/hybrid.rs`, a lasting key). The app carries the public key and a spare whose private half was never on GitHub (`PLUGIN_KEYS` in `apps/desktop/src/plugins/trust.rs`), as it carries its updates' keys. The private key is a secret of an environment in the plugins' repository that only its publishing job reads, with a copy kept offline. What's signed starts with a label of its own, so no signature made for an update or anything else can pass for a plugin's. These keys sign nothing else, and the update keys never sign a plugin: a leak of one doesn't become the other.
 
@@ -319,7 +327,7 @@ Settings gets a "Plugins" section: what's installed, each with its switch, its p
 
 Each ends with something that runs and is checked.
 
-0. **Decisions and two trials.** The questions below answered. A second QuickJS in a child process with its limits, measured: start time, memory, the cost of a call across the pipe. One view tree drawn in GPUI as a settings section.
+0. **Two trials.** A second QuickJS in a child process with its limits, measured: start time, memory, the cost of a call across the pipe. One view tree drawn in GPUI as a settings section.
 1. **The frame.** Manifest, package, loading from a folder behind a build feature, the host process and broker, storage, settings from a schema, themes, commands, toasts, the Plugins page with what's installed, safe mode. No plugin sees anything of an account yet.
 2. **Reading and acting.** Permissions, the table of methods, events, the message, composer and header slots, decorations, notifications. Installing from a file with the switch, the dialog and the mark. The security docs.
 3. **Filters.** Changing and stopping what's sent, typing and read marks, notifications, with deadlines.
@@ -377,13 +385,21 @@ Each ends with something that runs and is checked.
 
 ## Questions
 
-For the owner, each with what this plan assumes:
+### What the owner chose
 
-1. **Does "upload third-party plugins" also mean a place on the marketplace for plugins nobody reviewed?** Assumed: no, files and folders only. A second, marked list could come later, and would need its own answer to who may publish there and how one is taken down.
-2. **Is there to be a kind of plugin with no limits at all,** for those who accept the warning? Assumed: no. Every plugin runs behind the broker, and "almost any part" grows by adding slots and filters.
-3. **May a verified plugin contact a third party,** such as a translation or a GIF service? Zuna itself has no GIF search because such a service learns each person's address and what they look for. Assumed: yes, as the person chose it, with every host named on its page and in its install dialog, and never in a plugin that comes with the app.
-4. **Does any plugin come with the app,** installed from the start? Assumed: no.
-5. **Where does the marketplace live:** a `zuna-app/plugins` repository and its releases, or zuna.chat? Assumed: GitHub, where the app already goes for updates.
-6. **Must a plugin's source be open, and under which licenses,** to be verified? The app is AGPL-3.0, and whether a plugin written against its API must be too is worth deciding and writing down before the first outside author asks. Assumed: open source is required for review, and the license question is the owner's.
-7. **Who may sign.** Updates take one maintainer. Assumed: the same for plugins, with the same caveat as in `docs/RELEASES.md`.
-8. **A filter that fails:** send the message unchanged, as assumed here, or hold it and ask? A plugin whose whole point is to change what's sent would rather hold.
+Asked on 2026-11-12, each with the other answers that were on offer:
+
+1. **Unreviewed plugins on the marketplace?** No: files and folders only. Not chosen: a marked community list, from the start or as a later phase.
+2. **A kind of plugin with no limits?** No: every plugin runs behind the broker. Not chosen: one for any plugin from a file, or only for a developer's folder.
+3. **May a verified plugin contact a third party?** Yes, with every host named. Not chosen: asking again before the first request to each host, or never for a verified plugin.
+4. **Does any plugin come with the app?** None. Not chosen: the team's own inside the app, off or on.
+5. **Where the marketplace lives.** GitHub, `zuna-app/plugins`. Not chosen: zuna.chat.
+6. **A verified plugin's license.** Any the OSI approves. Not chosen: only ones compatible with the AGPL, or source that's readable under any terms.
+7. **Who may sign.** One maintainer. Not chosen: a second for outside authors' plugins, or always.
+8. **A filter that fails.** The plugin says which: unchanged by default, held when it's required. Not chosen: always one or always the other.
+
+### Still open
+
+- **That a plugin using only the plugin API isn't bound by the AGPL** is the owner's intent, and how to word it so that it holds is a lawyer's question, to settle before 1.0.0 and before the first outside author's plugin is verified.
+- **The limits' numbers:** memory, deadlines, a tree's and a package's size, a store's quota. Phase 0 measures, and the first verified plugins show what's too tight.
+- **Whether a plugin should be limited to some of the device's servers.** Left out of the first version, and worth asking again once people on several servers use plugins.
