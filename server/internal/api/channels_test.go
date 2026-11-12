@@ -324,8 +324,10 @@ func TestVoiceTokensAreForMembersOfVoiceChannels(t *testing.T) {
 
 func TestAppsCanReachTheMediaServerThroughThisServer(t *testing.T) {
 	var asked string
+	var told http.Header
 	liveKit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		asked = r.URL.Path
+		told = r.Header.Clone()
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Write([]byte("from livekit"))
 	}))
@@ -346,13 +348,39 @@ func TestAppsCanReachTheMediaServerThroughThisServer(t *testing.T) {
 		t.Fatalf("apps were told to go to %q", out.URL)
 	}
 
-	response, err := http.Get(h.url + "/livekit/rtc/validate?x=1")
+	request, err := http.NewRequest("GET", h.url+"/livekit/rtc/validate?x=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whatever a proxy in front says about the caller stays here.
+	addresses := map[string]string{
+		"X-Forwarded-For":   "203.0.113.7",
+		"X-Forwarded-Host":  "203.0.113.7",
+		"X-Forwarded-Proto": "https",
+		"X-Real-IP":         "203.0.113.7",
+		"CF-Connecting-IP":  "203.0.113.7",
+		"Forwarded":         "for=203.0.113.7",
+	}
+	for name, value := range addresses {
+		request.Header.Set(name, value)
+	}
+	request.Header.Set("User-Agent", "a browser")
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
 	if asked != "/rtc/validate" {
 		t.Fatalf("the media server was asked for %q", asked)
+	}
+	for name := range addresses {
+		if got := told.Values(name); len(got) != 0 {
+			t.Errorf("the media server was told %s: %v", name, got)
+		}
+	}
+	// Its rules for codecs go by the browser.
+	if got := told.Get("User-Agent"); got != "a browser" {
+		t.Errorf("the media server was told the browser is %q", got)
 	}
 	// Said twice, a browser takes that to mean nobody may call.
 	if got := response.Header.Values("Access-Control-Allow-Origin"); len(got) != 1 {

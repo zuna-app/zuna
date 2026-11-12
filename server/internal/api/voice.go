@@ -194,8 +194,11 @@ func (s *Server) liveKitProxy() http.Handler {
 			request.SetURL(target)
 			request.Out.URL.Path = strings.TrimPrefix(request.In.URL.Path, "/livekit")
 			request.Out.URL.RawPath = ""
-			// It would only see this machine otherwise.
-			request.Out.Header.Set("X-Forwarded-For", s.callers.Address(request.In))
+			// The media server has no use for where a caller is, and would write it to its
+			// log. Rewrite already leaves out Forwarded and the X-Forwarded- headers, and
+			// these are the others LiveKit reads an address from.
+			request.Out.Header.Del("CF-Connecting-IP")
+			request.Out.Header.Del("X-Real-IP")
 		},
 		// The middleware already said who may call, and saying it twice means nobody may.
 		ModifyResponse: func(response *http.Response) error {
