@@ -67,7 +67,10 @@ export class YouTubeFrame implements Player {
     private readonly events: FrameEvents,
     options: FrameOptions = {},
   ) {
-    this.host = (options.host ?? YOUTUBE_PLAYER).replace(/\/+$/, "");
+    // A loop, as a pattern takes far longer over a long run of slashes.
+    let host = options.host ?? YOUTUBE_PLAYER;
+    while (host.endsWith("/")) host = host.slice(0, -1);
+    this.host = host;
     this.origin = options.origin ?? location.origin;
     this.fullscreen = options.fullscreen ?? true;
     this.startMuted = options.muted ?? false;
