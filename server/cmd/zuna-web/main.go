@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -54,13 +55,6 @@ type config struct {
 	dev            bool
 }
 
-func envOr(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
 // splitList reads a comma-separated list.
 func splitList(value string) []string {
 	var items []string
@@ -72,34 +66,43 @@ func splitList(value string) []string {
 	return items
 }
 
-func parseFlags() config {
-	var cfg config
-	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_WEB_TRUST_PROXY"))
-	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_WEB_BEHIND_CLOUDFLARE"))
-	flag.StringVar(&cfg.listen, "listen", os.Getenv("ZUNA_WEB_LISTEN"), "address to listen on, such as :8080 (env ZUNA_WEB_LISTEN)")
-	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_WEB_DOMAIN"), "public domain; turns on automatic HTTPS on ports 80 and 443 (env ZUNA_WEB_DOMAIN)")
-	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_WEB_DATA", "./zuna-web-data"), "folder for automatic HTTPS certificates (env ZUNA_WEB_DATA)")
-	flag.StringVar(&cfg.tlsCert, "tls-cert", os.Getenv("ZUNA_WEB_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_WEB_TLS_CERT)")
-	flag.StringVar(&cfg.tlsKey, "tls-key", os.Getenv("ZUNA_WEB_TLS_KEY"), "TLS key file (env ZUNA_WEB_TLS_KEY)")
-	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_WEB_TRUST_PROXY)")
-	flag.StringVar(&cfg.trustedProxies, "trusted-proxies", os.Getenv("ZUNA_WEB_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_WEB_TRUSTED_PROXIES)")
-	flag.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_WEB_BEHIND_CLOUDFLARE)")
-	flag.StringVar(&cfg.previews, "previews", envOr("ZUNA_WEB_PREVIEWS", "on"), `"on" to fetch pages for link previews, "off" not to (env ZUNA_WEB_PREVIEWS)`)
-	flag.StringVar(&cfg.server, "server", os.Getenv("ZUNA_WEB_SERVER"), "a server address to fill in on the sign-in form (env ZUNA_WEB_SERVER)")
-	flag.StringVar(&cfg.servers, "servers", os.Getenv("ZUNA_WEB_SERVERS"), "comma-separated servers that are the only ones the app may connect to; empty for any (env ZUNA_WEB_SERVERS)")
-	flag.StringVar(&cfg.mediaServers, "media-servers", os.Getenv("ZUNA_WEB_MEDIA_SERVERS"), "with --servers: the LiveKit servers those servers' voice channels use, if apps reach them directly (env ZUNA_WEB_MEDIA_SERVERS)")
-	flag.StringVar(&cfg.root, "root", os.Getenv("ZUNA_WEB_ROOT"), "serve the app from this folder (apps/web/dist) instead of the copy built in (env ZUNA_WEB_ROOT)")
-	flag.BoolVar(&cfg.dev, "dev", false, "development only: previews may reach this machine, and the app's files aren't needed")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
-	if *showVersion {
-		fmt.Println("zuna-web", version)
-		os.Exit(0)
+// parseFlags reads the command line, with getenv giving what's in the environment.
+// showVersion says only the version was asked for.
+func parseFlags(args []string, getenv func(string) string) (cfg config, showVersion bool, err error) {
+	envOr := func(key, fallback string) string {
+		if value := getenv(key); value != "" {
+			return value
+		}
+		return fallback
+	}
+	flags := flag.NewFlagSet("zuna-web", flag.ContinueOnError)
+	trustProxy, _ := strconv.ParseBool(getenv("ZUNA_WEB_TRUST_PROXY"))
+	cloudflare, _ := strconv.ParseBool(getenv("ZUNA_WEB_BEHIND_CLOUDFLARE"))
+	flags.StringVar(&cfg.listen, "listen", getenv("ZUNA_WEB_LISTEN"), "address to listen on, such as :8080 (env ZUNA_WEB_LISTEN)")
+	flags.StringVar(&cfg.domain, "domain", getenv("ZUNA_WEB_DOMAIN"), "public domain; turns on automatic HTTPS on ports 80 and 443 (env ZUNA_WEB_DOMAIN)")
+	flags.StringVar(&cfg.dataDir, "data", envOr("ZUNA_WEB_DATA", "./zuna-web-data"), "folder for automatic HTTPS certificates (env ZUNA_WEB_DATA)")
+	flags.StringVar(&cfg.tlsCert, "tls-cert", getenv("ZUNA_WEB_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_WEB_TLS_CERT)")
+	flags.StringVar(&cfg.tlsKey, "tls-key", getenv("ZUNA_WEB_TLS_KEY"), "TLS key file (env ZUNA_WEB_TLS_KEY)")
+	flags.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_WEB_TRUST_PROXY)")
+	flags.StringVar(&cfg.trustedProxies, "trusted-proxies", getenv("ZUNA_WEB_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_WEB_TRUSTED_PROXIES)")
+	flags.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_WEB_BEHIND_CLOUDFLARE)")
+	flags.StringVar(&cfg.previews, "previews", envOr("ZUNA_WEB_PREVIEWS", "on"), `"on" to fetch pages for link previews, "off" not to (env ZUNA_WEB_PREVIEWS)`)
+	flags.StringVar(&cfg.server, "server", getenv("ZUNA_WEB_SERVER"), "a server address to fill in on the sign-in form (env ZUNA_WEB_SERVER)")
+	flags.StringVar(&cfg.servers, "servers", getenv("ZUNA_WEB_SERVERS"), "comma-separated servers that are the only ones the app may connect to; empty for any (env ZUNA_WEB_SERVERS)")
+	flags.StringVar(&cfg.mediaServers, "media-servers", getenv("ZUNA_WEB_MEDIA_SERVERS"), "with --servers: the LiveKit servers those servers' voice channels use, if apps reach them directly (env ZUNA_WEB_MEDIA_SERVERS)")
+	flags.StringVar(&cfg.root, "root", getenv("ZUNA_WEB_ROOT"), "serve the app from this folder (apps/web/dist) instead of the copy built in (env ZUNA_WEB_ROOT)")
+	flags.BoolVar(&cfg.dev, "dev", false, "development only: previews may reach this machine, and the app's files aren't needed")
+	flags.BoolVar(&showVersion, "version", false, "print the version and exit")
+	if err := flags.Parse(args); err != nil {
+		return config{}, false, err
+	}
+	if showVersion {
+		return config{}, true, nil
 	}
 	if cfg.listen == "" && cfg.domain == "" {
 		cfg.listen = ":8080"
 	}
-	return cfg
+	return cfg, false, nil
 }
 
 // appFiles is the folder given with --root, or the copy built into the program.
@@ -127,14 +130,27 @@ func appFiles(cfg config) (fs.FS, error) {
 }
 
 func main() {
-	cfg := parseFlags()
-	if err := run(cfg); err != nil {
+	cfg, showVersion, err := parseFlags(os.Args[1:], os.Getenv)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		os.Exit(2)
+	}
+	if showVersion {
+		fmt.Println("zuna-web", version)
+		return
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, cfg, os.Stdout); err != nil {
 		slog.Error("zuna-web stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfg config) error {
+// run serves until ctx ends, saying where on out.
+func run(ctx context.Context, cfg config, out io.Writer) error {
 	if cfg.previews != "on" && cfg.previews != "off" {
 		return fmt.Errorf(`--previews is "on" or "off", not %q`, cfg.previews)
 	}
@@ -159,9 +175,6 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	httpServer := &http.Server{
 		Handler:           handler,
@@ -211,7 +224,7 @@ func run(cfg config) error {
 		go func() { errs <- httpServer.ListenAndServe() }()
 	}
 
-	printBanner(cfg, files != nil, scheme, listenAddress, servers)
+	printBanner(out, cfg, files != nil, scheme, listenAddress, servers)
 
 	select {
 	case err := <-errs:
@@ -227,8 +240,8 @@ func run(cfg config) error {
 	}
 }
 
-func printBanner(cfg config, hasApp bool, scheme, listenAddress string, servers []string) {
-	fmt.Printf("\n  Zuna web %s\n", version)
+func printBanner(out io.Writer, cfg config, hasApp bool, scheme, listenAddress string, servers []string) {
+	fmt.Fprintf(out, "\n  Zuna web %s\n", version)
 	address := cfg.domain
 	if address == "" {
 		host, port, _ := net.SplitHostPort(listenAddress)
@@ -238,16 +251,16 @@ func printBanner(cfg config, hasApp bool, scheme, listenAddress string, servers 
 		address = net.JoinHostPort(host, port)
 	}
 	if hasApp {
-		fmt.Printf("  Listening on %s, open %s://%s\n", listenAddress, scheme, address)
+		fmt.Fprintf(out, "  Listening on %s, open %s://%s\n", listenAddress, scheme, address)
 	} else {
-		fmt.Printf("  Listening on %s, without the app's files (development)\n", listenAddress)
+		fmt.Fprintf(out, "  Listening on %s, without the app's files (development)\n", listenAddress)
 	}
 	if scheme == "http" && !cfg.dev {
-		fmt.Printf("  Browsers only run Zuna over HTTPS, apart from localhost. Use --domain, --tls-cert, or a reverse proxy.\n")
+		fmt.Fprintf(out, "  Browsers only run Zuna over HTTPS, apart from localhost. Use --domain, --tls-cert, or a reverse proxy.\n")
 	}
-	fmt.Printf("  Link previews: %s\n", cfg.previews)
+	fmt.Fprintf(out, "  Link previews: %s\n", cfg.previews)
 	if len(servers) > 0 {
-		fmt.Printf("  Only these servers: %s\n", strings.Join(servers, ", "))
+		fmt.Fprintf(out, "  Only these servers: %s\n", strings.Join(servers, ", "))
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 }

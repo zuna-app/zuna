@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -73,43 +74,45 @@ func splitList(value string) []string {
 	return items
 }
 
-func envOr(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+// parseFlags reads the command line, with getenv giving what's in the environment.
+// showVersion says only the version was asked for.
+func parseFlags(args []string, getenv func(string) string) (cfg config, showVersion bool, err error) {
+	envOr := func(key, fallback string) string {
+		if value := getenv(key); value != "" {
+			return value
+		}
+		return fallback
 	}
-	return fallback
-}
-
-func parseFlags() config {
-	var cfg config
-	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_TRUST_PROXY"))
-	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_BEHIND_CLOUDFLARE"))
-	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_DATA", "./zuna-data"), "folder for the database and uploaded files (env ZUNA_DATA)")
-	flag.StringVar(&cfg.databaseURL, "database-url", os.Getenv("ZUNA_DATABASE_URL"), "PostgreSQL database to use instead of the one in the data folder, such as postgres://zuna:password@localhost/zuna (env ZUNA_DATABASE_URL)")
-	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_DOMAIN"), "public domain, which turns on automatic HTTPS on ports 80 and 443, or this machine's IP address, for which the server makes its own certificate (env ZUNA_DOMAIN)")
-	flag.StringVar(&cfg.listen, "listen", os.Getenv("ZUNA_LISTEN"), "address to listen on, such as :9660 (env ZUNA_LISTEN)")
-	flag.StringVar(&cfg.publicURL, "public-url", os.Getenv("ZUNA_PUBLIC_URL"), "address members use to reach this server, needed behind a reverse proxy (env ZUNA_PUBLIC_URL)")
-	flag.StringVar(&cfg.tlsCert, "tls-cert", os.Getenv("ZUNA_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_TLS_CERT)")
-	flag.StringVar(&cfg.tlsKey, "tls-key", os.Getenv("ZUNA_TLS_KEY"), "TLS key file (env ZUNA_TLS_KEY)")
-	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_TRUST_PROXY)")
-	flag.StringVar(&cfg.trustedProxies, "trusted-proxies", os.Getenv("ZUNA_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_TRUSTED_PROXIES)")
-	flag.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_BEHIND_CLOUDFLARE)")
-	flag.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app, as well as the official releases (env ZUNA_DOWNLOAD_URL)")
-	flag.IntVar(&cfg.authBurst, "auth-burst", 0, "sign-in attempts allowed at once per address (default 20)")
-	quota, _ := strconv.Atoi(os.Getenv("ZUNA_USER_QUOTA_MB"))
-	flag.IntVar(&cfg.userQuotaMB, "user-quota-mb", quota, "how many MB of files each person may keep, or -1 for no limit (default 10240) (env ZUNA_USER_QUOTA_MB)")
-	flag.StringVar(&cfg.pushRelays, "push-relays", envOr("ZUNA_PUSH_RELAYS", defaultPushRelay), `comma-separated push relays that may wake phones for new messages, or "off" (env ZUNA_PUSH_RELAYS)`)
-	flag.StringVar(&cfg.liveKitURL, "livekit-url", os.Getenv("ZUNA_LIVEKIT_URL"), "LiveKit server for voice channels, as apps reach it, such as wss://voice.example.com (env ZUNA_LIVEKIT_URL)")
-	flag.StringVar(&cfg.liveKitInternal, "livekit-internal-url", os.Getenv("ZUNA_LIVEKIT_INTERNAL_URL"), "how this server reaches LiveKit, if not by that address (env ZUNA_LIVEKIT_INTERNAL_URL)")
-	flag.StringVar(&cfg.liveKitKey, "livekit-key", os.Getenv("ZUNA_LIVEKIT_KEY"), "LiveKit API key (env ZUNA_LIVEKIT_KEY)")
-	flag.StringVar(&cfg.liveKitSecret, "livekit-secret", os.Getenv("ZUNA_LIVEKIT_SECRET"), "LiveKit API secret (env ZUNA_LIVEKIT_SECRET)")
-	flag.StringVar(&cfg.liveKitKeys, "livekit-keys", os.Getenv("ZUNA_LIVEKIT_KEYS"), "LiveKit's key file, to take the key and secret from instead, which is made with new ones if it isn't there (env ZUNA_LIVEKIT_KEYS)")
-	flag.BoolVar(&cfg.newLogEra, "new-log-era", false, "start the log of who holds which keys again from what the database holds, as after restoring it from a backup, and exit. Every member's app says so once")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
-	if *showVersion {
-		fmt.Println("zuna-server", version)
-		os.Exit(0)
+	flags := flag.NewFlagSet("zuna-server", flag.ContinueOnError)
+	trustProxy, _ := strconv.ParseBool(getenv("ZUNA_TRUST_PROXY"))
+	cloudflare, _ := strconv.ParseBool(getenv("ZUNA_BEHIND_CLOUDFLARE"))
+	flags.StringVar(&cfg.dataDir, "data", envOr("ZUNA_DATA", "./zuna-data"), "folder for the database and uploaded files (env ZUNA_DATA)")
+	flags.StringVar(&cfg.databaseURL, "database-url", getenv("ZUNA_DATABASE_URL"), "PostgreSQL database to use instead of the one in the data folder, such as postgres://zuna:password@localhost/zuna (env ZUNA_DATABASE_URL)")
+	flags.StringVar(&cfg.domain, "domain", getenv("ZUNA_DOMAIN"), "public domain, which turns on automatic HTTPS on ports 80 and 443, or this machine's IP address, for which the server makes its own certificate (env ZUNA_DOMAIN)")
+	flags.StringVar(&cfg.listen, "listen", getenv("ZUNA_LISTEN"), "address to listen on, such as :9660 (env ZUNA_LISTEN)")
+	flags.StringVar(&cfg.publicURL, "public-url", getenv("ZUNA_PUBLIC_URL"), "address members use to reach this server, needed behind a reverse proxy (env ZUNA_PUBLIC_URL)")
+	flags.StringVar(&cfg.tlsCert, "tls-cert", getenv("ZUNA_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_TLS_CERT)")
+	flags.StringVar(&cfg.tlsKey, "tls-key", getenv("ZUNA_TLS_KEY"), "TLS key file (env ZUNA_TLS_KEY)")
+	flags.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_TRUST_PROXY)")
+	flags.StringVar(&cfg.trustedProxies, "trusted-proxies", getenv("ZUNA_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_TRUSTED_PROXIES)")
+	flags.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_BEHIND_CLOUDFLARE)")
+	flags.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app, as well as the official releases (env ZUNA_DOWNLOAD_URL)")
+	flags.IntVar(&cfg.authBurst, "auth-burst", 0, "sign-in attempts allowed at once per address (default 20)")
+	quota, _ := strconv.Atoi(getenv("ZUNA_USER_QUOTA_MB"))
+	flags.IntVar(&cfg.userQuotaMB, "user-quota-mb", quota, "how many MB of files each person may keep, or -1 for no limit (default 10240) (env ZUNA_USER_QUOTA_MB)")
+	flags.StringVar(&cfg.pushRelays, "push-relays", envOr("ZUNA_PUSH_RELAYS", defaultPushRelay), `comma-separated push relays that may wake phones for new messages, or "off" (env ZUNA_PUSH_RELAYS)`)
+	flags.StringVar(&cfg.liveKitURL, "livekit-url", getenv("ZUNA_LIVEKIT_URL"), "LiveKit server for voice channels, as apps reach it, such as wss://voice.example.com (env ZUNA_LIVEKIT_URL)")
+	flags.StringVar(&cfg.liveKitInternal, "livekit-internal-url", getenv("ZUNA_LIVEKIT_INTERNAL_URL"), "how this server reaches LiveKit, if not by that address (env ZUNA_LIVEKIT_INTERNAL_URL)")
+	flags.StringVar(&cfg.liveKitKey, "livekit-key", getenv("ZUNA_LIVEKIT_KEY"), "LiveKit API key (env ZUNA_LIVEKIT_KEY)")
+	flags.StringVar(&cfg.liveKitSecret, "livekit-secret", getenv("ZUNA_LIVEKIT_SECRET"), "LiveKit API secret (env ZUNA_LIVEKIT_SECRET)")
+	flags.StringVar(&cfg.liveKitKeys, "livekit-keys", getenv("ZUNA_LIVEKIT_KEYS"), "LiveKit's key file, to take the key and secret from instead, which is made with new ones if it isn't there (env ZUNA_LIVEKIT_KEYS)")
+	flags.BoolVar(&cfg.newLogEra, "new-log-era", false, "start the log of who holds which keys again from what the database holds, as after restoring it from a backup, and exit. Every member's app says so once")
+	flags.BoolVar(&showVersion, "version", false, "print the version and exit")
+	if err := flags.Parse(args); err != nil {
+		return config{}, false, err
+	}
+	if showVersion {
+		return config{}, true, nil
 	}
 	cfg.ip = net.ParseIP(strings.Trim(cfg.domain, "[]"))
 	if cfg.listen == "" {
@@ -136,7 +139,7 @@ func parseFlags() config {
 		}
 	}
 	cfg.publicURL = strings.TrimRight(cfg.publicURL, "/")
-	return cfg
+	return cfg, false, nil
 }
 
 func portSuffix(listen string) string {
@@ -148,14 +151,27 @@ func portSuffix(listen string) string {
 }
 
 func main() {
-	cfg := parseFlags()
-	if err := run(cfg); err != nil {
+	cfg, showVersion, err := parseFlags(os.Args[1:], os.Getenv)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		os.Exit(2)
+	}
+	if showVersion {
+		fmt.Println("zuna-server", version)
+		return
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, cfg, os.Stdout); err != nil {
 		slog.Error("zuna-server stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfg config) error {
+// run serves until ctx ends, saying where on out.
+func run(ctx context.Context, cfg config, out io.Writer) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data folder: %w", err)
 	}
@@ -185,7 +201,7 @@ func run(cfg config) error {
 		if err != nil {
 			return fmt.Errorf("starting the log of keys again: %w", err)
 		}
-		fmt.Printf("The log of keys is in era %d now. Start the server again without --new-log-era.\n", era)
+		fmt.Fprintf(out, "The log of keys is in era %d now. Start the server again without --new-log-era.\n", era)
 		return nil
 	}
 
@@ -225,8 +241,6 @@ func run(cfg config) error {
 		srv.Emotes().CDNBase = base
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	srv.RunBackground(ctx)
 
 	httpServer := &http.Server{
@@ -288,7 +302,7 @@ func run(cfg config) error {
 		go func() { errs <- httpServer.ListenAndServe() }()
 	}
 
-	printBanner(ctx, srv, cfg, listenAddress)
+	printBanner(ctx, out, srv, cfg, listenAddress)
 
 	select {
 	case err := <-errs:
@@ -307,23 +321,23 @@ func run(cfg config) error {
 	}
 }
 
-func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress string) {
-	fmt.Printf("\n  Zuna server %s\n", version)
-	fmt.Printf("  Listening on %s, reachable at %s\n", listenAddress, cfg.publicURL)
-	fmt.Printf("  Data folder: %s\n", cfg.dataDir)
+func printBanner(ctx context.Context, out io.Writer, srv *api.Server, cfg config, listenAddress string) {
+	fmt.Fprintf(out, "\n  Zuna server %s\n", version)
+	fmt.Fprintf(out, "  Listening on %s, reachable at %s\n", listenAddress, cfg.publicURL)
+	fmt.Fprintf(out, "  Data folder: %s\n", cfg.dataDir)
 	if relays := splitList(cfg.pushRelays); len(relays) > 0 {
-		fmt.Printf("  Phone notifications go through: %s\n", strings.Join(relays, ", "))
-		fmt.Printf("  They only see sealed pushes. To change this, set --push-relays or ZUNA_PUSH_RELAYS (\"off\" for none).\n")
+		fmt.Fprintf(out, "  Phone notifications go through: %s\n", strings.Join(relays, ", "))
+		fmt.Fprintf(out, "  They only see sealed pushes. To change this, set --push-relays or ZUNA_PUSH_RELAYS (\"off\" for none).\n")
 	}
 	// The apps learn the pin only from links, as browsers don't send what's after # to the server.
 	fragment := ""
 	if cfg.pin != "" {
 		fragment = "#pin=" + cfg.pin
-		fmt.Printf("\n  This server makes its own certificate, which the apps check against the pin\n")
-		fmt.Printf("  in its links, so share them whole. The web app can't check it, so it can't connect.\n")
-		fmt.Printf("  Keep %s from the data folder with your backups: a new one\n", certificateKeyFile)
-		fmt.Printf("  would need a new link for every app.\n")
-		fmt.Printf("  To sign in on another device, enter: %s%s\n", cfg.publicURL, fragment)
+		fmt.Fprintf(out, "\n  This server makes its own certificate, which the apps check against the pin\n")
+		fmt.Fprintf(out, "  in its links, so share them whole. The web app can't check it, so it can't connect.\n")
+		fmt.Fprintf(out, "  Keep %s from the data folder with your backups: a new one\n", certificateKeyFile)
+		fmt.Fprintf(out, "  would need a new link for every app.\n")
+		fmt.Fprintf(out, "  To sign in on another device, enter: %s%s\n", cfg.publicURL, fragment)
 	}
 	code, err := srv.EnsureSetupInvite(ctx)
 	if err != nil {
@@ -331,10 +345,10 @@ func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress
 		return
 	}
 	if code != "" {
-		fmt.Printf("\n  Finish setup: paste this one-time link into the Zuna app.\n")
-		fmt.Printf("  It creates your owner account.\n\n")
-		fmt.Printf("    %s/invite/%s%s\n\n", cfg.publicURL, code, fragment)
+		fmt.Fprintf(out, "\n  Finish setup: paste this one-time link into the Zuna app.\n")
+		fmt.Fprintf(out, "  It creates your owner account.\n\n")
+		fmt.Fprintf(out, "    %s/invite/%s%s\n\n", cfg.publicURL, code, fragment)
 	} else {
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
 }

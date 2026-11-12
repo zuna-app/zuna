@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -25,52 +26,71 @@ import (
 
 var version = "dev"
 
-func envOr(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
+// apnsReady is called with the APNs client before its key is checked, so that tests can
+// point it at a stand-in for Apple.
+var apnsReady = func(*relay.APNs) {}
 
 func main() {
-	listen := flag.String("listen", envOr("ZUNA_PUSH_LISTEN", "127.0.0.1:8090"), "address to listen on, behind a reverse proxy that adds HTTPS (env ZUNA_PUSH_LISTEN)")
-	data := flag.String("data", envOr("ZUNA_PUSH_DATA", "./zuna-push-data"), "folder for the key that seals handles (env ZUNA_PUSH_DATA)")
-	keyFile := flag.String("apns-key", os.Getenv("ZUNA_PUSH_APNS_KEY"), "the APNs token key, a .p8 file (env ZUNA_PUSH_APNS_KEY)")
-	keyID := flag.String("apns-key-id", os.Getenv("ZUNA_PUSH_APNS_KEY_ID"), "the APNs key's ID (env ZUNA_PUSH_APNS_KEY_ID)")
-	teamID := flag.String("apns-team", envOr("ZUNA_PUSH_APNS_TEAM", "SGKB9R23YT"), "the Apple Developer team that publishes the app (env ZUNA_PUSH_APNS_TEAM)")
-	topic := flag.String("apns-topic", envOr("ZUNA_PUSH_APNS_TOPIC", "chat.zuna.mobile"), "the app's bundle ID (env ZUNA_PUSH_APNS_TOPIC)")
-	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_TRUST_PROXY"))
-	flag.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, when the connection comes from this machine or a private network (env ZUNA_PUSH_TRUST_PROXY)")
-	trustedProxies := flag.String("trusted-proxies", os.Getenv("ZUNA_PUSH_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_PUSH_TRUSTED_PROXIES)")
-	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_BEHIND_CLOUDFLARE"))
-	flag.BoolVar(&cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP (env ZUNA_PUSH_BEHIND_CLOUDFLARE)")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:], os.Getenv, os.Stdout); err != nil {
+		if !errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintf(os.Stderr, "zuna-push: %v\n", err)
+			os.Exit(1)
+		}
+	}
+}
+
+// run relays pushes until ctx ends, with getenv giving what's in the environment.
+func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
+	envOr := func(key, fallback string) string {
+		if value := getenv(key); value != "" {
+			return value
+		}
+		return fallback
+	}
+	flags := flag.NewFlagSet("zuna-push", flag.ContinueOnError)
+	listen := flags.String("listen", envOr("ZUNA_PUSH_LISTEN", "127.0.0.1:8090"), "address to listen on, behind a reverse proxy that adds HTTPS (env ZUNA_PUSH_LISTEN)")
+	data := flags.String("data", envOr("ZUNA_PUSH_DATA", "./zuna-push-data"), "folder for the key that seals handles (env ZUNA_PUSH_DATA)")
+	keyFile := flags.String("apns-key", getenv("ZUNA_PUSH_APNS_KEY"), "the APNs token key, a .p8 file (env ZUNA_PUSH_APNS_KEY)")
+	keyID := flags.String("apns-key-id", getenv("ZUNA_PUSH_APNS_KEY_ID"), "the APNs key's ID (env ZUNA_PUSH_APNS_KEY_ID)")
+	teamID := flags.String("apns-team", envOr("ZUNA_PUSH_APNS_TEAM", "SGKB9R23YT"), "the Apple Developer team that publishes the app (env ZUNA_PUSH_APNS_TEAM)")
+	topic := flags.String("apns-topic", envOr("ZUNA_PUSH_APNS_TOPIC", "chat.zuna.mobile"), "the app's bundle ID (env ZUNA_PUSH_APNS_TOPIC)")
+	trustProxy, _ := strconv.ParseBool(getenv("ZUNA_PUSH_TRUST_PROXY"))
+	flags.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, when the connection comes from this machine or a private network (env ZUNA_PUSH_TRUST_PROXY)")
+	trustedProxies := flags.String("trusted-proxies", getenv("ZUNA_PUSH_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_PUSH_TRUSTED_PROXIES)")
+	cloudflare, _ := strconv.ParseBool(getenv("ZUNA_PUSH_BEHIND_CLOUDFLARE"))
+	flags.BoolVar(&cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP (env ZUNA_PUSH_BEHIND_CLOUDFLARE)")
+	showVersion := flags.Bool("version", false, "print the version and exit")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 	if *showVersion {
-		fmt.Println(version)
-		return
+		fmt.Fprintln(out, version)
+		return nil
 	}
 
 	handleKey, err := loadHandleKey(*data)
 	if err != nil {
-		fail("the handle key: %v", err)
+		return fmt.Errorf("the handle key: %w", err)
 	}
 	var apns *relay.APNs
 	if *keyFile != "" {
 		p8, err := os.ReadFile(*keyFile)
 		if err != nil {
-			fail("reading the APNs key: %v", err)
+			return fmt.Errorf("reading the APNs key: %w", err)
 		}
 		if apns, err = relay.NewAPNs(p8, *keyID, *teamID, *topic); err != nil {
-			fail("%v", err)
+			return err
 		}
-		checkKey(apns, *keyID, *teamID)
+		apnsReady(apns)
+		checkKey(ctx, apns, *keyID, *teamID)
 	} else {
 		slog.Warn("no APNs key: phones can't register, and pushes fail")
 	}
 	service, err := relay.New(handleKey, apns)
 	if err != nil {
-		fail("%v", err)
+		return err
 	}
 	var proxies []string
 	for _, proxy := range strings.Split(*trustedProxies, ",") {
@@ -79,17 +99,15 @@ func main() {
 		}
 	}
 	if service.Callers, err = clientip.New(trustProxy, proxies, cloudflare); err != nil {
-		fail("%v", err)
+		return err
 	}
 	server := &http.Server{Addr: *listen, Handler: service.Handler(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	errs := make(chan error, 1)
 	go func() { errs <- server.ListenAndServe() }()
 	slog.Info("zuna-push listening", "address", *listen, "version", version)
 	select {
 	case err := <-errs:
-		fail("%v", err)
+		return err
 	case <-ctx.Done():
 		// Pushes already on their way to Apple finish first, which its client gives 15 s.
 		slog.Info("shutting down")
@@ -99,14 +117,15 @@ func main() {
 			slog.Warn("pushes were still being sent when the relay stopped", "error", err)
 		}
 	}
+	return nil
 }
 
 // checkKey asks Apple whether it takes the APNs key in each environment, and says
 // so before the relay listens, as a key it refuses otherwise only shows as phones
 // failing to register. deploy/update.sh shows what it says.
-func checkKey(apns *relay.APNs, keyID, teamID string) {
+func checkKey(ctx context.Context, apns *relay.APNs, keyID, teamID string) {
 	for _, environment := range []string{"production", "sandbox"} {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := apns.CheckKey(ctx, environment)
 		cancel()
 		var refused *relay.RefusedError
@@ -143,9 +162,4 @@ func loadHandleKey(dir string) ([]byte, error) {
 		return nil, err
 	}
 	return key, os.WriteFile(path, key, 0o600)
-}
-
-func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "zuna-push: "+format+"\n", args...)
-	os.Exit(1)
 }
