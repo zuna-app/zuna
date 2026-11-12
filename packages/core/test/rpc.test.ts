@@ -60,7 +60,7 @@ describe("the interface's side of it", () => {
     const failure = await remote.getUsers().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(CoreError);
     expect(failure).toMatchObject({ message: "not now", code: "busy", status: 503, name: "CoreError" });
-    await expect(core.client.noSuchThing()).rejects.toThrow("The core has no such thing to do.");
+    await expect((core.client as unknown as { noSuchThing(): Promise<void> }).noSuchThing()).rejects.toThrow("The core has no such thing to do.");
     send({ type: "connection", serverId: "server", state: "online" } as never);
     await new Promise((done) => setTimeout(done, 0));
     expect(events).toEqual([{ type: "connection", serverId: "server", state: "online" }]);
