@@ -201,12 +201,17 @@ jobs:
       - run: npm run build:ios
       - run: swift test --package-path apps/ios/ZunaKit --enable-code-coverage
       # Only ZunaKit's own Swift: not the bindings UniFFI writes, SQLite's source, or the tests.
+      # Found where they are, as Xcode's SwiftPM keeps its products somewhere other than
+      # what --show-bin-path says.
       - run: |
-          bin=$(swift build --package-path apps/ios/ZunaKit --show-bin-path)
+          profdata=$(find apps/ios/ZunaKit/.build -name default.profdata -path '*codecov*' | head -1)
+          bundle=$(find apps/ios/ZunaKit/.build -type d -name '*.xctest' | head -1)
+          tests="$bundle/Contents/MacOS/$(basename "$bundle" .xctest)"
+          echo "profile: $profdata, tests: $tests"
           mkdir -p coverage
           xcrun llvm-cov export -format=lcov \
-            -instr-profile "$bin/codecov/default.profdata" \
-            "$bin/ZunaKitPackageTests.xctest/Contents/MacOS/ZunaKitPackageTests" \
+            -instr-profile "$profdata" \
+            "$tests" \
             -ignore-filename-regex '(\.build|/Tests|/Generated|/CSQLite)/' > coverage/ios.lcov
           test -s coverage/ios.lcov
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
