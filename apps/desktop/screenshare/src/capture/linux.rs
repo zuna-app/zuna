@@ -5,7 +5,7 @@
 use std::{
     ffi::{c_char, c_int, c_void},
     os::fd::{AsRawFd, OwnedFd},
-    ptr,
+    ptr::{self, NonNull},
     sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
@@ -129,7 +129,8 @@ struct Shared {
     node: u32,
     negotiated: Option<Negotiated>,
     encoding: Option<Encoding>,
-    pipeline: *mut Pipeline,
+    /// Where frames go, while `run` is in progress.
+    pipeline: Option<NonNull<Pipeline>>,
     interval: Duration,
     failure: Option<String>,
     /// What was shared has gone, such as a window that closed.
@@ -186,20 +187,15 @@ unsafe extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const 
 unsafe extern "C" fn on_process(data: *mut c_void) {
     let shared = unsafe { &mut *(data as *mut Shared) };
     // Only the newest matters, and older ones go back for the compositor to reuse.
-    let mut newest: *mut PwBuffer = ptr::null_mut();
-    loop {
-        let next = unsafe { (shared.api.stream_dequeue_buffer)(shared.stream) };
-        if next.is_null() {
-            break;
+    let mut newest: Option<NonNull<PwBuffer>> = None;
+    while let Some(next) = NonNull::new(unsafe { (shared.api.stream_dequeue_buffer)(shared.stream) }) {
+        if let Some(older) = newest.replace(next) {
+            unsafe { (shared.api.stream_queue_buffer)(shared.stream, older.as_ptr()) };
         }
-        if !newest.is_null() {
-            unsafe { (shared.api.stream_queue_buffer)(shared.stream, newest) };
-        }
-        newest = next;
     }
-    if newest.is_null() {
+    let Some(newest) = newest.map(NonNull::as_ptr) else {
         return;
-    }
+    };
     if let Err(message) = unsafe { encode_buffer(shared, newest) } {
         shared.failure = Some(message);
     }
@@ -207,7 +203,7 @@ unsafe extern "C" fn on_process(data: *mut c_void) {
 }
 
 unsafe fn encode_buffer(shared: &mut Shared, buffer: *mut PwBuffer) -> Result<()> {
-    let (Some(negotiated), Some(pipeline)) = (shared.negotiated, unsafe { shared.pipeline.as_mut() }) else {
+    let (Some(negotiated), Some(pipeline)) = (shared.negotiated, shared.pipeline.map(|mut pipeline| unsafe { pipeline.as_mut() })) else {
         return Ok(());
     };
     let spa = unsafe { &*(*buffer).buffer };
@@ -429,7 +425,7 @@ impl Capture {
             node: portal.node,
             negotiated: None,
             encoding: None,
-            pipeline: ptr::null_mut(),
+            pipeline: None,
             interval: Duration::from_secs_f64(1.0 / options.fps as f64),
             failure: None,
             ended: false,
@@ -537,7 +533,9 @@ impl Capture {
     pub fn run(&mut self, pipeline: &mut Pipeline, stop: &AtomicBool) -> Result<()> {
         let api = self.api;
         unsafe { (api.thread_loop_lock)(self.thread_loop) };
-        self.shared.pipeline = pipeline;
+        // Both threads reach it through this one pointer, each only while it holds the lock.
+        let mut pipeline = NonNull::from(pipeline);
+        self.shared.pipeline = Some(pipeline);
         unsafe { (api.thread_loop_unlock)(self.thread_loop) };
 
         // Frames arrive on PipeWire's thread. This one covers what happens without them:
@@ -551,7 +549,7 @@ impl Capture {
                 // Losing its node can fail the stream as well, which isn't worth telling anyone.
                 _ if ended => Ok(()),
                 Some(message) => Err(message),
-                None => unsafe { &mut *self.shared.pipeline }.on_idle(),
+                None => unsafe { pipeline.as_mut() }.on_idle(),
             };
             unsafe { (api.thread_loop_unlock)(self.thread_loop) };
             if ended {
@@ -561,7 +559,7 @@ impl Capture {
         }
 
         unsafe { (api.thread_loop_lock)(self.thread_loop) };
-        self.shared.pipeline = ptr::null_mut();
+        self.shared.pipeline = None;
         unsafe { (api.thread_loop_unlock)(self.thread_loop) };
         result
     }
