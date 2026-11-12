@@ -200,7 +200,9 @@ describe("text channels", () => {
     expect(received(alice, "slow second")).toBeUndefined();
     await waitFor(() => !!received(alice, "slow second"), "the second to go after the wait");
     expect(Date.now() - sentAt).toBeGreaterThan(1000);
-    expect(received(bob, "slow second")).toBeDefined();
+    // Bob's own copy is sent once the server's answer, or its copy for his socket, reaches him,
+    // which every member's socket is sent at once, so alice can have it first.
+    await waitFor(() => !!received(bob, "slow second"), "bob's own to show as sent");
     expect(conversation(bob).slowUntil).toBeGreaterThan(Date.now());
 
     // Admins aren't held back.
