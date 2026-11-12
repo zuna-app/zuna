@@ -201,6 +201,9 @@ pub struct Plugins {
     asked: HashSet<String>,
     /// Messages whose original the person asked to see, by their key.
     pub shown_original: HashSet<String>,
+    /// Goes up with every change to what plugins add to messages, which a chat's list, drawn
+    /// from a cache, watches to draw and measure its rows again.
+    pub decorations_changed: u64,
     /// Commands bound to keys: the keystroke, the plugin, the command.
     bound: Vec<(gpui::Keystroke, String, String)>,
     heard: mpsc::UnboundedSender<(String, u64, Option<String>)>,
@@ -291,6 +294,7 @@ impl Plugins {
             decorations: HashMap::new(),
             asked: HashSet::new(),
             shown_original: HashSet::new(),
+            decorations_changed: 0,
             bound: Vec::new(),
             heard,
             next_generation: 1,
@@ -492,6 +496,7 @@ impl Plugins {
             list.retain(|decoration| decoration.uid != uid);
             true
         });
+        self.decorations_changed += 1;
         // Whatever it had open goes.
         let handles: Vec<u32> = self.handles.iter().enumerate().filter(|(_, (owner, _, _))| owner == uid).map(|(index, _)| index as u32).collect();
         if let Some(state) = crate::state::try_store(cx) {
@@ -1040,6 +1045,7 @@ impl Plugins {
     pub(crate) fn forget_decorations(&mut self) {
         self.decorations.clear();
         self.asked.clear();
+        self.decorations_changed += 1;
     }
 
     pub(crate) fn storage(&self) -> Option<&Storage> {
@@ -1150,6 +1156,7 @@ impl Plugins {
                                         let list = plugins.decorations.entry(key.clone()).or_default();
                                         list.retain(|existing| existing.uid != owner);
                                         list.push(decoration);
+                                        plugins.decorations_changed += 1;
                                     }
                                 }
                             }
@@ -1194,6 +1201,7 @@ impl Plugins {
         if !self.shown_original.remove(&key) {
             self.shown_original.insert(key);
         }
+        self.decorations_changed += 1;
         cx.notify();
     }
 }

@@ -362,6 +362,7 @@ impl Plugins {
                     list.retain(|decoration| decoration.uid != uid);
                     true
                 });
+                self.decorations_changed += 1;
                 cx.notify();
                 Ok(Value::Null)
             }

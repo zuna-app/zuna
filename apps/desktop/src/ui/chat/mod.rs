@@ -120,6 +120,8 @@ pub struct ChatView {
     last_typing: f64,
     /// What's in the message box passed plugins' filters on what goes out, so it goes as it is.
     pub(super) filtered: bool,
+    /// The plugins' count of changes to decorations this list last drew with.
+    decorations_seen: u64,
     revealed: Rc<RefCell<HashSet<String>>>,
     hovered_link: Rc<RefCell<Option<(SharedString, usize)>>>,
     side_panel: Option<Entity<SidePanel>>,
@@ -348,7 +350,7 @@ impl ChatView {
             }
         });
         let media_clock = state.read(cx).media_clock.clone();
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&state, |view, _, cx| {
                 view.context_cache = None;
                 view.conversation_cache.replace(None);
@@ -361,6 +363,19 @@ impl ChatView {
             cx.subscribe_in(&composer, window, |view, _, event, window, cx| view.on_composer(event, window, cx)),
             cx.subscribe_in(&inline_editor, window, |view, _, event, _, cx| view.on_inline_editor(event, cx)),
         ];
+        // What plugins add to messages comes after they're drawn, and the list draws from a cache,
+        // so every row is drawn and measured again when that changes.
+        if let Some(plugins) = crate::plugins::get(cx) {
+            subscriptions.push(cx.observe(&plugins, |view, plugins, cx| {
+                let changed = plugins.read(cx).decorations_changed;
+                if changed != view.decorations_seen {
+                    view.decorations_seen = changed;
+                    let count = view.list.item_count();
+                    view.list.splice(0..count, count);
+                    view.refresh_messages(cx);
+                }
+            }));
+        }
         let mut view = ChatView {
             state,
             server_id,
@@ -376,6 +391,7 @@ impl ChatView {
             center_on: None,
             last_typing: 0.,
             filtered: false,
+            decorations_seen: 0,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             hovered_link: Rc::default(),
             side_panel: None,
