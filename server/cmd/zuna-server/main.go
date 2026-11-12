@@ -259,7 +259,15 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 	}
 	httpServer.RegisterOnShutdown(srv.CloseSockets)
 
+	// Each address is taken before the banner says so, and one that's busy fails here.
 	errs := make(chan error, 2)
+	listen := func(address string) (net.Listener, error) {
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("listening on %s: %w", address, err)
+		}
+		return listener, nil
+	}
 	listenAddress := ""
 	switch {
 	case cfg.ip != nil:
@@ -271,7 +279,11 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
 		httpServer.TLSConfig = serverTLS(certificate)
-		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
+		listener, err := listen(cfg.listen)
+		if err != nil {
+			return err
+		}
+		go func() { errs <- httpServer.ServeTLS(listener, "", "") }()
 	case cfg.domain != "":
 		listenAddress = httpsAddress
 		manager := &autocert.Manager{
@@ -289,8 +301,17 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       time.Minute,
 		}
-		go func() { errs <- redirect.ListenAndServe() }()
-		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
+		plain, err := listen(httpAddress)
+		if err != nil {
+			return err
+		}
+		listener, err := listen(httpsAddress)
+		if err != nil {
+			plain.Close()
+			return err
+		}
+		go func() { errs <- redirect.Serve(plain) }()
+		go func() { errs <- httpServer.ServeTLS(listener, "", "") }()
 		go func() {
 			<-ctx.Done()
 			redirect.Close()
@@ -299,11 +320,19 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
 		httpServer.TLSConfig = serverTLS(nil)
-		go func() { errs <- httpServer.ListenAndServeTLS(cfg.tlsCert, cfg.tlsKey) }()
+		listener, err := listen(cfg.listen)
+		if err != nil {
+			return err
+		}
+		go func() { errs <- httpServer.ServeTLS(listener, cfg.tlsCert, cfg.tlsKey) }()
 	default:
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
-		go func() { errs <- httpServer.ListenAndServe() }()
+		listener, err := listen(cfg.listen)
+		if err != nil {
+			return err
+		}
+		go func() { errs <- httpServer.Serve(listener) }()
 	}
 
 	printBanner(ctx, out, srv, cfg, listenAddress)

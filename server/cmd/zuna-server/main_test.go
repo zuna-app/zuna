@@ -178,6 +178,29 @@ func TestRunServesAndStops(t *testing.T) {
 	}
 }
 
+// An address something else holds fails before the banner says it's listening.
+func TestRunRefusesAnAddressInUse(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	cfg, _, err := parseFlags([]string{"-data", t.TempDir(), "-listen", taken.Addr().String(), "-livekit-keys", filepath.Join(t.TempDir(), "livekit.yaml"), "-push-relays", "off"}, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out bytes.Buffer
+	err = run(ctx, cfg, &out)
+	if err == nil || !strings.Contains(err.Error(), "listening on "+taken.Addr().String()) {
+		t.Fatalf("run: %v", err)
+	}
+	if strings.Contains(out.String(), "Listening on") {
+		t.Errorf("the banner said it was listening:\n%s", out.String())
+	}
+}
+
 func TestRunWithItsOwnCertificate(t *testing.T) {
 	address := freeAddress(t)
 	cfg, _, err := parseFlags([]string{"-data", t.TempDir(), "-domain", "127.0.0.1", "-listen", address, "-push-relays", "off"}, env(nil))
