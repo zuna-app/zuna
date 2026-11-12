@@ -286,3 +286,201 @@ describe("updates", () => {
     expect((await api("getUpdates")).ok).toBe(true);
   });
 });
+
+/** Takes every update waiting, and says they were taken. */
+async function drain(): Promise<any[]> {
+  const got = (await api("getUpdates")).result as any[];
+  if (got.length > 0) await api("getUpdates", { offset: got.at(-1).update_id + 1 });
+  return got;
+}
+
+/** Waits for an update that `match` finds, taking everything before it. */
+async function updateWhere(match: (update: any) => boolean, what: string): Promise<any> {
+  let found: any;
+  await waitFor(async () => {
+    found = (await drain()).find(match) ?? found;
+    return !!found;
+  }, what);
+  return found;
+}
+
+/** A call with a file in it, as multipart, as a library sends one. */
+async function upload(method: string, field: string, blob: Blob, name: string | undefined, params: Record<string, string> = {}) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(params)) form.set(key, value);
+  if (name === undefined) form.set(field, blob);
+  else form.set(field, blob, name);
+  return (await (await fetch(`${root}/bot${bot.token}/${method}`, { method: "POST", body: form })).json()) as { ok: boolean; result?: any; description?: string };
+}
+
+describe("the rest of the API, with the bot's code away", () => {
+  let aliceChat = 0;
+
+  beforeAll(async () => {
+    await drain();
+    aliceChat = bot.store.userNumber(alice.userId);
+  });
+
+  it("tells the bot's code what each kind of message holds", async () => {
+    const files: [string, string, Record<string, unknown>][] = [
+      ["voice.ogg", "audio/ogg", { duration: 2.6, voice: true }],
+      ["round.mp4", "video/mp4", { duration: 4.2, round: true, width: 240, height: 240 }],
+      ["clip.mp4", "video/mp4", { duration: 9.5, width: 320, height: 180 }],
+      ["clip2.webm", "video/webm", {}],
+      ["song.mp3", "audio/mpeg", { duration: 61.4 }],
+      ["song2.wav", "audio/wav", {}],
+      ["funny.gif", "image/gif", { width: 10, height: 10 }],
+    ];
+    for (const [name, mime, extra] of files) {
+      await alice.session.sendWithAttachments(dm(), [{ blob: new Blob([name], { type: mime }), name, mime, ...extra }], { text: `here's ${name}` });
+    }
+    alice.session.sendMessage(dm(), { location: { lat: 52.23, lon: 21.01, accuracy: 15 } });
+    alice.session.sendMessage(dm(), { location: { lat: 1, lon: 2 } });
+    const updates: any[] = [];
+    await waitFor(async () => {
+      updates.push(...(await drain()));
+      return updates.filter((update) => update.message?.location).length === 2;
+    }, "every message to reach the bot's code");
+    const by = (name: string) => updates.find((update) => update.message?.caption === `here's ${name}`)?.message;
+    expect(by("voice.ogg").voice).toMatchObject({ mime_type: "audio/ogg", duration: 3 });
+    expect(by("round.mp4").video_note).toMatchObject({ length: 240, duration: 4 });
+    expect(by("clip.mp4").video).toMatchObject({ file_name: "clip.mp4", mime_type: "video/mp4", width: 320, height: 180, duration: 10 });
+    expect(by("clip2.webm").video).toMatchObject({ width: 0, height: 0, duration: 0 });
+    expect(by("song.mp3").audio).toMatchObject({ file_name: "song.mp3", duration: 61 });
+    expect(by("song2.wav").audio).toMatchObject({ duration: 0 });
+    // A GIF isn't a photo, as an animation would be one Zuna's apps don't play.
+    expect(by("funny.gif").document).toMatchObject({ file_name: "funny.gif", mime_type: "image/gif" });
+    const places = updates.filter((update) => update.message?.location).map((update) => update.message.location);
+    expect(places).toEqual([{ latitude: 52.23, longitude: 21.01, horizontal_accuracy: 15 }, { latitude: 1, longitude: 2 }]);
+  });
+
+  it("tells it what a message replies to and where it was forwarded from", async () => {
+    const sent = await api("sendMessage", { chat_id: aliceChat, text: "**pick** me" });
+    expect(sent).toMatchObject({ ok: true, result: { text: "pick me" } });
+    await read(alice, dm(), "**pick** me");
+    const mine = latest(alice, "**pick** me")!;
+    alice.session.sendMessage(dm(), { text: "a reply", replyTo: mine.id });
+    const reply = await updateWhere((update) => update.message?.text === "a reply", "the reply to reach the bot's code");
+    expect(reply.message.reply_to_message).toMatchObject({ message_id: sent.result.message_id, from: { username: "echo", is_bot: true }, text: "pick me" });
+    alice.session.forwardMessage(mine.groupId, mine.id, dm());
+    const forwarded = await updateWhere((update) => update.message?.forward_origin, "the forward to reach the bot's code");
+    expect(forwarded.message.forward_origin).toMatchObject({ type: "user", sender_user: { username: "echo" } });
+  });
+
+  it("sends what it's asked to, with replies, mentions and buttons, and refuses what makes no sense", async () => {
+    expect(await api("sendChatAction", { chat_id: aliceChat, action: "typing" })).toEqual({ ok: true, result: true });
+    expect(await api("sendMessage", { chat_id: aliceChat, text: "no such reply", reply_to_message_id: 999999 })).toMatchObject({ ok: false, error_code: 400, description: "Bad Request: message to be replied not found" });
+    expect(await api("sendMessage", { chat_id: aliceChat, text: "sent anyway", reply_to_message_id: 999999, allow_sending_without_reply: true })).toMatchObject({ ok: true });
+    expect(await api("sendMessage", { chat_id: aliceChat, text: "sent anyway too", reply_parameters: { message_id: 999999, allow_sending_without_reply: true } })).toMatchObject({ ok: true });
+    expect(await api("sendMessage", { chat_id: aliceChat, text: "" })).toMatchObject({ ok: false, description: "Bad Request: message text is empty" });
+    expect(await api("sendMessage", { chat_id: 0, text: "x" })).toMatchObject({ ok: false, description: "Bad Request: chat not found" });
+    expect(await api("sendMessage", { chat_id: -999999, text: "x" })).toMatchObject({ ok: false, description: "Bad Request: chat not found" });
+
+    const mention = await api("sendMessage", { chat_id: aliceChat, text: "hello @alice, and @nobody." });
+    expect(mention.ok).toBe(true);
+    await read(alice, dm(), "hello @alice, and @nobody.");
+    expect(latest(alice, "hello @alice, and @nobody.")!.mentions).toEqual([alice.userId]);
+
+    const keyboard = (inline_keyboard: unknown) => ({ chat_id: aliceChat, text: "buttons?", reply_markup: { inline_keyboard } });
+    expect(await api("sendMessage", keyboard(["not a row"]))).toMatchObject({ ok: false, description: expect.stringContaining("InlineKeyboardButton must be an Object") });
+    expect(await api("sendMessage", keyboard([[{ callback_data: "x" }]]))).toMatchObject({ ok: false, description: expect.stringContaining("Text buttons are unallowed") });
+    expect(await api("sendMessage", keyboard([[{ text: "pay", pay: true }]]))).toMatchObject({ ok: false, description: expect.stringContaining("does neither") });
+    // A keyboard of rows with nothing in them, or one under the message box, sends the message without buttons.
+    expect((await api("sendMessage", keyboard([[]]))).result.reply_markup).toBeUndefined();
+    expect((await api("sendMessage", { chat_id: aliceChat, text: "a reply keyboard", reply_markup: JSON.stringify({ keyboard: [[{ text: "x" }]] }) })).result.reply_markup).toBeUndefined();
+  });
+
+  it("sends files of every kind, uploaded or by an ID it was sent, and never fetches one from an address", async () => {
+    const picture = new Blob([png(12, 8) as BlobPart], { type: "image/png" });
+    const photo = await upload("sendPhoto", "photo", picture, "pic.png", { chat_id: String(aliceChat), caption: "a photo" });
+    expect(photo.result).toMatchObject({ caption: "a photo", photo: [{ width: 12, height: 8 }] });
+    for (const [method, field, name, mime] of [
+      ["sendVideo", "video", "v.mp4", "video/mp4"],
+      ["sendAudio", "audio", "a.mp3", "audio/mpeg"],
+      ["sendAnimation", "animation", "x.gif", "image/gif"],
+    ] as const) {
+      const sent = await upload(method, field, new Blob([name], { type: mime }), name, { chat_id: String(aliceChat) });
+      expect(sent.ok, `${method}: ${sent.description}`).toBe(true);
+    }
+    // A voice message, of bytes with neither a name nor a type, goes by the method's own name for it.
+    const parts = [`--X\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${aliceChat}\r\n`, `--X\r\nContent-Disposition: form-data; name="voice"; filename=""\r\nContent-Type: application/octet-stream\r\n\r\nogg\r\n--X--\r\n`];
+    const voice = await (await fetch(`${root}/bot${bot.token}/sendVoice`, { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=X" }, body: parts.join("") })).json();
+    expect(voice.result.voice).toMatchObject({ mime_type: "audio/ogg" });
+    // A library that doesn't say what a file is: its name does.
+    const pdf = await upload("sendDocument", "document", new Blob(["%PDF"], { type: "application/octet-stream" }), "paper.pdf", { chat_id: String(aliceChat) });
+    expect(pdf.result.document).toMatchObject({ file_name: "paper.pdf", mime_type: "application/pdf" });
+    const unknown = await upload("sendDocument", "document", new Blob(["?"]), "noext", { chat_id: String(aliceChat) });
+    expect(unknown.result.document).toMatchObject({ mime_type: "application/octet-stream" });
+    // Sent again by its ID.
+    const again = await api("sendDocument", { chat_id: aliceChat, document: pdf.result.document.file_id });
+    expect(again.result.document).toMatchObject({ file_name: "paper.pdf" });
+    expect(await api("sendPhoto", { chat_id: aliceChat, photo: "https://example.com/a.png" })).toMatchObject({ ok: false, description: expect.stringContaining("doesn't fetch files from addresses") });
+    expect(await api("sendDocument", { chat_id: aliceChat })).toMatchObject({ ok: false, description: "Bad Request: there is no document in the request" });
+    expect(await api("sendDocument", { chat_id: aliceChat, document: "not-a-known-id" })).toMatchObject({ ok: false });
+    expect(await api("getFile", {})).toMatchObject({ ok: false, description: "Bad Request: file_id is required" });
+    expect(await api("getFile", { file_id: "nothing" })).toMatchObject({ ok: false, description: "Bad Request: invalid file_id" });
+    expect((await api("getFile", { file_id: pdf.result.document.file_id })).result.file_path).toMatch(/^files\/[0-9a-f]+\/paper\.pdf$/);
+  });
+
+  it("edits, pins and deletes its own messages, and only those", async () => {
+    const sent = (await api("sendMessage", { chat_id: aliceChat, text: "to be changed" })).result;
+    const id = sent.message_id;
+    expect(await api("editMessageReplyMarkup", { chat_id: aliceChat, message_id: id, reply_markup: { inline_keyboard: [[{ text: "Go", url: "https://example.com/" }]] } })).toMatchObject({ ok: true, result: { text: "to be changed", reply_markup: { inline_keyboard: [[{ text: "Go", url: "https://example.com/" }]] } } });
+    expect(await api("editMessageText", { chat_id: aliceChat, message_id: id, text: "" })).toMatchObject({ ok: false, description: "Bad Request: message text is empty" });
+    expect(await api("editMessageText", { inline_message_id: "x", text: "y" })).toMatchObject({ ok: false, description: expect.stringContaining("no inline mode") });
+    expect(await api("editMessageText", { chat_id: aliceChat, message_id: 999999, text: "y" })).toMatchObject({ ok: false, description: "Bad Request: message not found" });
+    expect(await api("pinChatMessage", { chat_id: aliceChat, message_id: id })).toEqual({ ok: true, result: true });
+    expect(await api("unpinChatMessage", { chat_id: aliceChat, message_id: id })).toEqual({ ok: true, result: true });
+
+    alice.session.sendMessage(dm(), { text: "alice's own" });
+    const hers = await updateWhere((update) => update.message?.text === "alice's own", "alice's message to reach the bot's code");
+    expect(await api("editMessageText", { chat_id: aliceChat, message_id: hers.message.message_id, text: "hacked" })).toMatchObject({ ok: false, description: "Bad Request: message can't be edited" });
+
+    expect(await api("deleteMessage", { chat_id: aliceChat, message_id: id })).toEqual({ ok: true, result: true });
+    expect(await api("editMessageText", { chat_id: aliceChat, message_id: id, text: "after" })).toMatchObject({ ok: false, description: "Bad Request: message can't be edited" });
+  });
+
+  it("describes chats and who's in them", async () => {
+    expect((await api("getChat", { chat_id: aliceChat })).result).toMatchObject({ id: aliceChat, type: "private", username: "alice" });
+    await alice.session.updateProfile({ bio: "Alice's bio" });
+    await waitFor(async () => (await api("getChat", { chat_id: aliceChat })).result.bio === "Alice's bio", "the bot to see alice's bio");
+    expect((await api("getChatMember", { chat_id: aliceChat, user_id: aliceChat })).result).toMatchObject({ status: "member", user: { username: "alice" } });
+    expect((await api("getChatMember", { chat_id: aliceChat, user_id: bot.store.userNumber(bob.userId) })).result).toMatchObject({ status: "left" });
+    expect(await api("getChatMember", { chat_id: aliceChat, user_id: 999999 })).toMatchObject({ ok: false, description: "Bad Request: user not found" });
+    expect(await api("getChatMember", { chat_id: aliceChat })).toMatchObject({ ok: false, description: "Bad Request: user_id is required" });
+    expect((await api("getChatMemberCount", { chat_id: aliceChat })).result).toBe(2);
+    expect(await api("leaveChat", { chat_id: aliceChat })).toMatchObject({ ok: false, description: expect.stringContaining("only a group can be left") });
+
+    const groupId = await alice.session.createGroup("Second lab", [botId], false);
+    const chat = bot.store.chatNumber(groupId);
+    await waitFor(async () => (await api("getChat", { chat_id: chat })).ok, "the bot to be in the group");
+    expect((await api("getChat", { chat_id: chat })).result).toMatchObject({ id: chat, type: "group", title: "Second lab" });
+    expect((await api("getChatMember", { chat_id: chat, user_id: aliceChat })).result).toMatchObject({ status: "administrator", can_manage_chat: true });
+    expect(await api("leaveChat", { chat_id: chat })).toEqual({ ok: true, result: true });
+    await waitFor(async () => (await api("getChat", { chat_id: chat })).error_code === 403, "the bot to be out of the group");
+    expect(await api("getChat", { chat_id: chat })).toMatchObject({ description: "Forbidden: bot is not a member of the group chat" });
+    // It was told it left, with the group's title.
+    await updateWhere((update) => update.my_chat_member?.new_chat_member.status === "left" && update.my_chat_member.chat.title === "Second lab", "the bot's code to hear it left");
+  });
+
+  it("keeps its name, descriptions and commands in its profile", async () => {
+    expect(await api("setMyName", { name: "Echo Two" })).toEqual({ ok: true, result: true });
+    expect((await api("getMyName")).result).toEqual({ name: "Echo Two" });
+    await api("setMyName", { name: "" });
+    expect((await api("getMyName")).result).toEqual({ name: "echo" });
+    await api("setMyDescription", { description: "Says it back" });
+    expect((await api("getMyDescription")).result).toEqual({ description: "Says it back" });
+    await api("setMyShortDescription", { short_description: "Echoes" });
+    expect((await api("getMyShortDescription")).result).toEqual({ short_description: "Echoes" });
+    await api("setMyShortDescription", {});
+    expect((await api("getMyDescription")).result).toEqual({ description: "" });
+    expect(await api("setMyCommands", { commands: '{"not":"a list"}' })).toMatchObject({ ok: false, description: "Bad Request: commands is required" });
+    expect(await api("setMyCommands", { commands: [{ command: "/start", description: "Begin" }] })).toEqual({ ok: true, result: true });
+    expect((await api("getMyCommands")).result).toEqual([{ command: "start", description: "Begin" }]);
+    expect(await api("deleteMyCommands")).toEqual({ ok: true, result: true });
+    expect((await api("getMyCommands")).result).toEqual([]);
+    expect(await api("logOut")).toEqual({ ok: true, result: true });
+    expect(await api("close")).toEqual({ ok: true, result: true });
+    expect(await api("answerCallbackQuery", { callback_query_id: "x" })).toEqual({ ok: true, result: true });
+  });
+});
