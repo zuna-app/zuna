@@ -396,14 +396,15 @@ describe("a leaf's certificate", () => {
   it("is replaced at the next commit, and tells everyone in the group about the rotation", async () => {
     const dave = await person("dave");
     const groupId = await groupWith(alice, [dave]);
-    await dave.session.rotate();
     const leaf = () => {
       const session = sessionOf(alice);
       const members = session.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
       return members.map((member) => parseCertificate(member.credential)!).find((cert) => cert.userId === dave.userId)!;
     };
     expect(leaf().generation).toBe(0);
-    expect(sessionOf(dave).leafIsBehind(groupId)).toBe(true);
+    await dave.session.rotate();
+    // Dave's next commit carries the new one: this send's, or his app's as it syncs the group, which a slow
+    // machine may come to first.
     dave.session.sendMessage(`group:${groupId}`, { text: "new certificate" });
     await waitFor(() => alice.texts(`group:${groupId}`).includes("new certificate"), "delivery");
     expect(leaf().generation).toBe(1);
