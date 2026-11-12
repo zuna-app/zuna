@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildServer } from "./server-binary";
 import { startJunkProxy } from "./junk-proxy";
+import { Recorder, SocksProxy, socksConnector } from "./socks-proxy";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { Agent, buildConnector, setGlobalDispatcher } from "undici";
@@ -135,6 +136,16 @@ function deviceKeyIn(dir: string): Uint8Array {
   return key;
 }
 
+/**
+ * With ZUNA_TEST_SOCKS, every connection an app makes goes through a SOCKS5 proxy of the
+ * test's own, signed in to with a password (socks-proxy.ts), and every server stands behind a
+ * door that writes down where each connection came from: a server stopping having seen one
+ * the proxy didn't open fails the test. Tests' own requests, which stand for a server's
+ * visitors and attackers, go through it too, but for the check that a server is up.
+ */
+export const testSocks = process.env.ZUNA_TEST_SOCKS ? await new SocksProxy({ username: "zuna", password: "a proxy's password" }).start() : null;
+const socksAddress = testSocks ? { host: testSocks.host, port: testSocks.port, username: "zuna", password: "a proxy's password" } : null;
+
 /** The server, built once by global-setup.ts for a run, or here, once per process, without it. */
 let built: string | undefined;
 const serverBinary = (): string => (built ??= process.env.ZUNA_TEST_SERVER_BINARY ?? buildServer());
@@ -159,6 +170,9 @@ export class TestServer {
   private process: ChildProcess | null = null;
   private dir = "";
   private stopProxy: (() => Promise<void>) | null = null;
+  private door: Recorder | null = null;
+  /** Where the server itself listens, past whatever stands in front of it. */
+  private backend = "";
 
   /**
    * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
@@ -166,10 +180,26 @@ export class TestServer {
    * `ownCertificate` has it reached by its IP address, with a certificate it makes itself, which its links pin.
    * `presenceLinger` is how long, in ms, someone shows as online after they stop using an app, instead of 5 s.
    * `tokenScale` is how many times over someone is issued a period's tokens, for a run that signs one person in on a new device again and again.
+   * `recorded` puts it behind a door that writes down where each connection came from (`recorder`), as ZUNA_TEST_SOCKS puts every server.
+   * `byName` has it reached as localhost rather than by its address.
    */
   constructor(
-    private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number; tokenScale?: number } = {},
+    private readonly options: {
+      pushRelays?: string[];
+      liveKit?: string;
+      sqlite?: boolean;
+      ownCertificate?: boolean;
+      presenceLinger?: number;
+      tokenScale?: number;
+      recorded?: boolean;
+      byName?: boolean;
+    } = {},
   ) {}
+
+  /** The door in front of it, with `recorded` or ZUNA_TEST_SOCKS. */
+  get recorder(): Recorder | null {
+    return this.door;
+  }
 
   async start(): Promise<void> {
     const binary = serverBinary();
@@ -187,8 +217,9 @@ export class TestServer {
   private async startOn(binary: string, port: number): Promise<void> {
     // With ZUNA_TEST_JUNK_SENDERS, apps reach it through a proxy that says nothing true about who sent what (junk-proxy.ts).
     const junk = !!process.env.ZUNA_TEST_JUNK_SENDERS && !this.options.ownCertificate;
-    const reached = junk ? port + 1 : port;
-    this.url = `${this.options.ownCertificate ? "https" : "http"}://127.0.0.1:${reached}`;
+    const scheme = this.options.ownCertificate ? "https" : "http";
+    let reached = junk ? port + 1 : port;
+    this.backend = `${scheme}://127.0.0.1:${port}`;
     if (junk) {
       try {
         this.stopProxy = await startJunkProxy(`http://127.0.0.1:${port}`, reached);
@@ -196,6 +227,12 @@ export class TestServer {
         throw new PortTaken(String(error));
       }
     }
+    // With ZUNA_TEST_SOCKS, behind a door that writes down where each connection came from.
+    if (testSocks || this.options.recorded) {
+      this.door = await new Recorder().start({ host: "127.0.0.1", port: reached });
+      reached = this.door.port;
+    }
+    this.url = `${scheme}://${this.options.byName ? "localhost" : "127.0.0.1"}:${reached}`;
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     if (this.options.ownCertificate) args.push("--domain", "127.0.0.1");
     // Never the project's real relay, which is the default.
@@ -226,12 +263,14 @@ export class TestServer {
       const match = output.match(/https?:\/\/\S+\/invite\/\S+/);
       if (match) {
         this.setupLink = match[0];
-        if (await healthy(this.url)) return;
+        if (await healthy(this.backend)) return;
       }
       if (this.process.exitCode !== null) {
         if (/bind:/.test(output)) {
           await this.stopProxy?.();
           this.stopProxy = null;
+          await this.door?.stop();
+          this.door = null;
           throw new PortTaken(output);
         }
         break;
@@ -244,12 +283,16 @@ export class TestServer {
   async stop(): Promise<void> {
     this.process?.kill();
     await this.stopProxy?.();
+    // A test that put it behind a door itself checks what the door saw against its own proxy.
+    const strangers = testSocks && this.door && !this.options.recorded ? this.door.strangers(testSocks) : [];
+    await this.door?.stop();
     await sleep(200);
     try {
       rmSync(this.dir, { recursive: true, force: true });
     } catch {
       // Windows can hold the database file open for a moment longer.
     }
+    if (strangers.length) throw new Error(`The server was reached from ports the proxy never opened: ${strangers.join(", ")}`);
   }
 }
 
@@ -264,15 +307,19 @@ const pins = new Map<string, string>();
  */
 function pinInNode(url: string, pin: string): void {
   const { hostname, port } = new URL(url);
-  if (pins.size === 0) setGlobalDispatcher(pinnedAgent());
+  if (pins.size === 0 && !testSocks) setGlobalDispatcher(pinnedAgent());
   pins.set(`${hostname}:${port || 443}`, pin);
 }
 
-/** Connections that trust a server with a pin by its key, as the apps' hosts do. */
+/**
+ * Connections that trust a server with a pin by its key, as the apps' hosts do, and with
+ * ZUNA_TEST_SOCKS go through the test's proxy, with TLS over the proxy's connection.
+ */
 function pinnedAgent(): Agent {
-  const usual = buildConnector({});
+  const tls = (options: Parameters<typeof buildConnector>[0]) => (socksAddress ? socksConnector(socksAddress, buildConnector(options)) : buildConnector(options));
+  const usual = tls({});
   // A resumed session shows no certificate to check, so each connection starts afresh.
-  const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
+  const own = tls({ rejectUnauthorized: false, maxCachedSessions: 0 });
   return new Agent({
     connect(options, callback) {
       const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
@@ -287,6 +334,8 @@ function pinnedAgent(): Agent {
     },
   });
 }
+
+if (testSocks) setGlobalDispatcher(pinnedAgent());
 
 /** One app install, with its own device key and local databases. */
 export class TestApp {
@@ -308,7 +357,7 @@ export class TestApp {
   /** Each server it was asked to trust, and by which pin. */
   readonly pinned: [url: string, pin: string][] = [];
   /** The connections its requests that name nobody go down, apart from its session's, as the apps' hosts keep them. */
-  readonly sealedAgent = pinnedAgent();
+  sealedAgent: Agent = pinnedAgent();
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
