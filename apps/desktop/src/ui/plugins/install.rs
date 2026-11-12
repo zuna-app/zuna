@@ -52,7 +52,12 @@ impl InstallDialog {
         if let Some(plugins) = crate::plugins::get(cx) {
             plugins.update(cx, |plugins, _| plugins.cancel(id));
         }
-        self.state.update(cx, |state, cx| state.set_overlay(None, cx));
+        self.back_to_settings(cx);
+    }
+
+    /// Back where it was asked from: Settings → Plugins, which every proposal comes from.
+    fn back_to_settings(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Settings { section: Some("plugins".into()) }), cx));
     }
 
     /// Whether the warning may be agreed to yet.
@@ -66,7 +71,7 @@ impl InstallDialog {
             return;
         }
         let id = self.id;
-        self.state.update(cx, |state, cx| state.set_overlay(None, cx));
+        self.back_to_settings(cx);
         if let Some(plugins) = crate::plugins::get(cx) {
             plugins.update(cx, |plugins, cx| plugins.confirm(id, cx));
         }
@@ -85,7 +90,7 @@ impl InstallDialog {
                     .gap(px(8.))
                     .text_size(px(13.5))
                     .text_color(if danger { theme.danger_text } else { theme.text1 })
-                    .child(div().flex_none().child("•"))
+                    .child(div().flex_none().child("â€¢"))
                     .child(div().flex_1().min_w_0().when(strong, |el| el.font_weight(FontWeight::SEMIBOLD)).child(line))
                     .into_any_element()
             })
