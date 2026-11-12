@@ -179,6 +179,10 @@ fn asker() -> &'static Sender<()> {
 /// it's more than a second old. Only the first time is an answer waited for, briefly, and
 /// anything unanswered counts as no quiet.
 pub fn notification_state() -> NotificationState {
+    // Tests show every notification, whatever Focus or a full-screen app on this computer says.
+    if cfg!(test) {
+        return NotificationState { show: true, sound: true, wait_for_input: true };
+    }
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if last.is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(1)) {
         asker().send(()).ok();
