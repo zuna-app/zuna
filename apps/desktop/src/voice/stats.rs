@@ -502,3 +502,101 @@ pub fn as_text(sections: &[Section]) -> String {
         .collect::<Vec<_>>()
         .join("\n\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(key: &str, local: bool, video: bool, source: Source, numbers: &[(&'static str, f64)]) -> Sample {
+        Sample {
+            key: key.into(),
+            user_id: "u-bob".into(),
+            local,
+            video,
+            source,
+            native: true,
+            encrypted: key != "plain",
+            muted: key == "muted",
+            numbers: numbers.iter().copied().collect(),
+            texts: [("codec", "VP8".to_string()), ("encoder", "libvpx".to_string()), ("decoder", "libvpx".to_string()), ("limited", "bandwidth".to_string())].into_iter().collect(),
+        }
+    }
+
+    fn extra<'a>(share: Option<&'a ShareInfo>, native: Option<&'a serde_json::Value>) -> Extra<'a> {
+        Extra { status: "reconnecting", host: "voice.example".into(), people: 3, encrypted: true, key: Some((2, 7)), share, native, filters: "Noise suppression".into() }
+    }
+
+    #[test]
+    fn reads_every_kind_of_track_and_works_out_rates_from_the_reading_before() {
+        let first = [
+            sample("cam", true, true, Source::Camera, &[("frames_sent", 0.), ("frames_encoded", 0.), ("bytes", 0.), ("encode_time", 0.)]),
+            sample("screen", false, true, Source::Screen, &[("frames_decoded", 0.), ("frames_received", 0.), ("frames_dropped", 0.), ("lost", 0.), ("packets", 0.), ("freezes", 0.), ("decode_time", 0.), ("buffer_delay", 0.), ("buffer_emitted", 0.)]),
+            sample("mic", true, false, Source::Microphone, &[("bytes", 0.), ("packets", 0.)]),
+            sample("muted", false, false, Source::ScreenSound, &[("samples", 0.), ("concealed", 0.), ("silent_concealed", 0.), ("lost", 0.), ("packets", 0.)]),
+        ];
+        let mut reader = Reader::default();
+        let connection = Connection { round_trip: Some(0.042), allows: Some(2_500_000.) };
+        let name_of = |id: &str| if id == "u-bob" { "Bob".to_string() } else { "Someone".to_string() };
+        let sections = reader.read(&first, &connection, &extra(None, None), &name_of);
+        assert_eq!(sections.len(), 5);
+        assert_eq!(sections[0].title, "Connection");
+        assert!(sections[0].rows.iter().any(|row| row.label == "Status" && row.warn));
+        assert!(sections[0].rows.iter().any(|row| row.value == "End to end, key 2 from epoch 7"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let second = [
+            sample("cam", true, true, Source::Camera, &[("frames_sent", 30.), ("frames_encoded", 30.), ("bytes", 250_000.), ("encode_time", 0.3), ("width", 1280.), ("height", 720.), ("target_bitrate", 2_000_000.), ("key_frames", 3.), ("pli", 1.), ("huge_frames", 2.), ("packets", 1234.), ("resent", 5.), ("nack", 4.), ("fraction_lost", 0.05), ("round_trip", 0.03)]),
+            sample("screen", false, true, Source::Screen, &[("frames_decoded", 29.), ("frames_received", 30.), ("frames_dropped", 1.), ("lost", 10.), ("packets", 90.), ("freezes", 1.), ("decode_time", 0.29), ("buffer_delay", 0.5), ("buffer_emitted", 10.), ("jitter", 0.004), ("width", 1920.), ("height", 1080.)]),
+            sample("mic", true, false, Source::Microphone, &[("bytes", 4000.), ("packets", 50.), ("fraction_lost", 0.001), ("target_bitrate", 32_000.), ("round_trip", 0.02)]),
+            sample("muted", false, false, Source::ScreenSound, &[("samples", 48_000.), ("concealed", 4800.), ("silent_concealed", 0.), ("lost", 3.), ("packets", 47.), ("jitter", 0.01), ("buffer_delay", 1.), ("buffer_emitted", 20.)]),
+        ];
+        let sections = reader.read(&second, &Connection::default(), &extra(None, None), &name_of);
+        let section = |id: &str| sections.iter().find(|section| section.id == id).expect("a section for each track");
+        let value = |id: &str, label: &str| section(id).rows.iter().find(|row| row.label == label).map(|row| row.value.clone());
+        assert_eq!(section("cam").title, "Your camera");
+        assert!(section("cam").headline.as_ref().unwrap().fps.unwrap() > 0.);
+        assert_eq!(value("cam", "Picture").as_deref(), Some("1280×720"));
+        assert_eq!(value("cam", "Limited by").as_deref(), Some("bandwidth"));
+        assert_eq!(value("cam", "Packets").as_deref(), Some("1,234, 5 sent again, 4 NACK"));
+        assert_eq!(value("cam", "Lost on the way").as_deref(), Some("5.00%"));
+        assert_eq!(section("screen").title, "Bob's screen");
+        assert_eq!(value("screen", "Sent through").as_deref(), Some("Their desktop app, on their graphics card"));
+        assert_eq!(value("screen", "Lost").as_deref(), Some("10, 10.0%"));
+        assert!(section("mic").audio);
+        assert_eq!(value("mic", "Cleaned up by").as_deref(), Some("Noise suppression"));
+        assert_eq!(value("mic", "Lost on the way").as_deref(), Some("0.10%"));
+        assert_eq!(section("muted").title, "Bob's shared sound");
+        assert_eq!(value("muted", "Muted").as_deref(), Some("Yes"));
+        let text = as_text(&sections);
+        assert!(text.contains("# Your camera") && text.contains("(!)"), "{text}");
+    }
+
+    #[test]
+    fn reads_this_apps_own_share() {
+        let share = ShareInfo { name: "Display 1".into(), fps: 60, kbps: 8000, height: 1080, held: vec!["frames".into()], info: Some(serde_json::json!({ "description": "Desktop Duplication, NVENC", "codec": "AV1", "e2ee": true })) };
+        let native = serde_json::json!({ "fps": 59.9, "repeatFps": 0.1, "width": 1920, "height": 1080, "kbps": 6000, "targetKbps": 7000, "encoderKbps": 6500, "encodeMsAvg": 2.5, "encodeMsMax": 9.0, "cpuCores": 0.2, "allKeys": 1234, "allKeyRequests": 2, "allBitrateChanges": 3, "rejected": 4 });
+        let mut reader = Reader::default();
+        let sections = reader.read(&[], &Connection::default(), &extra(Some(&share), Some(&native)), &|_| String::new());
+        let native = sections.iter().find(|section| section.id == "native").expect("the share's own section");
+        assert_eq!(native.headline.as_ref().unwrap().wanted, Some(60));
+        let value = |label: &str| native.rows.iter().find(|row| row.label == label).map(|row| row.value.clone());
+        assert_eq!(value("Codec").as_deref(), Some("AV1, experimental: only the desktop app opens it"));
+        assert_eq!(value("Keyframes").as_deref(), Some("1,234, 2 asked for, 3 for a new bitrate"));
+        assert_eq!(value("Bitrate").as_deref(), Some("6.0 Mbit/s"));
+        assert!(native.rows.iter().any(|row| row.label == "Frames refused" && row.warn));
+        // Unencrypted, it says so.
+        let plain = Extra { encrypted: false, key: None, ..extra(None, None) };
+        let sections = reader.read(&[], &Connection::default(), &plain, &|_| String::new());
+        assert!(sections[0].rows.iter().any(|row| row.label == "Encryption" && row.value == "Off" && row.warn));
+    }
+
+    #[test]
+    fn numbers_are_written_as_the_web_writes_them() {
+        assert_eq!(count(Some(-1234567.)).as_deref(), Some("-1,234,567"));
+        assert_eq!(count(Some(12.)).as_deref(), Some("12"));
+        assert_eq!(bits(Some(64_000.)).as_deref(), Some("64 kbit/s"));
+        assert_eq!(percent(Some(0.5)).as_deref(), Some("50.0%"));
+        assert_eq!(size(Some(0.), Some(10.)), None);
+        assert_eq!(joined(&[None, None]), None);
+        assert!(row("x", Some(String::new()), false).is_none());
+    }
+}
