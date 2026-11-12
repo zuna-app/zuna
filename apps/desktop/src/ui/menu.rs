@@ -368,3 +368,46 @@ impl MenuLayer {
     }
 }
 
+
+/// The open menu's entries, by label, for tests.
+#[cfg(test)]
+pub fn open_labels(cx: &App) -> Vec<String> {
+    cx.try_global::<MenuGlobal>()
+        .and_then(|global| global.0.read(cx).open.as_ref().map(|open| open.entries.iter().filter(|entry| !entry.separator).map(|entry| entry.label.clone()).collect()))
+        .unwrap_or_default()
+}
+
+/// Picks an entry of the open menu by its label, as a click on it does: a submenu's entries
+/// take the menu's place, and anything else closes it and runs. Says whether there was one.
+#[cfg(test)]
+pub fn choose(label: &str, window: &mut Window, cx: &mut App) -> bool {
+    let layer = menu_layer(cx);
+    let Some(entry) = layer.read(cx).open.as_ref().and_then(|open| open.entries.iter().find(|entry| entry.label == label).cloned()) else { return false };
+    layer.update(cx, |layer, cx| {
+        match (&entry.submenu, &mut layer.open) {
+            (Some(submenu), Some(open)) => open.entries = submenu.clone(),
+            _ => layer.close(),
+        }
+        cx.notify();
+    });
+    if entry.submenu.is_none() {
+        if let Some(action) = &entry.action {
+            action(window, cx);
+        }
+    }
+    true
+}
+
+/// Reacts from the open menu's quick reactions, as a click on one does.
+#[cfg(test)]
+pub fn react(index: usize, window: &mut Window, cx: &mut App) -> bool {
+    let layer = menu_layer(cx);
+    let Some((reactions, on_react)) = layer.read(cx).open.as_ref().and_then(|open| open.reactions.clone()) else { return false };
+    let Some(emoji) = reactions.get(index).copied() else { return false };
+    layer.update(cx, |layer, cx| {
+        layer.close();
+        cx.notify();
+    });
+    on_react(emoji, window, cx);
+    true
+}

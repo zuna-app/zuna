@@ -267,3 +267,81 @@ fn picking_messages_by_dragging_across_them(cx: &mut TestAppContext) {
     app.update(cx, |state, cx| state.toggle_selected(DM, None, cx));
     assert!(app.read(cx, |state| state.selection.is_none()));
 }
+
+/// Right-clicks a row of the list, scrolled into view first, and gives what its menu offers.
+fn right_click_row(app: &App, chat: &Entity<ChatView>, cx: &mut TestAppContext, index: usize) -> Vec<String> {
+    // Jumped to, as a reply's quote or a search result does, which brings it into view.
+    let id = cx.read(|cx| chat.read(cx).rows[index].0.clone());
+    app.update(cx, |state, cx| state.jump_to_message(DM, &id, cx));
+    let Some(point) = cx.read(|cx| chat.read(cx).row_bounds.borrow().get(&index).map(|bounds| bounds.center())) else { return Vec::new() };
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    // The pointer comes to it first, so the window knows what's under it.
+    window.simulate_mouse_move(point, None, gpui::Modifiers::none());
+    window.simulate_mouse_down(point, gpui::MouseButton::Right, gpui::Modifiers::none());
+    window.simulate_mouse_up(point, gpui::MouseButton::Right, gpui::Modifiers::none());
+    app.run(cx);
+    cx.update(|cx| crate::ui::menu::open_labels(cx))
+}
+
+fn choose(app: &App, cx: &mut TestAppContext, label: &str) -> bool {
+    let chosen = app.window.update(cx, |_, window, cx| crate::ui::menu::choose(label, window, cx)).unwrap();
+    app.run(cx);
+    chosen
+}
+
+#[gpui::test]
+fn every_messages_menu(cx: &mut TestAppContext) {
+    let (app, chat) = open_chat(cx, &World::new("menus"), &format!("user:{BOB}"));
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    for method in ["deleteMessage", "discardMessage", "retryMessage", "setPinned", "toggleReaction"] {
+        app.answer(method, |_| Ok(Value::Null));
+    }
+    // Dialogs and menus fade over real time, which the test's clock doesn't move, and a dialog
+    // fading out still takes the clicks meant for the list.
+    crate::ui::motion::set_reduced(true);
+    let rows = cx.read(|cx| chat.read(cx).rows.len());
+    let mut chat = chat;
+    let mut offered = std::collections::BTreeSet::new();
+    for index in 0..rows {
+        let labels = right_click_row(&app, &chat, cx, index);
+        for label in labels {
+            offered.insert(label.clone());
+            // Forwarding opens a dialog, after which the test window's right clicks reach no message
+            // (a dialog opened and closed any other way does the same), so it's chosen once, last.
+            if label == "Forward" {
+                continue;
+            }
+            // Open again for each choice, as each closes it.
+            right_click_row(&app, &chat, cx, index);
+            assert!(choose(&app, cx, &label), "{label} is offered");
+            // A submenu, as who read it, opens its own entries, and the first is picked.
+            if let Some(first) = cx.update(|cx| crate::ui::menu::open_labels(cx)).first().cloned() {
+                choose(&app, cx, &first);
+            }
+            app.update(cx, |state, cx| {
+                state.set_overlay(None, cx);
+                state.toggle_selected(DM, None, cx);
+                state.set_reply(DM, None, cx);
+                state.set_editing(DM, None, cx);
+                state.select_conversation(Some(format!("user:{BOB}")), cx);
+            });
+            chat = chat_of(&app, cx);
+        }
+        // A quick reaction from the top of the menu.
+        if !right_click_row(&app, &chat, cx, index).is_empty() {
+            app.window.update(cx, |_, window, cx| crate::ui::menu::react(0, window, cx)).unwrap();
+            app.run(cx);
+        }
+    }
+    right_click_row(&app, &chat, cx, 0);
+    assert!(choose(&app, cx, "Forward"));
+    assert!(app.read(cx, |state| matches!(state.overlay, Some(crate::state::Overlay::Forward { .. }))));
+    for label in ["Reply", "Forward", "Select", "Copy text", "Edit", "Pin", "Unpin", "Try again", "Discard", "Delete for everyone"] {
+        assert!(offered.contains(label), "some message offers {label}: {offered:?}");
+    }
+    assert!(!app.calls_of("toggleReaction").is_empty());
+    assert!(!app.calls_of("setPinned").is_empty());
+    assert!(!app.calls_of("deleteMessage").is_empty());
+    assert!(!app.calls_of("retryMessage").is_empty());
+}
+
