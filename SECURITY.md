@@ -128,7 +128,7 @@ A verified plugin was read by Zuna's team, built from its source in the open, an
 
 Voice, video and shared screens are encrypted in the app, frame by frame, with a key from the conversation's or channel's group, before they reach LiveKit, the media server. Neither it nor the Zuna server can hear or see them. That key is never stored, so a stolen account, or someone who joins later, can't open a recording.
 
-- **What the servers see.** Who's in a call or voice channel and when, as the table says. LiveKit, which knows people only by ID, also sees how much each sends and how loud they are, which is how it tells who's speaking, and that alone can hint at what's being said.
+- **What the servers see.** Who's in a call or voice channel and when, as the table says. LiveKit, which knows people only by ID, also sees how much each sends and how loud they are, which is how it tells who's speaking, and that alone can hint at what's being said. It sees each device's addresses too, and an iPhone's or a browser's system and model, which the desktop app doesn't send. The LiveKit Zuna's setup builds keeps none of that in its log, nor who was in which call. One run from LiveKit's own release keeps it all.
 - **Who can hear.** Whoever is in the conversation or channel. Someone removed can still open what's sent for about 1.5 seconds, while everyone moves to a new key.
 - **Who said it.** A member could send audio or video as another member. Nobody outside the group can.
 - **Your microphone** is processed entirely on your device.
