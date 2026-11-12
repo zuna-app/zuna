@@ -308,7 +308,7 @@ func TestRunWithADomain(t *testing.T) {
 		t.Errorf("the banner: %s", out)
 	}
 	// The redirect to HTTPS answers, for the domain alone.
-	resp, err := http.Get("http://" + http80 + "/")
+	resp, err := noRedirects.Get("http://" + http80 + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,3 +317,6 @@ func TestRunWithADomain(t *testing.T) {
 		t.Fatalf("stopping: %v", err)
 	}
 }
+
+// noRedirects is a client that stops at a redirect, as the one to HTTPS goes to a port nothing here serves.
+var noRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

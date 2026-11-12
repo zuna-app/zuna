@@ -597,3 +597,82 @@ func TestOnlySoManyVoIPTokensComeWithOnePhone(t *testing.T) {
 		t.Fatal("one phone registered endless VoIP tokens")
 	}
 }
+
+func TestWhatTheRelayCantReadOrHasNoAppleFor(t *testing.T) {
+	h := newHarness(t)
+	raw := func(path, body string) int {
+		response, err := h.client.Post(h.url+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		return response.StatusCode
+	}
+	if status := raw("/v1/register", "{not json"); status != http.StatusBadRequest {
+		t.Fatalf("broken JSON to register: %d", status)
+	}
+	if status := raw("/v1/push", "{not json"); status != http.StatusBadRequest {
+		t.Fatalf("broken JSON to push: %d", status)
+	}
+	for _, handle := range []string{"not base64!", "c2hvcnQ"} {
+		if status := h.push(handle, ""); status != http.StatusGone {
+			t.Fatalf("handle %q: %d", handle, status)
+		}
+	}
+
+	// Apple failing to say whether it knows a phone is a failure to register it.
+	h.apns.reply = func(string) (int, string) { return http.StatusInternalServerError, "InternalServerError" }
+	if status, _ := h.registerWith(map[string]any{"token": fmt.Sprintf("%064x", 99), "environment": "production", "count": 1}); status != http.StatusBadGateway {
+		t.Fatalf("Apple failing gave %d", status)
+	}
+	h.apns.reply = func(string) (int, string) { return http.StatusOK, "" }
+
+	// A relay with the same key and no APNs key opens the handles, and can't push.
+	handle := h.register(token, "production")
+	bare, err := relay.New(bytes.Repeat([]byte{7}, 32), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(bare.Handler())
+	defer server.Close()
+	for path, body := range map[string]map[string]any{
+		"/v1/register": {"token": fmt.Sprintf("%064x", 7), "environment": "production", "count": 1},
+		"/v1/push":     {"handle": handle, "data": map[string]string{"r": "x"}},
+	} {
+		data, _ := json.Marshal(body)
+		response, err := http.Post(server.URL+path, "application/json", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("%s without APNs: %d", path, response.StatusCode)
+		}
+	}
+	if _, err := relay.New([]byte("short"), nil); err == nil {
+		t.Fatal("a handle key of the wrong size was taken")
+	}
+}
+
+func TestAGonePhoneStaysGoneForADay(t *testing.T) {
+	h := newHarness(t)
+	now := time.Now()
+	h.relay.Now = func() time.Time { return now }
+	phone := fmt.Sprintf("%064x", 5)
+	handle := h.register(phone, "production")
+	h.apns.reply = func(string) (int, string) { return http.StatusGone, "Unregistered" }
+	if status := h.push(handle, ""); status != http.StatusGone {
+		t.Fatalf("a phone Apple says is gone: %d", status)
+	}
+	h.apns.reply = func(string) (int, string) { return http.StatusOK, "" }
+	sent := h.apns.sent()
+	if status := h.push(handle, ""); status != http.StatusGone || h.apns.sent() != sent {
+		t.Fatalf("pushed again: %d, Apple asked %d more times", status, h.apns.sent()-sent)
+	}
+	if status, _ := h.registerWith(map[string]any{"token": phone, "environment": "production", "count": 1}); status != http.StatusBadRequest {
+		t.Fatalf("registering a gone phone gave %d", status)
+	}
+	// A day later it may come back.
+	now = now.Add(25 * time.Hour)
+	h.register(phone, "production")
+}

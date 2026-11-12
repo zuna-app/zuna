@@ -186,7 +186,7 @@ func TestRunWithADomain(t *testing.T) {
 	go func() { done <- run(ctx, cfg, out) }()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		resp, err := http.Get("http://" + http80 + "/")
+		resp, err := noRedirects.Get("http://" + http80 + "/")
 		if err == nil {
 			resp.Body.Close()
 			break
@@ -212,3 +212,6 @@ func TestRunWithADomain(t *testing.T) {
 		t.Fatal("it ran without its data folder")
 	}
 }
+
+// noRedirects is a client that stops at a redirect, as the one to HTTPS goes to a port nothing here serves.
+var noRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
