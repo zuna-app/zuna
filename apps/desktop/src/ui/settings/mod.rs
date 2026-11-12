@@ -4,6 +4,7 @@
 mod profile;
 mod preferences;
 mod security;
+mod server_data;
 
 use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window, div, prelude::*, px};
 use serde_json::json;
@@ -16,7 +17,7 @@ use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
-const SECTIONS: [(&str, &str, &str); 8] = [
+const SECTIONS: [(&str, &str, &str); 9] = [
     ("profile", "Profile", "user-round"),
     ("privacy", "Privacy", "lock"),
     ("notifications", "Notifications", "bell"),
@@ -24,6 +25,7 @@ const SECTIONS: [(&str, &str, &str); 8] = [
     ("screen", "Screen sharing", "monitor-up"),
     ("appearance", "Appearance", "palette"),
     ("security", "Security", "shield-check"),
+    ("data", "What the server keeps", "server"),
     ("about", "About", "info"),
 ];
 
@@ -39,6 +41,9 @@ pub struct SettingsView {
     focused: Option<usize>,
     devices: Vec<DeviceView>,
     recovery_key: Option<String>,
+    /// What the server said it keeps, and which server said it.
+    server_data: Option<(String, crate::models::ServerDataExport)>,
+    loading_data: bool,
     strength: (u8, String),
     confirming_keep: bool,
     busy: bool,
@@ -95,6 +100,8 @@ impl SettingsView {
             focused: None,
             devices: Vec::new(),
             recovery_key: None,
+            server_data: None,
+            loading_data: false,
             strength: (0, String::new()),
             confirming_keep: false,
             busy: false,
@@ -105,6 +112,9 @@ impl SettingsView {
         };
         view.reset_profile(cx);
         view.load_devices(cx);
+        if view.section == "data" {
+            view.load_server_data(false, cx);
+        }
         view
     }
 
@@ -301,6 +311,7 @@ impl Render for SettingsView {
             }
             "appearance" => self.appearance(cx),
             "security" => self.security(cx),
+            "data" => self.server_data_page(cx),
             "about" => self.about(cx),
             _ => self.profile(cx),
         };
@@ -337,6 +348,8 @@ impl Render for SettingsView {
                         view.section = id_string.clone();
                         if view.section == "profile" {
                             view.reset_profile(cx);
+                        } else if view.section == "data" {
+                            view.load_server_data(false, cx);
                         }
                         cx.notify();
                     }))

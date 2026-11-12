@@ -133,6 +133,18 @@ impl World {
         server.insert("loadMedia".into(), json!({ "messages": [messages(DM)[3].clone(), messages(DM)[4].clone()], "hasMore": false }));
         server.insert("mediaCounts".into(), json!({ "photo": 1, "video": 1, "file": 1, "audio": 1, "link": 1, "voice": 1 }));
         server.insert("getDevices".into(), json!([{ "id": "d-1", "name": "This computer", "createdAt": NOW - 86_400_000.0, "current": true }, { "id": "d-2", "name": "Phone", "createdAt": NOW - 3_600_000.0 }]));
+        server.insert(
+            "exportServerData".into(),
+            json!({ "json": "{}", "fileName": "zuna-server-1.example-me-2026-11-12.json", "sections": [
+                { "id": "account", "title": "Your account", "about": "Your account's own record.", "rows": [
+                    { "label": "Username", "value": "@me", "kind": "readable" },
+                    { "label": "Profile", "value": "3.4 KB", "kind": "encrypted", "note": "Your display name, bio and the key to your picture." },
+                    { "label": "Your public keys", "value": "6.4 KB", "kind": "public" },
+                    { "label": "Password check", "value": "32 bytes", "kind": "withheld" },
+                    { "label": "Your password", "value": "Not kept", "kind": "none" }
+                ] }
+            ] }),
+        );
         server.insert("invites".into(), json!([{ "code": "abc", "maxUses": 1, "uses": 0, "createdAt": NOW, "link": "https://server-1.example/invite/abc" }]));
         server.insert("getBots".into(), json!([{ "id": BOT, "username": "helper", "displayName": "Helper", "ownerId": ME, "listed": true, "add": "anyone", "files": true, "setUp": true, "channels": [GENERAL] }]));
         server.insert("getBans".into(), json!([]));
