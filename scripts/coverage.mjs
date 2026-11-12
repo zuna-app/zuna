@@ -19,12 +19,12 @@ const SUITES = {
 };
 
 /**
- * The workspace's `npm test`, which is `vitest run`, with coverage. Measuring slows the core's tests enough that
- * ones waiting on timing fail now and then on CI's two cores, so a failed test is tried twice more: this run
- * measures, and `npm test` and ci.yml's test job are what check.
+ * The workspace's `npm test`, which is `vitest run`, with coverage. What the core logs is only shown for a test that
+ * failed, as the tests that make a server lie or go away log hundreds of warnings on purpose.
  */
 function vitest(dir) {
-  run(process.execPath, [join(root, "node_modules", "vitest", "vitest.mjs"), "run", "--coverage", "--retry=2"], { cwd: join(root, dir) });
+  const args = ["run", "--coverage", "--silent=passed-only"];
+  run(process.execPath, [join(root, "node_modules", "vitest", "vitest.mjs"), ...args], { cwd: join(root, dir) });
 }
 
 const asked = process.argv.slice(2);
