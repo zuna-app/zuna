@@ -125,6 +125,8 @@ pub fn open(gallery: Gallery, window: &Window, cx: &mut App) {
                 // What's behind shows through the shade, as Telegram's does.
                 window_background: WindowBackgroundAppearance::Transparent,
                 app_id: Some(platform::APP_ID.into()),
+                // A video keeps its frame rate with another window focused, as the main window's does.
+                inactive_frame_interval: None,
                 // Full screen has no title bar, and the compositor's shouldn't come for a moment first.
                 #[cfg(target_os = "linux")]
                 window_decorations: Some(gpui::WindowDecorations::Client),

@@ -508,6 +508,8 @@ impl NotificationCenter {
                 is_minimizable: false,
                 window_background: WindowBackgroundAppearance::Transparent,
                 app_id: Some("Zuna".into()),
+                // It never has the focus, and GPUI would draw its cards sliding 30 times a second.
+                inactive_frame_interval: None,
                 ..Default::default()
             };
             let Some(entity) = center.upgrade() else { return };

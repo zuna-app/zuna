@@ -209,6 +209,9 @@ fn main() {
                 show: cfg!(not(feature = "update-check")),
                 focus: cfg!(not(feature = "update-check")),
                 app_id: Some(platform::APP_ID.into()),
+                // GPUI draws a window that isn't focused 30 times a second at most, which is what a
+                // share watched beside a game, or a video, would then be shown at.
+                inactive_frame_interval: None,
                 // Under Wayland the compositor's title bar, through xdg-decoration, where it has
                 // one, and the app's own where it hasn't, as on GNOME.
                 #[cfg(target_os = "linux")]
