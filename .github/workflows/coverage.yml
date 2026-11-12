@@ -1,8 +1,9 @@
 name: Coverage
 
 # Measures the tests' coverage on main and sends it to Codecov, one report per suite
-# (scripts/coverage.mjs). Only pushes that change what the suites cover start it, and
-# a newer push stops one still running. It checks nothing else: CI is still ci.yml.
+# (scripts/coverage.mjs), and the native app's on Linux in a job of its own. Only pushes
+# that change what the suites cover start it, and a newer push stops one still running.
+# It checks nothing else: CI is still ci.yml.
 on:
   push:
     branches: [main]
@@ -12,6 +13,10 @@ on:
       - packages/core/**
       - packages/watch/**
       - apps/bot/**
+      - apps/desktop/**
+      - scripts/webrtc-sys.mjs
+      - scripts/ffmpeg.mjs
+      - scripts/linux-build-deps.sh
       - package-lock.json
       - scripts/coverage.mjs
       - codecov.yml
@@ -108,5 +113,61 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/bot/lcov.info
           flags: bot
+          disable_search: true
+          fail_ci_if_error: true
+
+  # The native app's tests and its screen share's, on Linux, built as ci.yml's linux job
+  # builds the packages: in Debian 12, with clang 21, which libwebrtc needs.
+  desktop:
+    runs-on: ubuntu-latest
+    container: debian:12
+    timeout-minutes: 60
+    env:
+      CC: clang-21
+      CXX: clang++-21
+      LIBCLANG_PATH: /usr/lib/llvm-21/lib
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: sh scripts/linux-build-deps.sh
+      # Codecov's uploader checks its own signature with gpg, and reads the commit with git,
+      # which won't look at a checkout another user owns, as the container's is.
+      - run: |
+          apt-get install -y --no-install-recommends gnupg
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov
+      # GPUI comes from Zuna's fork of Zed, whose repository is large to fetch.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: desktop-coverage-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-coverage-cargo-
+      - run: npm ci
+      # What the app's build needs first (CLAUDE.md): the core's bundle, the patched
+      # webrtc-sys and the pinned FFmpeg.
+      - run: node apps/desktop/core-bundle/build.mjs
+      - run: node scripts/webrtc-sys.mjs
+      - run: node scripts/ffmpeg.mjs
+      # Only the app's own code: the crypto crate it links is measured with its own tests,
+      # and the patched crates under .deps aren't Zuna's.
+      - working-directory: apps/desktop
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/coverage"
+          cargo llvm-cov --lcov --output-path "$GITHUB_WORKSPACE/coverage/desktop.lcov" --ignore-filename-regex '(^|/)(crypto|\.deps)/'
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/desktop.lcov
+          flags: desktop
           disable_search: true
           fail_ci_if_error: true
