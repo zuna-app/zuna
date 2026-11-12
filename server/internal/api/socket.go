@@ -63,6 +63,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		bye:      make(chan struct{}),
 		quiet:    user.Bot != nil,
 	}
+	// Ready goes first in the connection's queue, before the hub can put anything there, so that whatever
+	// a device is sent once it reads ready reaches it: written before the connection was added, a frame
+	// sent between the two, such as being signed out, went nowhere.
+	c.deliver(encodeEvent(Event{Type: "ready", Data: map[string]any{"now": store.Now(), "online": s.hub.Online()}}))
 	if !s.hub.add(c, user.HideLastSeen) {
 		ws.Close(websocket.StatusTryAgainLater, "too many connections")
 		return
@@ -93,10 +97,6 @@ func (s *Server) authenticateSocket(ctx context.Context, ws *websocket.Conn) (*s
 	sess, err := s.db.SessionByToken(ctx, hashToken(frame.Token))
 	if err != nil || sess.DeviceID == "" {
 		ws.Close(4401, "invalid session")
-		return nil, false
-	}
-	frameOut := encodeEvent(Event{Type: "ready", Data: map[string]any{"now": store.Now(), "online": s.hub.Online()}})
-	if err := ws.Write(authCtx, websocket.MessageText, frameOut); err != nil {
 		return nil, false
 	}
 	return sess, true
