@@ -1,7 +1,8 @@
 name: Coverage
 
 # Measures the tests' coverage on main and sends it to Codecov, one report per suite
-# (scripts/coverage.mjs), and the native app's on Linux in a job of its own. Only pushes
+# (scripts/coverage.mjs), the native app's on Linux and the iPhone app's ZunaKit on a Mac,
+# each in a job of its own. Only pushes
 # that change what the suites cover start it, and a newer push stops one still running.
 # It checks nothing else: CI is still ci.yml.
 on:
@@ -14,6 +15,9 @@ on:
       - packages/watch/**
       - apps/bot/**
       - apps/desktop/**
+      - apps/ios/**
+      - scripts/build-crypto-apple.mjs
+      - scripts/fetch-sqlite.mjs
       - scripts/webrtc-sys.mjs
       - scripts/ffmpeg.mjs
       - scripts/linux-build-deps.sh
@@ -169,5 +173,46 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/desktop.lcov
           flags: desktop
+          disable_search: true
+          fail_ci_if_error: true
+
+  # The iPhone app's host, ZunaKit, through its own tests (swift test, as npm run
+  # test:ios:check runs it), on the Mac ci.yml's ios job uses. The app's screens are only
+  # driven by its UI tests, which this doesn't measure.
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-apple-ios, aarch64-apple-ios-sim
+      - uses: ./.github/actions/wasm-bindgen
+      - run: npm ci
+      - run: npm run build:crypto
+      # The crypto core as an XCFramework, SQLite, and the core's bundle, which ZunaKit is built with.
+      - run: npm run build:ios
+      - run: swift test --package-path apps/ios/ZunaKit --enable-code-coverage
+      # Only ZunaKit's own Swift: not the bindings UniFFI writes, SQLite's source, or the tests.
+      - run: |
+          bin=$(swift build --package-path apps/ios/ZunaKit --show-bin-path)
+          mkdir -p coverage
+          xcrun llvm-cov export -format=lcov \
+            -instr-profile "$bin/codecov/default.profdata" \
+            "$bin/ZunaKitPackageTests.xctest/Contents/MacOS/ZunaKitPackageTests" \
+            -ignore-filename-regex '(\.build|/Tests|/Generated|/CSQLite)/' > coverage/ios.lcov
+          test -s coverage/ios.lcov
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/ios.lcov
+          flags: ios
           disable_search: true
           fail_ci_if_error: true
