@@ -7,6 +7,8 @@
 
 pub mod dialog;
 pub mod install;
+#[cfg(test)]
+mod tests;
 pub mod view;
 
 use gpui::{AnyElement, App, Div, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px};
