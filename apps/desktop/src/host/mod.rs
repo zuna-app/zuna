@@ -7,6 +7,8 @@ mod db;
 pub mod device_key;
 mod js;
 mod runtime;
+#[cfg(test)]
+mod tests;
 pub(crate) mod tls;
 pub mod web;
 
@@ -345,16 +347,4 @@ pub fn read_bytes(value: &Value) -> Option<Vec<u8>> {
     use base64::Engine;
     let encoded = value.get("$bytes").or_else(|| value.get("$blob").and_then(|blob| blob.get("bytes")))?.as_str()?;
     base64::engine::general_purpose::STANDARD.decode(encoded).ok()
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    /// The tests run from where they were built, as a development build does.
-    #[test]
-    fn a_copy_that_was_not_installed_keeps_its_data_apart() {
-        if std::env::var_os("ZUNA_DATA_DIR").is_some() {
-            return;
-        }
-        assert!(super::data_dir().ends_with("Zuna Native Dev"));
-    }
 }
