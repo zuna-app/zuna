@@ -161,13 +161,22 @@ interface Block {
   language?: string;
 }
 
+/** A string without the newlines around it. A loop, as a pattern takes far longer over a long run of them. */
+function trimNewlines(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === "\n") start++;
+  while (end > start && text[end - 1] === "\n") end--;
+  return text.slice(start, end);
+}
+
 function splitBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   const fence = /```([^\s`]*)\n?([\s\S]*?)```/g;
   let last = 0;
   const pushText = (chunk: string) => {
     if (!chunk) return;
-    const lines = chunk.replace(/^\n+|\n+$/g, "").split("\n");
+    const lines = trimNewlines(chunk).split("\n");
     let current = null as Block | null;
     for (const line of lines) {
       const isQuote = /^>\s?/.test(line);
