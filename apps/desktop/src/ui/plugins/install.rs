@@ -90,7 +90,7 @@ impl InstallDialog {
                     .gap(px(8.))
                     .text_size(px(13.5))
                     .text_color(if danger { theme.danger_text } else { theme.text1 })
-                    .child(div().flex_none().child("â€¢"))
+                    .child(div().flex_none().child("•"))
                     .child(div().flex_1().min_w_0().when(strong, |el| el.font_weight(FontWeight::SEMIBOLD)).child(line))
                     .into_any_element()
             })
