@@ -417,7 +417,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 }
 
 func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
-	changes, err := s.db.ChangesAfter(r.Context(), r.PathValue("id"), queryInt(r, "after", 0), member.VisibleFromSeq, clampLimit(queryInt(r, "limit", 200), 500))
+	changes, err := s.db.ChangesAfter(r.Context(), r.PathValue("id"), queryInt(r, "after", 0), member.VisibleFromSeq, queryLimit(r, 200, 500))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -463,7 +463,7 @@ const (
 )
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
-	limit := clampLimit(queryInt(r, "limit", 50), 200)
+	limit := queryLimit(r, 50, 200)
 	groupID := r.PathValue("id")
 	var messages []*store.Message
 	var err error

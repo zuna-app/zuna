@@ -354,7 +354,7 @@ func (s *Server) handleIdentityLinks(w http.ResponseWriter, r *http.Request, ses
 }
 
 func (s *Server) handleVaultGet(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	items, err := s.db.VaultItems(r.Context(), sess.UserID, queryInt(r, "since", 0), clampLimit(queryInt(r, "limit", 500), 1000))
+	items, err := s.db.VaultItems(r.Context(), sess.UserID, queryInt(r, "since", 0), queryLimit(r, 500, 1000))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -393,7 +393,7 @@ func (s *Server) handleVaultOlder(w http.ResponseWriter, r *http.Request, sess *
 		writeFailure(w, err)
 		return
 	}
-	items, err := s.db.OlderVaultItems(r.Context(), sess.UserID, generation, clampLimit(queryInt(r, "limit", 500), 1000))
+	items, err := s.db.OlderVaultItems(r.Context(), sess.UserID, generation, queryLimit(r, 500, 1000))
 	if err != nil {
 		writeFailure(w, err)
 		return

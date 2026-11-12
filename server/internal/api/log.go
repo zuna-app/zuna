@@ -15,7 +15,7 @@ import (
 // (canSee). A session with no device yet, signing in, gets its own account's.
 
 func (s *Server) handleLog(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	limit := clampLimit(queryInt(r, "limit", 1000), store.MaxLogPage)
+	limit := queryLimit(r, 1000, store.MaxLogPage)
 	page, err := s.db.Log(r.Context(), sess.UserID, sess.DeviceID != "", queryInt(r, "era", 0), queryInt(r, "after", 0), limit)
 	if err != nil {
 		writeFailure(w, err)

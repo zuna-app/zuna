@@ -124,9 +124,17 @@ func queryInt(r *http.Request, key string, fallback int64) int64 {
 	return value
 }
 
-func clampLimit(value int64, max int) int {
-	if value <= 0 || value > int64(max) {
+// queryLimit is how many of something a request asks for with `limit`, or `fallback`
+// when it doesn't say, and never more than `max`.
+func queryLimit(r *http.Request, fallback, max int) int {
+	value := fallback
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if asked, err := strconv.Atoi(raw); err == nil {
+			value = asked
+		}
+	}
+	if value <= 0 || value > max {
 		return max
 	}
-	return int(value)
+	return value
 }
