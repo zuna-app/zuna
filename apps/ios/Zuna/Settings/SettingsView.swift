@@ -46,6 +46,10 @@ struct SettingsView: View {
                             SettingsLabel("Security", systemImage: "key.fill", color: Color(hex: 0x3FA772))
                         }
                         .accessibilityIdentifier(A11y.Settings.security)
+                        NavigationLink { ServerDataView(serverId: server.entry.id) } label: {
+                            SettingsLabel("What the server keeps", systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
+                        }
+                        .accessibilityIdentifier(A11y.Settings.serverData)
                     } footer: {
                         Text("These apply to \(server.entry.name). Each server you join has its own.")
                     }

@@ -355,6 +355,7 @@ enum A11y {
         static let profile = "settings.profile"
         static let privacy = "settings.privacy"
         static let security = "settings.security"
+        static let serverData = "settings.serverData"
         static let appLock = "settings.appLock"
         static let notifications = "settings.notifications"
         static let voice = "settings.voice"
