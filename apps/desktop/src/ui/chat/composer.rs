@@ -450,6 +450,7 @@ impl ChatView {
                     });
                     avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 24., online: false, rounded: false, dot_border: theme.bg3 }, cx).into_any_element()
                 }
+                Suggested::Plugin => div().size(px(24.)).flex_none().flex().items_center().justify_center().child(icon("puzzle", 16., theme.text2)).into_any_element(),
             };
             let chosen = self.selected == Some(index);
             list = list.child(

@@ -415,7 +415,7 @@ Where it differs from the plan above:
 - **`messages.decorate` needs `messages.read`,** as a decoration is made from the message.
 - **`voice.control` goes through the app's own voice,** joining, leaving, muting and deafening (`zuna.voice`), since the room is the app's and the core's `setVoiceState` alone would leave it out. `setVoiceState` is never in the table.
 - **A message a required filter held goes back in the message box,** with a toast saying which plugin didn't answer, rather than being drawn as an unsent message with retry and discard.
-- **Commands' slash names are in the manifest** (`slash`), and the message box doesn't suggest them yet.
+- **Commands' slash names are in the manifest** (`slash`), which the message box suggests after "/" beside bots' commands, with the plugin's name.
 - **An unverified plugin's menu entries say "· Unverified" in their label,** as the app's menus are text; everywhere else the mark is as planned.
 - **The marketplace's release is one, called `plugins`,** updated in place: a published version's package is never built again, as its signature, hedged, would differ. The index carries each plugin's icon as a data URL of 48 KB at most, and its summary is its manifest's description.
 - **A device with a verified plugin reads the index every six hours,** at GitHub as the app's updates do, rather than beside each check for an update.

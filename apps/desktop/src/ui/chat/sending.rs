@@ -269,10 +269,11 @@ impl ChatView {
                 let ids: Vec<&String> = if conversation.kind == "dm" { conversation.peer_id.iter().collect() } else { conversation.members.iter().map(|member| &member.user_id).collect() };
                 let bots: Vec<&UserView> = ids.into_iter().filter_map(|id| server.users.get(id)).filter(|user| user.bot.is_some() && !user.deleted && !user.banned).collect();
                 let several = bots.len() > 1;
+                // Then plugins' own, which run here rather than going to anyone.
+                let plugin_commands = crate::plugins::get(cx).map(|plugins| plugins.read(cx).slash_commands()).unwrap_or_default();
                 bots.iter()
                     .flat_map(|bot| bot.commands.iter().map(move |command| (*bot, command)))
                     .filter(|(_, command)| command.command.starts_with(query.as_str()))
-                    .take(MAX_SUGGESTIONS)
                     .map(|(bot, command)| Suggestion {
                         key: format!("{}/{}", bot.id, command.command),
                         label: format!("/{}", command.command),
@@ -281,6 +282,14 @@ impl ChatView {
                         insert: if several { format!("/{}@{} ", command.command, bot.username) } else { format!("/{} ", command.command) },
                         what: Suggested::Person(bot.clone()),
                     })
+                    .chain(plugin_commands.into_iter().filter(|(name, _, _)| name.starts_with(query.as_str())).map(|(name, title, plugin)| Suggestion {
+                        key: format!("plugin/{name}"),
+                        label: format!("/{name}"),
+                        hint: Some(format!("{title} · {plugin}")),
+                        insert: format!("/{name} "),
+                        what: Suggested::Plugin,
+                    }))
+                    .take(MAX_SUGGESTIONS)
                     .collect()
             }
             Some((_, query, _)) => {

@@ -61,6 +61,8 @@ struct StagedFile {
 enum Suggested {
     Emote(Emote),
     Person(UserView),
+    /// A plugin's slash command.
+    Plugin,
 }
 
 /// One line of autocomplete: ":name" for the server's emotes, "@name" for people.
