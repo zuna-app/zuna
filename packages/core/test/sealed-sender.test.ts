@@ -9,7 +9,7 @@ import { concat, equalBytes, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { TestApp, sleep, waitFor } from "./helpers";
 import { alice, apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 /** The send key the server holds for a group's current epoch. */
 async function heldSendKey(app: Parameters<typeof apiOf>[0], groupId: string): Promise<{ epoch: number; key: Uint8Array }> {

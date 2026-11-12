@@ -26,7 +26,7 @@ import {
   startServer,
 } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 describe("a server adding an account of its own to a conversation (Z-38)", () => {
   const addToRoster = (groupId: string, userId: string) =>

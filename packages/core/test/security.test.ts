@@ -13,7 +13,7 @@ import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate
 import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
 import { server, alice, person, apiOf, groupWith, securityEvents, ghostClient, sessionOf, startServer } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 describe("a server joining a group as someone's device (Z-01)", () => {
   it("removes a device using someone's certificate with keys of its own, and warns", async () => {

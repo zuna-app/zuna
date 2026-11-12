@@ -15,7 +15,7 @@ import { TestApp, loadCrypto, sendKeyOf, sleep, waitFor } from "./helpers";
 import { accountKeys, appendToLog, b64, entryOf, harmless, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
 import { alice, apiOf, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 const vectors = JSON.parse(readFileSync(join(__dirname, "fixtures", "log-vectors.json"), "utf8"));
 

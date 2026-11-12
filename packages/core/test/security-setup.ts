@@ -4,7 +4,7 @@
 import * as wasm from "@zuna/crypto";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll } from "vitest";
 import { Api } from "../src/api";
 import { frameSigned, sealEnvelope } from "../src/crypto";
 import { TestApp, TestServer, loadCrypto, waitFor } from "./helpers";
@@ -47,8 +47,12 @@ export function ghostClient(certificate: Uint8Array) {
   return new wasm.MlsClient(keys.publicKey, keys.secretKey, certificate, [] as unknown as any[]);
 }
 
-/** Starts the server these tests share, and what's on it, for the test file that calls this. */
-export function startServer(): void {
+/**
+ * Starts the server these tests share, and what's on it, for the test file that calls this. With `perTest`, the apps
+ * a test opened are stopped as it ends, all but alice's: every app still running does its share of each newcomer's
+ * arrival and joins every channel, so a file's last tests would otherwise wait on all its earlier people.
+ */
+export function startServer({ perTest = false }: { perTest?: boolean } = {}): void {
   beforeAll(async () => {
     loadCrypto();
     server = new TestServer({ sqlite: true });
@@ -58,6 +62,12 @@ export function startServer(): void {
     invite = await alice.session.createInvite(0, 0);
     open.push(alice);
   });
+
+  if (perTest) {
+    afterEach(() => {
+      for (const app of open.splice(1)) app.client.stop();
+    });
+  }
 
   afterAll(async () => {
     for (const app of open) app.client.stop();

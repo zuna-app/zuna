@@ -14,7 +14,7 @@ import { parseReaction } from "../src/validate";
 import { TestApp, waitFor } from "./helpers";
 import { startServer, server, alice, open, person, apiOf, groupWith, securityEvents } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 describe("signing in on a malicious server (Z-10)", () => {
   it("gives a key that's no use on the real server, whatever salt it hands out", async () => {

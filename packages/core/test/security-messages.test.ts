@@ -25,7 +25,7 @@ import {
   startServer,
 } from "./security-setup";
 
-startServer();
+startServer({ perTest: true });
 
 describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
   const isAdmin = (app: TestApp, groupId: string, userId: string): boolean => sessionOf(app).isGroupAdmin(sessionOf(app).groups.get(groupId), userId);

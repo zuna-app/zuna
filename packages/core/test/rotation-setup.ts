@@ -3,7 +3,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll } from "vitest";
 import { Api } from "../src/api";
 import { TestApp, TestServer, loadCrypto, waitFor } from "./helpers";
 
@@ -77,6 +77,13 @@ export function startServer(): void {
     invite = await alice.session.createInvite(0, 0);
     open.push(alice);
   }, 120_000);
+
+  // The apps a test opened are stopped as it ends, all but alice's: every app still running does its share of each
+  // newcomer's arrival and of each rotation it hears of, so a file's last tests would otherwise wait on all its
+  // earlier people.
+  afterEach(() => {
+    for (const app of open.splice(1)) app.client?.stop();
+  });
 
   afterAll(async () => {
     for (const app of open) app.client?.stop();
