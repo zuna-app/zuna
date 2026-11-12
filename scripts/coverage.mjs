@@ -1,6 +1,8 @@
 // Runs the test suites with coverage, each writing its report under coverage/, which the Coverage workflow sends to
 // Codecov with the suite's name as its flag. Names the suites to run, or runs them all:
-//   node scripts/coverage.mjs [server] [crypto] [core] [watch] [bot]
+//   node scripts/coverage.mjs [server] [server-postgres] [crypto] [core] [watch] [bot]
+// server-postgres runs the store's and the API's tests again, in the PostgreSQL database ZUNA_TEST_POSTGRES names, for
+// what only PostgreSQL runs, and is only run when named.
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { root, run } from "./lib.mjs";
@@ -10,6 +12,14 @@ const out = join(root, "coverage");
 const SUITES = {
   // Every package's statements, whichever package's tests reach them, as the API's tests drive the store.
   server: () => run("go", ["test", "-covermode=atomic", "-coverpkg=./...", `-coverprofile=${join(out, "server.out")}`, "./..."], { cwd: join(root, "server") }),
+  "server-postgres": () => {
+    if (!process.env.ZUNA_TEST_POSTGRES) {
+      console.error("server-postgres needs ZUNA_TEST_POSTGRES, the address of a PostgreSQL database to run the tests in.");
+      process.exit(1);
+    }
+    const profile = `-coverprofile=${join(out, "server-postgres.out")}`;
+    run("go", ["test", "-covermode=atomic", "-coverpkg=./...", profile, "./internal/store/...", "./internal/api"], { cwd: join(root, "server") });
+  },
   // Natively, as cargo-llvm-cov can't measure WebAssembly. Needs `cargo install cargo-llvm-cov` and the
   // llvm-tools-preview component.
   crypto: () => run("cargo", ["llvm-cov", "--lib", "--lcov", "--output-path", join(out, "crypto.lcov")], { cwd: join(root, "crypto") }),
@@ -35,7 +45,7 @@ if (unknown.length > 0) {
 }
 
 mkdirSync(out, { recursive: true });
-for (const name of asked.length > 0 ? asked : Object.keys(SUITES)) {
+for (const name of asked.length > 0 ? asked : Object.keys(SUITES).filter((name) => name !== "server-postgres")) {
   rmSync(join(out, name), { recursive: true, force: true });
   SUITES[name]();
 }

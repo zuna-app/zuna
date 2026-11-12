@@ -40,6 +40,19 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The server's store and API run again in PostgreSQL, for the SQL only it takes, as ci.yml's postgres job does.
+    services:
+      postgres:
+        image: postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
+        env:
+          POSTGRES_USER: zuna
+          POSTGRES_PASSWORD: zuna
+          POSTGRES_DB: zuna_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -70,6 +83,20 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/server.out
+          flags: server
+          disable_search: true
+          fail_ci_if_error: true
+
+      # Under the same flag, which Codecov adds to what SQLite covered.
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs server-postgres
+        env:
+          ZUNA_TEST_POSTGRES: postgres://zuna:zuna@localhost:5432/zuna_test?sslmode=disable
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/server-postgres.out
           flags: server
           disable_search: true
           fail_ci_if_error: true
