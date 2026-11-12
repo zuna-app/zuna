@@ -2,8 +2,9 @@ name: Coverage
 
 # Measures the tests' coverage on main and sends it to Codecov, one report per suite
 # (scripts/coverage.mjs), the native app's on Linux and the iPhone app's ZunaKit on a Mac,
-# each in a job of its own. Only pushes
-# that change what the suites cover start it, and a newer push stops one still running.
+# each in a job of its own. Only pushes that change what the suites cover start it. A run
+# that started finishes, as main moves faster than the core's suite takes, and of the
+# pushes that came meanwhile only the newest runs after it.
 # It checks nothing else: CI is still ci.yml.
 on:
   push:
@@ -29,7 +30,7 @@ on:
 
 concurrency:
   group: coverage-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # Third-party actions are pinned to full commits, since a tag can be moved.
 permissions:
