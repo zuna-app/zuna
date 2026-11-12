@@ -32,6 +32,10 @@ import (
 
 var version = "dev"
 
+// Where a server with a domain listens, for HTTPS and for the certificate authority's
+// challenges and the redirect to HTTPS. Tests move them.
+var httpsAddress, httpAddress = ":443", ":80"
+
 // The built app, copied here by scripts/build-web.mjs. A plain checkout has only
 // .gitkeep, and the program then needs --root.
 //
@@ -189,7 +193,7 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 	scheme := "http"
 	switch {
 	case cfg.domain != "":
-		listenAddress = ":443"
+		listenAddress = httpsAddress
 		scheme = "https"
 		if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 			return fmt.Errorf("creating data folder: %w", err)
@@ -199,10 +203,10 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 			HostPolicy: autocert.HostWhitelist(cfg.domain),
 			Cache:      autocert.DirCache(filepath.Join(cfg.dataDir, "certs")),
 		}
-		httpServer.Addr = ":443"
+		httpServer.Addr = httpsAddress
 		httpServer.TLSConfig = manager.TLSConfig()
 		redirect := &http.Server{
-			Addr:              ":80",
+			Addr:              httpAddress,
 			Handler:           manager.HTTPHandler(nil),
 			ReadHeaderTimeout: 10 * time.Second,
 		}

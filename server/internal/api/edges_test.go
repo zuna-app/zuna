@@ -352,3 +352,79 @@ func TestAccountsThatArentRight(t *testing.T) {
 		{"a welcome ID that isn't a number", http.StatusBadRequest, w.status("DELETE", "/api/welcomes/abc", w.bob, nil)},
 	})
 }
+
+func TestThingsThatArentThere(t *testing.T) {
+	w := edgeWorld(t)
+	h := w.h
+	nobody := store.NewID()
+	dm := "/api/sealed/groups/" + w.dm.ID + "/messages/"
+	sealed := func(method, path string, item ed25519.PrivateKey, body any) func() int {
+		return func() int {
+			status, _ := h.sealedDo(method, path, w.bob.sealedAs(w.dm.ID, 1, item), body, nil)
+			return status
+		}
+	}
+	notFound := http.StatusNotFound
+	run(t, []expect{
+		{"someone", notFound, w.status("GET", "/api/users/"+nobody, w.bob, nil)},
+		{"someone's role", notFound, w.status("PUT", "/api/admin/users/"+nobody+"/role", w.owner, map[string]any{"role": "admin"})},
+		{"banning someone", notFound, w.status("POST", "/api/admin/users/"+nobody+"/ban", w.owner, nil)},
+		{"unbanning someone", notFound, w.status("POST", "/api/admin/users/"+nobody+"/unban", w.owner, nil)},
+		{"a file", notFound, w.status("GET", "/api/files/"+nobody, w.bob, nil)},
+		{"a part of a file", notFound, w.status("GET", "/api/files/"+nobody+"/chunks/0", w.bob, nil)},
+		{"finishing a file", notFound, w.status("POST", "/api/files/"+nobody+"/complete", w.bob, map[string]any{})},
+		{"a bot", notFound, w.status("PATCH", "/api/bots/"+nobody, w.owner, map[string]any{"listed": false})},
+		{"a bot's setup", notFound, w.status("POST", "/api/bots/"+nobody+"/setup", w.owner, nil)},
+		{"deleting a bot", notFound, w.status("DELETE", "/api/bots/"+nobody, w.owner, nil)},
+		{"a bot's channels", notFound, w.status("PUT", "/api/bots/"+nobody+"/channels", w.owner, map[string]any{"channels": []string{}})},
+		{"a sound", notFound, w.status("PATCH", "/api/sounds/"+nobody, w.owner, map[string]any{"details": []byte("x")})},
+		{"deleting a sound", notFound, w.status("DELETE", "/api/sounds/"+nobody, w.owner, nil)},
+		{"a channel", notFound, w.status("PATCH", "/api/channels/"+nobody, w.owner, map[string]any{"details": []byte("x")})},
+		{"deleting a channel", notFound, w.status("DELETE", "/api/channels/"+nobody, w.owner, nil)},
+		{"joining a channel", notFound, w.status("POST", "/api/channels/"+nobody+"/join", w.bob, map[string]any{"proof": []byte("p")})},
+		{"a device", notFound, w.status("DELETE", "/api/devices/"+nobody, w.bob, nil)},
+		{"an invite", notFound, w.status("DELETE", "/api/invites/nothing-like-it", w.owner, nil)},
+		{"someone's key packages, which are none", http.StatusOK, w.status("POST", "/api/users/"+nobody+"/key-packages/claim", w.owner, map[string]any{"group_id": w.group.ID})},
+		{"a history grant, gone already", http.StatusOK, w.status("DELETE", "/api/history-grants/999999", w.bob, nil)},
+		{"a welcome, gone already", http.StatusOK, w.status("DELETE", "/api/welcomes/999999", w.bob, nil)},
+		{"a message", notFound, w.status("GET", "/api/groups/"+w.dm.ID+"/messages/"+nobody, w.bob, nil)},
+		{"editing a message", notFound, sealed("PUT", dm+nobody, itemSecretFor(nobody), map[string]any{"envelope": []byte("e")})},
+		{"deleting a message", notFound, sealed("DELETE", dm+nobody, itemSecretFor(nobody), map[string]any{"deletion": []byte("d")})},
+		{"pinning a message", notFound, sealed("PUT", dm+nobody+"/pin", nil, map[string]any{"pin": []byte("p")})},
+		{"reacting to a message", notFound, sealed("POST", dm+nobody+"/reactions", nil, map[string]any{"id": store.NewID(), "data": []byte("r"), "item_key": itemKeyFor(nobody)})},
+		{"a reaction", notFound, sealed("DELETE", dm+w.message.ID+"/reactions/"+nobody, itemSecretFor(nobody), nil)},
+		{"moderating a message", notFound, w.status("DELETE", "/api/groups/"+w.group.ID+"/messages/"+nobody, w.owner, map[string]any{"epoch": 1, "deletion": []byte("d")})},
+	})
+}
+
+func TestThingsThatAreThereAlready(t *testing.T) {
+	w := edgeWorld(t)
+	h := w.h
+	id := store.NewID()
+	w.owner.send(w.dm.ID, 1, id)
+	h.sealedMust("DELETE", "/api/sealed/groups/"+w.dm.ID+"/messages/"+id, w.owner.sealedAs(w.dm.ID, 1, itemSecretFor(id)), map[string]any{"deletion": []byte("gone")}, nil)
+	run(t, []expect{
+		{"a username that's taken", http.StatusConflict, func() int {
+			status, _ := h.do("POST", "/api/auth/register", "", map[string]any{
+				"invite_code": w.owner.newInvite(), "username": "BOB",
+				"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
+				"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
+				"slots": newSlots(), "identity_key": lastingShape(1), "hpke_key": hpkeShape(2),
+				"hpke_key_sig": bytesOf(hybrid.LastingSignatureSize, 3), "vault_core": []byte("vault"),
+			}, nil)
+			return status
+		}},
+		{"a message sent again with its ID, which is the same message", http.StatusCreated, func() int {
+			status, _, _ := w.owner.sendWith(w.dm.ID, 1, w.message.ID, nil)
+			return status
+		}},
+		{"editing a deleted message", http.StatusForbidden, func() int {
+			status, _ := h.sealedDo("PUT", "/api/sealed/groups/"+w.dm.ID+"/messages/"+id, w.owner.sealedAs(w.dm.ID, 1, itemSecretFor(id)), map[string]any{"envelope": []byte("e")}, nil)
+			return status
+		}},
+		{"a message for an old epoch", http.StatusConflict, func() int {
+			status, _, _ := w.owner.sendWith(w.dm.ID, 0, store.NewID(), nil)
+			return status
+		}},
+	})
+}

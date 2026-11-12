@@ -294,3 +294,26 @@ func TestKeyFilesThatCantBeReadOrWritten(t *testing.T) {
 		t.Fatal("a certificate was made from a folder")
 	}
 }
+
+func TestRunWithADomain(t *testing.T) {
+	https, http80 := freeAddress(t), freeAddress(t)
+	httpsAddress, httpAddress = https, http80
+	defer func() { httpsAddress, httpAddress = ":443", ":80" }()
+	cfg, _, err := parseFlags([]string{"-data", t.TempDir(), "-domain", "chat.example.com", "-push-relays", "off"}, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, stop := serve(t, cfg, "/invite/")
+	if !strings.Contains(out.String(), "Listening on "+https+", reachable at https://chat.example.com") {
+		t.Errorf("the banner: %s", out)
+	}
+	// The redirect to HTTPS answers, for the domain alone.
+	resp, err := http.Get("http://" + http80 + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if err := stop(); err != nil {
+		t.Fatalf("stopping: %v", err)
+	}
+}

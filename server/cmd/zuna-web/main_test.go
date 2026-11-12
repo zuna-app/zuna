@@ -174,3 +174,41 @@ func TestBanner(t *testing.T) {
 		t.Fatalf("every address: %s", out)
 	}
 }
+
+func TestRunWithADomain(t *testing.T) {
+	https, http80 := freeAddress(t), freeAddress(t)
+	httpsAddress, httpAddress = https, http80
+	defer func() { httpsAddress, httpAddress = ":443", ":80" }()
+	cfg, _, _ := parseFlags([]string{"-root", app(t), "-domain", "web.example.com", "-data", filepath.Join(t.TempDir(), "data")}, env(nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	out := &buffer{}
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, cfg, out) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := http.Get("http://" + http80 + "/")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("stopping: %v", err)
+	}
+	if !strings.Contains(out.String(), "open https://web.example.com") {
+		t.Errorf("the banner: %s", out)
+	}
+
+	// A data folder it can't make stops it.
+	file := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(file, []byte("x"), 0o600)
+	cfg.dataDir = filepath.Join(file, "data")
+	if err := run(context.Background(), cfg, &buffer{}); err == nil {
+		t.Fatal("it ran without its data folder")
+	}
+}

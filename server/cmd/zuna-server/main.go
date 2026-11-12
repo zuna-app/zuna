@@ -27,6 +27,10 @@ import (
 
 var version = "dev"
 
+// Where a server with a domain listens, for HTTPS and for the certificate authority's
+// challenges and the redirect to HTTPS. Tests move them.
+var httpsAddress, httpAddress = ":443", ":80"
+
 // defaultPushRelay is the project's push relay, which the published Zuna app
 // registers with (docs/PUSH_RELAY.md). It only ever sees sealed pushes.
 const defaultPushRelay = "https://relay.zuna.chat"
@@ -269,16 +273,16 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 		httpServer.TLSConfig = serverTLS(certificate)
 		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
 	case cfg.domain != "":
-		listenAddress = ":443"
+		listenAddress = httpsAddress
 		manager := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
 			HostPolicy: autocert.HostWhitelist(cfg.domain),
 			Cache:      autocert.DirCache(filepath.Join(cfg.dataDir, "certs")),
 		}
-		httpServer.Addr = ":443"
+		httpServer.Addr = httpsAddress
 		httpServer.TLSConfig = manager.TLSConfig()
 		redirect := &http.Server{
-			Addr:              ":80",
+			Addr:              httpAddress,
 			Handler:           manager.HTTPHandler(nil),
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
