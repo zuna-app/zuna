@@ -124,3 +124,34 @@ fn draws_toasts_and_what_the_core_says(cx: &mut TestAppContext) {
         app.event(cx, event);
     }
 }
+
+#[gpui::test]
+fn draws_every_section_of_settings_and_of_a_servers(cx: &mut TestAppContext) {
+    let app = open(cx, "settings");
+    app.update(cx, |state, cx| state.select_server(SERVER, cx));
+    for section in ["profile", "privacy", "notifications", "voice", "screen", "appearance", "security", "about"] {
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some(section.into()) }), cx));
+    }
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+    for section in ["overview", "invites", "members", "reports", "bans", "emotes", "soundboard", "storage", "screen", "bots", "leave", "delete"] {
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some(section.into()) }), cx));
+    }
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+}
+
+#[gpui::test]
+fn draws_onboarding_without_a_server(cx: &mut TestAppContext) {
+    let mut world = World::new("onboarding");
+    world.client.insert("listServers".into(), json!([]));
+    let app = App::open(cx, &world);
+    cx.read(|cx| assert!(app.state.read(cx).servers.is_empty()));
+    app.update(cx, |state, cx| state.set_overlay(Some(Overlay::AddServer { link: Some("https://server-9.example/invite/xyz#k=abc".into()), sign_in_url: None }), cx));
+}
+
+#[gpui::test]
+fn draws_a_core_that_wont_start(cx: &mut TestAppContext) {
+    let mut world = World::new("failed");
+    world.client.remove("listServers");
+    let app = App::open(cx, &world);
+    cx.read(|cx| assert!(matches!(app.state.read(cx).phase, Phase::Failed(_))));
+}

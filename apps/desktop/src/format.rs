@@ -282,3 +282,107 @@ pub fn accuracy_text(meters: f64) -> String {
 pub fn map_link(lat: f64, lon: f64) -> String {
     format!("https://www.openstreetmap.org/?mlat={lat:.6}&mlon={lon:.6}#map=16/{lat:.6}/{lon:.6}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINUTE: f64 = 60_000.;
+    const HOUR: f64 = 60. * MINUTE;
+    const DAY: f64 = 24. * HOUR;
+
+    #[test]
+    fn times_and_days_are_said_relative_to_today() {
+        let now = now_ms();
+        assert!(same_day(now, now));
+        assert!(!same_day(now, now - 3. * DAY));
+        assert!(format_stamp(now).starts_with("Today at "));
+        assert!(format_stamp(now - DAY).starts_with("Yesterday at "));
+        assert!(format_stamp(now - 10. * DAY).contains('/'));
+        assert_eq!(format_day_separator(now), "Today");
+        assert_eq!(format_day_separator(now - DAY), "Yesterday");
+        assert!(!format_day_separator(now - 3. * DAY).is_empty());
+        assert!(format_day_separator(now - 400. * DAY).contains(','));
+        assert_eq!(format_list_time(0.), "");
+        assert_eq!(format_list_time(now), format_time(now));
+        assert_eq!(format_list_time(now - 3. * DAY).len(), 3, "a weekday's short name");
+        assert!(format_list_time(now - 30. * DAY).contains(' '));
+        assert!(format_day(now).contains(','));
+        assert!(format_full(now).contains(", "));
+        assert!(format_time(now).contains(':'));
+    }
+
+    #[test]
+    fn last_seen_is_worded_as_telegram_words_it() {
+        let now = now_ms();
+        assert_eq!(format_last_seen(Some(now), true, false), "last seen recently");
+        assert_eq!(format_last_seen(None, false, false), "last seen a long time ago");
+        assert_eq!(format_last_seen(Some(now), false, false), "last seen just now");
+        assert_eq!(format_last_seen(Some(now - MINUTE), false, false), "last seen 1 minute ago");
+        assert_eq!(format_last_seen(Some(now - 5. * MINUTE), false, false), "last seen 5 minutes ago");
+        assert_eq!(format_last_seen(Some(now - HOUR - MINUTE), false, false), "last seen 1 hour ago");
+        assert_eq!(format_last_seen(Some(now - 3. * HOUR), false, false), "last seen 3 hours ago");
+        assert!(format_last_seen(Some(now), false, true).starts_with("last seen today at"));
+        assert!(format_last_seen(Some(now - DAY), false, true).starts_with("last seen yesterday at"));
+        assert!(format_last_seen(Some(now - 5. * DAY), false, true).contains(" at "));
+        assert!(!format_last_seen(Some(now - 5. * DAY), false, false).contains(" at "));
+    }
+
+    #[test]
+    fn last_seen_changes_at_the_next_minute_hour_or_midnight() {
+        let now = now_ms();
+        assert_eq!(last_seen_changes_in(None, false), None);
+        assert_eq!(last_seen_changes_in(Some(now), true), None);
+        assert!(last_seen_changes_in(Some(now - 30_000.), false).unwrap() <= std::time::Duration::from_secs(61));
+        assert!(last_seen_changes_in(Some(now - 2. * HOUR), false).unwrap() <= std::time::Duration::from_secs(3601));
+        assert!(last_seen_changes_in(Some(now - 20. * HOUR), false).unwrap() <= std::time::Duration::from_secs(86_401));
+    }
+
+    #[test]
+    fn sizes_lengths_and_waits() {
+        assert_eq!(format_bytes(512.), "512 B");
+        assert_eq!(format_bytes(1536.), "1.5 KB");
+        assert_eq!(format_bytes(150. * 1024. * 1024.), "150 MB");
+        assert_eq!(format_bytes(5. * 1024f64.powi(5)), "5120 TB");
+        assert_eq!(format_duration(75.4), "1:15");
+        assert_eq!(format_duration(-3.), "0:00");
+        assert_eq!(wait_text(24), "0:24");
+        assert_eq!(wait_text(299), "4:59");
+        assert_eq!(wait_text(7199), "1:59:59");
+    }
+
+    #[test]
+    fn initials_and_colors_follow_the_name() {
+        assert_eq!(initials_of("ada lovelace"), "AL");
+        assert_eq!(initials_of("  ada  "), "A");
+        assert_eq!(initials_of("ada byron lovelace"), "AL");
+        assert_eq!(initials_of(""), "?");
+        assert_eq!(avatar_color("ada"), avatar_color("ada"));
+        assert_ne!(name_color("x"), "");
+        // The web's hash: "a" is 97, which is 1 of the 8.
+        assert_eq!(avatar_color("a"), AVATAR_COLORS[97 % 8]);
+    }
+
+    #[test]
+    fn timers_say_their_largest_whole_unit() {
+        assert_eq!(timer_text(0.), "Off");
+        assert_eq!(timer_text(1.), "1 second");
+        assert_eq!(timer_text(90.), "90 seconds");
+        assert_eq!(timer_text(3600.), "1 hour");
+        assert_eq!(timer_text(2. * 86_400.), "2 days");
+        assert_eq!(timer_text(14. * 86_400.), "2 weeks");
+        assert_eq!(timer_text(30. * 86_400.), "1 month");
+        assert_eq!(timer_change_text("Ann", 86_400.), "Ann set messages to disappear after 1 day");
+        assert_eq!(timer_change_text("Ann", 0.), "Ann turned off disappearing messages");
+    }
+
+    #[test]
+    fn places_are_written_and_linked() {
+        assert_eq!(coordinates_text(52.2297, -21.0122), "52.22970° N, 21.01220° W");
+        assert_eq!(coordinates_text(-1., 2.), "1.00000° S, 2.00000° E");
+        assert_eq!(accuracy_text(0.2), "Within 1 m");
+        assert_eq!(accuracy_text(1500.), "Within 1.5 km");
+        assert_eq!(accuracy_text(25_000.), "Within 25 km");
+        assert_eq!(map_link(1., 2.), "https://www.openstreetmap.org/?mlat=1.000000&mlon=2.000000#map=16/1.000000/2.000000");
+    }
+}
