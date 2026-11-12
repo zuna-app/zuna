@@ -1,7 +1,7 @@
 // Test harness: a real Go server plus real clients, in-memory local databases.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, get as httpGet } from "node:http";
 import { get as httpsGet } from "node:https";
@@ -177,7 +177,7 @@ export class TestServer {
     // A random port, and another if that one turns out to be taken.
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.startOn(binary, 20000 + Math.floor(Math.random() * 20000));
+        return await this.startOn(binary, 20000 + randomInt(20000));
       } catch (error) {
         if (!(error instanceof PortTaken) || attempt === 5) throw error;
       }
