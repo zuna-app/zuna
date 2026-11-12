@@ -167,6 +167,7 @@ export function ensureLiveKit() {
     ["zuna-protocol/logger/zaputil/zuna.go", "func (e zunaEncoder) EncodeEntry"],
     ["pkg/service/server.go", "zunaRecovery(),"],
     ["cmd/server/main.go", '"-zuna." + zunaPatch'],
+    ["pkg/service/roommanager.go", "Zuna: apps are given no outside STUN servers"],
   ];
   for (const [file, mark] of reached) {
     if (!readFileSync(join(source, file), "utf8").includes(mark)) throw new Error(`${patch} didn't reach ${file} in LiveKit ${tag}`);

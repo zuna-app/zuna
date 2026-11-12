@@ -226,6 +226,21 @@ index 0000000..73c3a10
 +		}
 +	}
 +}
+diff --git a/pkg/service/roommanager.go b/pkg/service/roommanager.go
+index 6a70c6b..c511fb9 100644
+--- a/pkg/service/roommanager.go
++++ b/pkg/service/roommanager.go
+@@ -1153,7 +1153,9 @@ func (r *RoomManager) iceServersForParticipant(apiKey string, participant types.
+ 	}
+ 
+ 	if !hasSTUN {
+-		iceServers = append(iceServers, iceServerForStunServers(rtcconfig.DefaultStunServers))
++		// Zuna: apps are given no outside STUN servers, which would each learn the address of
++		// every device that joins. The server learns an app's address from what arrives.
++		_ = rtcconfig.DefaultStunServers
+ 	}
+ 	return iceServers
+ }
 diff --git a/pkg/service/server.go b/pkg/service/server.go
 index 421ed58..27b6339 100644
 --- a/pkg/service/server.go

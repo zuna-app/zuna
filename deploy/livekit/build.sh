@@ -56,6 +56,7 @@ reached zuna-protocol/logger/zaputil/zaputil.go 'zunaCore{zapcore.NewCore'
 reached zuna-protocol/logger/zaputil/zuna.go 'func (e zunaEncoder) EncodeEntry'
 reached pkg/service/server.go 'zunaRecovery(),'
 reached cmd/server/main.go '"-zuna." + zunaPatch'
+reached pkg/service/roommanager.go 'Zuna: apps are given no outside STUN servers'
 # A logger of LiveKit's own that writes past the encoder, which these would make.
 if grep -rnE --include='*.go' '\.(WithTee|ToZap|FromZapLogger)\(' pkg cmd | grep -v '_test\.go:'; then
   echo "LiveKit $tag logs past Zuna's filter in the lines above" >&2
