@@ -31,7 +31,11 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const app of [phone, bob]) app?.client.stop();
   await server?.stop();
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  try {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Windows can hold a database file open for a moment longer.
+  }
 });
 
 const dmId = () => bob.session.getConversations().find((item) => item.key === `user:${phone.userId}`)!.groupId!;
