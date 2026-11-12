@@ -1,4 +1,4 @@
-import type { DeviceView } from "@zuna/core";
+import type { DeviceView, ServerDataExport, ServerDataKind } from "@zuna/core";
 import {
   Bell,
   Camera,
@@ -6,12 +6,15 @@ import {
   Mic,
   MonitorUp,
   Copy,
+  Download,
   Info,
   KeyRound,
   Laptop,
   Lock,
   LogOut,
   Palette,
+  RefreshCw,
+  Server,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -49,6 +52,7 @@ const SECTIONS = [
   { id: "screen", label: "Screen sharing", icon: MonitorUp },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "security", label: "Security", icon: ShieldCheck },
+  { id: "data", label: "What the server keeps", icon: Server },
   { id: "about", label: "About", icon: Info },
 ] as const;
 
@@ -460,6 +464,82 @@ function SecuritySection() {
   );
 }
 
+const DATA_TAGS: Record<ServerDataKind, string> = {
+  readable: "Readable",
+  encrypted: "Encrypted",
+  public: "Public",
+  withheld: "Left out",
+  none: "Not kept",
+};
+
+/** Everything the server says it keeps about the account, in the core's plain words, and saved as its own answer. */
+function ServerDataSection() {
+  const session = useApp((state) => state.session);
+  const server = useActiveServer();
+  const [data, setData] = useState<{ serverId: string; export: ServerDataExport } | null>(null);
+  const { busy, run } = useAction();
+  const serverId = server?.entry.id;
+  const ask = () => serverId && run(async () => setData({ serverId, export: await session().exportServerData() }));
+  useEffect(() => {
+    void ask();
+    // Asked again only for another server, or by the button.
+  }, [serverId]);
+  if (!server) return null;
+  const shown = data && data.serverId === serverId ? data.export : null;
+  const save = (exported: ServerDataExport) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([exported.json], { type: "application/json" }));
+    link.download = exported.fileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 30_000);
+  };
+  return (
+    <>
+      <h1>What the server keeps</h1>
+      <p className="settings-lead">
+        Everything {server.entry.name} keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        {shown && (
+          <button className="btn btn-primary" onClick={() => save(shown)}>
+            <Download size={15} /> Save as file
+          </button>
+        )}
+        <button className="btn" disabled={busy} onClick={() => void ask()}>
+          {busy ? <Spinner /> : <RefreshCw size={14} />} {shown ? "Ask again" : "Ask the server"}
+        </button>
+      </div>
+      {shown?.sections.map((section) => (
+        <section key={section.id} className="data-section">
+          <h3>{section.title}</h3>
+          <p>{section.about}</p>
+          <div className="data-rows">
+            {section.rows.map((row, index) => (
+              <div key={index} className="data-row">
+                <span className="grow" style={{ minWidth: 0 }}>
+                  <b>{row.label}</b>
+                  {row.note && <span className="data-note">{row.note}</span>}
+                </span>
+                <span className="data-value">
+                  <span className="selectable">{row.value}</span>
+                  <span className={`data-tag is-${row.kind}`}>{DATA_TAGS[row.kind]}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+      {shown && (
+        <p className="data-footnote">
+          This is what {server.entry.name} says it keeps. A server someone changed could keep more than it says, which is why what matters is encrypted on your devices before it's sent.
+        </p>
+      )}
+    </>
+  );
+}
+
 function AboutSection() {
   const server = useActiveServer();
   const open = (url: string) => platform.openExternal(url);
@@ -503,6 +583,7 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
       {section === "screen" && <ScreenSettingsSection />}
       {section === "appearance" && <AppearanceSection />}
       {section === "security" && <SecuritySection />}
+      {section === "data" && <ServerDataSection />}
       {section === "about" && <AboutSection />}
       {section === "profile" && (
         <>

@@ -608,6 +608,15 @@ async function runIn(name) {
     const deviceName = await second.locator(".device-row", { hasText: "This device" }).innerText();
     check("this browser is named in Devices", /(Chrome|Firefox|Safari|Edge|Browser) on \w+/.test(deviceName), deviceName.split("\n")[0]);
     await second.screenshot({ path: prefix("06-security") });
+    // What the server keeps, in plain words, and saved as the server's own answer.
+    await second.getByText("What the server keeps", { exact: true }).first().click();
+    await second.locator(".data-section").first().waitFor({ timeout: 15_000 });
+    const usernameTag = await second.locator(".data-row", { hasText: "Username" }).first().locator(".data-tag").innerText();
+    check("What the server keeps marks what it reads apart from what it can't", usernameTag === "Readable" && (await second.locator(".data-tag", { hasText: "Encrypted" }).count()) > 0, usernameTag);
+    const [download] = await Promise.all([second.waitForEvent("download"), second.getByRole("button", { name: "Save as file" }).click()]);
+    const savedData = JSON.parse(readFileSync(await download.path(), "utf8"));
+    check("it saves the server's answer, without the sign-in checks", /^zuna-.+\.json$/.test(download.suggestedFilename()) && !!savedData.account?.id && !("auth_hash" in (savedData.sign_in ?? {})), download.suggestedFilename());
+    await second.screenshot({ path: prefix("06b-server-data") });
     await second.keyboard.press("Escape");
 
     // A browser whose data was cleared signs in again, and the history comes back from the vault.
