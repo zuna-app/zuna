@@ -3,6 +3,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { manifestParts, parseManifest, readManifestPart, joinManifestParts, manifestPartId, isManifestPart, MANIFEST_MOST_PARTS } from "../src/manifest";
+import { readRoster, rosterHash, rosterJump } from "../src/roster";
 import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
 import { utf8 } from "../src/encoding";
@@ -89,5 +90,29 @@ describe("the trust manifest", () => {
     // Missing a part, or not what the hash says.
     expect(joinManifestParts([{ ...good, parts: 2 }])).toBeNull();
     expect(joinManifestParts([{ ...good, hash: "not it" }])).toBeNull();
+  });
+});
+
+describe("a group's roster", () => {
+  const signed = (version: number, admins: string[], members: string[], by: string, prev = "") =>
+    readRoster("g", utf8(JSON.stringify({ r: JSON.stringify({ v: 1, group: "g", version, admins, members, prev, by: { userId: by, deviceId: "d" } }), s: "AAAA" })))!;
+  const context = { adminPresent: true, signerServerAdmin: false };
+
+  it("reads only what's a roster for this group", () => {
+    expect(signed(1, ["a"], ["a", "b"], "a").roster.version).toBe(1);
+    for (const bytes of [utf8("not json"), utf8(JSON.stringify({ r: 5, s: "x" })), utf8(JSON.stringify({ r: JSON.stringify({ v: 1, group: "h", version: 1, admins: [], members: [], prev: "", by: { userId: "a", deviceId: "d" } }), s: "AAAA" }))]) {
+      expect(readRoster("g", bytes)).toBeNull();
+    }
+  });
+
+  it("takes the one held again, the next, or a later one an admin made, and nothing older", () => {
+    const held = signed(2, ["a"], ["a", "b"], "a");
+    expect(rosterJump(held, held, context)).toBeNull();
+    expect(rosterJump(held, signed(2, ["b"], ["a", "b"], "b"), context)).toMatch(/another version/);
+    expect(rosterJump(held, signed(1, ["a"], ["a"], "a"), context)).toMatch(/older/);
+    expect(rosterJump(held, signed(3, ["a"], ["a"], "a", "wrong"), context)).toMatch(/doesn't follow/);
+    expect(rosterJump(held, signed(3, ["a"], ["a"], "a", rosterHash(held.bytes)), context)).toBeNull();
+    expect(rosterJump(held, signed(5, ["a"], ["a"], "a"), context)).toBeNull();
+    expect(rosterJump(held, signed(5, ["b"], ["a", "b"], "b"), context)).toMatch(/wasn't an admin/);
   });
 });
