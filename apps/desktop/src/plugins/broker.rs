@@ -209,6 +209,7 @@ impl Plugins {
                 match (spec, self.storage()) {
                     (Some(spec), Some(storage)) if spec.takes(&value) => {
                         let saved = storage.set(uid, Kind::Settings, &key, &value).map(|_| Value::Null);
+                        self.forget_decorations();
                         cx.notify();
                         saved
                     }
@@ -349,7 +350,7 @@ impl Plugins {
                 if let Some(running) = self.running.get_mut(uid) {
                     running.decorates = true;
                 }
-                self.asked.clear();
+                self.forget_decorations();
                 cx.notify();
                 Value::Null
             }),

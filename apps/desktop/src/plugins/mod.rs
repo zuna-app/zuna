@@ -1031,7 +1031,14 @@ impl Plugins {
             }
         }
         self.event(uid, "settings", json!({ "key": key, "value": value }));
+        self.forget_decorations();
         cx.notify();
+    }
+
+    /// Asks for every message's decorations again, as after a plugin's settings changed what it decorates.
+    pub(crate) fn forget_decorations(&mut self) {
+        self.decorations.clear();
+        self.asked.clear();
     }
 
     pub(crate) fn storage(&self) -> Option<&Storage> {
