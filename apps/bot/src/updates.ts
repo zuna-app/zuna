@@ -145,37 +145,43 @@ export class Updates {
   private deliverSoon(): void {
     if (this.delivering || this.stopped || !this.webhook) return;
     this.delivering = true;
-    void this.deliver().finally(() => {
-      this.delivering = false;
-    });
+    void this.deliver();
   }
 
-  /** Sends the updates waiting to the webhook, one at a time and in order, each until it's taken. */
+  /**
+   * Sends the updates waiting to the webhook, one at a time and in order, each until it's taken.
+   * It stops being busy as it finds nothing left, in the same turn, so an update kept just then
+   * starts it again rather than waiting for the next.
+   */
   private async deliver(): Promise<void> {
-    for (;;) {
-      const webhook = this.webhook;
-      const [update] = this.store.updates(0, 1);
-      if (!webhook || !update || this.stopped) return;
-      try {
-        const response = await fetch(webhook.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(webhook.secret ? { "X-Telegram-Bot-Api-Secret-Token": webhook.secret } : {}) },
-          body: JSON.stringify(update),
-          signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-        });
-        if (!response.ok) throw new Error(`Wrong response from the webhook: ${response.status} ${response.statusText}`);
-        this.store.confirm((update.update_id as number) + 1);
-        this.retryDelay = FIRST_RETRY_MS;
-        // The answer may ask for one method to be called, as Telegram's webhooks let it.
-        const answer = (await response.json().catch(() => null)) as Params | null;
-        if (answer && typeof answer.method === "string") await this.call(answer.method, answer).catch((error) => console.warn("[zuna-bot] what a webhook's answer asked for failed:", error instanceof Error ? error.message : error));
-      } catch (error) {
-        this.lastError = { at: Date.now(), message: error instanceof Error ? error.message : String(error) };
-        clearTimeout(this.retry);
-        this.retry = setTimeout(() => this.deliverSoon(), this.retryDelay);
-        this.retryDelay = Math.min(this.retryDelay * 2, LONGEST_RETRY_MS);
-        return;
+    try {
+      for (;;) {
+        const webhook = this.webhook;
+        const [update] = this.store.updates(0, 1);
+        if (!webhook || !update || this.stopped) return;
+        try {
+          const response = await fetch(webhook.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(webhook.secret ? { "X-Telegram-Bot-Api-Secret-Token": webhook.secret } : {}) },
+            body: JSON.stringify(update),
+            signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+          });
+          if (!response.ok) throw new Error(`Wrong response from the webhook: ${response.status} ${response.statusText}`);
+          this.store.confirm((update.update_id as number) + 1);
+          this.retryDelay = FIRST_RETRY_MS;
+          // The answer may ask for one method to be called, as Telegram's webhooks let it.
+          const answer = (await response.json().catch(() => null)) as Params | null;
+          if (answer && typeof answer.method === "string") await this.call(answer.method, answer).catch((error) => console.warn("[zuna-bot] what a webhook's answer asked for failed:", error instanceof Error ? error.message : error));
+        } catch (error) {
+          this.lastError = { at: Date.now(), message: error instanceof Error ? error.message : String(error) };
+          clearTimeout(this.retry);
+          this.retry = setTimeout(() => this.deliverSoon(), this.retryDelay);
+          this.retryDelay = Math.min(this.retryDelay * 2, LONGEST_RETRY_MS);
+          return;
+        }
       }
+    } finally {
+      this.delivering = false;
     }
   }
 }
