@@ -66,11 +66,20 @@ export abstract class SessionIngest extends SessionChanges {
     return this.readReactions(groupId, messageId, raw).views;
   }
 
-  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { views: ReactionView[]; mine: NonNullable<StoredBody["mine"]> } {
+  /**
+   * `waiting` says some were sealed under an epoch this device holds no key for yet, as when one comes in live
+   * before the commit that made its epoch is applied: those are left out until it does.
+   */
+  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { views: ReactionView[]; mine: NonNullable<StoredBody["mine"]>; waiting: boolean } {
     const grouped = new Map<string, ReactionView>();
     const counts = new Map<string, number>();
     const mine: NonNullable<StoredBody["mine"]> = [];
+    let waiting = false;
     for (const reaction of raw) {
+      if (!this.epochKey(groupId, reaction.epoch)) {
+        waiting = true;
+        continue;
+      }
       const opened = this.openReaction(groupId, messageId, reaction);
       if (!opened) continue;
       const count = (counts.get(opened.userId) ?? 0) + 1;
@@ -81,7 +90,7 @@ export abstract class SessionIngest extends SessionChanges {
       if (!entry.userIds.includes(opened.userId)) entry.userIds.push(opened.userId);
       grouped.set(opened.key, entry);
     }
-    return { views: [...grouped.values()], mine };
+    return { views: [...grouped.values()], mine, waiting };
   }
 
   /**
@@ -147,7 +156,9 @@ export abstract class SessionIngest extends SessionChanges {
     const existing = this.messageRow(message.group_id, message.id);
     // A pin or unpin this device couldn't check yet, such as one under keys it didn't have then, is looked at again.
     const pinUnsettled = !!existing && (existing.pinned_at === null) !== (message.pinned_at === null);
-    if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified" && !pinUnsettled) {
+    // So is one whose reactions weren't all open to it, kept as they came (`readReactions`), as the key may be here now.
+    const reactionsWaiting = !!existing?.body && !!existing.raw_reactions;
+    if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified" && !pinUnsettled && !reactionsWaiting) {
       return;
     }
     // One this device never held, and nobody can read now, has nothing to show.
@@ -218,8 +229,10 @@ export abstract class SessionIngest extends SessionChanges {
     const reactions = body ? this.readReactions(message.group_id, message.id, message.reactions) : null;
     const storedValue: StoredBody | null = body && reactions ? { ...body, reactions: reactions.views, mine: reactions.mine.length ? reactions.mine : undefined } : null;
     const stored = storedValue ? this.sealJson("message", `${message.group_id}/${message.id}`, storedValue) : (kept?.body ?? heldAfterLeaving);
-    // A message that didn't open keeps its reactions as they came, to be read once it does.
-    const rawReactions = body ? null : kept ? kept.raw_reactions : raw ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : null;
+    // A message that didn't open keeps its reactions as they came, to be read once it does, and so does one with
+    // reactions under an epoch whose key isn't here yet: the next copy of it is read again rather than passed over.
+    const keepReactions = body ? !!reactions?.waiting : !kept && !!raw;
+    const rawReactions = keepReactions ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : body ? null : (kept?.raw_reactions ?? null);
     const pin = this.pinState(message, existing);
     // When it was first seen to go is when it goes: an edit can't make it last longer.
     const expiresAt = existing?.expires_at ?? (body ? expiryOf(message.created_at, body) : null);

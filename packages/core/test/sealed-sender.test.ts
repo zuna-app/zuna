@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
 import { openEnvelope, randomId, sealEnvelope } from "../src/crypto";
 import { concat, equalBytes, toBase64, u64Bytes, utf8 } from "../src/encoding";
-import { TestApp, sleep, waitFor } from "./helpers";
+import { TestApp, atOneEpoch, sleep, waitFor } from "./helpers";
 import { alice, apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
@@ -381,6 +381,35 @@ describe("a sender's phone", () => {
     const seq = sessionOf(ann).messageRow(groupId, id).seq as number;
     await waitFor(() => sessionOf(ann).groups.get(groupId).readSent >= seq, "ann's read to reach the server");
     await waitFor(() => (sessionOf(bob).groups.get(groupId).readBy[ann.userId] ?? 0) >= seq, "bob to see it");
+  });
+});
+
+describe("a reaction under an epoch not reached yet", () => {
+  it("is kept as it came, and read when the same update comes again with the key here", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const groupId = await groupWith(ann, [bob]);
+    const id = await sentAndSeen(ann, [bob], groupId, "react to this");
+    // A commit between the message and the reaction, so that one opens under a key the other doesn't.
+    await sessionOf(bob).withLock(groupId, () => sessionOf(bob).commitWithRetry(groupId, async () => ({ kind: "update" })));
+    await waitFor(() => atOneEpoch(groupId, ann, bob), "both at the next epoch");
+    await bob.session.toggleReaction(groupId, id, "👍");
+    await waitFor(async () => (await ann.session.messageById(groupId, id))?.reactions.length === 1, "the reaction");
+    const update = await apiOf(ann).message(groupId, id);
+    const session = sessionOf(ann);
+    const epoch = update.reactions[0]!.epoch;
+    expect(epoch).toBeGreaterThan(update.epoch);
+    // As if the reaction came live before the commit that made its epoch was applied here.
+    session.db.run("DELETE FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    session.epochKeys.clear();
+    session.confirmedEpochs.delete(groupId);
+    session.db.run("DELETE FROM messages WHERE group_id = ? AND id = ?", [groupId, id]);
+    session.ingest(update, true);
+    expect((await ann.session.messageById(groupId, id))?.reactions).toEqual([]);
+    // The commit is applied, and the sync it started brings the same update again.
+    session.rememberCurrentEpochKey(groupId);
+    session.ingest(update, false);
+    expect((await ann.session.messageById(groupId, id))?.reactions.length).toBe(1);
   });
 });
 
