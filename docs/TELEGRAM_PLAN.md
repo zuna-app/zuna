@@ -18,6 +18,8 @@ the interface ── call("telegram", …) / CoreEvent ──▶ the core
                                                    Telegram
 ```
 
+That's the desktop. On the iPhone and iPad the process is an extension of the app's own, which iOS starts in a sandbox apart from the app, and the rest is the same ("On the iPhone and iPad").
+
 ## What "safe" means here
 
 Four things, in this order. Where two pull apart, the earlier one wins.
@@ -53,16 +55,19 @@ Asked for on 2026-11-13:
 - **Direct messages and groups. No channels.**
 - **Notifications too,** and everything in step with Telegram, one to one.
 - **As safe as it can be made.**
+- **On the iPhone and iPad too,** asked later the same day.
 
 What this plan assumes until the owner answers. Each is a question at the end.
 
-1. **The native desktop app first.** The iPhone waits for a decision of its own, and the web app gets none.
+1. **The native desktop app first, then the iPhone and iPad.** The web app gets none.
 2. **The engine is TDLib,** Telegram's own library, pinned and built from source.
 3. **Each device links by itself.** No Telegram session is shared between a person's devices or kept by any server.
 4. **One Telegram account on a device.**
 5. **The engine comes with the app,** as a program beside it that only a linked device ever starts.
 6. **No plugin reaches the rail,** with any permission.
 7. **Secret chats and calls are left out** of the first version.
+8. **On an iPhone, Telegram needs iOS 26,** the first that lets an app run code of its own in a second process. TDLib never runs inside the app, on any system.
+9. **An iPhone's pushes come from Telegram through Apple, with names and text,** as they have to work. They're encrypted to a key on the phone if Telegram allows a third-party app that, and readable by Apple if it doesn't.
 
 What follows from "one to one": **Telegram holds the only copy.** The core keeps no Telegram message in its own databases. Every list and chat is read from the engine, whose database is a cache of Telegram's, so there's nothing of Zuna's to fall out of step.
 
@@ -79,7 +84,7 @@ What follows from "one to one": **Telegram holds the only copy.** The core keeps
 
 ### A process of its own, in a box
 
-`zuna-telegram` is a program in the app's workspace (`apps/desktop/telegram`), as `zuna-watch` is, so the app itself links none of TDLib. The app starts it once the window is up, only on a device with a linked account. A device that never links one never runs it and never contacts Telegram.
+On the desktop, `zuna-telegram` is a program in the app's workspace (`apps/desktop/telegram`), as `zuna-watch` is, so the app itself links none of TDLib. The app starts it once the window is up, only on a device with a linked account. A device that never links one never runs it and never contacts Telegram.
 
 It gets:
 
@@ -95,8 +100,9 @@ And the system holds it to that, from the first version. The plugins' host was p
 | Windows | | An AppContainer with no capabilities, in a job object |
 | Linux | | Landlock for files, seccomp for system calls, a network namespace of its own where the kernel allows one |
 | macOS | | A sandbox profile, under the hardened runtime |
+| iPhone and iPad | | An enhanced security helper extension, from iOS 26 ("On the iPhone and iPad") |
 
-Which calls do that on each system is from memory, and is the first thing tried ("What has to be shown first").
+Which calls do that on each desktop system is from memory, and is the first thing tried ("What has to be shown first").
 
 A break in TDLib then lands in a process that holds one thing worth having: the Telegram session it was already running.
 
@@ -113,7 +119,7 @@ The engine has no network of its own. A small relay inside its process, ours and
 
 `apps/desktop/src/telegram/` is the other end of the pipe, in the app. It starts and stops the process, keeps the door, and stands between the core and the engine.
 
-- **A list of what may be asked.** Only the TDLib functions on it pass. Not on it, whatever asks: deleting the account, changing its password, number or login email, ending other sessions, payments, importing contacts, setting a proxy, raw queries. The account's life stays in Telegram's own apps, as an account's life stays out of plugins' reach.
+- **A list of what may be asked.** Only the TDLib functions on it pass. The list is one file (`packages/core/src/telegram/functions.json`), which the desktop's broker and the iPhone's are both built from, and which nothing changes while the app runs. Not on it, whatever asks: deleting the account, changing its password, number or login email, ending other sessions, payments, importing contacts, setting a proxy, raw queries. The account's life stays in Telegram's own apps, as an account's life stays out of plugins' reach.
 - **A limit on how fast.** A fault in the adapter can't become a flood, which is what Telegram bans for.
 - **Deadlines and sizes.** A frame too large or an engine that stops answering ends the process. It's started again, and after three failures in a row it stays off and the rail says why.
 - **Files.** What the person attaches is read by the app and written to the engine a part at a time, so the engine never needs to see the disk. What it downloads, the app reads from the engine's folder.
@@ -142,7 +148,11 @@ The engine has no network of its own. A small relay inside its process, ours and
 > - **Telegram watches accounts that use other apps,** and sometimes limits one by mistake. Link an account you've had for a while.
 > - Channels, calls and secret chats stay in Telegram's own app.
 
+On an iPhone the screen adds how notifications arrive: from Telegram through Apple and, if Telegram won't encrypt them for Zuna, that Apple can read them.
+
 **Then a QR code.** The person scans it with Telegram on their phone (Settings, Devices, Link Desktop Device). No phone number and no code is typed into Zuna, and it's one of the ways Telegram lists for third-party apps, where a code by SMS isn't. An account with two-step verification is asked for its password next: the engine proves it knows it without sending it (SRP).
+
+**On an iPhone the same code is also a button,** "Confirm in Telegram", since a phone can't scan its own screen. It opens the code's own `tg://login` address, which Telegram on that phone answers by asking whether to let the new device in. The QR stays beside it, for a Telegram on another device.
 
 **A phone number and a code are the fallback,** under "Use a phone number instead". The code arrives in Telegram on another device, or by email.
 
@@ -226,9 +236,79 @@ Making a group, adding and removing people, its name and picture, leaving, and j
 - **While the app runs,** in a window or in the tray, the engine stays connected, and a new message becomes the same `notify` event a server's does, drawn by the same code (`state/notify.rs`).
 - **Telegram decides what notifies:** its own mutes, mentions and silent messages, as TDLib works them out. The app's own notification settings apply on top.
 - **Reading goes both ways.** A chat read in Zuna is read in Telegram, so the phone goes quiet, and one read on the phone takes its notification back in Zuna.
-- **With the app closed, nothing notifies on that computer,** as with Telegram's own desktop app. The phone still does.
+- **A computer isn't pushed.** Closing the window keeps the app running in the tray unless that's turned off, and it notifies from there, as it does for a server's chats. With the app quit, nothing notifies on that computer, as with Telegram's own desktop app, and the phone still does.
+- **An iPhone is pushed** while the app isn't open, which is a design of its own, below.
 - **Online follows the window:** the account shows as online while Zuna's window is in front with the Telegram rail showing, which is `setActive`'s rule for servers. Connected in the tray isn't online.
 - **Muting a chat in Zuna mutes it in Telegram,** everywhere, and the other way. That's what one to one means, and the menu says "Mute on Telegram".
+
+## On the iPhone and iPad
+
+Everything above the engine is the same. The adapter runs in the core, as on the desktop. The account sits in the list of servers (`Shell/ServerListView.swift`) with its own icon, and its chats use the screens the app has. What differs is the box, the door and notifications.
+
+### The box: a helper extension
+
+An iPhone app can't start a program. Until iOS 26 that left one place to run TDLib: inside the app, beside Zuna's keys. Every iPhone client built on TDLib does that, and this plan's first rule forbids it.
+
+iOS 26 added what's needed. Read on 2026-11-13: [app extension points](https://developer.apple.com/documentation/extensionfoundation/adding-support-for-app-extensions-to-your-app) and [enhanced security helper extensions](https://developer.apple.com/documentation/xcode/creating-enhanced-security-helper-extensions). An app declares an extension point of its own and starts its own extension in a separate process, which Apple's page says is for "handling data from untrusted sources". Marked `EnhancedSecurity`, that process runs in a sandbox that "restricts access to most system services and frameworks", and is built with pointer authentication, typed allocation and, on phones that have it, memory tagging: protections against the faults a C++ parser has.
+
+- **`ZunaTelegram` is that extension,** a new target in `apps/ios/project.yml`. Only an extension inside Zuna's own bundle can bind to its extension point, which is the default.
+- **It holds TDLib and a few lines of Swift,** and talks to the app over an `XPCSession`, in the JSON the desktop's pipe carries.
+- **It's given nothing of Zuna's:** not the app group, and not the keychain group the notification and share extensions read (`chat.zuna.shared`).
+- **The broker is `ZunaHost/TelegramBridge.swift`,** the desktop's again in Swift, with the same list from the same file, and the same limits and deadlines.
+- **Telegram on an iPhone needs iOS 26.** The app still runs from iOS 18, where Connections says what's needed and offers nothing.
+- **iOS suspends the helper with the app.** In the background nothing is connected, and notifications are pushed.
+
+### The door
+
+The app opens each connection (`NWConnection`), to Telegram's ranges only and through the device's proxy when one is set, and carries it to the helper over XPC.
+
+Apple's pages don't say whether the helper's sandbox lets it open a socket of its own. If it can't, the door is the only way out, as on the desktop. If it can, TDLib is still set to use the door, but nothing holds a broken TDLib to it, and this page will say so once it's known.
+
+### What's kept
+
+As on the desktop: TDLib's database under a random key, which the app seals with the device key and hands over as the helper starts. The sealed key is kept where only the app reads it, not in the keychain group the other extensions share. Where the helper keeps its folder, a container of its own or one the app lends it, is among the first things to try.
+
+### Notifications
+
+While the app is open the engine is connected, and notifications are made on the phone as on the desktop. The rest of the time they're pushed, and they have to work as Telegram's own do: asked on 2026-11-13.
+
+Nothing on the phone can fetch a message for a notification. The engine can't run in the notification extension, which iOS gives little memory and half a minute, and TDLib's database opens in one process at a time. So the message has to be in the push.
+
+**Telegram pushes each message through Apple, straight to the phone, with the sender's name and the text in it.** That's how its API notifies any third-party iPhone app (read on its page on pushes), so it works wherever Telegram's own pushes do, with the app closed or the phone locked. No Zuna server takes part, the relay included.
+
+- **Set up once, by the owner:** a push certificate for Zuna's app, added to the application's settings at my.telegram.org, beside the `api_id`. It must be a certificate for the one bundle, `chat.zuna.mobile`, never the team's key the relay uses, which reaches every app the team has.
+- **Registering.** When an account is linked the app gives Telegram its push token, through the engine (`registerDevice`), and again each time the app starts, as Telegram asks. Unlinking takes it back. A phone that never linked gives Telegram nothing.
+- **Showing.** A push names a kind of message and its words (`loc_key`, `loc_args`). The app carries the sentence for each kind, from the list Telegram publishes, so iOS can show a push by itself where the extension doesn't run, as before the phone's first unlock. Where it runs, the extension shows it as "Telegram", under the chat's name, and keeps the app's badge the app's own count.
+- **Telling them apart.** The extension knows a push of Telegram's from a server's by its shape. None can stand in for a server's, which is sealed with a key Telegram doesn't have.
+- **What's pushed is Telegram's to decide,** as for its own app: a muted chat isn't, and a silent message makes no sound.
+- **Taking back.** Telegram's quiet pushes, that a chat was read or a message deleted elsewhere, remove the notification.
+- **Opening one** opens that chat on the Telegram account in Zuna.
+- **Calls aren't registered for,** so a Telegram call rings in Telegram's own app alone.
+
+What it costs:
+
+- **Telegram holds a certificate that can send notifications to Zuna's app,** on phones whose token it has, which are the linked ones. One sent outside the usual shape would show as written, under Zuna's name.
+- **Whether Apple can read them is open.** TDLib asks Telegram to encrypt pushes for Android and for calls, and not ordinary pushes to an iPhone: `deviceTokenApplePush` has no `encrypt`, read in TDLib's schema on 2026-11-13, and Telegram's page on pushes says the same. Telegram's own iPhone app does ask for it, from memory of its source. Step 1 tries it, with a small patch to TDLib that sends a key with the token. If Telegram honors it for a third-party app, a push is encrypted to a key on the phone, the notification extension opens it with about a hundred lines in the crypto crate, and Apple reads none of it.
+
+- **If Telegram doesn't honor it, the pushes stay readable.** Notifications have to work, and the other way, below, has no name and no text. Apple's push service then carries the names and text of Telegram messages to linked iPhones, which Telegram's servers hold already and Apple's wouldn't otherwise see. The linking screen on an iPhone says so, in a line of its own.
+
+What was considered and left:
+
+- **Empty pushes through Zuna's relay.** Telegram can knock on an HTTPS address with nothing but a number ("simple push", read on its page). `zuna-push` could take the knock and pass on a push saying only "New message on Telegram". Apple would read nothing and Telegram would hold no certificate, but the notification would have no sender and no text, and the relay would learn when a phone's Telegram account gets a message: the first thing any service of Zuna's would learn of Telegram. It could come later as a switch for whoever would rather have that.
+- **Fetching in the background.** iOS wakes an app for a quiet push only as often as it likes, and not at all once the person has closed the app, so nothing can rest on it.
+- **Apple's pushes for calls,** which Telegram does encrypt. iOS requires each to ring as a call.
+
+### Building it
+
+- **TDLib for the iPhone** is built from the same pin by the same script, on a Mac, as a framework for phones and the simulator, with OpenSSL. `IOS_PATHS` in `scripts/release.mjs` gains the script.
+- **A new extension** means a line in `PROFILES` in `scripts/ios-dist.mjs`, an App Store profile in the `testflight` environment, the upload step's secrets in `release.yml`, and its capabilities on the developer site, as "What has to change together" in `CLAUDE.md` says of any.
+- **The core's host gains one native,** the pipe to the engine (`apps/ios/core-bundle/src/natives.d.ts`), which `ZunaHost` and the desktop's host both give.
+- **The App Store's description says** that Zuna can use Telegram's API and isn't Telegram's, as the terms ask.
+- **Swift can't be compiled without a Mac,** so a commit made without one says so.
+
+### Left for later there
+
+- **Sharing into a Telegram chat from another app.** The share extension runs a core of its own, and can't open the engine's database while the app has it.
 
 ## The api_id
 
@@ -249,6 +329,7 @@ Making a group, adding and removing people, its name and picture, leaving, and j
 | Desktop | `apps/desktop/test/telegram-check.mjs`: two copies of the app and two test accounts. Linking by code and by QR, a message each way, an edit, a reaction, a photo, a voice message, a notification and its taking back, unlinking, and a session ended from the other side |
 | Nothing leaks | A recorder, as [SOCKS5_PLAN.md](SOCKS5_PLAN.md) plans: every address the engine's connections went to is in Telegram's ranges, and the test Zuna server got no request it wouldn't have got without Telegram |
 | Other systems | As the app itself: built and run where there's a machine, and the commit says which weren't |
+| iPhone | `npm run test:ios` with the fake engine behind the core. `test:ios:ui`: linking and a chat against the fake. The helper against Telegram's test servers in the simulator, if it runs there. The probe, built into the helper for tests. Pushes on a real iPhone by hand, as a simulator gets none from Telegram |
 
 ## The order to build it in
 
@@ -262,8 +343,13 @@ Each step is a commit or a few, pushed when its checks pass.
 6. The interface: Connections, the linking screens, the rail's icon, the list and the chat with what a Telegram account lacks hidden, the marks, notifications. `telegram-check.mjs`. This is the first nightly with it, and a minor one.
 7. Media: photos, videos, files, voice and video messages, stickers. Then edits, deletes, reactions, pins, replies, forwards, drafts, mutes, search.
 8. Groups: making one, people, names, pictures, leaving, invite links.
-9. Later, each on its own: topics, polls, animated stickers, the archive's folders, secret chats.
-10. The docs under "What changes with it", in the commits that make each true.
+9. The iPhone's engine: TDLib's framework, the `ZunaTelegram` helper, the broker in Swift, the door. It can start once step 5 has settled what the engine and the core say to each other.
+10. The iPhone's interface: Connections, linking, the account in the list of servers, the chats, the marks, and notifications while the app is open.
+11. The iPhone's pushes, by whichever way step 1 and the owner settled.
+12. Later, each on its own: topics, polls, animated stickers, the archive's folders, secret chats, sharing into Telegram on the iPhone.
+13. The docs under "What changes with it", in the commits that make each true.
+
+Until step 10 is pushed, `.agents/FEATURE_PARITY.md` lists the iPhone as a Known gap.
 
 ## What has to be shown first
 
@@ -277,6 +363,17 @@ From memory or from reading, not run. Each could change the design.
 - **That linking by QR works with a fresh `api_id`,** and what Telegram does to a real account that links one.
 - **That TDLib's own account of what should notify** is enough for the app's notifications, taking back included.
 
+On the iPhone:
+
+- **That the helper can keep a folder,** and where.
+- **Whether the helper can open a socket,** which decides how much the door is worth there.
+- **That TDLib and OpenSSL build and run under enhanced security:** pointer authentication, typed allocation and memory tagging. Apple's page warns that code not written for them may crash, and each can be turned off alone.
+- **How much memory iOS gives a helper,** and whether it runs in the simulator.
+- **That files can pass between the app and the helper** without going through memory whole.
+- **Whether Telegram encrypts an ordinary push to an iPhone for a third-party app.**
+- **That opening a `tg://login` address** makes Telegram on the same phone ask to let the device in.
+- **What my.telegram.org takes for Apple's pushes:** a certificate for one bundle, or only something wider. The owner has to look, as it needs the account.
+
 ## What changes with it
 
 In the commit that makes each true:
@@ -286,7 +383,8 @@ In the commit that makes each true:
 - `apps/site`: the privacy page, that the app contacts Telegram once an account is linked, and wherever the site lists what the app does, that it uses Telegram's API, as the terms ask.
 - `docs/TELEGRAM.md`, for people: linking, what's there, what isn't.
 - `docs/RELEASES.md` and the installers: `zuna-telegram` beside the app, signed and notarized on macOS.
-- `.agents/FEATURE_PARITY.md`: a section for it, the web under "One platform, by design", and the iPhone as the owner decides.
+- `.agents/FEATURE_PARITY.md`: a section for it, the web under "One platform, by design", and the iPhone as a Known gap until its steps are pushed.
+- For the iPhone: `apps/ios/project.yml` and what a new extension needs ("Building it" above), `IOS_PATHS`, `ZunaModels` and `CoreAPI.swift` for the adapter's calls, `docs/IOS_TESTING.md`, the App Store's description, and in `CLAUDE.md` that the notification extension shows Telegram's pushes and what tells them from a server's.
 - `docs/ROADMAP.md`.
 
 ## Risks
@@ -298,6 +396,10 @@ In the commit that makes each true:
 - **Someone takes a Telegram chat for an encrypted one.** The icon, the header and the composer each say otherwise.
 - **The pin goes stale** and Telegram turns the build away. Moving it is routine work every few months.
 - **The download grows** by TDLib's size, for everyone, linked or not.
+- **Telegram holds a push certificate for Zuna's iPhone app.** Whoever took it from Telegram could show a notification under Zuna's name on linked phones. It can't read anything, can't reach a phone that never linked, and can't pass for a server's push.
+- **Apple may read Telegram's pushes to linked iPhones,** if Telegram won't encrypt them for a third-party app. The linking screen says so.
+- **An iPhone older than iOS 26 gets no Telegram,** though the app runs there.
+- **The helper extension is new in iOS 26,** and little is written about what its sandbox allows. Step 1 finds out before anything rests on it.
 
 ## Left out
 
@@ -312,19 +414,26 @@ In the commit that makes each true:
 - **Forwarding between Zuna and Telegram.**
 - **Telegram for plugins,** even behind a permission.
 - **The web app.** A page can't start a process or box one in, and the session would sit where the web app's own data does, which anyone who copies the browser's profile can read.
+- **TDLib inside the iPhone app,** for phones older than iOS 26.
+- **Pushes to a computer whose app is quit.**
 - **Other networks.** The broker and the adapter aren't made general before there's a second one to fit.
 
 ## Questions for the owner
 
-1. **The `api_id`.** Which Telegram account holds it? It has to be made by hand at my.telegram.org, and its two values added to the release environment's secrets.
-2. **The iPhone.** It can't start a second process, so TDLib would run inside the app, beside Zuna's keys, as it does in every iPhone client built on it. That breaks the first rule here. Telegram would also push through Apple with a certificate of Zuna's app, and the text of a push would pass Apple in the clear, as Telegram encrypts only pushes to Android and for calls. Assumed: not until asked for.
-3. **The web app.** Assumed: never.
-4. **The icon.** Telegram's terms forbid its logo "for your app". A rail icon may not be what they mean, and the safe reading is a drawing of our own. Assumed: our own.
-5. **Channels.** Assumed out, as asked, with the risk above.
-6. **Secret chats.** TDLib can do them, and they'd be the one end-to-end encrypted thing on the rail. Assumed: later.
-7. **The engine with the app, or fetched on first linking.** With the app, everyone's download grows. Fetched, it needs a signed download of its own, as updates have. Assumed: with the app.
-8. **Plugins.** Assumed: never on this rail.
+1. **The `api_id` and the push certificate.** Which Telegram account holds them? The `api_id` has to be made by hand at my.telegram.org, and its two values added to the release environment's secrets. The same page takes the certificate Telegram pushes to iPhones with, which has to be for Zuna's one bundle.
+2. **iOS 26 for Telegram on an iPhone.** Assumed: yes, and nothing for older phones, as the only way there is TDLib inside the app.
+3. **Readable pushes, if Telegram won't encrypt them for us.** Apple would then carry the names and text of Telegram messages to linked iPhones. Assumed: accepted, as pushes have to work, with the line on the linking screen.
+4. **The web app.** Assumed: never.
+5. **The icon.** Telegram's terms forbid its logo "for your app". A rail icon may not be what they mean, and the safe reading is a drawing of our own. Assumed: our own.
+6. **Channels.** Assumed out, as asked, with the risk above.
+7. **Secret chats.** TDLib can do them, and they'd be the one end-to-end encrypted thing on the rail. Assumed: later.
+8. **The engine with the app, or fetched on first linking.** With the app, everyone's download grows. Fetched, it needs a signed download of its own, as updates have, and an iPhone app can't fetch code at all. Assumed: with the app.
+9. **Plugins.** Assumed: never on this rail.
 
 ## Where it stands
 
-Nothing is built, and nothing here was run. What was read: Telegram's pages named under "What Telegram asks" and its published ranges, on 2026-11-13; TDLib's getting-started page; in this repository `packages/core/src/client.ts`, `rpc.ts` and `types.ts`, `apps/desktop/src/ui/rail.rs`, `state/mod.rs`, `plugins/process.rs`, `scripts/ffmpeg.mjs`, [PLUGINS_PLAN.md](PLUGINS_PLAN.md) and [SOCKS5_PLAN.md](SOCKS5_PLAN.md). From memory, and checked in step 1: the names and behavior of TDLib's functions (its proxy setting, its database key, its notifications, files written a part at a time, what signing out erases, its fallbacks when Telegram is blocked), what TDLib needs to build and its license, and each system's calls for the box.
+Nothing is built, and nothing here was run.
+
+What was read, on 2026-11-13: Telegram's pages named under "What Telegram asks" and its published ranges. TDLib's getting-started page, and in its schema (`td_api.tl`) the functions this plan leans on: its SOCKS5 proxy, its database key, QR linking, its notification groups, files written a part at a time, that signing out erases what's local, and the push tokens, where only Android's and the one for calls can ask for encryption. Apple's pages on extension points and enhanced security helper extensions. In this repository `packages/core/src/client.ts`, `rpc.ts` and `types.ts`, `apps/desktop/src/ui/rail.rs`, `state/mod.rs`, `plugins/process.rs`, `scripts/ffmpeg.mjs`, `apps/ios/project.yml`, the iPhone app's entitlements and `ZunaNotifications/NotificationService.swift`, [PLUGINS_PLAN.md](PLUGINS_PLAN.md) and [SOCKS5_PLAN.md](SOCKS5_PLAN.md).
+
+From memory, and checked in step 1: TDLib's fallbacks when Telegram is blocked, what it needs to build and its license, each desktop system's calls for the box, that Telegram's own iPhone app asks for encrypted pushes, that a `tg://login` address opens Telegram on the same phone, what iOS gives a notification extension, and that iOS makes each push for a call ring.
