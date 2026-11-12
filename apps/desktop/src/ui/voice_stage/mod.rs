@@ -58,8 +58,8 @@ pub struct VoiceStage {
     retired: Vec<Arc<RenderImage>>,
     area: Rc<Cell<Bounds<Pixels>>>,
     /// A shared screen over the whole of the window, made full screen for it, by its key, as
-    /// the web's tile is with `requestFullscreen`, and whether the window has been full
-    /// screen since.
+    /// the web's tile is with `requestFullscreen`, or the video watched together
+    /// (`WATCH_FOCUS`), and whether the window has been full screen since.
     full_screen: Option<(String, bool)>,
     /// Escape, which brings it back, ahead of whatever has focus.
     full_screen_keys: Option<Subscription>,
@@ -227,8 +227,9 @@ impl Render for VoiceStage {
         let watch = voice.watch.clone();
         let watch_focused = watch.is_some() && focus.as_deref() == Some(crate::voice::watch::WATCH_FOCUS);
         let watching = watch.as_ref().is_some_and(|watch| voice.watching.as_deref() == Some(&watch.session));
-        // Anything of GPUI's over the stage, which the player's web view would cover.
-        let covered = crate::ui::something_on_top() || voice.stats_open;
+        // Anything of GPUI's over the stage, which the player's web view would cover: a share on
+        // the whole screen too.
+        let covered = crate::ui::something_on_top() || voice.stats_open || self.full_screen.as_ref().is_some_and(|(key, _)| key != crate::voice::watch::WATCH_FOCUS);
         let channel = server.channels.iter().find(|channel| channel.id == self.room.id).cloned();
         let conversation = if self.room.call { voice::conversation_of_group(server, &self.room.id).cloned() } else { channel.as_ref().and_then(|channel| channel.conversation.clone()) };
         let title = if self.room.call { conversation.as_ref().map(|item| item.title.clone()).unwrap_or_default() } else { channel.as_ref().map(|item| item.name.clone()).unwrap_or_default() };
@@ -247,7 +248,7 @@ impl Render for VoiceStage {
         // Out of full screen some other way, or the share it showed gone: back in the stage.
         if let Some((key, seen)) = &mut self.full_screen {
             *seen |= window.is_fullscreen();
-            if (*seen && !window.is_fullscreen()) || !videos.iter().any(|video| &video.key == key) {
+            if (*seen && !window.is_fullscreen()) || (key != crate::voice::watch::WATCH_FOCUS && !videos.iter().any(|video| &video.key == key)) {
                 self.leave_full_screen(window, cx);
             }
         }
@@ -261,6 +262,8 @@ impl Render for VoiceStage {
         let header = self.header(&title, &topic, call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at), not_here, cx);
 
         self.keep_player(watch.as_ref().filter(|_| watch_focused && watching && status != VoiceStatus::Connecting), window, cx);
+        #[cfg(windows)]
+        self.follow_player_full_screen(window, cx);
         let stage_body: AnyElement = if status == VoiceStatus::Connecting {
             div()
                 .flex_1()

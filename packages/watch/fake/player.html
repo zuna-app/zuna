@@ -16,6 +16,8 @@
       #time { font-size: 32px; font-variant-numeric: tabular-nums; }
       #bar { display: flex; gap: 6px; }
       button, select { font: inherit; }
+      /* In a corner, as YouTube's is, where it moves nothing else. */
+      #full { position: absolute; right: 8px; bottom: 8px; }
     </style>
   </head>
   <body>
@@ -30,6 +32,7 @@
         <option>0.25</option><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>1.75</option><option>2</option>
       </select>
     </div>
+    <button id="full" type="button" hidden>Full screen</button>
     <script>
       const DURATION = 600;
       const query = new URLSearchParams(location.search);
@@ -185,6 +188,11 @@
       };
       document.getElementById("back").onclick = () => personSeek(Math.max(0, fake.time - 30));
       document.getElementById("ahead").onclick = () => personSeek(Math.min(DURATION, fake.time + 60));
+      // Full screen, where whoever frames the player lets it and didn't ask for no button (fs=0).
+      const full = document.getElementById("full");
+      full.hidden = query.get("fs") === "0" || !document.fullscreenEnabled;
+      full.onclick = () => void (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => undefined);
+      document.addEventListener("fullscreenchange", () => (full.textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"));
       document.getElementById("speed").onchange = (event) => {
         fake.rate = Number(event.target.value);
         send("infoDelivery", { playbackRate: fake.rate });

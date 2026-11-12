@@ -2,7 +2,9 @@
 //! picture until Watch is pressed, and then YouTube's own player, in the system's web view laid
 //! over the stage where the tile is, with Zuna's bar under it, never on it. The web view draws
 //! over whatever GPUI draws inside its rectangle, so it's hidden while anything of GPUI's is on
-//! top: a dialog, settings, a menu, the question about a new device, stream stats.
+//! top: a dialog, settings, a menu, the question about a new device, stream stats. On Windows
+//! YouTube's own full screen button shows, and the window goes full screen with the player over
+//! all of it for as long as the player says it's on the whole of its view.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -68,6 +70,14 @@ enum EchoTap {
     Starting,
     Running(zuna_screenshare::sound::Sound),
     Off,
+}
+
+#[cfg(windows)]
+impl WatchPlayer {
+    /// Out of YouTube's own full screen, as the window comes out of its.
+    pub(super) fn leave_full_screen(&self) {
+        self.view.leave_full_screen();
+    }
 }
 
 impl VoiceStage {
@@ -183,7 +193,8 @@ impl VoiceStage {
                 let voice = self.voice.read(cx);
                 let muted = voice.settings.watch_muted || voice.deafened;
                 #[cfg(any(target_os = "macos", windows))]
-                player.view.send(&json!({ "type": "start", "host": player_host(), "muted": muted, "fullscreen": false }).to_string());
+                // YouTube's own full screen button, where the app follows it (`follow_player_full_screen`).
+                player.view.send(&json!({ "type": "start", "host": player_host(), "muted": muted, "fullscreen": cfg!(windows) }).to_string());
                 let _ = muted;
                 cx.notify();
             }
@@ -226,6 +237,8 @@ impl VoiceStage {
                 player.status.borrow_mut().blocked = true;
                 cx.notify();
             }
+            // Something about the view changed, which drawing reads from it, never from the page.
+            "look" => cx.notify(),
             _ => {}
         }
     }
@@ -281,6 +294,24 @@ impl VoiceStage {
             .ok();
         })
         .detach();
+    }
+
+    /// Whether the video is on the whole of the window, made full screen for it.
+    fn watch_full_screen(&self) -> bool {
+        self.full_screen.as_ref().is_some_and(|(key, _)| key == WATCH_FOCUS)
+    }
+
+    /// YouTube's own full screen button: the window goes full screen while the player says it has
+    /// the whole of its view, which then has the whole of the window, and comes back when the
+    /// player leaves it, by its button, a double click, Escape or the video going.
+    #[cfg(windows)]
+    pub(super) fn follow_player_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let wanted = self.watch_player.as_ref().is_some_and(|player| player.view.full_screen());
+        if wanted && self.full_screen.is_none() {
+            self.toggle_full_screen(WATCH_FOCUS, window, cx);
+        } else if !wanted && self.watch_full_screen() {
+            self.leave_full_screen(window, cx);
+        }
     }
 
     /// Tells the page whatever changed since it was last told.
@@ -366,6 +397,7 @@ impl VoiceStage {
         let body: AnyElement = if watching && !in_window {
             #[cfg(any(target_os = "macos", windows))]
             let view = self.watch_player.as_ref().map(|player| player.view.clone());
+            let full = self.watch_full_screen();
             div()
                 .flex_1()
                 .min_h(px(200.))
@@ -375,13 +407,15 @@ impl VoiceStage {
                 .child(
                     canvas(
                         |_, _, _| {},
-                        move |bounds, _, _window, _| {
+                        move |bounds, _, window, _| {
                             #[cfg(any(target_os = "macos", windows))]
                             if let Some(view) = &view {
+                                // In full screen, the whole of the window rather than the tile.
+                                let bounds = if full { Bounds { origin: gpui::point(px(0.), px(0.)), size: window.viewport_size() } } else { bounds };
                                 view.set_frame(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height));
                                 view.set_hidden(covered);
                             }
-                            let _ = bounds;
+                            let _ = (bounds, window, full);
                         },
                     )
                     .absolute()

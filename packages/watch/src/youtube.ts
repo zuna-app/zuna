@@ -29,7 +29,7 @@ export interface FrameOptions {
   host?: string;
   /** This page's origin, which the player only talks to. */
   origin?: string;
-  /** Whether YouTube's own full screen button shows. The native apps' stage has its own. */
+  /** Whether YouTube's own full screen button shows. It's off where the app holding the page can't follow it, as the native app on macOS. */
   fullscreen?: boolean;
   /** Whether it starts muted, as for someone deafened. */
   muted?: boolean;

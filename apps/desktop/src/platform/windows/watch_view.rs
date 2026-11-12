@@ -8,6 +8,10 @@
 //! else it asks for. It draws over whatever GPUI draws inside its rectangle, so whoever holds it
 //! hides it while something of GPUI's is on top.
 //!
+//! YouTube's own full screen button works in it: WebView2 gives the player the whole of the view
+//! and says so (`full_screen`), and whoever holds the view gives it the whole of the window, made
+//! full screen, until the player leaves it again.
+//!
 //! WebView2's processes can die under it, as RivaTuner Statistics Server's hooks have been seen to
 //! crash its browser process as a video seeks, which leaves the view black and silent. The view
 //! then says it failed (`failed`), and whoever holds it makes a new one.
@@ -22,7 +26,7 @@ use std::rc::Rc;
 use futures::channel::mpsc::UnboundedSender;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
-    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, ExecuteScriptCompletedHandler,
+    ContainsFullScreenElementChangedEventHandler, CoreWebView2EnvironmentOptions,CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, ExecuteScriptCompletedHandler,
     FocusChangedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
     WebResourceRequestedEventHandler, take_pwstr,
 };
@@ -60,6 +64,8 @@ pub struct WatchView {
     subclassed: bool,
     /// Whether WebView2 couldn't start, or a process the page needs died, so the view shows nothing.
     failed: Rc<Cell<bool>>,
+    /// Whether the player is on the whole of the view, from YouTube's full screen button.
+    full_screen: Rc<Cell<bool>>,
 }
 
 impl WatchView {
@@ -76,7 +82,8 @@ impl WatchView {
         let shared = Rc::new(RefCell::new(Shared { parent, controller: None, webview: None, frame: None, hidden: true }));
         let focused = Rc::new(Cell::new(false));
         let failed = Rc::new(Cell::new(false));
-        let options = CoreWebView2EnvironmentOptions::default();
+        let full_screen = Rc::new(Cell::new(false));
+        let options =CoreWebView2EnvironmentOptions::default();
         // A video someone pressed Watch for plays with its sound, as WKWebView is told on macOS.
         #[allow(unused_mut)]
         let mut arguments = String::from("--autoplay-policy=no-user-gesture-required");
@@ -90,7 +97,7 @@ impl WatchView {
         unsafe { options.set_additional_browser_arguments(arguments) };
         let options: ICoreWebView2EnvironmentOptions = options.into();
         let (weak, focus, page, origin) = (Rc::downgrade(&shared), focused.clone(), page.to_string(), origin.trim_end_matches('/').to_string());
-        let (failed_to_start, failed_later) = (failed.clone(), failed.clone());
+        let (failed_to_start, failed_later, full) = (failed.clone(), failed.clone(), full_screen.clone());
         let created = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |result, environment| {
             if let Err(error) = result {
                 log::warn!("watch: WebView2's environment didn't start: {error}");
@@ -120,7 +127,7 @@ impl WatchView {
                     unsafe { controller.Close().ok() };
                     return Ok(());
                 };
-                if let Err(error) = setup(&shared, &environment_for_setup, &controller, page, &origin, messages, focus, failed_later) {
+                if let Err(error) = setup(&shared, &environment_for_setup, &controller, page, &origin, messages, focus, failed_later, full) {
                     log::warn!("watch: WebView2 couldn't be set up: {error}");
                     failed_to_start.set(true);
                     // SAFETY: as above.
@@ -138,13 +145,29 @@ impl WatchView {
             return None;
         }
         let subclassed = watch_clicks(parent);
-        Some(WatchView { shared, focused, subclassed, failed })
+        Some(WatchView { shared, focused, subclassed, failed, full_screen })
     }
 
     /// Whether the view shows nothing and never will, as WebView2 didn't start or a process the page
     /// needs died, so that a new one has to be made.
     pub fn failed(&self) -> bool {
         self.failed.get()
+    }
+
+    /// Whether the player has the whole of the view, from YouTube's own full screen button, which
+    /// whoever holds the view follows by giving it the whole window.
+    pub fn full_screen(&self) -> bool {
+        self.full_screen.get()
+    }
+
+    /// Takes the player out of full screen, as Escape in the app does, or the window leaving it.
+    pub fn leave_full_screen(&self) {
+        // At once, as WebView2 only says so a moment later.
+        self.full_screen.set(false);
+        let Some(webview) = self.shared.borrow().webview.clone() else { return };
+        let done = ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(())));
+        // SAFETY: WebView2's view, on its own thread.
+        unsafe { webview.ExecuteScript(w!("document.fullscreenElement && document.exitFullscreen()"), &done).ok() };
     }
 
     /// Where the player goes, in the window's own logical coordinates from its top left.
@@ -288,6 +311,7 @@ fn setup(
     messages: UnboundedSender<String>,
     focused: Rc<Cell<bool>>,
     failed: Rc<Cell<bool>>,
+    full_screen: Rc<Cell<bool>>,
 ) -> windows::core::Result<()> {
     let address = format!("{origin}/");
     let mut token = 0i64;
@@ -376,6 +400,22 @@ fn setup(
                 &mut token,
             )?;
         }
+        // YouTube's full screen button puts the player on the whole of the view. Whoever holds
+        // the view is only told to look, as the page could say anything else itself.
+        let look = messages.clone();
+        webview.add_ContainsFullScreenElementChanged(
+            &ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+                let mut full = windows::core::BOOL(0);
+                if let Some(sender) = sender {
+                    sender.ContainsFullScreenElement(&mut full)?;
+                }
+                log::info!("watch: the player {} full screen", if full.as_bool() { "went" } else { "left" });
+                full_screen.set(full.as_bool());
+                look.unbounded_send(r#"{"type":"look"}"#.to_string()).ok();
+                Ok(())
+            })),
+            &mut token,
+        )?;
         // What the page says, from the page alone, which the app checks as anything from outside.
         let source = address.clone();
         webview.add_WebMessageReceived(

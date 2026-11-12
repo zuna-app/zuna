@@ -159,7 +159,8 @@ impl VoiceStage {
     }
 
     /// A shared screen onto the whole screen, or back, as the button or a double click does on
-    /// the web: the window goes full screen with the share over all of it.
+    /// the web: the window goes full screen with the share over all of it. The video watched
+    /// together goes the same way on Windows, from YouTube's own button (`follow_player_full_screen`).
     pub(super) fn toggle_full_screen(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.full_screen.is_some() {
             self.leave_full_screen(window, cx);
@@ -180,8 +181,16 @@ impl VoiceStage {
     }
 
     pub(super) fn leave_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.full_screen.take().is_some() && window.is_fullscreen() {
+        let left = self.full_screen.take();
+        if left.is_some() && window.is_fullscreen() {
             window.toggle_fullscreen();
+        }
+        // The player comes out of its own full screen with the window, where it's still in it.
+        #[cfg(windows)]
+        if left.is_some_and(|(key, _)| key == crate::voice::watch::WATCH_FOCUS) {
+            if let Some(player) = &self.watch_player {
+                player.leave_full_screen();
+            }
         }
         self.full_screen_keys = None;
         cx.notify();
