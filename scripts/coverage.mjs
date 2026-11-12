@@ -18,9 +18,13 @@ const SUITES = {
   bot: () => vitest("apps/bot"),
 };
 
-/** The workspace's `npm test`, which is `vitest run`, with coverage. */
+/**
+ * The workspace's `npm test`, which is `vitest run`, with coverage. Measuring slows the core's tests enough that
+ * ones waiting on timing fail now and then on CI's two cores, so a failed test is tried twice more: this run
+ * measures, and `npm test` and ci.yml's test job are what check.
+ */
 function vitest(dir) {
-  run(process.execPath, [join(root, "node_modules", "vitest", "vitest.mjs"), "run", "--coverage"], { cwd: join(root, dir) });
+  run(process.execPath, [join(root, "node_modules", "vitest", "vitest.mjs"), "run", "--coverage", "--retry=2"], { cwd: join(root, dir) });
 }
 
 const asked = process.argv.slice(2);

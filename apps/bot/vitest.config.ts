@@ -16,6 +16,8 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       reporter: ["text-summary", ["lcov", { projectRoot: "../.." }]],
       reportsDirectory: "../../coverage/bot",
+      // A test that failed still leaves what the rest covered.
+      reportOnFailure: true,
     },
   },
 });

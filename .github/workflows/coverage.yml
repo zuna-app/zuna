@@ -51,8 +51,12 @@ jobs:
       - uses: ./.github/actions/wasm-bindgen
       - run: npm ci
 
-      - run: node scripts/coverage.mjs server
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      # Each suite runs and uploads whether or not one before it failed, so one
+      # failure costs only its own numbers. The job still fails with it.
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs server
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/server.out
@@ -60,8 +64,10 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-      - run: node scripts/coverage.mjs crypto
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs crypto
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/crypto.lcov
@@ -70,9 +76,12 @@ jobs:
           fail_ci_if_error: true
 
       # The core's and the bot's tests load the crypto core as WebAssembly.
-      - run: npm run build:crypto
-      - run: node scripts/coverage.mjs core
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - if: ${{ !cancelled() }}
+        run: npm run build:crypto
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs core
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/core/lcov.info
@@ -80,8 +89,10 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-      - run: node scripts/coverage.mjs watch
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs watch
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/watch/lcov.info
@@ -89,8 +100,10 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
-      - run: node scripts/coverage.mjs bot
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - if: ${{ !cancelled() }}
+        run: node scripts/coverage.mjs bot
+      - if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/bot/lcov.info
