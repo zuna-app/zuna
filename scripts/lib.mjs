@@ -141,8 +141,9 @@ export function ensureLiveKit() {
   remove();
   mkdirSync(source, { recursive: true });
   // LiveKit's go.mod names no toolchain, so a Go older than the one it asks for would fetch the
-  // first release of that, without its fixes.
-  const goEnv = { ...env, GOTOOLCHAIN: `${toolchain}+auto`, CGO_ENABLED: "0" };
+  // first release of that, without its fixes. Without cgo, as servers build it, but on macOS,
+  // where the CPU statistics LiveKit's protocol module reads only build with it.
+  const goEnv = { ...env, GOTOOLCHAIN: `${toolchain}+auto`, CGO_ENABLED: process.platform === "darwin" ? "1" : "0" };
   const inSource = { cwd: source, env: goEnv };
   // That commit and no other, as a tag can be moved.
   run("git", ["init", "--quiet"], inSource);
