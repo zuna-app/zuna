@@ -48,6 +48,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 - **Keep your recovery key safe.** It's shown once, when you sign up, and opens your account as your password does.
 - **Compare emoji** with the people who matter to you.
 - **If you think your password or recovery key was stolen,** change them, and remove any device you don't recognize in Settings.
+- **See what your server keeps about you** in Settings, What the server keeps, and save it as a file. It's what the server says it keeps, so a server someone changed could keep more.
 - **Paste invite links into the app** rather than opening them in a browser.
 - **Install Zuna only from the [official releases](https://github.com/zuna-app/zuna/releases).**
 
