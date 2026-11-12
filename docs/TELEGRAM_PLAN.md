@@ -285,6 +285,21 @@ Nothing on the phone can fetch a message for a notification. The engine can't ru
 - **Opening one** opens that chat on the Telegram account in Zuna.
 - **Calls aren't registered for,** so a Telegram call rings in Telegram's own app alone.
 
+What one looks like:
+
+| | Title | Under it |
+|---|---|---|
+| A direct message | Anna Kowalska | See you at 8? |
+| A group | Weekend trip | Anna: See you at 8? |
+| A photo, a voice message and the like | As above | Telegram's own sentence for it, such as "Anna sent you a photo" |
+
+- **Each says "Telegram"** in the line iOS has under a title, and wears Zuna's icon and name, as iOS shows every notification under the app it was sent to.
+- **No picture of the sender** in the first version. The extension shares nothing with the engine, which is where the pictures are.
+- **Tapping one opens Zuna,** on the Telegram account, at that message. What the engine's database already held shows at once, and the rest as it catches up.
+- **Replying from the notification** comes later, as it needs the app woken to start the engine.
+- **Someone with Telegram's own app on the same phone gets each message twice,** once from each app, as each is a device of the account's and Telegram pushes to both. iOS's settings turn one app's notifications off, and the linking screen says so.
+- **If Telegram's pushes don't let the extension run,** iOS shows the sentence the app carries for that kind by itself: the same words, without "Telegram", and with Telegram's count on the badge instead of the app's.
+
 What it costs:
 
 - **Telegram holds a certificate that can send notifications to Zuna's app,** on phones whose token it has, which are the linked ones. One sent outside the usual shape would show as written, under Zuna's name.
@@ -371,6 +386,7 @@ On the iPhone:
 - **How much memory iOS gives a helper,** and whether it runs in the simulator.
 - **That files can pass between the app and the helper** without going through memory whole.
 - **Whether Telegram encrypts an ordinary push to an iPhone for a third-party app.**
+- **What exactly Telegram sends Apple for a third-party app,** and whether it lets the notification extension run.
 - **That opening a `tg://login` address** makes Telegram on the same phone ask to let the device in.
 - **What my.telegram.org takes for Apple's pushes:** a certificate for one bundle, or only something wider. The owner has to look, as it needs the account.
 
