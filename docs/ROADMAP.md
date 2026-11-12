@@ -56,3 +56,4 @@ The iPhone app's approach carries over:
 - **Hiding who's in a conversation** from the server, which delivers by membership today.
 - **Encrypted backups** you can export and import yourself.
 - **An independent security audit.**
+- **Plugins for the native app:** packages that change how it looks and works, on the device alone, from a marketplace of ones the team has checked or, behind a warning, from a file. [PLUGINS_PLAN.md](PLUGINS_PLAN.md) is the plan, and nothing of it is built.
