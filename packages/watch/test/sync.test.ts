@@ -379,3 +379,134 @@ describe("hearing the person", () => {
     expect(intents).toEqual([]);
   });
 });
+
+describe("the edges", () => {
+  it("goes back to nothing when the room stops watching, and is at nothing before it starts", () => {
+    expect(sync.expected()).toBe(0);
+    room(10_000);
+    run(1000);
+    sync.apply({ video: null, playing: false, position: 0, age: 0, rate: 1 });
+    expect(sync.phase).toBe("idle");
+    // What a player still says afterwards changes nothing.
+    run(500);
+    expect(intents).toEqual([]);
+    expect(sync.phase).toBe("idle");
+  });
+
+  it("runs on the page's own clock unless given one", () => {
+    const own = new WatchSync(player, { intent: () => {}, phase: () => {}, blocked: () => {} });
+    own.apply({ video: "aqz-KE-bpKQ", playing: false, position: 5000, age: 0, rate: 1 });
+    expect(own.expected()).toBe(5000);
+  });
+
+  it("loads the same video again after the player broke, from where the room is now", () => {
+    sync.reload();
+    expect(player.calls).toEqual([]);
+    room(10_000, true, 1, 0);
+    run(1000);
+    player.calls = [];
+    clock += 2000;
+    sync.reload();
+    expect(player.calls[0]).toMatch(/^load aqz-KE-bpKQ 13\.\d true$/);
+    expect(sync.phase).toBe("loading");
+  });
+
+  it("says the browser blocked it once, whether the player said so or not", () => {
+    sync.noteBlocked();
+    sync.noteBlocked();
+    expect(blocked).toBe(1);
+  });
+
+  it("asks nothing of a player that's held, and holds one with nothing loaded at nothing", () => {
+    sync.hold(true);
+    expect(sync.phase).toBe("idle");
+    sync.hold(true);
+    room(10_000);
+    // Loaded but not told to play, as nobody can see it.
+    expect(player.calls).toEqual(["pause", "load aqz-KE-bpKQ 10.0 false"]);
+    run(1000);
+    expect(player.calls).toEqual(["pause", "load aqz-KE-bpKQ 10.0 false"]);
+    sync.hold(false);
+    run(500);
+    expect(player.state).toBe("playing");
+    // Let go with nothing loaded, it waits.
+    sync.apply({ video: null, playing: false, position: 0, age: 0, rate: 1 });
+    sync.hold(true);
+    sync.hold(false);
+    expect(sync.phase).toBe("idle");
+  });
+
+  it("doesn't say a video ended that the room had paused already, and takes an unknown length for where it is", () => {
+    room(10_000);
+    run(1000);
+    room(sync.expected(), false);
+    run(500);
+    player.state = "ended";
+    sync.onReading(player.reading());
+    expect(intents).toEqual([]);
+    room(20_000);
+    run(1000);
+    player.duration = 0;
+    player.state = "ended";
+    clock += 1000;
+    sync.onReading(player.reading());
+    expect(intents).toEqual([{ playing: false, position: Math.round(player.time * 1000) }]);
+  });
+
+  it("doesn't take a jump in a live stream, nor a far one while buffering, for someone's seek", () => {
+    room(10_000);
+    run(1000);
+    // A jump into buffering, then a live stream playing there: not someone's seek.
+    player.time = 200;
+    player.state = "buffering";
+    run(250);
+    player.state = "playing";
+    player.live = true;
+    sync.onReading(player.reading());
+    expect(intents).toEqual([]);
+  });
+
+  it("hears a seek into buffering that ends paused while the room plays as a pause there", () => {
+    room(10_000);
+    run(1000);
+    player.time = 200;
+    player.state = "buffering";
+    run(250);
+    player.state = "paused";
+    clock += 250;
+    sync.onReading(player.reading());
+    expect(intents).toEqual([{ position: 200_000, playing: false }]);
+  });
+
+  it("doesn't take a jump that lands where the player was going for a seek", () => {
+    room(10_000);
+    run(1000);
+    player.time = 200;
+    player.state = "buffering";
+    run(250);
+    // It comes back from buffering where the room is: catching up, not someone seeking.
+    player.time = sync.expected() / 1000;
+    player.state = "playing";
+    clock += 250;
+    sync.onReading(player.reading());
+    expect(intents).toEqual([]);
+  });
+
+  it("isn't told it's blocked while it buffers, however long that takes", () => {
+    player.startDelay = 10_000;
+    room(10_000);
+    run(SYNC.blockedAfterMs + 1000);
+    expect(player.state).toBe("buffering");
+    expect(blocked).toBe(0);
+  });
+
+  it("puts a paused player that drifted back where the room paused, at most once a second", () => {
+    room(10_000, false);
+    run(500);
+    player.calls = [];
+    player.time = 10.5;
+    run(250);
+    run(250);
+    expect(player.calls.filter((call) => call.startsWith("seek"))).toEqual(["seek 10.00"]);
+  });
+});
