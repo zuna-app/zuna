@@ -7,6 +7,8 @@ mod select;
 mod composer;
 mod sending;
 mod recording;
+#[cfg(test)]
+mod tests;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
