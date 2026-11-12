@@ -780,6 +780,36 @@ public struct DeviceView: Codable, Sendable, Equatable, Identifiable {
     public var name: String
 }
 
+/// What a server says it keeps about the account (`exportServerData`): its answer, to save as it
+/// came, and the same in plain words, to show.
+public struct ServerDataExport: Codable, Sendable, Equatable {
+    public var json: String
+    public var fileName: String
+    public var sections: [ServerDataSection]
+}
+
+public struct ServerDataSection: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var title: String
+    public var about: String
+    public var rows: [ServerDataRow]
+}
+
+/// What the server can do with one thing: read it, hold it encrypted, show it as a public key,
+/// keep it and give only its size, or not keep it at all.
+public enum ServerDataKind: String, Codable, Sendable {
+    case readable, encrypted, withheld
+    case publicKey = "public"
+    case notKept = "none"
+}
+
+public struct ServerDataRow: Codable, Sendable, Equatable {
+    public var label: String
+    public var value: String
+    public var kind: ServerDataKind
+    public var note: String?
+}
+
 /// A device that signed in to this account after this one, which the person is asked about until
 /// they answer (`answerNewDevice`).
 public struct NewDevice: Codable, Sendable, Equatable, Identifiable {

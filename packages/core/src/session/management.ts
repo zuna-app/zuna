@@ -5,7 +5,8 @@ import { currentAuthKey, planPasswordChange, planRecoveryChange } from "../accou
 import { safetyEmoji, sealHistoryGrant, sealProfile, signProfileAtGeneration, verifyHpkeKey } from "../crypto";
 import type { Link } from "../generations";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
-import type { AvatarRef, DeviceView, GroupRole, Profile, SafetyCheck } from "../types";
+import { describeExport } from "../export";
+import type { AvatarRef, DeviceView, GroupRole, Profile, SafetyCheck, ServerDataExport } from "../types";
 import { rotationTiming, type GroupMeta, emptyProfile } from "./shared";
 import { SessionSending } from "./sending";
 
@@ -36,6 +37,27 @@ export abstract class SessionManagement extends SessionSending {
 
   async setHideLastSeen(hide: boolean): Promise<void> {
     await this.api.updateMe({ hide_last_seen: hide });
+  }
+
+  /**
+   * Everything the server says it keeps about this account, to save as it came and to show
+   * in plain words. This device signs for it, so a session token alone can't read it.
+   */
+  async exportServerData(): Promise<ServerDataExport> {
+    const raw = await this.api.exportAccount();
+    return describeExport(raw, {
+      deviceId: this.account.deviceId,
+      deviceName: (id) => this.deviceNames.get(id),
+      conversationName: (id) => {
+        const group = this.groups.get(id);
+        if (!group) return undefined;
+        if (group.kind === "channel") return this.channels.get(id)?.details?.name;
+        if (group.kind === "group") return group.meta.name || undefined;
+        if (group.peerId === this.account.userId) return undefined;
+        return group.peerId ? this.users.get(group.peerId)?.profile.displayName || undefined : undefined;
+      },
+      serverUrl: this.account.serverUrl,
+    });
   }
 
   getDevices(): DeviceView[] {

@@ -142,6 +142,117 @@ export interface ApiSlot {
   sealed_key: string;
 }
 
+/** How many of something the server keeps, and their size in bytes. */
+export interface ApiExportBulk {
+  count: number;
+  bytes: number;
+}
+
+/**
+ * Everything the server keeps about an account (`POST /api/account/export`), as
+ * `server/internal/store/export.go` writes it. Bytes come as base64, and what would let
+ * someone guess the password or act with it only as a size.
+ */
+export interface ApiExport {
+  exported_at: number;
+  account: {
+    id: string;
+    username: string;
+    role: string;
+    created_at: number;
+    updated_at: number;
+    last_seen_at: number | null;
+    hide_last_seen: boolean;
+    banned_at: number | null;
+    banned_by: string | null;
+    deleted_at: number | null;
+    key_generation: number;
+    identity_key: string | null;
+    identity_head: string | null;
+    hpke_key: string | null;
+    hpke_key_sig: string | null;
+    profile: string | null;
+    profile_sig: string | null;
+    avatar_file: string | null;
+    vault_core: string | null;
+    stored_bytes: number;
+    commit_bytes: number;
+  };
+  sign_in: {
+    kdf: { salt: string; memory: number; iterations: number; parallelism: number };
+    auth_hash_size: number;
+    recovery_hash_size: number;
+    slots: { kind: string; size: number }[];
+    attempts: { attempts: number; until: number; seen_at: number } | null;
+  };
+  devices: ApiExportDevice[];
+  signing_in: ApiExportSession[];
+  conversations: ApiExportConversation[];
+  vault: { items: ApiExportBulk; history_grants: ApiExportBulk };
+  files: { id: string; size: number; created_at: number; completed_at: number | null; attached_at: number | null; standalone: boolean }[];
+  uploads: { day: number; mib: number }[];
+  tokens: { period: number; size: string; issued: number }[];
+  invites: { created_at: number; grants_role: string; max_uses: number; uses: number; expires_at: number | null; revoked_at: number | null }[];
+  bots: { id: string; username: string; listed: boolean; add_policy: string; files: boolean; created_at: number; set_up_at: number | null; deleted_at: number | null; channels: string[] }[];
+  admin: {
+    channels: { id: string; created_at: number }[];
+    sounds: { id: string; created_at: number }[];
+    banned: { id: string; username: string; banned_at: number }[];
+  };
+  key_changes: { links: { generation: number; created_at: number }[]; log_entries: number };
+}
+
+export interface ApiExportSession {
+  created_at: number;
+  last_used_at: number;
+}
+
+export interface ApiExportDevice {
+  id: string;
+  created_at: number;
+  last_seen_at: number;
+  revoked_at: number | null;
+  signature_key: string | null;
+  certificate: string | null;
+  seal_key: string | null;
+  seal_generation: number | null;
+  seal_proof: string | null;
+  enroll_proof: string | null;
+  sessions: ApiExportSession[];
+  key_packages: ApiExportBulk;
+  welcomes: ApiExportBulk;
+  account_key: { generation: number; size: number } | null;
+  push: {
+    relay: string;
+    handle_size: number;
+    call_handle_size: number;
+    key: string | null;
+    registration: string;
+    muted: Record<string, number> | null;
+    filters: boolean;
+    notified: string[];
+    updated_at: number;
+  } | null;
+}
+
+export interface ApiExportConversation {
+  id: string;
+  kind: "dm" | "group" | "channel";
+  dm_key?: string;
+  created_by: string;
+  created_at: number;
+  epoch: number;
+  changes: number;
+  history_visible: boolean;
+  meta_size: number;
+  membership: { role: string; joined_at: number; visible_from_seq: number; read_state_size: number; proof_size: number; history_wanted: boolean } | null;
+  member_count: number;
+  members: { id: string; username: string; role: string; joined_at: number }[];
+  messages: { count: number; bytes: number; deleted: number; first: number | null; last: number | null };
+  by_you: { count: number; last: number | null };
+  to_you: { count: number; last: number | null };
+}
+
 export interface ApiAccount {
   generation: number;
   vault_core: string;
@@ -607,6 +718,8 @@ export class Api {
   account = () => this.request<ApiAccount>("GET", "/api/account");
   rotate = (body: unknown) => this.request("POST", "/api/account/rotate", body);
   deleteAccount = (authKey: Uint8Array) => this.request("DELETE", "/api/account", { auth_key: authKey });
+  /** Everything the server keeps about this account, signed for by this device. */
+  exportAccount = () => this.request<ApiExport>("POST", "/api/account/export", {});
 
   // Reports to the server's admins
   report = (userId: string, reason: ReportReason) => this.request("POST", "/api/reports", { user_id: userId, reason });

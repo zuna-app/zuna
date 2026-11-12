@@ -639,6 +639,41 @@ export interface DeviceView {
 }
 
 /**
+ * What a server says it keeps about the account (`exportServerData`): its answer, to save
+ * as it came, and the same in plain words, section by section, to show.
+ */
+export interface ServerDataExport {
+  /** The server's answer, laid out to read, which saving writes. */
+  json: string;
+  /** A name to save it under. */
+  fileName: string;
+  sections: ServerDataSection[];
+}
+
+export interface ServerDataSection {
+  id: string;
+  title: string;
+  /** What this part is, in plain words. */
+  about: string;
+  rows: ServerDataRow[];
+}
+
+/**
+ * What the server can do with one thing: `readable` it reads, `encrypted` it holds and
+ * can't open, `public` is a public key or a signature, there for anyone to check,
+ * `withheld` it keeps and the export gives only the size of, and `none` it doesn't keep.
+ */
+export type ServerDataKind = "readable" | "encrypted" | "public" | "withheld" | "none";
+
+export interface ServerDataRow {
+  label: string;
+  value: string;
+  kind: ServerDataKind;
+  /** More about it, for a line under it. */
+  note?: string;
+}
+
+/**
  * A device that signed in to this account after this one did, which this device asks the person
  * about until they say whether it was them (`answerNewDevice`).
  */

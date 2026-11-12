@@ -308,6 +308,8 @@ public struct SessionCalls: Sendable {
     }
 
     public func setHideLastSeen(_ hide: Bool) async throws { try await run("setHideLastSeen", [hide]) }
+    /// Everything the server says it keeps about this account, to show and to save.
+    public func exportServerData() async throws -> ServerDataExport { try await call("exportServerData") }
     public func revokeDevice(_ deviceId: String) async throws { try await run("revokeDevice", [deviceId]) }
     public func changePassword(current: String, next: String) async throws { try await run("changePassword", [current, next]) }
     /// A new recovery key; the old one stops working.

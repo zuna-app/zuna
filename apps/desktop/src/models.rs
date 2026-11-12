@@ -520,6 +520,35 @@ pub struct DeviceView {
     pub name: String,
 }
 
+/// What a server says it keeps about the account (`exportServerData`): its answer, to save as
+/// it came, and the same in plain words, to show.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ServerDataExport {
+    pub json: String,
+    pub file_name: String,
+    pub sections: Vec<ServerDataSection>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ServerDataSection {
+    pub id: String,
+    pub title: String,
+    pub about: String,
+    pub rows: Vec<ServerDataRow>,
+}
+
+/// One thing kept. `kind` is "readable", "encrypted", "public", "withheld" or "none".
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ServerDataRow {
+    pub label: String,
+    pub value: String,
+    pub kind: String,
+    pub note: Option<String>,
+}
+
 /// A device that signed in to this account after this one, which the person is asked about
 /// until they answer (`answerNewDevice`).
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

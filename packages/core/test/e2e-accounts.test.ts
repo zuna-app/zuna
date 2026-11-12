@@ -890,6 +890,53 @@ describe("reporting someone", () => {
   });
 });
 
+describe("seeing what the server keeps", () => {
+  it("shows the account's own data in plain words, with nothing to guess the password from", async () => {
+    const wren = await new TestApp("wren-laptop").open();
+    await wren.register(invite, "wren");
+    const wrenPhone = await new TestApp("wren-phone").open();
+    await wrenPhone.login(server.url, "wren");
+    await waitFor(() => wren.session.getUsers().some((user) => user.id === alice.userId), "wren to see alice");
+    wren.session.sendMessage(`user:${alice.userId}`, { text: "what does the server know?" });
+    await waitFor(() => alice.texts(`user:${wren.userId}`).includes("what does the server know?"), "wren's message");
+    // Someone reported wren, which wren shouldn't learn from this.
+    await alice.session.reportUser(wren.userId, "harassment");
+
+    const exported = await wren.session.exportServerData();
+    expect(exported.fileName).toMatch(/^zuna-[\w.-]+-wren-\d{4}-\d{2}-\d{2}\.json$/);
+    const raw = JSON.parse(exported.json);
+    expect(raw.account).toMatchObject({ id: wren.userId, username: "wren" });
+    expect(raw.devices).toHaveLength(2);
+    expect(raw.sign_in.auth_hash_size).toBeGreaterThan(0);
+    for (const secret of ["\"auth_hash\"", "\"recovery_hash\"", "\"sealed_secret\"", "\"sealed_key\"", "\"code\"", "\"handle\"", "harassment", (wren.session as any).api.token, (wrenPhone.session as any).api.token]) {
+      expect(exported.json).not.toContain(secret);
+    }
+
+    const section = (id: string) => exported.sections.find((item) => item.id === id)!;
+    expect(exported.sections.map((item) => item.id)).toEqual(["account", "sign-in", "devices", "conversations", "vault", "files", "sending", "keys", "not-kept"]);
+    expect(section("account").rows.find((row) => row.label === "Username")).toMatchObject({ value: "@wren", kind: "readable" });
+    expect(section("account").rows.find((row) => row.label === "Profile")?.kind).toBe("encrypted");
+    expect(section("account").rows.find((row) => row.label === "Reports about you")).toMatchObject({ value: "Left out", kind: "withheld" });
+    expect(section("sign-in").rows.filter((row) => row.kind === "withheld")).toHaveLength(4);
+    const devices = section("devices").rows;
+    expect(devices).toHaveLength(2);
+    expect(devices[0]!.label).toMatch(/this device/i);
+    const chat = section("conversations").rows.find((row) => row.label === "Direct message with @alice")!;
+    expect(chat.kind).toBe("readable");
+    expect(chat.note).toContain(`On your devices: “${wren.session.getUsers().find((user) => user.id === alice.userId)!.displayName}”`);
+    expect(chat.note).toMatch(/\d+ messages?, [\d.]+ (bytes|KB) encrypted/);
+    expect(section("sending").rows[0]!.value).not.toBe("None kept");
+    expect(section("not-kept").rows.every((row) => row.kind === "none")).toBe(true);
+
+    // Each sees only their own.
+    const theirs = JSON.parse((await alice.session.exportServerData()).json);
+    expect(theirs.account.id).toBe(alice.userId);
+    expect(theirs.devices.map((device: { id: string }) => device.id)).not.toContain((wren.session as any).account.deviceId);
+    await alice.session.dismissReports(wren.userId);
+    for (const app of [wren, wrenPhone]) app.client.stop();
+  });
+});
+
 describe("sessions end cleanly", () => {
   it("erases local data when signing out of a server", async () => {
     const temp = await new TestApp("temp").open();
