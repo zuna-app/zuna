@@ -89,11 +89,12 @@ final class DriftTests: XCTestCase {
     func testReadsChannelsAndWhoIsInThemWholly() throws {
         let channel = Data(#"""
         {"id":"c1","type":"text","key":"group:c1","name":"general","topic":"Anything goes","category":"","bitrate":0,"position":0,
-         "userLimit":0,"screenLimit":0,"sounds":true,"slowMode":30,"unreadable":false,"conversation":null}
+         "userLimit":0,"screenLimit":0,"sounds":true,"watch":true,"slowMode":30,"unreadable":false,"conversation":null}
         """#.utf8)
         let decoded = try CoreConnection.decoder.decode(ChannelView.self, from: channel)
         XCTAssertEqual(decoded.key, "group:c1")
         XCTAssertTrue(decoded.sounds)
+        XCTAssertTrue(decoded.watch)
         XCTAssertEqual(decoded.slowMode, 30)
         XCTAssertNil(decoded.conversation)
         XCTAssertEqual(Drift.missing(in: channel, decodedAs: decoded), [])
