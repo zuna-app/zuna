@@ -300,10 +300,15 @@ func TestAdministrationThatIsntRight(t *testing.T) {
 			status, _ := h.do("PUT", "/api/admin/users/"+w.carol.userID+"/role", w.bob.token, map[string]any{"role": "admin"}, nil)
 			return status
 		}},
-		{"banning someone with a direct message", http.StatusOK, func() int {
+		{"banning and unbanning someone with a direct message", http.StatusOK, func() int {
 			someone := w.fresh("dm")
 			someone.dm(w.bob.userID)
 			status, _ := h.do("POST", "/api/admin/users/"+someone.userID+"/ban", w.owner.token, nil, nil)
+			if status != http.StatusOK {
+				return status
+			}
+			// Let back in, they're in their direct messages again.
+			status, _ = h.do("POST", "/api/admin/users/"+someone.userID+"/unban", w.owner.token, nil, nil)
 			return status
 		}},
 	})
