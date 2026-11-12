@@ -43,7 +43,8 @@ fn listed(plugins: &Plugins) -> Vec<Listed> {
                 version: record.version.clone(),
                 origin: record.origin,
                 enabled: record.enabled,
-                running: plugins.running(&uid),
+                // A plugin of themes alone runs no script, so it's on whenever it's loaded and switched on.
+                running: plugins.running(&uid) || loaded.is_some_and(|loaded| !loaded.manifest().scripted() && record.enabled && plugins.safe_mode.is_none()),
                 problem: plugins.problems.get(&uid).cloned().or_else(|| record.off_reason.clone()),
                 told: loaded.map(|loaded| loaded.manifest().told()).unwrap_or_default(),
                 waiting: plugins.market.waiting.get(&uid).map(|version| version.version.clone()),
