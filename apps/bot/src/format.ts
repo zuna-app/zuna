@@ -73,6 +73,18 @@ function found(text: string, taken: Entity[]): Entity[] {
 }
 
 /** A message's text as Zuna's apps write it, as Telegram's plain text and entities. */
+/**
+ * A string without the newlines at its end, and at its start too unless told to leave them.
+ * A loop, as a pattern takes far longer over a long run of them.
+ */
+function trimNewlines(text: string, both = true): string {
+  let start = 0;
+  let end = text.length;
+  while (both && start < end && text[start] === "\n") start++;
+  while (end > start && text[end - 1] === "\n") end--;
+  return text.slice(start, end);
+}
+
 export function toTelegram(markup: string): Formatted {
   const out: Formatted = { text: "", entities: [] };
   const block = (start: string) => {
@@ -86,7 +98,7 @@ export function toTelegram(markup: string): Formatted {
       if (quote !== null) out.entities.push({ type: "blockquote", offset: quote, length: out.text.length - quote });
       quote = null;
     };
-    for (const line of chunk.replace(/^\n+|\n+$/g, "").split("\n")) {
+    for (const line of trimNewlines(chunk).split("\n")) {
       const quoted = /^>\s?/.test(line);
       if (!quoted) endQuote();
       block("");
@@ -107,7 +119,7 @@ export function toTelegram(markup: string): Formatted {
     last = match.index + match[0].length;
   }
   prose(markup.slice(last));
-  out.text = out.text.replace(/\n+$/, "");
+  out.text = trimNewlines(out.text, false);
   out.entities = [...out.entities, ...found(out.text, out.entities)]
     .filter((entity) => entity.length > 0 && entity.offset + entity.length <= out.text.length)
     .sort((a, b) => a.offset - b.offset || b.length - a.length);
@@ -174,9 +186,7 @@ export function fromTelegram({ text, entities }: Formatted): string {
   const ordered = entities
     .filter((entity) => Number.isSafeInteger(entity.offset) && Number.isSafeInteger(entity.length) && entity.offset >= 0)
     .sort((a, b) => a.offset - b.offset || b.length - a.length);
-  return render(text, ordered, 0, text.length)
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^\n+|\n+$/g, "");
+  return trimNewlines(render(text, ordered, 0, text.length).replace(/\n{3,}/g, "\n\n"));
 }
 
 // --- Telegram's parse modes, to its plain text and entities ---
