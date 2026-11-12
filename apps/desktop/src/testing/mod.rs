@@ -3,20 +3,22 @@
 //! at once and on the test's own thread, as the test platform needs. The state fills as the
 //! app's does, and every screen draws from it.
 
-mod fixtures;
+pub mod fixtures;
 mod screens;
 mod state;
 
 pub use fixtures::World;
 
-use std::sync::Once;
+use std::collections::HashMap;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use futures::channel::mpsc;
 use gpui::{AppContext, Entity, TestAppContext, WindowHandle};
+use parking_lot::Mutex;
 use serde_json::Value;
 
-use crate::host::Core;
+use crate::host::{Core, CoreError};
 use crate::state::{AppState, Store};
 use crate::ui::Root;
 
@@ -32,16 +34,36 @@ pub fn data_dir() -> std::path::PathBuf {
     dir
 }
 
-/// The stand-in for the core: it answers each call from `fixtures`, which hold, by server ID
-/// ("" for the client itself), what each method gives, and refuses anything else as the core
-/// would refuse a call it can't make.
-fn fake_core(fixtures: Value) -> Core {
-    Core::fake(Box::new(move |server, method, _args| {
+/// A call the app made of the core.
+#[derive(Clone, Debug)]
+pub struct Call {
+    pub server: Option<String>,
+    pub method: String,
+    pub args: Vec<Value>,
+}
+
+/// What a test answers a method with, from its arguments, in place of the fixtures.
+pub type Answer = Box<dyn Fn(&[Value]) -> Result<Value, CoreError> + Send>;
+
+/// An error as the core would give it.
+pub fn refused(message: &str) -> CoreError {
+    CoreError { message: message.into(), code: Some("refused".into()), status: Some(400) }
+}
+
+/// The stand-in for the core: it notes each call, and answers it as the test said to, or from
+/// `fixtures`, which hold, by server ID ("" for the client itself), what each method gives, and
+/// refuses anything else as the core would refuse a call it can't make.
+fn fake_core(fixtures: Value, calls: Arc<Mutex<Vec<Call>>>, answers: Arc<Mutex<HashMap<String, Answer>>>) -> Core {
+    Core::fake(Box::new(move |server, method, args| {
+        calls.lock().push(Call { server: server.map(str::to_string), method: method.to_string(), args: args.to_vec() });
+        if let Some(answer) = answers.lock().get(method) {
+            return answer(args);
+        }
         fixtures
             .get(server.unwrap_or(""))
             .and_then(|table| table.get(method))
             .cloned()
-            .ok_or_else(|| crate::host::CoreError { message: format!("The stand-in has no {method}."), code: Some("missing".into()), status: None })
+            .ok_or_else(|| CoreError { message: format!("The stand-in has no {method}."), code: Some("missing".into()), status: None })
     }))
 }
 
@@ -51,12 +73,16 @@ pub struct App {
     pub state: Entity<AppState>,
     pub window: WindowHandle<Root>,
     pub events: mpsc::UnboundedSender<Value>,
+    calls: Arc<Mutex<Vec<Call>>>,
+    answers: Arc<Mutex<HashMap<String, Answer>>>,
 }
 
 impl App {
     pub fn open(cx: &mut TestAppContext, world: &World) -> App {
         data_dir();
-        let core = fake_core(world.fixtures());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let answers = Arc::new(Mutex::new(HashMap::new()));
+        let core = fake_core(world.fixtures(), calls.clone(), answers.clone());
         let (events, receiver) = mpsc::unbounded();
         let state = cx.update(|cx| {
             crate::assets::load_fonts(cx);
@@ -65,13 +91,46 @@ impl App {
             let state = cx.new(|cx| AppState::new(core.clone(), receiver, cx));
             cx.set_global(Store(state.clone()));
             crate::voice::init(&state, cx);
+            #[cfg(windows)]
+            crate::ui::notifications::install(state.downgrade(), cx);
             state
         });
+        // Nothing a test does makes a sound.
+        state.update(cx, |state, _| state.settings.notification_sound = false);
         let window = cx.add_window(|window, cx| Root::new(state.clone(), window, cx));
         state.update(cx, |state, cx| state.boot(async { Ok(()) }, false, cx));
-        let app = App { state, window, events };
+        let app = App { state, window, events, calls, answers };
         app.settle(cx, |state| !matches!(state.phase, crate::state::Phase::Booting));
         app
+    }
+
+    /// Answers a method from its arguments from now on, in place of the fixtures.
+    pub fn answer(&self, method: &str, answer: impl Fn(&[Value]) -> Result<Value, CoreError> + Send + 'static) {
+        self.answers.lock().insert(method.to_string(), Box::new(answer));
+    }
+
+    /// The arguments of each call of a method so far.
+    pub fn calls_of(&self, method: &str) -> Vec<Vec<Value>> {
+        self.calls.lock().iter().filter(|call| call.method == method).map(|call| call.args.clone()).collect()
+    }
+
+    /// Every call so far.
+    pub fn calls(&self) -> Vec<Call> {
+        self.calls.lock().clone()
+    }
+
+    pub fn forget_calls(&self) {
+        self.calls.lock().clear();
+    }
+
+    /// The toasts showing, newest last.
+    pub fn toasts(&self, cx: &mut TestAppContext) -> Vec<String> {
+        cx.read(|cx| self.state.read(cx).toasts.iter().map(|toast| toast.message.clone()).collect())
+    }
+
+    /// Reads the state.
+    pub fn read<T>(&self, cx: &mut TestAppContext, read: impl FnOnce(&AppState) -> T) -> T {
+        cx.read(|cx| read(self.state.read(cx)))
     }
 
     /// Runs everything waiting, the core's answers and the timers they start, until `done`
