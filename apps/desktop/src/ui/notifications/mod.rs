@@ -5,6 +5,8 @@
 //! each staying until the person next touches the computer, then 3 s more and a 4 s fade
 //! that the mouse stops. What it shows came from someone else, so it only goes in as text.
 
+#[cfg(test)]
+mod tests;
 mod view;
 
 use view::NotificationsView;
