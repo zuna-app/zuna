@@ -361,15 +361,22 @@ export function checkPinnable(url: string): void {
 /** What to enter to reach a server: its address, with the pin of one that makes its own certificate. */
 export const serverAddress = (url: string, pin: string | null | undefined): string => (pin ? `${url}#pin=${pin}` : url);
 
+/** A string without the slashes it ends with. A loop, as a pattern takes far longer over a long run of them. */
+function withoutSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "/") end--;
+  return text.slice(0, end);
+}
+
 export function normalizeServerUrl(input: string): string {
-  let url = input.trim().replace(/\/+$/, "");
+  let url = withoutSlashes(input.trim());
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
   const parsed = new URL(url);
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname) || parsed.hostname.endsWith(".localhost");
   if (parsed.protocol !== "https:" && !local) {
     throw new Error("Zuna servers must use HTTPS. Plain HTTP only works for localhost.");
   }
-  return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
+  return `${parsed.protocol}//${parsed.host}${withoutSlashes(parsed.pathname)}`;
 }
 
 /** Recursively turns Uint8Array values into base64 for JSON. */
