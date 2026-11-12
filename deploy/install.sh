@@ -1072,6 +1072,11 @@ caddy_site() {
   # Caddy sets X-Forwarded-For to who called, which behind Cloudflare is one of its
   # addresses, and passes on CF-Connecting-IP, which then names the caller.
   echo "	reverse_proxy $(upstream)"
+  # Caddy keeps no access log without a log directive, but writes a request that ends in
+  # a 5xx to its own, with the caller's address and the whole address asked for, which at
+  # /livekit/ holds a voice token. One the site's error route answers it only logs at
+  # debug, and the answer is the same.
+  printf '\thandle_errors {\n\t\trespond "{err.status_code} {err.status_text}"\n\t}\n'
   echo "}"
 }
 
@@ -1106,10 +1111,19 @@ nginx_site() {
   nginx_proxy
   echo "}"
 }
+# Every server block's: nginx_logs keeps both of its logs off.
 nginx_listen() {
   echo "    listen $1;"
   has_ipv6 && echo "    listen [::]:$1;"
   echo "    server_name $DOMAIN;"
+  nginx_logs
+}
+# Nothing of who calls, nor of what they ask for, which at /livekit/ holds a voice token:
+# no access log, and no log of requests' errors, where nginx writes the caller's address and
+# the whole request line when the server behind it fails.
+nginx_logs() {
+  echo "    access_log off;"
+  echo "    error_log /dev/null;"
 }
 nginx_proxy() {
   cat <<EOF
@@ -1136,12 +1150,14 @@ apache_site() {
   if [ "$CLOUDFLARE_MODE" = flexible ]; then
     echo "<VirtualHost *:80>"
     echo "    ServerName $DOMAIN"
+    apache_logs
     apache_proxy
     echo "</VirtualHost>"
     return
   fi
   echo "<VirtualHost *:80>"
   echo "    ServerName $DOMAIN"
+  apache_logs
   if [ "$CERT_SOURCE" = certbot ]; then
     echo "    Alias /.well-known/acme-challenge/ $ACME_ROOT/.well-known/acme-challenge/"
     echo "    <Directory $ACME_ROOT>"
@@ -1156,11 +1172,18 @@ apache_site() {
   echo
   echo "<VirtualHost *:443>"
   echo "    ServerName $DOMAIN"
+  apache_logs
   echo "    SSLEngine on"
   echo "    SSLCertificateFile $(site_cert)"
   echo "    SSLCertificateKeyFile $(site_key)"
   apache_proxy
   echo "</VirtualHost>"
+}
+# Every virtual host's, as nginx_logs. A CustomLog of its own is what keeps the server's own
+# access log from taking its requests.
+apache_logs() {
+  echo "    CustomLog /dev/null \"-\""
+  echo "    ErrorLog /dev/null"
 }
 apache_proxy() {
   cat <<EOF

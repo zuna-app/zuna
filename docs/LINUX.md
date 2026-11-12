@@ -108,7 +108,7 @@ For each domain, the proxy must:
 - **handle HTTPS;**
 - **forward WebSockets,** which the server uses for everything live;
 - **add the client's address to `X-Forwarded-For`,** which both services use for rate limiting. Only the entries the proxy added count, so a caller can't make up their own;
-- **keep no access log of `/api/sealed/`,** where everything people add to a conversation goes without a name: the server keeps no address with it, but a log of every request's address would go a long way to saying who sent each message;
+- **keep no access log, and no log of requests' errors,** where nginx writes the caller's address and the whole request when the server behind it fails, and Caddy too unless an error route answers, as below. Everything people add to a conversation goes to `/api/sealed/` without a name, and the server keeps no address with it, but a log of every request's address would go a long way to saying who sent each message, and the addresses asked for at `/livekit/` hold voice tokens. The sites the installer writes keep neither from November 12, 2026. One it wrote before keeps both until `deploy/install.sh` runs again;
 - **allow request bodies of at least 64 MB.** Files upload in 1 MiB chunks, so that's not for them: a change to who's in a group carries the group's whole tree, a few kilobytes for each device with post-quantum keys, which in a group of a thousand devices is tens of megabytes. With less, adding someone to a large group fails. A site the installer wrote before November 2026 allows 2 MB, which is enough for groups of up to about fifty devices.
 
 The web app's domain needs only HTTPS and `X-Forwarded-For`. Don't add security headers there: the web app sends its own, and a proxy that changes them can weaken them.
@@ -117,16 +117,26 @@ With `10.0.0.5` standing for this machine's address:
 
 **Caddy**
 ```
+# A failed request logged at debug alone, so that it doesn't write who asked, and what.
+(quiet) {
+    handle_errors {
+        respond "{err.status_code} {err.status_text}"
+    }
+}
+
 chat.example.com {
     reverse_proxy 10.0.0.5:9660
+    import quiet
 }
 
 push.example.com {
     reverse_proxy 10.0.0.5:8090
+    import quiet
 }
 
 web.chat.example.com {
     reverse_proxy 10.0.0.5:8081
+    import quiet
 }
 ```
 
@@ -136,6 +146,8 @@ server {
     listen 443 ssl;
     server_name chat.example.com;
     # your ssl_certificate lines here
+    access_log off;
+    error_log /dev/null;
 
     client_max_body_size 64m;
 
@@ -154,6 +166,8 @@ server {
     listen 443 ssl;
     server_name push.example.com;
     # your ssl_certificate lines here
+    access_log off;
+    error_log /dev/null;
 
     location / {
         proxy_pass http://10.0.0.5:8090;
@@ -166,6 +180,8 @@ server {
     listen 443 ssl;
     server_name web.chat.example.com;
     # your ssl_certificate lines here
+    access_log off;
+    error_log /dev/null;
 
     location / {
         proxy_pass http://10.0.0.5:8081;

@@ -93,7 +93,7 @@ Paste it into the Zuna app, create your account, save your recovery key, and nam
 
 If Caddy, nginx or Traefik already handles HTTPS, run Zuna on plain HTTP behind it.
 
-The server keeps no address with what's sent without a name, which is everything people add to a conversation, but a proxy's access log keeps the address of every request, at `/api/sealed/` too, which goes a long way to saying who sent each message. Turn the access log off for that path, or keep none at all.
+The server keeps no address with what's sent without a name, which is everything people add to a conversation, but a proxy's access log keeps the address of every request, at `/api/sealed/` too, which goes a long way to saying who sent each message, and the addresses asked for at `/livekit/` hold voice tokens. Keep no access log for the site, and no log of requests' errors either, where nginx writes the caller's address and the whole request when the server behind it fails, and Caddy too unless an error route answers, as in the examples below. The sites `deploy/install.sh` writes keep neither from November 12, 2026. One it wrote before keeps both until it runs again.
 
 - **From source on Linux,** that's how it always runs: on port 9660. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
 - **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:9660`, for a proxy on the same machine:
@@ -108,6 +108,10 @@ The proxy must forward WebSockets and allow large uploads.
 ```
 chat.example.com {
     reverse_proxy 127.0.0.1:9660
+    # Logs a failed request at debug alone, so that it doesn't write who asked, and what.
+    handle_errors {
+        respond "{err.status_code} {err.status_text}"
+    }
 }
 ```
 
@@ -117,6 +121,8 @@ server {
     listen 443 ssl;
     server_name chat.example.com;
     # your ssl_certificate lines here
+    access_log off;
+    error_log /dev/null;
 
     client_max_body_size 64m;
 
