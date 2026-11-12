@@ -47,7 +47,7 @@ struct SettingsView: View {
                         }
                         .accessibilityIdentifier(A11y.Settings.security)
                         NavigationLink { ServerDataView(serverId: server.entry.id) } label: {
-                            SettingsLabel("What the server keeps", systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
+                            SettingsLabel("Your data", systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
                         }
                         .accessibilityIdentifier(A11y.Settings.serverData)
                     } footer: {

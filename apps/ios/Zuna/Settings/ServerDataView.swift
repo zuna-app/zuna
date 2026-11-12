@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ZunaModels
 
-/// What the server keeps: everything the server says it keeps about the account, in the core's
+/// Your data: everything the server says it keeps about the account, in the core's
 /// plain words, and shared as the server's own answer (`ServerDataSection` in
 /// packages/ui/src/features/overlays/Settings.tsx, `ui/settings/server_data.rs` in the native app).
 struct ServerDataView: View {
@@ -49,7 +49,7 @@ struct ServerDataView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("What the server keeps")
+        .navigationTitle("Your data")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let exported {

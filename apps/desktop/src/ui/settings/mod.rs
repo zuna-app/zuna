@@ -25,7 +25,7 @@ const SECTIONS: [(&str, &str, &str); 9] = [
     ("screen", "Screen sharing", "monitor-up"),
     ("appearance", "Appearance", "palette"),
     ("security", "Security", "shield-check"),
-    ("data", "What the server keeps", "server"),
+    ("data", "Your data", "server"),
     ("about", "About", "info"),
 ];
 

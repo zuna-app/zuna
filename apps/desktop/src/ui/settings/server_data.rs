@@ -1,4 +1,4 @@
-//! What the server keeps: everything the server says it keeps about the account, in the
+//! Your data: everything the server says it keeps about the account, in the
 //! core's plain words, and saved as the server's own answer (`ServerDataSection` in
 //! packages/ui/src/features/overlays/Settings.tsx).
 
@@ -37,7 +37,7 @@ impl SettingsView {
         let Some((server, _)) = self.me(cx) else { return Vec::new() };
         let data: Option<ServerDataExport> = self.server_data.as_ref().filter(|(id, _)| *id == server.entry.id).map(|(_, data)| data.clone());
         let mut parts = vec![
-            Self::heading("What the server keeps", &theme),
+            Self::heading("Your data", &theme),
             Self::lead(
                 format!(
                     "Everything {} keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.",

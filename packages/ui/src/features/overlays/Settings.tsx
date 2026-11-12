@@ -52,7 +52,7 @@ const SECTIONS = [
   { id: "screen", label: "Screen sharing", icon: MonitorUp },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "security", label: "Security", icon: ShieldCheck },
-  { id: "data", label: "What the server keeps", icon: Server },
+  { id: "data", label: "Your data", icon: Server },
   { id: "about", label: "About", icon: Info },
 ] as const;
 
@@ -497,7 +497,7 @@ function ServerDataSection() {
   };
   return (
     <>
-      <h1>What the server keeps</h1>
+      <h1>Your data</h1>
       <p className="settings-lead">
         Everything {server.entry.name} keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.
       </p>
