@@ -102,6 +102,12 @@ impl GdiText {
                 let _ = DeleteDC(dc);
                 return None;
             };
+            // A bitmap made without its pixels' address is no use, and writing to none is worse.
+            if bits.is_null() {
+                let _ = DeleteObject(bitmap.into());
+                let _ = DeleteDC(dc);
+                return None;
+            }
             std::ptr::write_bytes(bits as *mut u8, 0, (size * size * 4) as usize);
             let old_bitmap = SelectObject(dc, bitmap.into());
             let face = HSTRING::from("Segoe UI");
