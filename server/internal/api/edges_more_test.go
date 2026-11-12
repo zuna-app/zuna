@@ -201,3 +201,32 @@ func TestFilesConversationsBotsAndChannelsThatArentRight(t *testing.T) {
 		}},
 	})
 }
+
+func TestBotsInChannelsComeAndGo(t *testing.T) {
+	w := edgeWorld(t)
+	h := w.h
+	bot := w.owner.runBot(w.name("helper"), map[string]any{"listed": true, "add": "anyone"})
+	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", w.owner.token, map[string]any{"channels": []string{w.text.ID, w.voice.ID}}, nil)
+	var listed struct {
+		Bots []store.Bot `json:"bots"`
+	}
+	h.mustDo("GET", "/api/bots", w.owner.token, nil, &listed)
+	found := false
+	for _, b := range listed.Bots {
+		if b.ID == bot.userID && len(b.Channels) == 2 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the bot's channels weren't listed: %+v", listed.Bots)
+	}
+	// Out of one channel, then unlisted, which takes it out of the rest.
+	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", w.owner.token, map[string]any{"channels": []string{w.text.ID}}, nil)
+	h.mustDo("PATCH", "/api/bots/"+bot.userID, w.owner.token, map[string]any{"listed": false}, nil)
+	h.mustDo("GET", "/api/bots", w.owner.token, nil, &listed)
+	for _, b := range listed.Bots {
+		if b.ID == bot.userID && len(b.Channels) != 0 {
+			t.Fatalf("an unlisted bot kept its channels: %v", b.Channels)
+		}
+	}
+}
