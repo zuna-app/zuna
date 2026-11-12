@@ -42,9 +42,11 @@ services:
   # Apps reach it through Zuna's own address, so there's no second name or certificate
   # to look after, and media goes straight to the two ports below.
   livekit:
-    # Update this, the one in docker-compose.proxy.yml, LIVEKIT_TAG in scripts/lib.mjs and LIVEKIT_VERSION
-    # in deploy/update.sh together.
-    image: livekit/livekit-server:v1.13.11
+    # Built from the commit in livekit/version with Zuna's patch, which keeps what LiveKit learns
+    # about the people who join out of its log (livekit/build.sh). The first start builds it,
+    # which takes a while, and docker compose up -d --build builds it again after an update.
+    build:
+      context: ./livekit
     restart: unless-stopped
     # It reads the key file Zuna makes on its first start, so it runs as the same account.
     depends_on:

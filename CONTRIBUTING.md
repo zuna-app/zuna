@@ -76,7 +76,7 @@ The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs` a
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
-Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. The voice checks start one of their own.
+Voice needs a LiveKit server, which `npm run dev:server` builds and runs for you, as servers build it: from the commit in `deploy/livekit/version` with Zuna's patch, the first time and again when either changes. That needs git and Go. The voice checks start one of their own.
 
 ## Packaging
 

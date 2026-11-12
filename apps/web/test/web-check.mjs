@@ -17,7 +17,7 @@ import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
-import { LIVEKIT_CONFIG, ensureLiveKit, viteNodeArgs } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit, liveKitLogProblems, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -1076,6 +1076,8 @@ async function runIn(name) {
     }
 
     check("no errors in the page", errors.length === 0, errors.slice(0, 5).join(" | "));
+    const kept = liveKitLogProblems(liveKit.output());
+    check("LiveKit's log keeps nothing of who joined, from where or on what", kept.length === 0, kept.slice(0, 5).join(" | "));
     if (cutOffs) notes.push(`${name}: ${cutOffs} request(s) cut off as the check reloaded, handed over or closed a tab`);
   } catch (error) {
     check("the run finished", false, error.message.split("\n")[0]);

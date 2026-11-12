@@ -1005,7 +1005,7 @@ update_step() {
   case "$1" in
     "Checking the tools") echo "Installing tools" ;;
     "Pulling updates") echo "Getting the newest code" ;;
-    Building*) echo "Building the server" ;;
+    Building*) echo "Building the server and LiveKit" ;;
     Installing) echo "Installing" ;;
     Restarting) echo "Starting Zuna and LiveKit" ;;
     "") echo "Installing Zuna" ;;

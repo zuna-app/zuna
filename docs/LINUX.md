@@ -3,7 +3,7 @@
 `deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, with [LiveKit](https://livekit.io) beside it for voice channels, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), the web app ([WEB.md](WEB.md)), or any of them on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
 
 - **Pulls** the latest code, and if the script itself changed, runs the new version.
-- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it. The web app also needs Node and Rust, which it installs only when you run the web app. LiveKit isn't built: it downloads LiveKit's own release, and installs it only if it matches the checksum in the script.
+- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it. The web app also needs Node and Rust, which it installs only when you run the web app. LiveKit is built too, from the commit `deploy/livekit/version` names, with Zuna's patch, which keeps what LiveKit learns about the people who join out of its log ([SECURITY_DETAILS.md](SECURITY_DETAILS.md#voice-channels)). That takes about 900 MB of memory, swap included, and 1.5 GB of disk for Go's caches, and happens again only when the commit or the patch changes. On a machine with less memory free, the script stops before changing anything and says so: add swap, and run it again.
 - **Installs** the binaries, users, folders, settings and services.
 - **Restarts** each service and checks that it answers. If a new build doesn't start, it puts the previous one back.
 
@@ -265,6 +265,7 @@ An update restarts LiveKit only when it brings a new LiveKit or new settings for
 | Web app | `/usr/local/bin/zuna-web`, with the app inside it, service `zuna-web`, settings `/etc/zuna/zuna-web.env`. It keeps no data |
 | LiveKit | `/usr/local/bin/livekit-server`, service `zuna-livekit`, settings `/etc/zuna/livekit.yaml`. It keeps no data |
 | LiveKit's key and secret | `/etc/zuna/livekit-keys.yaml`, made once and readable only by LiveKit, and a copy in `/etc/zuna/zuna.env`, which only root reads |
+| What LiveKit is built with | Go's modules and build cache in the builder's `~/go` and `~/.cache/go-build`, shared with the server's build |
 | What the web app is built with | Node in `/usr/local/node`, Rust and `wasm-bindgen` in the builder's `~/.cargo`, and a copy of the code in its `~/.cache/zuna-web-build` |
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |

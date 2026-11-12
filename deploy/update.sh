@@ -70,7 +70,8 @@
 #   --allow-user-checkout  run even though someone other than root can change this
 #                        checkout, and so what this script does as root
 #   --no-pull            build what's checked out, without pulling
-#   --test               run the server's tests before installing
+#   --test               run the server's tests, and the test of LiveKit's patch
+#                        when it's built, before installing
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
@@ -392,6 +393,24 @@ if [ "$PULL" = 1 ]; then
 fi
 VERSION="$(as_owner git -C "$SRC" describe --tags --always --dirty)"
 
+# LiveKit is built from the commit in deploy/livekit/version with Zuna's patch, which keeps
+# what it learns about the people who join out of its log (deploy/livekit/build.sh), and again
+# only when the commit or the patch changes, which its --version says.
+read -r LIVEKIT_TAG _ _ <"$SRC/deploy/livekit/version"
+LIVEKIT_VERSION="${LIVEKIT_TAG#v}-zuna.$(sha256sum "$SRC/deploy/livekit/zuna.patch" | cut -c1-12)"
+LIVEKIT_NEW=0
+LIVEKIT_GOFLAGS=""
+if [ "$VOICE" = on ] && [ "$(/usr/local/bin/livekit-server --version 2>/dev/null | awk '{print $NF}')" != "$LIVEKIT_VERSION" ]; then
+  LIVEKIT_NEW=1
+  # Built one package at a time, it takes up to 830 MB at once, its linker most of it, which
+  # was measured on 2026-11-12. With less free, it stops here, before anything has changed.
+  free_mb="$(awk '/^(MemAvailable|SwapFree):/ { kb += $2 } END { print int(kb / 1024) }' /proc/meminfo)"
+  if [ "$free_mb" -lt 900 ]; then
+    fail "building LiveKit takes about 900 MB of memory, and this machine has $free_mb MB free, swap included. Add swap, or free some, and run this again. Nothing was changed."
+  fi
+  if [ "$free_mb" -lt 3000 ]; then LIVEKIT_GOFLAGS="-p=1"; fi
+fi
+
 if [ "$TEST" = 1 ]; then
   step "Testing"
   (cd "$SRC/server" && as_builder go test ./...)
@@ -399,9 +418,7 @@ fi
 
 step "Building $VERSION"
 BUILD="$(mktemp -d)"
-# What's downloaded rather than built stays root's, from its checksum until it's installed.
-FETCHED="$(mktemp -d)"
-trap 'rm -rf "$BUILD" "$FETCHED"' EXIT
+trap 'rm -rf "$BUILD"' EXIT
 chown "$BUILDER" "$BUILD"
 build() {
   # -buildvcs=false: the builder may not own the checkout, which git would refuse to read.
@@ -433,32 +450,16 @@ build_web() {
   (cd "$web/server" && as_web_builder env CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$BUILD/zuna-web" ./cmd/zuna-web)
   echo "Built zuna-web, with the web app"
 }
-# LiveKit's own release, which has to match the checksum here, so it's only ever
-# what this checkout says. Update the version with LIVEKIT_TAG in scripts/lib.mjs
-# and the images in deploy/docker-compose.yml and docker-compose.proxy.yml, and
-# the checksums from the release's checksums.txt.
-LIVEKIT_VERSION=1.13.11
-fetch_livekit() {
-  local sha file
-  case "$ARCH" in
-    amd64) sha=1e9ee90ca301e1842b2887fc77cb122759756a9c8aeb4334ee91de3325ec43fb ;;
-    arm64) sha=2af6ce091d6b3c79d1677f8ff1bbb91a8007f40b2325c059b52d38383c0830b6 ;;
-  esac
-  file="livekit_${LIVEKIT_VERSION}_linux_$ARCH.tar.gz"
-  curl -fsSL "https://github.com/livekit/livekit/releases/download/v$LIVEKIT_VERSION/$file" -o "$FETCHED/$file"
-  echo "$sha  $FETCHED/$file" | sha256sum -c --quiet - || fail "the LiveKit download doesn't match its checksum."
-  tar -C "$FETCHED" -xzf "$FETCHED/$file"
-  [ -f "$FETCHED/livekit-server" ] || fail "the LiveKit download has no livekit-server in it."
-  echo "Fetched LiveKit $LIVEKIT_VERSION"
+# As the build account, like the rest, into $BUILD. --test runs the patch's own test too.
+build_livekit() {
+  local test=""
+  if [ "$TEST" = 1 ]; then test=--test; fi
+  as_builder env GOFLAGS="$LIVEKIT_GOFLAGS" GOMEMLIMIT=500MiB sh "$SRC/deploy/livekit/build.sh" $test "$BUILD/livekit-server"
 }
 if [ -n "$SERVER_DOMAIN" ]; then build zuna-server; fi
 if [ -n "$RELAY_DOMAIN" ]; then build zuna-push; fi
 if [ -n "$WEB_DOMAIN" ]; then build_web; fi
-LIVEKIT_NEW=0
-if [ "$VOICE" = on ] && [ "$(/usr/local/bin/livekit-server --version 2>/dev/null | awk '{print $NF}')" != "$LIVEKIT_VERSION" ]; then
-  fetch_livekit
-  LIVEKIT_NEW=1
-fi
+if [ "$LIVEKIT_NEW" = 1 ]; then build_livekit; fi
 
 # --- Install and configure ---
 
@@ -502,7 +503,7 @@ VOICE_RESTART=0
 if [ "$VOICE" = on ]; then
   add_user zuna-livekit /nonexistent
   if [ "$LIVEKIT_NEW" = 1 ]; then
-    install_binary livekit-server "$FETCHED/livekit-server"
+    install_binary livekit-server
     VOICE_RESTART=1
   fi
   if ! cmp -s "$SRC/deploy/zuna-livekit.service" /etc/systemd/system/zuna-livekit.service; then

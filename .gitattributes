@@ -7,3 +7,6 @@ apps/ios/Zuna/Resources/emoji.json text eol=lf
 packages/core/test/fixtures/** -text
 # Applied to a crate whose files end their lines in LF (scripts/webrtc-sys.mjs).
 apps/desktop/patches/*.patch -text
+# Applied to LiveKit's checkout, whose files end their lines in LF, and read by sh (deploy/livekit/build.sh).
+deploy/livekit/zuna.patch -text
+deploy/livekit/version text eol=lf

@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { createServer as createTlsServer } from "node:tls";
 import { chromium } from "playwright-core";
-import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit, liveKitLogProblems } from "../../../scripts/lib.mjs";
 import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
@@ -193,7 +193,7 @@ try {
 
   // --- LiveKit, behind TLS as a real server's media server is ---
   const liveKitPort = 17880 + Math.floor(Math.random() * 1000);
-  start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], process.env, "livekit");
+  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], process.env, "livekit");
   const certificates = mkdtempSync(join(work, "tls-"));
   const run = (...args) => execFileSync("openssl", args, { cwd: certificates, stdio: "ignore" });
   const key = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"];
@@ -790,6 +790,10 @@ try {
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(3000);
   check("and stopping that ends it too", (await videoIn(page, 2)).fps === 0);
+
+  // --- What the media server kept of all that, at debug ---
+  const kept = liveKitLogProblems(liveKit.output);
+  check("LiveKit's log keeps nothing of who joined, from where or on what", kept.length === 0, kept.slice(0, 5).join(" | "));
 } catch (caught) {
   failed = caught;
 }

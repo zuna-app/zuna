@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, networkInterfaces } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -74,9 +74,6 @@ export function ensureBuilt() {
   }
 }
 
-/** The LiveKit server voice channels use. Update this, the image in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `LIVEKIT_VERSION` in `deploy/update.sh` together. */
-export const LIVEKIT_TAG = "v1.13.11";
-
 /**
  * What LiveKit is configured with beyond its defaults, as its --config-body. Change it with the
  * same in `deploy/docker-compose.yml`, `deploy/docker-compose.proxy.yml` and `deploy/update.sh`,
@@ -110,23 +107,148 @@ rtc:
 `;
 
 /**
- * A LiveKit server for development, built from its pinned tag the first time. It's
- * stripped, since Windows Defender quarantines Go binaries with debug symbols.
+ * Where LiveKit is built from: the commit `deploy/livekit/version` names, with Zuna's patch, which
+ * keeps what LiveKit learns about the people who join out of its log (docs/VOICE_LOGS_PLAN.md).
+ */
+const liveKitDir = join(root, "deploy", "livekit");
+
+/**
+ * A LiveKit server for development, built as `deploy/livekit/build.sh` builds it for servers, and
+ * again when its commit or the patch changes: the same steps, in Node, so that they run on Windows
+ * too. Change both together. It's stripped, since Windows Defender quarantines Go binaries with
+ * debug symbols.
  */
 export function ensureLiveKit() {
   const name = process.platform === "win32" ? "livekit-server.exe" : "livekit-server";
   const binary = join(devData, "bin", name);
   const stamp = `${binary}.tag`;
-  if (existsSync(binary) && existsSync(stamp) && readFileSync(stamp, "utf8") === LIVEKIT_TAG) return binary;
+  const [tag, commit, toolchain] = readFileSync(join(liveKitDir, "version"), "utf8").trim().split(/\s+/);
+  const patch = join(liveKitDir, "zuna.patch");
+  const patchHash = createHash("sha256").update(readFileSync(patch)).digest("hex").slice(0, 12);
+  const wanted = `${commit} ${patchHash}`;
+  if (existsSync(binary) && existsSync(stamp) && readFileSync(stamp, "utf8") === wanted) return binary;
   mkdirSync(dirname(binary), { recursive: true });
-  console.log(`Building LiveKit ${LIVEKIT_TAG}, which only happens once...`);
+  console.log(`Building LiveKit ${tag} with Zuna's patch, which only happens when either changes...`);
   const source = join(devData, "livekit-src");
-  rmSync(source, { recursive: true, force: true });
-  run("git", ["clone", "--quiet", "--depth", "1", "--branch", LIVEKIT_TAG, "https://github.com/livekit/livekit", source]);
-  run("go", ["build", "-trimpath", "-ldflags", "-s -w -buildid=", "-o", binary, "./cmd/server"], { cwd: source });
-  rmSync(source, { recursive: true, force: true });
-  writeFileSync(stamp, LIVEKIT_TAG);
+  const writable = (path) => {
+    chmodSync(path, statSync(path).isDirectory() ? 0o755 : 0o644);
+    if (statSync(path).isDirectory()) for (const entry of readdirSync(path)) writable(join(path, entry));
+  };
+  const remove = () => {
+    if (existsSync(source)) writable(source);
+    rmSync(source, { recursive: true, force: true });
+  };
+  remove();
+  mkdirSync(source, { recursive: true });
+  // LiveKit's go.mod names no toolchain, so a Go older than the one it asks for would fetch the
+  // first release of that, without its fixes.
+  const goEnv = { ...env, GOTOOLCHAIN: `${toolchain}+auto`, CGO_ENABLED: "0" };
+  const inSource = { cwd: source, env: goEnv };
+  // That commit and no other, as a tag can be moved.
+  run("git", ["init", "--quiet"], inSource);
+  run("git", ["fetch", "--quiet", "--depth", "1", "https://github.com/livekit/livekit", commit], inSource);
+  run("git", ["-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"], inSource);
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { ...inSource, encoding: "utf8" }).stdout.trim();
+  if (head !== commit) throw new Error(`Fetched LiveKit ${head}, not ${commit}`);
+  // The patch reaches into LiveKit's protocol module, so a copy of it from Go's module cache,
+  // where go.sum has checked it, takes its place.
+  run("go", ["mod", "download", "github.com/livekit/protocol"], inSource);
+  const protocol = spawnSync("go", ["list", "-m", "-f", "{{.Dir}}", "github.com/livekit/protocol"], { ...inSource, encoding: "utf8" }).stdout.trim();
+  cpSync(protocol, join(source, "zuna-protocol"), { recursive: true });
+  writable(join(source, "zuna-protocol"));
+  run("go", ["mod", "edit", "-replace", "github.com/livekit/protocol=./zuna-protocol"], inSource);
+  run("git", ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", patch], inSource);
+  // What shows the patch reached what it was for, as build.sh checks.
+  const reached = [
+    ["zuna-protocol/logger/zaputil/zaputil.go", "enc zunaEncoder"],
+    ["zuna-protocol/logger/zaputil/zaputil.go", "zunaCore{zapcore.NewCore"],
+    ["zuna-protocol/logger/zaputil/zuna.go", "func (e zunaEncoder) EncodeEntry"],
+    ["pkg/service/server.go", "zunaRecovery(),"],
+    ["cmd/server/main.go", '"-zuna." + zunaPatch'],
+  ];
+  for (const [file, mark] of reached) {
+    if (!readFileSync(join(source, file), "utf8").includes(mark)) throw new Error(`${patch} didn't reach ${file} in LiveKit ${tag}`);
+  }
+  // A logger of LiveKit's own that writes past the encoder, which these would make.
+  const pastTheFilter = [];
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) scan(path);
+      else if (entry.name.endsWith(".go") && !entry.name.endsWith("_test.go") && /\.(WithTee|ToZap|FromZapLogger)\(/.test(readFileSync(path, "utf8"))) pastTheFilter.push(path);
+    }
+  };
+  scan(join(source, "pkg"));
+  scan(join(source, "cmd"));
+  if (pastTheFilter.length) throw new Error(`LiveKit ${tag} logs past Zuna's filter in ${pastTheFilter.join(", ")}`);
+  run("go", ["build", "-buildvcs=false", "-trimpath", "-ldflags", `-s -w -buildid= -X main.zunaPatch=${patchHash}`, "-o", binary, "./cmd/server"], inSource);
+  const said = spawnSync(binary, ["--version"], { encoding: "utf8" }).stdout.trim();
+  if (!said.endsWith(`${tag.slice(1)}-zuna.${patchHash}`)) throw new Error(`The LiveKit just built says it's "${said}"`);
+  remove();
+  writeFileSync(stamp, wanted);
   return binary;
+}
+
+/** The keys Zuna's patch lets through LiveKit's log, read from the patch's `zunaKeys`. */
+export function liveKitLogKeys() {
+  const patch = readFileSync(join(liveKitDir, "zuna.patch"), "utf8");
+  const list = patch.match(/^\+var zunaKeys = map\[string\]bool\{$([\s\S]*?)^\+\}$/m)?.[1];
+  if (!list) throw new Error("deploy/livekit/zuna.patch has no zunaKeys");
+  return new Set([...list.matchAll(/"([^"]+)": true/g)].map((match) => match[1]));
+}
+
+/**
+ * What's wrong with what a LiveKit from `ensureLiveKit` wrote while people joined it, started with
+ * --dev, which logs at debug in the console's format: a key that isn't on the patch's list, or
+ * anything that points at a person or their device, which are this machine's addresses, the
+ * system's name and the device's model, any of Zuna's IDs, which are all 32 hex digits, and what
+ * an ICE candidate or an SDP holds. A log without LiveKit's own ID for a participant has nothing
+ * in it to check. Lines are picked by the fields that end them, as those from Go's log package
+ * have no logger's name.
+ */
+export function liveKitLogProblems(output) {
+  const keys = liveKitLogKeys();
+  const problems = [];
+  let participants = 0;
+  for (const line of output.split("\n")) {
+    const at = line.indexOf("\t{");
+    if (at < 0) continue;
+    let fields;
+    try {
+      fields = JSON.parse(line.slice(at + 1));
+    } catch {
+      problems.push(`fields that aren't JSON: ${line}`);
+      continue;
+    }
+    for (const key of Object.keys(fields)) if (!keys.has(key)) problems.push(`"${key}" isn't on the patch's list: ${line}`);
+    if (typeof fields.participantID === "string" && fields.participantID.startsWith("PA_")) participants++;
+  }
+  if (!participants) problems.push("no line names a participantID, so there was nothing to check");
+  // What LiveKit found for itself as it started stays.
+  const text = output.replace(/"nodeIP": "[^"]*"/g, "");
+  const read = (path) => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const system = read("/etc/os-release").match(/^NAME="?([^"\n]+)"?$/m)?.[1];
+  const model = read("/sys/class/dmi/id/product_name").trim();
+  const addresses = Object.values(networkInterfaces())
+    .flat()
+    .filter((item) => !item.internal)
+    .map((item) => item.address);
+  for (const [what, value] of [...addresses.map((address) => ["this machine's address", address]), ["the system's name", system], ["the device's model", model]]) {
+    if (value && text.includes(value)) problems.push(`${what}, ${value}`);
+  }
+  const id = text.match(/[0-9a-f]{32}/i)?.[0];
+  if (id) problems.push(`one of Zuna's IDs, ${id}`);
+  for (const [what, pattern] of [["an ICE candidate", /candidate:\d|typ (host|srflx|prflx|relay)/], ["an SDP", /a=(ice-ufrag|ice-pwd|fingerprint):/]]) {
+    const found = text.match(pattern)?.[0];
+    if (found) problems.push(`${what}: ${found}`);
+  }
+  return problems;
 }
 
 /**

@@ -1,0 +1,666 @@
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index b865030..ef65015 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -184,7 +184,7 @@ func main() {
+ 				Action: helpVerbose,
+ 			},
+ 		},
+-		Version: version.Version,
++		Version: version.Version + "-zuna." + zunaPatch,
+ 	}
+ 
+ 	if err := cmd.Run(context.Background(), os.Args); err != nil {
+diff --git a/cmd/server/zuna.go b/cmd/server/zuna.go
+new file mode 100644
+index 0000000..9067cfe
+--- /dev/null
++++ b/cmd/server/zuna.go
+@@ -0,0 +1,7 @@
++package main
++
++// zunaPatch is the first 12 characters of the SHA-256 of Zuna's patch, which
++// deploy/livekit/build.sh sets, so that --version says which patch a binary was built with.
++// version.Version stays LiveKit's own, as it's what the server tells apps, and LiveKit's
++// JavaScript SDK compares it.
++var zunaPatch = "unknown"
+diff --git a/cmd/server/zuna_log_test.go b/cmd/server/zuna_log_test.go
+new file mode 100644
+index 0000000..73c3a10
+--- /dev/null
++++ b/cmd/server/zuna_log_test.go
+@@ -0,0 +1,196 @@
++package main
++
++// Zuna: LiveKit's log, at debug, in both its formats, says nothing of who was in which room,
++// from where or on what, whichever way a line comes to it (docs/VOICE_LOGS_PLAN.md in Zuna's
++// repository).
++
++import (
++	"bufio"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"log"
++	"log/slog"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++
++	"github.com/livekit/protocol/livekit"
++	"github.com/livekit/protocol/logger"
++	"github.com/livekit/protocol/logger/pionlogger"
++	"github.com/livekit/protocol/logger/zaputil"
++
++	"github.com/livekit/livekit-server/pkg/config"
++	"github.com/livekit/livekit-server/pkg/service"
++)
++
++const (
++	// As Zuna's are: an account's ID and a device's, and a channel's.
++	zunaIdentity = "185a1be7a9cac9771c47cbd32f9c24e4.f80a33c0b1254125d9883e92ffd43b50"
++	zunaRoom     = "3941c28a574d47bc66a3df135bdfcb53"
++	zunaCaller   = "203.0.113.7"
++	zunaCaller6  = "2001:db8::7"
++	zunaLocal    = "192.168.1.20"
++	zunaSystem   = "Zuna Test System"
++	zunaModel    = "Zuna Test Board 9000"
++	// What LiveKit found for itself, which stays.
++	zunaServer = "198.51.100.1"
++)
++
++// What zap writes of an entry itself, beside its fields.
++var zunaEntryKeys = map[string]bool{"level": true, "ts": true, "logger": true, "caller": true, "msg": true, "stacktrace": true}
++
++// An error that says more with %+v, as github.com/pkg/errors' do.
++type zunaVerboseError struct{}
++
++func (zunaVerboseError) Error() string { return "dial failed" }
++func (zunaVerboseError) Format(s fmt.State, verb rune) {
++	fmt.Fprintf(s, "dial %s for %s failed", zunaCaller, zunaIdentity)
++}
++
++// An error made of others, as go.uber.org/multierr's are.
++type zunaErrorGroup struct{}
++
++func (zunaErrorGroup) Error() string { return "several failed" }
++func (zunaErrorGroup) Errors() []error {
++	return []error{errors.New("from " + zunaCaller), errors.New("for " + zunaIdentity)}
++}
++
++func zunaLogEverything(t *testing.T) {
++	clientInfo := &livekit.ClientInfo{Os: zunaSystem, DeviceModel: zunaModel, Address: zunaCaller}
++	identity := livekit.ParticipantIdentity(zunaIdentity)
++
++	// Fields, as Infow and the rest give them: listed and not, plain and not.
++	logger.Infow("participant active from "+zunaCaller+":51234 and ["+zunaCaller6+"]:443 in "+zunaRoom,
++		"participant", identity,
++		"room", livekit.RoomName(zunaRoom),
++		"participantID", livekit.ParticipantID("PA_zunatest"),
++		"roomID", livekit.RoomID("RM_zunatest"),
++		"trackID", livekit.TrackID("TR_zunatest"),
++		"clientInfo", clientInfo,
++		"participantInit", map[string]any{"Identity": zunaIdentity, "Client": clientInfo},
++		"publisherCandidates", []string{"udp4 host " + zunaLocal + ":7882", "udp4 srflx " + zunaCaller + ":51234"},
++		"candidate", "candidate:951112339 1 udp 2122260223 "+zunaLocal+" 50694 typ host",
++		"country", "NL",
++		"unlisted", "anything at all",
++		"connectionType", "udp to "+zunaCaller,
++		"reason", livekit.DisconnectReason_CLIENT_INITIATED,
++		"error", errors.New("read udp 127.0.0.1:7882->"+zunaCaller+":51234: refused"),
++		// A listed key with what isn't plain.
++		"state", clientInfo,
++		"kind", []byte(zunaIdentity),
++	)
++	logger.Infow("starting LiveKit server", "nodeIP", zunaServer, "portHttp", 7880, "version", "1.13.11")
++
++	// WithValues, which encodes into a copy of the encoder at once.
++	participant := logger.GetLogger().WithValues("participant", identity, "participantID", livekit.ParticipantID("PA_zunatest"), "clientInfo", clientInfo, "state", clientInfo, "remote", false)
++	participant.Debugw("with values", "kind", "audio")
++
++	// WithUnlikelyValues and WithDeferredValues, which come by way of Write.
++	logger.GetLogger().WithUnlikelyValues("participant", identity, "room", zunaRoom).Infow("unlikely", "participantID", "PA_zunatest")
++	deferred, resolve := logger.GetLogger().WithDeferredValues()
++	deferred.Infow("deferred", "participantID", "PA_zunatest")
++	resolve.Resolve("participant", identity, "candidate", zunaCaller)
++
++	// Errors, with what zap adds beside them.
++	logger.Warnw("could not connect", zunaVerboseError{}, "participantID", "PA_zunatest")
++	logger.Errorw("could not connect", zunaErrorGroup{}, "participantID", "PA_zunatest")
++
++	// slog and the standard log package, which InitFromConfig points at this logger, and
++	// net/http's errors, which LiveKit sets no ErrorLog for, with them.
++	slog.Info("slog from "+zunaCaller, "participant", zunaIdentity, "participantID", "PA_zunatest", slog.Group("client", "os", zunaSystem, "model", zunaModel))
++	// slog.With, which comes by way of the core's With.
++	slog.With("participant", zunaIdentity, "state", clientInfo, "reason", zunaCaller).Warn("slog with", "participantID", "PA_zunatest")
++	log.Printf("http: TLS handshake error from %s:51234: EOF", zunaCaller)
++
++	// pion's messages, formatted into their text.
++	pion := pionlogger.NewLoggerFactory(logger.GetLogger()).NewLogger("ice")
++	pion.Debugf("ping STUN from udp4 host %s:7882 to udp4 prflx %s:51234 for %s", zunaLocal, zunaCaller, zunaIdentity)
++	pion.Warnf("failed to resolve %s", zunaCaller6)
++
++	// A panic in a request, which negroni's recovery printed straight to stdout.
++	conf, err := config.NewConfig("", true, nil, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	handler := service.NewHTTPHandler(conf, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
++		panic("serving " + zunaIdentity + " at " + zunaCaller)
++	}), nil)
++	request := httptest.NewRequest("GET", "/rtc/validate", nil)
++	request.RemoteAddr = zunaCaller + ":51234"
++	handler.ServeHTTP(httptest.NewRecorder(), request)
++}
++
++func TestZunaLogSaysNothingOfAnyone(t *testing.T) {
++	// Where the logger writes, which it takes as it starts.
++	read, write, err := os.Pipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	stdout, stderr := os.Stdout, os.Stderr
++	os.Stdout, os.Stderr = write, write
++	captured := make(chan string)
++	go func() {
++		all, _ := io.ReadAll(read)
++		captured <- string(all)
++	}()
++	for _, asJSON := range []bool{true, false} {
++		config.InitLoggerFromConfig(&config.LoggingConfig{Config: logger.Config{Level: "debug", JSON: asJSON}})
++		zunaLogEverything(t)
++	}
++	os.Stdout, os.Stderr = stdout, stderr
++	write.Close()
++	output := <-captured
++	if testing.Verbose() {
++		t.Log(output)
++	}
++
++	for _, forbidden := range []string{zunaIdentity, zunaRoom, "185a1be7a9cac9771c47cbd32f9c24e4", "f80a33c0b1254125d9883e92ffd43b50", zunaCaller, zunaCaller6, zunaLocal, zunaSystem, zunaModel, "candidate:", "typ host", "anything at all"} {
++		if strings.Contains(output, forbidden) {
++			t.Errorf("the log has %q", forbidden)
++		}
++	}
++	lines, withParticipant := 0, 0
++	scanner := bufio.NewScanner(strings.NewReader(output))
++	scanner.Buffer(make([]byte, 1<<20), 1<<20)
++	for scanner.Scan() {
++		line := scanner.Text()
++		fields := map[string]any{}
++		entryKeys := zunaEntryKeys
++		switch {
++		case strings.HasPrefix(line, "{"):
++			if err := json.Unmarshal([]byte(line), &fields); err != nil {
++				t.Fatalf("not JSON: %q", line)
++			}
++		case strings.Contains(line, "\t{"):
++			// The console's: time, level, logger, caller and message, then the fields as JSON.
++			if err := json.Unmarshal([]byte(line[strings.Index(line, "\t{")+1:]), &fields); err != nil {
++				t.Fatalf("no fields in JSON: %q", line)
++			}
++			entryKeys = nil
++		default:
++			// A line of a stack trace, or a console line without fields.
++			continue
++		}
++		lines++
++		for key := range fields {
++			if !entryKeys[key] && !zaputil.ZunaListed(key) {
++				t.Errorf("%q isn't on the list, in %q", key, line)
++			}
++		}
++		if fields["participantID"] == "PA_zunatest" {
++			withParticipant++
++		}
++	}
++	if withParticipant < 10 {
++		t.Fatalf("participantID came through %d times in %d lines with fields, so this checked nothing:\n%s", withParticipant, lines, output)
++	}
++	for _, kept := range []string{zunaServer, "127.0.0.1:7882", "PA_zunatest", "RM_zunatest", "TR_zunatest", "CLIENT_INITIATED", "<address>", "<id>"} {
++		if !strings.Contains(output, kept) {
++			t.Errorf("the log lost %q:\n%s", kept, output)
++		}
++	}
++}
+diff --git a/pkg/service/server.go b/pkg/service/server.go
+index 421ed58..27b6339 100644
+--- a/pkg/service/server.go
++++ b/pkg/service/server.go
+@@ -483,7 +483,7 @@ func (s *LivekitServer) backgroundWorker() {
+ func NewHTTPHandler(conf *config.Config, keyProvider auth.KeyProvider, apiHandler, agentFront http.Handler) http.Handler {
+ 	apiMiddlewares := []negroni.Handler{
+ 		// always first
+-		negroni.NewRecovery(),
++		zunaRecovery(),
+ 		// CORS is allowed, we rely on token authentication to prevent improper use
+ 		cors.New(corsOptions([]string{"OPTIONS", "HEAD", "GET", "POST", "PATCH", "DELETE"})),
+ 		// limit request body size so large messages cannot exhaust memory
+diff --git a/pkg/service/zuna.go b/pkg/service/zuna.go
+new file mode 100644
+index 0000000..20eb3cb
+--- /dev/null
++++ b/pkg/service/zuna.go
+@@ -0,0 +1,23 @@
++// Zuna: a panic in a request goes to the log, and through its filter, where negroni's
++// recovery would print it straight to stdout.
++
++package service
++
++import (
++	"fmt"
++
++	"github.com/urfave/negroni/v3"
++
++	"github.com/livekit/protocol/logger"
++)
++
++func zunaRecovery() *negroni.Recovery {
++	recovery := negroni.NewRecovery()
++	recovery.Logger = zunaPanicLog{}
++	return recovery
++}
++
++type zunaPanicLog struct{}
++
++func (zunaPanicLog) Println(v ...any)               { logger.Errorw(fmt.Sprint(v...), nil) }
++func (zunaPanicLog) Printf(format string, v ...any) { logger.Errorw(fmt.Sprintf(format, v...), nil) }
+diff --git a/zuna-protocol/logger/zaputil/zaputil.go b/zuna-protocol/logger/zaputil/zaputil.go
+index b6f5cf6..8c54fa8 100644
+--- a/zuna-protocol/logger/zaputil/zaputil.go
++++ b/zuna-protocol/logger/zaputil/zaputil.go
+@@ -23,7 +23,7 @@ func encoderWithValues(enc zapcore.Encoder, kvs ...any) zapcore.Encoder {
+ 	clone := enc.Clone()
+ 	for i := 1; i < len(kvs); i += 2 {
+ 		if key, ok := kvs[i-1].(string); ok {
+-			zap.Any(key, kvs[i]).AddTo(clone)
++			zunaAddTo(clone, zap.Any(key, kvs[i]))
+ 		}
+ 	}
+ 	return clone
+@@ -41,22 +41,22 @@ func valueFields(kvs ...any) []zapcore.Field {
+ }
+ 
+ type Encoder struct {
+-	enc zapcore.Encoder
++	enc zunaEncoder
+ }
+ 
+ func NewDevelopmentEncoder() Encoder {
+-	return Encoder{zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())}
++	return Encoder{zunaEncoder{zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())}}
+ }
+ 
+ func NewProductionEncoder() Encoder {
+-	return Encoder{zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())}
++	return Encoder{zunaEncoder{zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())}}
+ }
+ 
+ func (e Encoder) WithValues(kvs ...any) Encoder {
+-	e.enc = encoderWithValues(e.enc, kvs...)
++	e.enc = encoderWithValues(e.enc, kvs...).(zunaEncoder)
+ 	return e
+ }
+ 
+ func (e Encoder) Core(out *WriteEnabler) zapcore.Core {
+-	return zapcore.NewCore(e.enc, out, out)
++	return zunaCore{zapcore.NewCore(e.enc, out, out)}
+ }
+diff --git a/zuna-protocol/logger/zaputil/zuna.go b/zuna-protocol/logger/zaputil/zuna.go
+new file mode 100644
+index 0000000..7b2f7c1
+--- /dev/null
++++ b/zuna-protocol/logger/zaputil/zuna.go
+@@ -0,0 +1,349 @@
++// Zuna: every field and message of LiveKit's log passes through zunaEncoder, which lets
++// through only what's on a list, so that the log says nothing of who was in which room, from
++// where or on what (docs/VOICE_LOGS_PLAN.md in Zuna's repository). A field a later LiveKit adds
++// is dropped until someone decides it may stay.
++
++package zaputil
++
++import (
++	"net/netip"
++	"reflect"
++	"strings"
++	"time"
++
++	"go.uber.org/zap/buffer"
++	"go.uber.org/zap/zapcore"
++)
++
++// zunaKeys is what may stay: LiveKit's own IDs, made up for each session, so that one
++// session's lines can still be told from another's, and what says how a session went. A key
++// can mean two things in two places, so each was read in all of its uses before it was listed.
++// The room's and the participant's names, which are a channel's and a person's, aren't.
++var zunaKeys = map[string]bool{
++	// LiveKit's IDs, and its node's.
++	"roomID": true, "participantID": true, "trackID": true, "connID": true,
++	"nodeID": true, "reqNodeID": true, "selectedNodeID": true, "topic": true,
++	// The server, as it starts.
++	"nodeIP": true, "version": true, "portHttp": true, "rtc.portTCP": true,
++	"portPrometheus": true, "portDebugHandler": true, "portWebTransport": true,
++	"advertiseInternalIP": true,
++	// How a session went.
++	"reason": true, "error": true, "err": true, "state": true, "transport": true,
++	"connectionType": true, "kind": true, "mime": true, "mid": true, "rid": true,
++	"label": true, "messageType": true, "remote": true, "relayed": true,
++	"reconnect": true, "reconnectReason": true, "closedByClient": true, "sendLeave": true,
++	"expectedToResume": true, "isExpectedToResume": true, "isMigrated": true,
++	"isReceiverAdded": true, "fromSdp": true, "adaptiveStream": true,
++	"nodeSelectionReason": true, "numParticipants": true, "load": true, "cost": true,
++	"direction": true, "layer": true, "priority": true, "payloadType": true,
++	"ssrc": true, "rtxSsrc": true, "offerId": true, "answerId": true,
++	"forwarderGeneration": true, "forwardersGeneration": true,
++	"numPacketsForwarded": true, "numPacketsDropped": true,
++	"pps": true, "ppsMode": true, "expected": true,
++	// How long it took.
++	"duration": true, "connectTime": true, "iceDuration": true, "joinDuration": true,
++	"sessionDuration": true, "timeout": true,
++	// A track's clock.
++	"adjustment": true, "firstTimeAdjustment": true, "before": true, "after": true,
++	"startTime": true, "nowTime": true, "extStartTS": true, "extNowTS": true,
++	"samplesDiff": true, "samplesDuration": true, "timeSinceFirst": true,
++	"timeSinceReceive": true, "tsOffset": true,
++}
++
++// ZunaListed says whether a key may stay, for the patch's test in cmd/server.
++func ZunaListed(key string) bool { return zunaKeys[key] }
++
++// zunaVerbatim is what stays as it is: the address LiveKit found for itself as it starts,
++// which docs/LINUX.md tells a server's admins to read there.
++var zunaVerbatim = map[string]bool{"nodeIP": true}
++
++// zunaEncoder lets fields through to inner only if their keys are listed, and only plain
++// values: numbers, booleans, times, durations, strings and errors, and named types of those.
++// Objects, arrays, bytes and namespaces are dropped. Text is cleaned by zunaScrub.
++//
++// inner is a named field, not embedded, so a method zap adds later breaks the build instead
++// of passing through. It must not implement logger.SensitiveObjectEncoder.
++type zunaEncoder struct{ inner zapcore.Encoder }
++
++func (e zunaEncoder) Clone() zapcore.Encoder { return zunaEncoder{e.inner.Clone()} }
++
++func (e zunaEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
++	ent.Message, ent.LoggerName = zunaScrub(ent.Message), zunaScrub(ent.LoggerName)
++	if len(fields) == 0 {
++		return e.inner.EncodeEntry(ent, nil)
++	}
++	c := zunaEncoder{e.inner.Clone()} // inner would add the fields to itself, past the filter
++	for i := range fields {
++		zunaAddTo(c, fields[i])
++	}
++	return c.inner.EncodeEntry(ent, nil)
++}
++
++// zunaAddTo adds a field as its AddTo would, but a Stringer only if it's a named type of a
++// plain kind, such as an enum. zap.Any makes anything with a String method one, a protobuf
++// message among them, whose String says all it holds, and an encoder is only given the text.
++// Every way a field comes to the encoder takes this: EncodeEntry, encoderWithValues and
++// zunaCore.With.
++func zunaAddTo(enc zapcore.ObjectEncoder, f zapcore.Field) {
++	if zunaKept(f) {
++		f.AddTo(enc)
++	}
++}
++
++func zunaKept(f zapcore.Field) bool {
++	return f.Type != zapcore.StringerType || f.Interface != nil && zunaPlainKind(reflect.ValueOf(f.Interface).Kind())
++}
++
++func zunaPlainKind(kind reflect.Kind) bool {
++	switch kind {
++	case reflect.Bool, reflect.String,
++		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
++		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
++		reflect.Float32, reflect.Float64:
++		return true
++	}
++	return false
++}
++
++// zunaCore is the core every Encoder makes. It takes the fields With is given as the encoder
++// takes its own, which zap's core would add to its encoder by their AddTo.
++type zunaCore struct{ zapcore.Core }
++
++func (c zunaCore) With(fields []zapcore.Field) zapcore.Core {
++	kept := make([]zapcore.Field, 0, len(fields))
++	for _, f := range fields {
++		if zunaKept(f) {
++			kept = append(kept, f)
++		}
++	}
++	return zunaCore{c.Core.With(kept)}
++}
++
++func (zunaEncoder) AddArray(string, zapcore.ArrayMarshaler) error   { return nil }
++func (zunaEncoder) AddObject(string, zapcore.ObjectMarshaler) error { return nil }
++func (zunaEncoder) AddBinary(string, []byte)                        {}
++func (zunaEncoder) AddByteString(string, []byte)                    {}
++func (zunaEncoder) OpenNamespace(string)                            {}
++
++func (e zunaEncoder) AddBool(k string, v bool) {
++	if zunaKeys[k] {
++		e.inner.AddBool(k, v)
++	}
++}
++
++func (e zunaEncoder) AddComplex128(k string, v complex128) {
++	if zunaKeys[k] {
++		e.inner.AddComplex128(k, v)
++	}
++}
++
++func (e zunaEncoder) AddComplex64(k string, v complex64) {
++	if zunaKeys[k] {
++		e.inner.AddComplex64(k, v)
++	}
++}
++
++func (e zunaEncoder) AddDuration(k string, v time.Duration) {
++	if zunaKeys[k] {
++		e.inner.AddDuration(k, v)
++	}
++}
++
++func (e zunaEncoder) AddFloat64(k string, v float64) {
++	if zunaKeys[k] {
++		e.inner.AddFloat64(k, v)
++	}
++}
++
++func (e zunaEncoder) AddFloat32(k string, v float32) {
++	if zunaKeys[k] {
++		e.inner.AddFloat32(k, v)
++	}
++}
++
++func (e zunaEncoder) AddInt(k string, v int) {
++	if zunaKeys[k] {
++		e.inner.AddInt(k, v)
++	}
++}
++
++func (e zunaEncoder) AddInt64(k string, v int64) {
++	if zunaKeys[k] {
++		e.inner.AddInt64(k, v)
++	}
++}
++
++func (e zunaEncoder) AddInt32(k string, v int32) {
++	if zunaKeys[k] {
++		e.inner.AddInt32(k, v)
++	}
++}
++
++func (e zunaEncoder) AddInt16(k string, v int16) {
++	if zunaKeys[k] {
++		e.inner.AddInt16(k, v)
++	}
++}
++
++func (e zunaEncoder) AddInt8(k string, v int8) {
++	if zunaKeys[k] {
++		e.inner.AddInt8(k, v)
++	}
++}
++
++func (e zunaEncoder) AddString(k, v string) {
++	if !zunaKeys[k] {
++		return
++	}
++	if !zunaVerbatim[k] {
++		v = zunaScrub(v)
++	}
++	e.inner.AddString(k, v)
++}
++
++func (e zunaEncoder) AddTime(k string, v time.Time) {
++	if zunaKeys[k] {
++		e.inner.AddTime(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUint(k string, v uint) {
++	if zunaKeys[k] {
++		e.inner.AddUint(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUint64(k string, v uint64) {
++	if zunaKeys[k] {
++		e.inner.AddUint64(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUint32(k string, v uint32) {
++	if zunaKeys[k] {
++		e.inner.AddUint32(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUint16(k string, v uint16) {
++	if zunaKeys[k] {
++		e.inner.AddUint16(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUint8(k string, v uint8) {
++	if zunaKeys[k] {
++		e.inner.AddUint8(k, v)
++	}
++}
++
++func (e zunaEncoder) AddUintptr(k string, v uintptr) {
++	if zunaKeys[k] {
++		e.inner.AddUintptr(k, v)
++	}
++}
++
++// AddReflected is where zap.Any sends what it has no case for, such as a named type of a
++// string or a number, which is told by its kind. Anything else is dropped.
++func (e zunaEncoder) AddReflected(k string, v any) error {
++	if !zunaKeys[k] || v == nil {
++		return nil
++	}
++	value := reflect.ValueOf(v)
++	switch value.Kind() {
++	case reflect.Bool:
++		e.AddBool(k, value.Bool())
++	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
++		e.AddInt64(k, value.Int())
++	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
++		e.AddUint64(k, value.Uint())
++	case reflect.Float32, reflect.Float64:
++		e.AddFloat64(k, value.Float())
++	case reflect.String:
++		e.AddString(k, value.String())
++	}
++	return nil
++}
++
++// zunaScrub takes every IP address out of text, with its port, but loopback and unspecified
++// ones, and every run of 32 or more hex digits, which is what Zuna's account, device and
++// channel IDs look like, in a room's name or a participant's identity. Addresses are found by
++// asking netip about each run of the characters they're made of, as a pattern would take
++// clock times and version numbers for them.
++func zunaScrub(text string) string {
++	var out strings.Builder
++	for i := 0; i < len(text); {
++		if !zunaInAddress(text[i]) {
++			out.WriteByte(text[i])
++			i++
++			continue
++		}
++		end := i
++		for end < len(text) && zunaInAddress(text[end]) {
++			end++
++		}
++		out.WriteString(zunaScrubRun(text[i:end]))
++		i = end
++	}
++	return out.String()
++}
++
++func zunaInAddress(c byte) bool {
++	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' || c == '.' || c == ':'
++}
++
++// zunaScrubRun takes a run of hex digits, dots and colons, which a sentence's punctuation may
++// begin or end, as in "from 203.0.113.7:51234: EOF". The whole run is tried first, as "::1"
++// and "2001:db8::" begin or end with what they're made of.
++func zunaScrubRun(run string) string {
++	starts := []int{0, len(run) - len(strings.TrimLeft(run, ".:"))}
++	ends := []int{len(run), len(strings.TrimRight(run, ".:"))}
++	for _, start := range starts {
++		for _, end := range ends {
++			if start >= end {
++				continue
++			}
++			if address, ok := zunaAddress(run[start:end]); ok {
++				if address.IsLoopback() || address.IsUnspecified() {
++					return run
++				}
++				return run[:start] + "<address>" + run[end:]
++			}
++		}
++	}
++	return zunaLongHex(run)
++}
++
++func zunaAddress(text string) (netip.Addr, bool) {
++	if address, err := netip.ParseAddr(text); err == nil {
++		return address, true
++	}
++	if both, err := netip.ParseAddrPort(text); err == nil {
++		return both.Addr(), true
++	}
++	return netip.Addr{}, false
++}
++
++// zunaLongHex replaces each part of a run, between its dots and colons, of 32 or more hex
++// digits.
++func zunaLongHex(run string) string {
++	var out strings.Builder
++	for i := 0; i < len(run); {
++		if run[i] == '.' || run[i] == ':' {
++			out.WriteByte(run[i])
++			i++
++			continue
++		}
++		end := i
++		for end < len(run) && run[end] != '.' && run[end] != ':' {
++			end++
++		}
++		if end-i >= 32 {
++			out.WriteString("<id>")
++		} else {
++			out.WriteString(run[i:end])
++		}
++		i = end
++	}
++	return out.String()
++}
