@@ -1,0 +1,18 @@
+{
+  "manifest": 1,
+  "id": "hostile",
+  "name": "Hostile",
+  "version": "1.0.0",
+  "description": "Tries everything a plugin shouldn't get away with. The app's tests expect each attempt to fail.",
+  "author": { "name": "Zuna's tests" },
+  "license": "MIT",
+  "main": "main.js",
+  "api": 1,
+  "permissions": ["network"],
+  "hosts": ["api.example.com"],
+  "contributes": {
+    "settings": [
+      { "key": "attack", "type": "select", "label": "Attack", "choices": ["globals", "loop", "loop-later", "memory", "tree", "host", "local", "never", "timers", "spam"], "default": "globals" }
+    ]
+  }
+}

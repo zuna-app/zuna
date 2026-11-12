@@ -1,0 +1,28 @@
+{
+  "name": "@zuna/plugin",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "What a plugin for Zuna's native app is written with: the plugin API's types, a JSX factory for views, and zuna-plugin, which builds, packs, checks and signs a plugin.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./surface": "./src/surface.ts"
+  },
+  "bin": {
+    "zuna-plugin": "./cli/zuna-plugin.mjs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@zuna/core": "*",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  }
+}

@@ -52,6 +52,8 @@ export const APP_PATHS = [
   "packages/core/",
   // watch.html, the page a video watched together plays in, which the core bundle's build writes beside it.
   "packages/watch/",
+  // The table of core methods plugins may call, which the core bundle's build writes beside it.
+  "packages/plugin-sdk/src/",
   "crypto/",
   // The bundler and shims the app's core bundle is made with.
   "apps/ios/core-bundle/",
@@ -71,7 +73,7 @@ export const APP_PATHS = [
 ];
 
 /** Inside those, what never reaches a build: tests and checks. */
-export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/", "packages/watch/test/", "packages/watch/fake/"];
+export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/", "packages/watch/test/", "packages/watch/fake/", "packages/plugin-sdk/test/"];
 
 /**
  * What the iPhone app is built from. A commit that touches any of it makes a nightly too, which

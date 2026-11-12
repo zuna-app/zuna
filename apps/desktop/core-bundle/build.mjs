@@ -6,14 +6,18 @@
 //
 //   node apps/desktop/core-bundle/build.mjs
 
+import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleCore } from "../../ios/core-bundle/bundle.mjs";
 import { buildWatchPage } from "../../../packages/watch/build.mjs";
+import { surfaceJson } from "../../../packages/plugin-sdk/src/surface.ts";
 
 const out = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "core");
 // QuickJS-ng has ES2023, but lowering a little further costs nothing and keeps clear of its gaps.
 await bundleCore({ target: "es2022", outDir: out });
 // The page a video watched together plays in, in the system's web view: WebKit on macOS, WebView2 on Windows.
 await buildWatchPage(out, "es2022");
+// The table the plugins' broker checks every core call and event against (apps/desktop/src/plugins/surface.rs).
+writeFileSync(join(out, "plugin-surface.json"), surfaceJson());
 console.log(`> wrote the core bundles to ${out}`);

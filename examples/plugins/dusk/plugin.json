@@ -1,0 +1,40 @@
+{
+  "manifest": 1,
+  "id": "dusk",
+  "name": "Dusk",
+  "version": "1.0.0",
+  "description": "A theme in the blues of the evening, and nothing else: no script, no permissions.",
+  "author": { "name": "Zuna" },
+  "license": "MIT",
+  "api": 1,
+  "permissions": [],
+  "contributes": {
+    "themes": [
+      {
+        "id": "dusk",
+        "name": "Dusk",
+        "colors": {
+          "bg0": "#0d1017",
+          "bg1": "#121722",
+          "bg2": "#171d2a",
+          "bg3": "#1e2534",
+          "bg4": "#262e40",
+          "bg5": "#313a4f",
+          "bgChat": "#0d1017",
+          "text1": "#e6eaf2",
+          "text2": "#9aa4b8",
+          "text3": "#677189",
+          "accent": "#6c8cff",
+          "accentHover": "#7f9bff",
+          "onAccent": "#ffffff",
+          "accentSoft": "#6c8cff29",
+          "accentText": "#9db1ff",
+          "bubbleOwn": "#2a3a6b",
+          "bubbleOwnText": "#ffffff",
+          "bubbleOther": "#1e2534",
+          "link": "#8fb0ff"
+        }
+      }
+    ]
+  }
+}

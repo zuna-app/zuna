@@ -1,0 +1,24 @@
+{
+  "manifest": 1,
+  "id": "hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "description": "Shows what a plugin can do: a command, a setting, a panel, a page in the rail, and a word on messages it reads.",
+  "author": { "name": "Zuna" },
+  "license": "MIT",
+  "source": "https://github.com/zuna-app/zuna/tree/main/examples/plugins/hello",
+  "icon": "assets/icon.svg",
+  "main": "main.js",
+  "api": 1,
+  "permissions": ["messages.read", "messages.decorate"],
+  "contributes": {
+    "settings": [
+      { "key": "greeting", "type": "text", "label": "Greeting", "hint": "What /hello puts in the message box.", "default": "Hello!" },
+      { "key": "mark", "type": "switch", "label": "Mark messages that say hello", "default": true }
+    ],
+    "commands": [
+      { "id": "hello", "title": "Say hello", "slash": "hello", "keys": "ctrl-alt-h" },
+      { "id": "shrug", "title": "Shrug", "slash": "shrug" }
+    ]
+  }
+}
