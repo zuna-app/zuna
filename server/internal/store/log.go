@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 
 	"zuna/server/internal/hybrid"
@@ -186,6 +187,10 @@ func readLogState(ctx context.Context, q handle) (logState, error) {
 	roots, err3 := base64.StdEncoding.DecodeString(values[settingLogFrontier])
 	if err := errors.Join(err1, err2, err3); err != nil {
 		return logState{}, errors.New("the log of keys isn't set up")
+	}
+	// A place in the log is kept as a signed number, so its size has to be one too.
+	if size > math.MaxInt64 {
+		return logState{}, errors.New("the log of keys is too long")
 	}
 	frontier, err := merkle.ParseFrontier(size, roots)
 	return logState{era: era, frontier: frontier}, err
