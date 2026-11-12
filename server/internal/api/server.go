@@ -396,6 +396,7 @@ func (s *Server) Handler() http.Handler {
 	// Generations of an account's keys.
 	mux.HandleFunc("GET /api/account", s.withDevice(s.handleAccount))
 	mux.HandleFunc("DELETE /api/account", s.withDevice(s.proven(s.handleDeleteAccount)))
+	mux.HandleFunc("POST /api/account/export", s.withDevice(s.proven(s.handleExport)))
 	mux.HandleFunc("POST /api/account/rotate", s.withDevice(s.proven(s.handleRotate)))
 	mux.HandleFunc("POST /api/account/bundles", s.withDevice(s.proven(s.handleBundles)))
 	mux.HandleFunc("POST /api/account/core", s.withDevice(s.proven(s.handleCloseGeneration)))
