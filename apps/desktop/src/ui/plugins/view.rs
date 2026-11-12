@@ -82,22 +82,73 @@ fn styled(el: gpui::Div, style: &BoxStyle, theme: &Theme) -> gpui::Div {
     el
 }
 
-/// Draws a plugin's view.
+/// Draws a plugin's view. Only boxes recurse, each through a small function of its own: a frame of
+/// the large match below, as an unoptimized build lays it out, is many kilobytes, and a view is
+/// drawn on the main thread, whose stack is a megabyte on Windows.
 pub fn render(uid: &str, node: &Node, cx: &mut App) -> AnyElement {
+    match node {
+        Node::Column(style, children) => column(uid, style, children, cx),
+        Node::Row(style, wrap, children) => row(uid, style, *wrap, children, cx),
+        Node::Stack(style, children) => stack(uid, style, children, cx),
+        Node::Scroll(style, height, path, children) => scroll(uid, style, *height, path, children, cx),
+        Node::Field { label, hint, children } => field_node(uid, label, hint.as_deref(), children, cx),
+        _ => leaf(uid, node, cx),
+    }
+}
+
+fn children_of(uid: &str, children: &[Node], cx: &mut App) -> Vec<AnyElement> {
+    children.iter().map(|child| render(uid, child, cx)).collect()
+}
+
+#[inline(never)]
+fn column(uid: &str, style: &BoxStyle, children: &[Node], cx: &mut App) -> AnyElement {
+    let theme = theme(cx);
+    let children = children_of(uid, children, cx);
+    styled(div().flex().flex_col(), style, &theme).children(children).into_any_element()
+}
+
+#[inline(never)]
+fn row(uid: &str, style: &BoxStyle, wrap: bool, children: &[Node], cx: &mut App) -> AnyElement {
+    let theme = theme(cx);
+    let children = children_of(uid, children, cx);
+    let el = styled(div().flex().flex_row(), style, &theme).when(wrap, |el| el.flex_wrap());
+    let el = if style.align.is_none() { el.items_center() } else { el };
+    el.children(children).into_any_element()
+}
+
+#[inline(never)]
+fn stack(uid: &str, style: &BoxStyle, children: &[Node], cx: &mut App) -> AnyElement {
+    let theme = theme(cx);
+    let children: Vec<AnyElement> = children_of(uid, children, cx).into_iter().map(|child| div().absolute().inset_0().child(child).into_any_element()).collect();
+    styled(div().relative(), style, &theme).children(children).into_any_element()
+}
+
+#[inline(never)]
+fn scroll(uid: &str, style: &BoxStyle, height: Option<f32>, path: &str, children: &[Node], cx: &mut App) -> AnyElement {
+    let theme = theme(cx);
+    let children = children_of(uid, children, cx);
+    let inner = styled(div().flex().flex_col(), style, &theme).children(children);
+    div().id(gpui::ElementId::Name(format!("plugin-{uid}-{path}").into())).overflow_y_scroll().when_some(height, |el, height| el.max_h(px(height))).child(inner).into_any_element()
+}
+
+#[inline(never)]
+fn field_node(uid: &str, label: &str, hint: Option<&str>, children: &[Node], cx: &mut App) -> AnyElement {
+    let theme = theme(cx);
+    let children = children_of(uid, children, cx);
+    let mut el = div().flex().flex_col().gap(px(5.)).child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(label.to_string())).children(children);
+    if let Some(hint) = hint {
+        el = el.child(div().text_size(px(12.)).text_color(theme.text3).child(hint.to_string()));
+    }
+    el.into_any_element()
+}
+
+/// Everything that isn't a box: drawn once, never recursing.
+#[inline(never)]
+fn leaf(uid: &str, node: &Node, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let id = |path: &str| gpui::ElementId::Name(format!("plugin-{uid}-{path}").into());
     match node {
-        Node::Column(style, children) => styled(div().flex().flex_col(), style, &theme).children(children.iter().map(|child| render(uid, child, cx)).collect::<Vec<_>>()).into_any_element(),
-        Node::Row(style, wrap, children) => {
-            let el = styled(div().flex().flex_row(), style, &theme).when(*wrap, |el| el.flex_wrap());
-            let el = if style.align.is_none() { el.items_center() } else { el };
-            el.children(children.iter().map(|child| render(uid, child, cx)).collect::<Vec<_>>()).into_any_element()
-        }
-        Node::Stack(style, children) => styled(div().relative(), style, &theme).children(children.iter().map(|child| div().absolute().inset_0().child(render(uid, child, cx))).collect::<Vec<_>>()).into_any_element(),
-        Node::Scroll(style, height, path, children) => {
-            let inner = styled(div().flex().flex_col(), style, &theme).children(children.iter().map(|child| render(uid, child, cx)).collect::<Vec<_>>());
-            div().id(id(path)).overflow_y_scroll().when_some(*height, |el, height| el.max_h(px(height))).child(inner).into_any_element()
-        }
+        Node::Column(..) | Node::Row(..) | Node::Stack(..) | Node::Scroll(..) | Node::Field { .. } => render(uid, node, cx),
         Node::Text { text, size, bold, medium, color, mono } => div()
             .text_size(px(*size))
             .text_color(color.as_ref().map(|color| color_of(color, &theme)).unwrap_or(theme.text1))
@@ -224,14 +275,6 @@ pub fn render(uid: &str, node: &Node, cx: &mut App) -> AnyElement {
                 .text_size(px(14.))
                 .child(div().flex_1().min_w_0().child(input))
                 .into_any_element()
-        }
-        Node::Field { label, hint, children } => {
-            let mut el = div().flex().flex_col().gap(px(5.)).child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(label.clone()));
-            el = el.children(children.iter().map(|child| render(uid, child, cx)).collect::<Vec<_>>());
-            if let Some(hint) = hint {
-                el = el.child(div().text_size(px(12.)).text_color(theme.text3).child(hint.clone()));
-            }
-            el.into_any_element()
         }
         Node::Notice { icon: icon_name, tone, text } => {
             let (background, foreground) = match tone.as_str() {
