@@ -84,6 +84,9 @@ impl AppState {
             state.media_files.insert(id.clone(), if ready { MediaFile::Ready(target) } else { MediaFile::Failed });
             if ready {
                 state.media_arrived(&id, cx);
+            } else if matches!(state.clips.get(&id), Some(ClipState::Loading)) {
+                // Its sound won't come either, so it shows as failed rather than loading for good.
+                state.clips.insert(id.clone(), ClipState::Failed);
             }
             state.trim_media();
             cx.notify();
