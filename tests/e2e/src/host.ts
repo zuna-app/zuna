@@ -59,7 +59,8 @@ export class HostApp {
     socket.onmessage = (event) => {
       const data = decodeWire(String(event.data));
       if (data?.kind === "host-result") {
-        this.hostRequests.get(data.id)?.(data.value);
+        const answer = this.hostRequests.get(data.id);
+        if (typeof answer === "function") answer(data.value);
         this.hostRequests.delete(data.id);
         return;
       }
