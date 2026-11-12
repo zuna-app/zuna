@@ -5,6 +5,8 @@
 mod tiles;
 mod controls;
 mod watch;
+#[cfg(test)]
+mod tests;
 
 use std::cell::Cell;
 use std::collections::HashMap;

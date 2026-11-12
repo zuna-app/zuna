@@ -105,10 +105,10 @@ impl World {
             conversation(&format!("user:{CAROL}"), "dm", "g-dm-carol", "Carol", json!({ "peerId": CAROL, "blocked": true, "markedUnread": true, "members": members(&[ME, CAROL]) })),
         ]);
         let channels = json!([
-            { "id": GENERAL, "kind": "text", "key": format!("group:{GENERAL}"), "name": "general", "topic": "Anything goes", "category": "Talk", "position": 0,
+            { "id": GENERAL, "type": "text", "key": format!("group:{GENERAL}"), "name": "general", "topic": "Anything goes", "category": "Talk", "position": 0,
               "conversation": conversation(&format!("group:{GENERAL}"), "channel", GENERAL, "general", json!({ "unread": 3, "members": members(&[ME, BOB, CAROL]) })) },
-            { "id": "c-news", "kind": "text", "key": "group:c-news", "name": "news", "category": "Talk", "position": 1, "unreadable": true },
-            { "id": LOUNGE, "kind": "voice", "key": format!("group:{LOUNGE}"), "name": "Lounge", "category": "Voice", "position": 2, "bitrate": 64, "userLimit": 10, "sounds": true, "watch": true,
+            { "id": "c-news", "type": "text", "key": "group:c-news", "name": "news", "category": "Talk", "position": 1, "unreadable": true },
+            { "id": LOUNGE, "type": "voice", "key": format!("group:{LOUNGE}"), "name": "Lounge", "category": "Voice", "position": 2, "bitrate": 64, "userLimit": 10, "sounds": true, "watch": true,
               "conversation": conversation(&format!("group:{LOUNGE}"), "channel", LOUNGE, "Lounge", json!({ "members": members(&[ME, BOB]) })) },
         ]);
         let mut server = serde_json::Map::new();
