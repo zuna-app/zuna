@@ -415,7 +415,7 @@ impl Plugins {
             let dir = self.data_dir.clone();
             cx.spawn(async move |_, cx| {
                 cx.background_executor().timer(Duration::from_secs(20)).await;
-                std::fs::remove_file(store::folder(&dir).join("starting")).ok();
+                started_well(&dir);
             })
             .detach();
         }
@@ -1318,6 +1318,11 @@ fn folder_stamp(dir: &Path) -> std::time::SystemTime {
 /// How many starts in a row didn't finish with plugins on.
 fn failed_starts(data_dir: &Path) -> u32 {
     std::fs::read_to_string(store::folder(data_dir).join("starting")).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0)
+}
+
+/// This start went well, by lasting 20 seconds or by quitting: the next isn't counted as after a failed one.
+pub fn started_well(data_dir: &Path) {
+    std::fs::remove_file(store::folder(data_dir).join("starting")).ok();
 }
 
 fn note_start(data_dir: &Path) {

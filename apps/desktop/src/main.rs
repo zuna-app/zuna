@@ -274,6 +274,8 @@ pub(crate) fn quit(cx: &mut App) {
     platform::tray::remove();
     platform::updates::install_on_quit();
     host::clear_cache(&host::data_dir());
+    // A start that ends in quitting finished, so it doesn't count toward plugins' safe mode.
+    plugins::started_well(&host::data_dir());
     cx.quit();
 }
 
