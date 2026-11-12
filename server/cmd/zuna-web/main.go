@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"zuna/server/internal/clientip"
+	"zuna/server/internal/logs"
 	"zuna/server/internal/webhost"
 )
 
@@ -182,6 +183,7 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 
 	httpServer := &http.Server{
 		Handler:           handler,
+		ErrorLog:          logs.HTTPErrors(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      2 * time.Minute,
@@ -208,6 +210,7 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 		redirect := &http.Server{
 			Addr:              httpAddress,
 			Handler:           manager.HTTPHandler(nil),
+			ErrorLog:          logs.HTTPErrors(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() { errs <- redirect.ListenAndServe() }()

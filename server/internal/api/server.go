@@ -577,7 +577,8 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
-				slog.Error("handler panic", "method", r.Method, "path", r.URL.Path, "panic", rec)
+				// The route's pattern, as a path names channels and people.
+				slog.Error("handler panic", "method", r.Method, "route", r.Pattern, "panic", rec)
 				// Once a response has begun, a second one would only be appended to it.
 				if !w.started {
 					writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")

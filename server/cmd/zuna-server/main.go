@@ -22,6 +22,7 @@ import (
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/clientip"
+	"zuna/server/internal/logs"
 	"zuna/server/internal/store"
 )
 
@@ -249,6 +250,7 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 
 	httpServer := &http.Server{
 		Handler:           srv.Handler(),
+		ErrorLog:          logs.HTTPErrors(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// So a slow upload or a client that stops reading can't hold a connection
 		// open for ever. Sockets aren't bound by them once they've connected, and
@@ -296,6 +298,7 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 		redirect := &http.Server{
 			Addr:              httpAddress,
 			Handler:           manager.HTTPHandler(nil),
+			ErrorLog:          logs.HTTPErrors(),
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			WriteTimeout:      30 * time.Second,

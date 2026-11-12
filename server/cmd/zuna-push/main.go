@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"zuna/server/internal/clientip"
+	"zuna/server/internal/logs"
 	"zuna/server/internal/relay"
 )
 
@@ -101,7 +102,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if service.Callers, err = clientip.New(trustProxy, proxies, cloudflare); err != nil {
 		return err
 	}
-	server := &http.Server{Addr: *listen, Handler: service.Handler(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}
+	server := &http.Server{Addr: *listen, Handler: service.Handler(), ErrorLog: logs.HTTPErrors(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}
 	errs := make(chan error, 1)
 	go func() { errs <- server.ListenAndServe() }()
 	slog.Info("zuna-push listening", "address", *listen, "version", version)
