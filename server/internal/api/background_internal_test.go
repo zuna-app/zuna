@@ -41,6 +41,21 @@ func sweep(t *testing.T, db *store.DB, job func()) {
 	t.Fatal("the job never finished")
 }
 
+// garble runs a job with its first query answered with nonsense, then its second, and so on.
+func garble(t *testing.T, db *store.DB, job func()) {
+	t.Helper()
+	for k := int64(1); k < 200; k++ {
+		var made atomic.Int64
+		db.GarbleQueries(func(string) bool { return made.Add(1) == k })
+		job()
+		db.GarbleQueries(nil)
+		if made.Load() < k {
+			return
+		}
+	}
+	t.Fatal("the job never finished")
+}
+
 func TestBackgroundJobsGetThroughAFailingDatabase(t *testing.T) {
 	s := backgroundServer(t)
 	ctx := context.Background()
@@ -49,6 +64,8 @@ func TestBackgroundJobsGetThroughAFailingDatabase(t *testing.T) {
 	}
 	sweep(t, s.db, func() { s.cleanup(ctx) })
 	sweep(t, s.db, func() { s.removeExpired(ctx) })
+	garble(t, s.db, func() { s.cleanup(ctx) })
+	garble(t, s.db, func() { s.removeExpired(ctx) })
 	// A setting that isn't a number is the default.
 	if err := s.db.SetSetting(ctx, "retention_days", "forever"); err != nil {
 		t.Fatal(err)

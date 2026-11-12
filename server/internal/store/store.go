@@ -59,20 +59,33 @@ type DB struct {
 	// logKey is the key the log's heads are signed with, once it's been read.
 	logKeyMu sync.Mutex
 	logKey   *hybrid.Key
-	// failing is what FailStatements was given, shared with every handle.
-	failing *atomic.Pointer[func(string) bool]
+	// hooks is what tests asked of the database, shared with every handle.
+	hooks *hooks
+}
+
+// hooks is what FailStatements and GarbleQueries were given, for tests of what the server
+// does when its database lets it down.
+type hooks struct {
+	failing, garbling atomic.Pointer[func(string) bool]
+}
+
+func (k *hooks) set(hook *atomic.Pointer[func(string) bool], match func(string) bool) {
+	if match == nil {
+		hook.Store(nil)
+		return
+	}
+	hook.Store(&match)
 }
 
 // FailStatements makes every statement the database is given from now on fail, as it
 // would if the database went away, when match says so of its text, and BEGIN and COMMIT
 // for transactions, until it's given nil. It's for tests of what the server does then.
-func (d *DB) FailStatements(match func(query string) bool) {
-	if match == nil {
-		d.failing.Store(nil)
-		return
-	}
-	d.failing.Store(&match)
-}
+func (d *DB) FailStatements(match func(query string) bool) { d.hooks.set(&d.hooks.failing, match) }
+
+// GarbleQueries makes every query for rows the database is given from now on answer with
+// one row holding only a NULL, when match says so of its text, until it's given nil, so
+// that reading the rows it should have given fails. It's for tests too.
+func (d *DB) GarbleQueries(match func(query string) bool) { d.hooks.set(&d.hooks.garbling, match) }
 
 // handle runs statements on the whole database or in one transaction, turning
 // them into PostgreSQL's dialect where that's the database.
@@ -90,13 +103,13 @@ type handle struct {
 	// logged is set, on a transaction's handle, once it appends to the log of keys,
 	// so that whoever is connected can be told once it's kept.
 	logged *bool
-	// failing is the DB's: which statements to fail, for tests.
-	failing *atomic.Pointer[func(string) bool]
+	// hooks is the DB's: what tests asked of it.
+	hooks *hooks
 }
 
 // failed reports whether a test said this statement fails.
 func (h handle) failed(query string) bool {
-	match := h.failing.Load()
+	match := h.hooks.failing.Load()
 	return match != nil && (*match)(query)
 }
 
@@ -125,6 +138,9 @@ func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql
 
 func (h handle) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	ctx = h.context(ctx, query)
+	if garble := h.hooks.garbling.Load(); garble != nil && (*garble)(query) {
+		query, args = "SELECT NULL", nil
+	}
 	if h.postgres {
 		query, args = rebind(query), postgresArgs(args)
 	}
@@ -160,8 +176,8 @@ func Open(path string) (*DB, error) {
 }
 
 func open(conn *sql.DB, postgres bool) (*DB, error) {
-	failing := &atomic.Pointer[func(string) bool]{}
-	db := &DB{conn: conn, sql: handle{q: conn, postgres: postgres, failing: failing}, postgres: postgres, failing: failing}
+	tests := &hooks{}
+	db := &DB{conn: conn, sql: handle{q: conn, postgres: postgres, hooks: tests}, postgres: postgres, hooks: tests}
 	if !postgres {
 		db.writing = &sync.Mutex{}
 		db.sql.writing = db.writing
@@ -208,7 +224,7 @@ func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle
 	}
 	defer tx.Rollback()
 	logged := false
-	if err := fn(handle{q: tx, postgres: d.postgres, logged: &logged, failing: d.failing}); err != nil {
+	if err := fn(handle{q: tx, postgres: d.postgres, logged: &logged, hooks: d.hooks}); err != nil {
 		return err
 	}
 	if d.sql.failed("COMMIT") {

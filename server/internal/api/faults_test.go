@@ -50,6 +50,23 @@ func (h *harness) sweep(t *testing.T, r recipe) {
 	t.Errorf("%s: still making statements after 400", r.name)
 }
 
+// garble makes the request again and again, its first query answered with nonsense the first
+// time, its second the second time, and so on, and it must refuse rather than crash.
+func (h *harness) garble(t *testing.T, r recipe) {
+	t.Helper()
+	for k := int64(1); k <= 400; k++ {
+		request := r.prepare()
+		var made atomic.Int64
+		h.db.GarbleQueries(func(string) bool { return made.Add(1) == k })
+		request()
+		h.db.GarbleQueries(nil)
+		if made.Load() < k {
+			return
+		}
+	}
+	t.Errorf("%s: still making queries after 400", r.name)
+}
+
 // world is a server with something of everything in it, for requests to act on.
 type world struct {
 	h            *harness
@@ -361,6 +378,7 @@ func TestFailingDatabase(t *testing.T) {
 	}
 	for _, r := range recipes {
 		h.sweep(t, r)
+		h.garble(t, r)
 	}
 }
 
@@ -571,6 +589,7 @@ func TestFailingDatabaseElsewhere(t *testing.T) {
 	}
 	for _, r := range recipes {
 		h.sweep(t, r)
+		h.garble(t, r)
 	}
 }
 
@@ -602,6 +621,15 @@ func TestFailingDatabaseForUpkeep(t *testing.T) {
 		"an account's log bodies":    func() error { _, _, err := h.db.LogBodies(ctx, w.owner.userID); return err },
 	}
 	for name, job := range jobs {
+		for n := int64(1); n < 400; n++ {
+			var made atomic.Int64
+			h.db.GarbleQueries(func(string) bool { return made.Add(1) == n })
+			job()
+			h.db.GarbleQueries(nil)
+			if made.Load() < n {
+				break
+			}
+		}
 		for n := int64(1); ; n++ {
 			var made atomic.Int64
 			h.db.FailStatements(func(string) bool { return made.Add(1) == n })
