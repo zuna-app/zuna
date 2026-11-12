@@ -4,6 +4,41 @@
 use super::*;
 
 impl Root {
+    /// A plugin's page over the main area: its title, whose it is, and the app's close button,
+    /// around what the plugin draws.
+    fn plugin_page(&mut self, handle: u32, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let (title, uid) = plugins::title(handle, cx).unwrap_or_default();
+        let body = plugins::body(handle, cx);
+        let state = self.state.clone();
+        let scroll = scrollbar::scroll_handle("plugin-page");
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .h(px(56.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .px(px(20.))
+                    .border_b_1()
+                    .border_color(theme.line)
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).one_line().child(title)).child(plugins::plugin_name(&uid, cx)))
+                    .child(icon_button("close-plugin-page", "x", 17., false, false, cx).on_click(move |_, _, cx| {
+                        state.update(cx, |state, cx| {
+                            state.plugin_page = None;
+                            cx.notify();
+                        })
+                    })),
+            )
+            .child(div().id("plugin-page").flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).p(px(24.)).child(body))
+            .into_any_element()
+    }
+
     pub(super) fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let state = self.state.read(cx);
@@ -16,6 +51,10 @@ impl Root {
             return self.signed_out(&entry, &reason, cx).into_any_element();
         }
         // A voice channel this device is in shows its stage, as in Discord.
+        // A plugin's page, opened from its item in the rail, in place of the chat.
+        if let Some(handle) = state.plugin_page {
+            return self.plugin_page(handle, cx);
+        }
         let in_this_voice = channel.as_ref().is_some_and(|(id, voice)| *voice && crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == entry.id && &channel_id == id));
         if let (true, Some((channel_id, _))) = (in_this_voice, &channel) {
             let key = format!("{}:{}", entry.id, channel_id);

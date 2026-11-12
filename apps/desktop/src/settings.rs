@@ -31,6 +31,8 @@ pub struct Settings {
     /// Which releases this app updates itself from, `stable` or `nightly`, once the person has
     /// picked. Until then it's the channel the build was made for.
     pub update_channel: Option<String>,
+    /// A plugin's theme, as `<plugin uid>/<theme id>`, which applies while that plugin is on.
+    pub theme: Option<String>,
 }
 
 impl Default for Settings {
@@ -52,6 +54,7 @@ impl Default for Settings {
             hide_member_list: false,
             voice_speed: 1.,
             update_channel: None,
+            theme: None,
         }
     }
 }

@@ -162,6 +162,11 @@ pub enum Overlay {
     WatchConsent { then_link: bool },
     /// A YouTube link to put on for everyone in the room.
     WatchLink,
+    /// A plugin's dialog, in a frame the app draws, by the number the plugins know it by.
+    Plugin(u32),
+    /// Asking before a plugin is installed or updated: what it can do, and for one Zuna hasn't
+    /// checked, the warning. The package waits in the plugins' state.
+    PluginInstall { id: u64 },
 }
 
 /// A media file decrypted to disk for playing.
@@ -187,6 +192,8 @@ pub enum Panel {
     Pins,
     /// One kind of what's been shared in the chat.
     Media(SharedKind),
+    /// A plugin's panel, by the number the plugins know it by.
+    Plugin(u32),
 }
 
 /// What a chat's details list by kind, in Telegram's order.
@@ -236,6 +243,10 @@ pub struct AppState {
     pub lists: HashMap<String, MessageList>,
     pub overlay: Option<Overlay>,
     pub panel: Option<Panel>,
+    /// A plugin's page over the main area, opened from its item in the rail.
+    pub plugin_page: Option<u32>,
+    /// Text plugins put in the message box, for the open chat to take.
+    pub composer_inserts: Vec<String>,
     pub toasts: Vec<Toast>,
     /// The new device being answered for, while the core removes it or forgets it.
     pub answering_device: Option<String>,
@@ -387,6 +398,8 @@ impl AppState {
             lists: HashMap::new(),
             overlay: None,
             panel: None,
+            plugin_page: None,
+            composer_inserts: Vec::new(),
             toasts: Vec::new(),
             answering_device: None,
             device_removed: None,
@@ -587,6 +600,7 @@ impl AppState {
         let leaving = self.active_server.clone().filter(|id| id != server_id).and_then(|id| Some((id.clone(), self.servers.get(&id)?.active_key.clone()?)));
         self.active_server = Some(server_id.to_string());
         self.panel = None;
+        self.plugin_page = None;
         if let Some((id, key)) = leaving {
             self.close_list(&id, &key);
         }
@@ -618,6 +632,7 @@ impl AppState {
         let previous = std::mem::replace(&mut server.active_key, key.clone());
         let marked = key.as_ref().and_then(|key| server.conversations.iter().find(|item| &item.key == key)).is_some_and(|item| item.marked_unread);
         self.panel = None;
+        self.plugin_page = None;
         if let (Some(server_id), Some(previous)) = (server_id, previous.filter(|previous| Some(previous) != key.as_ref())) {
             self.close_list(&server_id, &previous);
         }
@@ -685,9 +700,104 @@ impl AppState {
     pub fn update_settings(&mut self, change: impl FnOnce(&mut Settings), cx: &mut Context<Self>) {
         change(&mut self.settings);
         self.settings.save();
-        cx.set_global(Theme::new(self.settings.accent, self.settings.message_size));
-        cx.refresh_windows();
+        self.refresh_theme(cx);
         cx.notify();
+    }
+
+    /// The colors for the accent and text size chosen, under a plugin's theme if one is chosen and its plugin is on.
+    pub fn refresh_theme(&mut self, cx: &mut Context<Self>) {
+        let mut theme = Theme::new(self.settings.accent, self.settings.message_size);
+        if let (Some(key), Some(plugins)) = (self.settings.theme.as_deref(), crate::plugins::get(cx)) {
+            if let Some(colors) = plugins.read(cx).theme_colors(key) {
+                theme.apply(&colors);
+            }
+        }
+        cx.set_global(theme);
+        cx.refresh_windows();
+    }
+
+    // --- Plugins ---
+
+    /// Calls a method of a server's session once plugins' filters of a kind let it, at once when
+    /// none has one: typing and read marks, which a plugin with `activity.intercept` may keep from
+    /// going. A failure shows as a toast.
+    pub fn act_filtered(&mut self, server_id: &str, kind: crate::plugins::FilterKind, payload: Value, method: &'static str, args: Vec<Value>, cx: &mut Context<Self>) {
+        let server = server_id.to_string();
+        let go = move |state: &mut AppState, cx: &mut Context<AppState>| {
+            state.call(Some(&server), method, args, cx, |state, result, cx| {
+                if let Err(error) = result {
+                    state.toast(error.message, ToastKind::Error, cx);
+                }
+            })
+        };
+        match crate::plugins::filter(kind, payload, cx) {
+            None => go(self, cx),
+            Some(task) => cx
+                .spawn(async move |this, cx| {
+                    if let crate::plugins::Verdict::Go(_) = task.await {
+                        this.update(cx, |state, cx| go(state, cx)).ok();
+                    }
+                })
+                .detach(),
+        }
+    }
+
+    /// Opens a plugin's panel, page or dialog, by the number the plugins know it by.
+    pub fn open_plugin_view(&mut self, kind: &str, handle: u32, cx: &mut Context<Self>) {
+        match kind {
+            "panel" => self.panel = Some(Panel::Plugin(handle)),
+            "page" => self.plugin_page = Some(handle),
+            "dialog" => self.set_overlay(Some(Overlay::Plugin(handle)), cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// Closes whatever of these a plugin has open, as it stops or asks to.
+    pub fn close_plugin_views(&mut self, handles: &[u32], cx: &mut Context<Self>) {
+        if matches!(self.panel, Some(Panel::Plugin(handle)) if handles.contains(&handle)) {
+            self.panel = None;
+        }
+        if self.plugin_page.is_some_and(|handle| handles.contains(&handle)) {
+            self.plugin_page = None;
+        }
+        if matches!(self.overlay, Some(Overlay::Plugin(handle)) if handles.contains(&handle)) {
+            self.overlay = None;
+        }
+        cx.notify();
+    }
+
+    /// Text a plugin puts in the message box, where the cursor is, in the open chat.
+    pub fn insert_into_composer(&mut self, text: String, cx: &mut Context<Self>) {
+        self.composer_inserts.push(text);
+        cx.notify();
+    }
+
+    /// A notification of a plugin's own, under its name.
+    pub fn show_plugin_notification(&mut self, name: &str, title: String, body: String, cx: &mut Context<Self>) {
+        if !self.settings.notifications {
+            return;
+        }
+        if self.window_focused {
+            self.toast(format!("{name}: {title}{}{body}", if body.is_empty() { "" } else { " — " }), ToastKind::Info, cx);
+            return;
+        }
+        let system = crate::platform::notification_state();
+        if !system.show {
+            return;
+        }
+        let payload = crate::ui::notifications::Payload {
+            title: format!("{name}: {title}"),
+            body,
+            server_id: String::new(),
+            key: String::new(),
+            message_id: String::new(),
+            kind: "plugin".into(),
+            picture: None,
+            can_reply: false,
+            wait_for_input: system.wait_for_input,
+        };
+        self.show_notification(payload, "", None, cx);
     }
 
     // --- Notifications, the badge and activity ---
@@ -757,4 +867,9 @@ impl gpui::Global for Store {}
 
 pub fn store(cx: &App) -> Entity<AppState> {
     cx.global::<Store>().0.clone()
+}
+
+/// The state's entity, if the app has made it yet.
+pub fn try_store(cx: &App) -> Option<Entity<AppState>> {
+    cx.try_global::<Store>().map(|store| store.0.clone())
 }

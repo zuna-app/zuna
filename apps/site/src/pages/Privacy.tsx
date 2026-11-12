@@ -25,6 +25,10 @@ export function Privacy() {
           </li>
           <li>GitHub, from the signed Windows app, to check for updates every six hours.</li>
           <li>
+            GitHub, from the app for Windows, macOS and Linux, for the list of plugins, when you open Browse in Settings, and every six hours once a plugin from it is
+            installed. A device with no plugins never asks. A plugin you install connects to the sites its page names, and nothing else, and only if it asked to.
+          </li>
+          <li>
             In the web app, on iPhone and iPad, and on a Mac, Windows and Linux, YouTube, when you press Watch on a video your voice channel or call watches together, and asked about the first
             time. The video plays in YouTube's own player, which sees your IP address, which video and when, under{" "}
             <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Whoever puts a video on has their device fetch its title and picture, in

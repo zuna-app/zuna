@@ -227,6 +227,22 @@ impl Root {
                 })
                 .child(gpui::svg().path("icons/plus.svg").size(px(20.)).text_color(theme.text3).group_hover("rail-add", move |style| style.text_color(theme.text1))),
         );
+        // Plugins' pages, under a line, each wearing its plugin's name in its tooltip.
+        let open_page = self.state.read(cx).plugin_page.and_then(|handle| crate::plugins::get(cx).and_then(|plugins| plugins.read(cx).of_handle(handle)));
+        let pages = plugins::rail_items(cx);
+        if !pages.is_empty() {
+            list = list.child(div().w(px(32.)).h(px(1.)).bg(theme.line_strong));
+            for (uid, slot) in pages {
+                let active = open_page.as_ref().is_some_and(|(owner, kind, id)| *owner == uid && kind == "page" && *id == slot.id);
+                let tip = plugins::title_of(&uid, &slot.title, cx);
+                let (owner, id) = (uid.clone(), slot.id.clone());
+                list = list.child(
+                    icon_button(gpui::ElementId::Name(format!("rail-plugin-{uid}-{}", slot.id).into()), &slot.icon, 19., false, active, cx)
+                        .tip(tip, Side::Right)
+                        .on_click(move |_, _, cx| plugins::open(&owner, "page", &id, cx)),
+                );
+            }
+        }
         let settings_state = state_entity.clone();
         let profile_state = state_entity.clone();
         let mut footer = div().flex().flex_col().items_center().gap(px(8.)).pt(px(8.)).child(

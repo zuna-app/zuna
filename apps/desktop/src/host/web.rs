@@ -72,7 +72,7 @@ pub fn private_address(ip: IpAddr) -> bool {
 }
 
 /// Names that only mean something on this machine or its network.
-fn local_name(host: &str) -> bool {
+pub fn local_name(host: &str) -> bool {
     let name = host.trim_end_matches('.').to_ascii_lowercase();
     !name.contains('.')
         || [".localhost", ".local", ".internal", ".intranet", ".lan", ".home", ".corp", ".home.arpa"].iter().any(|suffix| name.ends_with(suffix))

@@ -1,6 +1,7 @@
 //! Settings, over the whole window below the title bar
 //! (packages/ui/src/features/overlays/Settings.tsx).
 
+mod plugins;
 mod profile;
 mod preferences;
 mod security;
@@ -17,7 +18,7 @@ use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
-const SECTIONS: [(&str, &str, &str); 9] = [
+const SECTIONS: [(&str, &str, &str); 10] = [
     ("profile", "Profile", "user-round"),
     ("privacy", "Privacy", "lock"),
     ("notifications", "Notifications", "bell"),
@@ -26,6 +27,7 @@ const SECTIONS: [(&str, &str, &str); 9] = [
     ("appearance", "Appearance", "palette"),
     ("security", "Security", "shield-check"),
     ("data", "Your data", "server"),
+    ("plugins", "Plugins", "puzzle"),
     ("about", "About", "info"),
 ];
 
@@ -51,6 +53,13 @@ pub struct SettingsView {
     focus: gpui::FocusHandle,
     voice_page: Option<Entity<super::voice_settings::VoiceSettingsPage>>,
     screen_page: Option<Entity<super::voice_settings::ScreenSettingsPage>>,
+    /// The marketplace's list is open, and what it's searched for.
+    browsing: bool,
+    plugin_search: Entity<TextInput>,
+    /// Explaining, once, what the switch for unverified plugins opens up.
+    confirming_unverified: bool,
+    /// The plugin whose log is open.
+    showing_log: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -86,6 +95,11 @@ impl SettingsView {
                 cx.notify();
             }));
         }
+        let plugin_search = make(cx, "Search plugins", false, false);
+        subscriptions.push(cx.subscribe(&plugin_search, |_, _, _: &InputEvent, cx| cx.notify()));
+        if let Some(plugins) = crate::plugins::get(cx) {
+            subscriptions.push(cx.observe(&plugins, |_, _, cx| cx.notify()));
+        }
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut view = SettingsView {
@@ -108,6 +122,10 @@ impl SettingsView {
             focus,
             voice_page: None,
             screen_page: None,
+            browsing: false,
+            plugin_search,
+            confirming_unverified: false,
+            showing_log: None,
             _subscriptions: subscriptions,
         };
         view.reset_profile(cx);
@@ -312,9 +330,16 @@ impl Render for SettingsView {
             "appearance" => self.appearance(cx),
             "security" => self.security(cx),
             "data" => self.server_data_page(cx),
+            "plugins" => self.plugins_page(cx),
             "about" => self.about(cx),
+            section if section.starts_with("plugin:") => {
+                let uid = section.trim_start_matches("plugin:").to_string();
+                self.plugin_section(&uid, cx)
+            }
             _ => self.profile(cx),
         };
+        // Each plugin with settings has a section of its own, under a heading of their own.
+        let plugin_sections = Self::plugin_sections(cx);
         let nav = div()
             .w(px(228.))
             .flex_none()
@@ -355,6 +380,31 @@ impl Render for SettingsView {
                     }))
                     .child(icon(icon_name, 17., if active { theme.text1 } else { theme.text2 }))
                     .child(label.to_string())
+            }))
+            .when(!plugin_sections.is_empty(), |el| el.child(div().px(px(10.)).pt(px(14.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).child("Plugins")))
+            .children(plugin_sections.into_iter().map(|(uid, name, verified)| {
+                let section = format!("plugin:{uid}");
+                let active = self.section == section;
+                div()
+                    .id(SharedString::from(format!("settings-{section}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(10.))
+                    .py(px(7.))
+                    .rounded(RADIUS_M)
+                    .text_size(px(14.))
+                    .text_color(if active { theme.text1 } else { theme.text2 })
+                    .when(active, |el| el.bg(theme.bg3))
+                    .when(!active, |el| el.hover(move |style| style.bg(theme.hover).text_color(theme.text1)))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.section = section.clone();
+                        cx.notify();
+                    }))
+                    .child(icon("puzzle", 17., if active { theme.text1 } else { theme.text2 }))
+                    .child(div().flex_1().min_w_0().one_line().child(name))
+                    .when(!verified, |el| el.child(crate::ui::plugins::unverified_mark(cx)))
             }));
         div()
             .id("settings-layer")
@@ -387,5 +437,16 @@ impl Render for SettingsView {
                     .child(div().absolute().right(px(16.)).top(px(16.)).child(icon_button("close-settings", "x", 19., false, false, cx).on_click(cx.listener(|view, _, _, cx| view.close(cx))))),
             )
             .when(self.confirming_keep, |el| el.child(self.keep_metadata_confirm(cx)))
+            .when(self.confirming_unverified, |el| el.child(self.unverified_confirm(cx)))
+            // A plugin's package dropped on the Plugins page proposes it, as "Install from a file…" does.
+            .on_drop(cx.listener(|view, paths: &gpui::ExternalPaths, _, cx| {
+                if view.section != "plugins" {
+                    return;
+                }
+                if let Some(path) = paths.paths().iter().find(|path| path.extension().is_some_and(|extension| extension == "zunaplugin")) {
+                    let path = path.clone();
+                    view.propose_file(&path, cx);
+                }
+            }))
     }
 }

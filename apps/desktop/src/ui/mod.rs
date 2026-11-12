@@ -18,6 +18,7 @@ pub mod overlays;
 pub mod invites;
 pub mod media_views;
 pub mod picker;
+pub mod plugins;
 pub mod screen_picker;
 pub mod selection;
 pub mod scrollbar;
@@ -396,6 +397,17 @@ impl Render for Root {
         };
 
         motion::set_reduced(self.state.read(cx).settings.reduce_motion);
+        // What plugins put in the message box goes into the open chat's, where the cursor is.
+        if !self.state.read(cx).composer_inserts.is_empty() {
+            let inserts = self.state.update(cx, |state, _| std::mem::take(&mut state.composer_inserts));
+            if let Some((_, chat)) = self.chat.clone() {
+                chat.update(cx, |chat, cx| {
+                    for text in inserts {
+                        chat.insert_into_composer(&text, window, cx);
+                    }
+                });
+            }
+        }
         let overlay = self.overlay(window, cx);
         let closing = match &self.closing {
             Some((view, closed)) if closed.elapsed() < DIALOG_OUT => {
@@ -483,7 +495,18 @@ impl Render for Root {
             }))
             // Input to the window, which says the person is here where the system can't (`quiet_ms`):
             // a key, a click or the wheel, as Telegram's `Application::eventFilter` counts its own.
-            .capture_key_down(cx.listener(|root, _: &gpui::KeyDownEvent, _, cx| root.note_input(cx)))
+            .capture_key_down(cx.listener(|root, event: &gpui::KeyDownEvent, _, cx| {
+                root.note_input(cx);
+                // A plugin's command, on the keys it was bound to because nothing else had them.
+                if root.covered || root.prompting {
+                    return;
+                }
+                let Some(plugins) = crate::plugins::get(cx) else { return };
+                if let Some((uid, command)) = plugins.read(cx).command_for(&event.keystroke) {
+                    plugins.update(cx, |plugins, cx| plugins.run_command(&uid, &command, "", cx));
+                    cx.stop_propagation();
+                }
+            }))
             .on_scroll(cx.listener(|root, _: &gpui::ScrollEvent, _, cx| root.note_input(cx)))
 
             .flex()

@@ -139,7 +139,9 @@ impl ConversationList {
                     let state = menu_state.read(cx);
                     let Some(server) = state.servers.get(&menu_server) else { return };
                     let Some(item) = server.find_conversation(&menu_key) else { return };
-                    row_entries(item, &server.prefs, menu_state.clone())
+                    let mut entries = row_entries(item, &server.prefs, menu_state.clone());
+                    entries.extend(crate::ui::plugins::conversation_entries(&menu_server, item, cx));
+                    entries
                 };
                 open_menu(event.position, entries, false, cx);
             })
@@ -204,7 +206,13 @@ pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Prefer
     }];
     if item.unread > 0. || item.marked_unread {
         let (state, key) = (state.clone(), key.clone());
-        entries.push(MenuEntry::new("Mark as read", "check-check", move |_, cx| state.update(cx, |state, cx| state.act("markChatRead", vec![json!(key)], cx))));
+        entries.push(MenuEntry::new("Mark as read", "check-check", move |_, cx| {
+            state.update(cx, |state, cx| {
+                let Some(server) = state.active_server.clone() else { return };
+                let payload = json!({ "serverId": server, "groupId": null, "conversationKey": key });
+                state.act_filtered(&server, crate::plugins::FilterKind::Read, payload, "markChatRead", vec![json!(key)], cx)
+            })
+        }));
     } else if item.group_id.is_some() {
         let (state, key) = (state.clone(), key.clone());
         entries.push(MenuEntry::new("Mark as unread", "message-square-dot", move |_, cx| {

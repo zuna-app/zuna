@@ -18,6 +18,19 @@ impl AssetSource for Assets {
     }
 }
 
+/// Whether the app carries a Lucide icon of this name, as a plugin's view may name one.
+pub fn has_icon(name: &str) -> bool {
+    static_icon(name).is_some()
+}
+
+/// The app's own copy of an icon's name, for what keeps names as `&'static str`, such as menus.
+pub fn static_icon(name: &str) -> Option<&'static str> {
+    if name.len() > 40 || !name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-') {
+        return None;
+    }
+    ICONS.iter().find_map(|(path, _)| path.strip_prefix("icons/").and_then(|rest| rest.strip_suffix(".svg")).filter(|stem| *stem == name))
+}
+
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../assets/fonts/Inter-Medium.ttf"),

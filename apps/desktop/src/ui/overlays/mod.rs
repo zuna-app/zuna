@@ -49,6 +49,8 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Channel { channel_id, category } => cx.new(|cx| Dialog::new(state, DialogKind::Channel { channel_id, kind: category }, window, cx)).into(),
         Overlay::Settings { .. } | Overlay::ServerSettings { .. } => return None,
         Overlay::ScreenPicker => cx.new(|cx| super::screen_picker::ScreenPicker::new(state, window, cx)).into(),
+        Overlay::Plugin(handle) => cx.new(|cx| super::plugins::dialog::PluginDialog::new(state, handle, window, cx)).into(),
+        Overlay::PluginInstall { id } => cx.new(|cx| super::plugins::install::InstallDialog::new(state, id, window, cx)).into(),
     })
 }
 

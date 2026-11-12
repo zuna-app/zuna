@@ -1,6 +1,6 @@
 # Plugins for the native app: plan
 
-A plugin is a package someone installs into the native app to change it: how it looks, what its menus and settings hold, what happens to a message on its way out, or a whole screen of its own. Plugins run on the device alone, and no server knows of them. This page is the design, what it assumes, and the order to build it in. It was drafted on 2026-11-12, and nothing of it is built.
+A plugin is a package someone installs into the native app to change it: how it looks, what its menus and settings hold, what happens to a message on its way out, or a whole screen of its own. Plugins run on the device alone, and no server knows of them. This page is the design, what it assumes, and the order to build it in. It was drafted on 2026-11-12, and built the same day, as "What was built" at its end says: [PLUGINS.md](PLUGINS.md) is how to write one, and "Plugins" in [SECURITY_DETAILS.md](SECURITY_DETAILS.md) how it's kept in its place.
 
 ```
   plugin.json + main.js + assets, signed            the marketplace: a signed index and
@@ -403,3 +403,26 @@ Asked on 2026-11-12, each with the other answers that were on offer:
 - **That a plugin using only the plugin API isn't bound by the AGPL** is the owner's intent, and how to word it so that it holds is a lawyer's question, to settle before 1.0.0 and before the first outside author's plugin is verified.
 - **The limits' numbers:** memory, deadlines, a tree's and a package's size, a store's quota. Phase 0 measures, and the first verified plugins show what's too tight.
 - **Whether a plugin should be limited to some of the device's servers.** Left out of the first version, and worth asking again once people on several servers use plugins.
+
+## What was built
+
+Built on 2026-11-12, on Windows: the SDK (`packages/plugin-sdk`), plugins in the native app (`apps/desktop/src/plugins`, `ui/plugins`, `ui/settings/plugins.rs`), the example plugins (`examples/plugins`), and the marketplace's repository, `zuna-app/plugins`, with its review rules, CI, publishing job and the team's first plugins. The plugins' keys were made with `zuna-plugin keygen`, and their public halves are `PLUGIN_KEYS`.
+
+Where it differs from the plan above:
+
+- **A host process for each plugin,** not one with a thread for each. The broker can only tell plugins apart by the pipe a message comes on, and in one process, a plugin that broke out of QuickJS could speak as any other.
+- **What a plugin draws opens only right after the person used it.** A dialog, a panel or a page, text in the message box, the clipboard and the file dialogs, for ten seconds after one of its commands, buttons or views was used, so a plugin can't put up a dialog or read the clipboard whenever it likes. Its toasts come under its name, five in ten seconds at most.
+- **`messages.decorate` needs `messages.read`,** as a decoration is made from the message.
+- **`voice.control` goes through the app's own voice,** joining, leaving, muting and deafening (`zuna.voice`), since the room is the app's and the core's `setVoiceState` alone would leave it out. `setVoiceState` is never in the table.
+- **A message a required filter held goes back in the message box,** with a toast saying which plugin didn't answer, rather than being drawn as an unsent message with retry and discard.
+- **Commands' slash names are in the manifest** (`slash`), and the message box doesn't suggest them yet.
+- **An unverified plugin's menu entries say "· Unverified" in their label,** as the app's menus are text; everywhere else the mark is as planned.
+- **The marketplace's release is one, called `plugins`,** updated in place: a published version's package is never built again, as its signature, hedged, would differ. The index carries each plugin's icon as a data URL of 48 KB at most, and its summary is its manifest's description.
+- **A device with a verified plugin reads the index every six hours,** at GitHub as the app's updates do, rather than beside each check for an update.
+
+Not built yet:
+
+- From the plan's slots: the message box's suggestions, a person's or group's details, and the voice stage's tile menu. From views: Zuna's markup is drawn as its plain text, an image from a permitted host as an empty box, a list doesn't draw only what's in view, and no image comes from the core by a handle.
+- Phase 0's measurements: a host's start, its memory, a call across the pipe.
+- Phase 6: hooks in the core, the system's sandbox around the host process, WebSockets, fonts in themes, an author's own signing key.
+- From "Checks": the interface's tests on GPUI's test platform, the marketplace check with a `plugin-check` build (the feature is there), and an example plugin in the real app on each system. What ran: `cargo test plugins::` on Windows, which runs real plugins in a host on a thread, the hostile one among them, and checks manifests, packages, signatures, the index's order of checks, the table, what plugins are told, views' limits and sealed storage; the SDK's tests, which check its signer against the hybrid vectors the Rust crate wrote; and the type check, over the SDK and the examples. Linux and macOS weren't built.

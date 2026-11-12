@@ -31,6 +31,8 @@ rquickjs = { version = "0.14", features = ["classes", "properties"] }
 zuna-crypto = { path = "../../crypto" }
 
 rusqlite = { version = "0.41", features = ["bundled"] }
+# A plugin's package, read whole into memory and never unpacked to disk (plugins/package.rs).
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 # HTTP and WebSocket at the versions LiveKit's signalling has, so there's one copy of each.
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
@@ -189,6 +191,10 @@ share-check = []
 # releases from the environment, updates wherever it was installed, and writes down where it
 # stands. Never in a build anyone uses, as that would let the environment swap the keys.
 update-check = []
+# For test/plugin-market-check.mjs alone: the plugins' keys and the marketplace's address come from
+# the environment (ZUNA_PLUGIN_KEYS, ZUNA_PLUGIN_INDEX). Never in a build anyone uses, as that would
+# let the environment swap the keys.
+plugin-check = []
 
 [[example]]
 name = "share-check"

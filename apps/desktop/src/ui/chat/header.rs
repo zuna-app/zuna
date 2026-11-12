@@ -118,6 +118,7 @@ impl ChatView {
                     .items_center()
                     .gap(px(2.))
                     .children(call_buttons)
+                    .children(crate::ui::plugins::header_buttons(cx))
                     .child(
                         icon_button("chat-search", "search", 17., false, panel == Some(Panel::Search), cx)
                             .tip("Search this chat", Side::Bottom)

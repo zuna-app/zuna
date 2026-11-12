@@ -235,20 +235,43 @@ impl AppState {
         if value.is_empty() {
             return;
         }
-        let mentions = crate::markup::mentions_in(&value, &server.mentionable);
-        let emotes = server.emotes.refs_in(&value);
         if let (Some(group), Some(newest)) = (&conversation.group_id, conversation.last_message.as_ref().and_then(|m| m.seq)) {
-            self.call(Some(server_id), "markRead", vec![json!(group), json!(newest)], cx, |_, _, _| {});
+            let payload = json!({ "serverId": server_id, "groupId": group, "conversationKey": key });
+            self.act_filtered(server_id, crate::plugins::FilterKind::Read, payload, "markRead", vec![json!(group), json!(newest)], cx);
         }
-        let mut body = json!({ "text": value, "emotes": emotes, "mentions": mentions });
-        if conversation.kind != "dm" {
-            body["replyTo"] = json!(message_id);
-        }
-        self.call(Some(server_id), "sendMessage", vec![json!(key), body], cx, |state, result, cx| {
-            if let Err(error) = result {
-                state.toast(error.message, ToastKind::Error, cx);
+        let reply_to = (conversation.kind != "dm").then(|| message_id.to_string());
+        let server = server_id.to_string();
+        let draft = json!({ "serverId": server_id, "groupId": conversation.group_id, "conversationKey": key, "kind": "send", "text": value });
+        let key = key.to_string();
+        let send = move |state: &mut Self, value: String, cx: &mut Context<Self>| {
+            let Some(known) = state.servers.get(&server) else { return };
+            let mentions = crate::markup::mentions_in(&value, &known.mentionable);
+            let emotes = known.emotes.refs_in(&value);
+            let mut body = json!({ "text": value, "emotes": emotes, "mentions": mentions });
+            if let Some(reply_to) = &reply_to {
+                body["replyTo"] = json!(reply_to);
             }
-        });
+            state.call(Some(&server), "sendMessage", vec![json!(key), body], cx, |state, result, cx| {
+                if let Err(error) = result {
+                    state.toast(error.message, ToastKind::Error, cx);
+                }
+            });
+        };
+        // What goes out passes plugins' filters, as what's sent from the message box does.
+        match crate::plugins::filter(crate::plugins::FilterKind::Outgoing, draft, cx) {
+            None => send(self, value, cx),
+            Some(task) => cx
+                .spawn(async move |this, cx| {
+                    let verdict = task.await;
+                    this.update(cx, |state, cx| match verdict {
+                        crate::plugins::Verdict::Go(draft) => send(state, draft.get("text").and_then(Value::as_str).unwrap_or_default().to_string(), cx),
+                        crate::plugins::Verdict::Stopped(name) => state.toast(format!("{name} kept your reply from going."), ToastKind::Info, cx),
+                        crate::plugins::Verdict::Held(name) => state.toast(format!("{name} didn't answer, so your reply wasn't sent."), ToastKind::Error, cx),
+                    })
+                    .ok();
+                })
+                .detach(),
+        }
     }
 
     /// Whether the window is in front: focused, and on screen, as GPUI can still think a minimized

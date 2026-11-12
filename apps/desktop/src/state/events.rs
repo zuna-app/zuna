@@ -104,6 +104,29 @@ impl AppState {
     }
 
     pub fn handle_event(&mut self, event: Value, cx: &mut Context<Self>) {
+        // Plugins hear what their permissions cover, and someone typing and a notification pass
+        // their filters first, when any has one.
+        if let Some(plugins) = crate::plugins::get(cx) {
+            plugins.update(cx, |plugins, _| plugins.core_event(&event));
+            let filter = match event.get("type").and_then(Value::as_str) {
+                Some("typing") => Some(crate::plugins::FilterKind::TypingShown),
+                Some("notify") => Some(crate::plugins::FilterKind::Notify),
+                _ => None,
+            };
+            if let Some(task) = filter.and_then(|kind| crate::plugins::filter(kind, event.clone(), cx)) {
+                cx.spawn(async move |this, cx| {
+                    if let crate::plugins::Verdict::Go(event) = task.await {
+                        this.update(cx, |state, cx| state.apply_event(event, cx)).ok();
+                    }
+                })
+                .detach();
+                return;
+            }
+        }
+        self.apply_event(event, cx);
+    }
+
+    fn apply_event(&mut self, event: Value, cx: &mut Context<Self>) {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
         let server_id = event.get("serverId").and_then(Value::as_str).unwrap_or_default().to_string();
         let text = |name: &str| event.get(name).and_then(Value::as_str).unwrap_or_default().to_string();

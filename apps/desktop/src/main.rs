@@ -12,6 +12,7 @@ mod markup;
 mod media;
 mod models;
 mod platform;
+mod plugins;
 mod settings;
 mod state;
 #[cfg(all(feature = "test-control", unix))]
@@ -29,6 +30,11 @@ use state::{AppState, Store};
 actions!(zuna, [Quit]);
 
 fn main() {
+    // A plugin's host process is this program too, started for one plugin and nothing else: it
+    // goes straight to running it, before anything of the app starts (plugins/host).
+    if std::env::args().nth(1).as_deref() == Some("--plugin-host") {
+        std::process::exit(plugins::host::run());
+    }
     // MangoHud, which some turn on for every Vulkan program with MANGOHUD=1 to see a game's frame
     // rate, has no place over a chat window, which draws through Vulkan on Linux. Its layer stands
     // aside for this, which has to be set before Vulkan starts.
@@ -88,6 +94,8 @@ fn main() {
     // What the last run decrypted or recorded, should it have stopped without quitting.
     host::clear_cache(&dir);
     let device_key = host::device_key::load(&dir);
+    // Started with --no-plugins, the app runs no plugin, as it does by itself after two failed starts with them.
+    let no_plugins = args.iter().any(|arg| arg == "--no-plugins");
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
     // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.
@@ -126,6 +134,14 @@ fn main() {
 
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
+        let plugins = plugins::init(device_key.as_ref().ok().map(|key| key.key.as_slice()), no_plugins, cx);
+        // Plugins start once the window is up and the core has booted, so they never slow the start.
+        cx.observe(&state, move |state, cx| {
+            if matches!(state.read(cx).phase, state::Phase::Ready) {
+                plugins.update(cx, |plugins, cx| plugins.start_all(cx));
+            }
+        })
+        .detach();
         voice::init(&state, cx);
         #[cfg(all(feature = "test-control", unix))]
         test_control::start(cx);

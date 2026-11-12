@@ -10652,6 +10652,7 @@ dependencies = [
  "windows-core 0.61.2",
  "x509-parser",
  "zbus",
+ "zip",
  "zuna-crypto",
  "zuna-screenshare",
 ]

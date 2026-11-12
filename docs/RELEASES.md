@@ -215,8 +215,9 @@ A rule can be forgotten at the end of a long session, so `.claude/settings.json`
 - The `macos` environment and its secrets, by `node scripts/macos-dist.mjs secrets`, [above](#the-app-on-macos).
 - Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline. And four more with `--pq`, for `update.json.sig2`, the same way.
 - `gh`, signed in, on each machine Claude releases from, so it can watch a run and read why one failed.
+- Two plugin signing keys, made with `node packages/plugin-sdk/cli/zuna-plugin.mjs keygen` on 2026-11-12, lasting hybrid keys (Ed25519 and ML-DSA-65 from one seed), apart from the update keys: the one in use, in the `publish` environment of `zuna-app/plugins` as `PLUGIN_SIGNING_KEY` and in a file kept offline, and a spare only in a file kept offline. Their public halves are `PLUGIN_KEYS` in `apps/desktop/src/plugins/trust.rs`. They sign verified plugins and the marketplace's index, nothing else ([PLUGINS.md](PLUGINS.md), "Plugins" in [SECURITY_DETAILS.md](SECURITY_DETAILS.md)).
 
-To replace a key: make the new one with `keygen --spare`, add its public half to the app, release, and only once the builds that matter carry it, set it as the environment's secret.
+To replace a key: make the new one with `keygen --spare`, add its public half to the app, release, and only once the builds that matter carry it, set it as the environment's secret. A plugin key the same way, with `zuna-plugin keygen`; the marketplace's next index must then be made with `--previous` left out, as `zuna-plugin index` checks the last one against the key it signs with.
 
 ## What hasn't been checked
 

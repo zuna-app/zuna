@@ -132,7 +132,9 @@ impl ChatView {
                     let now = now_ms();
                     if !text.is_empty() && now - self.last_typing > 3000. {
                         self.last_typing = now;
-                        self.state.update(cx, |state, cx| state.act("sendTyping", vec![json!(group)], cx));
+                        let server = self.server_id.clone();
+                        let payload = json!({ "serverId": server, "groupId": group });
+                        self.state.update(cx, |state, cx| state.act_filtered(&server, crate::plugins::FilterKind::Typing, payload, "sendTyping", vec![json!(group)], cx));
                     }
                 }
                 self.update_suggestions(&conversation, cx);
@@ -409,7 +411,9 @@ impl ChatView {
         let list_id = conversation.list_id();
         let waiting = self.slow_wait(&conversation, cx) > 0;
         let state = self.state.read(cx);
-        let Some(server) = state.servers.get(&self.server_id) else { return };
+        if !state.servers.contains_key(&self.server_id) {
+            return;
+        }
         let editing = if conversation.kind == "channel" { None } else { state.editing.get(&list_id).cloned() };
         let reply = state.reply_to.get(&list_id).cloned();
         if value.is_empty() && (self.files.is_empty() || editing.is_some()) {
@@ -419,6 +423,70 @@ impl ChatView {
             self.state.update(cx, |state, cx| state.toast("That message is too long. Try sending it as a file.", ToastKind::Error, cx));
             return;
         }
+        // A plugin's slash command runs in place of sending.
+        if editing.is_none() && self.files.is_empty() {
+            if let (Some(rest), Some(plugins)) = (value.strip_prefix('/'), crate::plugins::get(cx)) {
+                let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+                if let Some((uid, command)) = plugins.read(cx).slash(name) {
+                    self.composer.update(cx, |input, cx| input.set_text("", cx));
+                    let args = args.trim().to_string();
+                    plugins.update(cx, |plugins, cx| plugins.run_command(&uid, &command, &args, cx));
+                    return;
+                }
+            }
+        }
+        // What goes out passes plugins' filters first, when any has one: what's written leaves the
+        // box while they're asked, goes on with what they made of it, and comes back if one kept it.
+        if !std::mem::take(&mut self.filtered) {
+            let draft = json!({
+                "serverId": self.server_id,
+                "groupId": conversation.group_id,
+                "conversationKey": conversation.key,
+                "kind": if editing.is_some() { "edit" } else { "send" },
+                "messageId": editing.as_ref().map(|message| message.id.clone()),
+                "text": value,
+            });
+            if let Some(task) = crate::plugins::filter(crate::plugins::FilterKind::Outgoing, draft, cx) {
+                if value.is_empty() {
+                    // Files alone: nothing for a filter to read.
+                    task.detach();
+                } else {
+                    self.composer.update(cx, |input, cx| input.set_text("", cx));
+                    let written = value.clone();
+                    cx.spawn_in(window, async move |view, cx| {
+                        let verdict = task.await;
+                        view.update_in(cx, |view, window, cx| {
+                            let restore = |view: &mut Self, cx: &mut Context<Self>| {
+                                if view.composer.read(cx).text().is_empty() {
+                                    view.composer.update(cx, |input, cx| input.set_text(written.clone(), cx));
+                                }
+                            };
+                            match verdict {
+                                crate::plugins::Verdict::Go(draft) => {
+                                    let text = draft.get("text").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                                    view.composer.update(cx, |input, cx| input.set_text(text, cx));
+                                    view.filtered = true;
+                                    view.send(window, cx);
+                                }
+                                crate::plugins::Verdict::Stopped(name) => {
+                                    restore(view, cx);
+                                    view.state.update(cx, |state, cx| state.toast(format!("{name} kept this message from going."), ToastKind::Info, cx));
+                                }
+                                crate::plugins::Verdict::Held(name) => {
+                                    restore(view, cx);
+                                    view.state.update(cx, |state, cx| state.toast(format!("{name} didn't answer, so this message wasn't sent. It's back in the message box to try again."), ToastKind::Error, cx));
+                                }
+                            }
+                        })
+                        .ok();
+                    })
+                    .detach();
+                    return;
+                }
+            }
+        }
+        let state = self.state.read(cx);
+        let Some(server) = state.servers.get(&self.server_id) else { return };
         let mentions = mentions_in(&value, &server.mentionable);
         let emotes = server.emotes.refs_in(&value);
         if let Some(editing) = editing {

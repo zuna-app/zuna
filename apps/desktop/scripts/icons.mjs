@@ -22,8 +22,12 @@ function sources(dir) {
   });
 }
 
+// Icons the shared interface doesn't import: the Plugins page's own, and some for plugins' views
+// to name, which docs/PLUGINS.md lists beside the rest.
+const PLUGIN_ICONS = ["Puzzle", "Store", "Blocks", "Sparkles", "Languages", "Package", "WandSparkles", "Type", "Rocket", "Star", "Heart", "Globe", "FolderOpen", "List", "FileCode", "Bug", "Keyboard", "Quote", "ScrollText", "Calculator", "Hourglass", "Music", "Gamepad2", "Sun", "Moon", "Cloud", "Tag", "Filter", "Sticker", "CircleHelp"];
+
 // Every name imported from lucide-react anywhere in the shared interface.
-const names = new Set(process.argv.slice(2));
+const names = new Set([...PLUGIN_ICONS, ...process.argv.slice(2)]);
 for (const file of sources(join(root, "packages", "ui", "src"))) {
   for (const match of readFileSync(file, "utf8").matchAll(/import\s*\{([^}]+)\}\s*from\s*"lucide-react"/g)) {
     for (const part of match[1].split(",")) {

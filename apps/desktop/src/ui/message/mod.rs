@@ -247,7 +247,37 @@ pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, wi
     row.into_any_element()
 }
 
+/// A message as plugins decorated it here: its text replaced or hidden, under the app's own line
+/// saying which plugin did it, and their marks and views under it. What's stored stays as it was.
 fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
+    let decorations = if message.system.is_none() { crate::ui::plugins::decorations(&context.server_id, message, cx) } else { Vec::new() };
+    if decorations.is_empty() {
+        return render_message_as(message, grouped, last_in_group, context, window, cx);
+    }
+    let original = crate::ui::plugins::showing_original(&context.server_id, message, cx);
+    let changer = decorations.iter().find(|decoration| decoration.text.is_some() || decoration.hidden).cloned();
+    let own = message.sender_id == context.self_id;
+    let body = match &changer {
+        Some(decoration) if !original && decoration.hidden => None,
+        Some(decoration) if !original => {
+            let mut shown = message.clone();
+            shown.text = decoration.text.clone().unwrap_or_default();
+            Some(render_message_as(&shown, grouped, last_in_group, context, window, cx))
+        }
+        _ => Some(render_message_as(message, grouped, last_in_group, context, window, cx)),
+    };
+    let indent = if !own && context.is_group { px(43.) } else { px(0.) };
+    let mut column = div().flex().flex_col().when(own, |el| el.items_end()).children(body);
+    if let Some(decoration) = &changer {
+        column = column.child(div().pl(indent).child(crate::ui::plugins::changed_line(&context.server_id, message, decoration, cx)));
+    }
+    if let Some(extras) = crate::ui::plugins::extras(&decorations, cx) {
+        column = column.child(div().pl(indent).max_w(px(600.)).child(extras));
+    }
+    column.into_any_element()
+}
+
+fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let highlighted = context.highlight.as_deref() == Some(message.id.as_str());
     if message.system.is_some() {
@@ -513,7 +543,10 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         );
     }
 
-    let entries = menu_entries(message, own, can_act, context);
+    let mut entries = menu_entries(message, own, can_act, context);
+    if can_act {
+        entries.extend(crate::ui::plugins::message_entries(&context.server_id, message, cx));
+    }
     let selecting = context.selecting;
     let selected = context.selected.contains(&message.id);
     let react_state = context.state.clone();
@@ -596,6 +629,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         let (more_group, more_id) = (message.group_id.clone(), message.id.clone());
         let picker_state = context.state.clone();
         let (picker_group, picker_id) = (message.group_id.clone(), message.id.clone());
+        let plugin_actions = crate::ui::plugins::hover_actions(&context.server_id, message, cx);
         row = row.child(
             div()
                 .flex()
@@ -604,6 +638,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                 .opacity(0.)
                 .group_hover(group, |style| style.opacity(1.))
                 .when(own, |el| el.flex_row_reverse())
+                .children(plugin_actions)
                 .child(icon_button_in(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, theme.text3, cx).tip("React", Side::Top).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());

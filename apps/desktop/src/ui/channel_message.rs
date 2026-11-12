@@ -129,7 +129,36 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     column.into_any_element()
 }
 
+/// A message as plugins decorated it here: its text replaced or hidden, under the app's own line
+/// saying which plugin did it, and their marks and views under it. What's stored stays as it was.
 fn render_message(message: &MessageView, grouped: bool, after_line: bool, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
+    let decorations = if message.system.is_none() { crate::ui::plugins::decorations(&context.server_id, message, cx) } else { Vec::new() };
+    if decorations.is_empty() {
+        return render_message_as(message, grouped, after_line, context, window, cx);
+    }
+    let original = crate::ui::plugins::showing_original(&context.server_id, message, cx);
+    let changer = decorations.iter().find(|decoration| decoration.text.is_some() || decoration.hidden).cloned();
+    let body = match &changer {
+        Some(decoration) if !original && decoration.hidden => None,
+        Some(decoration) if !original => {
+            let mut shown = message.clone();
+            shown.text = decoration.text.clone().unwrap_or_default();
+            Some(render_message_as(&shown, grouped, after_line, context, window, cx))
+        }
+        _ => Some(render_message_as(message, grouped, after_line, context, window, cx)),
+    };
+    // Under the message's text, past where the avatar goes.
+    let mut column = div().flex().flex_col().children(body);
+    if let Some(decoration) = &changer {
+        column = column.child(div().pl(px(72.)).pb(px(2.)).child(crate::ui::plugins::changed_line(&context.server_id, message, decoration, cx)));
+    }
+    if let Some(extras) = crate::ui::plugins::extras(&decorations, cx) {
+        column = column.child(div().pl(px(72.)).pr(px(16.)).pb(px(2.)).child(extras));
+    }
+    column.into_any_element()
+}
+
+fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let size = theme.message_size + px(1.5);
     let highlighted = context.highlight.as_deref() == Some(message.id.as_str());
@@ -188,7 +217,10 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
     let known = !message.sender_id.is_empty();
     let name = if known { context.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into()) } else { "Not known yet".into() };
     let group = SharedString::from(format!("cmsg-{}", message.id));
-    let entries = menu_entries(message, own, can_act, context);
+    let mut entries = menu_entries(message, own, can_act, context);
+    if can_act {
+        entries.extend(crate::ui::plugins::message_entries(&context.server_id, message, cx));
+    }
 
     let mut row = div()
         .id(SharedString::from(format!("cmsg-row-{}", message.id)))
@@ -541,6 +573,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
         .shadow(shadow_s())
         .invisible()
         .group_hover(group, |style| style.visible());
+    bar = bar.children(crate::ui::plugins::hover_actions(&context.server_id, message, cx));
     for emoji in QUICK_REACTIONS.iter().take(3).copied() {
         let state = context.state.clone();
         let (group_id, id) = (message.group_id.clone(), message.id.clone());

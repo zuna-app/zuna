@@ -40,7 +40,7 @@ use crate::models::{ConversationView, Emote, LinkPreview, MessageView, UserView}
 use crate::state::{AppState, Panel, Picture, ToastKind, is_unread};
 use crate::theme::{self, RADIUS_M, RADIUS_S};
 
-const MAX_TEXT_LENGTH: usize = 4000;
+pub const MAX_TEXT_LENGTH: usize = 4000;
 const MAX_FILES: usize = 10;
 const MAX_SUGGESTIONS: usize = 8;
 /// How wide a channel's member list is.
@@ -116,6 +116,8 @@ pub struct ChatView {
     /// and whether the list has been laid out with it at the top yet.
     center_on: Option<(String, bool)>,
     last_typing: f64,
+    /// What's in the message box passed plugins' filters on what goes out, so it goes as it is.
+    pub(super) filtered: bool,
     revealed: Rc<RefCell<HashSet<String>>>,
     hovered_link: Rc<RefCell<Option<(SharedString, usize)>>>,
     side_panel: Option<Entity<SidePanel>>,
@@ -371,6 +373,7 @@ impl ChatView {
             highlight: None,
             center_on: None,
             last_typing: 0.,
+            filtered: false,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             hovered_link: Rc::default(),
             side_panel: None,
@@ -446,6 +449,12 @@ impl ChatView {
         if !self.was_selecting {
             self.composer.focus_handle(cx).focus(window, cx);
         }
+    }
+
+    /// Text a plugin puts in the message box, where the cursor is, which the box then has focus for.
+    pub fn insert_into_composer(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.update(cx, |input, cx| input.insert(text, window, cx));
+        self.composer.focus_handle(cx).focus(window, cx);
     }
 
     /// Typing that had nowhere to go: the message box takes focus and what was typed, or

@@ -198,6 +198,22 @@ impl SettingsView {
         let (motion_state, enter_state) = (self.state.clone(), self.state.clone());
         let reduce = settings.reduce_motion;
         let enter = settings.enter_to_send;
+        // Themes plugins give, which only show once one is installed.
+        let themes = crate::plugins::get(cx).map(|plugins| plugins.read(cx).themes()).unwrap_or_default();
+        let theme_row = (!themes.is_empty()).then(|| {
+            let chosen = settings.theme.clone().and_then(|key| themes.iter().find(|(theme_key, _, _)| *theme_key == key).map(|(_, name, plugin)| format!("{name} ({plugin})"))).unwrap_or_else(|| "Zuna".into());
+            let mut choices: Vec<(String, std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>)> = Vec::new();
+            let state = self.state.clone();
+            choices.push(("Zuna".into(), std::rc::Rc::new(move |_, cx| state.update(cx, |state, cx| state.update_settings(|s| s.theme = None, cx)))));
+            for (key, name, plugin) in themes {
+                let state = self.state.clone();
+                choices.push((format!("{name} ({plugin})"), std::rc::Rc::new(move |_, cx| {
+                    let key = key.clone();
+                    state.update(cx, |state, cx| state.update_settings(|s| s.theme = Some(key), cx))
+                })));
+            }
+            Self::row("Theme", Some("From your plugins. The accent above applies under Zuna's own."), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
+        });
         vec![
             Self::heading("Appearance", &theme),
             div()
@@ -207,6 +223,10 @@ impl SettingsView {
                 .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Accent color"))
                 .child(swatches)
                 .into_any_element(),
+        ]
+        .into_iter()
+        .chain(theme_row)
+        .chain([
             Self::row("Message size", None, segmented, &theme),
             Self::row(
                 "Reduce motion",
@@ -220,7 +240,8 @@ impl SettingsView {
                 switch("enter-to-send", enter, cx).on_click(move |_, _, cx| enter_state.update(cx, |state, cx| state.update_settings(|s| s.enter_to_send = !enter, cx))),
                 &theme,
             ),
-        ]
+        ])
+        .collect()
     }
 
     pub(super) fn keep_metadata_confirm(&self, cx: &mut Context<Self>) -> AnyElement {

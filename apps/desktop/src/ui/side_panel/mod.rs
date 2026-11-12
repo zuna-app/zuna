@@ -247,18 +247,24 @@ impl Render for SidePanel {
         let Some((server, conversation)) = self.conversation(cx) else { return div().into_any_element() };
         let panel = self.state.read(cx).panel.or(self.shown);
         self.shown = panel;
-        let title = match panel {
-            Some(Panel::Search) if conversation.kind == "channel" => "Search this channel",
-            Some(Panel::Search) => "Search this chat",
-            Some(Panel::Pins) => "Pinned messages",
-            Some(Panel::Media(kind)) => shared_media::title(kind),
-            _ if conversation.kind == "group" => "Group details",
-            _ if conversation.kind == "channel" => "Channel details",
-            _ => "Details",
+        let title: gpui::SharedString = match panel {
+            Some(Panel::Search) if conversation.kind == "channel" => "Search this channel".into(),
+            Some(Panel::Search) => "Search this chat".into(),
+            Some(Panel::Pins) => "Pinned messages".into(),
+            Some(Panel::Media(kind)) => shared_media::title(kind).into(),
+            Some(Panel::Plugin(handle)) => crate::ui::plugins::title(handle, cx).map(|(title, _)| title).unwrap_or_default().into(),
+            _ if conversation.kind == "group" => "Group details".into(),
+            _ if conversation.kind == "channel" => "Channel details".into(),
+            _ => "Details".into(),
         };
         let in_media = matches!(panel, Some(Panel::Media(_)));
         let close_state = self.state.clone();
         let body: Vec<AnyElement> = match panel {
+            // A plugin's panel: whose it is, in a line the plugin doesn't draw, then what it draws.
+            Some(Panel::Plugin(handle)) => {
+                let uid = crate::ui::plugins::title(handle, cx).map(|(_, uid)| uid).unwrap_or_default();
+                vec![crate::ui::plugins::plugin_name(&uid, cx).into_any_element(), crate::ui::plugins::body(handle, cx)]
+            }
             Some(Panel::Search) => {
                 let mut parts = vec![
                     div()

@@ -189,6 +189,57 @@ impl Theme {
         theme
     }
 
+    /// A plugin's theme over these colors: each token it names, as `#rrggbb` or `#rrggbbaa`
+    /// (plugins/manifest.rs checks them), in the SDK's camelCase names.
+    pub fn apply(&mut self, colors: &std::collections::BTreeMap<String, String>) {
+        for (token, value) in colors {
+            let digits = value.trim_start_matches('#');
+            let Ok(all) = u32::from_str_radix(digits, 16) else { continue };
+            let rgba = match digits.len() {
+                6 => hex(all),
+                8 => Rgba { a: (all & 0xff) as f32 / 255.0, ..hex(all >> 8) },
+                _ => continue,
+            };
+            let slot = match token.as_str() {
+                "bg0" => &mut self.bg0,
+                "bg1" => &mut self.bg1,
+                "bg2" => &mut self.bg2,
+                "bg3" => &mut self.bg3,
+                "bg4" => &mut self.bg4,
+                "bg5" => &mut self.bg5,
+                "bgChat" => &mut self.bg_chat,
+                "line" => &mut self.line,
+                "lineStrong" => &mut self.line_strong,
+                "hover" => &mut self.hover,
+                "hoverStrong" => &mut self.hover_strong,
+                "text1" => &mut self.text1,
+                "text2" => &mut self.text2,
+                "text3" => &mut self.text3,
+                "accent" => &mut self.accent,
+                "accentHover" => &mut self.accent_hover,
+                "onAccent" => &mut self.on_accent,
+                "accentSoft" => &mut self.accent_soft,
+                "accentText" => &mut self.accent_text,
+                "bubbleOwn" => &mut self.bubble_own,
+                "bubbleOwnText" => &mut self.bubble_own_text,
+                "bubbleOther" => &mut self.bubble_other,
+                "bubbleMeta" => &mut self.bubble_meta,
+                "link" => &mut self.link,
+                "green" => &mut self.green,
+                "red" => &mut self.red,
+                "amber" => &mut self.amber,
+                _ => continue,
+            };
+            *slot = color(rgba);
+        }
+        // What's drawn over the danger color, and the pale backgrounds beside the colors, follow them.
+        self.red_soft = Hsla { a: 0.13, ..self.red };
+        self.amber_soft = Hsla { a: 0.12, ..self.amber };
+        if colors.contains_key("accent") {
+            self.neutral = false;
+        }
+    }
+
     /// The swatch shown for an accent in Appearance.
     pub fn swatch(accent: Accent) -> Hsla {
         Theme::new(accent, TextSize::Medium).accent

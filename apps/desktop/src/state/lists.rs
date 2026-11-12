@@ -201,7 +201,9 @@ impl AppState {
             return;
         }
         self.reading.insert(group_id.to_string(), seq);
-        self.act("markRead", vec![json!(group_id), json!(seq)], cx);
+        let Some(server) = self.active_server.clone() else { return };
+        let payload = json!({ "serverId": server, "groupId": group_id, "conversationKey": null });
+        self.act_filtered(&server, crate::plugins::FilterKind::Read, payload, "markRead", vec![json!(group_id), json!(seq)], cx);
     }
 
     /// Picks or unpicks a message, or with none stops picking (toggleSelected).
