@@ -440,6 +440,19 @@ export const nodeWeb: WebAdapter = {
   },
 };
 
+/**
+ * Whether every app holds a group's MLS state at the same epoch, with no join of theirs still waiting on the server.
+ * A conversation shows as ready before its join is taken, and two joins at once can cross, the one that loses joining
+ * again: until this holds, what one of them seals now, another may hold no key for.
+ */
+export function atOneEpoch(groupId: string, ...apps: TestApp[]): boolean {
+  const epochs = apps.map((app) => {
+    const session = app.session as unknown as { hasMlsGroup(id: string): boolean; mlsEpoch(id: string): number; externalJoins: Set<string> };
+    return session.hasMlsGroup(groupId) && !session.externalJoins.has(groupId) ? session.mlsEpoch(groupId) : -1;
+  });
+  return epochs[0]! >= 0 && epochs.every((epoch) => epoch === epochs[0]);
+}
+
 export async function waitFor(condition: () => boolean | Promise<boolean>, what: string, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

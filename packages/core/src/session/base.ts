@@ -107,6 +107,11 @@ export abstract class SessionBase {
   protected signedOutRetry: ReturnType<typeof setTimeout> | undefined;
   /** The epoch each group's key was last checked against MLS at. */
   protected confirmedEpochs = new Map<string, number>();
+  /**
+   * Groups this device is joining by an external commit the server hasn't taken yet. MLS is already at the epoch
+   * the join makes, which another device's join may win instead, so nothing keeps that epoch's key until it's taken.
+   */
+  protected externalJoins = new Set<string>();
   /** The epoch each group's tree was last found clean at, so sending needn't check it every time. */
   protected cleanEpochs = new Map<string, number>();
   /** Who holds each group's keys now, for showing its members. */

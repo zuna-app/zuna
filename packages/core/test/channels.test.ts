@@ -12,7 +12,7 @@ import { previewPush } from "../src/push";
 import { equalBytes, fromUtf8, toBase64, utf8 } from "../src/encoding";
 import type { ChannelView, CoreEvent, MessageView } from "../src/types";
 import { DEFAULT_SCREEN_RULES, parseVoiceIdentity, screenRefusal, screenTerms, voiceIdentity, voiceKeyIndex, voiceSenderKey } from "../src/voice";
-import { loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
+import { atOneEpoch, loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
 
 let server: TestServer;
 let liveKit: Server;
@@ -257,6 +257,38 @@ describe("text channels", () => {
   });
 });
 
+describe("coming into a channel", () => {
+  it("keeps no key of the epoch a join makes until the server takes it, nor finds the server's send key wrong meanwhile", async () => {
+    const gus = await makeUser("gus");
+    const session = gus.session as any;
+    // Gus's join is held on its way to the server, as one that crossed another's would be before it's refused.
+    const commit = session.api.commit.bind(session.api);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let waiting = false;
+    session.api.commit = async (groupId: string, body: { kind: string }) => {
+      if (body.kind === "external") {
+        waiting = true;
+        await held;
+      }
+      return commit(groupId, body);
+    };
+    const id = await alice.session.createChannel({ type: "text", name: "held at the door" });
+    await waitFor(() => waiting, "gus's join to be on its way");
+    const pending = session.mlsEpoch(id);
+    // What runs meanwhile, as typing or a voice room's signals do, finds MLS at that epoch.
+    session.rememberCurrentEpochKey(id);
+    expect(session.epochKey(id, pending)).toBeNull();
+    // A send key the server holds for that epoch may be another join's, which won: it's not this device's to put right.
+    session.checkSendKey(id, pending, toBase64(new Uint8Array(32).fill(7)));
+    expect(session.sendKeyFixes.has(id)).toBe(false);
+    release();
+    await waitFor(() => atOneEpoch(id, alice, gus), "gus's join to be taken");
+    expect(session.epochKey(id, session.mlsEpoch(id))).not.toBeNull();
+    gus.client.stop();
+  });
+});
+
 describe("who can be in a channel", () => {
   it("doesn't include someone without the community key, whatever the server says", async () => {
     const id = await alice.session.createChannel({ type: "text", name: "members-only" });
@@ -363,6 +395,7 @@ describe("voice channels", () => {
   beforeAll(async () => {
     id = await alice.session.createChannel({ type: "voice", name: "Lounge", bitrate: 96, userLimit: 10 });
     await waitFor(() => joined(bob, id), "bob to come in");
+    await waitFor(() => atOneEpoch(id, alice, bob), "both at the channel's epoch");
   });
 
   it("give everyone in them the same key, which nobody else can work out", async () => {

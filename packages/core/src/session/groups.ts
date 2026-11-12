@@ -102,7 +102,9 @@ export abstract class SessionGroups extends SessionRotation {
   protected rememberCurrentEpochKey(groupId: string): number {
     const groupBytes = utf8(groupId);
     const epoch = this.mls.epoch(groupBytes);
-    if (this.confirmedEpochs.get(groupId) === epoch) return epoch;
+    // An epoch an external join may yet lose has no key to keep: one kept here would stand in the way of the
+    // real one, for that epoch's messages and anything sealed under it, and nothing is sealed under it meanwhile.
+    if (this.confirmedEpochs.get(groupId) === epoch || this.externalJoins.has(groupId)) return epoch;
     this.noteArrivals(groupId);
     const real = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
     const stored = this.epochKey(groupId, epoch);

@@ -10,7 +10,7 @@ import { toBase64 } from "../src/encoding";
 import type { WebAdapter } from "../src/links";
 import type { CoreEvent, WatchView } from "../src/types";
 import { readYouTubeLink, watchPosition, type WatchSignal, type WatchState } from "../src/watch";
-import { loadCrypto, nodeWeb, png, TestApp, TestServer, waitFor } from "./helpers";
+import { atOneEpoch, loadCrypto, nodeWeb, png, TestApp, TestServer, waitFor } from "./helpers";
 
 const VIDEO = "aqz-KE-bpKQ";
 const OTHER = "jNQXAC9IVRw";
@@ -78,6 +78,9 @@ describe("watching together", () => {
     app.session as unknown as {
       rememberCurrentEpochKey(groupId: string): number;
       epochKey(groupId: string, epoch: number): Uint8Array;
+      joinedEpoch(groupId: string): number | null;
+      db: { run(sql: string, params: unknown[]): void };
+      epochKeys: Map<string, Uint8Array>;
       onWatchFrame(data: { channel_id: string; user_id: string; device_id: string; data: string }): void;
       sendWatchState(channelId: string, state: WatchState, full: boolean, to?: string): Promise<void>;
       watch: { channelId: string; state: WatchState } | null;
@@ -102,6 +105,7 @@ describe("watching together", () => {
     await carol.register(invite, "carol");
     channelId = await alice.session.createChannel({ type: "voice", name: "Cinema" });
     await waitFor(() => joined(bob) && joined(carol), "bob and carol to come into the channel");
+    await waitFor(() => atOneEpoch(channelId, alice, bob, carol), "everyone at the channel's epoch");
   });
 
   afterAll(async () => {
@@ -208,9 +212,13 @@ describe("watching together", () => {
     const dave = await new TestApp("dave").open();
     await dave.register(await alice.session.createInvite(0, 0), "dave");
     await waitFor(() => joined(dave), "dave to come into the channel");
-    // Dave's coming in moved the channel on, and he holds no key from before it.
-    const epochBefore = internals(alice).rememberCurrentEpochKey(channelId);
-    expect(internals(dave).epochKey(channelId, epochBefore - 1)).toBeNull();
+    // Dave's coming in moved the channel on. The others hand him its older keys a moment later, which a slow
+    // machine may already have done: without them, as here, he holds no key from before his join.
+    await waitFor(() => internals(dave).joinedEpoch(channelId) !== null, "dave's join to be taken");
+    const joinedAt = internals(dave).joinedEpoch(channelId)!;
+    internals(dave).db.run("DELETE FROM epoch_keys WHERE group_id = ? AND epoch < ?", [channelId, joinedAt]);
+    internals(dave).epochKeys.clear();
+    expect(internals(dave).epochKey(channelId, joinedAt - 1)).toBeNull();
     await alice.session.watchControl(channelId, { playing: true, position: 20_000 });
     await waitFor(() => watching(bob)?.position === 20_000, "bob to see it");
 

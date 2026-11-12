@@ -292,37 +292,46 @@ export abstract class SessionJoining extends SessionGroups {
       const latest = await this.api.groupInfo(groupId);
       if (!latest.group_info) return false;
       this.saveMls();
-      const result = this.mls.joinExternal(groupBytes, decode(latest.group_info)) as { commit: Uint8Array; epoch: number };
-      // The group's roster has to follow from the one this device last held, before anyone hears of the join.
-      const roster = this.rosterIn(groupId);
-      const refusal = this.rosterRefusal(groupId, roster, null);
-      if (refusal) {
-        this.mls.rollback();
-        const signer = this.unknownRosterSigner(groupId, roster);
-        if (signer && !learned) {
-          learned = true;
-          await this.ensureUser(signer, true);
-          continue;
-        }
-        this.warnOnce(`roster/${groupId}/${result.epoch}`, `One of your conversations couldn't be rejoined: ${refusal}.`);
-        throw new Error(`This conversation's state couldn't be trusted: ${refusal}.`);
-      }
-      const groupInfo = this.mls.exportGroupInfo(groupBytes);
+      let result: { commit: Uint8Array; epoch: number };
+      let roster: Uint8Array | undefined;
+      // Until the server takes the join, what runs meanwhile, such as typing or a voice room's signals, sees MLS
+      // at the epoch the join makes, and keeps no key of it (`externalJoins`).
+      this.externalJoins.add(groupId);
       try {
-        await this.api.commit(groupId, {
-          expected_epoch: latest.epoch,
-          commit: result.commit,
-          group_info: groupInfo,
-          // The join has already taken this device's state to the epoch it makes.
-          send_key: wasm.signingPublic(this.mls.exportSecret(groupBytes, SEND_LABEL, u64Bytes(result.epoch), 32)),
-          kind: "external",
-        });
-      } catch (error) {
-        this.mls.rollback();
-        if (error instanceof ApiError && error.code === "stale_epoch") continue;
-        throw error;
+        result = this.mls.joinExternal(groupBytes, decode(latest.group_info)) as { commit: Uint8Array; epoch: number };
+        // The group's roster has to follow from the one this device last held, before anyone hears of the join.
+        roster = this.rosterIn(groupId);
+        const refusal = this.rosterRefusal(groupId, roster, null);
+        if (refusal) {
+          this.mls.rollback();
+          const signer = this.unknownRosterSigner(groupId, roster);
+          if (signer && !learned) {
+            learned = true;
+            await this.ensureUser(signer, true);
+            continue;
+          }
+          this.warnOnce(`roster/${groupId}/${result.epoch}`, `One of your conversations couldn't be rejoined: ${refusal}.`);
+          throw new Error(`This conversation's state couldn't be trusted: ${refusal}.`);
+        }
+        const groupInfo = this.mls.exportGroupInfo(groupBytes);
+        try {
+          await this.api.commit(groupId, {
+            expected_epoch: latest.epoch,
+            commit: result.commit,
+            group_info: groupInfo,
+            // The join has already taken this device's state to the epoch it makes.
+            send_key: wasm.signingPublic(this.mls.exportSecret(groupBytes, SEND_LABEL, u64Bytes(result.epoch), 32)),
+            kind: "external",
+          });
+        } catch (error) {
+          this.mls.rollback();
+          if (error instanceof ApiError && error.code === "stale_epoch") continue;
+          throw error;
+        }
+        this.saveMls();
+      } finally {
+        this.externalJoins.delete(groupId);
       }
-      this.saveMls();
       if (roster) this.setRoster(groupId, roster);
       this.setJoinedEpoch(groupId, result.epoch);
       this.rememberCurrentEpochKey(groupId);

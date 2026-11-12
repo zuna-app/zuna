@@ -590,7 +590,9 @@ export abstract class SessionChanges extends SessionJoining {
    * reconciling does: everyone sees the same, and the others then have nothing left to do.
    */
   protected checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void {
-    if (epoch === 0 || !this.hasMlsGroup(groupId) || this.mlsEpoch(groupId) !== epoch) return;
+    // While an external join waits on the server, MLS is at the epoch the join makes, which another device's join
+    // may have made first with a key of its own: that one is right, and this device's isn't yet anything.
+    if (epoch === 0 || this.externalJoins.has(groupId) || !this.hasMlsGroup(groupId) || this.mlsEpoch(groupId) !== epoch) return;
     const seen = `${epoch}:${sendKey ?? ""}`;
     if (this.sendKeysChecked.get(groupId) === seen) return;
     if (sendKey && equalBytes(decode(sendKey), this.sendKey(groupId).public)) {
