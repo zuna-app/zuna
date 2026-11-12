@@ -27,9 +27,15 @@ fn main() {
         ffmpeg.display()
     );
 
-    // OUT_DIR is target/<profile>/build/<crate>/out, and the app is in target/<profile>.
+    // The app is in target/<profile>, and OUT_DIR is under its `build`: build/<crate>/out until
+    // Rust 1.100, and build/<crate>/<hash>/out since, so it's found by name, not by how deep it is.
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let libraries = out.ancestors().nth(3).unwrap().join("lib");
+    let profile = out
+        .ancestors()
+        .find(|folder| folder.file_name().is_some_and(|name| name == "build"))
+        .and_then(Path::parent)
+        .unwrap_or_else(|| panic!("OUT_DIR isn't under a build folder: {}", out.display()));
+    let libraries = profile.join("lib");
     fs::create_dir_all(&libraries).unwrap();
 
     build_encoder_library(&manifest, &ffmpeg, &out, &libraries);
