@@ -265,14 +265,19 @@ fn pictures_and_media_files_from_the_core(cx: &mut TestAppContext) {
     let second = app.state.update(cx, |state, cx| state.decrypted_picture(SERVER, &avatar("good"), cx));
     assert!(second.is_some());
     assert_eq!(app.calls_of("downloadFile").len(), 1);
+    // The same file named with another key, as a message elsewhere can, is never shown this copy: it's fetched for itself.
+    let other = AvatarRef { key: "b3RoZXI=".into(), ..avatar("good") };
+    assert!(app.state.update(cx, |state, cx| state.decrypted_picture(SERVER, &other, cx)).is_none());
+    app.run(cx);
+    assert_eq!(app.calls_of("downloadFile").len(), 2);
     for id in ["gone", "empty"] {
         app.state.update(cx, |state, cx| state.decrypted_picture(SERVER, &avatar(id), cx));
         app.run(cx);
-        assert!(app.read(cx, |state| matches!(state.pictures.get(&format!("file:{id}")), Some(Picture::Failed(_)))));
+        assert!(app.read(cx, |state| matches!(state.pictures.get(&format!("file:{}", avatar(id).cache_id())), Some(Picture::Failed(_)))));
         // A failed one isn't asked for again at once.
         assert!(app.state.update(cx, |state, cx| state.decrypted_picture(SERVER, &avatar(id), cx)).is_none());
     }
-    assert_eq!(app.calls_of("downloadFile").len(), 3);
+    assert_eq!(app.calls_of("downloadFile").len(), 4);
 
     // Pictures a server serves openly: the tests reach no network, so they fail, and aren't asked for again at once.
     for n in 0..3 {
@@ -285,10 +290,10 @@ fn pictures_and_media_files_from_the_core(cx: &mut TestAppContext) {
     let attachment = |id: &str, mime: &str, name: &str| crate::models::Attachment { file_id: id.into(), key: "a2V5".into(), prefix: "cHJlZml4".into(), chunks: 1., name: name.into(), mime: mime.into(), size: 1600., ..Default::default() };
     let sound = attachment("sound", "audio/wav", "tone.wav");
     assert!(matches!(app.state.update(cx, |state, cx| state.clip(SERVER, &sound, cx)), ClipState::Loading));
-    app.settle(cx, |state| !matches!(state.clips.get("sound"), Some(ClipState::Loading) | None));
-    let Some(MediaFile::Ready(path)) = app.read(cx, |state| state.media_files.get("sound").cloned()) else { panic!("the sound's file wasn't saved") };
+    app.settle(cx, |state| !matches!(state.clips.get(&sound.cache_id()), Some(ClipState::Loading) | None));
+    let Some(MediaFile::Ready(path)) = app.read(cx, |state| state.media_files.get(&sound.cache_id()).cloned()) else { panic!("the sound's file wasn't saved") };
     assert_eq!(path.extension().unwrap(), "wav");
-    assert!(matches!(app.read(cx, |state| state.clips.get("sound").cloned()), Some(ClipState::Ready(_))), "the sound decodes");
+    assert!(matches!(app.read(cx, |state| state.clips.get(&sound.cache_id()).cloned()), Some(ClipState::Ready(_))), "the sound decodes");
     assert!(matches!(app.state.update(cx, |state, cx| state.clip(SERVER, &sound, cx)), ClipState::Ready(_)));
     // Asked again, it's there.
     assert!(matches!(app.state.update(cx, |state, cx| state.media_file(SERVER, &sound, cx)), MediaFile::Ready(_)));
@@ -297,7 +302,7 @@ fn pictures_and_media_files_from_the_core(cx: &mut TestAppContext) {
     let gone = attachment("missing", "video/mp4", "clip.mp4");
     app.state.update(cx, |state, cx| state.clip(SERVER, &gone, cx));
     app.run(cx);
-    assert!(matches!(app.read(cx, |state| state.media_files.get("missing").cloned()), Some(MediaFile::Failed)));
+    assert!(matches!(app.read(cx, |state| state.media_files.get(&gone.cache_id()).cloned()), Some(MediaFile::Failed)));
     assert!(matches!(app.state.update(cx, |state, cx| state.clip(SERVER, &gone, cx)), ClipState::Failed));
     app.state.update(cx, |state, cx| state.tick_media(cx));
     app.run(cx);

@@ -271,7 +271,7 @@ impl ImageViewer {
             return;
         }
         let Some(item) = self.items.get(self.index) else { return };
-        match state.read(cx).pictures.get(&format!("file:{}", item.reference.file_id)) {
+        match state.read(cx).pictures.get(&format!("file:{}", item.reference.cache_id())) {
             Some(Picture::Ready(image)) => self.image = Some(image.clone()),
             Some(Picture::Failed(_)) => self.failed = true,
             _ => return,

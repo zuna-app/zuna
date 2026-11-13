@@ -457,7 +457,7 @@ impl ChatView {
                     }
                 }
                 Suggested::Person(user) => {
-                    let image = user.avatar.as_ref().and_then(|avatar| match self.state.read(cx).pictures.get(&format!("file:{}", avatar.file_id)) {
+                    let image = user.avatar.as_ref().and_then(|avatar| match self.state.read(cx).pictures.get(&format!("file:{}", avatar.cache_id())) {
                         Some(Picture::Ready(image)) => Some(image.clone()),
                         _ => None,
                     });

@@ -229,7 +229,7 @@ How long a chat's messages last is part of its details, signed by whoever set it
 
 ## Files
 
-Each file gets its own random key. It's split into 1 MiB chunks encrypted with XChaCha20-Poly1305 in the STREAM construction, which detects reordered, missing or truncated chunks. The key travels inside the encrypted message, with the secret the file was made with, which the message shows the server to carry it.
+Each file gets its own random key. It's split into 1 MiB chunks encrypted with XChaCha20-Poly1305 in the STREAM construction, which detects reordered, missing or truncated chunks. The key travels inside the encrypted message, with the secret the file was made with, which the message shows the server to carry it. Apps keep what they decrypt by the file and the key it opens with, never its ID alone, which everyone in a chat it was sent in and the server know: a message elsewhere naming the same file with another key isn't shown the copy, as if its sender had sent it.
 
 ## Metadata in files
 

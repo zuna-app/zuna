@@ -187,7 +187,7 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
 /// one too big to load by itself; a video shows where it was sent.
 fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, video: bool, pictures: &Rc<Vec<image_viewer::Item>>, corners: gpui::Corners<Pixels>, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let key = format!("file:{}", attachment.file_id);
+    let key = format!("file:{}", attachment.cache_id());
     let wanted = loads_by_itself(attachment) || state.read(cx).pictures.contains_key(&key);
     let picture: Option<Arc<Image>> = if video || !wanted {
         None
@@ -398,7 +398,7 @@ pub fn groups(state: &Entity<AppState>, server: &ServerState, peer_id: Option<&s
     }
     let mut list = div().flex().flex_col().gap(px(1.));
     for group in found {
-        let image = group.avatar.as_ref().and_then(|avatar| match state.read(cx).pictures.get(&format!("file:{}", avatar.file_id)) {
+        let image = group.avatar.as_ref().and_then(|avatar| match state.read(cx).pictures.get(&format!("file:{}", avatar.cache_id())) {
             Some(Picture::Ready(image)) => Some(image.clone()),
             _ => None,
         });

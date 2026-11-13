@@ -462,7 +462,7 @@ fn every_line_a_group_tells_of_itself_and_a_bots_buttons(cx: &mut TestAppContext
     assert_eq!(app.calls_of("pressButton"), vec![vec![json!(GROUP), json!("b01"), json!(1), json!(0)]]);
     app.click(cx, "msg-button-b01-0-1");
     assert_eq!(app.calls_of("pressButton").len(), 1, "a link isn't pressed");
-    assert!(app.drawn(cx, &format!("sticker-b02-{}", "s".repeat(32))) || cx.read(|cx| app.state.read(cx).pictures.contains_key(&format!("file:{}", "s".repeat(32)))), "a sticker loads its picture by itself");
+    assert!(app.drawn(cx, &format!("sticker-b02-{}", "s".repeat(32))) || cx.read(|cx| app.state.read(cx).pictures.contains_key(&format!("file:{}", crate::models::file_cache_id(&"s".repeat(32), "a2V5", "cHJlZml4")))), "a sticker loads its picture by itself");
 }
 
 #[test]

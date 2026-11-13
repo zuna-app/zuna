@@ -562,8 +562,8 @@ impl ChatView {
         let mut images = HashMap::new();
         for message in items.iter() {
             for attachment in &message.attachments {
-                if let Some(Picture::Ready(image)) = state.pictures.get(&format!("file:{}", attachment.file_id)) {
-                    images.insert(attachment.file_id.clone(), image.clone());
+                if let Some(Picture::Ready(image)) = state.pictures.get(&format!("file:{}", attachment.cache_id())) {
+                    images.insert(attachment.cache_id(), image.clone());
                 }
             }
         }
@@ -571,7 +571,7 @@ impl ChatView {
         let mut wanted = Vec::new();
         for user in server.users.values() {
             if let Some(avatar) = &user.avatar {
-                match state.pictures.get(&format!("file:{}", avatar.file_id)) {
+                match state.pictures.get(&format!("file:{}", avatar.cache_id())) {
                     Some(Picture::Ready(image)) => {
                         avatars.insert(user.id.clone(), image.clone());
                     }

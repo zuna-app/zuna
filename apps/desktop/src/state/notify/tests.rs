@@ -103,7 +103,7 @@ fn a_notification_says_as_much_as_the_preview_setting_lets_it(cx: &mut TestAppCo
 fn a_notification_waits_a_moment_for_its_chats_photo(cx: &mut TestAppContext) {
     let app = open(cx, &world("notify-photos"));
     let bob = format!("user:{BOB}");
-    let key = format!("file:{AVATAR}");
+    let key = format!("file:{}", crate::models::file_cache_id(AVATAR, "a2V5", "cHJl"));
     // One whose photo isn't decrypted yet asks for it, and shows with it once it is.
     app.update(cx, |state, _| {
         state.pictures.remove(&key);
@@ -144,7 +144,7 @@ fn reading_a_chat_takes_its_notifications_back(cx: &mut TestAppContext) {
     let app = open(cx, &world("notify-read"));
     let bob = format!("user:{BOB}");
     app.update(cx, |state, _| {
-        state.pictures.insert(format!("file:{AVATAR}"), Picture::Loading);
+        state.pictures.insert(format!("file:{}", crate::models::file_cache_id(AVATAR, "a2V5", "cHJl")), Picture::Loading);
     });
     app.events.unbounded_send(json!({ "type": "notify", "serverId": SERVER, "conversationKey": bob, "title": "Bob", "body": "hi", "messageId": "m-1" })).unwrap();
     cx.run_until_parked();

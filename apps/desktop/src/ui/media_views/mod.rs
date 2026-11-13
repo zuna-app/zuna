@@ -129,7 +129,7 @@ fn decode_waveform(waveform: Option<&str>) -> Vec<f32> {
 /// click, the time, and once it's started, how fast it plays, which a click changes for all of them.
 pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let key = attachment.file_id.clone();
+    let key = attachment.cache_id();
     let uploading = key.is_empty();
     let duration = attachment.duration.unwrap_or(0.);
     context.state.read(cx).touch_media(&key);
@@ -146,7 +146,7 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
     let toggle = {
         let (state, server_id, attachment) = (context.state.clone(), context.server_id.clone(), attachment.clone());
         move |at: Option<f64>, cx: &mut App| {
-            let key = attachment.file_id.clone();
+            let key = attachment.cache_id();
             if at.is_none() {
                 if let Some((now, true)) = player::position(&key) {
                     player::pause(&key);
@@ -266,7 +266,7 @@ fn speed_label(speed: f64) -> String {
 /// A sound file, which plays once it's pressed, with its time and a bar to move along.
 pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let key = attachment.file_id.clone();
+    let key = attachment.cache_id();
     let uploading = key.is_empty();
     context.state.read(cx).touch_media(&key);
     let clip = context.state.read(cx).clips.get(&key).cloned();
@@ -275,7 +275,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
     let faint = if own { theme.bubble_own_faint } else { theme.text2 };
     let (state, server_id, a) = (context.state.clone(), context.server_id.clone(), attachment.clone());
     let toggle = move |cx: &mut App| {
-        let key = a.file_id.clone();
+        let key = a.cache_id();
         if let Some((now, true)) = player::position(&key) {
             player::pause(&key);
             state.update(cx, |state, cx| {
@@ -322,7 +322,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
         let (seek_state, seek_server, seek_attachment) = (context.state.clone(), context.server_id.clone(), attachment.clone());
         info = info.child(div().py(px(3.)).child(slider(SharedString::from(format!("audio-seek-{key}")), (position / duration) as f32, move |fraction, _, cx| {
             let at = fraction as f64 * duration;
-            let key = seek_attachment.file_id.clone();
+            let key = seek_attachment.cache_id();
             seek_state.update(cx, |state, cx| {
                 if let ClipState::Ready(clip) = state.clip(&seek_server, &seek_attachment, cx) {
                     player::play(&key, &clip, at, 1.);
@@ -359,7 +359,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
 /// A video: its picture until it's pressed, then playing where it is.
 pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let key = attachment.file_id.clone();
+    let key = attachment.cache_id();
     let uploading = key.is_empty();
     let width = attachment.width.unwrap_or(16.).max(1.);
     let height = attachment.height.unwrap_or(9.).max(1.);
@@ -415,7 +415,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
 /// over, and from the start with its sound on a click, a ring going round as it plays.
 pub fn round(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let key = attachment.file_id.clone();
+    let key = attachment.cache_id();
     let uploading = key.is_empty();
     // Small, and seen as soon as it's on screen, so it's fetched as a picture is.
     if !uploading && !context.state.read(cx).videos.contains_key(&key) {

@@ -178,6 +178,27 @@ pub struct Attachment {
     pub share: Option<String>,
 }
 
+/// What a decrypted file is kept by: its ID and a hash of the key it was opened with. A message
+/// elsewhere can name the same file with any key, and must never be shown this one's copy for it.
+pub fn file_cache_id(file_id: &str, key: &str, prefix: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::new().chain_update(b"zuna/file-cache/v1|").chain_update(key.as_bytes()).chain_update(b"|").chain_update(prefix.as_bytes()).finalize();
+    let hash: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{file_id}-{hash}")
+}
+
+impl AvatarRef {
+    pub fn cache_id(&self) -> String {
+        file_cache_id(&self.file_id, &self.key, &self.prefix)
+    }
+}
+
+impl Attachment {
+    pub fn cache_id(&self) -> String {
+        file_cache_id(&self.file_id, &self.key, &self.prefix)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EmoteRef {

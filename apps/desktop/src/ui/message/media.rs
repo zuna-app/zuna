@@ -37,9 +37,9 @@ pub(super) fn tile_corners(grid: gpui::Corners<Pixels>, index: usize, count: usi
 fn sticker(message: &MessageView, attachment: &Attachment, context: &ChatContext, cx: &mut App) -> AnyElement {
     let (width, height) = (attachment.width.unwrap_or(512.).max(1.), attachment.height.unwrap_or(512.).max(1.));
     let scale = (160. / width).min(160. / height);
-    let image = context.images.get(&attachment.file_id).cloned();
+    let image = context.images.get(&attachment.cache_id()).cloned();
     if image.is_some() {
-        context.state.read(cx).touch_media(&format!("file:{}", attachment.file_id));
+        context.state.read(cx).touch_media(&format!("file:{}", attachment.cache_id()));
     } else if !attachment.file_id.is_empty() {
         let server_id = context.server_id.clone();
         let reference = crate::models::AvatarRef { file_id: attachment.file_id.clone(), key: attachment.key.clone(), prefix: attachment.prefix.clone(), chunks: attachment.chunks, mime: attachment.mime.clone() };
@@ -85,9 +85,9 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
             } else {
                 (209., 209.)
             };
-            let image = context.images.get(&attachment.file_id).cloned();
+            let image = context.images.get(&attachment.cache_id()).cloned();
             if image.is_some() {
-                context.state.read(cx).touch_media(&format!("file:{}", attachment.file_id));
+                context.state.read(cx).touch_media(&format!("file:{}", attachment.cache_id()));
             }
             let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
             // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
@@ -144,7 +144,7 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
                         chunks: attachment.chunks,
                         mime: attachment.mime.clone(),
                     };
-                    let asked = context.state.read(cx).pictures.contains_key(&format!("file:{}", attachment.file_id));
+                    let asked = context.state.read(cx).pictures.contains_key(&format!("file:{}", attachment.cache_id()));
                     if crate::ui::shared_media::loads_by_itself(attachment) || asked {
                         // Ask for it; it shows on a later frame.
                         context.state.update(cx, |state, cx| {

@@ -71,7 +71,7 @@ impl AppState {
         let picture = if preview == "none" {
             None
         } else {
-            let image = conversation.as_ref().and_then(|conversation| conversation.avatar.as_ref()).and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.file_id)) {
+            let image = conversation.as_ref().and_then(|conversation| conversation.avatar.as_ref()).and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.cache_id())) {
                 Some(Picture::Ready(image)) => Some(image.clone()),
                 _ => None,
             });
@@ -149,7 +149,7 @@ impl AppState {
         // A call's ringing has its own sound, so the notification makes none.
         let preview = self.settings.notification_preview.clone();
         let picture = (preview != "none").then(|| {
-            let image = conversation.avatar.as_ref().and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.file_id)) {
+            let image = conversation.avatar.as_ref().and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.cache_id())) {
                 Some(Picture::Ready(image)) => Some(image.clone()),
                 _ => None,
             });
@@ -178,7 +178,7 @@ impl AppState {
         let mut photo = None;
         let without_photo = payload.picture.as_ref().is_some_and(|picture| picture.image.is_none());
         if let Some(avatar) = avatar.filter(|_| without_photo) {
-            let key = format!("file:{}", avatar.file_id);
+            let key = format!("file:{}", avatar.cache_id());
             if !matches!(self.pictures.get(&key), Some(Picture::Failed(_))) {
                 self.decrypted_picture(server_id, avatar, cx);
                 photo = Some(key);

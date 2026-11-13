@@ -54,7 +54,7 @@ impl AppState {
 
     /// An encrypted picture, such as a profile picture, decrypted by the core.
     pub fn decrypted_picture(&mut self, server_id: &str, avatar: &AvatarRef, cx: &mut Context<Self>) -> Option<Arc<Image>> {
-        let key = format!("file:{}", avatar.file_id);
+        let key = format!("file:{}", avatar.cache_id());
         match self.pictures.get(&key) {
             Some(Picture::Ready(image)) => {
                 let image = image.clone();
@@ -80,12 +80,13 @@ impl AppState {
 
     /// A media file decrypted to disk, with the extension Media Foundation needs, asked for once.
     pub fn media_file(&mut self, server_id: &str, attachment: &crate::models::Attachment, cx: &mut Context<Self>) -> MediaFile {
-        if let Some(file) = self.media_files.get(&attachment.file_id) {
+        // Kept by the key it opens with too, so a message elsewhere naming the same file is never shown this copy.
+        let id = attachment.cache_id();
+        if let Some(file) = self.media_files.get(&id) {
             return file.clone();
         }
-        self.media_files.insert(attachment.file_id.clone(), MediaFile::Loading);
+        self.media_files.insert(id.clone(), MediaFile::Loading);
         let reference = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
-        let id = attachment.file_id.clone();
         let extension = media_extension(&attachment.mime, &attachment.name);
         let server = server_id.to_string();
         self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
@@ -115,20 +116,21 @@ impl AppState {
 
     /// A file's sound, decoded away from the window once the file is here.
     pub fn clip(&mut self, server_id: &str, attachment: &crate::models::Attachment, cx: &mut Context<Self>) -> ClipState {
-        if let Some(clip) = self.clips.get(&attachment.file_id) {
-            if !matches!(clip, ClipState::Loading) || self.media_files.contains_key(&attachment.file_id) {
+        let id = attachment.cache_id();
+        if let Some(clip) = self.clips.get(&id) {
+            if !matches!(clip, ClipState::Loading) || self.media_files.contains_key(&id) {
                 return clip.clone();
             }
         }
-        self.clips.insert(attachment.file_id.clone(), ClipState::Loading);
+        self.clips.insert(id.clone(), ClipState::Loading);
         match self.media_file(server_id, attachment, cx) {
-            MediaFile::Ready(path) => self.decode_clip(attachment.file_id.clone(), path, cx),
+            MediaFile::Ready(path) => self.decode_clip(id.clone(), path, cx),
             MediaFile::Failed => {
-                self.clips.insert(attachment.file_id.clone(), ClipState::Failed);
+                self.clips.insert(id.clone(), ClipState::Failed);
             }
             MediaFile::Loading => {}
         }
-        self.clips.get(&attachment.file_id).cloned().unwrap_or(ClipState::Loading)
+        self.clips.get(&id).cloned().unwrap_or(ClipState::Loading)
     }
 
     pub(super) fn decode_clip(&mut self, id: String, path: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -195,12 +197,13 @@ impl AppState {
 
     /// Starts a video where it's shown, once its file is here.
     pub fn open_video(&mut self, server_id: &str, attachment: &crate::models::Attachment, round: bool, cx: &mut Context<Self>) {
-        if self.videos.contains_key(&attachment.file_id) {
+        let id = attachment.cache_id();
+        if self.videos.contains_key(&id) {
             return;
         }
-        self.videos_wanted.insert(attachment.file_id.clone(), (round, attachment.duration.unwrap_or(0.)));
+        self.videos_wanted.insert(id.clone(), (round, attachment.duration.unwrap_or(0.)));
         if let MediaFile::Ready(_) = self.media_file(server_id, attachment, cx) {
-            self.media_arrived(&attachment.file_id.clone(), cx);
+            self.media_arrived(&id, cx);
         }
     }
 
