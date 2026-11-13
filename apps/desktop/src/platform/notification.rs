@@ -102,3 +102,81 @@ fn initials(picture: &Picture) -> Option<RgbaImage> {
         .collect();
     RgbaImage::from_raw(PICTURE, PICTURE, pixels)
 }
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    fn png(width: u32, height: u32, color: [u8; 4]) -> Arc<Image> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        RgbaImage::from_pixel(width, height, Rgba(color)).write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        Arc::new(Image::from_bytes(gpui::ImageFormat::Png, bytes.into_inner()))
+    }
+
+    fn picture(image: Option<Arc<Image>>, initials: &str) -> Picture {
+        Picture { image, initials: initials.into(), seed: "someone".into() }
+    }
+
+    fn corners(image: &RgbaImage) -> [u8; 4] {
+        let last = image.width() - 1;
+        [(0, 0), (last, 0), (0, last), (last, last)].map(|(x, y)| image.get_pixel(x, y)[3])
+    }
+
+    #[test]
+    fn shows_the_apps_icon_when_it_says_nothing_about_who() {
+        let shown = drawn(None).expect("the icon is drawn");
+        assert!(shown == crate::platform::app_icon(PICTURE));
+    }
+
+    #[test]
+    fn crops_a_photo_square_and_rounds_it() {
+        let shown = drawn(Some(&picture(Some(png(300, 120, [200, 30, 30, 255])), "AB"))).expect("the photo is drawn");
+        assert_eq!(shown.dimensions(), (PICTURE, PICTURE));
+        let middle = shown.get_pixel(PICTURE / 2, PICTURE / 2).0;
+        assert!(middle.iter().zip([200, 30, 30, 255]).all(|(was, color)| was.abs_diff(color) <= 1), "{middle:?}");
+        assert_eq!(corners(&shown), [0; 4]);
+    }
+
+    #[test]
+    fn draws_initials_on_the_chats_color_without_a_photo_it_can_read() {
+        let shown = drawn(Some(&picture(None, "AB"))).expect("the initials are drawn");
+        assert_eq!(shown.dimensions(), (PICTURE, PICTURE));
+        assert_eq!(corners(&shown), [0; 4]);
+        // Inside the circle, above the letters.
+        let color = crate::format::avatar_color("someone");
+        let channel = |at: usize| u8::from_str_radix(&color[at..at + 2], 16).unwrap();
+        assert_eq!(shown.get_pixel(PICTURE / 2, 6).0, [channel(1), channel(3), channel(5), 255]);
+        // The letters, white at 92%.
+        assert!(shown.pixels().any(|pixel| pixel[0] > 230 && pixel[1] > 230 && pixel[2] > 230 && pixel[3] == 255));
+
+        let unreadable = Arc::new(Image::from_bytes(gpui::ImageFormat::Png, b"not a picture".to_vec()));
+        assert!(drawn(Some(&picture(Some(unreadable), "AB"))).expect("the initials are drawn") == shown);
+    }
+
+    #[test]
+    fn rounds_by_clearing_the_corners_and_leaving_the_rest() {
+        let side = 64;
+        let rounded = round(RgbaImage::from_pixel(side, side, Rgba([10, 20, 30, 255])));
+        assert_eq!(corners(&rounded), [0; 4]);
+        assert!(rounded.pixels().all(|pixel| pixel.0[..3] == [10, 20, 30]));
+        for (x, y) in [(side / 2, side / 2), (side / 2, 1), (1, side / 2), (side - 2, side / 2), (side / 2, side - 2)] {
+            assert_eq!(rounded.get_pixel(x, y)[3], 255, "at {x}, {y}");
+        }
+        // The edge is a pixel soft.
+        assert!(rounded.pixels().any(|pixel| pixel[3] > 0 && pixel[3] < 255));
+        // What was clear stays clear.
+        assert!(round(RgbaImage::new(side, side)).pixels().all(|pixel| pixel[3] == 0));
+    }
+
+    #[test]
+    fn escapes_what_the_initials_say_before_drawing_them() {
+        // Unescaped, these would leave the drawing's markup broken, or start more of it.
+        let marked = initials(&picture(None, "<&>")).expect("drawn, not refused as markup");
+        let tag = initials(&picture(None, "</text><circle r=\"999\"/>")).expect("drawn as text");
+        let none = initials(&picture(None, "")).expect("the color alone is drawn");
+        assert!(marked != none);
+        assert!(tag != none);
+        assert_eq!(corners(&tag), [0; 4]);
+    }
+}

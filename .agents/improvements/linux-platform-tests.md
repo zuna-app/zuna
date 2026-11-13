@@ -8,14 +8,6 @@ Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire),
 
 Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
 
-### A notification's picture
-- Where: apps/desktop/src/platform/notification.rs (0%), built for Linux and macOS
-- Category: tests
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `drawn`, `round` and `initials` are pure and never run under test, since notifications go to `state::notify::tests::SHOWN` and never reach the platform.
-- Suggested change: `drawn(None)` is the app's icon. A `Picture` whose `image` is a PNG comes back round, `PICTURE` square. One with no image, or one that can't be read, comes back as initials on its color. `round` leaves the middle as it was and clears the corners. `initials` escapes `&`, `<` and `>` in what it draws.
-- Check after: `cargo test --bin zuna -- platform::notification`
-
 ### The menu's desktop entry
 - Where: apps/desktop/src/platform/linux/desktop_entry.rs (20%)
 - Category: tests
