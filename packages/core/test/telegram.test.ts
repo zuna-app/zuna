@@ -173,7 +173,7 @@ describe("a linked account's chats", () => {
     const moved = await until(() => events.find((event) => event.type === "message" && event.message.id === String(serverId(101))), "the sent message");
     expect(events.some((event) => event.type === "message_removed" && event.id === pending.id)).toBe(true);
     expect(moved).toMatchObject({ message: { status: "sent", text: "**On** my way" } });
-    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Files can't be sent");
+    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Those files were made for a Zuna server");
   });
 
   it("reads up to a message on every device, and hears when another device read", async () => {
@@ -502,6 +502,15 @@ describe("media, stickers and groups", () => {
     engine.askForFile("C:/Users/someone/secret.txt");
     await until(() => engine.generated.get("C:/Users/someone/secret.txt")?.finished, "the refusal");
     expect(engine.generated.get("C:/Users/someone/secret.txt")).toMatchObject({ data: "", error: "That file isn't being sent" });
+
+    // The message goes while its file does: once TDLib stops asking, nothing more is written.
+    engine.stopAfterBytes = 1;
+    const finished = engine.requests("finishFileGeneration").length;
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob([bytes(600_000, 13)]), name: "gone.bin", mime: "application/octet-stream" }], { text: "" });
+    const gone = await until(() => [...engine.generated.entries()].find(([path, file]) => path.endsWith("/gone.bin") && file.data), "the first part");
+    await settle(50);
+    expect(atob(gone[1].data).length).toBe(512 * 1024);
+    expect(engine.requests("finishFileGeneration")).toHaveLength(finished);
   });
 
   it("lists the account's stickers, and sends one", async () => {

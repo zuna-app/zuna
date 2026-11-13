@@ -99,6 +99,8 @@ export class FakeTdlib implements TelegramAdapter {
   /** What the adapter wrote of each file the engine asked it for, by the name the adapter gave it. */
   generated = new Map<string, { data: string; finished: boolean; error: string | null }>();
   private generations = new Map<string, string>();
+  /** TDLib stops asking for a file once this much of it is written. */
+  stopAfterBytes: number | null = null;
   private nextFile = 500;
   private listener: ((json: string) => void) | null = null;
   private nextTemporary = 1;
@@ -230,6 +232,8 @@ export class FakeTdlib implements TelegramAdapter {
         const file = path ? this.generated.get(path) : undefined;
         if (!file || request.offset !== atob(file.data).length) return fail(400, "Wrong offset");
         file.data = btoa(atob(file.data) + atob(request.data));
+        // The message is deleted while it goes: TDLib stops asking for its file.
+        if (this.stopAfterBytes !== null && atob(file.data).length >= this.stopAfterBytes) this.emit({ "@type": "updateFileGenerationStop", generation_id: request.generation_id });
         return ok();
       }
       case "finishFileGeneration": {

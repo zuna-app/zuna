@@ -199,6 +199,11 @@ export class TelegramSession {
    * for each when it needs it (`updateFileGenerationStart`), and is written it a part at a time.
    */
   private outgoing = new Map<string, ByteSource>();
+  /**
+   * Generations TDLib stopped asking for, as when the message was deleted while it went: their
+   * writing stops. The file stays in `outgoing`, as TDLib may ask for it again.
+   */
+  private stopped = new Set<string>();
   /** A group's people, as last asked of TDLib, for its details. */
   private members = new Map<number, GroupMemberView[]>();
 
@@ -526,8 +531,11 @@ export class TelegramSession {
         return this.onChatAction(update);
       case "updateFileGenerationStart":
         return void this.generate(update);
-      case "updateFileGenerationStop":
+      case "updateFileGenerationStop": {
+        const generation = str(update.generation_id, 24);
+        if (/^\d+$/.test(generation)) this.stopped.add(generation);
         return;
+      }
       default:
         return this.patchChat(update);
     }
@@ -544,6 +552,7 @@ export class TelegramSession {
     }
     try {
       for (let offset = 0; offset < source.size; offset += UPLOAD_PART) {
+        if (this.stopped.delete(generation)) return;
         const part = await source.read(offset, Math.min(source.size, offset + UPLOAD_PART));
         let binary = "";
         for (const byte of part) binary += String.fromCharCode(byte);
@@ -553,6 +562,8 @@ export class TelegramSession {
       this.outgoing.delete(str(update.original_path, 300));
     } catch (error) {
       await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: String(error) } }).catch(() => undefined);
+    } finally {
+      this.stopped.delete(generation);
     }
   }
 
