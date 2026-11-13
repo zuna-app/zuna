@@ -34,6 +34,9 @@ pub const SERVER_ID: &str = "telegram";
 pub enum Outgoing {
     Json(String),
     Data(u32, Vec<u8>),
+    /// Closes its pipe, which TDLib takes as the app going, and closes itself on, saving what it
+    /// has. The door's connections send on the same channel, so it can't wait for every sender to go.
+    Close,
 }
 
 /// The engine's folder in the app's data folder: TDLib's database and the files it downloads.
@@ -315,6 +318,7 @@ impl Engine {
             running.out.send(Outgoing::Json(json!({ "@type": "logOut", "@extra": "zuna:logout" }).to_string())).ok();
             signed_out = wait_for_exit(&mut running.child, Duration::from_secs(15));
         }
+        running.out.send(Outgoing::Close).ok();
         drop(running.out);
         running.door.close_all(false);
         if !wait_for_exit(&mut running.child, Duration::from_secs(10)) {
@@ -520,6 +524,7 @@ fn write_out(stdin: std::fs::File, outgoing: Receiver<Outgoing>) {
         let written = match message {
             Outgoing::Json(json) => write_json(&mut pipe, &json),
             Outgoing::Data(id, bytes) => write_data(&mut pipe, id, &bytes),
+            Outgoing::Close => break,
         };
         if written.is_err() {
             break;
