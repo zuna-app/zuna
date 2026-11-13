@@ -10,7 +10,8 @@
 //! `{"move": [x, y]}`, `{"key": "cmd-v"}`, `{"type": "text"}`, `{"shot": "/path.png"}`,
 //! `{"core": "method", "args": [...], "server": "id"}` for the core, `{"state": true}` for
 //! what the platform says about the window and the badge, `{"delivered": true}` for the
-//! notifications macOS shows, and `{"quit": true}`.
+//! notifications macOS shows, `{"telegram": "link"}` to begin linking a Telegram account with its
+//! dialog open on the QR code, and `{"quit": true}`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -153,6 +154,19 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
     }
     if request.get("way").is_some() {
         return json!({ "ok": crate::voice::proxy::way() });
+    }
+    // Linking a Telegram account, as Continue on the dialog's first screen begins it: the
+    // dialog shows its QR code, for someone to scan.
+    if request.get("telegram").and_then(Value::as_str) == Some("link") {
+        cx.update(|cx| {
+            if let Some(store) = cx.try_global::<crate::state::Store>() {
+                store.0.clone().update(cx, |state, cx| {
+                    state.link_telegram(cx);
+                    state.set_overlay(Some(crate::state::Overlay::Telegram), cx);
+                });
+            }
+        });
+        return json!({ "ok": true });
     }
     if request.get("connection").is_some() {
         return json!({ "ok": { "proxy": crate::host::net::proxy().map(|proxy| proxy.address()), "trouble": crate::host::net::trouble().map(|failure| failure.to_string()) } });

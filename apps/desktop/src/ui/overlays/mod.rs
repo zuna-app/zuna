@@ -283,7 +283,7 @@ impl Dialog {
             name.focus_handle(cx).focus(window, cx);
         }
         let proxy_form = matches!(kind, DialogKind::Proxy { .. }).then(|| proxy::ProxyForm::new(&state, window, &mut subscriptions, cx));
-        let telegram_form = matches!(kind, DialogKind::Telegram).then(|| telegram::TelegramForm::new(window, &mut subscriptions, cx));
+        let telegram_form = matches!(kind, DialogKind::Telegram).then(|| telegram::TelegramForm::new(state.read(cx).telegram_link.is_some(), window, &mut subscriptions, cx));
         if matches!(kind, DialogKind::AddMembers(_)) {
             people_search.focus_handle(cx).focus(window, cx);
         }

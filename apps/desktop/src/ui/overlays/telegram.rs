@@ -28,7 +28,8 @@ pub(super) struct TelegramForm {
 const FIRST_FIELD: usize = 20;
 
 impl TelegramForm {
-    pub(super) fn new(window: &mut Window, subscriptions: &mut Vec<Subscription>, cx: &mut Context<Dialog>) -> TelegramForm {
+    /// A dialog opened on a link already begun shows where it is, past the first screen.
+    pub(super) fn new(started: bool, window: &mut Window, subscriptions: &mut Vec<Subscription>, cx: &mut Context<Dialog>) -> TelegramForm {
         let phone = cx.new(|cx| TextInput::new(cx, "+1 555 010 0000"));
         let code = cx.new(|cx| TextInput::new(cx, "12345"));
         let password = cx.new(|cx| TextInput::new(cx, "Your Telegram password").masked(true));
@@ -50,7 +51,7 @@ impl TelegramForm {
                 cx.notify();
             }));
         }
-        TelegramForm { started: false, by_phone: false, asked_qr: false, phone, code, password, qr: None, busy: false, problem: None }
+        TelegramForm { started, by_phone: false, asked_qr: false, phone, code, password, qr: None, busy: false, problem: None }
     }
 }
 
