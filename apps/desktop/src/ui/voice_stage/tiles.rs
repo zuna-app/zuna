@@ -129,8 +129,7 @@ impl VoiceStage {
             label = label.child(icon("volume-x", 13., gpui::white()));
         }
         label = label.child(div().min_w_0().one_line().child(if is_self { format!("{name} (you)") } else { name.clone() }));
-        div()
-            .id(SharedString::from(format!("person-{}", member.device_id)))
+        named_div(SharedString::from(format!("person-{}", member.device_id)))
             .relative()
             .w(px(size.0))
             .h(px(size.1))
@@ -229,8 +228,7 @@ impl VoiceStage {
         };
         let stream_volume = self.voice.read(cx).stream_volumes.get(&tile.user_id).copied().unwrap_or(1.);
         let double_click_key = key.clone();
-        let mut element = div()
-            .id(id("tile"))
+        let mut element = named_div(id("tile"))
             .group(group.clone())
             .relative()
             .w(px(size.0))
@@ -277,8 +275,7 @@ impl VoiceStage {
                     .group_hover(group.clone(), |style| style.opacity(1.))
                     .when(!full, |el| {
                         el.child(
-                            div()
-                                .id(id("pin"))
+                            named_div(id("pin"))
                                 .size(px(28.))
                                 .flex()
                                 .items_center()
@@ -295,8 +292,7 @@ impl VoiceStage {
                     })
                     .child({
                         let key = key.clone();
-                        div()
-                            .id(id("full"))
+                        named_div(id("full"))
                             .size(px(28.))
                             .flex()
                             .items_center()
@@ -337,8 +333,7 @@ impl VoiceStage {
                     .group_hover(group, |style| style.opacity(1.))
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(
-                        div()
-                            .id(id("mute"))
+                        named_div(id("mute"))
                             .size(px(28.))
                             .flex()
                             .items_center()

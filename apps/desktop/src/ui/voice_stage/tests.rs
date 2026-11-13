@@ -127,3 +127,100 @@ fn a_calls_stage_above_its_chat(cx: &mut TestAppContext) {
     app.event(cx, json!({ "type": "call", "serverId": SERVER, "groupId": DM, "call": null }));
     set(&app, cx, |voice| voice.status = VoiceStatus::Idle);
 }
+
+/// A video's picture, as LiveKit's decoder hands it over.
+fn feed(width: u32, height: u32) -> crate::voice::room::Feed {
+    let buffer = image::RgbaImage::from_pixel(width, height, image::Rgba([40, 120, 200, 255]));
+    let image = std::sync::Arc::new(gpui::RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
+    let frame = crate::voice::room::Frame { width, height, image: Some(image), serial: 1, #[cfg(target_os = "macos")] surface: None };
+    std::sync::Arc::new(parking_lot::Mutex::new(Some(frame)))
+}
+
+fn tile(key: &str, user: &str, source: crate::voice::room::VideoSource, sound: bool, local: bool, (width, height): (u32, u32)) -> crate::voice::room::VideoTile {
+    crate::voice::room::VideoTile { key: key.into(), user_id: user.into(), identity: user.into(), source, local, sound, feed: feed(width, height) }
+}
+
+fn right_click(app: &App, cx: &mut TestAppContext, id: &str) -> Vec<String> {
+    let selector: &'static str = Box::leak(id.to_string().into_boxed_str());
+    let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+    let at = window.debug_bounds(selector).unwrap_or_else(|| panic!("{id} is drawn")).center();
+    window.simulate_event(gpui::MouseDownEvent { position: at, modifiers: gpui::Modifiers::none(), button: gpui::MouseButton::Right, click_count: 1, first_mouse: false });
+    app.run(cx);
+    cx.read(|cx| crate::ui::menu::open_labels(cx))
+}
+
+fn choose(app: &App, cx: &mut TestAppContext, label: &str) {
+    assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose(label, window, cx)).unwrap(), "{label} is in the menu");
+    app.run(cx);
+}
+
+#[gpui::test]
+fn the_stages_videos_their_menus_focus_and_full_screen(cx: &mut TestAppContext) {
+    let mut world = World::new("stage-videos");
+    world.server["getCalls"] = json!([]);
+    let app = App::open(cx, &world);
+    crate::ui::motion::set_reduced(true);
+    for method in ["voiceMute", "voiceDisconnect", "voiceScreenStopOf"] {
+        app.answer(method, |_| Ok(serde_json::Value::Null));
+    }
+    app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.select_server(SERVER, cx);
+    });
+    join(&app, cx, LOUNGE, false);
+    app.update(cx, |state, cx| state.select_conversation(Some(format!("group:{LOUNGE}")), cx));
+    use crate::voice::room::VideoSource::{Camera, Screen};
+    set(&app, cx, |voice| {
+        voice.videos = vec![
+            tile("carol-camera", CAROL, Camera, false, false, (640, 360)),
+            tile("bob-screen", BOB, Screen, true, false, (1280, 720)),
+            tile("my-screen", ME, Screen, false, true, (400, 600)),
+        ];
+    });
+    // Someone's menu, from a right click on them: what this device can do, and as the server's
+    // owner, what everyone's can.
+    let labels = right_click(&app, cx, "person-d-carol");
+    assert_eq!(labels, ["Mute for me", "Verify with emoji", "Let them talk", "Disconnect"]);
+    choose(&app, cx, "Mute for me");
+    assert!(voice(cx).read_with(cx, |voice, _| voice.local_mutes.contains(CAROL)));
+    right_click(&app, cx, "person-d-carol");
+    choose(&app, cx, "Let them talk");
+    assert_eq!(app.calls_of("voiceMute"), vec![vec![json!(LOUNGE), json!(CAROL), json!(false)]]);
+    right_click(&app, cx, "person-d-carol");
+    choose(&app, cx, "Disconnect");
+    assert_eq!(app.calls_of("voiceDisconnect"), vec![vec![json!(LOUNGE), json!(CAROL)]]);
+    right_click(&app, cx, "person-d-bob");
+    assert!(cx.read(|cx| crate::ui::menu::open_labels(cx)).contains(&"Stop their screen share".to_string()));
+    choose(&app, cx, "Stop their screen share");
+    assert_eq!(app.calls_of("voiceScreenStopOf"), vec![vec![json!(LOUNGE), json!(BOB)]]);
+    // On this device's own tile, what its buttons do.
+    let own = right_click(&app, cx, "person-d-1");
+    assert!(own.contains(&"Voice settings".to_string()) && own.contains(&"Deafen".to_string()));
+    choose(&app, cx, "Voice settings");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::Settings { section: Some("voice".into()) }));
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+
+    // A camera fills the stage, cropped to it, and a click puts it back among the others.
+    app.click(cx, "person-d-carol");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.focus.clone()).as_deref(), Some("carol-camera"));
+    app.click(cx, "focused-camera");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.focus.clone()), None);
+    // A shared screen is pinned, its sound muted here, and made full screen and back.
+    app.click(cx, "screen-pin-bob-screen");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.focus.clone()).as_deref(), Some("bob-screen"));
+    app.click(cx, "screen-mute-bob-screen");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.stream_volumes.get(BOB).copied()), Some(0.));
+    app.click(cx, "screen-mute-bob-screen");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.stream_volumes.get(BOB).copied()), Some(1.));
+    app.click(cx, "screen-full-bob-screen");
+    let stage = app.window.update(cx, |root, _, _| root.stage.clone()).unwrap().expect("the stage is open").1;
+    assert_eq!(cx.read(|cx| stage.read(cx).full_screen.as_ref().map(|(key, _)| key.clone())).as_deref(), Some("bob-screen"));
+    app.click(cx, "screen-full-bob-screen-full");
+    assert!(cx.read(|cx| stage.read(cx).full_screen.is_none()), "and back");
+    app.click(cx, "screen-pin-bob-screen");
+    assert_eq!(voice(cx).read_with(cx, |voice, _| voice.focus.clone()), None);
+    // Someone's screen, from a right click on it.
+    let labels = right_click(&app, cx, "screen-tile-bob-screen");
+    assert!(labels.contains(&"Mute for me".to_string()));
+    set(&app, cx, |voice| voice.videos.clear());
+}

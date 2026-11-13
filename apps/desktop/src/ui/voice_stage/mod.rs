@@ -355,7 +355,7 @@ impl Render for VoiceStage {
                 } else {
                     let voice = self.voice.clone();
                     let video = self.video(focused, true);
-                    div().id("focused-camera").size_full().rounded(RADIUS_L).overflow_hidden().bg(gpui::black()).cursor_pointer().on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.set_focus(None, cx))).child(video).into_any_element()
+                    named_div("focused-camera").size_full().rounded(RADIUS_L).overflow_hidden().bg(gpui::black()).cursor_pointer().on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.set_focus(None, cx))).child(video).into_any_element()
                 };
                 grid_area = grid_area.child(
                     div().relative().flex_1().min_h_0().flex().flex_col().gap(px(GAP)).child(measure).when(known, |el| {

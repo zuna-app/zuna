@@ -323,7 +323,6 @@ mod tests {
     use gpui::TestAppContext;
     use serde_json::{Value, json};
 
-    use super::*;
     use crate::state::Overlay;
     use crate::testing::fixtures::*;
     use crate::testing::{App as Running, World};
