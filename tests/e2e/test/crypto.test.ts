@@ -142,8 +142,9 @@ describe("primitives", () => {
     expect(nativeKeys.secretKey.length).toBe(wasmKeys.secretKey.length);
     const nativeSignature = await native<Uint8Array>(`__zunaCrypto.sign(${bytes(nativeKeys.secretKey)}, ${bytes(message)})`);
     expect(wasm.verify(nativeKeys.publicKey, message, nativeSignature)).toBe(true);
-    // Ed25519 signatures are deterministic.
-    expect(nativeSignature).toEqual(wasm.sign(nativeKeys.secretKey, message));
+    // Ed25519's half is deterministic, but ML-DSA's is hedged (crypto/src/hybrid.rs), so the same key's
+    // signature from each side doesn't match the other's, and each verifies on the other side instead.
+    expect(await native(`__zunaCrypto.verify(${bytes(nativeKeys.publicKey)}, ${bytes(message)}, ${bytes(wasm.sign(nativeKeys.secretKey, message))})`)).toBe(true);
   });
 
   it("seal to each other's HPKE keys", async () => {
