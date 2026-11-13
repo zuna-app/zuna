@@ -108,7 +108,8 @@ describe("a bot", () => {
     withServerDatabase((db) => db.prepare("UPDATE bots SET listed = 1, add_policy = 'anyone' WHERE id = ?").run(helper.id));
     await bob.session.addMembers(bobs, [helper.id]);
     await waitFor(async () => !(await apiOf(bob).group(bobs)).members.some((member) => member.user_id === helper.id), "the bot to leave bob's group");
-    expect(inGroup(helper.app, bobs)).toBe(false);
+    // It leaves on the server first, then forgets the group itself.
+    await waitFor(() => !inGroup(helper.app, bobs), "the bot to forget bob's group");
     expect(inGroup(helper.app, groupId)).toBe(true);
     withServerDatabase((db) => db.prepare("UPDATE bots SET listed = 0, add_policy = 'owner' WHERE id = ?").run(helper.id));
   });
