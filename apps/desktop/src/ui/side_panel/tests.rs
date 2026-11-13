@@ -130,3 +130,42 @@ fn a_channels_details_edit_and_mute_it(cx: &mut TestAppContext) {
     app.click(cx, "channel-mute");
     assert_eq!(app.calls_of("unmute"), vec![vec![json!(format!("group:{GENERAL}"))]]);
 }
+
+#[gpui::test]
+fn a_chats_preferences_and_who_its_with(cx: &mut TestAppContext) {
+    let bot = format!("user:{BOT}");
+    // A bot's chat says whose bot it is; pinned and hidden from its rows.
+    let app = open(cx, "panel-bot", &bot, |_| {});
+    app.click(cx, "pin-row");
+    assert_eq!(app.calls_of("updatePreferences"), vec![vec![json!({ "pinned": [format!("user:{BOB}"), bot.clone()] })]]);
+    app.click(cx, "hide-row");
+    assert_eq!(app.calls_of("updatePreferences")[1], vec![json!({ "hidden": [bot.clone()] })]);
+    // Someone offline, with a bio, whose chat is muted: unmuted from the switch at once.
+    let app = open(cx, "panel-offline", &format!("user:{BOB}"), |world| {
+        let bob = &mut world.server["getUsers"][1];
+        bob["online"] = json!(false);
+        bob["lastSeenAt"] = json!(NOW - 3_600_000.0);
+        bob["bio"] = json!("Builds things");
+        world.server["getConversations"][0]["muted"] = json!(true);
+    });
+    app.click(cx, "pin-row");
+    assert_eq!(app.calls_of("updatePreferences"), vec![vec![json!({ "pinned": [] })]], "Bob's chat was pinned");
+    app.click(cx, "notifications");
+    assert_eq!(app.calls_of("unmute"), vec![vec![json!(format!("user:{BOB}"))]]);
+    // Someone blocked, whose key changed: unblocked from their profile, and their key compared.
+    let app = open(cx, "panel-blocked", &format!("user:{CAROL}"), |_| {});
+    app.click(cx, "trust-card");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::Verify { user_id: CAROL.into() }));
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    scroll_to_end(&app, cx, "block");
+    app.click(cx, "block");
+    assert_eq!(app.calls_of("setBlocked"), vec![vec![json!(CAROL), json!(false)]]);
+    // Someone who deleted their account has nothing to verify, block or report.
+    let gone = "user:u-gone".to_string();
+    let app = open(cx, "panel-gone", &gone, |world| {
+        world.server["getConversations"].as_array_mut().unwrap().push(json!({ "key": gone, "kind": "dm", "groupId": "g-gone", "title": "Deleted account", "ready": true, "peerId": "u-gone", "lastActivityAt": NOW, "ownRead": 0,
+            "members": [{ "userId": ME, "role": "admin", "joinedAt": NOW }, { "userId": "u-gone", "role": "member", "joinedAt": NOW }] }));
+    });
+    assert!(app.drawn(cx, "pin-row") && !app.drawn(cx, "trust-card") && !app.drawn(cx, "block"));
+}

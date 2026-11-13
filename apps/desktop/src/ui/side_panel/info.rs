@@ -107,11 +107,7 @@ impl SidePanel {
                 cx,
             ))
             .child(div().mt(px(8.)).text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(if is_self { peer.as_ref().map(|p| p.display_name.clone()).unwrap_or_default() } else { conversation.title.clone() }));
-        if conversation.kind == "group" {
-            if !conversation.description.is_empty() {
-                card = card.child(div().mt(px(8.)).text_size(px(13.5)).text_color(theme.text2).child(conversation.description.clone()));
-            }
-        } else if let Some(peer) = &peer {
+        if let Some(peer) = &peer {
             // Someone on Telegram may have no username.
             if !peer.deleted && !peer.username.is_empty() {
                 card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
@@ -163,8 +159,7 @@ impl SidePanel {
                 Self::section(cx)
                     .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(8.)).py(px(5.)).child("Encryption"))
                     .child(
-                        div()
-                            .id("trust-card")
+                        named_div("trust-card")
                             .w_full()
                             .flex()
                             .items_center()
@@ -180,74 +175,6 @@ impl SidePanel {
                     )
                     .into_any_element(),
             );
-        }
-
-        if conversation.kind == "group" {
-            let mut members = Self::section(cx).child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.text3)
-                    .px(px(8.))
-                    .py(px(5.))
-                    .child(format!("{} {}", conversation.members.len(), if conversation.members.len() == 1 { "member" } else { "members" })),
-            );
-            let mut sorted = conversation.members.clone();
-            sorted.sort_by_cached_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|u| u.display_name.to_lowercase()).unwrap_or_default()));
-            for member in sorted {
-                let user = server.users.get(&member.user_id).cloned();
-                let name = user.as_ref().map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
-                let image = user.as_ref().and_then(|u| u.avatar.clone()).and_then(|avatar| {
-                    let server_id = self.server_id.clone();
-                    self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
-                });
-                let is_me = member.user_id == server.self_id();
-                let state = self.state.clone();
-                let user_id = member.user_id.clone();
-                members = members.child(
-                    named_div(SharedString::from(format!("member-{}", member.user_id)))
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .px(px(8.))
-                        .py(px(5.))
-                        .rounded(RADIUS_M)
-                        .text_size(px(13.5))
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(theme.hover))
-                        .on_click(move |_, _, cx| {
-                            if !is_me {
-                                state.update(cx, |state, cx| state.select_conversation(Some(format!("user:{user_id}")), cx));
-                            }
-                        })
-                        .child(avatar(AvatarProps { name: name.clone(), seed: member.user_id.clone(), image, size: 36., online: user.as_ref().is_some_and(|u| u.online), rounded: false, dot_border: theme.bg2 }, cx))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(6.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(div().min_w_0().one_line().child(if is_me { format!("{name} (you)") } else { name }))
-                                        .when(user.as_ref().is_some_and(|u| u.bot.is_some()), |el| el.child(bot_badge(cx))),
-                                )
-                                .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(if member.no_keys == Some(true) {
-                                    "No device in this chat yet".to_string()
-                                } else {
-                                    user.as_ref().filter(|u| !u.username.is_empty()).map(|u| format!("@{}", u.username)).unwrap_or_default()
-                                })),
-                        )
-                        .when(member.role == "admin", |el| el.child(icon("crown", 13., theme.text3)))
-                        .when(user.as_ref().is_some_and(|u| u.trust == "verified"), |el| el.child(icon("badge-check", 14., theme.text2))),
-                );
-            }
-            parts.push(members.into_any_element());
         }
 
         if let Some(rows) = self.media_rows(server, conversation, cx) {
@@ -278,32 +205,6 @@ impl SidePanel {
                     .when(!peer.banned, |el| el.child(self.report_row(peer, reported, cx)))
                     .into_any_element(),
             );
-        }
-        if conversation.kind == "group" {
-            if let Some(group) = conversation.group_id.clone() {
-                let state = self.state.clone();
-                let is_admin = conversation.is_admin(&server.self_id());
-                let delete_state = self.state.clone();
-                let delete_group = group.clone();
-                parts.push(
-                    Self::section(cx)
-                        .child(Self::row("leave-group", "log-out", "Leave group".into(), None, true, cx).on_click(move |_, _, cx| {
-                            state.update(cx, |state, cx| {
-                                state.act("leaveGroup", vec![json!(group)], cx);
-                                state.select_conversation(None, cx);
-                            })
-                        }))
-                        .when(is_admin, |el| {
-                            el.child(Self::row("delete-group", "trash", "Delete group for everyone".into(), None, true, cx).on_click(move |_, _, cx| {
-                                delete_state.update(cx, |state, cx| {
-                                    state.act("deleteGroup", vec![json!(delete_group)], cx);
-                                    state.select_conversation(None, cx);
-                                })
-                            }))
-                        })
-                        .into_any_element(),
-                );
-            }
         }
         parts
     }
