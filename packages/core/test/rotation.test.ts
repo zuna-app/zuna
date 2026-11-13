@@ -6,7 +6,7 @@ import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
 import { HPKE_PUBLIC_BYTES, openVaultItem, sealVaultItem } from "../src/crypto";
-import { toBase64 } from "../src/encoding";
+import { concat, toBase64, utf8 } from "../src/encoding";
 import { TestApp, sleep, waitFor } from "./helpers";
 import {
   server,
@@ -374,8 +374,11 @@ describe("after a rotation", () => {
     db.exec("BEGIN");
     for (let i = 0; i < count; i++) {
       const id = `ek:${"a".repeat(32)}:${i}`;
-      insert.run(dave.userId, id, 1_000_000 + i, sealVaultItem(oldKey, id, new Uint8Array(32).fill(i % 251)));
+      insert.run(dave.userId, id, 1_000_000 + i, sealVaultItem(oldKey, id, concat(new Uint8Array(32).fill(i % 251), utf8("group"))));
     }
+    // A key kept without what its conversation is, as before that was kept, is never read, and goes.
+    const bare = `ek:${"b".repeat(32)}:0`;
+    insert.run(dave.userId, bare, 2_000_000, sealVaultItem(oldKey, bare, new Uint8Array(32)));
     db.exec("COMMIT");
     db.close();
     await dave.session.rotate();
@@ -384,7 +387,8 @@ describe("after a rotation", () => {
     expect(items.length).toBeGreaterThanOrEqual(count);
     expect(items.every((item) => item.generation === 1)).toBe(true);
     expect(() => openVaultItem(oldKey, items[0]!.id, items[0]!.data, 1)).toThrow();
-    expect(openVaultItem(accountKeyOf(dave), items[0]!.id, items[0]!.data, 1).length).toBe(32);
+    expect(openVaultItem(accountKeyOf(dave), items[0]!.id, items[0]!.data, 1).length).toBe(37);
+    expect(items.some((item) => item.id === bare)).toBe(false);
   }, 90_000);
 
   it("says so if it hasn't been able to finish after a day, once, and asks for nothing", async () => {
