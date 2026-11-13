@@ -12,9 +12,10 @@ path = "src/main.rs"
 
 # The screen share's capture, encoding and sound is a crate of its own (screenshare/Cargo.toml says
 # why), with this lockfile and target folder, and its tests run with the app's. The media library
-# on macOS and the Linux checks' driver are built apart, each with a lockfile of its own.
+# on macOS and the Linux checks' driver are built apart, each with a lockfile of its own. The
+# Telegram engine and the Linux player are members built only by name (their Cargo.toml say why).
 [workspace]
-members = ["screenshare", "watch"]
+members = ["screenshare", "watch", "telegram"]
 default-members = [".", "screenshare"]
 exclude = ["media-ffmpeg", "test/driver"]
 
