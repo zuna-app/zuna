@@ -18,7 +18,7 @@ Nothing one caller does holds up anyone else's pushes or registrations, so it do
 
 - **An APNs key** from the Apple Developer account that publishes the app: Certificates, IDs & Profiles → Keys → **+** → Apple Push Notifications service (APNs). Set its environment to **Sandbox & Production** and its restriction to **Team Scoped (All Topics)**, as the relay uses one key for both environments: debug builds use the sandbox, and TestFlight and App Store builds production. Download the `.p8` file (Apple offers it only once) and note its Key ID. As it starts, the relay asks Apple whether it takes the key in each environment and logs the answer, which `deploy/update.sh` shows. Apple answers `403 InvalidProviderToken` alike to a Key ID that isn't the key's, a key from another team and one that was revoked, so check them all.
 - **A domain** for the relay, such as `push.example.com`, with HTTPS.
-- **A machine with Docker.** The relay needs very little memory and CPU.
+- **A machine** with Docker, or Linux with systemd. The relay needs very little memory and CPU.
 
 ## Running it
 

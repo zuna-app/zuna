@@ -15,7 +15,7 @@ A web app's code comes from its host on every visit. Whoever controls the host c
 
 | | Desktop | Web |
 |---|---|---|
-| New messages | System notifications, sound, dock or taskbar badge | The browser's notifications, which it asks to allow at your first click, and sound. The tab's title counts them: `(3) Zuna` |
+| New messages | Notifications, the app's own cards on Windows and the system's elsewhere, sound, and a count on the Dock or taskbar | The browser's notifications, which it asks to allow at your first click, and sound. The tab's title counts them: `(3) Zuna` |
 | Your phone | While you use the app, notified 30 seconds later about what you didn't read there | The same, while the tab is in front |
 | Invite links | `zuna://` links open the app | Paste the link, or open `https://web.example/#join=<invite link>` |
 | Updates | On Windows the app updates itself, from stable releases or nightlies, with an Update button once one is ready. On Linux they come with the system's packages or a new AppImage, and macOS has none yet | A reload, offered when the host has a newer version |
