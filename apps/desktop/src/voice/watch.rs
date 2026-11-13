@@ -113,10 +113,11 @@ impl Voice {
     }
 
     /// Puts a YouTube video on for everyone in the room, from a link, and watches it here. `done`
-    /// hears what went wrong, in words for the person.
+    /// hears what went wrong, in words for the person, never before this returns, as the one
+    /// asking may be in the middle of an update of its own.
     pub fn watch_start(&mut self, url: String, done: impl FnOnce(Result<(), String>, &mut App) + 'static, cx: &mut Context<Self>) {
         let (Some(server_id), Some(channel_id)) = (self.server_id.clone(), self.channel_id.clone()) else {
-            done(Err("Join the voice channel to watch together.".into()), cx);
+            cx.defer(move |cx| done(Err("Join the voice channel to watch together.".into()), cx));
             return;
         };
         let core = self.core(cx);
