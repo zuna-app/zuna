@@ -810,6 +810,13 @@ describe("groups, the rest of the way", () => {
       { userId: "chat:-1007", role: "member", joinedAt: 0 },
     ]);
     expect(engine.requests("getSupergroupMembers")[0]).toMatchObject({ supergroup_id: 7, filter: { "@type": "supergroupMembersFilterRecent" } });
+    // A supergroup whose people Telegram won't list has none shown.
+    engine.emit({ "@type": "updateNewChat", chat: { "@type": "chat", id: -1008, type: { "@type": "chatTypeSupergroup", supergroup_id: 8, is_channel: false }, title: "Closed", positions: [{ "@type": "chatPosition", list: { "@type": "chatListMain" }, order: "99" }] } });
+    engine.refuse("getSupergroupMembers", "CHAT_ADMIN_REQUIRED");
+    await session.loadMessages("-1008");
+    await until(() => engine.requests("getSupergroupMembers").length === 2, "the people asked for");
+    await settle(80);
+    expect(session.getConversations().find((chat) => chat.groupId === "-1008")!.members).toEqual([]);
     // A person's chat has no members to ask for.
     await session.loadMessages(String(GRACE));
     expect(engine.requests("getBasicGroupFullInfo")).toEqual([]);
@@ -872,5 +879,82 @@ describe("the Telegram account in the app", () => {
     expect(await app.unlinkTelegram()).toEqual({ signedOut: false });
     expect(app.findLink("see https://example.com/a and more")).toBe("https://example.com/a");
     app.stop();
+  });
+});
+
+describe("what the session leaves out", () => {
+  it("takes an account Telegram names without a number for nobody in particular", async () => {
+    const engine = new Telegram();
+    engine.authorized = true;
+    engine.answer("getMe", { "@type": "user", id: "1000" });
+    const session = new TelegramSession(engine, { onEvent: () => undefined, linking: false, onLinked: () => undefined, onGone: () => undefined });
+    session.start();
+    await until(() => engine.requests("loadChats").length > 0, "the list asked for");
+    expect(session.getSelf().userId).toBe("");
+  });
+
+  it("notes an update it doesn't show once, and changes nothing for one that names no chat or message", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    const { engine, events, session } = await ready();
+    engine.emit({ "@type": "updateStoryNew", story: {} });
+    engine.emit({ "@type": "updateStoryNew", story: {} });
+    expect(debug.mock.calls.filter((call) => String(call[0]).includes("updateStoryNew"))).toHaveLength(1);
+    const before = events.filter((event) => event.type !== "conversations" && event.type !== "preferences").length;
+    engine.emit({ "@type": "updateChatTitle", title: "Nobody" });
+    engine.emit({ "@type": "updateChatLastMessage", chat_id: GRACE, last_message: null, positions: [] });
+    engine.emit({ "@type": "updateChatReadInbox", chat_id: GRACE, last_read_inbox_message_id: 0, unread_count: 0 });
+    engine.emit({ "@type": "updateChatReadOutbox", chat_id: GRACE, last_read_outbox_message_id: 0 });
+    engine.emit({ "@type": "updateMessageIsPinned", chat_id: GRACE, is_pinned: true });
+    // A message without a number: nothing to show, and nothing to notify.
+    engine.emit({ "@type": "updateNewMessage", message: { ...textMessage(GRACE, 0, GRACE, "no number") } });
+    engine.emit({ "@type": "updateNewMessage", message: { ...textMessage(0, serverId(60), GRACE, "no chat") } });
+    expect(events.filter((event) => event.type !== "conversations" && event.type !== "preferences")).toHaveLength(before);
+    expect(session.getConversations().find((chat) => chat.key === `user:${GRACE}`)!.lastMessage).toBeNull();
+  });
+
+  it("says a group was read by everyone, and words a message with nothing in it as a message", async () => {
+    const { engine, events } = await ready();
+    engine.emit({ "@type": "updateChatReadOutbox", chat_id: GROUP, last_read_outbox_message_id: serverId(3) });
+    expect(of(events, "read").at(-1)).toMatchObject({ groupId: String(GROUP), userId: "*", seq: serverId(3) });
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(61), GRACE, "") });
+    expect(of(events, "notify").at(-1)).toMatchObject({ body: "Message" });
+  });
+
+  it("lists pinned chats by Telegram's order, newest first", async () => {
+    const { engine, session } = await ready();
+    const pin = (chat: number, order: string) => engine.emit({ "@type": "updateChatPosition", chat_id: chat, position: { "@type": "chatPosition", list: { "@type": "chatListMain" }, order, is_pinned: true } });
+    pin(GRACE, "500");
+    pin(BOT, "500");
+    pin(GROUP, "900");
+    expect(session.getPreferences().pinned[0]).toBe(`group:${GROUP}`);
+    pin(GRACE, "950");
+    expect(session.getPreferences().pinned).toEqual([`user:${GRACE}`, `group:${GROUP}`, `user:${BOT}`]);
+    await session.updatePreferences({ pinned: [`user:${GRACE}`] });
+    expect(engine.requests("toggleChatIsPinned").map((request) => [request.chat_id, request.is_pinned])).toEqual(expect.arrayContaining([[GROUP, false], [BOT, false]]));
+  });
+
+  it("sends with no text at all, and shows nothing for what Telegram answers without a number", async () => {
+    const { engine, events, session } = await ready();
+    await session.sendMessage(`user:${GRACE}`, { location: { lat: 1, lon: 2 } });
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob(["x"]), name: "x.bin", mime: "application/octet-stream" }], {}, { keepMetadata: true });
+    expect(engine.requests("sendMessage").at(-1)!.input_message_content.caption.text).toBe("");
+    // Once Telegram has said both were sent.
+    await settle();
+    const shown = of(events, "message").length;
+    engine.answer("sendMessage", { "@type": "message", id: 0, chat_id: GRACE });
+    await session.sendSticker(`user:${GRACE}`, 801, "🐱", 512, 512);
+    expect(await session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob(["x"]), name: "x.bin", mime: "application/octet-stream" }], { text: "" }, { keepMetadata: true })).toBe("");
+    engine.answer("sendMessageAlbum", { "@type": "messages", messages: [] });
+    const pictures = [0, 1].map((n) => ({ blob: new Blob([String(n)]), name: `${n}.png`, mime: "image/png" }));
+    expect(await session.sendWithAttachments(`user:${GRACE}`, pictures, { text: "" }, { keepMetadata: true })).toBe("");
+    expect(of(events, "message")).toHaveLength(shown);
+  });
+
+  it("shows no cover for a sticker set whose first sticker has no picture, and lists media without a number", async () => {
+    const { engine, session } = await ready();
+    engine.answer("getInstalledStickerSets", { "@type": "stickerSets", sets: [{ "@type": "stickerSetInfo", id: "9", title: "Moving", covers: [{ "@type": "sticker", format: { "@type": "stickerFormatTgs" }, thumbnail: null, sticker: { id: 5 } }] }] });
+    expect(await session.getStickerSets()).toEqual([{ id: "9", title: "Moving", cover: null }]);
+    engine.answer("searchChatMessages", { "@type": "foundChatMessages", messages: [{ "@type": "message", chat_id: GRACE }] });
+    expect((await session.loadMedia(String(GRACE), "file", serverId(5))).messages).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { readRoster, rosterHash, rosterJump } from "../src/roster";
 import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
 import { fromRecoveryText, toRecoveryText, utf8 } from "../src/encoding";
+import { previewText } from "../src/notify";
 import { loadCrypto } from "./helpers";
 
 beforeAll(loadCrypto);
@@ -131,5 +132,19 @@ describe("a recovery key as words", () => {
     expect(fromRecoveryText(text.toLowerCase())).toEqual(key);
     expect(fromRecoveryText(text.replace(/0/g, "O").replace(/1/g, "I"))).toEqual(key);
     expect(fromRecoveryText("not-a-key-U")).toBeNull();
+  });
+});
+
+describe("a message as one short line", () => {
+  it("says what a message without words carries, by its first file", () => {
+    const file = (change: Record<string, unknown>) => ({ fileId: "f", key: "", prefix: "", chunks: 1, size: 1, name: "notes.pdf", mime: "application/pdf", ...change });
+    const line = (change: Record<string, unknown>) => previewText({ text: "", attachments: [file(change)] });
+    expect(line({ mime: "video/mp4", round: true })).toBe("📹 Video message");
+    expect(line({ mime: "video/mp4" })).toBe("🎬 Video");
+    expect(line({ mime: "audio/ogg", voice: true })).toBe("🎤 Voice message");
+    expect(line({ mime: "audio/mpeg" })).toBe("🎵 Audio");
+    expect(line({})).toBe("📎 notes.pdf");
+    expect(previewText({ text: "x".repeat(200), attachments: [] })).toHaveLength(141);
+    expect(previewText({ text: "", attachments: [] })).toBe("");
   });
 });
