@@ -2,6 +2,7 @@ import Foundation
 import os
 import UIKit
 import UserNotifications
+import ZunaHost
 import ZunaModels
 
 /// Notifications on this device: asking for them, registering with the push
@@ -177,6 +178,9 @@ final class Notifications {
     /// The relay's handles for this device's push token and VoIP token, one of each for every server, so that
     /// servers can't tell they wake the same phone. They're made again for every server at once each week, as the
     /// relay's stop working after 60 days, so a server this device left can't wake it for longer than that.
+    /// The push relay is reached through the proxy too, when one is set.
+    private static let relaySession = ProxiedSession(configuration: .ephemeral)
+
     private func relayHandles(relay: String, token: String, callToken: String?, servers: [String]) async -> [String: RelayHandles.ForServer]? {
         if let stored = RelayHandles.stored, stored.fit(relay: relay, token: token, callToken: callToken, servers: servers) {
             return stored.servers
@@ -193,7 +197,7 @@ final class Notifications {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(RelayHandles.Request(token: token, voipToken: callToken, environment: environment, count: wanted.count))
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.relaySession.session.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
             let reply = try JSONDecoder().decode(RelayHandles.Reply.self, from: data)
             guard reply.handles.count == wanted.count else { return nil }

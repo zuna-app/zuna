@@ -140,7 +140,7 @@ server {
 
 Files upload in 1 MiB chunks, so the body size limit doesn't need to match your largest file.
 
-Members can set the desktop app or `zuna-bot` to go through a SOCKS5 proxy of their own, and everyone behind one proxy shares its address, and so the limits for an address: a server whose members all go through one proxy may need `--auth-burst` raised.
+Members can set the desktop app, the iPhone app or `zuna-bot` to go through a SOCKS5 proxy of their own, and everyone behind one proxy shares its address, and so the limits for an address: a server whose members all go through one proxy may need `--auth-burst` raised.
 
 Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' real addresses. It believes `X-Forwarded-For` only from this machine and private networks, reading it from the right so that only what your proxy added counts. For a proxy elsewhere, list it in `ZUNA_TRUSTED_PROXIES`, which replaces those networks. Otherwise all its callers count as one address.
 

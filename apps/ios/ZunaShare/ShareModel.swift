@@ -61,6 +61,8 @@ final class ShareModel {
 
     init(finish: @escaping (Bool) -> Void) {
         self.finish = finish
+        // The proxy set in Privacy, before anything here connects, servers' pictures among them.
+        ProxyStore.apply()
     }
 
     // MARK: Starting

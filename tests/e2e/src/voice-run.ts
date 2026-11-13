@@ -17,12 +17,20 @@
 // With ZUNA_VOICE_SETUP_LINK, everyone uses a server already running with a
 // LiveKit of its own, such as the Docker setup on another machine, by the setup
 // link it printed, rather than ones started here.
+//
+// With ZUNA_TEST_SOCKS=1, the phone goes through the core tests' SOCKS5 proxy, as with
+// one set in Privacy, and reaches the server and LiveKit by names only the proxy knows,
+// as its system would take this Mac's own addresses around it. LiveKit is on this Mac's
+// address on its network, as it takes no media from loopback. Then the phone comes into
+// the channel again with the proxy refusing UDP, and is heard over TCP.
 
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createWriteStream, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
-import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
+import { TestApp, TestServer, loadCrypto, sleep, testSocks, waitFor } from "../../../packages/core/test/helpers";
 import { HostApp } from "./host";
 import { root } from "./paths";
 import { BUNDLE_ID, boot, buildApp, installFresh, simulatorId } from "./simulator";
@@ -63,10 +71,29 @@ execFileSync("say", ["-o", speech, "--data-format=LEI16@48000", "Testing the voi
 const elsewhere = process.env.ZUNA_VOICE_SETUP_LINK;
 const liveKitPort = 17900 + Math.floor(Math.random() * 50);
 let liveKit: ReturnType<typeof spawn> | null = null;
+// Through the proxy, LiveKit is on this Mac's address on its network, and named for the proxy alone.
+const lan = Object.values(networkInterfaces()).flat().find((item) => item?.family === "IPv4" && !item.internal)?.address;
+const liveKitName = "zuna-livekit.localhost";
+// The fake of YouTube's player, for watching together through the proxy, at a name without a dot,
+// which App Transport Security lets a page reach over plain HTTP, and which only the proxy knows.
+const playerName = "zuna-watch";
+const playerSeen: number[] = [];
+const player = createServer((request, response) => {
+  playerSeen.push(request.socket.remotePort ?? 0);
+  response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8"));
+});
+if (testSocks) {
+  if (!lan) throw new Error("This Mac has no address on a network, which a call through the proxy goes to.");
+  testSocks.names.set(liveKitName, "127.0.0.1");
+  testSocks.names.set(playerName, "127.0.0.1");
+  await new Promise<void>((resolve) => player.listen(0, "127.0.0.1", resolve));
+}
 if (!elsewhere) {
   const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim();
   const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
-  liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig], { stdio: ["ignore", "pipe", "pipe"] });
+  const where = testSocks ? ["--bind", lan!, "--bind", "127.0.0.1", "--node-ip", lan!] : ["--bind", "127.0.0.1", "--node-ip", "127.0.0.1"];
+  const ports = testSocks ? `  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n` : "";
+  liveKit = spawn(liveKitBinary, ["--dev", ...where, "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig + ports], { stdio: ["ignore", "pipe", "pipe"] });
   const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
   liveKit.stdout!.pipe(liveKitLog);
   liveKit.stderr!.pipe(liveKitLog);
@@ -80,7 +107,8 @@ let server: { setupLink: string; stop(): Promise<void> };
 if (elsewhere) {
   server = { setupLink: elsewhere, stop: async () => undefined };
 } else {
-  const started = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}` });
+  // Through the proxy, behind a door this run reads itself, as the web app reaches it directly.
+  const started = new TestServer(testSocks ? { liveKit: `ws://${liveKitName}:${liveKitPort}`, recorded: true } : { liveKit: `ws://127.0.0.1:${liveKitPort}` });
   await started.start();
   server = started;
 }
@@ -112,7 +140,9 @@ try {
 
   // --- The web app ---
   log("starting the web app");
-  desktop = await startWebApp({ name: "voice-desktop", speech });
+  // Under the proxy's names, which Chromium takes to this machine, as it does every *.localhost.
+  const servers = testSocks && !elsewhere ? { servers: [new URL(server.setupLink).origin], mediaServers: [`http://${liveKitName}:${liveKitPort}`] } : {};
+  desktop = await startWebApp({ name: "voice-desktop", speech, ...servers });
   const { page } = desktop;
   page.on("console", (message) => {
     if (message.text().includes("[zuna]") || message.type() === "error" || process.env.VOICE_DEBUG) console.log(`  [desktop] ${message.type()}: ${message.text()}`);
@@ -165,7 +195,8 @@ try {
 
   // --- The phone ---
   log("starting the app in the simulator");
-  phone = await new HostApp("bob-iphone", { target: "simulator", args: ["-ZunaFakeMicrophone", "YES", "-ZunaFakeCamera", "YES", "-ZunaFakeScreen", "YES", "-ZunaVoiceLog", "YES", "-ZunaAskForNotifications", "NO", "-ZunaPushRelay", ""] }).open();
+  const watchPlayer = testSocks ? ["-ZunaWatchPlayer", `http://${playerName}:${(player.address() as AddressInfo).port}`] : [];
+  phone = await new HostApp("bob-iphone", { target: "simulator", args: ["-ZunaFakeMicrophone", "YES", "-ZunaFakeCamera", "YES", "-ZunaFakeScreen", "YES", "-ZunaVoiceLog", "YES", "-ZunaAskForNotifications", "NO", "-ZunaPushRelay", "", ...watchPlayer] }).open();
   await phone.register(invite, "bob");
   const bobId = await phone.userId();
   await waitFor(async () => (await phone!.session.getChannels()).some((channel) => channel.id === lounge && channel.conversation?.ready), "the phone to come into the Lounge's group", 30_000);
@@ -178,7 +209,7 @@ try {
       phone!.waitUntilGone().then(() => Promise.reject(new Error(`the app went away during ${name}`))),
       sleep(60_000).then(() => Promise.reject(new Error(`the app didn't answer ${name} within a minute`))),
     ]);
-  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; call: boolean; serverMuted: boolean; camera: boolean; screen: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string; local: boolean }[] };
+  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; call: boolean; serverMuted: boolean; camera: boolean; screen: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string; local: boolean }[]; watch?: boolean; watching?: boolean; playerPhase?: string | null };
   const report = async () => JSON.parse(await command("voiceReport")) as Reading[];
   const fromDana = async (source: string) => (await report()).find((reading) => reading.key.startsWith(`${danaId}.`) && reading.key.endsWith(`/${source}`));
   /**
@@ -392,6 +423,52 @@ try {
     .then(() => check("leaving is seen by everyone", true))
     .catch(() => check("leaving is seen by everyone", false));
 
+  // --- Through the proxy: what went where, and the channel again over TCP alone ---
+  if (testSocks && !elsewhere) {
+    const serverName = new URL(server.setupLink).hostname;
+    check("the phone reached the server through the proxy, by its name", testSocks.requests.some((request) => request.host === serverName && request.kind === "name"));
+    check("the phone reached LiveKit's signalling through the proxy, by its name", testSocks.requests.some((request) => request.host === liveKitName && request.port === liveKitPort));
+    const datagrams = testSocks.datagrams.filter((datagram) => datagram.port === liveKitPort + 2);
+    check("the phone's media went through the proxy to LiveKit's UDP port", datagrams.length > 0 && datagrams.every((datagram) => datagram.host === lan), JSON.stringify([...new Set(testSocks.datagrams.map((datagram) => `${datagram.host}:${datagram.port}`))]));
+    check("the phone's stream stats said it went through the proxy over UDP", /^Proxy: Through the proxy, over UDP$/m.test(stats), /^Proxy: .*$/m.exec(stats)?.[0] ?? "no line");
+
+    testSocks.refuseUdp = true;
+    const tcpFrom = testSocks.requests.length;
+    const rejoined = await command("voiceJoin", { channel: lounge });
+    check("with UDP refused, the phone comes into the channel again", rejoined === "connected", rejoined);
+    await sleep(5000);
+    let overTcp = await phoneHears();
+    for (let i = 0; i < 16 && !overTcp.ok; i++) {
+      await sleep(500);
+      overTcp = await phoneHears();
+    }
+    check("over TCP through the proxy, the phone hears the desktop", overTcp.ok, overTcp.detail);
+    const tcpPeak = await desktopHears();
+    check("over TCP through the proxy, the desktop hears the phone", tcpPeak > 0.02, `peak ${tcpPeak.toFixed(3)}`);
+    check("with UDP refused, the media went over the proxy to LiveKit's TCP port", testSocks.requests.slice(tcpFrom).some((request) => request.command === "connect" && request.host === lan && request.port === liveKitPort + 1));
+    await command("voiceStats");
+    await sleep(2000);
+    const tcpStats = await command("voiceStats");
+    check("the phone's stream stats said it went through the proxy over TCP", /^Proxy: Through the proxy, over TCP$/m.test(tcpStats), /^Proxy: .*$/m.exec(tcpStats)?.[0] ?? "no line");
+
+    // Watching together, the player's page through the proxy too.
+    const playerFrom = testSocks.requests.length;
+    await phone.session.watchStart(lounge, "https://youtu.be/aqz-KE-bpKQ?t=30");
+    await waitFor(async () => (await voiceState()).watch === true, "the room's video to reach the phone's stage", 15_000).catch(() => undefined);
+    const watchingHere = await command("watchHere", { on: true });
+    check("the phone plays the video watched together here", watchingHere === "watching", watchingHere);
+    let phase: string | null | undefined = null;
+    await waitFor(async () => ["playing", "in-step"].includes((phase = (await voiceState()).playerPhase) ?? ""), "the phone's player to play", 30_000).catch(() => undefined);
+    check("the phone's player plays, its page through the proxy", phase === "playing" || phase === "in-step", String(phase));
+    check("the player came through the proxy, by its name", testSocks.requests.slice(playerFrom).some((request) => request.host === playerName && request.kind === "name"));
+    check("nothing reached the player but through the proxy", playerSeen.length > 0 && playerSeen.every((port) => testSocks!.opened.has(port)), `${playerSeen.length} requests`);
+    phoneShot("05b-phone-watching-through-the-proxy");
+    await phone.session.watchStop(lounge).catch(() => undefined);
+    await command("voiceLeave");
+    testSocks.refuseUdp = false;
+    await waitFor(() => !alice.session.getVoiceMembers().some((member) => member.userId === bobId), "everyone to see the phone leave again", 10_000).catch(() => undefined);
+  }
+
   // --- A call in a direct message, from the desktop, answered on the phone ---
   await page.locator(".conv-row", { hasText: "bob" }).first().click();
   await page.getByRole("button", { name: "Start a voice call" }).click();
@@ -439,6 +516,7 @@ try {
   for (const app of others) app.client.stop();
   await server.stop();
   liveKit?.kill();
+  player.close();
   phoneLog.kill();
   rmSync(fixtures, { recursive: true, force: true });
 }

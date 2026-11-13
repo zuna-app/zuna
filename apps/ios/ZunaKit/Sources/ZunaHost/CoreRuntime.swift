@@ -378,6 +378,12 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
+    /// Closes every request and socket after the proxy changed (`NetworkProxy.use`), so that the
+    /// core opens them again the new way. A runtime that hasn't loaded has nothing open.
+    public func networkChanged() {
+        queue.async { [self] in network?.cancelAll() }
+    }
+
     // MARK: Test hooks, in Debug builds only
 
     #if DEBUG

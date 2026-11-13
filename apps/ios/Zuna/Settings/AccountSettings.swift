@@ -178,11 +178,19 @@ struct PrivacyView: View {
             }
             .accessibilityIdentifier(A11y.Settings.blocked)
             Section {
+                NavigationLink { ProxySettingsView() } label: {
+                    LabeledContent("Proxy", value: ProxyStore.load().on ? ProxyStore.load().host : "Off")
+                }
+                .accessibilityIdentifier(A11y.Settings.proxy)
+            } header: {
+                Text("On this device")
+            } footer: {
+                Text("Everything this device sends, for every server on it, can go through a SOCKS5 proxy, so that servers see its address rather than yours.")
+            }
+            Section {
                 Toggle("Link previews", isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.linkPreviews)
-            } header: {
-                Text("On this device")
             } footer: {
                 Text("When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it.")
             }

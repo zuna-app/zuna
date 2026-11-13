@@ -15,9 +15,10 @@ public final class EmoteFiles: Sendable {
     )
 
     let directory: URL
-    private let session: URLSession
+    /// Both through the proxy when one is set.
+    private let session: ProxiedSession
     /// For fetching ahead, which waits while someone has asked to save data.
-    private let ahead: URLSession
+    private let ahead: ProxiedSession
 
     public init(directory: URL, configuration: URLSessionConfiguration = .ephemeral) {
         // No cookies and no cache besides this one.
@@ -25,19 +26,19 @@ public final class EmoteFiles: Sendable {
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
         self.directory = directory
-        session = URLSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: nil)
+        session = ProxiedSession(configuration: configuration, delegate: PinnedServers.shared)
         let saving = configuration.copy() as! URLSessionConfiguration
         saving.allowsConstrainedNetworkAccess = false
-        ahead = URLSession(configuration: saving, delegate: PinnedServers.shared, delegateQueue: nil)
+        ahead = ProxiedSession(configuration: saving, delegate: PinnedServers.shared)
     }
 
-    var aheadConfiguration: URLSessionConfiguration { ahead.configuration }
+    var aheadConfiguration: URLSessionConfiguration { ahead.session.configuration }
 
     /// A picture's bytes: from disk when it's there, otherwise fetched and kept.
     public func data(_ id: String, _ size: String, serverUrl: String) async -> Data? {
         guard let file = file(id, size, serverUrl: serverUrl) else { return nil }
         if let data = try? Data(contentsOf: file), !data.isEmpty { return data }
-        guard let data = try? await fetch(id, size, serverUrl: serverUrl, with: session) else { return nil }
+        guard let data = try? await fetch(id, size, serverUrl: serverUrl, with: session.session) else { return nil }
         keep(data, at: file)
         return data
     }
@@ -70,7 +71,7 @@ public final class EmoteFiles: Sendable {
     private func fetchAhead(_ id: String, _ size: String, serverUrl: String) async -> Bool {
         guard let file = file(id, size, serverUrl: serverUrl) else { return true }
         do {
-            keep(try await fetch(id, size, serverUrl: serverUrl, with: ahead), at: file)
+            keep(try await fetch(id, size, serverUrl: serverUrl, with: ahead.session), at: file)
         } catch let error as URLError where error.networkUnavailableReason == .constrained {
             return false
         } catch {

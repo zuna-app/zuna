@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectCore, type CoreConnection, type RemoteSession } from "@zuna/core/rpc";
 import type { CoreEvent, MessageView, PushPreview } from "@zuna/core";
-import { waitFor } from "../../../packages/core/test/helpers";
+import { testSocks, waitFor } from "../../../packages/core/test/helpers";
 import { hostBinary } from "./paths";
 import { freePort } from "./ports";
 import { BUNDLE_ID, launch, simulatorId, terminate } from "./simulator";
@@ -80,7 +80,9 @@ export class HostApp {
 
   private async spawnProcess(): Promise<number> {
     const env = { ...process.env, ...(this.options.noJit ? { JSC_useJIT: "0" } : {}) };
-    const child = spawn(hostBinary, ["--data", this.dir, "--device-name", this.options.deviceName ?? "iPhone"], {
+    // With ZUNA_TEST_SOCKS, through the test proxy, as the app with one set in Privacy.
+    const proxy = testSocks ? ["--proxy", testSocks.url] : [];
+    const child = spawn(hostBinary, ["--data", this.dir, "--device-name", this.options.deviceName ?? "iPhone", ...proxy], {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -105,6 +107,8 @@ export class HostApp {
     const args = ["-ZunaControlPort", String(port), "-ZunaSuspendDelay", "0.5"];
     if (!this.launchedOnce) args.push("-ZunaResetData", "YES");
     if (this.bootSession) args.push("-ZunaBootSession", this.bootSession);
+    // With ZUNA_TEST_SOCKS, through the test proxy, as with one set in Privacy.
+    if (testSocks) args.push("-ZunaProxy", testSocks.url);
     args.push(...(this.options.args ?? []));
     this.launchedOnce = true;
     launch(simulatorId(), args);
@@ -138,7 +142,8 @@ export class HostApp {
    * and that process's memory footprint in MB.
    */
   async previewPush(groupId: string, messageId: string): Promise<{ preview: PushPreview; footprint: number }> {
-    const { stdout } = await execFileAsync(hostBinary, ["--data", this.dir, "--preview-push", this.serverId, groupId, messageId], {
+    const proxy = testSocks ? ["--proxy", testSocks.url] : [];
+    const { stdout } = await execFileAsync(hostBinary, ["--data", this.dir, "--preview-push", this.serverId, groupId, messageId, ...proxy], {
       env: { ...process.env, JSC_useJIT: "0" },
     });
     const json = /^ZUNA_PUSH_PREVIEW (.*)$/m.exec(stdout)?.[1];

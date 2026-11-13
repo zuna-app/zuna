@@ -34,6 +34,8 @@ final class ShareCore {
     /// Starts the core, or wakes the one this process already has, once the
     /// lock is this extension's. `moved` says the app had it meanwhile.
     static func wake(deviceKey: Data, moved: Bool) async throws -> ShareCore {
+        // The proxy set in Privacy, before anything connects, and again each time, as it may have changed.
+        if ProxyStore.apply() { current?.runtime.networkChanged() }
         if let current {
             if moved {
                 try await current.connection.reload()

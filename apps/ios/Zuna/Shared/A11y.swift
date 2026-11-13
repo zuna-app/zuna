@@ -9,6 +9,7 @@ enum A11y {
 
     enum Onboarding {
         static let welcome = "onboarding.welcome"
+        static let proxy = "onboarding.proxy"
         static let joinWithInvite = "onboarding.joinWithInvite"
         static let link = "onboarding.link"
         static let paste = "onboarding.paste"
@@ -378,6 +379,15 @@ enum A11y {
         static let linkPreviews = "settings.linkPreviews"
         static let removeMetadata = "settings.removeMetadata"
         static let playYouTube = "settings.playYouTube"
+        static let proxy = "settings.proxy"
+        static let proxyOn = "settings.proxy.on"
+        static let proxyHost = "settings.proxy.host"
+        static let proxyPort = "settings.proxy.port"
+        static let proxyUsername = "settings.proxy.username"
+        static let proxyPassword = "settings.proxy.password"
+        static let proxyCheck = "settings.proxy.check"
+        static let proxyReport = "settings.proxy.report"
+        static let proxySave = "settings.proxy.save"
         static let currentPassword = "settings.currentPassword"
         static let newPassword = "settings.newPassword"
         static let confirmPassword = "settings.confirmPassword"

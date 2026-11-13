@@ -15,7 +15,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     private let queue: DispatchQueue
     private let deliver: (_ function: String, _ arguments: [Any]) -> Void
-    private lazy var session: URLSession = {
+    private lazy var session: ProxiedSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
@@ -26,7 +26,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let delegateQueue = OperationQueue()
         delegateQueue.underlyingQueue = queue
         delegateQueue.maxConcurrentOperationCount = 1
-        return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+        return ProxiedSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }()
 
     private struct Fetch {
@@ -122,10 +122,16 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     /// Whether a link leads somewhere public: a public name can point at this
     /// device or a private network, and what a preview finds there would go into
-    /// the message. The answer comes on the core's queue.
+    /// the message. The answer comes on the core's queue. Under a proxy it goes by
+    /// the name and the address alone, as this device can't look a name up without
+    /// telling its resolver, and where a name leads is the proxy's to say.
     private func checkDestination(_ url: URL, then done: @escaping (Bool) -> Void) {
         guard Self.previewable(url), let host = url.host?.lowercased() else {
             done(false)
+            return
+        }
+        if NetworkProxy.current != nil {
+            done(!NetworkProxy.goesAround(host))
             return
         }
         if Self.isTestPage(host) {
@@ -180,7 +186,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 deliver("__zunaWebDone", [id, url, "", NSNull(), "That link can't be previewed."])
                 return
             }
-            let task = session.dataTask(with: target)
+            let task = session.session.dataTask(with: target)
             fetches[task.taskIdentifier] = Fetch(id: id, maxBytes: maxBytes)
             task.resume()
         }
@@ -209,7 +215,8 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let connections = metrics.transactionMetrics.filter { $0.resourceFetchType == .networkLoad }.map {
             (host: $0.request.url?.host, address: $0.remoteAddress, proxy: $0.isProxyConnection)
         }
-        fetches[task.taskIdentifier]?.wentPublic = Self.wentPublic(connections)
+        // Through a proxy, each connection's address is the proxy's, which says nothing about where it went.
+        fetches[task.taskIdentifier]?.wentPublic = NetworkProxy.current != nil || Self.wentPublic(connections)
         finish(task.taskIdentifier)
     }
 

@@ -42,9 +42,10 @@ export function Privacy() {
         </ul>
 
         <p>
-          On a Mac, the desktop app can send all of that through a SOCKS5 proxy you choose, in Settings, Privacy, so that your servers and the sites you link
-          to see the proxy's address instead of yours, and it connects to nothing while the proxy can't be reached. Calls and watching YouTube together go through it
-          too, so the media server and YouTube see its address as well. The proxy sees which servers you reach and when, never what you send.
+          The desktop app on a Mac, and the iPhone app, can send all of that through a SOCKS5 proxy you choose, in Settings, Privacy, so that your servers and the
+          sites you link to see the proxy's address instead of yours, and they connect to nothing while the proxy can't be reached. Calls and watching YouTube
+          together go through it too, so the media server and YouTube see its address as well. The proxy sees which servers you reach and when, never what you
+          send. Notifications on an iPhone still come from Apple's push service, which the phone itself holds.
         </p>
 
         <h2>Your server</h2>

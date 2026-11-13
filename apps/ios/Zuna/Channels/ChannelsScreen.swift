@@ -149,8 +149,7 @@ private struct ChannelsScreen: View {
         switch model.activeServer?.connection ?? .online {
         case .online: model.activeServer?.entry.name ?? "Channels"
         case .syncing: "Updating…"
-        case .connecting: "Connecting…"
-        case .offline: "Waiting for network…"
+        case .connecting, .offline: model.waitingText(model.activeServer?.connection ?? .online)
         }
     }
 }

@@ -1,9 +1,10 @@
 // zuna-host: the iOS app's core host, headless on macOS. End-to-end tests start
 // it, then drive it over the control channel exactly as the app's UI would.
 //
-//   zuna-host --data <folder> [--control <port>] [--device-name <name>]
+//   zuna-host --data <folder> [--control <port>] [--device-name <name>] [--proxy socks5://user:password@host:port]
 //
-// Prints "ZUNA_HOST_READY port=<port>" once the core is running.
+// Prints "ZUNA_HOST_READY port=<port>" once the core is running. With --proxy, everything goes
+// through that SOCKS5 proxy, as the app with one set in Privacy.
 //
 //   zuna-host --data <folder> --preview-push <server> <group> <message>
 //
@@ -42,6 +43,12 @@ if let stored = try? Data(contentsOf: keyFile), stored.count == 32 {
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { fail("no randomness") }
     deviceKey = Data(bytes)
     try? deviceKey.write(to: keyFile)
+}
+
+if let proxy = option("--proxy") {
+    guard let parsed = NetworkProxy(url: proxy) else { fail("--proxy takes socks5://user:password@host:port") }
+    NetworkProxy.use(parsed)
+    FileHandle.standardError.write(Data("zuna-host: through the proxy at \(parsed)\n".utf8))
 }
 
 var options = CoreRuntime.Options(

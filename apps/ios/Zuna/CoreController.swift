@@ -90,9 +90,12 @@ final class CoreController {
                 AppSettings.reset()
                 NotificationSettings.reset()
                 VoiceSettings.reset()
+                ProxyStore.reset()
             }
             await startControl()
             #endif
+            // Before anything connects, servers' pictures on the unlock screen among them.
+            ProxyStore.apply()
             if let key = DeviceKeyStore.unlockedKey() {
                 try await run(key: key)
                 return
@@ -139,6 +142,8 @@ final class CoreController {
 
     private func run(key: Data) async throws {
         guard let directory else { return }
+        // Before the core starts, so nothing it sends goes around the proxy set in Privacy.
+        ProxyStore.apply()
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         var options = CoreRuntime.Options(
             dataDirectory: directory,
@@ -193,6 +198,7 @@ final class CoreController {
             try await runtime.pushPreview(serverId: serverId, groupId: groupId, messageId: messageId, pictures: true)
         }
         model.onServersChanged = { Task { await notifications.refresh() } }
+        model.onNetworkChanged = { runtime.networkChanged() }
         model.onActiveServerChanged = { [weak self] in self?.reportActivity() }
         model.onNotify = { serverId, groupId, messageId, inUse in
             Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId, inUse: inUse) }
@@ -535,6 +541,13 @@ final class CoreController {
         case "voiceLeave":
             model?.voice.leave()
             return "left"
+        case "watchHere":
+            // Plays what the room watches here, as pressing Watch and agreeing does, or stops it here.
+            guard let voice = model?.voice else { return "no-voice" }
+            let watching = on ?? true
+            if watching { voice.playYouTube = true }
+            voice.setWatching(watching)
+            return voice.watching != nil ? "watching" : "not-watching"
         case "voiceIncoming":
             // The calls ringing here, as the app's own card shows them where the system doesn't ring.
             let calls = model?.voice.incoming.map { ["groupId": $0.groupId, "startedBy": $0.startedBy, "title": $0.title] } ?? []
@@ -576,6 +589,9 @@ final class CoreController {
                 "speaking": Array(voice.speaking),
                 "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local, "sound": $0.sound] },
                 "systemCall": voice.systemCallReport,
+                "watch": voice.watch != nil,
+                "watching": voice.watching != nil,
+                "playerPhase": voice.playerPhase.map { $0 as Any } ?? NSNull(),
                 "awake": UIApplication.shared.isIdleTimerDisabled,
             ]
             let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data("{}".utf8)

@@ -86,9 +86,15 @@ targets:
           - CFBundleURLName: chat.zuna.mobile
             CFBundleURLSchemes: [zuna]
         # Plain HTTP only reaches servers on this device or the local network,
-        # which the client core already limits to loopback addresses.
+        # which the client core already limits to loopback addresses, localhost
+        # and *.localhost (api.ts). Under a proxy such a name goes to the proxy
+        # as a name, which a check's servers are reached by (docs/SOCKS5_PLAN.md).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
         NSMicrophoneUsageDescription: Zuna uses the microphone for voice and video messages, for videos you take to send, and to talk in calls.
         NSCameraUsageDescription: Zuna uses the camera for video messages, for photos and videos you take to send, and when you turn it on in a call.
@@ -130,6 +136,7 @@ targets:
       - path: Zuna/Shared/DeviceKeyStore.swift
       - path: Zuna/Shared/Format.swift
       - path: Zuna/Shared/MessageNotification.swift
+      - path: Zuna/Shared/ProxyStore.swift
       - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/SharedStorage.swift
     dependencies:
@@ -154,6 +161,10 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
     entitlements:
       path: ZunaNotifications/ZunaNotifications.entitlements
       properties:
@@ -212,6 +223,7 @@ targets:
       - path: Zuna/Shared/Format.swift
       - path: Zuna/Shared/Glass.swift
       - path: Zuna/Shared/OutgoingFiles.swift
+      - path: Zuna/Shared/ProxyStore.swift
       - path: Zuna/Shared/PullSearchList.swift
       - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/ShareMailbox.swift
@@ -240,6 +252,10 @@ targets:
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         UIUserInterfaceStyle: Dark
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services

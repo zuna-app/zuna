@@ -196,7 +196,7 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 
 ## What a determined server can still tell
 
-- **The address** a sealed request comes from, which is also that device's socket's. With a SOCKS5 proxy set, in the desktop app or `zuna-bot`, it's the proxy's address instead, and still the same for both.
+- **The address** a sealed request comes from, which is also that device's socket's. With a SOCKS5 proxy set, in the desktop app, the iPhone app or `zuna-bot`, it's the proxy's address instead, and still the same for both.
 - **In the web app, the connection,** which a browser may share with the session's requests.
 - **Timing:** a device coming online, typing just before a message from the same address, a file uploaded just before a message carries it, a commit just before a message, a read position just after.
 - **Who it didn't have to wake,** and who never fetched a file because they already had it.

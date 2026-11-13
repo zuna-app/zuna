@@ -1198,6 +1198,9 @@ final class VoiceModel {
         }
     }
 
+    /// Where this device's player last said it was, for checks, which only development builds set.
+    @ObservationIgnored var playerPhase: String?
+
     /// Plays what the room watches on this device, or stops playing it here only.
     func setWatching(_ on: Bool) {
         watching = on ? watch?.session : nil

@@ -522,8 +522,7 @@ struct ChatListView: View {
         switch connection {
         case .online: model.activeServer?.entry.name ?? "Zuna"
         case .syncing: "Updating…"
-        case .connecting: "Connecting…"
-        case .offline: "Waiting for network…"
+        case .connecting, .offline: model.waitingText(connection)
         }
     }
 }

@@ -60,8 +60,11 @@ struct WatchPlayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        // It keeps nothing: no cookie outlives a session.
-        configuration.websiteDataStore = .nonPersistent()
+        // It keeps nothing: no cookie outlives a session. Under the proxy set in Privacy, YouTube is
+        // reached through it, as everything else is, with names left to it and nothing around it.
+        let store = WKWebsiteDataStore.nonPersistent()
+        if let proxy = NetworkProxy.current { store.proxyConfigurations = [proxy.configuration] }
+        configuration.websiteDataStore = store
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.allowsPictureInPictureMediaPlayback = false
@@ -243,6 +246,9 @@ struct WatchStage: View {
                     onIntent: { voice.watchControl($0) },
                     onStatus: { next in
                         status = next
+                        #if DEBUG
+                        voice.playerPhase = next.phase
+                        #endif
                         if next.phase == "in-step" { blocked = false }
                     },
                     onBlocked: { blocked = true }

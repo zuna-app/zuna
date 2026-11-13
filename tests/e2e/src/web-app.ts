@@ -20,7 +20,8 @@ export interface WebApp {
 
 const goBin = [join(process.env.LOCALAPPDATA ?? "", "Programs", "go", "bin"), join(homedir(), "go", "bin")].filter(existsSync);
 
-export async function startWebApp(options: { name: string; speech?: string }): Promise<WebApp> {
+/** `servers` and `mediaServers`, when given, are the only ones its content security policy lets it reach, by origin. */
+export async function startWebApp(options: { name: string; speech?: string; servers?: string[]; mediaServers?: string[] }): Promise<WebApp> {
   const dist = join(root, "apps", "web", "dist");
   if (!existsSync(join(dist, "index.html"))) throw new Error("Build the web app first: npm run build -w @zuna/web");
   const bin = mkdtempSync(join(tmpdir(), "zuna-e2e-web-"));
@@ -36,7 +37,8 @@ export async function startWebApp(options: { name: string; speech?: string }): P
     throw error;
   }
   const port = await freePort();
-  const served = spawn(host, ["--listen", `127.0.0.1:${port}`, "--root", dist, "--dev"], { stdio: ["ignore", "pipe", "pipe"] });
+  const only = options.servers?.length ? ["--servers", options.servers.join(","), "--media-servers", (options.mediaServers ?? []).join(",")] : [];
+  const served = spawn(host, ["--listen", `127.0.0.1:${port}`, "--root", dist, "--dev", ...only], { stdio: ["ignore", "pipe", "pipe"] });
   const profile = mkdtempSync(join(tmpdir(), `zuna-e2e-${options.name}-`));
   // Whatever goes wrong from here takes zuna-web and both folders with it.
   const cleanUp = () => {

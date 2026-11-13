@@ -3,7 +3,7 @@
 // control channel exactly as its UI would drive it.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TestApp, TestServer, loadCrypto, png, sleep, waitFor } from "../../../packages/core/test/helpers";
+import { TestApp, TestServer, loadCrypto, png, sleep, testSocks, waitFor } from "../../../packages/core/test/helpers";
 import { FAKE_EMOTES, FAKE_SET_NAME, emoteFixture, startFake7TV, type Fake7TV } from "../src/fake7tv";
 import { HostApp, phoneTarget } from "../src/host";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -241,7 +241,10 @@ describe("an iOS client with a desktop client", () => {
       );
     });
     await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
-    const base = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+    // Through a proxy, by a name only it knows, as the phone takes nothing on this machine around it.
+    const siteHost = testSocks ? "zuna-site.localhost" : "127.0.0.1";
+    testSocks?.names.set(siteHost, "127.0.0.1");
+    const base = `http://${siteHost}:${(site.address() as AddressInfo).port}`;
     try {
       const dm = `user:${aliceId}`;
       const link = `${base}/moved`;

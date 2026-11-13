@@ -9,12 +9,13 @@ import Network
 final class NetworkBridge: NSObject, @unchecked Sendable {
     private let queue: DispatchQueue
     private let deliver: (_ function: String, _ arguments: [Any]) -> Void
-    private lazy var session: URLSession = makeSession()
+    private lazy var session = makeSession()
     /// What adds to a conversation without saying who's sending goes on connections of its
     /// own, with TLS sessions of its own: an ephemeral session shares neither with another.
-    private lazy var sealedSession: URLSession = makeSession()
+    /// Under a proxy both leave it from the same address, as docs/SOCKS5_PLAN.md says.
+    private lazy var sealedSession = makeSession()
 
-    private func makeSession() -> URLSession {
+    private func makeSession() -> ProxiedSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
@@ -24,7 +25,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         delegateQueue.underlyingQueue = queue
         delegateQueue.maxConcurrentOperationCount = 1
         // A server that makes its own certificate is trusted by its pin, and nothing else.
-        return URLSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: delegateQueue)
+        return ProxiedSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: delegateQueue)
     }
     private var requests: [Int: URLSessionDataTask] = [:]
     private var sockets: [Int: NWConnection] = [:]
@@ -40,7 +41,8 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         self.deliver = deliver
     }
 
-    /// Fails everything in flight the way losing the network would, so the core notices and reconnects later.
+    /// Fails everything in flight the way losing the network would, so the core notices and
+    /// reconnects later: when testing, or once the proxy changed, so that nothing stays open the old way.
     func cancelAll() {
         for (id, task) in requests {
             task.cancel()
@@ -92,6 +94,11 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
             deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), offline ? "The network is offline." : "Invalid URL"])
             return
         }
+        // Under a proxy, nothing the system would reach around it.
+        if NetworkProxy.current != nil, NetworkProxy.goesAround(target.host ?? "") {
+            deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), NetworkProxy.goesAroundMessage])
+            return
+        }
         var request = URLRequest(url: target)
         request.httpMethod = method
         if timeoutMs > 0 { request.timeoutInterval = timeoutMs / 1000 }
@@ -104,7 +111,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         } else if body.isString {
             request.httpBody = body.toString().data(using: .utf8)
         }
-        let task = (sealed ? sealedSession : session).dataTask(with: request) { [weak self] data, response, error in
+        let task = (sealed ? sealedSession : session).session.dataTask(with: request) { [weak self] data, response, error in
             guard let self, requests.removeValue(forKey: id) != nil else { return }
             #if DEBUG
             if let crash = crashOnResponse, error == nil, crash.method == method,
@@ -132,7 +139,8 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
     // MARK: WebSocket
 
     private func openSocket(id: Int, url: String) {
-        guard !offline, let target = URL(string: url) else {
+        let proxy = NetworkProxy.current
+        guard !offline, let target = URL(string: url), proxy == nil || !NetworkProxy.goesAround(target.host ?? "") else {
             queue.async { self.socketClosed(id: id, code: 1006, error: true) }
             return
         }
@@ -145,6 +153,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
             ? NWParameters(tls: PinnedServers.shared.tls(host: target.host ?? "", queue: queue), tcp: tcp)
             : NWParameters(tls: nil, tcp: tcp)
         parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
+        NetworkProxy.apply(proxy, to: parameters)
         let connection = NWConnection(to: .url(target), using: parameters)
         sockets[id] = connection
         connection.stateUpdateHandler = { [weak self, weak connection] state in

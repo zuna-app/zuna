@@ -6,6 +6,7 @@ import os
 import ScreenCaptureKit
 #endif
 import UIKit
+import ZunaHost
 import ZunaModels
 
 /// One video someone is sending. Mirrors `CallVideo` in packages/ui/src/voice/room.ts.
@@ -67,6 +68,8 @@ final class VoiceRoom {
     private var micPublication: LocalTrackPublication?
     private var muted = false
     private var closed = false
+    /// Under a proxy, the endpoint and relays on loopback the SDK reaches LiveKit by (CallProxy).
+    private var callProxy: CallProxy?
     /// LiveKit says what this participant may send while it's still joining, which isn't news to act on yet.
     private var joined = false
     private let logger = Logger(subsystem: "chat.zuna", category: "voice")
@@ -140,7 +143,18 @@ final class VoiceRoom {
         serverMuted = access.serverMuted
         mediaUrl = access.url
         try await updateKeys(first: true)
-        try await connectRoom(url: access.url, token: access.token)
+        var url = access.url
+        // Under a proxy, the SDK is told only addresses on this device, and reaches LiveKit through them.
+        if let proxy = NetworkProxy.current {
+            let callProxy = try await CallProxy.start(target: access.url, proxy: proxy)
+            guard !closed else {
+                callProxy.close()
+                throw LiveKitError(.cancelled)
+            }
+            self.callProxy = callProxy
+            url = callProxy.url
+        }
+        try await connectRoom(url: url, token: access.token)
         joined = true
         // Those already here, and everything they send.
         for participant in room.remoteParticipants.values {
@@ -518,7 +532,8 @@ final class VoiceRoom {
             encrypted: room.e2eeManager != nil,
             keyIndex: currentKey?.index,
             keyEpoch: currentKey?.epoch,
-            streams: streams
+            streams: streams,
+            proxy: callProxy?.way
         )
     }
 
@@ -536,7 +551,11 @@ final class VoiceRoom {
         VoiceTesting.stop()
         #endif
         let room = room
-        Task { await room.disconnect() }
+        let callProxy = callProxy
+        Task {
+            await room.disconnect()
+            callProxy?.close()
+        }
     }
 
     fileprivate var isClosed: Bool { closed }

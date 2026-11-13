@@ -57,6 +57,8 @@ struct StatsRoom {
     let keyIndex: Int32?
     let keyEpoch: Int?
     let streams: [Stream]
+    /// Which way the call goes through the proxy set in Privacy, when one is.
+    var proxy: String? = nil
 }
 
 /// This device's own share, as it was asked for.
@@ -283,6 +285,7 @@ final class StreamStats {
             row("LiveKit", joined(room.serverVersion, room.serverRegion, room.serverNode)),
             row("In the room", String(room.people)),
             row("Encryption", room.encrypted ? "End to end\(key)" : "Off", warn: !room.encrypted),
+            room.proxy.flatMap { row("Proxy", $0) },
         ]
         return StatSection(
             id: "connection",

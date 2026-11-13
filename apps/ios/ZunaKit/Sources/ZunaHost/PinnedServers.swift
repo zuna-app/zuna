@@ -13,8 +13,9 @@ public final class PinnedServers: NSObject, URLSessionDelegate, @unchecked Senda
     private let lock = NSLock()
     private var pins: [String: Set<String>] = [:]
 
-    /// For what the app fetches from a server itself, such as its picture.
-    public private(set) lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+    /// For what the app fetches from a server itself, such as its picture, through the proxy when one is set.
+    public var session: URLSession { proxied.session }
+    private lazy var proxied = ProxiedSession(configuration: .default, delegate: self)
 
     /// Only an address over HTTPS can have a pin (`checkPinnable` in the core), never a
     /// name, so nothing can have the app trust another key for one.

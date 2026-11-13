@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Observation
+import ZunaHost
 import ZunaModels
 
 /// All UI state, kept in step with the core through its events. The iOS
@@ -276,6 +277,12 @@ final class AppModel {
     /// By server: the set last fetched ahead, so it's fetched again only when it changes.
     @ObservationIgnored private var prefetchedEmotes: [String: String] = [:]
 
+    /// What's wrong with the proxy set in Privacy while it can't be had, said where "Connecting…" would be.
+    private(set) var proxyTrouble: String?
+    @ObservationIgnored private var proxyProbe: Task<Void, Never>?
+    /// Tells the core the proxy changed, so it closes everything and opens it again the new way.
+    @ObservationIgnored var onNetworkChanged: (() -> Void)?
+
     init(core: CoreConnection, voice: VoiceModel) {
         self.core = core
         self.voice = voice
@@ -498,6 +505,45 @@ final class AppModel {
         }
     }
 
+    // MARK: The proxy
+
+    /// What a server that isn't online shows: the proxy's trouble, when there is some.
+    func waitingText(_ connection: ConnectionState) -> String {
+        if let proxyTrouble, connection == .connecting || connection == .offline { return proxyTrouble }
+        return connection == .offline ? "Waiting for network…" : "Connecting…"
+    }
+
+    /// Takes up the proxy setting as it's now kept: everything closes and opens again the new
+    /// way, and a call in progress ends, as its relays were the old proxy's.
+    func proxyChanged() {
+        guard ProxyStore.apply() else { return }
+        voice.leave()
+        proxyTrouble = nil
+        onNetworkChanged?()
+    }
+
+    /// While servers can't be reached under a proxy, asks the proxy itself whether it can be had,
+    /// so that what shows says so when it's the proxy. Never connects anything but the proxy.
+    private func probeProxy() {
+        guard let proxy = NetworkProxy.current else {
+            proxyTrouble = nil
+            return
+        }
+        guard proxyProbe == nil else { return }
+        proxyProbe = Task { [weak self] in
+            let failure = await Socks.probe(proxy)
+            guard let self else { return }
+            proxyProbe = nil
+            // Only for the proxy that's still set, and while something still can't be reached.
+            guard NetworkProxy.current == proxy, servers.values.contains(where: { $0.connection != .online }) else { return }
+            switch failure {
+            case .refused: proxyTrouble = "The proxy refused the password"
+            case .unreachable: proxyTrouble = "Can't reach the proxy"
+            default: proxyTrouble = nil
+            }
+        }
+    }
+
     // MARK: Events
 
     func handle(_ event: CoreEvent) {
@@ -509,7 +555,12 @@ final class AppModel {
         switch event {
         case let .connection(serverId, state):
             servers[serverId]?.connection = state
-            if state == .online { checkCaughtUp(serverId) }
+            if state == .online {
+                checkCaughtUp(serverId)
+                proxyTrouble = nil
+            } else {
+                probeProxy()
+            }
         case let .conversations(serverId):
             refresh("conversations", serverId)
         case let .read(serverId, groupId, userId, seq):

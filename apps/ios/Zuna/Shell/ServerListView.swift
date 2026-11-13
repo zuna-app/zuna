@@ -224,8 +224,7 @@ private struct ServerRow: View {
     @ViewBuilder
     private func subtitle(_ latest: ConversationView?) -> some View {
         switch server.connection {
-        case .connecting: Text("Connecting…").foregroundStyle(Theme.text3)
-        case .offline: Text("Waiting for network…").foregroundStyle(Theme.text3)
+        case .connecting, .offline: Text(model.waitingText(server.connection)).foregroundStyle(Theme.text3)
         case .online, .syncing:
             if let latest, latest.lastMessage != nil {
                 let (author, body) = Format.preview(latest.lastMessage, users: server.users, selfId: server.me?.userId ?? "", kind: latest.kind)

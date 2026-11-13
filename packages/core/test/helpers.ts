@@ -232,7 +232,14 @@ export class TestServer {
       this.door = await new Recorder().start({ host: "127.0.0.1", port: reached });
       reached = this.door.port;
     }
-    this.url = `${scheme}://${this.options.byName ? "localhost" : "127.0.0.1"}:${reached}`;
+    // With ZUNA_TEST_SOCKS, by a name only the proxy knows, so that nothing reaches it but through the proxy:
+    // the iPhone's system would take 127.0.0.1 and localhost straight there (docs/SOCKS5_PLAN.md).
+    let host = this.options.byName ? "localhost" : "127.0.0.1";
+    if (testSocks && !this.options.ownCertificate && !this.options.byName) {
+      host = `zuna-${reached}.localhost`;
+      testSocks.names.set(host, "127.0.0.1");
+    }
+    this.url = `${scheme}://${host}:${reached}`;
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     if (this.options.ownCertificate) args.push("--domain", "127.0.0.1");
     // Never the project's real relay, which is the default.
