@@ -183,6 +183,12 @@ fn selected() -> Option<(String, String)> {
     })
 }
 
+/// Where each drawn piece of a message's text is, in order, with its text.
+#[cfg(test)]
+pub fn drawn_pieces(message_id: &str) -> Vec<(Bounds<Pixels>, SharedString)> {
+    PIECES.with(|pieces| pieces.borrow().get(message_id).map(|list| list.iter().map(|piece| (piece.bounds, piece.text.clone())).collect()).unwrap_or_default())
+}
+
 /// What's selected, wherever it is.
 pub fn text() -> Option<String> {
     selected().map(|(_, text)| text)

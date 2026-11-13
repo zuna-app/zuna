@@ -560,3 +560,51 @@ fn a_channels_messages_answered_reacted_to_and_picked(cx: &mut TestAppContext) {
     app.click(cx, "cmsg-row-c2");
     assert_eq!(app.read(cx, |state| state.selection.clone()), Some((GENERAL.to_string(), vec!["c3".to_string()])));
 }
+
+#[gpui::test]
+fn a_messages_text_is_selected_stretched_and_copied(cx: &mut TestAppContext) {
+    let messages = json!([
+        message("t1", DM, 1.0, BOB, "The first line of words to pick from\n\nand a second block after it", json!({})),
+        message("t2", DM, 2.0, BOB, "Another one", json!({})),
+    ]);
+    let mut world = World::new("text-selection");
+    world.server["getCalls"] = json!([]);
+    world.server.insert("loadMessages".into(), json!({ "messages": messages, "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("user:{BOB}"));
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    app.run(cx);
+    let pieces = crate::ui::selection::drawn_pieces("t1");
+    let text = pieces.first().expect("its text is drawn").0;
+    assert!(text.size.height > gpui::px(40.), "on several lines: {pieces:?}");
+    let top = |x: f32| gpui::point(text.left() + gpui::px(x), text.top() + gpui::px(8.));
+    let bottom = |x: f32| gpui::point(text.left() + gpui::px(x), text.bottom() - gpui::px(8.));
+    // Dragged from its start down to its last line: what's between, lines and all.
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_mouse_move(top(1.), None, gpui::Modifiers::none());
+    window.simulate_mouse_down(top(1.), gpui::MouseButton::Left, gpui::Modifiers::none());
+    window.simulate_mouse_move(bottom(30.), Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    window.simulate_mouse_up(bottom(30.), gpui::MouseButton::Left, gpui::Modifiers::none());
+    app.run(cx);
+    let selected = crate::ui::selection::text_in("t1").expect("something's selected");
+    assert!(selected.starts_with("The first line") && selected.contains('\n') && !selected.ends_with("after it"), "{selected:?}");
+    assert_eq!(crate::ui::selection::text(), Some(selected.clone()));
+    // Copied with the keys a browser copies with.
+    keys(&app, cx, if cfg!(target_os = "macos") { "cmd-c" } else { "ctrl-c" });
+    assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()), Some(selected));
+    // Shift stretches it, within that message.
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_mouse_down(top(40.), gpui::MouseButton::Left, gpui::Modifiers::shift());
+    window.simulate_mouse_up(top(40.), gpui::MouseButton::Left, gpui::Modifiers::shift());
+    app.run(cx);
+    let shorter = crate::ui::selection::text_in("t1").expect("still selected");
+    assert!(!shorter.contains('\n') && shorter.len() < 20, "{shorter:?}");
+    assert_eq!(crate::ui::selection::text_in("t2"), None);
+    // Typing lets go of it, and so does a click with nothing to select.
+    type_in(&app, cx, "x");
+    assert_eq!(crate::ui::selection::text(), None);
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_mouse_down(top(1.), gpui::MouseButton::Left, gpui::Modifiers::none());
+    window.simulate_mouse_up(top(1.), gpui::MouseButton::Left, gpui::Modifiers::none());
+    app.run(cx);
+    assert_eq!(crate::ui::selection::text(), None, "a click without a drag selects nothing");
+}
