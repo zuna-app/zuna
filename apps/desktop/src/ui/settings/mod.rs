@@ -384,8 +384,7 @@ impl Render for SettingsView {
             .children(SECTIONS.iter().filter(|(id, _, _)| (!telegram_in_front || !SERVER_SECTIONS.contains(id)) && (*id != "connections" || has_connections)).map(|(id, label, icon_name)| {
                 let active = self.section == *id;
                 let id_string = id.to_string();
-                div()
-                    .id(*id)
+                named_div(SharedString::from(format!("section-{id}")))
                     .flex()
                     .items_center()
                     .gap(px(10.))
@@ -476,5 +475,54 @@ impl Render for SettingsView {
                     view.propose_file(&path, cx);
                 }
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Settings gone through as a person goes through them: each section from the list beside
+    //! them, and Escape, which puts away a question first and then the settings.
+
+    use gpui::TestAppContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World};
+
+    #[gpui::test]
+    fn each_section_and_escape(cx: &mut TestAppContext) {
+        let mut world = World::new("settings-sections");
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::Settings { section: None }), cx);
+        });
+        let view = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<SettingsView>().ok())).unwrap().expect("Settings are open");
+        for (id, _, _) in SECTIONS {
+            if !app.drawn(cx, &format!("section-{id}")) {
+                assert_eq!(id, "connections", "only Connections is left out, in a build that can't link Telegram");
+                continue;
+            }
+            app.click(cx, &format!("section-{id}"));
+            assert_eq!(cx.read(|cx| view.read(cx).section.clone()), id);
+        }
+        assert!(!app.calls_of("exportServerData").is_empty(), "Your data reads what the server holds");
+        // Escape: a question first, then the settings.
+        view.update(cx, |view, _| view.confirming_keep = true);
+        let focus = cx.read(|cx| view.read(cx).focus.clone());
+        app.window.update(cx, |_, window, cx| focus.focus(window, cx)).unwrap();
+        let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_keystrokes("escape");
+        app.run(cx);
+        assert!(!cx.read(|cx| view.read(cx).confirming_keep));
+        assert!(app.read(cx, |state| matches!(state.overlay, Some(Overlay::Settings { .. }))));
+        let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_keystrokes("escape");
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
     }
 }
