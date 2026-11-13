@@ -123,8 +123,7 @@ impl ConversationList {
         // its conversation and the server's preferences on every draw.
         let (menu_key, menu_server) = (item.key.clone(), server.entry.id.clone());
         let menu_state = self.state.clone();
-        div()
-            .id(SharedString::from(format!("conv-{}", item.key)))
+        named_div(SharedString::from(format!("conv-{}", item.key)))
             .w_full()
             .flex()
             .items_center()

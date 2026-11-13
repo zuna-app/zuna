@@ -3,6 +3,8 @@
 
 mod rows;
 mod channels;
+#[cfg(test)]
+mod tests;
 
 use std::time::Duration;
 
@@ -298,7 +300,7 @@ impl Render for ConversationList {
             .child({
                 let (title_bounds, title_probe) = bounds_probe();
                 // `.server-title`: background 0.1s.
-                super::motion::track_hover(div().id("server-title"), "server-title".into())
+                super::motion::track_hover(named_div("server-title"), "server-title".into())
                     .relative()
                     .child(title_probe)
                     .flex_1()
@@ -405,8 +407,7 @@ impl Render for ConversationList {
         let (gap, edge) = if filters.len() > 5 { (11., 12.) } else { (16., 14.) };
         let tabs = div().flex().flex_none().gap(px(gap)).px(px(edge)).border_b_1().border_color(theme.line).children(filters.into_iter().map(|(id, label)| {
             let active = self.filter == id;
-            div()
-                .id(label)
+            named_div(label)
                 .relative()
                 .pt(px(5.))
                 .pb(px(8.))
@@ -446,8 +447,7 @@ impl Render for ConversationList {
                 let group = hit.message.group_id.clone();
                 let id = hit.message.id.clone();
                 rows.push(
-                    div()
-                        .id(SharedString::from(format!("hit-{}", hit.message.id)))
+                    named_div(SharedString::from(format!("hit-{}", hit.message.id)))
                         .w_full()
                         .flex()
                         .items_center()
@@ -530,8 +530,7 @@ impl Render for ConversationList {
         if !hidden.is_empty() {
             let open = self.show_hidden;
             rows.push(
-                div()
-                    .id("hidden-toggle")
+                named_div("hidden-toggle")
                     .group("hidden-toggle")
                     .mt(px(4.))
                     .flex()
