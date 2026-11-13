@@ -367,8 +367,7 @@ impl ServerBots {
             None => format!("@{}", bot.username),
         };
         let toggled = bot.clone();
-        div()
-            .id(SharedString::from(format!("bot-{}", bot.id)))
+        named_div(SharedString::from(format!("bot-{}", bot.id)))
             .w_full()
             .flex()
             .items_center()
@@ -510,8 +509,7 @@ impl ServerBots {
                 let next: Vec<String> = if has { bot.channels.iter().filter(|id| **id != channel.id).cloned().collect() } else { bot.channels.iter().cloned().chain([channel.id.clone()]).collect() };
                 let id = bot.id.clone();
                 given = given.child(
-                    div()
-                        .id(SharedString::from(format!("bot-channel-{}", channel.id)))
+                    named_div(SharedString::from(format!("bot-channel-{}", channel.id)))
                         .flex()
                         .items_center()
                         .gap(px(6.))
@@ -631,5 +629,178 @@ impl Render for ServerBots {
             parts.push(ServerSettings::row("Bots each person can have", None, div().w(px(90.)).flex_none().child(select_box("max-bots", most.to_string(), choices, cx)).into_any_element(), cx));
         }
         div().flex().flex_col().gap(px(14.)).children(parts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A server's bots in its settings, clicked through as an owner and admin uses them: one's
+    //! settings opened, its profile, listing, who may add it, its files and channels changed,
+    //! messaged and deleted; a new one made, listed or private, with its setup link copied; one
+    //! waiting to be set up given a new link; and the server's own rules for bots.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World, refused};
+
+    fn bots(app: &Running, cx: &mut TestAppContext) -> Entity<ServerBots> {
+        let settings = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<ServerSettings>().ok())).unwrap().expect("the server's settings are open");
+        cx.read(|cx| settings.read(cx).bots.clone()).expect("on its bots")
+    }
+
+    fn open(cx: &mut TestAppContext, world: &World) -> Running {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, world);
+        for method in ["updateBot", "updateBotProfile", "setBotChannels", "deleteBot", "updateServerSettings"] {
+            app.answer(method, |_| Ok(Value::Null));
+        }
+        app.update(cx, |state, cx| {
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::ServerSettings { section: Some("bots".into()) }), cx);
+        });
+        app
+    }
+
+    /// Picks an entry of the menu a select opened, and waits out the menu's going, which covers
+    /// what's under it until it has.
+    fn pick(app: &Running, cx: &mut TestAppContext, select: &str, entry: usize) {
+        app.click(cx, select);
+        app.click(cx, &format!("menu-item-{entry}"));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        app.run(cx);
+    }
+
+    fn reopen(app: &Running, cx: &mut TestAppContext) {
+        app.update(cx, |state, cx| state.set_overlay(None, cx));
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some("bots".into()) }), cx));
+    }
+
+    #[gpui::test]
+    fn a_bots_settings_are_changed_from_its_row(cx: &mut TestAppContext) {
+        let app = open(cx, &World::new("bots-settings"));
+        assert!(app.drawn(cx, &format!("bot-{BOT}")));
+        app.click(cx, &format!("bot-{BOT}"));
+        let view = bots(&app, cx);
+        let (name, about) = cx.read(|cx| view.read(cx).open.clone().map(|(_, name, about)| (name, about))).expect("its settings open under it");
+        assert_eq!(cx.read(|cx| name.read(cx).text().to_string()), "Helper");
+        // Its profile, which the bot itself is asked to set.
+        name.update(cx, |input, cx| input.set_text("Helpful", cx));
+        about.update(cx, |input, cx| input.set_text("  Answers things  ", cx));
+        app.run(cx);
+        app.click(cx, "save-bot");
+        assert_eq!(app.calls_of("updateBotProfile"), vec![vec![json!(BOT), json!({ "displayName": "Helpful", "bio": "Answers things" })]]);
+        assert!(app.toasts(cx).contains(&SENT.to_string()));
+        // Listing, who may add it, and files, each read back after.
+        app.forget_calls();
+        app.click(cx, "bot-files");
+        app.click(cx, "bot-listed");
+        pick(&app, cx, "bot-add", 1);
+        assert_eq!(app.calls_of("updateBot"), vec![vec![json!(BOT), json!({ "files": false })], vec![json!(BOT), json!({ "listed": false })], vec![json!(BOT), json!({ "add": "admins" })]]);
+        assert!(app.calls_of("getBots").len() >= 3);
+        // The channels an admin gives it.
+        app.click(cx, &format!("bot-channel-{GENERAL}"));
+        assert_eq!(app.calls_of("setBotChannels"), vec![vec![json!(BOT), json!([])]], "taken out of the one it had");
+        // A change the server refuses says why.
+        app.answer("updateBot", |_| Err(refused("Not a bot of yours.")));
+        app.click(cx, "bot-files");
+        assert!(app.toasts(cx).contains(&"Not a bot of yours.".to_string()));
+        // Messaging it opens its chat.
+        app.click(cx, "message-bot");
+        assert_eq!(app.read(cx, |state| (state.overlay.clone(), state.servers[SERVER].active_key.clone())), (None, Some(format!("user:{BOT}"))));
+
+        // Deleting is asked about first, and a no does nothing.
+        reopen(&app, cx);
+        app.click(cx, &format!("bot-{BOT}"));
+        app.click(cx, "delete-bot");
+        let view = bots(&app, cx);
+        assert_eq!(cx.read(|cx| view.read(cx).deleting.clone()).as_deref(), Some(BOT), "asked about first");
+        app.click(cx, "confirm-cancel");
+        assert!(app.calls_of("deleteBot").is_empty());
+        app.click(cx, "delete-bot");
+        app.click(cx, "confirm-action");
+        assert_eq!(app.calls_of("deleteBot"), vec![vec![json!(BOT)]]);
+        // A second click on its row closes its settings.
+        reopen(&app, cx);
+        app.click(cx, &format!("bot-{BOT}"));
+        app.click(cx, &format!("bot-{BOT}"));
+        let view = bots(&app, cx);
+        assert!(cx.read(|cx| view.read(cx).open.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_bot_is_made_listed_or_private_and_set_up_by_its_link(cx: &mut TestAppContext) {
+        let app = open(cx, &World::new("bots-new"));
+        app.answer("createBot", |_| Ok(json!({ "link": "https://server-1.example/bot#setup" })));
+        app.click(cx, "new-bot");
+        let view = bots(&app, cx);
+        let form = |cx: &mut TestAppContext| cx.read(|cx| view.read(cx).creating.as_ref().map(|form| (form.name.clone(), form.username.clone()))).expect("the form");
+        let (name, username) = form(cx);
+        name.update(cx, |input, cx| input.set_text("Weather", cx));
+        username.update(cx, |input, cx| input.set_text("no spaces allowed", cx));
+        app.run(cx);
+        app.click(cx, "make-bot");
+        assert!(app.calls_of("createBot").is_empty(), "not with a username the server wouldn't take");
+        username.update(cx, |input, cx| input.set_text("weather", cx));
+        app.run(cx);
+        // Listed, for whoever the owner says may add it, and without files.
+        app.click(cx, "new-bot-files");
+        assert!(cx.read(|cx| view.read(cx).creating.as_ref().is_some_and(|form| !form.files)), "without files");
+        app.click(cx, "new-bot-listed");
+        pick(&app, cx, "new-bot-add", 2);
+        app.click(cx, "make-bot");
+        assert_eq!(app.calls_of("createBot"), vec![vec![json!({ "username": "weather", "name": "Weather", "listed": true, "add": "anyone", "files": false })]]);
+        // Its setup link, this once, as a command to copy.
+        app.click(cx, "copy-bot-command");
+        assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("zuna-bot init \"https://server-1.example/bot#setup\""));
+        assert!(app.toasts(cx).contains(&"Command copied".to_string()));
+        app.click(cx, "bot-link-done");
+        assert!(cx.read(|cx| view.read(cx).link.is_none()));
+        // A private one is its owner's alone to add, whatever was chosen; and the form can be left.
+        app.click(cx, "new-bot");
+        let (name, username) = form(cx);
+        name.update(cx, |input, cx| input.set_text("Mine", cx));
+        username.update(cx, |input, cx| input.set_text("mine.bot", cx));
+        username.update(cx, |_, cx| cx.emit(InputEvent::Submit));
+        app.run(cx);
+        assert_eq!(app.calls_of("createBot")[1][0]["add"], "owner");
+        app.click(cx, "bot-link-done");
+        app.click(cx, "new-bot");
+        app.click(cx, "cancel-bot");
+        assert!(cx.read(|cx| view.read(cx).creating.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_bot_waiting_to_be_set_up_and_the_servers_rules_for_bots(cx: &mut TestAppContext) {
+        let mut world = World::new("bots-rules");
+        world.server["getBots"][0]["setUp"] = json!(false);
+        world.server["getInfo"]["max_bots"] = json!(7);
+        let app = open(cx, &world);
+        app.answer("newBotLink", |_| Ok(json!("https://server-1.example/bot#again")));
+        app.click(cx, &format!("bot-{BOT}"));
+        app.click(cx, "new-bot-link");
+        let view = bots(&app, cx);
+        assert_eq!(cx.read(|cx| view.read(cx).link.clone()).as_deref(), Some("https://server-1.example/bot#again"));
+        app.click(cx, "bot-link-done");
+        // The server's rules, an admin's to set.
+        app.click(cx, "member-bots");
+        pick(&app, cx, "max-bots", 0);
+        assert_eq!(app.calls_of("updateServerSettings"), vec![vec![json!({ "allow_member_bots": true })], vec![json!({ "max_bots": 1 })]]);
+        // Someone at the limit can't make another, and a member can't make one where only admins may.
+        let mut world = World::new("bots-limits");
+        world.server["getInfo"]["max_bots"] = json!(1);
+        let app = open(cx, &world);
+        app.click(cx, "new-bot");
+        let view = bots(&app, cx);
+        assert!(cx.read(|cx| view.read(cx).creating.is_none()), "You have as many bots as this server lets one person have.");
+        let mut world = World::new("bots-member");
+        world.server["getSelf"]["role"] = json!("member");
+        world.server["getUsers"][0]["role"] = json!("member");
+        world.server["getBots"] = json!([]);
+        let app = open(cx, &world);
+        assert!(!app.drawn(cx, "new-bot") && !app.drawn(cx, "member-bots"));
     }
 }

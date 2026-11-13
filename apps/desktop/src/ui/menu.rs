@@ -281,8 +281,7 @@ impl MenuLayer {
             for emoji in reactions.iter().copied() {
                 let on_react = on_react.clone();
                 row = row.child(
-                    div()
-                        .id(gpui::ElementId::Name(format!("react-{emoji}").into()))
+                    named_div(gpui::ElementId::Name(format!("react-{emoji}").into()))
                         .size(px(32.))
                         .rounded(RADIUS_S)
                         .flex()
@@ -310,8 +309,7 @@ impl MenuLayer {
             let icon_color = if entry.danger { theme.red } else { theme.text2 };
             let hover = if entry.danger { theme.red_soft } else { theme.hover_strong };
             let entry = entry.clone();
-            let mut row = div()
-                .id(("menu-item", index))
+            let mut row = named_div(("menu-item", index))
                 .w_full()
                 .flex()
                 .items_center()

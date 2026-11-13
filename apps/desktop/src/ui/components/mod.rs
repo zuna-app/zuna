@@ -352,8 +352,7 @@ pub fn notice(icon_name: &str, text: impl Into<SharedString>, cx: &App) -> Div {
 pub fn select_box(id: impl Into<ElementId>, label: impl Into<SharedString>, choices: Vec<(String, std::rc::Rc<dyn Fn(&mut Window, &mut App)>)>, cx: &App) -> Stateful<Div> {
     let theme = theme(cx);
     let (bounds, probe) = bounds_probe();
-    div()
-        .id(id)
+    named_div(id)
         .w_full()
         .h(px(36.))
         .px(px(10.))
