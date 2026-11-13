@@ -18,7 +18,6 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `deps-build.md` | dependencies and repo hygiene | 1 |
-| `linux-platform-tests.md` | tests of the Linux platform's own logic, added on 2026-11-13 and only workable on Linux | 1 |
 
 What's left is a choice, not just a fix:
 
@@ -28,7 +27,7 @@ What's left is a choice, not just a fix:
 
 Every commit from this review says what it couldn't build or run. Together:
 
-- **On a Mac:** none of the iOS changes were compiled: the audio session left to a call, PushKit from launch, the toasts read by VoiceOver, the servers loaded at once, avatars loaded again at a larger size, the share sheet's pictures kept, one error description and one background helper, message times following the text size, the 20 most recent chats kept loaded, rows drawn again only when they change, the core's replies read off its thread, and typing and presence apart from `ServerState` (`State/LiveState.swift`). Run `npm run build:ios`, `swift test` in `apps/ios/ZunaKit`, `npm run test:ios`, `npm run test:ios:ui`, `npm run test:ios:voice`, and on a phone: restart it, leave Zuna locked, call it from the web app, and see it ring. Also `npm run dev:macos` and `mac-voice-check.mjs` for the desktop changes only built on Windows, and `cargo test --bin zuna -- platform::` in `apps/desktop` for the tests of a notification's picture (`platform/notification.rs`), which build for macOS too and were only run on Linux.
+- **On a Mac:** none of the iOS changes were compiled: the audio session left to a call, PushKit from launch, the toasts read by VoiceOver, the servers loaded at once, avatars loaded again at a larger size, the share sheet's pictures kept, one error description and one background helper, message times following the text size, the 20 most recent chats kept loaded, rows drawn again only when they change, the core's replies read off its thread, and typing and presence apart from `ServerState` (`State/LiveState.swift`). Run `npm run build:ios`, `swift test` in `apps/ios/ZunaKit`, `npm run test:ios`, `npm run test:ios:ui`, `npm run test:ios:voice`, and on a phone: restart it, leave Zuna locked, call it from the web app, and see it ring. Also `npm run dev:macos` and `mac-voice-check.mjs` for the desktop changes only built on Windows, and `cargo test --bin zuna -- platform::` in `apps/desktop` for the tests of a notification's picture (`platform/notification.rs`) and of a second start (`platform/unix/single.rs`), which build for macOS too and were only run on Linux.
 - **On Linux:** `npm run dev:linux`, `linux-check.mjs` and `linux-voice-check.mjs` for the desktop changes only built on Windows, and dev/setup.sh then dev/build.sh on clean Debian, Fedora and Arch machines.
 - **With PostgreSQL:** the server's and the core's tests with `ZUNA_TEST_POSTGRES`. CI's new `postgres` job does this from the next `v*` tag, without holding a release back until it's seen passing.
 - **In CI, on the next `v*` tag:** the wasm-bindgen action, the actions' new majors, the cargo audits of the desktop's crates, the web image built from the release's own web build, and the `desktop` job, which also doesn't hold a release back yet.

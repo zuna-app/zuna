@@ -319,4 +319,56 @@ mod tests {
         assert_eq!(trigger_of("ShiftLeft"), None);
         assert_eq!(trigger_of("Numpad4").as_deref(), Some("KP_4"));
     }
+
+    #[test]
+    fn names_every_key_it_knows_both_ways() {
+        for (gpui, code, trigger) in [
+            ("z", "KeyZ", "z"),
+            // A letter, not a function key.
+            ("f", "KeyF", "f"),
+            ("0", "Digit0", "0"),
+            ("f1", "F1", "F1"),
+            ("f24", "F24", "F24"),
+            ("tab", "Tab", "Tab"),
+            ("caps_lock", "CapsLock", "Caps_Lock"),
+            ("-", "Minus", "minus"),
+            ("=", "Equal", "equal"),
+            ("[", "BracketLeft", "bracketleft"),
+            ("]", "BracketRight", "bracketright"),
+            ("\\", "Backslash", "backslash"),
+            (";", "Semicolon", "semicolon"),
+            ("'", "Quote", "apostrophe"),
+            (",", "Comma", "comma"),
+            (".", "Period", "period"),
+            ("/", "Slash", "slash"),
+            ("insert", "Insert", "Insert"),
+            ("delete", "Delete", "Delete"),
+            ("home", "Home", "Home"),
+            ("end", "End", "End"),
+            ("pageup", "PageUp", "Prior"),
+            ("up", "ArrowUp", "Up"),
+            ("down", "ArrowDown", "Down"),
+            ("left", "ArrowLeft", "Left"),
+            ("right", "ArrowRight", "Right"),
+            ("pause", "Pause", "Pause"),
+            ("scroll_lock", "ScrollLock", "Scroll_Lock"),
+        ] {
+            assert_eq!(code_of(gpui).as_deref(), Some(code), "{gpui}");
+            assert_eq!(trigger_of(code).as_deref(), Some(trigger), "{code}");
+        }
+        // Held in the window, but no shortcut of the portal's, as the Electron app's triggerOf had it.
+        assert_eq!(code_of("escape").as_deref(), Some("Escape"));
+        assert_eq!(trigger_of("Escape"), None);
+    }
+
+    #[test]
+    fn names_no_key_it_doesnt_know() {
+        for gpui in ["", "A", "é", "f0", "f25", "fx", "enter", "ab", "shift", "control"] {
+            assert_eq!(code_of(gpui), None, "{gpui}");
+        }
+        for code in ["", "Key", "KeyAB", "Numpad", "NumpadEnter", "Fn", "F", "Enter", "ControlLeft"] {
+            assert_eq!(trigger_of(code), None, "{code}");
+        }
+        assert_eq!(trigger_of("Numpad0").as_deref(), Some("KP_0"));
+    }
 }

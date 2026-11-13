@@ -86,3 +86,52 @@ pub fn forward(data_dir: &Path, message: &str) {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn names_one_socket_for_each_data_folder() {
+        let one = socket_path(Path::new("/home/a/.local/share/zuna"));
+        assert_eq!(one, socket_path(Path::new("/home/a/.local/share/zuna")));
+        assert_ne!(one, socket_path(Path::new("/home/b/.local/share/zuna")));
+        let name = one.file_name().unwrap().to_str().unwrap();
+        let tag = name.strip_prefix("zuna-").and_then(|rest| rest.strip_suffix(".sock")).expect(name);
+        assert!(tag.len() == 16 && tag.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{name}");
+    }
+
+    #[test]
+    fn hands_a_second_start_to_the_first() {
+        #[cfg(target_os = "linux")]
+        let _held = crate::platform::linux::tests::TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let data_dir = std::env::temp_dir().join(format!("zuna-single-{}", std::process::id()));
+        std::fs::remove_dir_all(&data_dir).ok();
+        let Claim::First(handed) = claim(&data_dir) else { panic!("nothing else runs for this folder") };
+        // A lock on a file is held by the file opened, so this process's second open waits too.
+        assert!(matches!(claim(&data_dir), Claim::Running));
+        let socket = socket_path(&data_dir);
+        assert_eq!(std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+
+        let send = |message: &str| UnixStream::connect(&socket).unwrap().write_all(message.as_bytes()).unwrap();
+        send("zuna://invite/abc\ntoken-1\n");
+        assert_eq!(handed.recv_timeout(Duration::from_secs(10)).unwrap(), "zuna://invite/abc");
+        #[cfg(target_os = "linux")]
+        assert_eq!(crate::platform::linux::take_activation_token().as_deref(), Some("token-1"));
+
+        // Just to be seen, without a token.
+        send("\n\n");
+        assert_eq!(handed.recv_timeout(Duration::from_secs(10)).unwrap(), "");
+        #[cfg(target_os = "linux")]
+        assert_eq!(crate::platform::linux::take_activation_token(), None);
+
+        forward(&data_dir, "zuna://quit");
+        assert_eq!(handed.recv_timeout(Duration::from_secs(10)).unwrap(), "zuna://quit");
+        #[cfg(target_os = "linux")]
+        crate::platform::linux::take_activation_token();
+
+        std::fs::remove_file(&socket).ok();
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+}

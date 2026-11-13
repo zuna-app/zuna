@@ -40,24 +40,52 @@ enum Command {
 
 static MAIN: Mutex<Option<AnyWindowHandle>> = Mutex::new(None);
 static COMMANDS: OnceLock<UnboundedSender<Command>> = OnceLock::new();
-/// Minimized by the app itself, until the window is active again. Wayland doesn't tell a
-/// window it's minimized, so this is all there is to know.
-static MINIMIZED: AtomicBool = AtomicBool::new(false);
-/// Whether the window, once minimized, has been away from the front, so that being active
-/// again means it was brought back.
-static AWAY_SINCE_MINIMIZED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the main window is minimized by the app itself, until it's active again. Wayland
+/// doesn't tell a window it's minimized, so this is all there is to know.
+struct Minimized {
+    minimized: AtomicBool,
+    /// Whether the window, once minimized, has been away from the front, so that being active
+    /// again means it was brought back.
+    away: AtomicBool,
+}
+
+impl Minimized {
+    const fn new() -> Self {
+        Minimized { minimized: AtomicBool::new(false), away: AtomicBool::new(false) }
+    }
+
+    fn minimized(&self) {
+        self.away.store(false, Ordering::Relaxed);
+        self.minimized.store(true, Ordering::Relaxed);
+    }
+
+    fn shown(&self) {
+        self.minimized.store(false, Ordering::Relaxed);
+    }
+
+    fn activation(&self, active: bool) {
+        if !self.minimized.load(Ordering::Relaxed) {
+            return;
+        }
+        if !active {
+            self.away.store(true, Ordering::Relaxed);
+        } else if self.away.load(Ordering::Relaxed) {
+            self.minimized.store(false, Ordering::Relaxed);
+        }
+    }
+
+    fn visible(&self) -> bool {
+        !self.minimized.load(Ordering::Relaxed)
+    }
+}
+
+static MINIMIZED: Minimized = Minimized::new();
 
 /// The main window became active or stopped being, as GPUI says: one the app minimized is
 /// visible again once it's been away and then active, from the taskbar or anywhere.
 pub fn main_activation(active: bool) {
-    if !MINIMIZED.load(Ordering::Relaxed) {
-        return;
-    }
-    if !active {
-        AWAY_SINCE_MINIMIZED.store(true, Ordering::Relaxed);
-    } else if AWAY_SINCE_MINIMIZED.load(Ordering::Relaxed) {
-        MINIMIZED.store(false, Ordering::Relaxed);
-    }
+    MINIMIZED.activation(active);
 }
 /// The latest activation token handed over, by a second start, the tray or a notification,
 /// which the next showing of the window uses: Wayland only lets a window come to the front
@@ -68,7 +96,7 @@ pub(crate) fn set_activation_token(token: String) {
     *ACTIVATION_TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(token);
 }
 
-fn take_activation_token() -> Option<String> {
+pub(super) fn take_activation_token() -> Option<String> {
     ACTIVATION_TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
 }
 
@@ -102,7 +130,7 @@ async fn run(command: Command, cx: &mut AsyncApp) {
     let Some(handle) = main_window() else { return };
     match command {
         Command::Show => {
-            MINIMIZED.store(false, Ordering::Relaxed);
+            MINIMIZED.shown();
             let token = take_activation_token();
             if token.is_some() {
                 log::info!("showing the window with an activation token");
@@ -132,8 +160,7 @@ async fn run(command: Command, cx: &mut AsyncApp) {
             }
             // Visible again once it's been away and then active, which main_activation hears from
             // the window's activation, rather than asking it four times a second.
-            AWAY_SINCE_MINIMIZED.store(false, Ordering::Relaxed);
-            MINIMIZED.store(true, Ordering::Relaxed);
+            MINIMIZED.minimized();
         }
     }
 }
@@ -154,7 +181,7 @@ pub fn set_main_window(window: &gpui::Window) {
 }
 
 pub fn main_visible() -> bool {
-    !MINIMIZED.load(Ordering::Relaxed)
+    MINIMIZED.visible()
 }
 
 /// Out of sight but still running. GPUI can't hide a window on Linux, so it's minimized.
@@ -178,8 +205,65 @@ pub fn notification_state() -> super::NotificationState {
     super::NotificationState { show: true, sound: !notifications::inhibited(), wait_for_input: true }
 }
 
-
 /// Whether there's a Wayland session to open the window in.
 pub fn wayland_session() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|display| !display.is_empty())
+    wayland_display(std::env::var_os("WAYLAND_DISPLAY"))
+}
+
+fn wayland_display(display: Option<std::ffi::OsString>) -> bool {
+    display.is_some_and(|display| !display.is_empty())
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// Held by each test that hands over an activation token, which the app keeps one of.
+    pub(crate) static TOKEN: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn uses_an_activation_token_once_and_the_latest() {
+        let _held = TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        take_activation_token();
+        assert_eq!(take_activation_token(), None);
+        set_activation_token("first".into());
+        set_activation_token("second".into());
+        assert_eq!(take_activation_token().as_deref(), Some("second"));
+        assert_eq!(take_activation_token(), None);
+    }
+
+    #[test]
+    fn is_visible_again_once_it_was_away_and_then_active() {
+        // Its own, as the app's is read by other tests.
+        let window = Minimized::new();
+        assert!(window.visible());
+        // Activation changes nothing until the app minimizes it.
+        window.activation(false);
+        window.activation(true);
+        assert!(window.visible());
+
+        window.minimized();
+        assert!(!window.visible());
+        // Still active as it goes down, which isn't coming back.
+        window.activation(true);
+        assert!(!window.visible());
+        window.activation(false);
+        assert!(!window.visible());
+        window.activation(true);
+        assert!(window.visible());
+
+        // Minimized again, it has to be away again first.
+        window.minimized();
+        window.activation(true);
+        assert!(!window.visible());
+        window.shown();
+        assert!(window.visible());
+    }
+
+    #[test]
+    fn needs_a_wayland_display_named() {
+        assert!(wayland_display(Some("wayland-0".into())));
+        assert!(!wayland_display(Some("".into())));
+        assert!(!wayland_display(None));
+    }
 }
