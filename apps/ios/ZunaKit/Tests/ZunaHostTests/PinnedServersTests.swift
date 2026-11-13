@@ -26,4 +26,24 @@ final class PinnedServersTests: XCTestCase {
         XCTAssertNil(pinned.pins(for: "relay.example.com"))
         XCTAssertNil(pinned.pins(for: "192.168.1.11"))
     }
+
+    func testACertificateIsTrustedByItsPinAndNothingElse() throws {
+        let der = try XCTUnwrap(Data(base64Encoded: Self.certificate))
+        let certificate = try XCTUnwrap(SecCertificateCreateWithData(nil, der as CFData))
+        var trust: SecTrust?
+        XCTAssertEqual(SecTrustCreateWithCertificates(certificate, SecPolicyCreateBasicX509(), &trust), errSecSuccess)
+        let made = try XCTUnwrap(trust)
+        XCTAssertTrue(PinnedServers.accepts(made, [Self.pin]))
+        XCTAssertFalse(PinnedServers.accepts(made, ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]))
+        XCTAssertFalse(PinnedServers.accepts(made, []))
+
+        // A connection to a pinned address checks its pin, and any other the system's way; both get TLS.
+        let pinned = PinnedServers()
+        XCTAssertTrue(pinned.add(url: "https://192.168.1.10", pin: Self.pin))
+        let queue = DispatchQueue(label: "pins")
+        XCTAssertNotNil(pinned.tls(host: "192.168.1.10", queue: queue).securityProtocolOptions)
+        XCTAssertNotNil(pinned.tls(host: "chat.example", queue: queue).securityProtocolOptions)
+        // What the app fetches from a server itself has a session of its own.
+        XCTAssertTrue(pinned.session === pinned.session)
+    }
 }

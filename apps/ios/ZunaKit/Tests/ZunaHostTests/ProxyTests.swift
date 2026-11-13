@@ -143,6 +143,66 @@ final class ProxyTests: XCTestCase {
         guard case let .failure(unknown) = relay.fromLiveKit(Data([0x9a, 0x06, 0x01, 0x00]), relayFor: { _, _, _ in nil }) else { return XCTFail("an unknown kind went on") }
         XCTAssertTrue(unknown.reason.contains("doesn't know"), unknown.reason)
         XCTAssertEqual(try relay.joinAddress("ws://127.0.0.1:7880/rtc?access_token=x").get(), "ws://127.0.0.1:7880/rtc?access_token=x")
+        // A join request compressed some way the relay doesn't know isn't joined by: field 1, compression, is 5 here.
+        guard case let .failure(unread) = relay.joinAddress("ws://127.0.0.1:7880/rtc?join_request=CAU") else { return XCTFail("an unreadable join went on") }
+        XCTAssertFalse(unread.description.isEmpty)
+    }
+
+    func testWhatTheProxySaysIsToldInWords() {
+        XCTAssertEqual(Socks.Failure.unreachable("It closed.").description, "Can't reach the proxy: It closed.")
+        XCTAssertEqual(Socks.Failure.refused.errorDescription, "The proxy refused the username or password.")
+        let codes: [UInt8: String] = [
+            2: "The proxy doesn't allow that connection.", 3: "The proxy can't reach that network.", 4: "The proxy can't reach that server.",
+            5: "That server refused the proxy's connection.", 6: "The proxy's connection timed out.", 7: "The proxy doesn't do that.",
+            8: "The proxy doesn't take that kind of address.", 1: "The proxy couldn't make the connection.",
+        ]
+        for (code, words) in codes {
+            XCTAssertEqual(Socks.Failure.declined(code).description, words)
+            // A refusal from past the proxy is no fault of the proxy's own.
+            XCTAssertFalse(Socks.Failure.declined(code).atProxy)
+        }
+    }
+
+    func testDatagramsFromAnyKindOfAddressAreRead() throws {
+        let six = try XCTUnwrap(Socks.wrap(Data("v6".utf8), to: "[2001:db8::7]", port: 9))
+        let fromSix = try XCTUnwrap(Socks.unwrap(six))
+        XCTAssertEqual(fromSix.host, "2001:db8::7")
+        XCTAssertEqual(fromSix.port, 9)
+        XCTAssertEqual(fromSix.payload, Data("v6".utf8))
+        let named = try XCTUnwrap(Socks.wrap(Data("hi".utf8), to: "relay.example", port: 3478))
+        let fromName = try XCTUnwrap(Socks.unwrap(named))
+        XCTAssertEqual(fromName.host, "relay.example")
+        XCTAssertEqual(fromName.port, 3478)
+        XCTAssertEqual(fromName.payload, Data("hi".utf8))
+        // Cut short, or of a kind SOCKS5 doesn't have, it's nobody's.
+        XCTAssertNil(Socks.unwrap(six.prefix(10)))
+        XCTAssertNil(Socks.unwrap(named.prefix(6)))
+        XCTAssertNil(Socks.unwrap(Data([0, 0, 0, 3])))
+        XCTAssertNil(Socks.unwrap(Data([0, 0, 0, 9, 1, 2, 3, 4, 0, 1])))
+    }
+
+    func testConnectionsAndSessionsAreMadeToGoThroughTheProxy() {
+        let proxy = NetworkProxy(host: "127.0.0.1", port: 1080, username: "zuna", password: "secret")
+        let parameters = NWParameters.tcp
+        NetworkProxy.apply(nil, to: parameters)
+        NetworkProxy.apply(proxy, to: parameters)
+        let configuration = URLSessionConfiguration.ephemeral
+        NetworkProxy.apply(proxy, to: configuration)
+        XCTAssertEqual(configuration.proxyConfigurations.count, 1)
+        NetworkProxy.apply(nil, to: configuration)
+        XCTAssertTrue(configuration.proxyConfigurations.isEmpty)
+
+        // A session is made again once the proxy changes, from the same configuration.
+        let base = URLSessionConfiguration.ephemeral
+        let proxied = ProxiedSession(configuration: base)
+        XCTAssertTrue(proxied.baseConfiguration === base)
+        let before = proxied.session
+        XCTAssertTrue(proxied.session === before)
+        defer { NetworkProxy.use(nil) }
+        XCTAssertTrue(NetworkProxy.use(proxy))
+        XCTAssertFalse(NetworkProxy.use(proxy))
+        XCTAssertFalse(proxied.session === before)
+        XCTAssertEqual(proxied.session.configuration.proxyConfigurations.count, 1)
     }
 }
 
