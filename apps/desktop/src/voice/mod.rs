@@ -8,6 +8,7 @@ pub mod awake;
 pub mod mic;
 #[cfg(target_os = "linux")]
 pub mod pipewire;
+pub mod proxy;
 pub mod room;
 pub mod rules;
 pub mod screen;

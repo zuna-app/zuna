@@ -94,7 +94,7 @@ impl Dialog {
         let mut body = vec![
             div()
                 .text_size(px(13.5))
-                .child("Everything this device sends can go through a SOCKS5 proxy you choose, for every server you've joined: messages, files, link previews, updates and plugins. Your servers then see the proxy's address rather than yours. The proxy sees which servers you reach, when and how much, but nothing you send, which stays encrypted.")
+                .child("Everything this device sends can go through a SOCKS5 proxy you choose, for every server you've joined: messages, files, calls, link previews, updates and plugins. Your servers and their media servers then see the proxy's address rather than yours. The proxy sees which servers you reach, when and how much, but nothing you send, which stays encrypted.")
                 .into_any_element(),
             div()
                 .flex()
@@ -131,7 +131,7 @@ impl Dialog {
                 div()
                     .text_size(px(12.5))
                     .text_color(theme.text2)
-                    .child("While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are: a proxy on this computer, such as Tor or ssh -D, has none. Voice, calls and watching YouTube together don't go through a proxy yet, so they're off while one is set.")
+                    .child("While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are: a proxy on this computer, such as Tor or ssh -D, has none. Watching YouTube together doesn't go through a proxy yet, so it's off while one is set.")
                     .into_any_element(),
             );
         }

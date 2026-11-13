@@ -2,10 +2,6 @@
 
 use super::*;
 
-/// What joining voice or a call says with a proxy set: LiveKit's SDK makes connections of its
-/// own, which don't go through it yet (docs/SOCKS5_PLAN.md, "Calls").
-pub const THROUGH_A_PROXY: &str = "Voice and calls can't go through a proxy in this app yet. Turn the proxy off in Settings, Privacy, to join.";
-
 impl Voice {
     /// Comes into a voice channel or a call, asking first if that takes another of this person's devices
     /// out of one. `return_to` is what to open again on leaving a voice channel, if it's said.
@@ -24,10 +20,6 @@ impl Voice {
 
     /// Comes into a voice channel or a call, whatever that ends on another of this person's devices.
     pub fn come_in(&mut self, server_id: String, channel_id: String, return_to: Option<Option<String>>, how: JoinHow, cx: &mut Context<Self>) {
-        if crate::host::net::proxy().is_some() {
-            self.toast(THROUGH_A_PROXY, ToastKind::Error, cx);
-            return;
-        }
         if let Some(key) = how.open.clone() {
             self.state.update(cx, |state, cx| {
                 if state.active_server.as_deref() == Some(server_id.as_str()) {
@@ -324,10 +316,6 @@ impl Voice {
 
     /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.
     pub fn start_call(&mut self, server_id: String, conversation_key: String, camera: bool, cx: &mut Context<Self>) {
-        if crate::host::net::proxy().is_some() {
-            self.toast(THROUGH_A_PROXY, ToastKind::Error, cx);
-            return;
-        }
         let call = self.core(cx).call(Some(&server_id), "prepareCall", vec![json!(conversation_key)]);
         cx.spawn(async move |this, cx| {
             let result = call.await;

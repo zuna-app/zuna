@@ -132,6 +132,23 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
         });
         return json!({ "ok": true });
     }
+    // Coming into a voice channel as its row's click does, `{"voice": {"server", "channel"}}`,
+    // or leaving with `{"voice": null}`; and which way a call through the proxy goes.
+    if let Some(voice) = request.get("voice") {
+        let target = voice.get("server").and_then(Value::as_str).map(str::to_string).zip(voice.get("channel").and_then(Value::as_str).map(str::to_string));
+        cx.update(|cx| {
+            if let Some(handle) = crate::voice::get(cx) {
+                handle.update(cx, |handle, cx| match target {
+                    Some((server, channel)) => handle.join(server, channel, None, crate::voice::JoinHow { ring: false, camera: false, open: None }, cx),
+                    None => handle.leave(cx),
+                });
+            }
+        });
+        return json!({ "ok": true });
+    }
+    if request.get("way").is_some() {
+        return json!({ "ok": crate::voice::proxy::way() });
+    }
     if request.get("connection").is_some() {
         return json!({ "ok": { "proxy": crate::host::net::proxy().map(|proxy| proxy.address()), "trouble": crate::host::net::trouble().map(|failure| failure.to_string()) } });
     }

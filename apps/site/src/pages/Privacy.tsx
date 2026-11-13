@@ -38,8 +38,8 @@ export function Privacy() {
 
         <p>
           On a Mac, the desktop app can send all of that through a SOCKS5 proxy you choose, in Settings, Privacy, so that your servers and the sites you link
-          to see the proxy's address instead of yours, and it connects to nothing while the proxy can't be reached. Voice, calls and watching YouTube
-          together don't go through one yet, so they're off while one is set. The proxy sees which servers you reach and when, never what you send.
+          to see the proxy's address instead of yours, and it connects to nothing while the proxy can't be reached. Calls go through it too, so the media
+          server sees its address as well. Watching YouTube together doesn't yet, so it's off while one is set. The proxy sees which servers you reach and when, never what you send.
         </p>
 
         <h2>Your server</h2>

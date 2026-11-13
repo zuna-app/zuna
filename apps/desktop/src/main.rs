@@ -62,6 +62,8 @@ fn main() {
     }
     logger.init();
     host::tls::install();
+    // LiveKit's signalling goes through the app's own clients, and through the proxy where one is set.
+    voice::proxy::install();
     let args: Vec<String> = std::env::args().collect();
     if let Some(code) = checks(&args) {
         std::process::exit(code);

@@ -224,6 +224,13 @@ Read from code, not run. Each could change the design, so each is tried before a
 - **That WebView2 can't sign in to a SOCKS5 proxy,** which is why it gets a door of its own.
 - **Whether NordVPN's proxy carries UDP.**
 
+What was found, on 2026-11-13:
+
+- **libwebrtc reaches a relay on loopback on macOS,** over UDP and TCP, from its sockets on the network's address (10.10.10.110 here): `apps/desktop/test/proxy-check.mjs` hears a tone both ways through relays, over UDP and again over TCP. Windows, Linux and iOS weren't tried.
+- **LiveKit connects with no candidates from the app,** over UDP and TCP, the same check shows. But it takes nothing from loopback: with LiveKit on 127.0.0.1 and the proxy on the same machine, every packet and connection the proxy passed on went unanswered. A real proxy is never on loopback to LiveKit, so the check runs LiveKit on the Mac's address on its network, as `web-check.mjs` does.
+- **The system's SOCKS5, tried on macOS 27, not iOS,** from a command-line program and a test proxy on 127.0.0.1 with a password: `ProxyConfiguration(socksv5Proxy:)`, `applyCredential`, `allowFailover`, `URLSessionConfiguration.proxyConfigurations` and `NWParameters.PrivacyContext.proxyConfigurations` exist under those names. Given a name only the proxy knows, neither `URLSession` nor `NWConnection` ever connected to the proxy, and both timed out. Given `localhost`, `NWConnection` went straight to it with the proxy gone, `allowFailover` off notwithstanding, as the system takes no proxy to this machine. Whether that's a program run from a shell, which the system may hold back, or the system's SOCKS5 itself, is for the iPhone app to show in the simulator before step 7 is built on it. If the system's won't do, the fallback is the desktop's: a SOCKS5 client of the app's own for the socket, and an HTTP CONNECT door on loopback for each `URLSession`, which passes connections on through it.
+- **The Swift SDK on `ws://` loopback, WebView2, and NordVPN** weren't tried: the first is for step 8, the second needs Windows, and the third NordVPN's credentials, from the environment.
+
 ## What changes with it
 
 In the commit that makes each true:
@@ -250,4 +257,11 @@ In the commit that makes each true:
 
 ## Where it stands
 
-Nothing is built, and nothing here was run. What was read: `apps/desktop/src/host`, `plugins/net.rs` and `platform/updates.rs`; `ZunaHost` and the iPhone app's extensions; `apps/bot/src/host.ts`; `livekit` 0.10.0, `livekit-net` 0.1.4, `livekit-signaling` 0.1.9 and `webrtc-sys` 0.3.53 with the headers of its libwebrtc; LiveKit's Swift SDK 2.19.0; and `deploy/docker-compose.yml`. The names of Apple's and WebKitGTK's proxy settings are from memory, and are checked in step 1 with the rest.
+On 2026-11-13: steps 2 to 5 and 9 are built.
+
+- **Core:** the test proxy and recorder (`packages/core/test/socks-proxy.ts`), `ZUNA_TEST_SOCKS=1`, under which the whole suite passes, and the rewriter (`voice-relay.ts`) with its tests on a real LiveKit's messages.
+- **Desktop:** the setting, its dialog and Check, `host/net.rs` and `host/socks.rs`, link previews' rule, and calls through relays (`voice/proxy.rs`, with the rewriter in a QuickJS context of its own, `host/relay.rs`), checked on macOS by `proxy-check.mjs`. Not built on Windows or Linux. Watch is refused under a proxy until step 6.
+- **`zuna-bot`:** `--proxy` (`apps/bot/src/socks.ts`), with `apps/bot/test/proxy.test.ts`.
+- **Not built:** step 6 (YouTube), steps 7 and 8 (the iPhone app), and step 11 (NordVPN).
+
+Before any of it, what was read: `apps/desktop/src/host`, `plugins/net.rs` and `platform/updates.rs`; `ZunaHost` and the iPhone app's extensions; `apps/bot/src/host.ts`; `livekit` 0.10.0, `livekit-net` 0.1.4, `livekit-signaling` 0.1.9 and `webrtc-sys` 0.3.53 with the headers of its libwebrtc; LiveKit's Swift SDK 2.19.0; and `deploy/docker-compose.yml`. The names of Apple's and WebKitGTK's proxy settings are from memory, and are checked in step 1 with the rest.

@@ -204,7 +204,7 @@ server {
 
 ## Voice channels
 
-With `--voice on`, the proxy needs nothing more: apps' signaling goes to `/livekit/` on the server's domain, over a WebSocket, like everything else there. Media doesn't go through the proxy. Open **7881/tcp** and **7882/udp** to everyone, straight to the machine that runs LiveKit. UDP is much better for calls, and TCP is for people whose networks block it. With ufw:
+With `--voice on`, the proxy needs nothing more: apps' signaling goes to `/livekit/` on the server's domain, over a WebSocket, like everything else there. Media doesn't go through the proxy. Open **7881/tcp** and **7882/udp** to everyone, straight to the machine that runs LiveKit. UDP is much better for calls, and TCP is for people whose networks block it, and for members who go through a SOCKS5 proxy that carries no UDP, as Tor doesn't. With ufw:
 
 ```bash
 sudo ufw allow 7881/tcp

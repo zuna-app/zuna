@@ -7,8 +7,9 @@ mod db;
 pub mod device_key;
 mod js;
 pub mod net;
+pub mod relay;
 mod runtime;
-mod socks;
+pub(crate) mod socks;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tls;
@@ -24,6 +25,7 @@ use futures::channel::{mpsc, oneshot};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
+pub(crate) use runtime::describe_request_error;
 pub use runtime::shrink_image;
 use runtime::Task;
 

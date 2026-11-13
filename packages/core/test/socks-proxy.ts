@@ -163,6 +163,11 @@ export class SocksProxy {
   refusePassword = false;
   /** Connections are taken and never answered. */
   hang = false;
+  /**
+   * Names only this proxy knows, and the addresses they lead to: a client that reaches one
+   * gave the proxy the name, as nothing else could have resolved it.
+   */
+  readonly names = new Map<string, string>();
 
   private server: Server | null = null;
   private readonly live = new Set<Socket>();
@@ -254,7 +259,7 @@ export class SocksProxy {
     const reply = (code: number, host = "0.0.0.0", port = 0) => client.write(Buffer.concat([Buffer.from([5, code, 0]), encodeAddress(host, port)]));
     if (request.command === 1) {
       this.requests.push({ command: "connect", host: request.host, kind: request.kind, port: request.port, user });
-      const upstream = netConnect({ host: request.host, port: request.port });
+      const upstream = netConnect({ host: this.names.get(request.host) ?? request.host, port: request.port });
       this.track(upstream);
       upstream.once("connect", () => this.opened.add(upstream.localPort!));
       const connected = await new Promise<boolean>((resolve) => {
@@ -297,7 +302,7 @@ export class SocksProxy {
     const outside = createSocket("udp4");
     this.sockets.add(inside);
     this.sockets.add(outside);
-    await Promise.all([new Promise<void>((resolve) => inside.bind(0, this.host, resolve)), new Promise<void>((resolve) => outside.bind(0, "127.0.0.1", resolve))]);
+    await Promise.all([new Promise<void>((resolve) => inside.bind(0, this.host, resolve)), new Promise<void>((resolve) => outside.bind(0, resolve))]);
     this.opened.add(outside.address().port);
     let from: RemoteInfo | null = null;
     const names = new Map<string, string>();
@@ -315,7 +320,7 @@ export class SocksProxy {
       this.datagrams.push({ host: address.host, kind: address.kind, port: address.port });
       let ip = address.host;
       if (address.kind === "name") {
-        ip = names.get(address.host) ?? (await lookup(address.host, { family: 4 }).then((found) => found.address).catch(() => ""));
+        ip = this.names.get(address.host) ?? names.get(address.host) ?? (await lookup(address.host, { family: 4 }).then((found) => found.address).catch(() => ""));
         if (!ip) return;
         names.set(address.host, ip);
       }

@@ -6,18 +6,28 @@
 // the server's name, never an address. With the proxy gone they connect to nothing and say
 // why, and come back with it. Turned off, the app connects directly again.
 //
-//   node apps/desktop/test/proxy-check.mjs [screenshot-dir]
+// Then a call: both come into a voice channel on a LiveKit of the check's own, each with a
+// tone in place of a microphone, and each hears the other, through relays on loopback and
+// the proxy alone, over UDP, and again over TCP with the proxy refusing UDP, as Tor does.
 //
-// Calls through the proxy come next, and the check with them.
+//   node apps/desktop/test/proxy-check.mjs [screenshot-dir]
 
-import { copyFileSync } from "node:fs";
+import { copyFileSync, writeFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { build, root, session, sleep, until } from "./mac-session.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 import { Recorder, SocksProxy } from "../../../packages/core/test/socks-proxy.ts";
 
 const PASSWORD = "the proxy check's password";
 const { server: serverBinary } = build();
-const { work, check, startServer, startApp, finish } = session({ shots: process.argv[2] });
+const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
+
+/** Each copy with a tone for a microphone, and what it hears in its log. */
+const APP_ENV = { ZUNA_FAKE_MIC: "1", RUST_LOG: "info,zuna=debug" };
+
+/** The loudest a voice decoded at in a copy's log since `from`, once it's heard. */
+const loudest = (app, from = 0) => Math.max(0, ...[...app.log().slice(from).matchAll(/voice: \S+ peaks at ([0-9.]+)/g)].map((match) => Number(match[1])));
 
 /** A conversation's texts, as the core has them. */
 async function texts(app, serverId) {
@@ -38,28 +48,38 @@ async function signUp(app, link, username, displayName) {
 
 /** Each copy of the app, so that whatever happens, its password goes from the keychain after. */
 const apps = [];
+/** The check's LiveKit, whose log is kept with the apps'. */
+let media;
 
 /** Quits a copy and starts it again in its folder, as the person would. */
 async function restart(app, name) {
   await app.quit();
   await sleep(2500);
   apps.splice(apps.indexOf(app), 1);
-  const again = await startApp(name);
+  const again = await startApp(name, APP_ENV);
   apps.push(again);
   return again;
 }
 
 try {
   const proxy = await new SocksProxy({ username: "zuna", password: PASSWORD }).start();
+  // A LiveKit of its own, its signalling reached by name too, and its media on this Mac's
+  // address on its network, as LiveKit is never on loopback, where it takes nothing from loopback
+  // in turn: that's the proxy's address it sees, as a server sees a real proxy's.
+  const liveKitPort = 30000 + Math.floor(Math.random() * 20000);
+  const lan = Object.values(networkInterfaces()).flat().find((item) => item.family === "IPv4" && !item.internal)?.address;
+  if (!lan) throw new Error("This Mac has no address on a network, which the call's media goes to.");
+  const config = `${LIVEKIT_CONFIG}  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\nport: ${liveKitPort}\n`;
+  media = start(ensureLiveKit(), ["--dev", "--bind", lan, "--bind", "127.0.0.1", "--node-ip", lan, "--config-body", config], process.env, "livekit");
   const doorPort = 30000 + Math.floor(Math.random() * 20000);
   // Reached as localhost, so the proxy is given a name to resolve.
-  const { port, setupLink } = await startServer(serverBinary, ["--public-url", `http://localhost:${doorPort}`]);
+  const { port, setupLink } = await startServer(serverBinary, ["--public-url", `http://localhost:${doorPort}`, "--livekit-url", `ws://localhost:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
   const door = await new Recorder().start({ host: "127.0.0.1", port }, doorPort);
   check("the server's links name it by name", setupLink.startsWith(`http://localhost:${doorPort}/`), setupLink);
   const through = { host: "127.0.0.1", port: proxy.port, username: "zuna", password: PASSWORD };
 
   // --- Both sign up and talk, through the proxy alone ---
-  let first = await startApp("first");
+  let first = await startApp("first", APP_ENV);
   apps.push(first);
   await first.send({ proxy: through });
   check("the proxy is set before anything connects", door.ports.length === 0 && (await first.send({ connection: true })).ok?.proxy === `127.0.0.1:${proxy.port}`);
@@ -70,7 +90,9 @@ try {
   check("the owner signs up through the proxy", !!owner.ok, JSON.stringify(owner).slice(0, 300));
   const serverId = owner.ok?.serverId;
   const invite = (await first.core("createInvite", [10, 3600], serverId)).ok;
-  let second = await startApp("second");
+  const lounge = (await first.core("createChannel", [{ type: "voice", name: "Lounge" }], serverId)).ok;
+  check("the owner makes a voice channel", typeof lounge === "string", String(lounge));
+  let second = await startApp("second", APP_ENV);
   apps.push(second);
   await second.send({ proxy: through });
   const guest = await signUp(second, invite, "guest", "Proxy Guest");
@@ -101,6 +123,34 @@ try {
   const names = proxy.requests.filter((request) => request.kind !== "name" || request.host !== "localhost");
   check("the proxy was given the server's name, never an address", proxy.requests.length > 0 && names.length === 0, JSON.stringify(names.slice(0, 3)));
   check("every connection signed in", proxy.requests.every((request) => request.user === "zuna"));
+
+  // --- A call, through relays on loopback and the proxy alone ---
+  check("LiveKit runs", media.exitCode === null, media.output.slice(-300));
+  const callThrough = async (way) => {
+    const heardFrom = { first: first.log().length, second: second.log().length };
+    await first.send({ voice: { server: serverId, channel: lounge } });
+    await second.send({ voice: { server: guestServerId, channel: lounge } });
+    const heard = await until(() => loudest(first, heardFrom.first) > 0.1 && loudest(second, heardFrom.second) > 0.1, "each to hear the other", 60_000).catch(() => false);
+    check(`in a call ${way}, each hears the other's tone`, heard, `owner ${loudest(first, heardFrom.first)}, guest ${loudest(second, heardFrom.second)}`);
+    const said = (await first.send({ way: true })).ok;
+    check(`the stream stats say it goes through the proxy ${way}`, said === `Through the proxy, ${way}`, String(said));
+    await first.shot(`call-${way.replace(/ /g, "-")}`);
+    await first.send({ voice: null });
+    await second.send({ voice: null });
+    await sleep(2000);
+  };
+  const before = { requests: proxy.requests.length, datagrams: proxy.datagrams.length };
+  await callThrough("over UDP");
+  const toLiveKit = proxy.requests.slice(before.requests).filter((request) => request.port === liveKitPort);
+  check("the call's signalling went through the proxy, to LiveKit by name", toLiveKit.length > 0 && toLiveKit.every((request) => request.host === "localhost" && request.kind === "name"), JSON.stringify(toLiveKit.slice(0, 2)));
+  const datagrams = proxy.datagrams.slice(before.datagrams);
+  check("its media went through the proxy to LiveKit's UDP port, and nowhere else", datagrams.length > 0 && datagrams.every((datagram) => datagram.port === liveKitPort + 2 && datagram.host === lan), JSON.stringify([...new Set(datagrams.map((datagram) => `${datagram.host}:${datagram.port}`))]));
+  check("no STUN server was asked", !proxy.requests.slice(before.requests).some((request) => request.port === 3478 || request.port === 19302));
+  proxy.refuseUdp = true;
+  const tcpFrom = proxy.requests.length;
+  await callThrough("over TCP");
+  check("with UDP refused, the media went over the proxy to LiveKit's TCP port", proxy.requests.slice(tcpFrom).some((request) => request.command === "connect" && request.port === liveKitPort + 1));
+  proxy.refuseUdp = false;
 
   // --- With the proxy gone, nothing connects, and the app says why ---
   const seen = door.ports.length;
@@ -134,5 +184,6 @@ try {
 } finally {
   // Turned off, the app forgets the proxy's password, which leaves nothing in the keychain.
   for (const app of apps) await app.send({ proxy: null }).catch(() => undefined);
+  if (media) writeFileSync(join(work, "livekit.log"), media.output);
   finish();
 }

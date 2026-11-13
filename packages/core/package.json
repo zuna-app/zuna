@@ -16,7 +16,8 @@
     "./password": "./src/password.ts",
     "./sounds": "./src/sounds.ts",
     "./types": "./src/types.ts",
-    "./voice": "./src/voice.ts"
+    "./voice": "./src/voice.ts",
+    "./voice-relay": "./src/voice-relay.ts"
   },
   "scripts": {
     "test": "vitest run",

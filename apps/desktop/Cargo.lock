@@ -10597,6 +10597,7 @@ name = "zuna-windows"
 version = "0.1.0"
 dependencies = [
  "ashpd",
+ "async-trait",
  "base64 0.22.1",
  "block2 0.6.2",
  "chrono",
@@ -10617,6 +10618,7 @@ dependencies = [
  "libc",
  "libloading",
  "livekit",
+ "livekit-net",
  "livekit-protocol",
  "log",
  "nnnoiseless",

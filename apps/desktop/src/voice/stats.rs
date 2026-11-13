@@ -287,6 +287,8 @@ impl Reader {
             rows: [
                 row("Status", Some(extra.status.into()), extra.status != "connected"),
                 row("Media server", Some(extra.host.clone()), false),
+                // With a proxy set, which way the call's media goes through it (voice/proxy.rs).
+                row("Proxy", crate::voice::proxy::way().map(str::to_string), crate::voice::proxy::way().is_some_and(|way| way.ends_with("TCP"))),
                 row("In the room", Some(extra.people.to_string()), false),
                 row("Encryption", Some(if extra.encrypted { format!("End to end{}", extra.key.map(|(index, epoch)| format!(", key {index} from epoch {epoch}")).unwrap_or_default()) } else { "Off".into() }), !extra.encrypted),
                 row("Round trip", connection.round_trip.map(|value| format!("{:.0} ms", value * 1000.)), false),

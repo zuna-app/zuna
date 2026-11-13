@@ -701,7 +701,7 @@ fn object_value<'js>(ctx: &Ctx<'js>, data: String, width: u32, height: u32) -> R
     object(ctx, vec![("data", string(ctx, &data)?), ("width", number(ctx, width as f64)), ("height", number(ctx, height as f64))])
 }
 
-pub(super) fn describe_request_error(error: &reqwest::Error) -> String {
+pub(crate) fn describe_request_error(error: &reqwest::Error) -> String {
     use std::error::Error;
     let mut text = error.to_string();
     let mut source = error.source();

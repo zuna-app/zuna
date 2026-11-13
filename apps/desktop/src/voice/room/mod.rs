@@ -225,6 +225,8 @@ pub struct VoiceRoom {
     share_video: Mutex<Option<(NativeVideoSource, LocalTrackPublication)>>,
     pub server_muted: AtomicBool,
     pub url: String,
+    /// The relays a call through the proxy goes by (voice/proxy.rs).
+    relays: Option<Arc<crate::voice::proxy::Relays>>,
 }
 
 fn key_options() -> KeyProviderOptions {
@@ -244,8 +246,16 @@ impl VoiceRoom {
         options.adaptive_stream = true;
         options.dynacast = true;
         options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider: provider.clone() });
+        // Through the proxy, where one is set, by relays on this device alone.
+        let relays = match crate::host::net::proxy() {
+            Some(proxy) => Some(crate::voice::proxy::prepare((*proxy).clone()).await?),
+            None => None,
+        };
         let (room, events) = Room::connect(&url, &token, options).await.map_err(|error| {
             log::warn!("joining a voice room: {error}");
+            if let Some(relays) = &relays {
+                crate::voice::proxy::finish(relays);
+            }
             "Couldn't connect to voice.".to_string()
         })?;
         room.e2ee_manager().set_enabled(true);
@@ -273,7 +283,7 @@ impl VoiceRoom {
         }
         let (sender, receiver) = unbounded();
         tokio_spawn(watch(room.clone(), shared.clone(), events, sender));
-        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), share_video: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
+        Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), share_video: Mutex::new(None), server_muted: AtomicBool::new(false), url, relays }, receiver))
     }
 
     /// LiveKit's room, for reading its statistics.
@@ -558,8 +568,12 @@ impl VoiceRoom {
         }
         self.shared.videos.lock().clear();
         let room = self.room.clone();
+        let relays = self.relays.clone();
         tokio_spawn(async move {
             room.close().await.ok();
+            if let Some(relays) = relays {
+                crate::voice::proxy::finish(&relays);
+            }
         });
     }
 }

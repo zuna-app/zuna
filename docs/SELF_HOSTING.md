@@ -251,7 +251,7 @@ It doesn't need much, since it only passes media along. A small VPS is fine for 
 
 Apps reach it through Zuna's own address, at `/livekit/`, so there's no second name or certificate to look after. A reverse proxy in front of Zuna has to allow WebSockets there, as it already does for `/api/ws`.
 
-**Media doesn't go through Zuna.** Open **7881/tcp** and **7882/udp** on the machine for it, or whichever ports you gave LiveKit. UDP is much better for calls, and TCP is for people whose networks block it.
+**Media doesn't go through Zuna.** Open **7881/tcp** and **7882/udp** on the machine for it, or whichever ports you gave LiveKit. UDP is much better for calls, and TCP is for people whose networks block it, and for members who go through a proxy that carries no UDP, as Tor doesn't.
 
 If you use the web app with `--servers`, and apps reach LiveKit at an address of its own, list that with `--media-servers` too.
 

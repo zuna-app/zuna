@@ -68,6 +68,9 @@ raw-window-handle = "0.6"
 # Voice channels, calls and screen shares: LiveKit, whose frame encryption opens the web's and
 # the iPhone's, and RNNoise for the microphone. The sound devices are below, by system.
 livekit = { version = "=0.10.0", features = ["rustls-tls-native-roots"] }
+# Its signalling's WebSocket and HTTP, which the app gives it, to go through a proxy (voice/proxy.rs).
+livekit-net = "=0.1.4"
+async-trait = "0.1"
 nnnoiseless = { version = "0.5", default-features = false }
 # Capturing a screen and encoding it on the GPU, and a share's sound, in this process.
 zuna-screenshare = { path = "screenshare" }
