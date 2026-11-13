@@ -256,8 +256,10 @@ describe("linking, the rest of the way", () => {
     engine.refuse("loadChats", "INTERNAL", 500);
     const session = new TelegramSession(engine, { onEvent: () => undefined, linking: false, onLinked: () => undefined, onGone: () => undefined });
     session.start();
-    await until(() => engine.requests("loadChats").length === 2, "both lists");
-    expect(warn.mock.calls.filter((call) => String(call[0]).includes("chats couldn't be loaded"))).toHaveLength(2);
+    // Each warning comes once Telegram has answered.
+    const warned = () => warn.mock.calls.filter((call) => String(call[0]).includes("chats couldn't be loaded"));
+    await until(() => warned().length === 2, "a warning for each list");
+    expect(engine.requests("loadChats").map((request) => request.chat_list["@type"])).toEqual(["chatListMain", "chatListArchive"]);
   });
 });
 
