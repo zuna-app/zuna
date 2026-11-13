@@ -106,7 +106,13 @@ impl Root {
                             .child(div().mb(px(8.)).child(icon("message-circle", 28., theme.text3)))
                             .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(entry.name.clone()))
                             .child("Pick someone from the list to start talking.")
-                            .child(
+                            .child({
+                                // A linked Telegram account's chats aren't, and the line says who keeps them.
+                                let (mark, line) = if entry.is_telegram() {
+                                    ("cloud", "Not end-to-end encrypted. Telegram keeps these messages.")
+                                } else {
+                                    ("lock", "Everything here is end-to-end encrypted")
+                                };
                                 div()
                                     .flex()
                                     .items_center()
@@ -114,9 +120,9 @@ impl Root {
                                     .mt(px(4.))
                                     .text_size(px(12.5))
                                     .text_color(theme.text3)
-                                    .child(icon("lock", 12., theme.text3))
-                                    .child("Everything here is end-to-end encrypted"),
-                            ),
+                                    .child(icon(mark, 12., theme.text3))
+                                    .child(line)
+                            }),
                     )
                     .into_any_element()
             }

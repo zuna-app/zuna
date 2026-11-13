@@ -616,16 +616,26 @@ impl ChatView {
         let server = state.servers.get(&self.server_id);
         let is_saved = server.is_some_and(|s| conversation.peer_id.as_deref() == Some(s.self_id()));
         let peer = conversation.peer_id.as_ref().and_then(|id| server.and_then(|s| s.users.get(id))).cloned();
-        // As `EmptyChat` words it.
-        let (title, text) = if is_saved {
+        let telegram = server.is_some_and(|s| s.entry.is_telegram());
+        // As `EmptyChat` words it. A Telegram chat isn't end-to-end encrypted, and says who keeps it.
+        let (title, text) = if telegram {
+            let title = if is_saved {
+                "Your saved messages".to_string()
+            } else if conversation.kind == "group" {
+                conversation.title.clone()
+            } else {
+                format!("Say hello to {}", conversation.title)
+            };
+            (title, "Messages here aren't end-to-end encrypted. Telegram keeps them on its servers.".to_string())
+        } else if is_saved {
             ("Your saved messages".to_string(), "Keep notes, links and files here. They're encrypted and sync across your devices.".to_string())
         } else if conversation.kind == "group" {
             (conversation.title.clone(), "Messages here are end-to-end encrypted. Only members can read them.".to_string())
         } else {
             (format!("Say hello to {}", conversation.title), "Your messages are end-to-end encrypted. Not even this server can read them.".to_string())
         };
-        // Someone not yet verified can be, from here.
-        let verify = (!is_saved && conversation.kind != "group").then_some(()).and(peer.filter(|peer| peer.trust != "verified"));
+        // Someone not yet verified can be, from here. Nobody on Telegram can: there are no keys to compare.
+        let verify = (!telegram && !is_saved && conversation.kind != "group").then_some(()).and(peer.filter(|peer| peer.trust != "verified"));
         div()
             .flex_1()
             .flex()
@@ -641,7 +651,7 @@ impl ChatView {
                     .gap(px(6.))
                     .text_center()
                     .text_color(theme.text2)
-                    .child(div().mb(px(4.)).child(icon("lock", 20., theme.text3)))
+                    .child(div().mb(px(4.)).child(icon(if telegram { "cloud" } else { "lock" }, 20., theme.text3)))
                     .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(title))
                     .child(div().text_size(px(13.5)).child(text))
                     .when_some(verify, |el, peer| {
