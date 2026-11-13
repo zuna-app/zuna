@@ -58,6 +58,8 @@ parking_lot = "0.12"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 unicode-segmentation = "1"
+# The QR code linking a Telegram account shows (ui/overlays/telegram.rs).
+qrcodegen = "1.8"
 regex = "1"
 fancy-regex = "0.14"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

@@ -223,7 +223,7 @@ impl ChatView {
                     .child(icon_button("cancel-selection", "x", 18., false, false, cx).tip("Cancel", Side::Top).on_click(stop))
                     .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(format!("{count} {} selected", if count == 1 { "message" } else { "messages" })))
                     .child(button("copy-selection", ButtonKind::Default, ButtonSize::Normal, count == 0, cx).child(icon("copy", 15., theme.text1)).child("Copy").on_click(copy))
-                    .child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child("Forward").on_click(forward))
+                    .when(self.server_id != crate::telegram::SERVER_ID, |el| el.child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child("Forward").on_click(forward)))
                     .when(can_delete, |el| el.child(button("delete-selection", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(icon("trash", 15., theme.red)).child("Delete for everyone").on_click(delete))),
             )
             .into_any_element()

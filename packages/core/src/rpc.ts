@@ -64,7 +64,7 @@ const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
   getSounds: true, getEmotes: true, emotesIn: true, getNewDevices: true,
   loadMessages: true, loadAround: true, loadNewer: true, messageById: true, loadPins: true, search: true, sendMessage: true, editMessage: true, deleteMessage: true,
   deleteMessages: true, toggleReaction: true, setPinned: true, sendTyping: true, markRead: true, markChatRead: true, unreadMentions: true, markMentionSeen: true,
-  setMarkedUnread: true, mute: true, unmute: true, setPinnedChats: true, pressButton: true,
+  setMarkedUnread: true, mute: true, unmute: true, setPinnedChats: true, updatePreferences: true, pressButton: true,
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   addMembers: true, addSound: true, answerNewDevice: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,

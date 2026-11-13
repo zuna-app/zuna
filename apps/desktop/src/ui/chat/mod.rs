@@ -508,7 +508,8 @@ impl ChatView {
         self.last_list_id = list_id.clone();
         let enter = self.state.read(cx).settings.enter_to_send;
         let is_saved = conversation.peer_id.as_deref() == self.state.read(cx).servers.get(&self.server_id).map(|s| s.self_id());
-        let placeholder = if is_saved { "Write a note to yourself".to_string() } else if conversation.kind == "channel" { format!("Message #{}", conversation.title) } else { format!("Message {}", conversation.title) };
+        let telegram = self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram());
+        let placeholder = if telegram { "Message on Telegram".to_string() } else if is_saved { "Write a note to yourself".to_string() } else if conversation.kind == "channel" { format!("Message #{}", conversation.title) } else { format!("Message {}", conversation.title) };
         let draft = self.state.read(cx).drafts.get(&conversation.key).cloned().unwrap_or_default();
         self.composer.update(cx, |input, cx| {
             input.set_newline_on_enter(!enter);

@@ -84,10 +84,13 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
         let (state, list_id, message) = (state.clone(), list_id.clone(), message.clone());
         entries.push(MenuEntry::new("Reply", "corner-up-left", move |_, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(message.clone()), cx))));
         let (forward_state, server_id, forward_group, forward_id) = (context.state.clone(), context.server_id.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
-            let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
-            forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
-        }));
+        // Nothing goes between Zuna's chats and Telegram's, and forwarding inside Telegram comes later.
+        if context.server_id != crate::telegram::SERVER_ID {
+            entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
+                let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
+                forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
+            }));
+        }
         let (select_state, select_list, select_id) = (context.state.clone(), context.list_id.clone(), id.clone());
         entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
@@ -133,7 +136,8 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
             entries.push(MenuEntry::submenu(format!("Read by {}", readers.len()), "check-check", people));
         }
     }
-    if message.status == "failed" {
+    // Telegram's engine sends a message again itself, and drops one it can't.
+    if message.status == "failed" && context.server_id != crate::telegram::SERVER_ID {
         let (retry_state, group_a, id_a) = (state.clone(), group.clone(), id.clone());
         entries.push(MenuEntry::new("Try again", "refresh-cw", move |_, cx| retry_state.update(cx, |state, cx| state.act("retryMessage", vec![json!(group_a), json!(id_a)], cx))));
         let (state, group, id) = (state.clone(), group.clone(), id.clone());

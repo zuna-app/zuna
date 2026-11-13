@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
+import { ensureTdlib, telegramCredentials } from "./tdlib.mjs";
 import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, msvcToolchain, parseAppArgs, root, run } from "./lib.mjs";
 import { labelOf, windowsInstaller } from "./release.mjs";
 
@@ -51,11 +52,18 @@ bundleCore();
 await ensureFfmpeg(nativeAppDeps);
 // LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
 await ensureWebrtcSys(nativeAppDeps);
+// Telegram, with the app's api_id where it's given (scripts/tdlib.mjs): TDLib built, the engine
+// built beside the app, and both values built into the app. Without them there's no Telegram.
+const telegram = command === "test" ? null : telegramCredentials();
+if (telegram) await ensureTdlib(nativeAppDeps);
 
 // A test's arguments are cargo's own, and the app's follow a `--`.
 const cargo = [`+${msvcToolchain()}`, command === "run" || command === "test" ? command : "build", ...(release ? ["--release"] : []), ...(updateCheck ? ["--features", "update-check"] : []), ...(command === "test" ? appArgs : appArgs.length ? ["--", ...appArgs] : [])];
 const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
-run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
+if (telegram) {
+  run("cargo", [`+${msvcToolchain()}`, "build", "-p", "zuna-telegram", ...(release ? ["--release"] : [])], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target } });
+}
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp, ...(telegram ?? {}) } });
 
 if (command === "build" || packaging) {
   const dist = distFolder;
@@ -73,6 +81,8 @@ if (packaging) {
   mkdirSync(staged, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(staged, "Zuna.exe"));
   cpSync(join(target, "release", "lib"), join(staged, "lib"), { recursive: true });
+  // The Telegram engine, which only a device that links an account ever starts.
+  if (telegram) copyFileSync(join(target, "release", "zuna-telegram.exe"), join(staged, "zuna-telegram.exe"));
   // Signed with the release's certificate where it's given: a signed build only takes an update
   // signed the same, besides the manifest's own signature. The encoder is the app's own code, which it loads.
   const require = createRequire(join(root, "package.json"));
@@ -80,6 +90,7 @@ if (packaging) {
   if (signer) {
     signer(join(staged, "Zuna.exe"));
     signer(join(staged, "lib", "zuna_encoder.dll"));
+    if (telegram) signer(join(staged, "zuna-telegram.exe"));
   }
   const icon = join(dist, "zuna.ico");
   writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));

@@ -246,7 +246,7 @@ export const TELEGRAM: Record<MethodName<TelegramSession>, "never"> = {
   loadMessages: "never", loadAround: "never", loadNewer: "never", messageById: "never", loadPins: "never", search: "never", sendMessage: "never",
   editMessage: "never", deleteMessage: "never", deleteMessages: "never", toggleReaction: "never", setPinned: "never", sendTyping: "never", markRead: "never",
   markChatRead: "never", unreadMentions: "never", markMentionSeen: "never", setMarkedUnread: "never", mute: "never", unmute: "never", setPinnedChats: "never",
-  pressButton: "never",
+  updatePreferences: "never", pressButton: "never",
 };
 
 /** The table as the broker reads it. */

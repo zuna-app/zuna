@@ -108,9 +108,11 @@ impl AppState {
         // their filters first, when any has one.
         if let Some(plugins) = crate::plugins::get(cx) {
             plugins.update(cx, |plugins, _| plugins.core_event(&event));
+            // No filter runs on the linked Telegram account's, which no plugin reaches.
+            let telegram = event.get("serverId").and_then(Value::as_str) == Some(crate::telegram::SERVER_ID);
             let filter = match event.get("type").and_then(Value::as_str) {
-                Some("typing") => Some(crate::plugins::FilterKind::TypingShown),
-                Some("notify") => Some(crate::plugins::FilterKind::Notify),
+                Some("typing") if !telegram => Some(crate::plugins::FilterKind::TypingShown),
+                Some("notify") if !telegram => Some(crate::plugins::FilterKind::Notify),
                 _ => None,
             };
             if let Some(task) = filter.and_then(|kind| crate::plugins::filter(kind, event.clone(), cx)) {
@@ -290,6 +292,7 @@ impl AppState {
                 }
             }
             "notify" => self.notify(&event, cx),
+            "telegram" => self.telegram_moved(from_value(event.get("link").cloned().unwrap_or_default()), cx),
             _ => {}
         }
         // Voice reads this state, so it hears of its events once this update is over.

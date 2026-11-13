@@ -16,7 +16,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { availableParallelism, freemem, totalmem } from "node:os";
+import { availableParallelism, freemem, homedir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -64,6 +64,29 @@ const RECIPE = 1;
 
 /** Where zuna-telegram's build finds TDLib: `include` and `lib`, with OpenSSL's and zlib's. */
 export const tdlibDir = join(nativeAppDeps, "tdlib");
+
+/**
+ * The app's `api_id` and `api_hash` from Telegram (docs/TELEGRAM_PLAN.md, The api_id), which are
+ * never in the repository: `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` in the environment, as the
+ * release environment's secrets give them, or for development `~/.zuna/telegram.json`, holding
+ * `{ "apiId": …, "apiHash": "…" }`. The app's build takes them in, and without them it has no
+ * Telegram, and no engine is built.
+ */
+export function telegramCredentials() {
+  let id = process.env.TELEGRAM_API_ID;
+  let hash = process.env.TELEGRAM_API_HASH;
+  if (!id || !hash) {
+    const file = join(homedir(), ".zuna", "telegram.json");
+    if (existsSync(file)) {
+      const saved = JSON.parse(readFileSync(file, "utf8"));
+      id = String(saved.apiId ?? "");
+      hash = String(saved.apiHash ?? "");
+    }
+  }
+  if (!id || !hash) return null;
+  if (!/^\d+$/.test(id) || !/^[0-9a-f]{32}$/i.test(hash)) throw new Error("TELEGRAM_API_ID is a number and TELEGRAM_API_HASH 32 hexadecimal digits.");
+  return { TELEGRAM_API_ID: id, TELEGRAM_API_HASH: hash };
+}
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 

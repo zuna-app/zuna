@@ -7,6 +7,7 @@ mod verify;
 mod location;
 mod channel;
 mod proxy;
+mod telegram;
 
 use std::collections::BTreeSet;
 
@@ -45,6 +46,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::WatchConsent { then_link } => cx.new(|cx| Dialog::new(state, DialogKind::WatchConsent { then_link }, window, cx)).into(),
         Overlay::WatchLink => cx.new(|cx| Dialog::new(state, DialogKind::WatchLink, window, cx)).into(),
         Overlay::Proxy { from_settings } => cx.new(|cx| Dialog::new(state, DialogKind::Proxy { from_settings }, window, cx)).into(),
+        Overlay::Telegram => cx.new(|cx| Dialog::new(state, DialogKind::Telegram, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -130,6 +132,7 @@ enum DialogKind {
     WatchConsent { then_link: bool },
     WatchLink,
     Proxy { from_settings: bool },
+    Telegram,
 }
 
 /// What's being set for a channel, beside its name.
@@ -192,6 +195,7 @@ pub struct Dialog {
     /// Why a link to watch together wasn't put on.
     link_error: Option<String>,
     proxy_form: Option<proxy::ProxyForm>,
+    telegram_form: Option<telegram::TelegramForm>,
     /// Holds focus where the dialog has no field to, so Escape closes it.
     focus: gpui::FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -270,6 +274,7 @@ impl Dialog {
             name.focus_handle(cx).focus(window, cx);
         }
         let proxy_form = matches!(kind, DialogKind::Proxy { .. }).then(|| proxy::ProxyForm::new(&state, window, &mut subscriptions, cx));
+        let telegram_form = matches!(kind, DialogKind::Telegram).then(|| telegram::TelegramForm::new(window, &mut subscriptions, cx));
         if matches!(kind, DialogKind::AddMembers(_)) {
             people_search.focus_handle(cx).focus(window, cx);
         }
@@ -281,7 +286,7 @@ impl Dialog {
         if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate | DialogKind::WatchConsent { .. }) {
             window.focus(&focus, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, proxy_form, focus, _subscriptions: subscriptions };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, proxy_form, telegram_form, focus, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -312,6 +317,9 @@ impl Dialog {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.kind, DialogKind::Telegram) {
+            return self.telegram_cancel(cx);
+        }
         let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("privacy".into()) });
         self.state.update(cx, |state, cx| state.set_overlay(back, cx));
     }
@@ -387,7 +395,15 @@ impl Dialog {
             .occlude()
             .track_focus(&self.focus)
             .tab_scope(&self.focus)
-            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|dialog, _, _, cx| dialog.close(cx)))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| {
+                    // A link to Telegram half done isn't thrown away by a click beside it.
+                    if !matches!(dialog.kind, DialogKind::Telegram) {
+                        dialog.close(cx);
+                    }
+                }),
+            )
             .on_key_down(cx.listener(|dialog, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
                     dialog.close(cx);
@@ -576,7 +592,7 @@ impl Dialog {
 }
 
 impl Render for Dialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dialog = match &self.kind {
             DialogKind::AddServer(flow) => {
                 let flow = flow.clone();
@@ -600,6 +616,7 @@ impl Render for Dialog {
             }
             DialogKind::WatchLink => self.watch_link(cx),
             DialogKind::Proxy { .. } => self.proxy(cx),
+            DialogKind::Telegram => self.telegram(window, cx),
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

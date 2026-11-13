@@ -119,7 +119,8 @@ fn message_target(uid: &str, server_id: &str, message: &MessageView, cx: &App) -
 /// The entries plugins put in a message's menu, after a line.
 pub fn message_entries(server_id: &str, message: &MessageView, cx: &App) -> Vec<MenuEntry> {
     let slots = with_plugins(cx, |plugins| plugins.each_slot(|slots| &slots.message_actions)).unwrap_or_default();
-    if slots.is_empty() || message.system.is_some() {
+    // No plugin acts on the linked Telegram account's messages.
+    if slots.is_empty() || message.system.is_some() || server_id == crate::telegram::SERVER_ID {
         return Vec::new();
     }
     let mut entries = vec![MenuEntry::separator()];
@@ -227,6 +228,10 @@ pub fn title(handle: u32, cx: &App) -> Option<(String, String)> {
 
 /// What plugins added to a message, for the message to draw.
 pub fn decorations(server_id: &str, message: &MessageView, cx: &App) -> Vec<Decoration> {
+    // Nor decorates them: their text never reaches a plugin.
+    if server_id == crate::telegram::SERVER_ID {
+        return Vec::new();
+    }
     with_plugins(cx, |plugins| plugins.decorations_for(server_id, message)).unwrap_or_default()
 }
 

@@ -186,6 +186,12 @@ impl SidePanel {
         let is_admin = conversation.is_admin(&self_id);
         let group = conversation.group_id.clone().unwrap_or_default();
         let mut parts = vec![self.group_card(conversation, is_admin, cx)];
+        // A Telegram group: what it is and its notifications. Its members and leaving it come later.
+        if server.entry.is_telegram() {
+            parts.push(Self::telegram_card(cx));
+            parts.push(self.preferences(server, conversation, cx));
+            return parts;
+        }
         parts.push(notice("lock", "The server can see who is in this group, but not its name, picture or messages.", cx).into_any_element());
         if let Some(rows) = self.media_rows(server, conversation, cx) {
             parts.push(rows);

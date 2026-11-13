@@ -72,6 +72,29 @@ describe("linking a Telegram account", () => {
     await until(() => link()?.step === "ready", "being linked");
   });
 
+  it("lists nothing until Telegram lets the account in, and forgets one let go while the app was closed", async () => {
+    const { engine, client, db, link } = await linkedClient();
+    client.linkTelegram();
+    await until(() => link()?.step === "phone", "the phone step");
+    // Half linked: no icon, and nothing that starts by itself with the app.
+    expect(client.listServers()).toEqual([]);
+    client.stop();
+    const again = new ZunaClient({ db, deviceKey: new Uint8Array(32).fill(3), deviceName: "Test", onEvent: () => undefined, telegram: engine });
+    await again.open();
+    expect(engine.started).toBe(1);
+    // Linked, then its database lost while the app was closed: it asks to sign in again, and goes.
+    again.linkTelegram();
+    await again.telegramSession.linkWithQr();
+    engine.confirm();
+    await until(() => again.listServers().length === 1, "being linked");
+    again.stop();
+    engine.authorized = false;
+    const third = new ZunaClient({ db, deviceKey: new Uint8Array(32).fill(3), deviceName: "Test", onEvent: () => undefined, telegram: engine });
+    await third.open();
+    await until(() => engine.stops.at(-1) === true, "being erased");
+    await until(() => third.listServers().length === 0, "being forgotten");
+  });
+
   it("makes no account: a number Telegram doesn't know is sent to Telegram's app", async () => {
     const { engine, client, link } = await linkedClient();
     client.linkTelegram();

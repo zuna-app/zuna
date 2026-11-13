@@ -1,6 +1,6 @@
 # Telegram in Zuna: plan
 
-Someone links their Telegram account to Zuna on a device. From then on their Telegram chats sit under an icon of their own in the rail, beside the servers: direct messages and groups, with notifications, read and written in Zuna, while the people on the other side use Telegram and see nothing different. Zuna is a third-party Telegram client there and nothing more: no Zuna chat is joined to a Telegram one, and no Zuna server ever hears of it. This page is what was found, the design, what's assumed until the owner says otherwise, and the order to build it in. "Where it stands" at the end says what's built: on 2026-11-13, nothing.
+Someone links their Telegram account to Zuna on a device. From then on their Telegram chats sit under an icon of their own in the rail, beside the servers: direct messages and groups, with notifications, read and written in Zuna, while the people on the other side use Telegram and see nothing different. Zuna is a third-party Telegram client there and nothing more: no Zuna chat is joined to a Telegram one, and no Zuna server ever hears of it. This page is what was found, the design, what's assumed until the owner says otherwise, and the order to build it in. "Where it stands" at the end says what's built: on 2026-11-13, the desktop's engine, broker, adapter and linking, unboxed.
 
 ```
 the interface ── call("telegram", …) / CoreEvent ──▶ the core
@@ -450,7 +450,31 @@ In the commit that makes each true:
 
 ## Where it stands
 
-Nothing is built, and nothing here was run.
+Built on 2026-11-13, for the native desktop app, and run on Windows alone: steps 2, 4 and 5, and the part of step 6 that links an account and shows its chats. Linux and macOS weren't built.
+
+- **Step 2.** `scripts/tdlib.mjs` builds TDLib 1.8.70 (master at `c8828d5`), OpenSSL 3.5.9, zlib 1.3.2 and gperf 3.1 from sources checked against their SHA-256, as static libraries with the static C runtime. On Windows it uses a native Perl on `PATH` or fetches Strawberry Perl's portable build, unpacking only Perl, and NASM. The whole build took 9 minutes on this 16-thread machine, at 12 compilers, and 922 MB on disk. `apps/desktop/telegram` is `zuna-telegram`, linking it: 43 MB as a debug build.
+- **Step 4.** `apps/desktop/src/telegram`: the broker, the door and the list, with the database key sealed beside the app's other secrets (`telegram-key.sealed`). A rate of 100 requests a second, bursts of 500; a watchdog every 30 seconds; three restarts in a row before it stays off. The door goes through the proxy set in Privacy (`host/net.rs`), and every connection through it ends when that changes.
+- **Step 5.** `packages/core/src/telegram`: the engine's requests and answers, the mapping and its checks, Telegram's entities as Zuna's markup both ways, and `TelegramSession`, with the fake engine in `packages/core/test/fake-tdlib.ts` and 22 tests in `telegram.test.ts`.
+- **Step 6, in part.** The plus and Connections link by QR, or a phone number, its code and the account's password; the rail's icon, a chat that says "Telegram" and isn't encrypted, text, read marks, typing, reactions, pins, mutes, Telegram's pins of chats, and notifications. Not yet: `telegram-check.mjs`, avatars, and the build scripts for Linux and macOS and `release.yml`, which must build the engine and pass the `api_id` before a release has Telegram.
+- **Step 3 isn't built.** The engine runs unconfined: nothing but the door keeps it from the network, and nothing from the disk. The release environment must not get `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` until it is, and until `release.yml` builds the engine on every system.
+
+What step 1 found, on Windows:
+
+- **TDLib builds from a pinned commit,** in the time above, with gperf 3.1 (3.3 needs gnulib's build) and OpenSSL's assembly through NASM.
+- **TDLib runs through the door with everything else refused.** A proxy added before `setTdlibParameters` takes effect before TDLib first connects (`Td::init_options_and_network` runs queued proxy requests as soon as its connection maker exists). Linking reached test DC 1 (149.154.175.10) and moved to test DC 2 (149.154.167.40) for a phone number, both inside Telegram's ranges, with nothing else asked of the door.
+- **A fresh `api_id` gets a QR link** from the test servers (`tg://login?token=…`).
+- **Every test number's documented code was refused.** `99966XYYYY` with `XXXXX`, on each of the three test DCs, with and without a `+`, and fresh numbers among them: `PHONE_CODE_INVALID` each time. So no account was linked, nothing past the code was run against Telegram, and the chat screens were checked against the fake engine alone. No account was made: the steps stop before `registerUser`, which the broker's list doesn't have.
+- **TDLib takes no phone number once it has shown a QR code** (`AuthManager::set_phone_number`), so "Use a phone number instead" begins the half-done link again.
+- **The engine outlives the app by a few seconds** as TDLib closes its database, which a job object will end with the app (step 3), so an update's installer never finds it running.
+
+Where the build departs from the above:
+
+- **That an account is linked, and where its icon sits, is in the core's index** (a `telegram` table holding its position), not the app's settings, so that it orders with the servers. It's written once Telegram lets the account in: a link left half done leaves no icon. A stored account that asks to sign in again, as after its key couldn't be opened, is erased.
+- **What the engine says is checked in `packages/core/src/telegram/map.ts`,** not `validate.ts`, which is about Zuna's own messages.
+- **Notifications come from new messages, as TDLib's mutes, silent messages and mentions say,** not TDLib's notification groups, which aren't turned on.
+- **The engine refuses by itself** what would let TDLib past the door (`REFUSED` in its `main.rs`: proxies and parameters), whatever the broker passes.
+- **Forwarding inside Telegram, groups' members, leaving and hiding chats** aren't offered yet, and the Telegram account's chats are left out of a server's forward picker.
+
 
 What was read, on 2026-11-13: Telegram's pages named under "What Telegram asks" and its published ranges. TDLib's getting-started page, and in its schema (`td_api.tl`) the functions this plan leans on: its SOCKS5 proxy, its database key, QR linking, its notification groups, files written a part at a time, that signing out erases what's local, and the push tokens, where only Android's and the one for calls can ask for encryption. Apple's pages on extension points and enhanced security helper extensions. In this repository `packages/core/src/client.ts`, `rpc.ts` and `types.ts`, `apps/desktop/src/ui/rail.rs`, `state/mod.rs`, `plugins/process.rs`, `scripts/ffmpeg.mjs`, `apps/ios/project.yml`, the iPhone app's entitlements and `ZunaNotifications/NotificationService.swift`, [PLUGINS_PLAN.md](PLUGINS_PLAN.md) and [SOCKS5_PLAN.md](SOCKS5_PLAN.md).
 

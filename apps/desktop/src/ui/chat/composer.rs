@@ -61,6 +61,8 @@ impl ChatView {
             }
         }
         let is_channel = conversation.kind == "channel";
+        // The Telegram account linked here takes text for now, and no plugin reaches it.
+        let telegram = state.servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram());
         let editing = if is_channel { None } else { state.editing.get(&list_id).cloned() };
         let reply = state.reply_to.get(&list_id).cloned();
         let can_send = !self.composer.read(cx).text().trim().is_empty() || (!self.files.is_empty() && editing.is_none());
@@ -305,8 +307,8 @@ impl ChatView {
                 )
                 .children(crate::ui::plugins::composer_buttons(cx).into_iter().map(|button| div().h(px(44.)).flex().items_center().child(button)))
         } else {
-            let plugin_buttons = if editing.is_none() { crate::ui::plugins::composer_buttons(cx) } else { Vec::new() };
-            div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
+            let plugin_buttons = if editing.is_none() && !telegram { crate::ui::plugins::composer_buttons(cx) } else { Vec::new() };
+            div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none() && !telegram, |el| {
                 el.child(icon_button("attach", "paperclip", 18., false, false, cx).tip("Attach", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
             })
             .children(plugin_buttons)

@@ -229,7 +229,8 @@ impl Dialog {
         let theme = theme(cx);
         let query = self.people_search.read(cx).text().trim().to_lowercase();
         let state = self.state.read(cx);
-        let order: Vec<String> = std::iter::once(from_server.clone()).chain(state.order.iter().filter(|id| **id != from_server).cloned()).collect();
+        // Nothing goes between Zuna's chats and the Telegram account's.
+        let order: Vec<String> = std::iter::once(from_server.clone()).chain(state.order.iter().filter(|id| **id != from_server && id.as_str() != crate::telegram::SERVER_ID).cloned()).collect();
         let mut sections = Vec::new();
         for server_id in order {
             let Some(server) = state.servers.get(&server_id) else { continue };

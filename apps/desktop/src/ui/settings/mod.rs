@@ -2,6 +2,7 @@
 //! (packages/ui/src/features/overlays/Settings.tsx).
 
 mod plugins;
+mod connections;
 mod profile;
 mod preferences;
 mod security;
@@ -18,9 +19,10 @@ use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
-const SECTIONS: [(&str, &str, &str); 10] = [
+const SECTIONS: [(&str, &str, &str); 11] = [
     ("profile", "Profile", "user-round"),
     ("privacy", "Privacy", "lock"),
+    ("connections", "Connections", "link"),
     ("notifications", "Notifications", "bell"),
     ("voice", "Voice and video", "mic"),
     ("screen", "Screen sharing", "monitor-up"),
@@ -30,6 +32,9 @@ const SECTIONS: [(&str, &str, &str); 10] = [
     ("plugins", "Plugins", "puzzle"),
     ("about", "About", "info"),
 ];
+
+/// The sections that are a server's own, which the Telegram account in front has none of.
+const SERVER_SECTIONS: [&str; 4] = ["profile", "privacy", "security", "data"];
 
 pub struct SettingsView {
     state: Entity<AppState>,
@@ -48,6 +53,8 @@ pub struct SettingsView {
     loading_data: bool,
     strength: (u8, String),
     confirming_keep: bool,
+    /// Asking before the Telegram account is unlinked.
+    confirming_unlink: bool,
     busy: bool,
     /// Holds focus while nothing in it does, so Escape closes it.
     focus: gpui::FocusHandle,
@@ -102,9 +109,11 @@ impl SettingsView {
         }
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        let telegram_in_front = state.read(cx).active().is_some_and(|server| server.entry.is_telegram());
         let mut view = SettingsView {
             state,
-            section: section.unwrap_or_else(|| "profile".into()),
+            // A server's own settings don't apply to the Telegram account, so it opens on what does.
+            section: section.unwrap_or_else(|| if telegram_in_front { "connections".into() } else { "profile".into() }),
             display_name,
             bio,
             current,
@@ -118,6 +127,7 @@ impl SettingsView {
             loading_data: false,
             strength: (0, String::new()),
             confirming_keep: false,
+            confirming_unlink: false,
             busy: false,
             focus,
             voice_page: None,
@@ -138,7 +148,7 @@ impl SettingsView {
 
     fn me(&self, cx: &gpui::App) -> Option<(crate::state::ServerState, crate::models::UserView)> {
         let state = self.state.read(cx);
-        let server = state.active()?;
+        let server = state.active().filter(|server| !server.entry.is_telegram())?;
         let me = server.users.get(server.self_id())?.clone();
         Some((server.clone(), me))
     }
@@ -314,6 +324,10 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
+        let telegram_in_front = self.state.read(cx).active().is_some_and(|server| server.entry.is_telegram());
+        if telegram_in_front && SERVER_SECTIONS.contains(&self.section.as_str()) {
+            self.section = "connections".into();
+        }
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
             "notifications" => self.notifications(cx),
@@ -331,6 +345,7 @@ impl Render for SettingsView {
             "security" => self.security(cx),
             "data" => self.server_data_page(cx),
             "plugins" => self.plugins_page(cx),
+            "connections" => self.connections(cx),
             "about" => self.about(cx),
             section if section.starts_with("plugin:") => {
                 let uid = section.trim_start_matches("plugin:").to_string();
@@ -353,7 +368,7 @@ impl Render for SettingsView {
             .flex_col()
             .gap(px(1.))
             .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child("Settings"))
-            .children(SECTIONS.iter().map(|(id, label, icon_name)| {
+            .children(SECTIONS.iter().filter(|(id, _, _)| !telegram_in_front || !SERVER_SECTIONS.contains(id)).map(|(id, label, icon_name)| {
                 let active = self.section == *id;
                 let id_string = id.to_string();
                 div()

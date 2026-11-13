@@ -139,8 +139,12 @@ impl ConversationList {
                     let state = menu_state.read(cx);
                     let Some(server) = state.servers.get(&menu_server) else { return };
                     let Some(item) = server.find_conversation(&menu_key) else { return };
-                    let mut entries = row_entries(item, &server.prefs, menu_state.clone());
-                    entries.extend(crate::ui::plugins::conversation_entries(&menu_server, item, cx));
+                    let telegram = server.entry.is_telegram();
+                    let mut entries = row_entries(item, &server.prefs, telegram, menu_state.clone());
+                    // No plugin reaches the Telegram account's chats.
+                    if !telegram {
+                        entries.extend(crate::ui::plugins::conversation_entries(&menu_server, item, cx));
+                    }
                     entries
                 };
                 open_menu(event.position, entries, false, cx);
@@ -191,7 +195,7 @@ pub(super) fn ticks_element(item: &ConversationView, self_id: &str, theme: &Them
     }
 }
 
-pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Preferences, state: Entity<AppState>) -> Vec<MenuEntry> {
+pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Preferences, telegram: bool, state: Entity<AppState>) -> Vec<MenuEntry> {
     let key = item.key.clone();
     let toggle = |list: &'static str, current: Vec<String>, key: String, state: Entity<AppState>| {
         move |_: &mut Window, cx: &mut gpui::App| {
@@ -225,10 +229,13 @@ pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Prefer
     } else {
         entries.push(MenuEntry::submenu("Mute", "volume-x", mute_entries(key.clone(), state.clone())));
     }
-    entries.push(if item.hidden {
-        MenuEntry::new("Show in list", "eye", toggle("hidden", prefs.hidden.clone(), key.clone(), state.clone()))
-    } else {
-        MenuEntry::new("Hide from list", "eye-off", toggle("hidden", prefs.hidden.clone(), key.clone(), state.clone()))
-    });
+    // Telegram's list hides nothing but by its archive, which comes later.
+    if !telegram {
+        entries.push(if item.hidden {
+            MenuEntry::new("Show in list", "eye", toggle("hidden", prefs.hidden.clone(), key.clone(), state.clone()))
+        } else {
+            MenuEntry::new("Hide from list", "eye-off", toggle("hidden", prefs.hidden.clone(), key.clone(), state.clone()))
+        });
+    }
     entries
 }

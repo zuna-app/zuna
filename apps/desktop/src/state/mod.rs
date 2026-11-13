@@ -5,6 +5,7 @@ mod events;
 mod lists;
 mod notify;
 mod media;
+mod telegram;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -167,6 +168,8 @@ pub enum Overlay {
     Proxy { from_settings: bool },
     /// A plugin's dialog, in a frame the app draws, by the number the plugins know it by.
     Plugin(u32),
+    /// Linking a Telegram account: what it is, then a QR code or a phone number.
+    Telegram,
     /// Asking before a plugin is installed or updated: what it can do, and for one Zuna hasn't
     /// checked, the warning. The package waits in the plugins' state.
     PluginInstall { id: u64 },
@@ -275,6 +278,8 @@ pub struct AppState {
     /// A new device the person said wasn't them was removed: on which server, and the secret
     /// it signed in with, which they're asked to change next.
     pub device_removed: Option<(String, Option<String>)>,
+    /// Where linking a Telegram account stands, while it's being linked or unlinked (docs/TELEGRAM_PLAN.md).
+    pub telegram_link: Option<TelegramLink>,
     pub settings: Settings,
     pub window_focused: bool,
     /// When the window last came in front, which counts as input (`person_here`), as Telegram
@@ -425,6 +430,7 @@ impl AppState {
             toasts: Vec::new(),
             answering_device: None,
             device_removed: None,
+            telegram_link: None,
             settings,
             window_focused: false,
             in_front_since: None,

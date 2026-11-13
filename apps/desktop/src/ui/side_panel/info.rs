@@ -28,7 +28,8 @@ impl SidePanel {
                     }
                 })),
         );
-        if conversation.kind == "group" {
+        let telegram = server.entry.is_telegram();
+        if conversation.kind == "group" && !telegram {
             let state = self.state.clone();
             let key = conversation.key.clone();
             let on = conversation.mentions_only;
@@ -56,10 +57,12 @@ impl SidePanel {
                 Self::row("pin-row", if conversation.pinned { "pin-off" } else { "pin" }, if conversation.pinned { "Unpin from top" } else { "Pin to top" }.into(), None, false, cx)
                     .on_click(toggle("pinned", server.prefs.pinned.clone(), conversation.key.clone(), self.state.clone())),
             )
-            .child(
-                Self::row("hide-row", if conversation.hidden { "eye" } else { "eye-off" }, if conversation.hidden { "Show in list" } else { "Hide from list" }.into(), None, false, cx)
-                    .on_click(toggle("hidden", server.prefs.hidden.clone(), conversation.key.clone(), self.state.clone())),
-            );
+            .when(!telegram, |el| {
+                el.child(
+                    Self::row("hide-row", if conversation.hidden { "eye" } else { "eye-off" }, if conversation.hidden { "Show in list" } else { "Hide from list" }.into(), None, false, cx)
+                        .on_click(toggle("hidden", server.prefs.hidden.clone(), conversation.key.clone(), self.state.clone())),
+                )
+            });
         section.into_any_element()
     }
 
@@ -139,7 +142,11 @@ impl SidePanel {
 
         // Nothing about keys, blocking or reports for an account that's gone.
         let peer = peer.filter(|peer| !peer.deleted || is_self);
-        if let (Some(peer), false) = (&peer, is_self) {
+        let telegram = server.entry.is_telegram();
+        if telegram {
+            parts.push(Self::telegram_card(cx));
+        }
+        if let (Some(peer), false, false) = (&peer, is_self, telegram) {
             let state = self.state.clone();
             let user_id = peer.id.clone();
             let (icon_name, color, title, text, bg) = match peer.trust.as_str() {
@@ -239,14 +246,16 @@ impl SidePanel {
             parts.push(members.into_any_element());
         }
 
-        if let Some(rows) = self.media_rows(server, conversation, cx) {
-            parts.push(rows);
+        if !telegram {
+            if let Some(rows) = self.media_rows(server, conversation, cx) {
+                parts.push(rows);
+            }
         }
-        parts.push(self.disappearing_row(conversation, true, cx));
+        parts.push(self.disappearing_row(conversation, !telegram, cx));
 
         parts.push(self.preferences(server, conversation, cx));
 
-        if let (Some(peer), false) = (&peer, is_self) {
+        if let (Some(peer), false, false) = (&peer, is_self, telegram) {
             let blocked = server.prefs.blocked().contains(&peer.id);
             let reported = server.prefs.reported().contains(&peer.id);
             let state = self.state.clone();
@@ -295,6 +304,31 @@ impl SidePanel {
             }
         }
         parts
+    }
+
+    /// Where a Telegram chat's lock would be: that it isn't end-to-end encrypted, and who keeps it.
+    pub(super) fn telegram_card(cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        Self::section(cx)
+            .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(8.)).py(px(5.)).child("Telegram"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(11.))
+                    .p(px(8.))
+                    .child(icon("cloud", 20., theme.text2))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Not end-to-end encrypted"))
+                            .child(div().text_size(px(12.5)).text_color(theme.text2).child("Telegram keeps these messages on its servers, as it does for its own apps. Zuna's servers never see them.")),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// Reporting someone to the server's admins, last in their profile (ReportRow). The admins

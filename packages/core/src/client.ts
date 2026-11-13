@@ -181,7 +181,7 @@ export class ZunaClient {
     // Whether a Telegram account is linked on this device, and where its icon sits among the
     // servers': nothing of Telegram's own, which stays in its engine.
     this.index.run("CREATE TABLE IF NOT EXISTS telegram (position INTEGER NOT NULL)");
-    if (this.index.get("SELECT position FROM telegram") && this.options.telegram && !this.telegram) this.startTelegram();
+    if (this.index.get("SELECT position FROM telegram") && this.options.telegram && !this.telegram) this.startTelegram(false);
     const rows = this.index.all<{ id: string; account: Uint8Array; signed_out_at: number | null }>("SELECT id, account, signed_out_at FROM servers ORDER BY position");
     for (const row of rows) {
       if (row.signed_out_at && Date.now() - row.signed_out_at > SIGNED_OUT_KEPT_MS) {
@@ -445,22 +445,14 @@ export class ZunaClient {
   }
 
   /**
-   * Starts linking a Telegram account on this device, whose steps come as `telegram` events:
-   * its icon goes in the rail after the servers', and stays there while it's linked. One account
-   * at a time, and nothing of it reaches a Zuna server.
+   * Starts linking a Telegram account on this device, whose steps come as `telegram` events.
+   * Once Telegram lets it in, its icon goes in the rail after the servers', and stays there while
+   * it's linked. One account at a time, and nothing of it reaches a Zuna server.
    */
   linkTelegram(): void {
     if (!this.options.telegram) throw new Error("This app can't use Telegram.");
     if (this.telegram) return;
-    const position = Math.max(
-      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM servers")?.next ?? 1,
-      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM telegram")?.next ?? 1,
-    );
-    this.index.transaction(() => {
-      this.index.run("DELETE FROM telegram");
-      this.index.run("INSERT INTO telegram(position) VALUES(?)", [position]);
-    });
-    this.startTelegram();
+    this.startTelegram(true);
   }
 
   /**
@@ -478,11 +470,21 @@ export class ZunaClient {
     return { signedOut };
   }
 
-  private startTelegram(): void {
+  private startTelegram(linking: boolean): void {
     const adapter = this.options.telegram!;
     const session: TelegramSession = new TelegramSession(adapter, {
+      linking,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);
+      },
+      // Linked once Telegram lets it in, and its icon goes after the servers'.
+      onLinked: () => {
+        if (this.telegram !== session) return;
+        const position = this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM servers")?.next ?? 1;
+        this.index.transaction(() => {
+          this.index.run("DELETE FROM telegram");
+          this.index.run("INSERT INTO telegram(position) VALUES(?)", [position]);
+        });
       },
       // Unlinked here, or its session ended from another device: nothing of it stays.
       onGone: () => {

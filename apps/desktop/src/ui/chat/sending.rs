@@ -335,7 +335,10 @@ impl ChatView {
     pub(super) fn update_link(&mut self, text: &str, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
         let editing = state.editing.contains_key(&self.last_list_id);
-        let link = if state.settings.link_previews && !editing { find_link(text) } else { None };
+        // Telegram makes its own previews on its servers, as for its own apps, so this device
+        // fetches no page for a message going there.
+        let telegram = state.servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram());
+        let link = if state.settings.link_previews && !editing && !telegram { find_link(text) } else { None };
         let link = link.filter(|link| Some(link) != self.dismissed_link.as_ref());
         if link == self.link_wanted {
             return;

@@ -284,6 +284,8 @@ impl Render for ConversationList {
 
         let header_state = self.state.clone();
         let is_admin = server.is_admin();
+        // The Telegram account linked here has no invites, settings or new groups yet: its menu unlinks it.
+        let telegram = server.entry.is_telegram();
         let header = div()
             .flex()
             .flex_none()
@@ -311,6 +313,16 @@ impl Render for ConversationList {
                     .child(super::motion::hover_layer("server-title", theme.hover, RADIUS_M, 100))
                     .on_click(move |_, _, cx| {
                         let state = header_state.clone();
+                        if telegram {
+                            let at = title_bounds.get();
+                            let (connections, unlink) = (state.clone(), state.clone());
+                            let entries = vec![
+                                MenuEntry::new("Connections", "link", move |_, cx| connections.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))),
+                                MenuEntry::separator(),
+                                MenuEntry::new("Unlink Telegram", "log-out", move |_, cx| unlink.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))).danger(),
+                            ];
+                            return super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
+                        }
                         let mut entries = vec![
                             {
                                 let state = state.clone();
@@ -345,11 +357,13 @@ impl Render for ConversationList {
             })
             // `.sidebar-head .titlebar-status`.
             .children(status.map(|status| status.flex_none().text_size(px(12.)).pr(px(4.))))
-            .child({
-                let state = self.state.clone();
-                icon_button("new-group", "square-pen", 17., false, false, cx)
-                    .tip("New group", Side::Bottom)
-                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
+            .when(!telegram, |el| {
+                el.child({
+                    let state = self.state.clone();
+                    icon_button("new-group", "square-pen", 17., false, false, cx)
+                        .tip("New group", Side::Bottom)
+                        .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
+                })
             });
 
         let has_query = !self.search.read(cx).text().is_empty();
@@ -500,7 +514,7 @@ impl Render for ConversationList {
                     .py(px(32.))
                     .text_color(theme.text2)
                     .child(message)
-                    .when(query.is_empty() && self.filter != Filter::Unread, |el| {
+                    .when(query.is_empty() && self.filter != Filter::Unread && !telegram, |el| {
                         el.child(
                             button("empty-action", ButtonKind::Default, ButtonSize::Small, false, cx)
                                 .child(if groups { "Create a group" } else { "Invite people" })

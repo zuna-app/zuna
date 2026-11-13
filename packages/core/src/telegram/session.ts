@@ -93,6 +93,14 @@ function explain(error: unknown): Error {
 
 export interface TelegramSessionOptions {
   onEvent: (event: CoreEvent) => void;
+  /**
+   * Being linked now, rather than started as an account linked before: only then does a step
+   * before signing in belong here. One that comes to an account linked before means it was let
+   * go, as its database couldn't be opened, and it's erased.
+   */
+  linking: boolean;
+  /** Telegram let the account in: from now on it's linked on this device. */
+  onLinked: () => void;
   /** The account is gone from this device: unlinked here, or its session ended from another device. */
   onGone: () => void;
 }
@@ -118,12 +126,14 @@ export class TelegramSession {
   private unlinking: ((signedOut: boolean) => void) | null = null;
   private signingOut = false;
   private ended = false;
+  private linking: boolean;
 
   constructor(
     adapter: TelegramAdapter,
     private readonly options: TelegramSessionOptions,
   ) {
     this.engine = new Engine(adapter, (update) => this.onUpdate(update));
+    this.linking = options.linking;
   }
 
   // --- Lifecycle ---
@@ -231,7 +241,14 @@ export class TelegramSession {
   }
 
   private onAuth(state: unknown): void {
-    switch (kindOf(state)) {
+    const kind = kindOf(state);
+    // An account linked before that asks to sign in again isn't linked any more.
+    if (!this.linking && kind.startsWith("authorizationStateWait") && kind !== "authorizationStateWaitTdlibParameters" && !this.signingOut) {
+      this.signingOut = true;
+      this.engine.stop(true);
+      return;
+    }
+    switch (kind) {
       case "authorizationStateWaitTdlibParameters":
         return this.setLink({ step: "starting" });
       case "authorizationStateWaitPhoneNumber":
@@ -275,6 +292,10 @@ export class TelegramSession {
       case "authorizationStateWaitPremiumPurchase":
         return this.setLink({ step: "failed", reason: "Telegram asks this account to buy Premium before it can sign in here." });
       case "authorizationStateReady":
+        if (this.linking) {
+          this.linking = false;
+          this.options.onLinked();
+        }
         this.setLink({ step: "ready" });
         void this.loadAccount();
         return;
@@ -433,6 +454,8 @@ export class TelegramSession {
   private onBroker(update: TdObject): void {
     switch (update["@type"]) {
       case "zunaStopped": {
+        // Only an end this session asked for is its own: one before it may still be telling of its stop.
+        if (!this.ended && !this.signingOut) return;
         this.engine.failAll(new TelegramError("Telegram stopped.", 503));
         if (update.erased === true) {
           const signedOut = update.signedOut === true;
@@ -1003,6 +1026,16 @@ export class TelegramSession {
         throw explain(error);
       });
     }
+  }
+
+  /**
+   * What the interface changes of a chat list's preferences, as a server's session takes them:
+   * pinned chats are Telegram's own pins. What Telegram has no such thing for is refused.
+   */
+  async updatePreferences(patch: Partial<Preferences>): Promise<void> {
+    const { pinned, ...rest } = patch;
+    if (Object.keys(rest).length > 0) throw new Error("Telegram keeps that in its own apps.");
+    if (pinned) await this.setPinnedChats(pinned);
   }
 
   /** A bot's button with data: Telegram asks the bot, and its answer, if any, is words to show. */

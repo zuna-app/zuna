@@ -10,6 +10,8 @@ impl ChatView {
         let panel = state.panel;
         let peer = conversation.peer_id.as_ref().and_then(|id| server.users.get(id)).cloned();
         let is_saved = conversation.peer_id.as_deref() == Some(server.self_id());
+        // A chat of the Telegram account linked here, which says so wherever a Zuna chat has its lock.
+        let telegram = server.entry.is_telegram();
         let typing: Vec<String> = conversation.group_id.as_ref().and_then(|group| server.typing.get(group)).map(|typing| typing.keys().cloned().collect()).unwrap_or_default();
         let status: AnyElement = if !typing.is_empty() {
             let names: Vec<String> = typing.iter().map(|id| server.users.get(id).map(|u| u.display_name.split(' ').next().unwrap_or("").to_string()).unwrap_or("Someone".into())).collect();
@@ -21,6 +23,8 @@ impl ChatView {
                 format!("{} people are typing", names.len())
             };
             div().flex().items_center().gap(px(5.)).text_color(theme.text1).child(label).child(typing_dots(theme.text1)).into_any_element()
+        } else if conversation.kind == "group" && telegram {
+            div().text_color(theme.text3).child("group on Telegram").into_any_element()
         } else if conversation.kind == "group" {
             let online = conversation.members.iter().filter(|member| server.users.get(&member.user_id).is_some_and(|u| u.online)).count();
             let count = conversation.members.len();
@@ -70,12 +74,29 @@ impl ChatView {
         if peer.as_ref().is_some_and(|p| p.trust == "verified") && !is_saved {
             title = title.child(icon("badge-check", 14., theme.text2));
         }
+        if telegram {
+            title = title.child(
+                div()
+                    .id("telegram-mark")
+                    .flex_none()
+                    .px(px(6.))
+                    .rounded(px(4.))
+                    .bg(theme.bg3)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.text2)
+                    .tip("Not end-to-end encrypted. Telegram keeps these messages.", Side::Bottom)
+                    .child("Telegram"),
+            );
+        }
         if conversation.disappear_after > 0. {
             title = title.child(div().id("timer-icon").tip(format!("Messages disappear after {}", timer_text(conversation.disappear_after)), Side::Bottom).child(icon("timer", 14., theme.text2)));
         }
         let toggle = |panel_kind: Panel, state: Entity<AppState>| move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| state.update(cx, |state, cx| state.toggle_panel(panel_kind, cx));
         let has_group = conversation.group_id.is_some();
-        let call_buttons = crate::ui::voice::call_buttons(&self.state, &self.server_id, conversation, cx);
+        // Telegram's calls ring in Telegram's own app, and no plugin reaches its chats.
+        let call_buttons = if telegram { Vec::new() } else { crate::ui::voice::call_buttons(&self.state, &self.server_id, conversation, cx).into_iter().collect() };
+        let plugin_buttons = if telegram { Vec::new() } else { crate::ui::plugins::header_buttons(cx).into_iter().collect() };
         div()
             .flex()
             .flex_none()
@@ -118,7 +139,7 @@ impl ChatView {
                     .items_center()
                     .gap(px(2.))
                     .children(call_buttons)
-                    .children(crate::ui::plugins::header_buttons(cx))
+                    .children(plugin_buttons)
                     .child(
                         icon_button("chat-search", "search", 17., false, panel == Some(Panel::Search), cx)
                             .tip("Search this chat", Side::Bottom)

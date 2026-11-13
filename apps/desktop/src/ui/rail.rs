@@ -115,9 +115,10 @@ impl Root {
             .order
             .iter()
             .filter_map(|id| state.servers.get(id))
-            .map(|server| RailItem { id: server.entry.id.clone(), name: server.entry.name.clone(), url: server.entry.url.clone(), has_icon: server.entry.has_icon, unread: server.unread(), has_new: server.has_new() })
+            .map(|server| RailItem { id: server.entry.id.clone(), name: server.entry.name.clone(), url: server.entry.url.clone(), has_icon: server.entry.has_icon, unread: server.unread(), has_new: server.has_new(), telegram: server.entry.is_telegram() })
             .collect();
         let me = state.active().and_then(|server| server.me.as_ref().and_then(|me| server.users.get(&me.user_id)).cloned());
+        let can_link_telegram = state.can_link_telegram();
         let mut list = div().flex().flex_col().items_center().gap(px(8.)).w_full();
         for server in servers {
             let id = server.id.clone();
@@ -166,20 +167,36 @@ impl Root {
                             .id(gpui::ElementId::Name(format!("rail-button-{id}").into()))
                             .rounded(RADIUS_L)
                             .cursor_pointer()
-                            .tip(server.name.clone(), Side::Right)
+                            .tip(if server.telegram { "Telegram: not end-to-end encrypted".to_string() } else { server.name.clone() }, Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
-                            .child(avatar(
-                                AvatarProps {
-                                    name: server.name.clone(),
-                                    seed: server.url.clone(),
-                                    image: icon_image,
-                                    size: 42.,
-                                    online: false,
-                                    rounded: true,
-                                    dot_border: theme.bg0,
-                                },
-                                cx,
-                            ))
+                            .map(|button| {
+                                if server.telegram {
+                                    // A drawing of Zuna's own: Telegram's terms keep its logo for its own apps.
+                                    button.child(
+                                        div()
+                                            .size(px(42.))
+                                            .rounded(RADIUS_L)
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .bg(theme.bg3)
+                                            .child(gpui::svg().path("icons/messages-square.svg").size(px(21.)).text_color(theme.text1)),
+                                    )
+                                } else {
+                                    button.child(avatar(
+                                        AvatarProps {
+                                            name: server.name.clone(),
+                                            seed: server.url.clone(),
+                                            image: icon_image.clone(),
+                                            size: 42.,
+                                            online: false,
+                                            rounded: true,
+                                            dot_border: theme.bg0,
+                                        },
+                                        cx,
+                                    ))
+                                }
+                            })
                             // Inactive, it's at 72% until the pointer is on it, over 100 ms.
                             .map(|button| motion::transition(button, format!("rail-button-{id}"), if active || hovered { 1. } else { 0.72 }, 100, motion::ease(), |el, opacity| el.opacity(opacity))),
                     )
@@ -221,9 +238,22 @@ impl Root {
                 .cursor_pointer()
                 .child(motion::hover_layer("rail-add", theme.hover_strong, RADIUS_L, 100))
                 .group("rail-add")
-                .tip("Join a server", Side::Right)
-                .on_click(move |_, _, cx| {
-                    add_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))
+                .tip(if can_link_telegram { "Join a server or connect Telegram" } else { "Join a server" }, Side::Right)
+                .on_click(move |event, _, cx| {
+                    if !add_state.read(cx).can_link_telegram() {
+                        return add_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx));
+                    }
+                    // Joining a server, or linking the one Telegram account this device may have.
+                    let (join, link) = (add_state.clone(), add_state.clone());
+                    crate::ui::menu::open_menu(
+                        event.position(),
+                        vec![
+                            crate::ui::menu::MenuEntry::new("Join a server", "plus", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))),
+                            crate::ui::menu::MenuEntry::new("Connect Telegram", "messages-square", move |_, cx| link.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Telegram), cx))),
+                        ],
+                        false,
+                        cx,
+                    );
                 })
                 .child(gpui::svg().path("icons/plus.svg").size(px(20.)).text_color(theme.text3).group_hover("rail-add", move |style| style.text_color(theme.text1))),
         );

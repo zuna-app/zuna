@@ -1245,6 +1245,11 @@ async fn within(cx: &mut gpui::AsyncApp, deadline: Duration, wait: oneshot::Rece
 /// deadline is left out, and what it was asked about goes as it was, unless it's required, which
 /// holds it.
 pub fn filter(kind: FilterKind, payload: Value, cx: &mut App) -> Option<Task<Verdict>> {
+    // Nothing of the linked Telegram account's passes a plugin: one holding back read marks would
+    // be the hiding Telegram's terms forbid (docs/TELEGRAM_PLAN.md).
+    if payload.get("serverId").and_then(Value::as_str) == Some(crate::telegram::SERVER_ID) {
+        return None;
+    }
     let plugins = get(cx)?;
     let filters = plugins.read(cx).filters_of(kind);
     if filters.is_empty() {

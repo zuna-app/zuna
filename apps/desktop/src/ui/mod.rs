@@ -104,6 +104,8 @@ struct RailItem {
     has_icon: bool,
     unread: u32,
     has_new: bool,
+    /// The Telegram account linked on this device, which wears Zuna's own drawing, not a server's icon.
+    telegram: bool,
 }
 
 thread_local! {

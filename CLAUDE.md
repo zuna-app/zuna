@@ -246,7 +246,7 @@ Rules the core depends on:
 ## Decisions to keep
 
 - The native app (`apps/desktop`) is the only desktop app. The Electron app it took over from is gone, with what only it used in `packages/ui`.
-- One sidebar icon is one self-hosted install, with one account on it. No central service and no federation.
+- One sidebar icon is one self-hosted install, with one account on it. No central service and no federation. The one other kind is the Telegram account linked on a device, in the native app (`docs/TELEGRAM_PLAN.md`): a third-party client of the person's own account, which no Zuna server hears of, no plugin reaches, and nothing is forwarded to or from. Telegram is the second third party an app contacts, after YouTube, and only on a device that linked an account.
 - The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only. A private bot is the one account that isn't there for everyone: only its owner sees it, and whoever is in a chat with it.
 - A bot is a member of its chats with keys of its own, run by `zuna-bot` on a machine its owner chose. It gets nothing from before it was added, shows a badge wherever its name does and is asked about each time one is added, and never shows as online. It can't start a chat, write to someone first, join voice or be one of a server's admins. Only a server's admins make listed bots, and by default only a bot's owner adds it to groups.
 - A press of a bot's button goes to the whole chat, as its messages do, and is shown nowhere.
