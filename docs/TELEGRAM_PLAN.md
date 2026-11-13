@@ -276,7 +276,8 @@ Nothing on the phone can fetch a message for a notification. The engine can't ru
 
 **Telegram pushes each message through Apple, straight to the phone, with the sender's name and the text in it.** That's how its API notifies any third-party iPhone app (read on its page on pushes), so it works wherever Telegram's own pushes do, with the app closed or the phone locked. No Zuna server takes part, the relay included.
 
-- **Set up once, by the owner:** a push certificate for Zuna's app, added to the application's settings at my.telegram.org, beside the `api_id`. It must be a certificate for the one bundle, `chat.zuna.mobile`, never the team's key the relay uses, which reaches every app the team has.
+- **Set up by the owner, and again each year:** a push certificate for Zuna's app, added to the application's settings at my.telegram.org, beside the `api_id`. It must be a certificate for the one bundle, `chat.zuna.mobile`, never the team's key the relay uses, which reaches every app the team has.
+- **The certificate is Apple's "Apple Push Notification service SSL (Sandbox & Production)",** made on Apple's developer site for that one App ID from a signing request, whose private key goes to Telegram with it: that key is what lets Telegram's servers sign in to Apple as a sender for Zuna's app. It works beside the relay's key, which stays where it is. Apple's push certificates last about a year, from memory, and when one runs out Telegram's pushes stop for every linked iPhone with nothing to say so, so its renewal goes in the calendar a month ahead. Revoking it on Apple's site cuts Telegram off at once.
 - **Registering.** When an account is linked the app gives Telegram its push token, through the engine (`registerDevice`), and again each time the app starts, as Telegram asks. Unlinking takes it back. A phone that never linked gives Telegram nothing.
 - **Showing.** A push names a kind of message and its words (`loc_key`, `loc_args`). The app carries the sentence for each kind, from the list Telegram publishes, so iOS can show a push by itself where the extension doesn't run, as before the phone's first unlock. Where it runs, the extension shows it as "Telegram", under the chat's name, and keeps the app's badge the app's own count.
 - **Telling them apart.** The extension knows a push of Telegram's from a server's by its shape. None can stand in for a server's, which is sealed with a key Telegram doesn't have.
@@ -414,6 +415,7 @@ In the commit that makes each true:
 - **The download grows** by TDLib's size, for everyone, linked or not.
 - **Telegram holds a push certificate for Zuna's iPhone app.** Whoever took it from Telegram could show a notification under Zuna's name on linked phones. It can't read anything, can't reach a phone that never linked, and can't pass for a server's push.
 - **Apple may read Telegram's pushes to linked iPhones,** if Telegram won't encrypt them for a third-party app. The linking screen says so.
+- **The push certificate runs out,** about once a year, and every linked iPhone goes quiet until a new one is uploaded.
 - **An iPhone older than iOS 26 gets no Telegram,** though the app runs there.
 - **The helper extension is new in iOS 26,** and little is written about what its sandbox allows. Step 1 finds out before anything rests on it.
 
