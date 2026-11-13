@@ -12,7 +12,8 @@ on:
 # server, zuna-web and their images aren't released here yet (docs/ROADMAP.md).
 #
 # Nothing runs with more than it needs. Each app is built by a job that holds no
-# secret and can't publish anything, and the jobs that sign and publish run no
+# secret but Telegram's api_id, which every installer carries anyway (the windows
+# job says why), and can't publish anything, and the jobs that sign and publish run no
 # build. Third-party actions are pinned to full commits, since a tag can be
 # moved.
 #
@@ -76,7 +77,8 @@ jobs:
     needs: [plan]
     if: ${{ needs.plan.outputs.desktop == 'true' }}
     runs-on: windows-latest
-    timeout-minutes: 60
+    # With room for building TDLib, when main's isn't saved.
+    timeout-minutes: 90
     env:
       ZUNA_BUILD: ${{ needs.plan.outputs.build }}
       ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
@@ -96,8 +98,21 @@ jobs:
             ~/.cargo/registry
           key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-cargo-
+      # TDLib as ci.yml's desktop job built it on main, or built here from source if it's not there.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm ci
+      # With the app's api_id for Telegram the engine is built and goes in the installer, and the
+      # app links accounts; without it there's no Telegram. They're the one secret a build job
+      # holds, as every installer carries them for anyone to read, as every Telegram client's
+      # does: kept as the repository's secrets, they stay out of git and the logs, as Telegram
+      # asks. Not an environment's, whose deployments say what's built.
       - run: npm run dist:windows
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows
