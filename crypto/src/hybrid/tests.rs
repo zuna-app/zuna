@@ -113,7 +113,12 @@ fn ml_dsa65_alone_signs_and_verifies() {
     assert_eq!(signature.len(), 3309);
     assert!(ml_dsa65_verify(&key, b"manifest", &signature));
     assert!(!ml_dsa65_verify(&key, b"manifest!", &signature));
+    // A key or signature of another length is no ML-DSA-65's.
+    assert!(!ml_dsa65_verify(&key[..key.len() - 1], b"manifest", &signature));
+    assert!(!ml_dsa65_verify(&key, b"manifest", &signature[..signature.len() - 1]));
+    assert!(!ml_dsa65_verify(&key, b"manifest", &[signature.as_slice(), &[0]].concat()));
     assert!(ml_dsa65_public(&seed[..31]).is_err());
+    assert!(ml_dsa65_sign(&seed[..31], b"manifest").is_err());
 }
 
 // FIPS 204's own known answers, the first of each parameter set in NIST's ACVP

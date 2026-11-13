@@ -498,6 +498,38 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn sha256_is_fips_180_4s() {
+        assert_eq!(sha256(b""), hex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+        assert_eq!(sha256(b"abc"), hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn what_isnt_of_its_shape_is_refused_before_its_read() {
+        let key = random_bytes(KEY_LEN).unwrap();
+        // Shorter than a nonce, so no ciphertext at all.
+        assert!(aead_open(&key, &[0u8; NONCE_LEN - 1], b"").is_err());
+        assert!(aead_open(&key, &[0u8; NONCE_LEN], b"").is_err());
+        assert!(aead_seal(&key[..16], b"x", b"").is_err());
+        // A stream's nonce prefix is 15 bytes, on either side.
+        assert!(stream_seal(&key, &[0u8; 14], 0, true, b"x").is_err());
+        let sealed = stream_seal(&key, &[0u8; 15], 0, true, b"x").unwrap();
+        assert!(stream_open(&key, &[0u8; 16], 0, true, &sealed).is_err());
+
+        // Tokens: blinds come whole, and the answer has one element for each and one proof.
+        let blinds = token_blind(2).unwrap();
+        let elements = [0u8; 2 * TOKEN_ELEMENT_LEN];
+        let proof = [0u8; TOKEN_PROOF_LEN];
+        let public = [0u8; TOKEN_ELEMENT_LEN];
+        assert!(token_finalize(&[], &[], &proof, &public).is_err());
+        assert!(token_finalize(&blinds[..blinds.len() - 1], &elements, &proof, &public).is_err());
+        assert!(token_finalize(&blinds, &elements[..TOKEN_ELEMENT_LEN], &proof, &public).is_err());
+        assert!(token_finalize(&blinds, &elements, &proof[1..], &public).is_err());
+        assert!(token_blind(MAX_TOKENS_AT_ONCE + 1).is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn safety_digest_matches_its_golden_value() {
         // Every app has to show the same emoji, so this value only changes with its label
         // (zuna/safety/v3 since identity keys became hybrid), on every platform at once.

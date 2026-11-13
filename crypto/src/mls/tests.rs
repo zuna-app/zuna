@@ -506,6 +506,127 @@ fn a_group_info_signed_with_ed25519_alone_isnt_joined() {
     assert!(joiner.join_external(GROUP, &info).is_ok());
 }
 
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn the_provider_does_nothing_but_the_one_suite_with_a_devices_keys() {
+    use crate::hybrid::{generate, public, DEVICE, LASTING};
+    let crypto = Crypto::default();
+    assert!(crypto.supports(CIPHERSUITE).is_ok());
+    assert!(crypto.supports(Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).is_err());
+    assert!(crypto.supports(Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87).is_err());
+    assert_eq!(crypto.supported_ciphersuites(), vec![CIPHERSUITE]);
+    // Keys are the core's, never OpenMLS's own.
+    assert!(crypto.signature_key_gen(SignatureScheme::MLDSA44).is_err());
+
+    let device = generate(DEVICE).unwrap();
+    let device_public = public(&device).unwrap();
+    let signature = crypto.sign(SignatureScheme::MLDSA44, b"leaf", &device).unwrap();
+    assert!(crypto.verify_signature(SignatureScheme::MLDSA44, b"leaf", &device_public, &signature).is_ok());
+    // Under any other scheme's name, the same key signs and verifies nothing.
+    assert!(crypto.sign(SignatureScheme::ED25519, b"leaf", &device).is_err());
+    assert!(crypto.verify_signature(SignatureScheme::ED25519, b"leaf", &device_public, &signature).is_err());
+
+    // A lasting key, an identity's, is no leaf's.
+    let lasting = generate(LASTING).unwrap();
+    assert!(crypto.sign(SignatureScheme::MLDSA44, b"leaf", &lasting).is_err());
+    let lasting_signature = crate::hybrid::sign(&lasting, b"leaf").unwrap();
+    assert!(crypto.verify_signature(SignatureScheme::MLDSA44, b"leaf", &public(&lasting).unwrap(), &lasting_signature).is_err());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_client_given_a_lasting_key_makes_nothing_with_it() {
+    let lasting = crate::hybrid::generate(crate::hybrid::LASTING).unwrap();
+    let public = crate::hybrid::public(&lasting).unwrap();
+    let client = MlsClient::new(public, lasting, b"identity".to_vec(), vec![]);
+    assert!(client.generate_key_package(false).is_err());
+    assert!(client.create_group(GROUP, None).is_err());
+    assert!(!client.has_group(GROUP).unwrap());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_group_that_isnt_held_is_an_error_to_read_or_change() {
+    let mut alice = client("alice");
+    assert!(!alice.has_group(GROUP).unwrap());
+    assert!(alice.epoch(GROUP).is_err());
+    assert!(alice.own_leaf_index(GROUP).is_err());
+    assert!(alice.members(GROUP).is_err());
+    assert!(alice.export_secret(GROUP, "zuna/test", b"", 32).is_err());
+    assert!(alice.commit_changes(GROUP, &[], &[], None).is_err());
+    assert!(alice.merge_pending(GROUP).is_err());
+    assert!(alice.clear_pending(GROUP).is_err());
+    // Forgetting it is done already.
+    alice.delete_group(GROUP).unwrap();
+    assert!(alice.take_changes().set.is_empty());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn each_member_knows_its_own_leaf() {
+    let (alice, bob) = pair();
+    assert_eq!(alice.own_leaf_index(GROUP).unwrap(), 0);
+    assert_eq!(bob.own_leaf_index(GROUP).unwrap(), 1);
+    let members = alice.members(GROUP).unwrap();
+    assert_eq!(members[1].leaf_index, 1);
+    assert_eq!(members[1].credential, b"bob");
+    // Only a pending commit has a next epoch to export from.
+    assert!(alice.export_pending_secret(GROUP, "zuna/test", b"", 32).is_err());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_message_of_the_wrong_kind_changes_nothing() {
+    let (alice, bob) = pair();
+    let epoch = bob.epoch(GROUP).unwrap();
+
+    // An application message, which the core never sends, isn't taken for a commit.
+    let message = {
+        let _changing = alice.changing(GROUP);
+        let mut group = alice.load(GROUP).unwrap();
+        group.create_message(&alice.provider, &alice.signer, b"hello").unwrap().tls_serialize_detached().unwrap()
+    };
+    assert!(bob.process_commit(GROUP, &message).is_err());
+    assert_eq!(bob.epoch(GROUP).unwrap(), epoch);
+
+    // A commit is neither a welcome nor a group info, and a group info joins only its group.
+    let pending = alice.commit_changes(GROUP, &[], &[], None).unwrap();
+    let carol = client("carol");
+    assert!(carol.join_from_welcome(&pending.commit, GROUP).is_err());
+    assert!(carol.join_external(GROUP, &pending.commit).is_err());
+    let info = pending.group_info.unwrap();
+    assert!(carol.join_external(b"another group id", &info).is_err());
+    assert!(!carol.has_group(b"another group id").unwrap());
+    assert!(!carol.has_group(GROUP).unwrap());
+
+    // And the real commit still goes through.
+    alice.merge_pending(GROUP).unwrap();
+    bob.process_commit(GROUP, &pending.commit).unwrap();
+    assert_eq!(exported(&alice), exported(&bob));
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn more_groups_than_are_kept_loaded_are_each_read_right() {
+    let alice = client("alice");
+    let groups: Vec<Vec<u8>> = (0..MAX_LOADED + 3).map(|at| format!("group {at:02}").into_bytes()).collect();
+    for (at, group) in groups.iter().enumerate() {
+        alice.create_group(group, Some(format!("roster {at}").as_bytes())).unwrap();
+    }
+    for _ in 0..2 {
+        for (at, group) in groups.iter().enumerate() {
+            assert_eq!(alice.roster(group).unwrap(), Some(format!("roster {at}").into_bytes()));
+            assert!(alice.loaded.borrow().len() <= MAX_LOADED);
+        }
+    }
+    // What's been forgotten is loaded again once it changes.
+    let first = &groups[0];
+    alice.commit_changes(first, &[], &[], Some(b"changed")).unwrap();
+    alice.merge_pending(first).unwrap();
+    assert_eq!(alice.roster(first).unwrap(), Some(b"changed".to_vec()));
+    assert_eq!(alice.epoch(first).unwrap(), 1);
+}
+
 /// What docs/POST_QUANTUM.md's table of sizes says, made again:
 /// `cargo test --release --lib measure_groups -- --ignored --nocapture` natively. For each
 /// size of group, under this suite, with credentials of the sizes the core makes: the key
