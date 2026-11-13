@@ -43,7 +43,7 @@ flowchart LR
 ### Core runtime: ZunaHost
 
 - **One `JSContext` on a dedicated thread** with its own run loop. Every JS call, timer and network callback is delivered on that thread, so the core keeps the single-threaded behavior it was written for, as in the web app's Worker.
-- **The core bundle:** `apps/ios/core-bundle/entry.ts`, built with esbuild into a resource of `ZunaHost`. It contains:
+- **The core bundle:** `apps/ios/core-bundle/src/entry.ts`, built with esbuild into a resource of `ZunaHost`. It contains:
   - the polyfills;
   - the crypto shim, a `DbProvider` and a `FileAdapter` that call native bridges;
   - a boot handler that creates `ZunaClient`;

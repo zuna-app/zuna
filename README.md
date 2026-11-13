@@ -141,6 +141,8 @@ npm test               # crypto, server and core tests, against a real server
 - [Security model](SECURITY.md) and [how each protection works](docs/SECURITY_DETAILS.md)
 - [Post-quantum cryptography](docs/POST_QUANTUM.md), [sealed sender](docs/SEALED_SENDER.md) and [the log of keys](docs/KEY_TRANSPARENCY.md)
 - [Architecture and protocol](docs/ARCHITECTURE.md)
+- [The desktop app](docs/DESKTOP_APP.md), [the iPhone and iPad app](docs/IOS.md), [plugins](docs/PLUGINS.md) and [Telegram](docs/TELEGRAM.md)
+- [A SOCKS5 proxy](docs/SOCKS5.md) and [watching YouTube together](docs/WATCH_TOGETHER.md)
 - [Bots](docs/BOTS.md)
 - [Screen sharing](docs/SCREEN_SHARE.md)
 - [Releases](docs/RELEASES.md) and [the roadmap](docs/ROADMAP.md)
