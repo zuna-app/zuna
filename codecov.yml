@@ -16,6 +16,38 @@ comment: false
 fixes:
   - "zuna/server/::server/"
 
+# The native app's code that only runs against the system, which its tests in the Coverage
+# workflow's Debian container can't reach: no LiveKit, PipeWire, compositor, portals, Secret
+# Service, camera or GPU there. linux-check.mjs and linux-voice-check.mjs run it, unmeasured.
+# Only whole files of it: a file with logic a test could reach stays counted.
+ignore:
+  # Where the app starts, before anything a test makes.
+  - "apps/desktop/src/main.rs"
+  # A room on LiveKit, joining it, and sharing a screen into it, captured and encoded on the GPU.
+  - "apps/desktop/src/voice/room/mod.rs"
+  - "apps/desktop/src/voice/room/shared.rs"
+  - "apps/desktop/src/voice/joining.rs"
+  - "apps/desktop/src/voice/screen/mod.rs"
+  - "apps/desktop/src/voice/screen/share.rs"
+  # PipeWire's devices and streams.
+  - "apps/desktop/src/voice/pipewire.rs"
+  # The system's own parts: zuna-watch's WebKitGTK window, the compositor's idle notifications,
+  # GeoClue through the location portal, the notification sound, the screen cast portal, and
+  # updates, which come from the system's packages.
+  - "apps/desktop/src/platform/linux/watch_view.rs"
+  - "apps/desktop/src/platform/linux/idle.rs"
+  - "apps/desktop/src/platform/linux/location.rs"
+  - "apps/desktop/src/platform/linux/sound.rs"
+  - "apps/desktop/src/platform/linux/screens.rs"
+  - "apps/desktop/src/platform/linux/updates.rs"
+  # The device key, kept in the Secret Service.
+  - "apps/desktop/src/host/device_key.rs"
+  # The camera, the microphone and the sound output, for voice and video messages.
+  - "apps/desktop/src/media/camera.rs"
+  - "apps/desktop/src/media/round.rs"
+  - "apps/desktop/src/media/ffmpeg/record.rs"
+  - "apps/desktop/src/media/ffmpeg/player.rs"
+
 # A suite that didn't run on a commit keeps its last numbers, rather than counting as nothing.
 flag_management:
   default_rules:
