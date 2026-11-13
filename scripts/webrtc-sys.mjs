@@ -68,9 +68,21 @@ async function ensureCrate(depsDir, { name, version, sha256, marks, gone = [] })
   const archive = join(depsDir, `${name}-${version}.crate`);
   if (!existsSync(archive) || hash(readFileSync(archive)) !== sha256) {
     console.log(`Downloading ${url}`);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-    writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+    // Tried a few times, waiting longer each time, as scripts/ffmpeg.mjs does: one connection
+    // to crates.io that timed out once failed a whole release.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+        break;
+      } catch (error) {
+        const why = error.cause?.message ?? error.message;
+        if (attempt === 5) throw new Error(`${url} couldn't be fetched: ${why}`);
+        console.log(`${url}: ${why}, trying again`);
+        await new Promise((done) => setTimeout(done, attempt * 5000));
+      }
+    }
   }
   const actual = hash(readFileSync(archive));
   if (actual !== sha256) {
