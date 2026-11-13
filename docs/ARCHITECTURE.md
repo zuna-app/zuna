@@ -24,11 +24,13 @@ flowchart LR
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
 | Desktop app | `apps/desktop/` | Rust, GPUI, the core in QuickJS, LiveKit's Rust SDK | Drawn on the GPU on Windows, Linux and macOS, with the system's own capture and codecs, and a fraction of a browser's memory (`docs/DESKTOP_APP.md`) |
+| iPhone and iPad app | `apps/ios/` | SwiftUI and UIKit, the core in JavaScriptCore, the crypto through UniFFI | Native on the phone, with the same core and crypto as every other app (`docs/IOS.md`) |
 | Web interface | `packages/ui/` | React, Motion | The web app's screens, which follow the same design. The web app gives it a `Platform` for what's outside the page |
 | Web app | `apps/web/`, `server/cmd/zuna-web` | The web interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite, or PostgreSQL for a large server | A single static binary for every platform, with no dependencies to install |
+| Bots | `apps/bot/` | `zuna-bot`, the core in Node, with an API shaped like Telegram's | A bot is an account like anyone's, run on a machine its owner chose (`docs/BOTS.md`) |
 
-The core runs off the interface's thread, in QuickJS in the desktop app and in a Worker in the web app, so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
+The core runs off the interface's thread, in QuickJS in the desktop app, in JavaScriptCore on a thread of its own on the iPhone and iPad, and in a Worker in the web app, so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
 
 ## Data model
 
@@ -70,16 +72,15 @@ flowchart LR
     Core["Client core"]
     Room["LiveKit room<br/>and its frame cryptor"]
     Mic["Microphone<br/>RNNoise, gate"]
+    Screen["Screen capture<br/>on the GPU in the desktop app"]
     Mic --> Room
+    Screen --> Room
     Core -->|"token and media key"| Room
   end
-  Native["Native screen capture<br/>Windows and Linux; macOS captures in the app"]
   Zuna["Zuna server"]
   LiveKit["LiveKit<br/>encrypted media only"]
   Core <-->|"who's where, tokens"| Zuna
   Room <-->|"encrypted media"| LiveKit
-  Native -->|"encrypted screen"| LiveKit
-  Core -->|"key"| Native
 ```
 
 **Keys.** A room's key comes straight from the channel's MLS group, for its current epoch, and is kept nowhere:
@@ -95,7 +96,7 @@ Each person's frames are under a key of their own, bound to who they are in the 
 
 **The microphone** goes through an AudioWorklet on the web, and through the native app's own processing on its audio thread (`apps/desktop/src/voice/mic.rs`), before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
 
-**The soundboard** is a server's sounds, which its admins add and anyone in a voice channel or a call can play to the others there. Each sound is WAV in one channel at 48 kHz, at most five seconds long: the app that adds one decodes what was picked, and the core cuts its silence, holds it to five seconds and makes it about as loud as every other sound, with its loudest sample just under full scale. Its name, emoji and the key to its file are sealed with the community key and signed by the device, as a channel's details are. Playing one isn't media: the core seals which sound, who played it, when and a value used once, under the room's group's content key, and the server hands that to the others in the room, refusing someone muted or deafened, a channel whose admins turned the soundboard off, and more than a sound every two seconds after two at once. Each of them plays the file themselves: on the desktop and the web through the room's own `AudioContext`, beside everyone's voices, and on the iPhone and iPad as its join sounds play.
+**The soundboard** is a server's sounds, which its admins add and anyone in a voice channel or a call can play to the others there. Each sound is WAV in one channel at 48 kHz, at most five seconds long: the app that adds one decodes what was picked, and the core cuts its silence, holds it to five seconds and makes it about as loud as every other sound, with its loudest sample just under full scale. Its name, emoji and the key to its file are sealed with the community key and signed by the device, as a channel's details are. Playing one isn't media: the core seals which sound, who played it, when and a value used once, under the room's group's content key, and the server hands that to the others in the room, refusing someone muted or deafened, a channel whose admins turned the soundboard off, and more than a sound every two seconds after two at once. Each of them plays the file themselves, beside everyone's voices: on the web through the room's own `AudioContext`, in the desktop app through its own mixer, and on the iPhone and iPad as its join sounds play.
 
 **Screens** are captured natively in the desktop app, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and by the browser or the iPhone otherwise, and every share goes out from the device's own connection. Either way a device has to ask first, since being in a room doesn't allow one, and the server's rules decide.
 
@@ -177,6 +178,9 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Client core | `npm run test:core` | Real clients against a real server: DMs, groups, new devices, recovery, self-repair, attacks |
 | Web app | `node apps/web/test/web-check.mjs` | The built web app in Chromium, Firefox and WebKit, served by a real `zuna-web`, against a real server and live bots |
 | Desktop app on Linux | `node apps/desktop/test/linux-check.mjs`, `linux-voice-check.mjs` | The native app in a KWin of its own: the window, tray, notifications, device key and a chat, then voice, calls, cameras, push to talk, screen sharing and voice and video messages with the web app |
+| Desktop app on Windows | `node apps/desktop/test/windows-update-check.mjs` | The app updating itself from releases served from this machine, and refusing everything an update must pass when it doesn't |
 | Desktop app on macOS | `node apps/desktop/test/mac-voice-check.mjs` | Two copies of the native app on a test server and a LiveKit of their own: voice channels and calls each way, a screen share encoded and decoded on the GPU, voice and video messages, and the question before voice moves here from someone's other device, a client in Node |
+| iPhone and iPad | `npm run test:ios`, and the rest in [IOS_TESTING.md](IOS_TESTING.md) | The core on the iPhone's host against desktop peers, the interface in the simulator, and a call with the web app |
+| Bots | `npm run test:bot` | grammY's echo bot on `zuna-bot`, against a real server |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.
