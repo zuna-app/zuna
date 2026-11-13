@@ -233,8 +233,10 @@ function nowhere(line: string): string {
   if (line.startsWith("c=IN IP6 ")) return "c=IN IP6 ::";
   if (line.startsWith("c=")) return "c=IN IP4 0.0.0.0";
   if (line.startsWith("a=rtcp:")) return line.includes(" IN IP6 ") ? "a=rtcp:9 IN IP6 ::" : "a=rtcp:9 IN IP4 0.0.0.0";
-  const media = /^(m=\S+ )\d+(\/\d+)?( .*)$/.exec(line);
-  if (media) return `${media[1]}9${media[2] ?? ""}${media[3]}`;
+  // A port of 0 is a section that was stopped or turned down, which says nothing of where anyone is,
+  // and has to stay so: made 9, it would stand again, and the next offer or answer wouldn't match.
+  const media = /^(m=\S+ )(\d+)(\/\d+)?( .*)$/.exec(line);
+  if (media && media[2] !== "0") return `${media[1]}9${media[3] ?? ""}${media[4]}`;
   return line;
 }
 

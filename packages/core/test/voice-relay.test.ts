@@ -213,6 +213,14 @@ describe("what the SDK sent", () => {
     const sdp = ["v=0", "o=- 1 2 IN IP4 127.0.0.1", "m=audio 51234 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 192.168.1.20", "a=rtcp:51235 IN IP4 192.168.1.20", "a=candidate:1 1 udp 2122260223 192.168.1.20 51234 typ host generation 0", "a=candidate:2 1 udp 1686052607 198.51.100.7 51234 typ srflx raddr 192.168.1.20 rport 51234", "a=remote-candidates:1 192.0.2.10 7882", "m=video 51236 UDP/TLS/RTP/SAVPF 96", "c=IN IP6 2001:db8::20", "a=end-of-candidates", ""].join("\r\n");
     expect(bareSdp(sdp).split("\r\n")).toEqual(["v=0", "o=- 1 2 IN IP4 127.0.0.1", "m=audio 9 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", "a=rtcp:9 IN IP4 0.0.0.0", "m=video 9 UDP/TLS/RTP/SAVPF 96", "c=IN IP6 ::", "a=end-of-candidates", ""]);
   });
+
+  it("leaves a stopped section stopped, each way, as a microphone an admin took away is", () => {
+    // A port of 0 is a section stopped or turned down: made 9, it would stand again, and the next answer wouldn't match.
+    const sdp = ["v=0", "m=audio 0 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", "a=inactive", "m=audio 51234 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 192.168.1.20", ""].join("\r\n");
+    expect(bareSdp(sdp).split("\r\n")).toEqual(["v=0", "m=audio 0 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", "a=inactive", "m=audio 9 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", ""]);
+    const answer = ["v=0", "m=audio 0 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 203.0.113.5", "m=video 7882 UDP/TLS/RTP/SAVPF 96", "c=IN IP4 203.0.113.5", ""].join("\r\n");
+    expect(relayedSdp(answer, () => null).split("\r\n")).toEqual(["v=0", "m=audio 0 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", "m=video 9 UDP/TLS/RTP/SAVPF 96", "c=IN IP4 0.0.0.0", ""]);
+  });
 });
 
 describe("the address the SDK joins by", () => {
