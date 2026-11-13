@@ -291,6 +291,14 @@ impl Root {
     }
 }
 
+#[cfg(test)]
+impl Root {
+    /// The chat open in the window, for tests outside the interface's own.
+    pub fn open_chat(&self) -> Option<Entity<chat::ChatView>> {
+        self.chat.as_ref().map(|(_, chat)| chat.clone())
+    }
+}
+
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);

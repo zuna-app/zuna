@@ -23,6 +23,8 @@ pub mod trust;
 pub mod view;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_running;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -454,9 +456,15 @@ impl Plugins {
         });
         let heard = self.heard.clone();
         let owner = uid.to_string();
-        match process::Process::start(boot.to_string(), move |message| {
+        let heard = move |message| {
             heard.unbounded_send((owner.clone(), generation, message)).ok();
-        }) {
+        };
+        // The tests speak for the host themselves (process::Process::fake).
+        #[cfg(not(test))]
+        let started = process::Process::start(boot.to_string(), heard);
+        #[cfg(test)]
+        let started: std::io::Result<process::Process> = Ok(process::Process::fake(boot.to_string(), heard));
+        match started {
             Ok(process) => {
                 self.running.insert(
                     uid.to_string(),

@@ -216,7 +216,7 @@ impl Plugins {
         .detach();
     }
 
-    fn apply_index(&mut self, index: Index, cx: &mut Context<Self>) {
+    pub(super) fn apply_index(&mut self, index: Index, cx: &mut Context<Self>) {
         self.record.seen_serial = self.record.seen_serial.max(index.serial);
         self.record.revoked_hashes = index.revoked.iter().filter_map(|revoked| if let Revoked::Hash { sha256, .. } = revoked { Some(sha256.clone()) } else { None }).collect();
         self.save();

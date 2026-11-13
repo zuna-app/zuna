@@ -542,6 +542,14 @@ impl ChatView {
 
 }
 
+#[cfg(test)]
+impl ChatView {
+    /// What's in the message box, for tests outside the chat's own.
+    pub fn composer_text(&self, cx: &gpui::App) -> String {
+        self.composer.read(cx).text().to_string()
+    }
+}
+
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
