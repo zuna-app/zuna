@@ -36,6 +36,7 @@ describe("an invite link", () => {
   it("isn't one when it leads nowhere a server could be, or isn't an invite at all", () => {
     expect(parseInviteLink("zuna://join")).toBeNull();
     expect(parseInviteLink("zuna://%%%")).toBeNull();
+    expect(parseInviteLink("zuna://[bad")).toBeNull();
     expect(parseInviteLink("https://chat.example.com/settings")).toBeNull();
     expect(parseInviteLink("https://[bad/invite/x")).toBeNull();
     // Plain HTTP only reaches this machine.
