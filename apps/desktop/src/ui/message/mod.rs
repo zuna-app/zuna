@@ -176,8 +176,7 @@ pub(super) fn message_buttons(message: &MessageView, context: &ChatContext, them
     for (row_index, row) in message.buttons.iter().enumerate() {
         let mut line = div().flex().gap(px(3.));
         for (column, button) in row.iter().enumerate() {
-            let mut cell = div()
-                .id(SharedString::from(format!("msg-button-{}-{row_index}-{column}", message.id)))
+            let mut cell = named_div(SharedString::from(format!("msg-button-{}-{row_index}-{column}", message.id)))
                 .flex_1()
                 .min_w_0()
                 .h(px(32.))
@@ -298,13 +297,15 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         } else {
             pill.bg(theme.bg2).text_color(theme.text2)
         };
-        return div()
+        // Named by what it says, which tests look for.
+        let text = system_text(message, context);
+        return named(div(), &ElementId::Name(format!("system: {text}").into()))
             .flex()
             .justify_center()
             .py(px(5.))
             .rounded(RADIUS_M)
             .when(highlighted, |el| el.bg(theme.hover_strong))
-            .child(pill.child(div().text_center().child(system_text(message, context))))
+            .child(pill.child(div().text_center().child(text)))
             .into_any_element();
     }
 

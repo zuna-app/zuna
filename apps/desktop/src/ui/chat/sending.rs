@@ -22,7 +22,7 @@ pub(super) fn stage_file(path: &std::path::Path) -> StagedFile {
 }
 
 /// A file picked to send, by path, which the core reads a chunk at a time.
-fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
+pub(super) fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
     let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
     let extension = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     let mime = match extension.as_str() {

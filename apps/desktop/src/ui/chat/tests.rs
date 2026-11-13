@@ -409,3 +409,86 @@ fn emotes_among_words_and_alone_large(cx: &mut TestAppContext) {
     let (app, _) = open_chat(cx, &channel, &format!("group:{GENERAL}"));
     app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
 }
+
+#[gpui::test]
+fn every_line_a_group_tells_of_itself_and_a_bots_buttons(cx: &mut TestAppContext) {
+    let system = |id: &str, seq: f64, kind: &str, extra: Value| {
+        let mut line = json!({ "type": kind, "actorId": BOB });
+        if let (Some(into), Value::Object(extra)) = (line.as_object_mut(), extra) {
+            into.extend(extra);
+        }
+        message(id, GROUP, seq, BOB, "", json!({ "system": line }))
+    };
+    let sticker = json!({ "fileId": "s".repeat(32), "key": "a2V5", "prefix": "cHJlZml4", "chunks": 1, "name": "sticker.webp", "mime": "image/webp", "size": 2000, "sticker": true, "width": 512, "height": 256 });
+    let messages = json!([
+        system("s01", 1.0, "group_created", json!({})),
+        system("s02", 2.0, "member_added", json!({ "targetIds": [CAROL, BOT] })),
+        system("s03", 3.0, "member_removed", json!({ "targetIds": [CAROL] })),
+        system("s04", 4.0, "member_left", json!({})),
+        system("s05", 5.0, "member_rejoined", json!({})),
+        system("s06", 6.0, "unexpected_join", json!({})),
+        system("s07", 7.0, "identity_changed", json!({})),
+        system("s08", 8.0, "identity_rotated", json!({})),
+        system("s09", 9.0, "device_added", json!({ "actorId": null })),
+        system("s10", 10.0, "timer_changed", json!({ "seconds": 3600 })),
+        system("s11", 11.0, "timer_changed", json!({ "seconds": 0 })),
+        message("b01", GROUP, 12.0, BOT, "Pick one", json!({ "buttons": [[{ "text": "Yes", "data": "y" }, { "text": "The docs", "url": "https://example.com/docs" }], [{ "text": "No", "data": "n" }]] })),
+        message("b02", GROUP, 13.0, BOT, "", json!({ "attachments": [sticker] })),
+    ]);
+    let mut world = World::new("system-lines");
+    world.server["getCalls"] = json!([]);
+    world.server.insert("loadMessages".into(), json!({ "messages": messages, "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("group:{GROUP}"));
+    app.answer("pressButton", |_| Ok(Value::Null));
+    app.settle(cx, |state| state.lists.get(GROUP).is_some_and(|list| list.loaded));
+    app.run(cx);
+    for line in [
+        "Bob created this group".to_string(),
+        "Bob added Carol, the bot Helper".into(),
+        "Bob removed Carol".into(),
+        "Bob left the group".into(),
+        "Bob rejoined this chat".into(),
+        "Bob joined without being added by a member. Check that this is expected.".into(),
+        "Bob's security key changed. Verify it before trusting new messages.".into(),
+        "Bob's security key changed since you verified it. You can compare keys again if you'd like.".into(),
+        "Someone added a device".into(),
+        format!("Bob set messages to disappear after {}", crate::format::timer_text(3600.)),
+        "Bob turned off disappearing messages".into(),
+    ] {
+        assert!(app.drawn(cx, &format!("system: {line}")), "{line}");
+    }
+    // A button with data sends it back, where it was pressed; one with a link opens it.
+    app.click(cx, "msg-button-b01-1-0");
+    assert_eq!(app.calls_of("pressButton"), vec![vec![json!(GROUP), json!("b01"), json!(1), json!(0)]]);
+    app.click(cx, "msg-button-b01-0-1");
+    assert_eq!(app.calls_of("pressButton").len(), 1, "a link isn't pressed");
+    assert!(app.drawn(cx, &format!("sticker-b02-{}", "s".repeat(32))) || cx.read(|cx| app.state.read(cx).pictures.contains_key(&format!("file:{}", "s".repeat(32)))), "a sticker loads its picture by itself");
+}
+
+#[test]
+fn a_file_to_send_is_typed_by_its_name() {
+    let dir = std::env::temp_dir().join(format!("zuna-file-types-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, mime) in [
+        ("a.JPG", "image/jpeg"), ("a.jpeg", "image/jpeg"), ("a.png", "image/png"), ("a.gif", "image/gif"), ("a.webp", "image/webp"), ("a.mp4", "video/mp4"), ("a.mov", "video/quicktime"),
+        ("a.webm", "video/webm"), ("a.bmp", "image/bmp"), ("a.avif", "image/avif"), ("a.heic", "image/heic"), ("a.svg", "image/svg+xml"), ("a.mkv", "video/x-matroska"),
+        ("a.avi", "video/x-msvideo"), ("a.mp3", "audio/mpeg"), ("a.m4a", "audio/mp4"), ("a.aac", "audio/aac"), ("a.ogg", "audio/ogg"), ("a.oga", "audio/ogg"), ("a.opus", "audio/opus"),
+        ("a.wav", "audio/wav"), ("a.flac", "audio/flac"), ("a.pdf", "application/pdf"), ("a.txt", "text/plain"), ("a.log", "text/plain"), ("a.md", "text/markdown"), ("a.csv", "text/csv"),
+        ("a.json", "application/json"), ("a.zip", "application/zip"), ("a.7z", "application/x-7z-compressed"), ("a.gz", "application/gzip"), ("a.tar", "application/x-tar"),
+        ("a.doc", "application/msword"), ("a.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), ("a.xls", "application/vnd.ms-excel"),
+        ("a.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), ("a.ppt", "application/vnd.ms-powerpoint"),
+        ("a.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"), ("a.unknown", "application/octet-stream"), ("noextension", "application/octet-stream"),
+    ] {
+        let path = dir.join(name);
+        std::fs::write(&path, b"not really one").unwrap();
+        let file = sending::file_for_sending(&path);
+        assert_eq!((file["name"].as_str().unwrap(), file["mime"].as_str().unwrap()), (name, mime));
+        assert!(file.get("width").is_none(), "{name} can't be read as what it says it is, so it has no size");
+    }
+    // A real picture has its size and a small preview.
+    let path = dir.join("real.png");
+    std::fs::write(&path, png_bytes()).unwrap();
+    let file = sending::file_for_sending(&path);
+    assert!(file["width"].as_u64().is_some() && file["thumb"].as_str().is_some_and(|thumb| thumb.starts_with("data:image/")), "{file}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
