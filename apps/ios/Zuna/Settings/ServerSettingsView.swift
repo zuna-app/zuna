@@ -262,7 +262,7 @@ struct ReportsView: View {
                     }
                 }
             } footer: {
-                Text("Swipe to dismiss a report, or to ban. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.")
+                Text("Swipe to dismiss a report, or to ban. Messages are encrypted, so nobody here can see what was said, and who made each report isn't kept.")
             }
             .listRowBackground(Theme.bg2)
         }
@@ -341,7 +341,7 @@ struct BansView: View {
                     .accessibilityIdentifier(A11y.Settings.ban(user?.username ?? ban.userId))
                 }
             } footer: {
-                Text("Unbanned, people can sign in again, and they're back in their direct messages and channels. Groups have to add them again.")
+                Text("Once unbanned, people can sign in again and get their direct messages and channels back. Groups will have to add them again.")
             }
             .listRowBackground(Theme.bg2)
         }
@@ -431,7 +431,7 @@ struct EmoteSetView: View {
             } header: {
                 Text("Use a different set")
             } footer: {
-                Text("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' addresses. Paste a link to any emote set on 7TV.")
+                Text("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. Paste a link to any emote set on 7TV.")
             }
             .listRowBackground(Theme.bg2)
             if let server, !server.emotes.emotes.isEmpty {
@@ -566,7 +566,7 @@ struct ScreenRulesView: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("Changing who can share, or turning audio off, stops shares it no longer allows. Each voice channel can set its own limit.")
+                Text("Changing who can share, or turning audio off, stops any shares it no longer allows. Each voice channel can set its own limit.")
             }
             Section {
                 limit("Max resolution", $rules.maxHeight, Self.heights, name: VoiceSettingsView.heightName)
@@ -579,8 +579,8 @@ struct ScreenRulesView: View {
                 Text("Quality limits")
             } footer: {
                 Text(voice
-                    ? "Each viewer costs your media server up to the max bitrate. Quality limits and share counts don't apply to admins who bypass them. Each app keeps to the quality limits itself, since the media server can't see encrypted video."
-                    : "Each viewer costs your media server up to the max bitrate. Quality limits and share counts don't apply to admins who bypass them. This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit.")
+                    ? "Each viewer can use up to the max bitrate of your media server's bandwidth. Quality limits and share counts don't apply to admins who bypass them. Each app applies the quality limits itself, since the media server can't see encrypted video."
+                    : "Each viewer can use up to the max bitrate of your media server's bandwidth. Quality limits and share counts don't apply to admins who bypass them. This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit.")
             }
         }
         .scrollContentBackground(.hidden)

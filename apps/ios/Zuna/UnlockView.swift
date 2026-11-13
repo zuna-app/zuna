@@ -89,7 +89,7 @@ struct UnlockView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Nobody can reset your password from this phone. Erasing removes what's stored here; your messages stay on your server and come back when you sign in with a new password or your recovery key.")
+            Text("Nobody can reset your password from this phone. Erasing removes what's stored here. Your messages stay on your server and come back when you sign in with a new password or your recovery key.")
         }
     }
 

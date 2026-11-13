@@ -51,7 +51,7 @@ struct ChatSearchSheet: View {
                         .font(.footnote).foregroundStyle(Theme.text3).listRowBackground(Color.clear)
                 }
                 if needle.count < 2 {
-                    Text("Search runs on this device. The server never sees what you look for.")
+                    Text("Search happens on this device. The server never sees what you search for.")
                         .font(.footnote).foregroundStyle(Theme.text3).frame(maxWidth: .infinity).listRowBackground(Color.clear)
                 } else if results.isEmpty, !searching {
                     Text("No messages found.").foregroundStyle(Theme.text2).frame(maxWidth: .infinity).listRowBackground(Color.clear)

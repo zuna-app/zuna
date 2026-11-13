@@ -33,7 +33,7 @@ struct ProxySettingsView: View {
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.proxyOn)
             } footer: {
-                Text("Everything this device sends can go through a SOCKS5 proxy you choose, for every server you've joined: messages, files, calls, link previews, emotes and YouTube. Your servers and their media servers then see the proxy's address rather than yours. The proxy sees which servers you reach, when and how much, but nothing you send, which stays encrypted.")
+                Text("You can send everything from this device through a SOCKS5 proxy of your choice, for every server you've joined: messages, files, calls, link previews, emotes and YouTube. Your servers and their media servers will see the proxy's address instead of yours. The proxy can see which servers you connect to, when, and how much you send, but not what you send, since that stays encrypted.")
             }
             if on {
                 Section {
@@ -57,7 +57,7 @@ struct ProxySettingsView: View {
                         .textContentType(.oneTimeCode)
                         .accessibilityIdentifier(A11y.Settings.proxyPassword)
                 } footer: {
-                    Text("While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are. A server on this phone itself can't be reached through a proxy.")
+                    Text("If the proxy can't be reached, Zuna won't connect at all. It never bypasses the proxy. SOCKS5 itself isn't encrypted, so the proxy's password and your servers' names travel to the proxy unencrypted. A server running on this phone can't be reached through a proxy.")
                 }
                 Section {
                     Button {
@@ -98,10 +98,10 @@ struct ProxySettingsView: View {
     /// The proxy as the form has it, or why it can't be read.
     private func proxy() -> Result<NetworkProxy, ProxyFormProblem> {
         let host = host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty, !host.contains("/"), !host.contains(" ") else { return .failure(ProxyFormProblem("Give the proxy's address: a name or an IP address.")) }
-        guard let port = UInt16(port.trimmingCharacters(in: .whitespaces)), port > 0 else { return .failure(ProxyFormProblem("The port is a number from 1 to 65535.")) }
+        guard !host.isEmpty, !host.contains("/"), !host.contains(" ") else { return .failure(ProxyFormProblem("Enter the proxy's address: a host name or an IP address.")) }
+        guard let port = UInt16(port.trimmingCharacters(in: .whitespaces)), port > 0 else { return .failure(ProxyFormProblem("The port must be a number from 1 to 65535.")) }
         let password = password.isEmpty ? (ProxyStore.password() ?? "") : password
-        guard username.utf8.count <= 255, password.utf8.count <= 255 else { return .failure(ProxyFormProblem("A SOCKS5 username or password is at most 255 bytes.")) }
+        guard username.utf8.count <= 255, password.utf8.count <= 255 else { return .failure(ProxyFormProblem("SOCKS5 usernames and passwords can be at most 255 bytes each.")) }
         return .success(NetworkProxy(host: host, port: port, username: username, password: password))
     }
 
@@ -140,7 +140,7 @@ struct ProxySettingsView: View {
         do {
             try ProxyStore.save(setting, password: newPassword)
         } catch {
-            problem = "The password couldn't be kept: \(error.localizedDescription)"
+            problem = "Couldn't save the password: \(error.localizedDescription)"
             return
         }
         model.proxyChanged()
@@ -161,14 +161,14 @@ private struct ReportLines: View {
         VStack(alignment: .leading, spacing: 8) {
             switch report.signedIn {
             case let .success(took):
-                line(true, "Signed in to the proxy in \(milliseconds(took)).")
-                line(report.udp, report.udp ? "It carries UDP, which calls use." : "It doesn't carry UDP, so calls through it would go over TCP, and may sound worse.")
+                line(true, "Connected to the proxy in \(milliseconds(took)).")
+                line(report.udp, report.udp ? "It supports UDP, which calls use." : "It doesn't support UDP, so calls will use TCP instead and may sound worse.")
             case let .failure(failure):
                 line(false, failure.description)
             }
             ForEach(Array(report.servers.enumerated()), id: \.offset) { _, server in
                 switch server.reached {
-                case let .reached(took): line(true, "Reached \(server.name) through it in \(milliseconds(took)).")
+                case let .reached(took): line(true, "Reached \(server.name) through the proxy in \(milliseconds(took)).")
                 case let .failed(why): line(false, "\(server.name): \(why)")
                 }
             }

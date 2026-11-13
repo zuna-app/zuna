@@ -22,8 +22,8 @@ struct WatchPlayerStatus: Equatable {
 
 /// What each of YouTube's errors is, in words, so people know it isn't Zuna (WATCH_ERRORS in packages/watch).
 private let watchErrors: [String: String] = [
-    "gone": "This video is gone, or private.",
-    "not-embeddable": "Its owner only lets it play on YouTube.",
+    "gone": "This video was removed or is private.",
+    "not-embeddable": "Its owner only allows it to play on YouTube.",
     "unplayable": "YouTube won't play this video here.",
     "no-referrer": "YouTube refused to play it here. That's a bug in Zuna.",
     "unknown": "YouTube couldn't play this video.",
@@ -230,10 +230,10 @@ struct WatchStage: View {
 
     private var note: String {
         if let error = status.error { return error }
-        if blocked { return "It didn't start by itself. Press play in the video once." }
+        if blocked { return "It didn't start automatically. Press play in the video." }
         if watchingHere, status.phase == "catching-up" { return "Catching up…" }
         if !watch.playing { return "Paused by \(name(watch.changedBy))" }
-        return "Put on by \(name(watch.video.startedBy))\(watch.video.author.isEmpty ? "" : " · \(watch.video.author)")"
+        return "Started by \(name(watch.video.startedBy))\(watch.video.author.isEmpty ? "" : " · \(watch.video.author)")"
     }
 
     var body: some View {
@@ -291,7 +291,7 @@ struct WatchStage: View {
                 if !watch.video.author.isEmpty {
                     Text(watch.video.author).font(.subheadline)
                 }
-                Text("Put on by \(name(watch.video.startedBy)). It plays from YouTube once you press Watch.")
+                Text("Started by \(name(watch.video.startedBy)). It plays from YouTube when you press Watch.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -390,8 +390,8 @@ struct WatchConsent: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Videos play from YouTube, in YouTube's own player. When you watch one, Google learns this device's IP address, which video it is and when, as it would if you opened it on YouTube. Nobody is signed in to YouTube here, so there may be adverts.")
-                    Text("Your server only learns that something was sent in the room, never which video. Until you press Watch, this device contacts nobody. You can turn this off in Settings, Privacy.")
+                    Text("Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube. You aren't signed in to YouTube here, so you may see ads.")
+                    Text("Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.")
                         .foregroundStyle(Theme.text2)
                     Link("YouTube's Terms of Service", destination: URL(string: "https://www.youtube.com/t/terms")!)
                     Link("Google's Privacy Policy", destination: URL(string: "https://policies.google.com/privacy")!)
@@ -439,7 +439,7 @@ struct WatchLinkSheet: View {
                     if let error {
                         Text(error).foregroundStyle(Theme.red)
                     } else {
-                        Text("It plays for everyone here who presses Watch, at the same moment. Anyone in the room can pause it, skip, change its speed or stop it.")
+                        Text("It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.")
                     }
                 }
             }
@@ -451,7 +451,7 @@ struct WatchLinkSheet: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Put it on") { Task { await submit() } }
+                        Button("Play") { Task { await submit() } }
                             .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier(A11y.Voice.watchPutOn)
                     }

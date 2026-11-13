@@ -109,7 +109,7 @@ struct ConversationDetails: View {
                                 Text(peer.trust == .verified ? "Verified" : peer.trust == .changed ? "Security key changed" : "Not verified yet")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(Theme.text1)
-                                Text(peer.trust == .verified ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is in between.")
+                                Text(peer.trust == .verified ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is intercepting your messages.")
                                     .font(.footnote)
                                     .foregroundStyle(Theme.text2)
                             }
@@ -183,7 +183,7 @@ struct ConversationDetails: View {
                     }
                 } footer: {
                     if !server.isBlocked(peer.id) {
-                        Text("You won't see their messages or hear about them. They aren't told.")
+                        Text("You won't see their messages or get notified about them. They won't be told.")
                     }
                 }
                 .listRowBackground(Theme.bg2)
@@ -201,7 +201,7 @@ struct ConversationDetails: View {
                         }
                     }
                 } footer: {
-                    Text("The server's admins see whom and why, never what was said or who reported.")
+                    Text("The server's admins will see who you reported and why, but not what was said or who reported them.")
                 }
                 .listRowBackground(Theme.bg2)
                 .accessibilityIdentifier(A11y.Details.report)
@@ -326,7 +326,7 @@ struct ConversationDetails: View {
                 // Nobody is using a bot, so it's never online and was never last seen. Whose it is
                 // and what it reads stand there instead.
                 BotBadge()
-                Text(Bots.whose(bot, server) + ". A program runs it, and reads everything said in the chats it's in.")
+                Text(Bots.whose(bot, server) + ". It's run by a program, which can read everything said in the chats it's in.")
                     .font(.footnote)
                     .foregroundStyle(Theme.text3)
                     .multilineTextAlignment(.center)
@@ -464,7 +464,7 @@ struct ConversationDetails: View {
                                 if user?.bot != nil { BotBadge() }
                                 if member.userId == selfId { Text("(you)").foregroundStyle(Theme.text3) }
                             }
-                            Text(member.notOnRoster == true ? "Has this chat's keys, but isn't listed as a member" : member.noKeys == true ? "No device in this chat yet" : "@\(user?.username ?? "")")
+                            Text(member.notOnRoster == true ? "Can read this chat, but isn't listed as a member" : member.noKeys == true ? "No device in this chat yet" : "@\(user?.username ?? "")")
                                 .font(.caption)
                                 .foregroundStyle(Theme.text3)
                         }
@@ -534,7 +534,7 @@ struct ConversationDetails: View {
     private func confirmTitle(_ conversation: ConversationView) -> String {
         switch confirming {
         case .leave: "Leave \(conversation.title)? You won't see new messages unless someone adds you again."
-        case .delete: "Delete \(conversation.title) for everyone? Its messages go for all members."
+        case .delete: "Delete \(conversation.title) for everyone? Its messages will be deleted for all members."
         case let .remove(userId): "Remove \(model.activeServer?.users[userId]?.displayName ?? "them") from \(conversation.title)?"
         case nil: ""
         }

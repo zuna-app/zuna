@@ -16,7 +16,7 @@ struct ServerDataView: View {
         let name = model.servers[serverId]?.entry.name ?? "The server"
         List {
             Section {
-                Text("Everything \(name) keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.")
+                Text("Everything \(name) says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.")
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                 if busy && exported == nil {
@@ -43,7 +43,7 @@ struct ServerDataView: View {
                 }
                 Section {
                 } footer: {
-                    Text("This is what \(name) says it keeps. A server someone changed could keep more than it says, which is why what matters is encrypted on your devices before it's sent.")
+                    Text("This is what \(name) says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.")
                 }
             }
         }

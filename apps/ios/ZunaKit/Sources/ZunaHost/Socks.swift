@@ -25,8 +25,8 @@ public enum Socks {
                 case 4: "The proxy can't reach that server."
                 case 5: "That server refused the proxy's connection."
                 case 6: "The proxy's connection timed out."
-                case 7: "The proxy doesn't do that."
-                case 8: "The proxy doesn't take that kind of address."
+                case 7: "The proxy doesn't support that."
+                case 8: "The proxy doesn't support that type of address."
                 default: "The proxy couldn't make the connection."
                 }
             }
@@ -62,7 +62,7 @@ public enum Socks {
             try await ready(connection, queue: queue)
             try await send(Data(proxy.signsIn ? [5, 2, 0, 2] : [5, 1, 0]), on: connection)
             let choice = try await read(2, from: connection)
-            guard choice[0] == 5 else { throw Failure.unreachable("It doesn't speak SOCKS5.") }
+            guard choice[0] == 5 else { throw Failure.unreachable("It isn't a SOCKS5 proxy.") }
             switch choice[1] {
             case 0:
                 break
@@ -91,14 +91,14 @@ public enum Socks {
         do {
             try await send(Data([5, command, 0]) + address, on: connection)
             let head = try await read(4, from: connection)
-            guard head[0] == 5 else { throw Failure.unreachable("It doesn't speak SOCKS5.") }
+            guard head[0] == 5 else { throw Failure.unreachable("It isn't a SOCKS5 proxy.") }
             guard head[1] == 0 else { throw Failure.declined(head[1]) }
             let length: Int
             switch head[3] {
             case 1: length = 4
             case 4: length = 16
             case 3: length = Int(try await read(1, from: connection)[0])
-            default: throw Failure.unreachable("Its answer couldn't be read.")
+            default: throw Failure.unreachable("Its response couldn't be read.")
             }
             let rest = try await read(length + 2, from: connection)
             let bound: String
@@ -269,7 +269,7 @@ public enum Socks {
             do {
                 let (_, response) = try await session.data(from: url)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                report.servers.append((server.name, (200..<300).contains(status) ? .reached(Date().timeIntervalSince(started)) : .failed("It answered \(status).")))
+                report.servers.append((server.name, (200..<300).contains(status) ? .reached(Date().timeIntervalSince(started)) : .failed("It responded with status \(status).")))
             } catch let error as URLError where error.code == .timedOut {
                 report.servers.append((server.name, .failed("It didn't answer in time.")))
             } catch {
@@ -317,7 +317,7 @@ public enum Socks {
                 } else if let error {
                     continuation.resume(throwing: Failure.unreachable(Self.describe(error)))
                 } else {
-                    continuation.resume(throwing: Failure.unreachable(complete ? "It closed the connection." : "Its answer was cut short."))
+                    continuation.resume(throwing: Failure.unreachable(complete ? "It closed the connection." : "Its response was cut off."))
                 }
             }
         }
@@ -325,7 +325,7 @@ public enum Socks {
 
     static func describe(_ error: NWError) -> String {
         switch error {
-        case let .posix(code) where code == .ECONNREFUSED: "Nothing answers at its address."
+        case let .posix(code) where code == .ECONNREFUSED: "Nothing is responding at that address."
         case let .posix(code) where code == .ETIMEDOUT: "It didn't answer in time."
         case .dns: "Its name couldn't be found."
         default: error.localizedDescription

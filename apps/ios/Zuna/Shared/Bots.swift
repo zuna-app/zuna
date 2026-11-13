@@ -20,7 +20,7 @@ struct BotBadge: View {
 /// the words it says before one is added (the web's `lib/bots.ts`).
 enum Bots {
     /// What someone is told before they add a bot to a group.
-    static let reads = "A bot is a program. It reads everything said here from now on, on whichever machine runs it, and gets nothing from before."
+    static let reads = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before."
 
     /// Whether this person may add someone to a group, which only a bot may say no to: its
     /// owner always may, and for a listed bot whoever its owner chose. The server holds

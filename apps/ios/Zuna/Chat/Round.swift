@@ -69,7 +69,7 @@ final class RoundRecorder {
             case .microphone: "Zuna can't use the microphone. Allow it in Settings, under Zuna."
             case .unavailable: "The camera isn't available right now."
             case .unrecorded: "The camera stopped recording. Try again."
-            case .unreadable: "The video message couldn't be made."
+            case .unreadable: "The video message couldn't be created."
             }
         }
     }

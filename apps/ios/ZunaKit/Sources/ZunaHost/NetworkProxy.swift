@@ -79,7 +79,7 @@ public struct NetworkProxy: Equatable, Sendable, CustomStringConvertible {
     // MARK: What the system reaches around it
 
     /// What the app says when it won't connect to somewhere the system would reach around the proxy.
-    public static let goesAroundMessage = "A proxy can't reach this device itself, and the system would connect to it around the proxy."
+    public static let goesAroundMessage = "A proxy can't reach this device, and connecting directly would bypass the proxy."
 
     /// Whether the system would reach `host` around a proxy, as it does for this device itself:
     /// `localhost`, the loopback, link-local and unique local addresses, and the addresses this

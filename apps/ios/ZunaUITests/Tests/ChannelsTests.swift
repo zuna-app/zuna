@@ -369,7 +369,7 @@ final class ChannelsTests: XCTestCase {
         XCTAssertTrue(edit.waitForExistence(timeout: 5))
         edit.tap()
         XCTAssertTrue(zuna.element(A11y.Channels.editor).waitForExistence(timeout: 5))
-        choose("Usual (64 kbit/s)", in: A11y.Channels.editorBitrate)
+        choose("Standard (64 kbit/s)", in: A11y.Channels.editorBitrate)
         choose("Off", in: A11y.Channels.editorScreenLimit)
         zuna.element(A11y.Channels.editorUserLimit).adjust(toNormalizedSliderPosition: 0)
         zuna.element(A11y.Channels.editorSave).tap()

@@ -56,7 +56,7 @@ struct ChannelEditor: View {
 
     /// As the desktop offers them (AUDIO_QUALITIES in ChannelDialog.tsx), in kbit/s, 0 being the usual.
     private static let audioQualities: [(kbps: Int, label: String)] = [
-        (0, "Usual (64 kbit/s)"), (96, "Better (96 kbit/s)"), (128, "Great (128 kbit/s)"), (256, "Best (256 kbit/s)"),
+        (0, "Standard (64 kbit/s)"), (96, "Better (96 kbit/s)"), (128, "Great (128 kbit/s)"), (256, "Best (256 kbit/s)"),
     ]
 
     /// How many may share a screen at once (SCREEN_LIMITS in ChannelDialog.tsx): 0 is the server's rules, -1 nobody.
@@ -105,8 +105,8 @@ struct ChannelEditor: View {
                         .accessibilityIdentifier(A11y.Channels.editorType)
                     } footer: {
                         Text(type == .text ? "Messages, pictures and files." : (server?.info?.voice ?? 0) > 0
-                            ? "Talk, share a camera or a screen."
-                            : "This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit.")
+                            ? "Talk, and share your camera or screen."
+                            : "This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit.")
                     }
                 }
                 Section {
@@ -133,7 +133,7 @@ struct ChannelEditor: View {
                         .accessibilityIdentifier(A11y.Channels.editorHeading)
                     let headings = Array(Set((server?.channels ?? []).map(\.category).filter { !$0.isEmpty })).sorted()
                     if !headings.isEmpty {
-                        Menu("Use a heading there is") {
+                        Menu("Use an existing heading") {
                             ForEach(headings, id: \.self) { heading in
                                 Button(heading) { category = heading }
                             }
@@ -156,7 +156,7 @@ struct ChannelEditor: View {
                         .accessibilityIdentifier(A11y.Channels.editorSlowModeTime)
                     }
                 } footer: {
-                    Text("Each person waits between messages, except admins.")
+                    Text("Everyone except admins has to wait between messages.")
                 }
                 if type == .voice {
                     voiceSection
@@ -184,7 +184,7 @@ struct ChannelEditor: View {
                     }
                 }
             }
-            .confirmationDialog("Delete #\(channel?.title ?? "")? Its messages go for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            .confirmationDialog("Delete #\(channel?.title ?? "")? Its messages will be deleted for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete channel", role: .destructive, action: remove)
             }
         }
@@ -208,12 +208,12 @@ struct ChannelEditor: View {
             .accessibilityIdentifier(A11y.Channels.editorBitrate)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("People who fit")
+                    Text("Max people")
                     Spacer()
                     Text(userLimit == 0 ? "No limit" : "\(userLimit)").foregroundStyle(Theme.text2).monospacedDigit()
                 }
                 Slider(value: Binding(get: { Double(userLimit) }, set: { userLimit = Int($0.rounded()) }), in: 0...99, step: 1)
-                    .accessibilityLabel("People who fit")
+                    .accessibilityLabel("Max people")
                     .accessibilityValue(userLimit == 0 ? "No limit" : "\(userLimit)")
                     .accessibilityIdentifier(A11y.Channels.editorUserLimit)
             }
@@ -230,7 +230,7 @@ struct ChannelEditor: View {
         } header: {
             Text("Voice")
         } footer: {
-            Text("Limit screen sharing to fewer at once than the server allows, or turn it off here. With the soundboard on, anyone in the channel can play the server's sounds. With watching together on, anyone in it can put a YouTube video on for everyone there, which plays only for those who press Watch.")
+            Text("You can allow fewer screen shares at once than the server does, or turn screen sharing off here. With the soundboard on, anyone in the channel can play the server's sounds. With watching together on, anyone in the channel can start a YouTube video for everyone, which only plays for people who press Watch.")
         }
     }
 
@@ -368,7 +368,7 @@ struct ChannelsSettingsView: View {
                         .foregroundStyle(Theme.text2)
                 }
             } footer: {
-                Text("Everyone on the server can see and join every channel. Names and topics are encrypted, so the server can't read them. Drag to change the order, under Edit.")
+                Text("Everyone on the server can see and join every channel. Names and topics are encrypted, so the server can't read them. Tap Edit to change the order.")
             }
         }
         .listRowBackground(Theme.bg2)

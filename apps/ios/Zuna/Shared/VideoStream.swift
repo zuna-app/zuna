@@ -15,7 +15,7 @@ final class VideoStream: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sen
 
     enum Failure: LocalizedError {
         case malformed
-        var errorDescription: String? { "This video isn't what it should be." }
+        var errorDescription: String? { "This video is damaged." }
     }
 
     let attachment: Attachment

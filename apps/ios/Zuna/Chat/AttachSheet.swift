@@ -299,7 +299,7 @@ struct AttachSheet: View {
     /// Whether the message can take another file, saying why not when it can't.
     private func roomLeft() -> Bool {
         guard room <= 0 else { return true }
-        model.toast("A message takes up to \(OutgoingFiles.limit) files, and this one has them all.")
+        model.toast("A message can have up to \(OutgoingFiles.limit) files, and this one is full.")
         return false
     }
 
@@ -419,7 +419,7 @@ private struct GalleryPage: View {
     private var grid: some View {
         ScrollView {
             if room <= 0 {
-                Text("A message takes up to \(OutgoingFiles.limit) files, and this one has them all.")
+                Text("A message can have up to \(OutgoingFiles.limit) files, and this one is full.")
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,7 +428,7 @@ private struct GalleryPage: View {
             }
             if library.status == .limited {
                 HStack(spacing: 12) {
-                    Text("You've let Zuna see only some of your photos.")
+                    Text("You've only given Zuna access to some of your photos.")
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                     Spacer(minLength: 0)
@@ -464,7 +464,7 @@ private struct GalleryPage: View {
             if !library.allowed {
                 denied
             } else if library.assets.count == 0 {
-                Text(library.status == .limited ? "No photos or videos picked for Zuna yet." : "No photos or videos.")
+                Text(library.status == .limited ? "You haven't picked any photos or videos for Zuna yet." : "No photos or videos.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text3)
                     .padding(.top, 24)
@@ -493,7 +493,7 @@ private struct GalleryPage: View {
             Text("Zuna can't see your photos")
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
-            Text("Allow it in Settings to pick them here, or choose some in Photos' own picker, which needs no access.")
+            Text("Allow access in Settings to pick them here, or use the Photos picker, which doesn't need access.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.text2)

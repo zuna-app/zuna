@@ -185,7 +185,7 @@ struct AttachLocationPage: View {
                 .disabled(found == nil || sending)
                 .accessibilityIdentifier(A11y.Attach.sendLocation)
 
-                Text("It's sent encrypted, like a message. Nobody else learns it, unless someone opens it on a map.")
+                Text("It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.text3)

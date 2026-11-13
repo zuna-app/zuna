@@ -20,7 +20,7 @@ struct SoundboardSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if sounds.isEmpty {
-                        Text(isAdmin ? "This server has no sounds yet. Add some below." : "This server has no sounds yet. Its admins add them.")
+                        Text(isAdmin ? "This server has no sounds yet. Add some below." : "This server has no sounds yet. Admins can add them.")
                             .foregroundStyle(Theme.text2)
                     } else {
                         if let refusal {
@@ -131,7 +131,7 @@ struct SoundboardSettingsView: View {
             } header: {
                 Text("Add a sound")
             } footer: {
-                Text(sounds.count >= Self.most ? "The soundboard is full. Delete a sound to add another." : "Sounds anyone in a voice channel or a call can play to everyone there. Each is cut to five seconds and made about as loud as the rest. What they're called and how they sound are encrypted, so the server can't hear them.")
+                Text(sounds.count >= Self.most ? "The soundboard is full. Delete a sound to add another." : "Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.")
             }
             if !sounds.isEmpty {
                 Section("\(sounds.count) of \(Self.most) sounds") {

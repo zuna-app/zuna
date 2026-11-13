@@ -349,7 +349,7 @@ struct VoiceSettingsView: View {
             }
             Section {
             } footer: {
-                Text("The iPhone cancels echo and noise itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
+                Text("Your iPhone handles echo and noise cancellation itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
             }
         }
         // As the other settings look.
@@ -370,7 +370,7 @@ struct VoiceSettingsView: View {
         var automatic = voice.settings
         automatic.screenBitrate = nil
         let auto = VoiceModel.shareTerms(automatic, server: server).kbps
-        let hint = "It sends less when the picture or your connection needs less. Lower it if your upload is slow."
+        let hint = "This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."
         return Section {
             Picker("Max bitrate", selection: bitrate) {
                 Text("Automatic (\(Self.bitrateName(auto)))").tag(Int?.none)

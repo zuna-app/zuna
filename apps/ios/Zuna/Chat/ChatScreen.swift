@@ -840,10 +840,10 @@ private struct JoiningChannel: View {
     var body: some View {
         VStack(spacing: 10) {
             ProgressView()
-            Text("Coming into #\(channel.title)…")
+            Text("Joining #\(channel.title)…")
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
-            Text("This device joins every channel on the server by itself. Its messages will be here in a moment.")
+            Text("This device joins every channel on the server automatically. Its messages will appear in a moment.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)

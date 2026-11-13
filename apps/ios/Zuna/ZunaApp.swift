@@ -215,7 +215,7 @@ private struct AppLockGate: View {
                 // The passcode was turned off, so nothing could ever unlock it: App lock goes with it.
                 model.settings.appLock = false
                 model.appLocked = false
-                model.toast("App lock is off, as this iPhone has no passcode.", .security)
+                model.toast("App lock is off because this iPhone has no passcode.", .security)
             case .refused:
                 break
             }

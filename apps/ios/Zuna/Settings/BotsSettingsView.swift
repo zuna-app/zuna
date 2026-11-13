@@ -43,12 +43,12 @@ struct BotsSettingsView: View {
                     Button("New bot", systemImage: "plus") { creating = true }
                         .disabled(full)
                 } else {
-                    Label("On this server, only admins can make bots.", systemImage: "info.circle")
+                    Label("On this server, only admins can create bots.", systemImage: "info.circle")
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                 }
             } footer: {
-                Text(full ? "You have as many bots as this server lets one person have." : "A bot is an account a program runs, on a machine its owner chooses. It reads everything said in the chats it's in, from when it was added, and shows a badge wherever its name does.")
+                Text(full ? "You've reached this server's limit of bots per person." : "A bot is an account run by a program, on a computer its owner chooses. It can read everything said in its chats after it's added, and always shows a bot badge next to its name.")
             }
             .listRowBackground(Theme.bg2)
             Section {
@@ -85,10 +85,10 @@ struct BotsSettingsView: View {
             .listRowBackground(Theme.bg2)
             if isAdmin {
                 Section {
-                    SavingToggle("Let members make private bots", value: server?.info?.allowMemberBots ?? false) { value in
+                    SavingToggle("Let members create private bots", value: server?.info?.allowMemberBots ?? false) { value in
                         try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(allowMemberBots: value))
                     }
-                    Picker("Bots each person can have", selection: Binding(get: { most }, set: { value in
+                    Picker("Bots per person", selection: Binding(get: { most }, set: { value in
                         run { try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(maxBots: value)) }
                     })) {
                         ForEach(Self.limits.contains(most) ? Self.limits : (Self.limits + [most]).sorted(), id: \.self) { value in
@@ -96,7 +96,7 @@ struct BotsSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("If off, only admins make bots. Only admins ever make listed ones.")
+                    Text("If off, only admins can create bots. Listed bots can only ever be created by admins.")
                 }
                 .listRowBackground(Theme.bg2)
             }
@@ -156,7 +156,7 @@ struct BotSetupCommand: View {
         } header: {
             Text("Set it up")
         } footer: {
-            Text("Set the bot up on the machine that will run it, within the hour, then start it with zuna-bot run. Its keys are made there, so not even you hold them. This link works once, and this is the only time it's shown. Whichever machine runs a bot can read that bot's chats.")
+            Text("Set up the bot on the computer that will run it within the next hour, then start it with zuna-bot run. Its keys are created there, so not even you have them. This link works once and won't be shown again. Whoever controls the computer running a bot can read its chats.")
         }
         .listRowBackground(Theme.bg2)
     }
@@ -229,7 +229,7 @@ struct NewBotSheet: View {
                     Toggle("Let it send files", isOn: $files)
                         .tint(model.settings.accent.switchTint)
                 } footer: {
-                    Text(canList ? "If it isn't listed, it's private: only you see it, and whoever is in a chat with it. Other admins don't." : "It's private: only you see it, and whoever is in a chat with it.")
+                    Text(canList ? "If it isn't listed, the bot is private: only you and people in chats with it can see it. Other admins can't." : "It's private: only you and people in chats with it can see it.")
                 }
                 .listRowBackground(Theme.bg2)
             }
@@ -286,14 +286,14 @@ struct BotDetailView: View {
     @State private var confirmingDelete = false
 
     /// What an owner is told once a change to a bot's profile is on its way.
-    private static let sent = "Sent to the bot, which sets it when it's running"
+    private static let sent = "Sent to the bot. It'll update the next time it's running"
 
     var body: some View {
         let server = model.servers[serverId]
         let user = server?.users[botId]
         let isAdmin = server?.isAdmin ?? false
         let title = user?.displayName ?? bot?.username ?? "this bot"
-        let warning = bot?.setUp == true ? "It's signed out and taken out of every chat it's in. What it sent stays with the people it sent it to. It can't be undone." : "Its setup link stops working."
+        let warning = bot?.setUp == true ? "It'll be signed out and removed from all its chats. Messages it sent will stay. This can't be undone." : "Its setup link will stop working."
         List {
             if let command = link {
                 BotSetupCommand(link: command) { link = nil }
@@ -307,7 +307,7 @@ struct BotDetailView: View {
                         }
                         .disabled(!own)
                     } footer: {
-                        Text("Its program hasn't been set up yet. If the link ran out or was lost, a new one ends the one before.")
+                        Text("The bot hasn't been set up yet. If the link expired or got lost, make a new one. The old link will stop working.")
                     }
                     .listRowBackground(Theme.bg2)
                 } else if own {
@@ -384,7 +384,7 @@ struct BotDetailView: View {
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (name == user?.displayName && about == user?.bio))
             Button("Message", systemImage: "bubble.left") { model.openChat("user:\(bot.id)") }
         } footer: {
-            Text("A bot's profile is its own to set, so this asks it to, in your chat with it. It does when it's running.")
+            Text("A bot sets its own profile, so this sends it a request in your chat with it. It'll update the next time it's running.")
         }
         .listRowBackground(Theme.bg2)
     }
@@ -405,7 +405,7 @@ struct BotDetailView: View {
                 try await change(BotChanges(files: value))
             }
         } footer: {
-            Text(mayList ? "If it isn't listed, it's private: only you see it, and whoever is in a chat with it. It leaves its channels." : "It's private: only you see it, and whoever is in a chat with it. Only the server's admins can list a bot.")
+            Text(mayList ? "If it isn't listed, the bot is private: only you and people in chats with it can see it. It will leave its channels." : "It's private: only you and people in chats with it can see it. Only the server's admins can list a bot.")
         }
         .listRowBackground(Theme.bg2)
     }
@@ -437,7 +437,7 @@ struct BotDetailView: View {
             } header: {
                 Text("Channels")
             } footer: {
-                Text("It joins the ones it's given, and reads what's said there from then on.")
+                Text("It joins the channels you pick and reads what's said there from then on.")
             }
             .listRowBackground(Theme.bg2)
         }

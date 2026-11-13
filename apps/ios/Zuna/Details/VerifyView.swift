@@ -73,7 +73,7 @@ struct VerifyView: View {
             .padding(12)
             .background(Theme.amber.opacity(0.12), in: .rect(cornerRadius: 12))
         case .verified:
-            Label("You've verified \(name). Nobody can quietly get between you.", systemImage: "checkmark.shield.fill")
+            Label("You've verified \(name). Nobody can secretly intercept your messages.", systemImage: "checkmark.shield.fill")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text1)
                 .padding(12)
@@ -81,7 +81,7 @@ struct VerifyView: View {
         case .unverified:
             Text(isSelf
                 ? "These are your emoji. Someone verifying you compares them with what they see."
-                : "Compare these emoji with \(name) in person or on a call. If they match exactly, nobody, including this server, is reading your conversation.")
+                : "Compare these emoji with \(name) in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
         }

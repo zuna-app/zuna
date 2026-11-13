@@ -251,7 +251,7 @@ final class VoiceTests: XCTestCase {
         watchHere.tap()
         let agree = zuna.element(A11y.Voice.watchAgree)
         XCTAssertTrue(agree.waitForExistence(timeout: 5))
-        XCTAssertTrue(zuna.app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Google learns this device's IP address")).firstMatch.exists)
+        XCTAssertTrue(zuna.app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Google sees this device's IP address")).firstMatch.exists)
         agree.tap()
 
         // His player plays it where carol's room is.
@@ -356,14 +356,14 @@ final class VoiceTests: XCTestCase {
         XCTAssertTrue(headline("Your screen").label.contains("fps sent of "), headline("Your screen").label)
 
         // Further down, how the screen goes out, the connection, and the microphone.
-        for (start, what) in [("Sent through, Moving bars", "how the screen goes out"), ("Media server", "the media server"), ("Encryption, End to end, key", "the room's key"), ("Your microphone", "the microphone")] {
+        for (start, what) in [("Encoded by, Moving bars", "how the screen goes out"), ("Media server", "the media server"), ("Encryption, End-to-end, key", "the room's key"), ("Your microphone", "the microphone")] {
             let element = text(start)
             reveal(element)
             XCTAssertTrue(element.exists, "no \(what) in the stats")
         }
         zuna.screenshot("99c-voice-stats-connection")
         // What's copied is what `voice-run.ts` reads, through the same text.
-        zuna.app.buttons["Copy all of it"].tap()
+        zuna.app.buttons["Copy all"].tap()
 
         zuna.app.buttons["Done"].tap()
         try waitFor("the stats to close") { !sheet.exists }
@@ -416,7 +416,7 @@ final class VoiceTests: XCTestCase {
         row.tap()
         try waitFor("alice to see bob come in", timeout: 30) { try self.bobsPhone(alice) != nil }
         try alice.call("voiceDisconnect", [lounge, bobId])
-        XCTAssertTrue(zuna.toast(startingWith: "An admin took you out").waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.toast(startingWith: "An admin removed you from").waitForExistence(timeout: 10))
         try waitFor("the call to close") { !self.zuna.element(A11y.Voice.stage).exists && !self.zuna.element(A11y.Voice.bar).exists }
 
         // Coming in on his laptop ends it on the phone, as only one device can be in.

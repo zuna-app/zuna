@@ -666,7 +666,7 @@ struct Composer: View {
     private func stageFiles(_ urls: [URL], scoped: Bool = true) async {
         var leftOut = 0
         defer {
-            if leftOut > 0 { model.toast("A message takes up to \(OutgoingFiles.limit) files, so \(leftOut == 1 ? "one was" : "\(leftOut) were") left out.") }
+            if leftOut > 0 { model.toast("A message can have up to \(OutgoingFiles.limit) files, so \(leftOut == 1 ? "one was" : "\(leftOut) were") left out.") }
         }
         for url in urls {
             let accessing = scoped && url.startAccessingSecurityScopedResource()

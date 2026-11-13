@@ -71,7 +71,7 @@ final class ShareModel {
         // Picked from the share sheet's suggestions, which notifications' conversations fill.
         preselect = (intent as? INSendMessageIntent)?.conversationIdentifier
         guard let key = DeviceKeyStore.unlockedKey() else {
-            phase = .unavailable("Open Zuna first. After the phone restarts, Zuna needs your password once before anything can be shared.")
+            phase = .unavailable("Open Zuna first. After your phone restarts, Zuna needs your password once before you can share anything.")
             return
         }
         deviceKey = key

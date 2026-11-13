@@ -158,7 +158,7 @@ struct PrivacyView: View {
                 let blocked = (server?.prefs.blocked ?? []).compactMap { server?.users[$0] }
                     .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
                 if blocked.isEmpty {
-                    Text("Nobody. You can block someone from their details in a chat, or from a group's members.")
+                    Text("Nobody yet. You can block someone from their details in a chat, or from a group's member list.")
                         .foregroundStyle(Theme.text2)
                 }
                 ForEach(blocked) { user in
@@ -176,7 +176,7 @@ struct PrivacyView: View {
             } header: {
                 Text("Blocked people")
             } footer: {
-                Text("You don't see messages from people you block, or hear about them. Nobody is told, and your server can't see who you block.")
+                Text("You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.")
             }
             .accessibilityIdentifier(A11y.Settings.blocked)
             Section {
@@ -188,14 +188,14 @@ struct PrivacyView: View {
             } header: {
                 Text("On this device")
             } footer: {
-                Text("Everything this device sends, for every server on it, can go through a SOCKS5 proxy, so that servers see its address rather than yours.")
+                Text("Everything this device sends, for every server, can go through a SOCKS5 proxy, so servers see the proxy's address instead of yours.")
             }
             Section {
                 Toggle("Link previews", isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.linkPreviews)
             } footer: {
-                Text("When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it.")
+                Text("When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it.")
             }
             Section {
                 // Turning it off waits for a yes, so the switch only follows the setting.
@@ -205,7 +205,7 @@ struct PrivacyView: View {
                 .tint(model.settings.accent.switchTint)
                 .accessibilityIdentifier(A11y.Settings.removeMetadata)
             } footer: {
-                Text("Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are.")
+                Text("Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are.")
             }
             Section {
                 @Bindable var voice = voice
@@ -213,14 +213,14 @@ struct PrivacyView: View {
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.playYouTube)
             } footer: {
-                Text("A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first.")
+                Text("People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first.")
             }
         }
         .alert("Send files with their metadata?", isPresented: $confirmingKeep) {
             Button("Cancel", role: .cancel) {}
             Button("Turn Off", role: .destructive) { model.settings.removeMetadata = false }
         } message: {
-            Text("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.\n\nYour server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.")
+            Text("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.\n\nYour server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.")
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
@@ -262,7 +262,7 @@ struct SecurityView: View {
                     Label("Your security key", systemImage: "key")
                 }
             } footer: {
-                Text("Compare it with friends to prove nobody is in between.")
+                Text("Compare it with friends to make sure nobody is intercepting your messages.")
             }
             Section {
                 ForEach(devices) { device in
@@ -294,7 +294,7 @@ struct SecurityView: View {
             } footer: {
                 // A server that makes its own certificate needs its pin too, which only its links carry.
                 if let address = model.servers[serverId]?.entry.address {
-                    Text("To add one, sign in there to \(Text(address).font(.system(.footnote, design: .monospaced)))")
+                    Text("To add a device, sign in on it at \(Text(address).font(.system(.footnote, design: .monospaced)))")
                         .textSelection(.enabled)
                 }
             }
@@ -357,7 +357,7 @@ struct SecurityView: View {
         .sheet(isPresented: $verifying) {
             if let me = model.servers[serverId]?.me { VerifyView(serverId: serverId, userId: me.userId) }
         }
-        .confirmationDialog("Remove \(removing?.name ?? "this device")? It's signed out and can't read new messages.", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { device in
+        .confirmationDialog("Remove \(removing?.name ?? "this device")? It'll be signed out and won't be able to read new messages.", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { device in
             Button("Remove device", role: .destructive) {
                 run {
                     try await model.core.session(serverId).revokeDevice(device.id)
@@ -419,7 +419,7 @@ struct DeleteAccountView: View {
         List {
             if server?.me?.role == .owner {
                 Section {
-                    Text("You own \(name), and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it.")
+                    Text("You own \(name), and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data.")
                         .foregroundStyle(Theme.text2)
                 }
             } else {
@@ -431,7 +431,7 @@ struct DeleteAccountView: View {
                         .disabled(password.isEmpty || busy)
                         .accessibilityIdentifier(A11y.Settings.deleteAccountButton)
                 } footer: {
-                    Text("This deletes your account on \(name), with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from \u{201C}Deleted account\u{201D}. Your username becomes free for someone else. It can't be undone.")
+                    Text("This deletes your account on \(name), with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from \u{201C}Deleted account\u{201D}. Someone else will be able to take your username. It can't be undone.")
                 }
             }
         }
@@ -488,8 +488,8 @@ struct AppLockView: View {
                 .accessibilityIdentifier(A11y.Settings.lockToggle)
             } footer: {
                 Text(available
-                    ? "Zuna asks for \(method) each time it opens, and hides your chats in the app switcher. After the phone restarts, your Zuna password is still needed once."
-                    : "This iPhone has no passcode, which App lock needs. Set one in the iPhone's Settings, under Face ID & Passcode.")
+                    ? "Zuna asks for \(method) each time it opens, and hides your chats in the app switcher. After your phone restarts, you'll need your Zuna password once."
+                    : "App lock needs a passcode on this iPhone. Set one in the iPhone's Settings, under Face ID & Passcode.")
             }
         }
         .listRowBackground(Theme.bg2)

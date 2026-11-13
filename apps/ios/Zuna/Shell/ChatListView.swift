@@ -151,7 +151,7 @@ struct ChatListView: View {
         .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
-        .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages go for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
+        .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages will be deleted for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
             Button("Delete channel", role: .destructive) {
                 if let serverId = model.activeServerId { model.deleteChannel(channel, on: serverId) }
             }

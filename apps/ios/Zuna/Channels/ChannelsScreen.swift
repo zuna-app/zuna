@@ -76,7 +76,7 @@ private struct ChannelsScreen: View {
         .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
-        .confirmationDialog(deleting.map { "Delete #\($0.title)? Its messages go for everyone." } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { channel in
+        .confirmationDialog(deleting.map { "Delete #\($0.title)? Its messages will be deleted for everyone." } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { channel in
             Button("Delete channel", role: .destructive) {
                 if let serverId = model.activeServerId { model.deleteChannel(channel, on: serverId) }
             }

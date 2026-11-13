@@ -563,12 +563,12 @@ final class VoiceModel {
         let wasCall = app?.servers[serverId]?.channels.contains { $0.id == channelId } == false
         let messages = wasCall ? [
             "elsewhere": "You joined this call on another device.",
-            "removed": "You're no longer in this conversation, so you left its call.",
+            "removed": "You're no longer in this conversation, so you left the call.",
             "deleted": "That conversation was deleted.",
             "banned": "You were removed from this server.",
         ] : [
             "elsewhere": "You joined this voice channel on another device.",
-            "disconnected": "An admin took you out of the voice channel.",
+            "disconnected": "An admin removed you from the voice channel.",
             "deleted": "That voice channel was deleted.",
             "banned": "You were removed from this server.",
         ]
@@ -1052,7 +1052,7 @@ final class VoiceModel {
             // One the call asked for is taken where it's waited for.
             guard !screen, !screenStarting else { return }
             guard status == .connected else {
-                BroadcastSignal.refuse("Come into a voice channel in Zuna, then share your screen from the call.")
+                BroadcastSignal.refuse("Join a voice channel in Zuna, then share your screen from the call.")
                 return
             }
             Task { await startScreen() }

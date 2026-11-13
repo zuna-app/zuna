@@ -26,7 +26,7 @@ struct CallScreen: View {
             if voice.status == .connecting {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text(voice.isCall ? "Connecting the call…" : "Coming into \(channel?.title ?? "the channel")…")
+                    Text(voice.isCall ? "Connecting the call…" : "Joining \(channel?.title ?? "the channel")…")
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
                 }
@@ -64,7 +64,7 @@ struct CallScreen: View {
         .alert("End-to-end encrypted", isPresented: $explaining) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(voice.isCall ? "With keys from this conversation's members. The server and the media server can't listen in or watch." : "With keys from this channel's members. The server and the media server can't listen in or watch.")
+            Text(voice.isCall ? "With keys only this conversation's members have. Neither the server nor the media server can listen in or watch." : "With keys only this channel's members have. Neither the server nor the media server can listen in or watch.")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Voice.stage)

@@ -168,7 +168,7 @@ struct ChannelMessageRow: View {
                 .layoutPriority(-1)
             if message.timeDiffers == true {
                 Image(systemName: "exclamationmark.shield").font(.caption2).foregroundStyle(Theme.channelMuted)
-                    .accessibilityLabel("The time of this message may not be right")
+                    .accessibilityLabel("This message's time may be wrong")
             }
             if message.expiresAt != nil {
                 Image(systemName: "timer").font(.caption2).foregroundStyle(Theme.channelMuted).accessibilityLabel("Disappears")
@@ -582,7 +582,7 @@ struct ChannelWelcome: View {
             Text("This is the start of the #\(name) channel.\(channel.topic.isEmpty ? "" : " \(channel.topic)")")
                 .font(.body)
                 .foregroundStyle(Theme.text2)
-            Label("End-to-end encrypted. Everyone on this server can read it, and the server itself can't.", systemImage: "lock.fill")
+            Label("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.channelMuted)
                 .padding(.top, 2)

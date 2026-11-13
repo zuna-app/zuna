@@ -74,7 +74,7 @@ struct ChannelDetails: View {
             .listRowBackground(Color.clear)
 
             Section {
-                Label("End-to-end encrypted. Everyone on this server can read it, and the server itself can't.", systemImage: "lock.fill")
+                Label("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
             }
@@ -87,7 +87,7 @@ struct ChannelDetails: View {
                     })) {
                         Label {
                             Text("Notifications")
-                            Text(conversation.mutedUntil.map(Format.mutedUntil) ?? "Only when someone mentions you or answers you")
+                            Text(conversation.mutedUntil.map(Format.mutedUntil) ?? "Only when someone mentions you or replies to you")
                         } icon: {
                             Image(systemName: conversation.muted ? "bell.slash" : "bell")
                         }
@@ -136,7 +136,7 @@ struct ChannelDetails: View {
                 VerifyView(serverId: serverId, userId: userId)
             }
         }
-        .confirmationDialog("Delete #\(channel.title)? Its messages go for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete #\(channel.title)? Its messages will be deleted for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete channel", role: .destructive) {
                 Task {
                     do {

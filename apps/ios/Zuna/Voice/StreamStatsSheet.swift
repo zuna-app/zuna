@@ -40,7 +40,7 @@ struct StreamStatsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(copied ? "Copied" : "Copy all of it", systemImage: copied ? "checkmark" : "doc.on.doc") { copy() }
+                    Button(copied ? "Copied" : "Copy all", systemImage: copied ? "checkmark" : "doc.on.doc") { copy() }
                         .disabled(sections.isEmpty)
                 }
                 ToolbarItem(placement: .confirmationAction) {

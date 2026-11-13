@@ -105,7 +105,7 @@ private func hardware(_ efficient: Bool?) -> String? { efficient.map { $0 ? "har
 private func quantizer(_ value: Double?) -> String? { value.flatMap { $0 > 0 ? decimal($0, 1) : nil } }
 private func encryption(_ publication: TrackPublication) -> StatRow? {
     let encrypted = publication.encryptionType != .none
-    return row("Encryption", encrypted ? "End to end" : "Off", warn: !encrypted)
+    return row("Encryption", encrypted ? "End-to-end" : "Off", warn: !encrypted)
 }
 
 /// How much each total has moved since the reading before.
@@ -284,7 +284,7 @@ final class StreamStats {
             row("Media server", host),
             row("LiveKit", joined(room.serverVersion, room.serverRegion, room.serverNode)),
             row("In the room", String(room.people)),
-            row("Encryption", room.encrypted ? "End to end\(key)" : "Off", warn: !room.encrypted),
+            row("Encryption", room.encrypted ? "End-to-end\(key)" : "Off", warn: !room.encrypted),
             room.proxy.flatMap { row("Proxy", $0) },
         ]
         return StatSection(
@@ -323,9 +323,9 @@ final class StreamStats {
             }
         } ?? []
         let rows: [StatRow?] = [
-            row("Sent through", share?.through),
-            row("Asked capture for", share.map { "\($0.terms.fps) fps\($0.terms.height > 0 ? ", up to \($0.terms.height) lines" : "")" }),
-            row("Held to the server's limits", held.isEmpty ? nil : held.joined(separator: ", ")),
+            row("Encoded by", share?.through),
+            row("Requested from capture", share.map { "\($0.terms.fps) fps\($0.terms.height > 0 ? ", up to \($0.terms.height) lines" : "")" }),
+            row("Limited by the server", held.isEmpty ? nil : held.joined(separator: ", ")),
             row("Capturing", fps(capture?.framesPerSecond)),
             row("Encoding", fps(moved.perSecond(\.framesEncoded))),
             row("Sending", fps(sentFps)),
@@ -334,8 +334,8 @@ final class StreamStats {
             row("Codec", codecOf(statistics, rtp.codecId)),
             row("Encoder", joined(rtp.encoderImplementation, hardware(rtp.powerEfficientEncoder), rtp.scalabilityMode)),
             row("Bitrate", bits(moved.bitsPerSecond(bytes, before: bytesBefore))),
-            row("Most asked for", share.flatMap { bits(Double($0.terms.kbps) * 1000) }),
-            row("Encoder aims for", bits(rtp.targetBitrate)),
+            row("Max bitrate", share.flatMap { bits(Double($0.terms.kbps) * 1000) }),
+            row("Target bitrate", bits(rtp.targetBitrate)),
             row("Encode time", ms(moved.each(\.totalEncodeTime, of: \.framesEncoded))),
             row("Quantizer", quantizer(moved.each(\.qpSum, of: \.framesEncoded))),
             row("Limited by", reason.map { $0 == .none ? "Nothing" : $0.rawValue }, warn: reason != nil && reason != QualityLimitationReason.none),
@@ -344,7 +344,7 @@ final class StreamStats {
             row("Keyframes", joined(count(rtp.keyFramesEncoded), "\(count(rtp.pliCount) ?? "0") asked for", (moved.change(\.firCount) ?? 0) != 0 ? "\(count(rtp.firCount) ?? "0") FIR" : nil)),
             row("Huge frames", (rtp.hugeFramesSent ?? 0) > 0 ? count(rtp.hugeFramesSent) : nil),
             row("Packets", joined(count(rtp.packetsSent), "\(count(rtp.retransmittedPacketsSent) ?? "0") sent again", "\(count(rtp.nackCount) ?? "0") NACK")),
-            row("Lost on the way", percent(lost), warn: (lost ?? 0) > noticeableLoss),
+            row("Packet loss", percent(lost), warn: (lost ?? 0) > noticeableLoss),
             row("Round trip", ms(remote?.roundTripTime, digits: 0)),
             encryption(stream.publication),
         ]
@@ -373,7 +373,7 @@ final class StreamStats {
         let dropping = moved.perSecond(\.framesDropped) ?? 0
         let loss = lossOf(moved.change(\.packetsLost), moved.change(\.packetsReceived))
         let rows: [StatRow?] = [
-            row("Sent through", stream.source == .screenShareVideo && stream.native ? "Their desktop app, on their graphics card" : nil),
+            row("Encoded by", stream.source == .screenShareVideo && stream.native ? "Their desktop app, on their graphics card" : nil),
             row("Receiving", fps(moved.perSecond(\.framesReceived))),
             row("Decoding", fps(decoded)),
             row("Frames dropped", joined(count(rtp.framesDropped), dropping > 0 ? "\(decimal(dropping, 1)) a second" : nil), warn: dropping > 0),
@@ -382,10 +382,10 @@ final class StreamStats {
             row("Decoder", joined(rtp.decoderImplementation, hardware(rtp.powerEfficientDecoder))),
             row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
             row("Decode time", ms(moved.each(\.totalDecodeTime, of: \.framesDecoded))),
-            row("Time to show", ms(moved.each(\.totalProcessingDelay, of: \.framesDecoded))),
+            row("Display delay", ms(moved.each(\.totalProcessingDelay, of: \.framesDecoded))),
             row("Quantizer", quantizer(moved.each(\.qpSum, of: \.framesDecoded))),
             row("Jitter buffer", ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
-            row("Buffer aims for", ms(moved.each(\.jitterBufferTargetDelay, of: \.jitterBufferEmittedCount))),
+            row("Target buffer", ms(moved.each(\.jitterBufferTargetDelay, of: \.jitterBufferEmittedCount))),
             row("Network jitter", ms(rtp.jitter)),
             row("Frame spacing", spacing),
             row("Freezes", joined(count(rtp.freezeCount), seconds(rtp.totalFreezesDuration)), warn: (moved.change(\.freezeCount) ?? 0) > 0),
@@ -413,12 +413,12 @@ final class StreamStats {
         let lost = remote?.fractionLost
         let rows: [StatRow?] = [
             row("Muted", stream.publication.isMuted ? "Yes" : nil),
-            row("Cleaned up by", stream.source == .microphone ? micFilters : nil),
+            row("Processing", stream.source == .microphone ? micFilters : nil),
             row("Codec", codecOf(statistics, rtp.codecId)),
             row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesSent ?? 0, before: moved.before?.bytesSent))),
-            row("Encoder aims for", bits(rtp.targetBitrate)),
+            row("Target bitrate", bits(rtp.targetBitrate)),
             row("Packets", count(rtp.packetsSent)),
-            row("Lost on the way", percent(lost), warn: (lost ?? 0) > noticeableLoss),
+            row("Packet loss", percent(lost), warn: (lost ?? 0) > noticeableLoss),
             row("Round trip", ms(remote?.roundTripTime, digits: 0)),
             encryption(stream.publication),
         ]
@@ -440,7 +440,7 @@ final class StreamStats {
             row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
             row("Jitter buffer", ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
             row("Network jitter", ms(rtp.jitter)),
-            row("Made up to hide gaps", percent(concealed), warn: !muted && (concealed ?? 0) > noticeableLoss),
+            row("Concealed", percent(concealed), warn: !muted && (concealed ?? 0) > noticeableLoss),
             row("Packets", count(rtp.packetsReceived)),
             row("Lost", joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
             encryption(stream.publication),

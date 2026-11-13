@@ -257,7 +257,7 @@ struct ChannelRows: View {
         }
         .contextMenu { menu(channel) }
         .confirmationDialog(
-            "Leave the call to come into \(channel.title)?",
+            "Leave the call to join \(channel.title)?",
             isPresented: Binding(get: { leavingCallFor?.id == channel.id }, set: { if !$0 { leavingCallFor = nil } }),
             titleVisibility: .visible
         ) {
@@ -344,7 +344,7 @@ struct ChannelRows: View {
         guard channel.type == .text else {
             // Tapping a voice channel is coming into it, as in Discord, or opening the call already there.
             guard (server.info?.voice ?? 0) > 0 else {
-                model.toast("This server has no media server yet, so its voice channels can't be joined.")
+                model.toast("This server doesn't have a media server yet, so you can't join its voice channels.")
                 return
             }
             // A call with someone ends for good, unlike moving between voice channels, so that's asked.
