@@ -448,14 +448,16 @@ impl MlsClient {
         key_packages
             .iter()
             .map(|bytes| {
-                let package = KeyPackageIn::tls_deserialize_exact(bytes)
-                    .map_err(err("key package decode"))?
-                    .validate(self.provider.crypto(), ProtocolVersion::Mls10)
-                    .map_err(err("key package invalid"))?;
-                if package.ciphersuite() != CIPHERSUITE {
+                // A key package starts with its version and its suite (RFC 9420, section 10):
+                // one of another suite is refused before any of it is read, or checked under
+                // that suite's scheme.
+                if bytes.get(2..4).is_some_and(|suite| suite != u16::from(CIPHERSUITE).to_be_bytes()) {
                     return Err("key package of another suite".to_string());
                 }
-                Ok(package)
+                KeyPackageIn::tls_deserialize_exact(bytes)
+                    .map_err(err("key package decode"))?
+                    .validate(self.provider.crypto(), ProtocolVersion::Mls10)
+                    .map_err(err("key package invalid"))
             })
             .collect()
     }
@@ -567,12 +569,12 @@ impl MlsClient {
             .add_proposals()
             .map(|p| credential_or_empty(p.add_proposal().key_package().leaf_node().credential()))
             .collect::<Vec<_>>();
-        let mut removed_credentials = Vec::new();
-        for remove in staged.remove_proposals() {
-            if let Some(credential) = group.member(remove.remove_proposal().removed()) {
-                removed_credentials.push(credential_or_empty(credential));
-            }
-        }
+        // OpenMLS takes no removal of a leaf that isn't a member's, so each names one.
+        let removed_credentials = staged
+            .remove_proposals()
+            .filter_map(|remove| group.member(remove.remove_proposal().removed()))
+            .map(credential_or_empty)
+            .collect::<Vec<_>>();
         let self_removed = staged.self_removed();
 
         group

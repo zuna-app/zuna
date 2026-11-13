@@ -458,8 +458,11 @@ fn a_key_package_signed_with_one_algorithm_alone_isnt_taken() {
     // A device key under the old suite, with X25519 alone.
     let old = openmls_basic_credential::SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
     let old_suite = foreign_key_package(Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519, &old, old.public().to_vec());
-    assert!(alice.key_package_credential(&old_suite).is_err());
+    // Refused by its suite, before its signature is read under the old suite's scheme.
+    assert_eq!(alice.key_package_credential(&old_suite).err().as_deref(), Some("key package of another suite"));
     assert!(alice.commit_changes(GROUP, &[old_suite], &[], None).is_err());
+    // What's too short to name a suite is no key package either.
+    assert!(alice.key_package_credential(&[0, 1, 0]).unwrap_err().starts_with("key package decode"));
 
     // And the group goes on as it was.
     let bob = client("bob");
