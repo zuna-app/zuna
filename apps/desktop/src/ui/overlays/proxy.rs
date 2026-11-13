@@ -131,7 +131,10 @@ impl Dialog {
                 div()
                     .text_size(px(12.5))
                     .text_color(theme.text2)
-                    .child("While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are: a proxy on this computer, such as Tor or ssh -D, has none. Watching YouTube together doesn't go through a proxy yet, so it's off while one is set.")
+                    .child(format!(
+                        "While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are: a proxy on this computer, such as Tor or ssh -D, has none.{}",
+                        if cfg!(target_os = "macos") { "" } else { " Watching YouTube together doesn't go through a proxy on this system yet, so it's off while one is set." }
+                    ))
                     .into_any_element(),
             );
         }

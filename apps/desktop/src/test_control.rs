@@ -137,9 +137,14 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
     if let Some(voice) = request.get("voice") {
         let target = voice.get("server").and_then(Value::as_str).map(str::to_string).zip(voice.get("channel").and_then(Value::as_str).map(str::to_string));
         cx.update(|cx| {
+            // Opened as it's come into, as its row does, so the stage, and a video's player, show.
+            let key = target.as_ref().and_then(|(server, channel)| {
+                let store = cx.try_global::<crate::state::Store>()?;
+                store.0.read(cx).servers.get(server)?.channels.iter().find(|item| &item.id == channel).map(|item| item.key.clone())
+            });
             if let Some(handle) = crate::voice::get(cx) {
                 handle.update(cx, |handle, cx| match target {
-                    Some((server, channel)) => handle.join(server, channel, None, crate::voice::JoinHow { ring: false, camera: false, open: None }, cx),
+                    Some((server, channel)) => handle.join(server, channel, None, crate::voice::JoinHow { ring: false, camera: false, open: key }, cx),
                     None => handle.leave(cx),
                 });
             }

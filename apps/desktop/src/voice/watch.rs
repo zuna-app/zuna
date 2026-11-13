@@ -19,8 +19,9 @@ pub const WATCH_FOCUS: &str = "watch";
 /// what to install where WebKitGTK is missing. Elsewhere this device never watches: the stage
 /// shows what's on and says where it plays.
 pub fn plays_here() -> bool {
-    // YouTube's player makes its own connections, which don't go through a proxy yet.
-    if crate::host::net::proxy().is_some() {
+    // YouTube's player makes connections of its own: on macOS its web view goes through the
+    // proxy (platform/macos/watch_view.rs); elsewhere nothing takes it there yet.
+    if crate::host::net::proxy().is_some() && !cfg!(target_os = "macos") {
         return false;
     }
     #[cfg(any(target_os = "macos", target_os = "linux"))]

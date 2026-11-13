@@ -8,11 +8,14 @@
 //
 // Then a call: both come into a voice channel on a LiveKit of the check's own, each with a
 // tone in place of a microphone, and each hears the other, through relays on loopback and
-// the proxy alone, over UDP, and again over TCP with the proxy refusing UDP, as Tor does.
+// the proxy alone, over UDP, and again over TCP with the proxy refusing UDP, as Tor does. In
+// it they watch a video together, in the fake of YouTube's player (packages/watch/fake) at a
+// name only the proxy knows, which WebKit reaches through it or not at all.
 //
 //   node apps/desktop/test/proxy-check.mjs [screenshot-dir]
 
-import { copyFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { build, root, session, sleep, until } from "./mac-session.mjs";
@@ -23,8 +26,22 @@ const PASSWORD = "the proxy check's password";
 const { server: serverBinary } = build();
 const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
 
-/** Each copy with a tone for a microphone, and what it hears in its log. */
-const APP_ENV = { ZUNA_FAKE_MIC: "1", RUST_LOG: "info,zuna=debug" };
+/**
+ * The fake of YouTube's player, at a name only the check's proxy resolves. One without a dot,
+ * as App Transport Security keeps an app from plain HTTP to any other name before the proxy
+ * is even asked, and the system takes no proxy to this machine's own addresses.
+ */
+const PLAYER_NAME = "zuna-watch";
+const playerPage = readFileSync(join(root, "packages", "watch", "fake", "player.html"), "utf8");
+const player = createServer((_, response) => response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(playerPage));
+await new Promise((resolve) => player.listen(0, "127.0.0.1", resolve));
+const playerPort = player.address().port;
+
+/** Each copy with a tone for a microphone, the fake player, and what it hears in its log. */
+const APP_ENV = { ZUNA_FAKE_MIC: "1", ZUNA_WATCH_PLAYER: `http://${PLAYER_NAME}:${playerPort}`, RUST_LOG: "info,zuna=debug" };
+
+/** Where an app's player last said it was, from its log. */
+const playerAt = (app) => [...app.log().matchAll(/watch: player (\S+) at (\d+) ms, (\d+)/g)].at(-1)?.[1] ?? null;
 
 /** The loudest a voice decoded at in a copy's log since `from`, once it's heard. */
 const loudest = (app, from = 0) => Math.max(0, ...[...app.log().slice(from).matchAll(/voice: \S+ peaks at ([0-9.]+)/g)].map((match) => Number(match[1])));
@@ -63,6 +80,7 @@ async function restart(app, name) {
 
 try {
   const proxy = await new SocksProxy({ username: "zuna", password: PASSWORD }).start();
+  proxy.names.set(PLAYER_NAME, "127.0.0.1");
   // A LiveKit of its own, its signalling reached by name too, and its media on this Mac's
   // address on its network, as LiveKit is never on loopback, where it takes nothing from loopback
   // in turn: that's the proxy's address it sees, as a server sees a real proxy's.
@@ -146,6 +164,27 @@ try {
   const datagrams = proxy.datagrams.slice(before.datagrams);
   check("its media went through the proxy to LiveKit's UDP port, and nowhere else", datagrams.length > 0 && datagrams.every((datagram) => datagram.port === liveKitPort + 2 && datagram.host === lan), JSON.stringify([...new Set(datagrams.map((datagram) => `${datagram.host}:${datagram.port}`))]));
   check("no STUN server was asked", !proxy.requests.slice(before.requests).some((request) => request.port === 3478 || request.port === 19302));
+
+  // --- Watching together, the player's page through the proxy too ---
+  const rejoinedFrom = { first: first.log().length, second: second.log().length };
+  await first.send({ voice: { server: serverId, channel: lounge } });
+  await second.send({ voice: { server: guestServerId, channel: lounge } });
+  const rejoined = await until(() => loudest(first, rejoinedFrom.first) > 0.1 && loudest(second, rejoinedFrom.second) > 0.1, "both to be in the call again", 60_000).catch(() => false);
+  check("both come into the call again", rejoined);
+  const watching = await first.core("watchStart", [lounge, "https://youtu.be/aqz-KE-bpKQ?t=30"], serverId);
+  check("the owner puts a video on", !watching.error, JSON.stringify(watching).slice(0, 200));
+  await until(async () => !!(await second.core("getWatch", [lounge], guestServerId)).ok, "the guest to see the video", 15_000).catch(() => false);
+  await first.send({ watchHere: true });
+  await second.send({ watchHere: true });
+  const inStep = await until(() => playerAt(first) === "in-step" && playerAt(second) === "in-step", "both players to come into step", 45_000).catch(() => false);
+  check("both play it, from a page only the proxy could find", inStep, `${playerAt(first)}, ${playerAt(second)}`);
+  check("the player came through the proxy, by name", proxy.requests.some((request) => request.host === PLAYER_NAME && request.kind === "name" && request.user === "zuna"));
+  await first.shot("watching");
+  await first.core("watchStop", [lounge], serverId);
+  await first.send({ voice: null });
+  await second.send({ voice: null });
+  await sleep(2000);
+
   proxy.refuseUdp = true;
   const tcpFrom = proxy.requests.length;
   await callThrough("over TCP");
@@ -185,5 +224,6 @@ try {
   // Turned off, the app forgets the proxy's password, which leaves nothing in the keychain.
   for (const app of apps) await app.send({ proxy: null }).catch(() => undefined);
   if (media) writeFileSync(join(work, "livekit.log"), media.output);
+  player.close();
   finish();
 }
