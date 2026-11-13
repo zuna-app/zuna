@@ -140,8 +140,13 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
 
     private func openSocket(id: Int, url: String) {
         let proxy = NetworkProxy.current
-        guard !offline, let target = URL(string: url), proxy == nil || !NetworkProxy.goesAround(target.host ?? "") else {
-            queue.async { self.socketClosed(id: id, code: 1006, error: true) }
+        // A URL with no host is no place to connect to, and Network.framework stops the app on one.
+        guard !offline, let target = URL(string: url), target.host != nil, proxy == nil || !NetworkProxy.goesAround(target.host ?? "") else {
+            // Nothing opened, so nothing is kept to close: it's told as a browser tells it, an error and then a close.
+            queue.async { [self] in
+                deliver("__zunaWsEvent", [id, "error", NSNull(), 0])
+                deliver("__zunaWsEvent", [id, "close", NSNull(), 1006])
+            }
             return
         }
         let options = NWProtocolWebSocket.Options()
