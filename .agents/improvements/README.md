@@ -18,6 +18,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 | File | Area | Entries |
 |---|---|---|
 | `deps-build.md` | dependencies and repo hygiene | 1 |
+| `linux-platform-tests.md` | tests of the Linux platform's own logic, added on 2026-11-13 and only workable on Linux | 7 |
 
 What's left is a choice, not just a fix:
 

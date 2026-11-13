@@ -1,0 +1,74 @@
+## Tests of the Linux platform's own logic
+
+Written on 2026-11-13, at `01e7cbe`, after the native app's interface tests took the desktop's coverage to about 77%. Codecov's desktop coverage comes from `coverage.yml`'s `desktop` job, which runs `cargo llvm-cov --ignore-filename-regex '(^|/)(crypto|\.deps)/'` in `apps/desktop` on `ubuntu-latest`, so of `src/platform` it sees only what builds for Linux: 33.6% there, 578 of 1718 lines, at `01e7cbe`.
+
+Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire), which unit tests don't have. Leave that to `apps/desktop/test/linux-check.mjs` and `linux-voice-check.mjs`. These entries are only what can be computed with no system at all, worth about 100 to 150 lines. None of them changes what the app does.
+
+`platform/linux` builds only on Linux, so work through this on a Linux machine. The tests are plain `#[test]`s in a `#[cfg(test)] mod tests` at the end of each file, as `desktop_entry.rs` and `ptt.rs` already have, with no GPUI or `crate::testing::App`.
+
+Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
+
+### A notification's picture
+- Where: apps/desktop/src/platform/notification.rs (0%), built for Linux and macOS
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: high
+- What's wrong: `drawn`, `round` and `initials` are pure and never run under test, since notifications go to `state::notify::tests::SHOWN` and never reach the platform.
+- Suggested change: `drawn(None)` is the app's icon. A `Picture` whose `image` is a PNG comes back round, `PICTURE` square. One with no image, or one that can't be read, comes back as initials on its color. `round` leaves the middle as it was and clears the corners. `initials` escapes `&`, `<` and `>` in what it draws.
+- Check after: `cargo test --bin zuna -- platform::notification`
+
+### The menu's desktop entry
+- Where: apps/desktop/src/platform/linux/desktop_entry.rs (20%)
+- Category: tests
+- Severity: low ; Effort: M ; Confidence: high
+- What's wrong: only `exec_argument` is tested. `write()` decides when to write, leave or remove `~/.local/share/applications/<APP_ID>.desktop`, and none of that runs under test.
+- Suggested change: test `escaped`, `name`, `data_home` and `system_data_dirs` (with `XDG_DATA_HOME` and `XDG_DATA_DIRS` empty, relative, or naming the home's own). `write()` reads the environment and `current_exe()`, and setting variables in tests that run side by side races (and is `unsafe` in the 2024 edition). So move its body into `write_in(data_home, system_dirs, program)`, which `write()` calls with what it reads now, and test that in temporary folders:
+  - a package's entry in a system folder removes our own;
+  - someone else's entry of the same name, without `MARK`, is left alone;
+  - a path with a control character writes nothing;
+  - the same text already there isn't written again;
+  - otherwise the file holds `Exec=… %U`, `TryExec`, `Icon` and `MARK`, with mode 0644.
+- Check after: `cargo test --bin zuna -- platform::linux::desktop_entry`, and `node apps/desktop/test/linux-check.mjs`, as for any change under `platform/linux`
+
+### What a notification sends the server
+- Where: apps/desktop/src/platform/linux/notifications.rs (3.9%)
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: high
+- What's wrong: `escaped` and `image_data` are pure, and `notify()` builds its arguments in the same function that calls the bus.
+- Suggested change: test `escaped` and `image_data`: `(width, height, width * 4, true, 8, 4, bytes)`, with `width * height * 4` bytes. Move building `Notify`'s arguments into a function of its own, which `notify()` calls before `call_method`, and test that the title and body are escaped, the hints are `desktop-entry`, `suppress-sound` and `category`, `image-data` is there only with a picture, and the actions are `["default", "Open"]`. If it comes out without a bus, test `NotificationCenter`'s `waiting` and `clear` by server, keys and message too.
+- Check after: `cargo test --bin zuna -- platform::linux::notifications`, and `linux-check.mjs`, which shows a notification and clicks it
+
+### The window's edges
+- Where: apps/desktop/src/platform/linux/frame.rs (16%)
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: high
+- What's wrong: `resize_edge` and `cursor_for` are pure and untested.
+- Suggested change: each edge and corner of the margin, the middle (none), and each side a compositor tiled (`Tiling`'s `top`, `left` and the rest true) giving no edge there. `cursor_for` for each `ResizeEdge`.
+- Check after: `cargo test --bin zuna -- platform::linux::frame`
+
+### Animations off in KDE and GNOME
+- Where: apps/desktop/src/platform/linux/settings.rs (6%)
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: high
+- What's wrong: `says_off` reads the Settings portal's values and is untested.
+- Suggested change: KDE's `AnimationDurationFactor` as an `F64` of 0 and 1, a `Str` of "0" and "abc", and wrapped in `Value::Value`. GNOME's `enable-animations` as a `Bool`. Another namespace or key gives `None`. `set_animations_off` with `animations_off`, putting the atomics back as they were, as other tests read them.
+- Check after: `cargo test --bin zuna -- platform::linux::settings`
+
+### The tray's icon and menu
+- Where: apps/desktop/src/platform/linux/tray.rs (6.6%)
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: high
+- What's wrong: `ZunaTray`'s methods are pure, apart from `start` and `activate`, and untested.
+- Suggested change: make a `ZunaTray { unread, events }` with an `unbounded` channel. Test `id`, `title`, `category`, `tool_tip` with and without unread messages, `icon_pixmap` (six sizes, ARGB, `w * h * 4` bytes each), and `menu()`: activating "Open Zuna" and "Quit" sends `TrayEvent::Open` and `TrayEvent::Quit`.
+- Check after: `cargo test --bin zuna -- platform::linux::tray`
+
+### Small ones, if there's room
+- Where: apps/desktop/src/platform/linux/mod.rs (14%), apps/desktop/src/platform/unix/single.rs (0%), apps/desktop/src/platform/linux/ptt.rs (37%)
+- Category: tests
+- Severity: low ; Effort: S ; Confidence: medium
+- What's wrong: a few more pure functions, untested or barely.
+- Suggested change:
+  - `set_activation_token` and `take_activation_token` (a second take is `None`), `main_activation`, `wayland_session`;
+  - `socket_path`, the same for one folder and different for two;
+  - `claim` in a temporary folder: a second claim in the same process should be `Claim::Running`, as a file's lock is per open file. Confirm that before a test relies on it.
+  - more cases for `code_of` and `trigger_of` in the test `ptt.rs` has.
+- Check after: `cargo test --bin zuna -- platform::`, then the whole `cargo test` in `apps/desktop`
