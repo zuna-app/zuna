@@ -118,7 +118,9 @@ The same pure functions run in Node (V8) and inside the iOS JavaScriptCore runti
   - nested transactions and rollback on throw;
   - FTS5 with `contentless_delete`, `PRAGMA user_version`.
 - **FileAdapter:** range reads, assembling a file, files over 1 MiB.
-- **RPC codec:** binary tagging, error `code` and `status` preserved, event ordering.
+- **RPC codec:** binary tagging, error `code` and `status` preserved, event ordering, and every kind of `CoreEvent` both ways.
+- **RPC names:** every call in `CoreAPI.swift`, made against the core bundle with no server joined. The core reads a call's name first, so a name it hasn't got fails differently from one it has, which a rename in the core would otherwise only show at run time.
+- **Native bridges on their own:** MLS between two native clients in one context, from a Welcome to a removal; `fetch` and `WebSocket` against servers on loopback, with refusals, cancelling and the network lost; the host's timers, files, account events and notification previews.
 - **Swift models drift check:** every payload decoded by Swift is re-encoded and its key set compared with the original JSON. A field the core sends but the Swift model lacks fails the run. This runs automatically inside L3–L5 too.
 
 ### L3 and L4. Core scenarios with actors
