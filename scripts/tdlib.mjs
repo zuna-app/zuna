@@ -183,6 +183,9 @@ function jobs() {
 // runs, with the configuration its configure would write for a compiler without variable arrays.
 const GPERF_CMAKE = `cmake_minimum_required(VERSION 3.10)
 project(gperf CXX C)
+# Its sources keep \`register\`, which C++17 refused, and which clang 21 takes as its default.
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(gperflib STATIC lib/getline.cc lib/getopt.c lib/getopt1.c lib/hash.cc)
 target_include_directories(gperflib PUBLIC lib)
 file(GLOB GPERF_SOURCES src/*.cc)
