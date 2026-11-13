@@ -3,12 +3,16 @@
 // rest of linking, every update a chat or a message takes, history, media, search and groups, and
 // what Telegram refuses, in the app's words. No server, and no ZunaClient: the session alone.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { ZunaClient } from "../src/client";
 import { Engine, TelegramError, type TelegramAdapter } from "../src/telegram/engine";
 import { TelegramSession } from "../src/telegram/session";
 import type { FileAdapter } from "../src/files";
 import { TELEGRAM_ID, type CoreEvent, type TelegramLink } from "../src/types";
 import { BOT, CHANNEL, FakeTdlib, GRACE, GROUP, SELF, serverId, textMessage } from "./fake-tdlib";
+import { loadCrypto, MemoryDbProvider } from "./helpers";
+
+beforeAll(loadCrypto);
 
 type Td = { "@type": string; [field: string]: any };
 
@@ -829,5 +833,44 @@ describe("Telegram's errors in the app's words", () => {
     await expect(session.leaveGroup(String(GROUP))).rejects.toThrow("the broker is gone");
     engine.throwOn("leaveChat", "a plain string");
     await expect(session.leaveGroup(String(GROUP))).rejects.toThrow("a plain string");
+  });
+});
+
+describe("the Telegram account in the app", () => {
+  async function client(engine = new Telegram()) {
+    const events: CoreEvent[] = [];
+    const app = new ZunaClient({ db: new MemoryDbProvider(), deviceKey: new Uint8Array(32).fill(4), deviceName: "Test", onEvent: (event) => events.push(event), telegram: engine });
+    await app.open();
+    return { app, engine, events };
+  }
+
+  it("links one account at a time, shows it online only in front, and keeps its place in the rail", async () => {
+    const engine = new Telegram();
+    engine.authorized = false;
+    const { app } = await client(engine);
+    app.setActive(true, TELEGRAM_ID);
+    app.linkTelegram();
+    app.linkTelegram();
+    expect(engine.started).toBe(1);
+    await until(() => app.telegramSession.getLink().step === "phone", "the phone step");
+    await app.telegramSession.linkWithQr();
+    engine.confirm();
+    await until(() => app.listServers().length === 1, "being linked");
+    await until(() => engine.requests("setOption").length === 1, "online");
+    expect(engine.requests("setOption")[0]!.value.value).toBe(true);
+    // Another server in front: Telegram's account isn't.
+    app.setActive(true, "some-server");
+    expect(engine.requests("setOption").at(-1)!.value.value).toBe(false);
+    app.reorderServers([TELEGRAM_ID]);
+    expect(app.listServers()).toEqual([expect.objectContaining({ kind: "telegram", id: TELEGRAM_ID })]);
+    app.nudge();
+    app.stop();
+  });
+
+  it("forgets an account that was half linked when asked to unlink, with nothing to sign out", async () => {
+    const { app } = await client();
+    expect(await app.unlinkTelegram()).toEqual({ signedOut: false });
+    expect(app.findLink("see https://example.com/a and more")).toBe("https://example.com/a");
+    app.stop();
   });
 });
