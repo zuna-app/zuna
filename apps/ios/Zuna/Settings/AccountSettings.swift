@@ -131,6 +131,8 @@ struct PrivacyView: View {
     @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
     @State private var confirmingKeep = false
+    /// Read again each time the row shows, as coming back from the proxy's screen.
+    @State private var proxy = ProxyStore.load()
 
     var body: some View {
         let server = model.servers[serverId]
@@ -179,9 +181,10 @@ struct PrivacyView: View {
             .accessibilityIdentifier(A11y.Settings.blocked)
             Section {
                 NavigationLink { ProxySettingsView() } label: {
-                    LabeledContent("Proxy", value: ProxyStore.load().on ? ProxyStore.load().host : "Off")
+                    LabeledContent("Proxy", value: proxy.on ? proxy.host : "Off")
                 }
                 .accessibilityIdentifier(A11y.Settings.proxy)
+                .onAppear { proxy = ProxyStore.load() }
             } header: {
                 Text("On this device")
             } footer: {

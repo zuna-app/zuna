@@ -46,13 +46,15 @@ struct ProxySettingsView: View {
                     TextField("Port", text: $port, prompt: Text("Port"))
                         .keyboardType(.numberPad)
                         .accessibilityIdentifier(A11y.Settings.proxyPort)
+                    // Not a username and password as the system knows them: it would offer to keep the proxy's
+                    // password in Passwords, which syncs it, and it stays on this device. A field that's a
+                    // one-time code is the only one it doesn't offer that for.
                     TextField("Username", text: $username, prompt: Text("Username, optional"))
-                        .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier(A11y.Settings.proxyUsername)
                     SecureField("Password", text: $password, prompt: Text(keptPassword ? "Password, kept on this device" : "Password, optional"))
-                        .textContentType(.password)
+                        .textContentType(.oneTimeCode)
                         .accessibilityIdentifier(A11y.Settings.proxyPassword)
                 } footer: {
                     Text("While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are. A server on this phone itself can't be reached through a proxy.")

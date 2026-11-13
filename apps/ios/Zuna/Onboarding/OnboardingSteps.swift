@@ -13,6 +13,7 @@ struct WelcomeStep: View {
     let onSignIn: () -> Void
     /// Before any server is joined, so that even signing up goes through it.
     @State private var settingProxy = false
+    @State private var proxyOn = ProxyStore.load().on
 
     var body: some View {
         GeometryReader { geometry in
@@ -46,7 +47,7 @@ struct WelcomeStep: View {
                         Button { settingProxy = true } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "network.badge.shield.half.filled")
-                                Text(ProxyStore.load().on ? "Connecting through a proxy" : "Connect through a proxy")
+                                Text(proxyOn ? "Connecting through a proxy" : "Connect through a proxy")
                             }
                             .font(.callout.weight(.medium))
                             .foregroundStyle(Theme.text2)
@@ -66,7 +67,7 @@ struct WelcomeStep: View {
         .background(Theme.bg0)
         .accessibilityIdentifier(A11y.Onboarding.welcome)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $settingProxy) {
+        .sheet(isPresented: $settingProxy, onDismiss: { proxyOn = ProxyStore.load().on }) {
             NavigationStack {
                 ProxySettingsView()
                     .toolbar {
