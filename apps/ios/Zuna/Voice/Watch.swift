@@ -233,7 +233,7 @@ struct WatchStage: View {
         if blocked { return "It didn't start automatically. Press play in the video." }
         if watchingHere, status.phase == "catching-up" { return "Catching up…" }
         if !watch.playing { return "Paused by \(name(watch.changedBy))" }
-        return "Started by \(name(watch.video.startedBy))\(watch.video.author.isEmpty ? "" : " · \(watch.video.author)")"
+        return "Shared by \(name(watch.video.startedBy))\(watch.video.author.isEmpty ? "" : " · \(watch.video.author)")"
     }
 
     var body: some View {
@@ -291,7 +291,7 @@ struct WatchStage: View {
                 if !watch.video.author.isEmpty {
                     Text(watch.video.author).font(.subheadline)
                 }
-                Text("Started by \(name(watch.video.startedBy)). It plays from YouTube when you press Watch.")
+                Text("Shared by \(name(watch.video.startedBy)). It plays from YouTube when you press Watch.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -451,7 +451,7 @@ struct WatchLinkSheet: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Play") { Task { await submit() } }
+                        Button("Share video") { Task { await submit() } }
                             .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier(A11y.Voice.watchPutOn)
                     }
