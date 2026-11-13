@@ -350,8 +350,7 @@ impl Render for Root {
                             .bg(theme.bg1)
                             .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(gpui::AnyView::from(self.conversations.clone()).cached(gpui::StyleRefinement::default().flex_1().min_h_0())).children(voice::voice_panel(&self.state, &self.voice, cx)))
                             .child(
-                                div()
-                                    .id("sidebar-resizer")
+                                named_div("sidebar-resizer")
                                     .absolute()
                                     .right(px(-3.))
                                     .top_0()
@@ -558,5 +557,77 @@ impl Render for Root {
             window,
         );
         root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The window around everything, used as a person uses it: Alt and the arrows through the
+    //! chats, the search's keys, the list made wider by dragging its edge, and typing with
+    //! nothing focused, which starts a message.
+
+    use gpui::{Modifiers, MouseButton, TestAppContext, VisualTestContext};
+    use serde_json::json;
+
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World};
+
+    #[gpui::test]
+    fn the_keys_the_lists_edge_and_typing_anywhere(cx: &mut TestAppContext) {
+        let mut world = World::new("root-window");
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+        });
+        let active = |cx: &mut TestAppContext| app.read(cx, |state| state.servers[SERVER].active_key.clone());
+        let keys = |cx: &mut TestAppContext, keys: &str| {
+            VisualTestContext::from_window(app.window.into(), cx).simulate_keystrokes(keys);
+            app.run(cx);
+        };
+        // Up from nowhere goes nowhere; down starts at the top, and each goes one along.
+        keys(cx, "alt-up");
+        assert_eq!(active(cx), None);
+        keys(cx, "alt-down");
+        let first = active(cx).expect("a chat is open");
+        keys(cx, "alt-down");
+        let second = active(cx).expect("the next");
+        assert_ne!(first, second);
+        keys(cx, "alt-up");
+        assert_eq!(active(cx), Some(first.clone()));
+        keys(cx, "alt-up");
+        assert_eq!(active(cx), Some(first), "the first has nothing above it");
+
+        // Typing with nothing focused starts a message in the box.
+        app.root(cx, |root, window, cx| window.focus(&root.focus, cx));
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_keystrokes("h");
+        app.run(cx);
+        let chat = app.window.update(cx, |root, _, _| root.chat.as_ref().map(|(_, chat)| chat.clone())).unwrap().expect("a chat is open");
+        assert_eq!(cx.read(|cx| chat.read(cx).composer_text(cx)), "h");
+
+        // The search, from its keys.
+        keys(cx, if cfg!(target_os = "macos") { "cmd-k" } else { "ctrl-k" });
+        assert!(app.window.update(cx, |root, window, cx| root.conversations.read(cx).search_focused(window, cx)).unwrap());
+
+        // The list's edge, dragged wider, and past the widest it goes.
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        let edge = window.debug_bounds("sidebar-resizer").expect("drawn").center();
+        window.simulate_mouse_down(edge, MouseButton::Left, Modifiers::none());
+        window.simulate_mouse_move(gpui::point(edge.x + gpui::px(60.), edge.y), Some(MouseButton::Left), Modifiers::none());
+        app.run(cx);
+        assert_eq!(app.window.update(cx, |root, _, _| root.resizing.map(|(_, _, width)| width)).unwrap(), Some(380.));
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_mouse_up(gpui::point(edge.x + gpui::px(60.), edge.y), MouseButton::Left, Modifiers::none());
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.settings.list_width), 380.);
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        let edge = window.debug_bounds("sidebar-resizer").expect("drawn").center();
+        window.simulate_mouse_down(edge, MouseButton::Left, Modifiers::none());
+        window.simulate_mouse_move(gpui::point(edge.x + gpui::px(400.), edge.y), Some(MouseButton::Left), Modifiers::none());
+        window.simulate_mouse_move(gpui::point(edge.x + gpui::px(400.), edge.y), None, Modifiers::none());
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.settings.list_width), 460., "let go of outside the window, it keeps the widest");
     }
 }

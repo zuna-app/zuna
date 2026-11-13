@@ -187,6 +187,12 @@ impl ConversationList {
         self.search.focus_handle(cx).focus(window, cx);
     }
 
+    /// Whether the search has focus, for tests outside the list's own.
+    #[cfg(test)]
+    pub fn search_focused(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.search.focus_handle(cx).is_focused(window)
+    }
+
     /// Another server's list starts with no search, as its hits and their ids belong to the
     /// server they came from.
     fn reset_search(&mut self, cx: &mut Context<Self>) {
