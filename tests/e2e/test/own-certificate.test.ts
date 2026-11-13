@@ -3,7 +3,7 @@
 // (PinnedServers.swift), over URLSession and the socket's NWConnection both.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TestApp, TestServer, loadCrypto, waitFor } from "../../../packages/core/test/helpers";
+import { TestApp, TestServer, loadCrypto, testSocks, waitFor } from "../../../packages/core/test/helpers";
 import { HostApp, phoneTarget } from "../src/host";
 
 let server: TestServer;
@@ -11,7 +11,12 @@ let alice: TestApp;
 let phone: HostApp;
 let invite: string;
 
+// Through ZUNA_TEST_SOCKS's proxy it can't run here: such a server is reached by its address, and this Mac's
+// are ones the phone's system takes around a proxy, which the app refuses (`goesAround`).
+const throughProxy = !!testSocks;
+
 beforeAll(async () => {
+  if (throughProxy) return;
   loadCrypto();
   server = new TestServer({ ownCertificate: true });
   await server.start();
@@ -27,7 +32,7 @@ afterAll(async () => {
   await server?.stop();
 });
 
-describe("an iOS client and a server without a domain", () => {
+describe.skipIf(throughProxy)("an iOS client and a server without a domain", () => {
   it("is refused without the pin, or with another, and then joins with it", async () => {
     // The log of keys' head comes after the pin.
     expect(invite).toMatch(/&pin=[A-Za-z0-9_-]{43}(&|$)/);
