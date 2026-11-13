@@ -193,8 +193,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
             .text_color(theme.channel_muted)
             .child("A message from someone you blocked.")
             .child(
-                div()
-                    .id(SharedString::from(format!("show-{}", message.id)))
+                named_div(SharedString::from(format!("show-{}", message.id)))
                     .text_color(theme.text2)
                     .cursor_pointer()
                     .hover(move |style| style.text_color(theme.text1))
@@ -222,8 +221,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
         entries.extend(crate::ui::plugins::message_entries(&context.server_id, message, cx));
     }
 
-    let mut row = div()
-        .id(SharedString::from(format!("cmsg-row-{}", message.id)))
+    let mut row = named_div(SharedString::from(format!("cmsg-row-{}", message.id)))
         .group(group.clone())
         .when(can_act && !selecting && !editing_here, |el| el.on_click(super::message::reply_on_double_click(message, context)))
         .relative()
@@ -545,8 +543,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
     let theme = *theme;
     let tool = |id: String, icon_name: &'static str, size: f32, label: &'static str| {
         let id = SharedString::from(id);
-        div()
-            .id(id.clone())
+        named_div(id.clone())
             .group(id.clone())
             .size(px(32.))
             .rounded(px(6.))
@@ -652,8 +649,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
     let state = context.state.clone();
     let (group, id, key) = (message.group_id.clone(), message.id.clone(), reaction.key.clone());
     let emote = reaction.emote.clone();
-    let mut chip = div()
-        .id(SharedString::from(format!("creaction-{}-{}", message.id, reaction.key)))
+    let mut chip = named_div(SharedString::from(format!("creaction-{}-{}", message.id, reaction.key)))
         .flex()
         .items_center()
         .gap(px(6.))

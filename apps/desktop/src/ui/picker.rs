@@ -308,6 +308,14 @@ pub fn is_open(cx: &App) -> bool {
     cx.try_global::<PickerGlobal>().is_some_and(|global| global.0.read(cx).open.is_some())
 }
 
+/// Picks this in the open picker, as a click on it does.
+#[cfg(test)]
+pub fn choose(pick: Pick, window: &mut Window, cx: &mut App) {
+    if let Some(global) = cx.try_global::<PickerGlobal>() {
+        global.0.clone().update(cx, |layer, cx| layer.pick(pick, window, cx));
+    }
+}
+
 impl PickerLayer {
     fn close(&mut self) {
         if let Some(open) = self.open.take() {

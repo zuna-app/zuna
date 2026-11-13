@@ -492,3 +492,71 @@ fn a_file_to_send_is_typed_by_its_name() {
     assert!(file["width"].as_u64().is_some() && file["thumb"].as_str().is_some_and(|thumb| thumb.starts_with("data:image/")), "{file}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[gpui::test]
+fn a_channels_messages_answered_reacted_to_and_picked(cx: &mut TestAppContext) {
+    let messages = json!([
+        message("c1", GENERAL, 1.0, CAROL, "Hidden words", json!({})),
+        message("c2", GENERAL, 2.0, BOB, "About that", json!({ "reply": { "id": "c0", "senderId": BOB, "text": "", "hasAttachment": false, "deleted": true },
+            "reactions": [{ "key": "👍", "userIds": [ME] }, { "key": "Kappa", "emote": { "id": "01KAPPA", "animated": false }, "userIds": [BOB] }] })),
+        message("c3", GENERAL, 3.0, BOB, "And this", json!({ "reply": { "id": "c1", "senderId": CAROL, "text": "Hidden words", "hasAttachment": false, "deleted": false } })),
+        message("c4", GENERAL, 4.0, BOB, "Passed on", json!({ "forwarded": {} })),
+    ]);
+    let mut world = World::new("channel-messages");
+    world.server["getCalls"] = json!([]);
+    world.server.insert("loadMessages".into(), json!({ "messages": messages, "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("group:{GENERAL}"));
+    app.answer("toggleReaction", |_| Ok(Value::Null));
+    app.update(cx, |state, _| state.settings.reduce_motion = true);
+    app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
+    app.run(cx);
+    // Someone blocked is hidden until asked for.
+    app.click(cx, "show-c1");
+    assert!(!app.drawn(cx, "show-c1"));
+    // A reaction is taken back or joined from its chip, an emote's with the emote.
+    app.click(cx, "creaction-c2-👍");
+    app.click(cx, "creaction-c2-Kappa");
+    let calls = app.calls_of("toggleReaction");
+    assert_eq!(calls[0], vec![json!(GENERAL), json!("c2"), json!("👍")]);
+    assert_eq!((calls[1][2].clone(), calls[1].len()), (json!("Kappa"), 4));
+    // What's over a message under the pointer: forwarding it, more, and a reaction to pick.
+    let hover = |cx: &mut TestAppContext, id: &'static str| {
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        let at = window.debug_bounds(id).expect("drawn").center();
+        window.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        app.run(cx);
+    };
+    hover(cx, "cmsg-row-c2");
+    app.click(cx, "forward-c2");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::Forward { server_id: SERVER.into(), group_id: GENERAL.into(), ids: vec!["c2".into()] }));
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hover(cx, "cmsg-row-c2");
+    app.click(cx, "more-c2");
+    let entries = cx.read(|cx| crate::ui::menu::open_labels(cx));
+    assert!(entries.iter().any(|entry| entry == "Reply"), "{entries:?}");
+    assert!(choose(&app, cx, "Reply"));
+    assert_eq!(app.read(cx, |state| state.reply_to.get(GENERAL).map(|message| message.id.clone())), Some("c2".into()));
+    hover(cx, "cmsg-row-c2");
+    app.click(cx, "react-c2");
+    assert!(cx.read(|cx| crate::ui::picker::is_open(cx)), "the picker of reactions");
+    app.window.update(cx, |_, window, cx| crate::ui::picker::choose(crate::ui::picker::Pick::Emoji("🎉".into()), window, cx)).unwrap();
+    app.run(cx);
+    assert_eq!(app.calls_of("toggleReaction")[2], vec![json!(GENERAL), json!("c2"), json!("🎉")]);
+    assert!(!cx.read(|cx| crate::ui::picker::is_open(cx)));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // A right click's menu, with reactions over it.
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    let at = window.debug_bounds("cmsg-row-c3").unwrap().center();
+    window.simulate_event(gpui::MouseDownEvent { position: at, modifiers: gpui::Modifiers::none(), button: gpui::MouseButton::Right, click_count: 1, first_mouse: false });
+    app.run(cx);
+    assert!(cx.read(|cx| crate::ui::menu::is_open(cx)));
+    app.update(cx, |_, cx| crate::ui::menu::close_menu(cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Picking messages, a click at a time.
+    app.update(cx, |state, cx| state.toggle_selected(GENERAL, Some("c2"), cx));
+    app.click(cx, "cmsg-row-c3");
+    assert_eq!(app.read(cx, |state| state.selection.clone()), Some((GENERAL.to_string(), vec!["c2".to_string(), "c3".to_string()])));
+    app.click(cx, "cmsg-row-c2");
+    assert_eq!(app.read(cx, |state| state.selection.clone()), Some((GENERAL.to_string(), vec!["c3".to_string()])));
+}
