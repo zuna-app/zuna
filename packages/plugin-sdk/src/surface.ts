@@ -6,7 +6,7 @@
 // broker reads (apps/desktop/src/plugins/surface.rs).
 //
 // "never" is the default answer. A method is open to plugins when a plugin has a use for it
-// and it reaches nothing on the Never list of docs/PLUGINS_PLAN.md: keys, passwords, the
+// and it reaches nothing on the Never list in docs/PLUGINS.md: keys, passwords, the
 // account's life, devices and trust, bots' setup, administration, sound and video
 // themselves, the disk. A method that fetches a URL through the core is "never" too, as it
 // would reach the internet around `network` and its hosts.

@@ -6,8 +6,8 @@ It's JavaScript, run in QuickJS in a process of its own, and everything it does 
 app's broker, which checks it against the permissions its manifest names and the person granted.
 It runs on the device alone: no server knows of it. The web app and the iPhone app take none.
 
-`docs/PLUGINS_PLAN.md` says why it's built this way, and "Plugins" in `SECURITY_DETAILS.md` what
-keeps a plugin from what it shouldn't reach. Until Zuna's first stable release, the plugin API may
+"Why it's built this way" at the end says why, and "Plugins" in `SECURITY_DETAILS.md` what keeps a
+plugin from what it shouldn't reach. Until Zuna's first stable release, the plugin API may
 change with any nightly.
 
 ## Starting
@@ -101,6 +101,24 @@ sessions, devices, verification, the question a new device raises, sound and vid
 updates, the disk, and other plugins. The core's methods a plugin may call, and what each needs,
 are in `packages/plugin-sdk/src/surface.ts`.
 
+### Never
+
+No permission reaches these, and no line of `surface.ts` may name one with anything but `"never"`:
+
+- Keys of any kind: the device key, identity and signing keys, MLS state, epoch, send, item and
+  voice keys (`voiceKey`), the vault, sessions and tokens, LiveKit access (`voiceAccess`,
+  `voiceScreenAccess`).
+- Passwords and recovery keys, and the account's life: `login`, `register`, `recover`,
+  `changePassword`, `regenerateRecoveryKey`, `rotate`, `deleteAccount`, `signOut`, `leaveServer`.
+- Devices and trust: `revokeDevice`, `answerNewDevice`, `prepareNewDevice`, `markVerified`,
+  `clearVerification`, the log of keys.
+- Bots' setup and a server's administration.
+- Sound, video and screens themselves: a plugin can know who's talking, never hear it.
+- Any method that fetches a URL through the core.
+- The database, the cache folder, the disk, other programs.
+- Updates, the plugin manager, another plugin's data, the install dialogs.
+- Anything of a linked Telegram account: every `TelegramSession` method, and every event from it.
+
 ## The API
 
 ```tsx
@@ -184,3 +202,30 @@ verified.
 `examples/plugins`: `hello` (a command, settings, a panel, a page, a header button, a message
 action, decorations), `dusk` (a theme alone), and `hostile`, which the app's tests run and expect
 to fail at everything it tries.
+
+## Not built yet
+
+- Slots: suggestions in the message box, a person's or a group's details, and the voice stage's
+  tile menu.
+- In views: Zuna's markup is drawn as its plain text, an image from a permitted host as an empty
+  box, a list draws all its items rather than only those in view, and no image comes from the core
+  by a handle.
+- Hooks inside the core, the system's own sandbox around the host process, WebSockets, fonts in
+  themes, and an author's own signing key, so that an update to an unverified plugin has to come
+  from the same author.
+
+## Why it's built this way
+
+- **Not inside the core,** patching it as Vencord patches Discord. Such a plugin would hold every
+  key the core holds, no permission could be told from another, and each change to the core would
+  break it.
+- **Not native libraries.** They could draw real GPUI elements, but Rust has no stable ABI, each
+  would be built for three systems, nothing could confine them, and one crash would be the app's.
+- **Not a web view,** which is drawn over GPUI rather than in it, can't be put inside the window
+  under Wayland, and wouldn't look like Zuna.
+- **A process for each plugin,** not a thread of the app's, where a break in QuickJS would be next
+  to the device key, nor one host for all, where a plugin that broke out could speak as another:
+  the broker tells plugins apart by the pipe a message comes on.
+- **WebAssembly** would be as good a wall, in any language, at the cost of a large runtime in the
+  app and a toolchain for every author. It could come later as a second kind of plugin, behind the
+  same broker.
