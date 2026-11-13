@@ -136,7 +136,7 @@ pub enum ButtonSize {
 /// `.btn`: a rounded button with text, and an icon if it has one.
 /// Names a control for the tests by its id, which find it where it's drawn to click it
 /// (`testing::App::click`). Nothing in a build anyone uses.
-fn named(el: Div, id: &ElementId) -> Div {
+pub fn named<E: InteractiveElement>(el: E, id: &ElementId) -> E {
     #[cfg(test)]
     return el.debug_selector(|| id.to_string());
     #[cfg(not(test))]
@@ -144,6 +144,12 @@ fn named(el: Div, id: &ElementId) -> Div {
         let _ = id;
         el
     }
+}
+
+/// A div with an id, named for the tests as controls are (`named`).
+pub fn named_div(id: impl Into<ElementId>) -> Stateful<Div> {
+    let id = id.into();
+    named(div(), &id).id(id)
 }
 
 pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disabled: bool, cx: &App) -> Stateful<Div> {

@@ -250,7 +250,7 @@ fn a_reply_passes_plugins_filters_first(cx: &mut TestAppContext) {
     let app = &harness.app;
     app.answer("sendMessage", |_| Ok(Value::Null));
     harness.ask(cx, "filter.register", json!({ "id": "check", "kind": "outgoing", "required": true })).unwrap();
-    let mut answer = |cx: &mut TestAppContext, value: Option<Value>| {
+    let answer = |cx: &mut TestAppContext, value: Option<Value>| {
         let call = harness.sent(cx).into_iter().filter(|message| message["fn"] == "filter").last().expect("the filter is asked");
         match value {
             Some(value) => harness.say(cx, json!({ "t": "done", "n": call["n"], "ok": true, "value": value })),

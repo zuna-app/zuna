@@ -256,8 +256,7 @@ impl PickerLayer {
             let picture = set.cover.as_deref().and_then(|cover| Self::sticker_picture(cover, cx));
             let id = set.id.clone();
             sets = sets.child(
-                div()
-                    .id(SharedString::from(format!("sticker-set-{}", set.id)))
+                named_div(SharedString::from(format!("sticker-set-{}", set.id)))
                     .size(px(36.))
                     .rounded(RADIUS_S)
                     .flex()
@@ -279,8 +278,7 @@ impl PickerLayer {
             let picture = Self::sticker_picture(&sticker.picture, cx);
             let picked = sticker.clone();
             grid = grid.child(
-                div()
-                    .id(SharedString::from(format!("sticker-{}", sticker.file)))
+                named_div(SharedString::from(format!("sticker-{}", sticker.file)))
                     .size(px(74.))
                     .rounded(RADIUS_M)
                     .flex()
@@ -345,8 +343,7 @@ impl PickerLayer {
                 let mut line = div().flex().gap(px(1.));
                 for (value, name) in row.iter().copied().copied() {
                     line = line.child(
-                        div()
-                            .id(SharedString::from(format!("emoji-{value}")))
+                        named_div(SharedString::from(format!("emoji-{value}")))
                             .flex_1()
                             .h(px(36.))
                             .flex()
@@ -408,8 +405,7 @@ impl PickerLayer {
                 let emote = (*emote).clone();
                 let hovered = emote.clone();
                 line = line.child(
-                    div()
-                        .id(SharedString::from(format!("emote-{}", emote.id)))
+                    named_div(SharedString::from(format!("emote-{}", emote.id)))
                         .flex_1()
                         // Equal cells, as `.emote-grid`'s columns: a wide emote fits in its own.
                         .min_w_0()
@@ -473,8 +469,7 @@ impl Render for PickerLayer {
         let left = (open.position.x - px(16.)).max(px(8.)).min(viewport.width - px(WIDTH + 8.));
         let top = (open.position.y - px(HEIGHT + 8.)).max(px(8.)).min(viewport.height - px(HEIGHT + 8.));
         let tab = |id: &'static str, label: String, active: bool, cx: &mut Context<Self>| {
-            div()
-                .id(id)
+            named_div(id)
                 .relative()
                 .max_w(gpui::relative(0.6))
                 .pt(px(3.))
@@ -565,5 +560,136 @@ impl Render for PickerLayer {
             None => panel.appear(gpui::ElementId::Name(format!("picker-in-{}", open.id).into()), Enter::Drop(edge, 28.), 220).into_any_element(),
         };
         deferred(anchored().position(gpui::point(left, top)).child(panel)).with_priority(2).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The picker used as a person uses it: its tabs, a search, emoji that leave it open in the
+    //! message box and emotes that close it, the name of what's under the pointer, and on the
+    //! linked Telegram account, the account's sticker sets.
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui::{TestAppContext, VisualTestContext, point};
+    use serde_json::json;
+
+    use super::*;
+    use crate::testing::fixtures::SERVER;
+    use crate::testing::{App as Running, World};
+
+    fn picked_name(pick: &Pick) -> String {
+        match pick {
+            Pick::Emoji(emoji) => emoji.clone(),
+            Pick::Emote(emote) => format!("emote:{}", emote.name),
+            Pick::Sticker(sticker) => format!("sticker:{}", sticker.file),
+        }
+    }
+
+    fn open(app: &Running, cx: &mut TestAppContext, stays: bool, picked: &Rc<RefCell<Vec<String>>>) {
+        let picked = picked.clone();
+        app.window.update(cx, |_, window, cx| open_picker(point(px(500.), px(650.)), stays, move |pick, _, _| picked.borrow_mut().push(picked_name(&pick)), window, cx)).unwrap();
+        app.run(cx);
+    }
+
+    fn layer(cx: &mut TestAppContext) -> Entity<PickerLayer> {
+        cx.update(|cx| cx.global::<PickerGlobal>().0.clone())
+    }
+
+    fn search(app: &Running, cx: &mut TestAppContext, text: &str) {
+        let search = cx.read(|cx| layer_of(cx).read(cx).search.clone());
+        search.update(cx, |input, cx| input.set_text(text, cx));
+        app.run(cx);
+    }
+
+    fn layer_of(cx: &App) -> Entity<PickerLayer> {
+        cx.global::<PickerGlobal>().0.clone()
+    }
+
+    #[gpui::test]
+    fn emoji_and_emotes_are_found_and_picked(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("picker"));
+        app.update(cx, |state, cx| state.select_server(SERVER, cx));
+        let picked = Rc::new(RefCell::new(Vec::new()));
+        open(&app, cx, true, &picked);
+        assert!(cx.read(is_open));
+        // A server with emotes opens on them, and an emote closes it.
+        assert!(app.drawn(cx, "emote-01KAPPA"));
+        search(&app, cx, "nothing like it");
+        assert!(!app.drawn(cx, "emote-01KAPPA"), "No emotes match that search.");
+        search(&app, cx, "kap");
+        app.click(cx, "emote-01KAPPA");
+        assert_eq!(*picked.borrow(), vec!["emote:Kappa".to_string()]);
+        assert!(!cx.read(is_open));
+
+        // Emoji from the message box leave it open to pick more.
+        open(&app, cx, true, &picked);
+        app.click(cx, "tab-emoji");
+        assert!(app.drawn(cx, "emoji-😀") && app.drawn(cx, "emoji-🐶"));
+        search(&app, cx, "grin");
+        assert!(app.drawn(cx, "emoji-😀") && !app.drawn(cx, "emoji-🐶"), "the search narrows them by name");
+        // What's under the pointer is named below.
+        let bounds = VisualTestContext::from_window(app.window.into(), cx).debug_bounds("emoji-😀").unwrap();
+        VisualTestContext::from_window(app.window.into(), cx).simulate_mouse_move(bounds.center(), None, gpui::Modifiers::none());
+        app.run(cx);
+        let footer = cx.read(|cx| layer_of(cx).read(cx).footer.clone());
+        assert!(cx.read(|cx| matches!(footer.read(cx).hovered, Some(Hovered::Emoji("😀", "grin")))));
+        app.click(cx, "emoji-😀");
+        app.click(cx, "emoji-😀");
+        assert_eq!(picked.borrow()[1..], ["😀".to_string(), "😀".to_string()]);
+        assert!(cx.read(is_open), "still open");
+        app.click(cx, "tab-emotes");
+        assert!(cx.read(|cx| layer_of(cx).read(cx).emotes_tab));
+        // Escape in its search closes it.
+        let search = cx.read(|cx| layer_of(cx).read(cx).search.clone());
+        search.update(cx, |_, cx| cx.emit(InputEvent::Escape));
+        app.run(cx);
+        assert!(!cx.read(is_open));
+
+        // For a reaction, an emoji closes it too, and a press outside it does.
+        open(&app, cx, false, &picked);
+        app.click(cx, "tab-emoji");
+        app.click(cx, "emoji-😃");
+        assert_eq!(picked.borrow().last().unwrap(), "😃");
+        assert!(!cx.read(is_open));
+        open(&app, cx, false, &picked);
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_click(point(px(5.), px(5.)), gpui::Modifiers::none());
+        app.run(cx);
+        assert!(!cx.read(is_open));
+        let _ = layer(cx);
+    }
+
+    #[gpui::test]
+    fn the_telegram_accounts_stickers_are_picked_by_set(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let mut world = World::new("picker-stickers");
+        world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": crate::telegram::SERVER_ID, "kind": "telegram", "name": "Telegram", "userId": "tg-me" }));
+        let app = Running::open(cx, &world);
+        app.answer("getStickerSets", |_| Ok(json!([{ "id": "cats", "title": "Cats", "cover": "11" }, { "id": "dogs", "title": "Dogs" }])));
+        app.answer("getStickers", |args| {
+            let file = if args[0] == "cats" { 21 } else { 31 };
+            Ok(json!([{ "file": file, "picture": "41", "emoji": "🐱", "width": 512, "height": 512 }]))
+        });
+        app.answer("downloadFile", |_| Err(crate::testing::refused("Not yet.")));
+        app.update(cx, |state, cx| state.select_server(crate::telegram::SERVER_ID, cx));
+        let picked = Rc::new(RefCell::new(Vec::new()));
+        open(&app, cx, true, &picked);
+        assert!(!cx.read(|cx| layer_of(cx).read(cx).emotes_tab), "it opens on emoji");
+        app.click(cx, "tab-emotes");
+        assert!(app.drawn(cx, "sticker-set-cats") && app.drawn(cx, "sticker-21"), "the first set's stickers");
+        app.click(cx, "sticker-set-dogs");
+        assert_eq!(app.calls_of("getStickers"), vec![vec![json!("cats")], vec![json!("dogs")]]);
+        app.click(cx, "sticker-31");
+        assert_eq!(*picked.borrow(), vec!["sticker:31".to_string()]);
+        assert!(!cx.read(is_open), "a sticker goes at once");
+        // Never for a reaction, and an account with none says so.
+        open(&app, cx, false, &picked);
+        assert!(cx.read(|cx| layer_of(cx).read(cx).stickers.is_none()));
+        app.answer("getStickerSets", |_| Ok(json!([])));
+        open(&app, cx, true, &picked);
+        assert!(cx.read(|cx| layer_of(cx).read(cx).stickers.as_ref().is_some_and(|stickers| stickers.sets.is_empty() && !stickers.loading)));
     }
 }
