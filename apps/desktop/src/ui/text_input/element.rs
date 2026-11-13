@@ -56,10 +56,10 @@ impl EntityInputHandler for TextInput {
             .unwrap_or(self.selected_range.clone());
         self.content.replace_range(range.clone(), new_text);
         self.marked_range = if new_text.is_empty() { None } else { Some(range.start..range.start + new_text.len()) };
+        // The selection the system gives is within what it put in, not the whole text.
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
+            .map(|range_utf16| range.start + utf8_within(new_text, range_utf16.start)..range.start + utf8_within(new_text, range_utf16.end))
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
         cx.emit(InputEvent::Changed);
         cx.notify();
@@ -76,6 +76,18 @@ impl EntityInputHandler for TextInput {
     fn character_index_for_point(&mut self, point: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
         Some(self.offset_to_utf16(self.offset_for(self.local(point)?)))
     }
+}
+
+/// The byte offset in `text` of a UTF-16 offset into it, no further than its end.
+fn utf8_within(text: &str, utf16: usize) -> usize {
+    let mut counted = 0;
+    for (index, ch) in text.char_indices() {
+        if counted >= utf16 {
+            return index;
+        }
+        counted += ch.len_utf16();
+    }
+    text.len()
 }
 
 pub(super) struct TextElement {
