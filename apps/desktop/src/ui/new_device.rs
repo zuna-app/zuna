@@ -119,3 +119,59 @@ pub fn prompt(state: &Entity<AppState>, focus: &FocusHandle, cx: &App) -> Option
             .into_any_element(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    //! A device that signed in after this one, asked about over everything: one that wasn't
+    //! them, removed, and the secret it knew changed from Security; one that was, kept; and an
+    //! answer the server refused, said.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World, refused};
+
+    fn open(cx: &mut TestAppContext, name: &str, secret: Option<&str>) -> Running {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        world.server["getNewDevices"] = json!([{ "id": "d-new", "name": "A new phone", "createdAt": NOW - 60_000.0, "secret": secret }]);
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+        });
+        app
+    }
+
+    #[gpui::test]
+    fn a_new_device_was_them_or_wasnt(cx: &mut TestAppContext) {
+        // Not them: removed, then the recovery key it knew made again.
+        let app = open(cx, "new-device-not-me", Some("recovery"));
+        app.answer("answerNewDevice", |_| Ok(Value::Null));
+        app.click(cx, "new-device-not-me");
+        assert_eq!(app.calls_of("answerNewDevice"), vec![vec![json!("d-new"), json!(false)]]);
+        assert_eq!(app.read(cx, |state| state.device_removed.clone()), Some((SERVER.to_string(), Some("recovery".to_string()))));
+        app.click(cx, "new-device-secure");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Settings { section: Some("security".into()) }));
+        assert_eq!(app.read(cx, |state| state.device_removed.clone()), None);
+        // Not them, with a password or with no telling which: changed later.
+        for secret in [Some("password"), None] {
+            let app = open(cx, "new-device-later", secret);
+            app.answer("answerNewDevice", |_| Ok(Value::Null));
+            app.click(cx, "new-device-not-me");
+            app.click(cx, "new-device-later");
+            assert_eq!(app.read(cx, |state| state.device_removed.clone()), None);
+        }
+        // Them, though the server refused the answer: it says so, and still asks.
+        let app = open(cx, "new-device-me", None);
+        app.answer("answerNewDevice", |_| Err(refused("Try again")));
+        app.click(cx, "new-device-me");
+        assert!(app.toasts(cx).contains(&"Try again".to_string()));
+        assert!(app.drawn(cx, "new-device-me"));
+        app.answer("answerNewDevice", |_| Ok(Value::Null));
+        app.click(cx, "new-device-me");
+        assert!(!app.drawn(cx, "new-device-me") && app.read(cx, |state| state.device_removed.is_none()));
+    }
+}
