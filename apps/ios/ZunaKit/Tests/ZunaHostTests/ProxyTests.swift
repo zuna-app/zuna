@@ -153,8 +153,8 @@ final class ProxyTests: XCTestCase {
         XCTAssertEqual(Socks.Failure.refused.errorDescription, "The proxy refused the username or password.")
         let codes: [UInt8: String] = [
             2: "The proxy doesn't allow that connection.", 3: "The proxy can't reach that network.", 4: "The proxy can't reach that server.",
-            5: "That server refused the proxy's connection.", 6: "The proxy's connection timed out.", 7: "The proxy doesn't do that.",
-            8: "The proxy doesn't take that kind of address.", 1: "The proxy couldn't make the connection.",
+            5: "That server refused the proxy's connection.", 6: "The proxy's connection timed out.", 7: "The proxy doesn't support that.",
+            8: "The proxy doesn't support that type of address.", 1: "The proxy couldn't make the connection.",
         ]
         for (code, words) in codes {
             XCTAssertEqual(Socks.Failure.declined(code).description, words)
