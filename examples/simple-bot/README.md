@@ -15,7 +15,7 @@ A bot is two programs on the same machine. `zuna-bot` runs the bot's account: it
 
 ## Running it
 
-You need Node 22.22 or later, which runs `bot.ts` as it is, and the repository set up as its [CLAUDE.md](../../CLAUDE.md) says: `npm install`, then `npm run build:crypto`.
+You need Node 22.22 or later, which runs `bot.ts` as it is, and the repository set up as its [CONTRIBUTING.md](../../CONTRIBUTING.md) says: `npm install`, then `npm run build:crypto`.
 
 1. **Build `zuna-bot`.** From the repository's root:
 

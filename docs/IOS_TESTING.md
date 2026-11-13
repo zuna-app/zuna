@@ -1,4 +1,4 @@
-# iOS app: testing plan
+# Testing the iPhone and iPad app
 
 How the iPhone and iPad app is tested. [IOS.md](IOS.md) is its design. The setup is complete enough that a feature can be built **without a human in the loop**: each gets an automated check that runs headlessly on one Mac, against a real server and real desktop clients, and reports results in a form that can be read and acted on.
 
@@ -95,7 +95,7 @@ The Rust code is shared, so this layer catches mistakes in what's between it and
   - sealed data both ways, with tampering refused: AEAD, STREAM chunks, HPKE, signatures;
   - MLS between a desktop (WebAssembly) and a phone (native): a Welcome, commits both ways with the same `exportSecret`, a third device added from the phone, an external join, the phone's state restored from what it persisted, and its removal.
 
-This replaces the planned fixture file: exchanging data live covers both directions in one run, with nothing to regenerate.
+Exchanging data live covers both directions in one run, with nothing to regenerate, so there's no fixture file for it.
 
 ### L2. Host units: golden parity
 
@@ -106,7 +106,7 @@ The same pure functions run in Node (V8) and inside the iOS JavaScriptCore runti
   - `toRecoveryText`/`fromRecoveryText`, `derivePasswordKeys` (minimum allowed parameters), `reactionId`, `safetyEmoji`;
   - `sealEnvelope` and `openEnvelope` across runtimes, `u64Bytes`.
 - **The corpus** includes passwords and names with Polish diacritics, decomposed forms (NFD), emoji with zero-width joiners, RTL text and code fences. This catches differences in Unicode normalization or regexes between V8 and JavaScriptCore before they lock someone out of their account.
-- **Swift ports of UI logic:** the message markup parser, `jumboSize`, mention and emote extraction, preview text. Golden output comes from the **desktop's own code**: `renderMarkup` rendered with `react-dom/server` and normalized into a canonical tree. The Swift parser must produce the same tree. The desktop code stays untouched.
+- **Swift ports of UI logic:** the message markup parser, `jumboSize`, mention and emote extraction, preview text. Golden output comes from **the web's own code** in `packages/ui`: `renderMarkup` rendered with `react-dom/server` and normalized into a canonical tree. The Swift parser must produce the same tree.
 - **JS environment and bridge contracts:**
   - timers: order, `clearTimeout`, intervals, interleaving with native callbacks;
   - `fetch`: methods, headers, JSON and binary bodies, status codes, `AbortSignal.timeout`, network errors becoming `ApiError(0)`. Tested against a local test HTTP server.
@@ -148,7 +148,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 - **Orchestration:** `tests/e2e/src/ui-run.ts` (`npm run test:ios:ui`):
   1. Builds the core bundle and the app (`build-for-testing`).
   2. Starts the fake 7TV, a stand-in for the push relay, a LiveKit, and the servers: the main one, which allows that relay and has voice channels on that LiveKit, and two that nobody has set up yet.
-  3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the phases that need it.
+  3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the tests that need it.
   4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do: signing in to an account on another new device, showing the simulator's Face ID a face (enrolled while preparing the simulator), or counting what reached the relay.
   5. Prepares the dedicated simulator and runs `xcodebuild test-without-building`, passing the world as JSON in `TEST_RUNNER_ZUNA_WORLD`.
 - **The tests stay synchronous.** `XCUIApplication` waits for the app by turning the main run loop, and an async test on the main actor blocks it. TestKit runs its network calls in the background and waits for them.
@@ -161,11 +161,11 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 - **Every test checks both sides:** what the UI shows, and what the desktop peer received. For example:
   - type `**hi** @alice KEKW` and send: alice receives text, `emotes` and `mentions` identical to what the desktop composer would produce;
   - alice reacts with an emote: the chip appears on iOS with the right image.
-- **One test file per matrix area:** Onboarding, Servers, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
+- **One test file per area:** Onboarding, Servers, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
 - **Media:** `xcrun simctl addmedia` seeds the photo library with HEIC and HEVC fixtures. One test goes through the real PhotosPicker. The other attachment tests inject files through a Debug-only path, so they don't depend on an out-of-process picker.
 - **Lifecycle in the UI:** Home button and reactivation, `terminate` and relaunch with an unsent draft and a queued message, network faults through `test.network` showing "Waiting for network".
 - **Voice channels:** the app comes into a real LiveKit room, with a tone for its microphone and moving bars for its camera (`Voice/VoiceTesting.swift`, from `-ZunaFakeMicrophone` and `-ZunaFakeCamera`). The peers have no media, so they're in a channel only as far as the server can tell (`setVoiceState`). What crosses between the phone and a real desktop app is checked by `tests/e2e/src/voice-run.ts` (`npm run test:ios:voice`): the web app in Chromium with its fake devices and speech from `say`, a screen share drawn on a canvas in place of the browser's picker, and the phone in the simulator driven through host commands (`voiceJoin`, `voiceCamera`, `voiceState`, `voiceReport`, `voiceLeave`), which report what arrived from each participant once decrypted and decoded.
-- **Notifications:** the stand-in relay registers the app (with a made-up token in place of APNs) and hands the server's pushes to the simulator with `simctl push`, as APNs would. A new registration makes the older ones gone, as after reinstalling, so only the test's fresh device is notified. `simctl push` skips the notification extension, so the banner shows the push's own text; the extension's decryption is covered by the cross-client tests, which run it in a process of its own beside a host, without JIT, and check its memory. Which of someone's devices is told about a message, and when, is checked by `tests/e2e/src/notify-run.ts` (`npm run test:ios:notify`): the web app in Chromium, standing for a computer, and the phone in the simulator signed in as the same person, a second phone that's only a push registration, and a stand-in relay, through Telegram's cases (the phone just put away, at the desktop, just leaving it, both in use, only the phone), each with a message read meanwhile. Even the push that goes at once comes after the server's hold of 1.5 s on every push, as nothing says who sent a message (`defaultPushHold` in `server/internal/api/push.go`). The desktop's focus is real, but its input is the main process's `powerMonitor` saying "active" or "idle", since nothing can make real input without the Accessibility permission; its real idle time is checked once, when nobody has touched the Mac. The phone is put out of sight by opening Settings in the simulator, and reports what it shows through host commands (`notifications`, `pushKeys`, `notificationsAllowed`). simctl can't allow notifications, so the app has to have been allowed them by an earlier run of `NotificationTests`, and the script installs over it.
+- **Notifications:** the stand-in relay registers the app (with a made-up token in place of APNs) and hands the server's pushes to the simulator with `simctl push`, as APNs would. A new registration makes the older ones gone, as after reinstalling, so only the test's fresh device is notified. `simctl push` skips the notification extension, so the banner shows the push's own text; the extension's decryption is covered by the cross-client tests, which run it in a process of its own beside a host, without JIT, and check its memory. Which of someone's devices is told about a message, and when, is checked by `tests/e2e/src/notify-run.ts` (`npm run test:ios:notify`): the web app in Chromium, standing for a computer, and the phone in the simulator signed in as the same person, a second phone that's only a push registration, and a stand-in relay, through Telegram's cases (the phone just put away, at the desktop, just leaving it, both in use, only the phone), each with a message read meanwhile. Even the push that goes at once comes after the server's hold of 1.5 s on every push, as nothing says who sent a message (`defaultPushHold` in `server/internal/api/push.go`). The web app's focus and input are the page's own events: a pointer moving every second while someone's at the desktop, and focus coming and going as the window's. The phone is put out of sight by opening Settings in the simulator, and reports what it shows through host commands (`notifications`, `pushKeys`, `notificationsAllowed`). simctl can't allow notifications, so the app has to have been allowed them by an earlier run of `NotificationTests`, and the script installs over it.
 - **Screen tour:** one test visits every screen with seeded data and attaches screenshots. They are exported to `apps/ios/.e2e/<run>/screens/*.png` for visual review against the desktop design tokens, also with large Dynamic Type and on iPad. On any failure, the test attaches a screenshot and `app.debugDescription`, a text dump of the element tree.
 
 ### L6. Performance
@@ -195,7 +195,7 @@ The app's control channel listens on the phone's loopback only, so it's reached 
 ## Hermetic environment
 
 - **Server:** a new binary and temporary data directory per run, `--auth-burst 1000`, listening on `127.0.0.1`. The core accepts plain HTTP for loopback, and the Debug app allows local networking in ATS. The UI run's server has `ZUNA_TEST_TOKEN_SCALE=100` too, which issues someone a period's tokens that many times over: each test signs bob in on an app with nothing kept, which fetches a batch of its own, and ten batches are all a person gets in six hours.
-- **Fake 7TV:** a small HTTP server in the orchestrator serving a fixture set with static, animated and zero-width WebP emotes. This needs the **only server change: two optional environment variables, `ZUNA_7TV_API` and `ZUNA_7TV_CDN`**, overriding `APIBase` and `CDNBase` in `server/internal/emotes`. Without them, emote tests would depend on the real 7TV.
+- **Fake 7TV:** a small HTTP server in the orchestrator serving a fixture set with static, animated and zero-width WebP emotes. The server takes two optional environment variables for it, `ZUNA_7TV_API` and `ZUNA_7TV_CDN`, overriding `APIBase` and `CDNBase` in `server/internal/emotes`. Without them, emote tests would depend on the real 7TV.
 - **Simulators:** dedicated devices created by script, `Zuna E2E iPhone` (iPhone 17, iOS 27.0) and `Zuna E2E iPad`. Tests use only these. Before each UI run:
   - uninstall the app;
   - `xcrun simctl keychain <udid> reset` (the simulator keychain survives uninstalling);
@@ -225,7 +225,7 @@ The app's control channel listens on the phone's loopback only, so it's reached 
 | `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors |
 | `npm run test:ios:all` | everything, plus the desktop's `npm test` |
 
-On each release (a `v*` tag), the `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
+On pull requests, and by hand with `gh workflow run ci.yml -f jobs=ios`, the `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
 
 Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 

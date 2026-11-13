@@ -11,7 +11,7 @@ Rust builds the encryption core and the native desktop app. The encryption core 
 
 - **Windows:** the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`) and Visual Studio's C++ build tools.
 - **macOS:** Xcode, with its Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`), and an Apple Development identity to sign the app with.
-- **Linux:** clang, pkg-config, and the development files of libxkbcommon, wayland, fontconfig, freetype2, PipeWire, glib and libva.
+- **Linux:** clang, pkg-config, and the development files of libxkbcommon, wayland, fontconfig, freetype2, PipeWire, glib, libva and WebKitGTK 6.0, the last for the window a video watched together plays in. `scripts/linux-build-deps.sh` installs all of it on Debian and Ubuntu, as releases build.
 
 On Linux, `dev/setup.sh` checks Node, Go, Rust and wasm-bindgen for you, though not yet what the desktop app needs. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs the two commands below. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
 
@@ -25,7 +25,7 @@ npm install
 npm run build:crypto
 ```
 
-Three commands cover day-to-day work. The `dev` folder has the same as files to double-click on Windows, or to run on Linux.
+These cover day-to-day work. The `dev` folder has the same as files to double-click on Windows, or to run on Linux.
 
 | Command | In `dev` | What it does |
 |---|---|---|
@@ -72,7 +72,7 @@ npm run build -w @zuna/web
 node apps/web/test/web-check.mjs
 ```
 
-The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs` and `linux-voice-check.mjs` on Linux, and `mac-voice-check.mjs` on macOS. Each says at its top what it needs.
+The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs` and `linux-voice-check.mjs` on Linux, `mac-voice-check.mjs` on macOS, and `windows-update-check.mjs` on Windows, for the app updating itself. Its own tests are `cargo test` in `apps/desktop`, which `node scripts/windows-app.mjs test` runs on Windows with what it needs. Each says at its top what it needs.
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
