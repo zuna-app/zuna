@@ -152,7 +152,8 @@ function explain(error: unknown): Error {
     USER_NOT_MUTUAL_CONTACT: "Only their contacts can add them.",
     USER_CHANNELS_TOO_MUCH: "They're in as many groups as Telegram allows.",
   };
-  for (const [code, text] of Object.entries(known)) if (message.includes(code)) return new Error(text);
+  // A code is matched whole, as one can end another: USER_CHANNELS_TOO_MUCH isn't CHANNELS_TOO_MUCH.
+  for (const [code, text] of Object.entries(known)) if (new RegExp(`(^|[^A-Z_])${code}($|[^A-Z_])`).test(message)) return new Error(text);
   return new Error(error.code === 403 ? "Zuna doesn't do that on Telegram." : `Telegram said: ${message}`);
 }
 
@@ -253,8 +254,13 @@ export class TelegramSession {
   setActive(active: boolean): void {
     if (active === this.active) return;
     this.active = active;
+    this.sayOnline();
+  }
+
+  /** Tells Telegram whether the account is in front here, once it's signed in. */
+  private sayOnline(): void {
     if (this.link.step !== "ready") return;
-    void this.engine.request({ "@type": "setOption", name: "online", value: { "@type": "optionValueBoolean", value: active } }).catch(() => undefined);
+    void this.engine.request({ "@type": "setOption", name: "online", value: { "@type": "optionValueBoolean", value: this.active } }).catch(() => undefined);
   }
 
   isActiveElsewhere(): boolean {
@@ -398,7 +404,7 @@ export class TelegramSession {
       this.selfId = idOf(me.id);
       this.users.set(this.selfId ?? 0, me);
       this.queueUsers();
-      if (this.active) this.setActive(true);
+      if (this.active) this.sayOnline();
       // The list comes as updates, a page at a time, until Telegram says there's no more, and the
       // archive after it, which the app shows as its hidden chats.
       for (const listKind of ["chatListMain", "chatListArchive"]) {
