@@ -544,6 +544,11 @@ impl ChatView {
 
 #[cfg(test)]
 impl ChatView {
+    /// The details beside the chat, for tests outside the chat's own.
+    pub fn side_panel(&self) -> Option<Entity<SidePanel>> {
+        self.side_panel.clone()
+    }
+
     /// What's in the message box, for tests outside the chat's own.
     pub fn composer_text(&self, cx: &gpui::App) -> String {
         self.composer.read(cx).text().to_string()

@@ -3,6 +3,8 @@
 mod info;
 mod media;
 mod group;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -173,8 +175,7 @@ impl SidePanel {
         let color = if danger { theme.red } else { theme.text1 };
         let hover = if danger { theme.red_soft } else { theme.hover };
         let id: SharedString = id.into();
-        div()
-            .id(id)
+        named_div(id)
             .w_full()
             .flex()
             .items_center()

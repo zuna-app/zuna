@@ -237,8 +237,7 @@ impl SidePanel {
             };
             let menu = self.member_menu(server, conversation, &member.user_id, is_admin);
             members = members.child(
-                div()
-                    .id(SharedString::from(format!("member-{}", member.user_id)))
+                named_div(SharedString::from(format!("member-{}", member.user_id)))
                     .w_full()
                     .flex()
                     .items_center()

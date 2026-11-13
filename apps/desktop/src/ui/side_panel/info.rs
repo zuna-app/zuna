@@ -205,8 +205,7 @@ impl SidePanel {
                 let state = self.state.clone();
                 let user_id = member.user_id.clone();
                 members = members.child(
-                    div()
-                        .id(SharedString::from(format!("member-{}", member.user_id)))
+                    named_div(SharedString::from(format!("member-{}", member.user_id)))
                         .w_full()
                         .flex()
                         .items_center()
@@ -391,8 +390,7 @@ impl SidePanel {
         let hint = if after > 0. { format!("New messages disappear {} after they're sent.", timer_text(after)) } else { "New messages stay until they're deleted.".to_string() };
         let state = self.state.clone();
         let group = conversation.group_id.clone().unwrap_or_default();
-        let mut row = div()
-            .id("disappearing")
+        let mut row = named_div("disappearing")
             .w_full()
             .flex()
             .items_center()
