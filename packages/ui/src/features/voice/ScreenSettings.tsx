@@ -96,13 +96,13 @@ export function ScreenSettingsSection() {
         name={bitrateName}
         extras={[{ value: null, label: `Automatic (${bitrateName(automatic)})` }]}
         limit={limit(shown.max_kbps)}
-        hint="It sends less when the picture or your connection needs less. Lower it if your upload is slow."
+        hint="This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."
         onChange={(value) => update({ screenBitrate: value })}
       />
 
       <h3 className="settings-subhead">Audio</h3>
       {shown.sound ? (
-        <SettingRow title="Include audio" hint="Your browser offers your computer's or a tab's audio when you share.">
+        <SettingRow title="Include audio" hint="Your browser lets you include your computer's or a tab's audio when you share.">
           <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label="Include audio" />
         </SettingRow>
       ) : (
@@ -140,10 +140,10 @@ export function ServerScreenSection() {
     <>
       <h1>Screen sharing</h1>
       <p className="settings-lead">Screen shares are end-to-end encrypted, so the server never sees them.</p>
-      {!server?.info?.voice && <p className="channel-voice-note">This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit (see SELF_HOSTING.md).</p>}
+      {!server?.info?.voice && <p className="channel-voice-note">This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).</p>}
 
       <h3 className="settings-subhead">Permissions</h3>
-      <SettingRow title="Who can share" hint="Changing this stops shares it no longer allows.">
+      <SettingRow title="Who can share" hint="Changing this stops any shares it no longer allows.">
         <Segmented
           value={rules.who}
           options={[
@@ -155,7 +155,7 @@ export function ServerScreenSection() {
           label="Who can share"
         />
       </SettingRow>
-      <SettingRow title="Allow audio" hint="Turning it off stops shares with audio.">
+      <SettingRow title="Allow audio" hint="Turning it off stops any shares with audio.">
         <Switch on={rules.sound} onChange={(sound) => change({ sound })} label="Allow audio" />
       </SettingRow>
       <Field label="Max shares per voice channel" type="number" min={0} max={99} value={String(rules.max_per_channel)} hint="0 for no limit. Each voice channel can set its own." onChange={(event) => change({ max_per_channel: count(event.target.value) })} />
@@ -164,11 +164,11 @@ export function ServerScreenSection() {
       <h3 className="settings-subhead">Quality limits</h3>
       <NumberSelect label="Max resolution" value={rules.max_height} options={SCREEN_HEIGHTS} name={heightName} extras={[{ value: 0, label: "No limit" }]} onChange={(value) => change({ max_height: value ?? 0 })} />
       <NumberSelect label="Max frame rate" value={rules.max_fps} options={SCREEN_RATES} name={rateName} extras={[{ value: 0, label: "No limit" }]} onChange={(value) => change({ max_fps: value ?? 0 })} />
-      <NumberSelect label="Max bitrate" value={rules.max_kbps} options={SCREEN_LIMIT_BITRATES} name={bitrateName} extras={[{ value: 0, label: "No limit" }]} hint="Each viewer costs your media server up to this much bandwidth." onChange={(value) => change({ max_kbps: value ?? 0 })} />
+      <NumberSelect label="Max bitrate" value={rules.max_kbps} options={SCREEN_LIMIT_BITRATES} name={bitrateName} extras={[{ value: 0, label: "No limit" }]} hint="Each viewer can use up to this much of your media server's bandwidth." onChange={(value) => change({ max_kbps: value ?? 0 })} />
       <SettingRow title="Admins bypass limits" hint="Quality limits and share counts don't apply to admins.">
         <Switch on={rules.admins_exempt} onChange={(admins_exempt) => change({ admins_exempt })} label="Admins bypass limits" />
       </SettingRow>
-      <p className="screen-held">Each app keeps to the quality limits itself, since the media server can't see encrypted video. A share already going keeps what it started with.</p>
+      <p className="screen-held">Each app applies the quality limits itself, since the media server can't see encrypted video. Shares already running keep the settings they started with.</p>
       <div>
         <button
           className="btn btn-primary"

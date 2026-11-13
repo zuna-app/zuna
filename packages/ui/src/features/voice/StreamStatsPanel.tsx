@@ -119,8 +119,8 @@ export function StreamStatsPanel({ onClose }: { onClose: () => void }) {
       <header className="stream-stats-head" onPointerDown={startDrag}>
         <Activity size={14} />
         <h4 className="grow">Stream stats</h4>
-        <Tooltip text={copied ? "Copied" : "Copy all of it"}>
-          <button className="icon-btn is-small" onClick={() => void copy()} aria-label="Copy all of it">
+        <Tooltip text={copied ? "Copied" : "Copy all"}>
+          <button className="icon-btn is-small" onClick={() => void copy()} aria-label="Copy all">
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </Tooltip>

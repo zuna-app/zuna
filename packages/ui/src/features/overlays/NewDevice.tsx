@@ -39,9 +39,9 @@ function Prompt() {
     const recovery = removed.secret === "recovery";
     title = "The device was removed";
     text = recovery
-      ? "Whoever signed in on it has your recovery key, so they can sign in again until you make a new one. Make one now."
+      ? "Whoever signed in on it has your recovery key and can sign in again until you make a new one. Make a new one now."
       : removed.secret === "password"
-        ? "Whoever signed in on it knows your password, so they can sign in again until you change it. Change it now."
+        ? "Whoever signed in on it knows your password and can sign in again until you change it. Change it now."
         : "Whoever signed in on it may know your password or your recovery key. Change your password and make a new recovery key now.";
     buttons = (
       <>

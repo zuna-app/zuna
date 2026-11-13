@@ -64,7 +64,7 @@ function OverviewSection() {
         </button>
       </div>
       <div className="settings-divider" />
-      <SettingRow title="Address" hint="People and apps reach your server here.">
+      <SettingRow title="Address" hint="The address people and apps use to reach your server.">
         <span className="mono selectable" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{server.entry.address}</span>
       </SettingRow>
       <SettingRow title="Version">
@@ -116,7 +116,7 @@ function ReportsSection() {
     <>
       <h1>Reports</h1>
       <p className="settings-lead">
-        People others on <b>{server.entry.name}</b> reported, and why. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.
+        People reported by others on <b>{server.entry.name}</b>, and why. Messages are encrypted, so nobody here can see what was said, and who made each report isn't kept.
       </p>
       {reports === null ? (
         <Spinner />
@@ -202,7 +202,7 @@ function BansSection() {
     <>
       <h1>Bans</h1>
       <p className="settings-lead">
-        People banned from <b>{server.entry.name}</b>. Unbanned, they can sign in again, and they're back in their direct messages and channels. Groups have to add them again.
+        People banned from <b>{server.entry.name}</b>. Once unbanned, they can sign in again and get their direct messages and channels back. Groups will have to add them again.
       </p>
       {bans === null ? (
         <Spinner />
@@ -335,7 +335,7 @@ function EmotesSection() {
     <>
       <h1>Emotes</h1>
       <p className="settings-lead">
-        Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' addresses. It checks 7TV
+        Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. It checks 7TV
         for changes to the set every few hours.
       </p>
       <div className="current-set">
@@ -487,7 +487,7 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
       <>
         <h1>Delete account</h1>
         <p className="settings-lead">
-          You own <b>{name}</b>, and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it.
+          You own <b>{name}</b>, and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data.
         </p>
       </>
     );
@@ -496,7 +496,7 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
     <>
       <h1>Delete account</h1>
       <p className="settings-lead">
-        This deletes your account on <b>{name}</b>, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from "Deleted account". Your username becomes free for someone else. It can't be undone.
+        This deletes your account on <b>{name}</b>, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from "Deleted account". Someone else will be able to take your username. It can't be undone.
       </p>
       <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       <div>
@@ -519,7 +519,7 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
             });
           }}
         >
-          It can't be undone. What you sent stays with the people you sent it to, from "Deleted account".
+          It can't be undone. Messages you sent stay with the people you sent them to, shown as from "Deleted account".
         </Confirm>
       )}
     </>

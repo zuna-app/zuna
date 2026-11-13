@@ -60,7 +60,7 @@ export function showScreen(title: string, text: string, action?: { label: string
 }
 
 function showElsewhere(): void {
-  showScreen("Zuna is open in another tab", "It runs in one tab at a time. Using it here closes it there.", {
+  showScreen("Zuna is open in another tab", "Zuna can only run in one tab at a time. Using it here will close it in the other tab.", {
     label: "Use here",
     run() {
       // A fresh page starts the app cleanly, and asks the other tab to stop as it loads.

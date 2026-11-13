@@ -205,12 +205,12 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
       {trust === "verified" && (
         <div className="notice">
           <ShieldCheck size={16} />
-          <span>You've verified {user.displayName}. Nobody can quietly get between you.</span>
+          <span>You've verified {user.displayName}. Nobody can secretly intercept your messages.</span>
         </div>
       )}
       {trust === "unverified" && (
         <p className="muted" style={{ fontSize: 13.5 }}>
-          Compare these emoji with {user.displayName} in person or on a call. If they match exactly, nobody, including this server, is reading your conversation.
+          Compare these emoji with {user.displayName} in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.
         </p>
       )}
       <div className="safety-grid">

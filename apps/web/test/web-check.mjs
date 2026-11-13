@@ -689,7 +689,7 @@ async function runIn(name) {
     await again.getByRole("button", { name: "Stream stats" }).click();
     const connection = again.locator(".stream-stats-section", { hasText: "Connection" });
     await connection.waitFor({ timeout: 5000 });
-    check("stream stats read the call", (await connection.innerText()).includes("End to end"));
+    check("stream stats read the call", (await connection.innerText()).includes("End-to-end"));
     await again.getByRole("button", { name: "Close stream stats" }).click();
 
     // A camera on the call keeps the screen on, and only while it's there.
@@ -823,17 +823,17 @@ async function runIn(name) {
     const consentText = await consent.innerText();
     await consent.getByRole("button", { name: "Continue" }).click();
     await fill(again.getByLabel("YouTube link"), "https://vimeo.com/1");
-    await again.getByRole("button", { name: "Put it on" }).click();
+    await again.getByRole("button", { name: "Share video" }).click();
     const refused = await again.locator(".field-error").innerText({ timeout: 5_000 });
     await fill(again.getByLabel("YouTube link"), `https://youtu.be/${VIDEO}?t=30`);
-    await again.getByRole("button", { name: "Put it on" }).click();
+    await again.getByRole("button", { name: "Share video" }).click();
     await again.locator(".watch-frame").waitFor({ timeout: 15_000 });
     let loadedAgain = null;
     for (let i = 0; i < 40 && loadedAgain?.state !== 1; i++, await sleep(250)) loadedAgain = await fakeOf(again);
     check("a player that breaks as it starts is loaded again, and plays", loadedAgain?.state === 1, `state ${loadedAgain?.state}`);
     check(
       "putting a video on asks first what Google learns, and refuses what isn't YouTube's",
-      consentText.includes("Google learns this device's IP address") && /isn't a link to a YouTube video/.test(refused),
+      consentText.includes("Google sees this device's IP address") && /isn't a link to a YouTube video/.test(refused),
       refused,
     );
     // Until Lee presses Watch, their device shows what came inside the room's state and contacts nobody.
@@ -956,7 +956,7 @@ async function runIn(name) {
       await fill(again.getByLabel("Name", { exact: true }), "Check Bot");
       await fill(again.getByLabel("Username"), "check.bot");
       await again.getByRole("switch", { name: "List it for everyone" }).click();
-      await again.getByRole("button", { name: "Make the bot" }).click();
+      await again.getByRole("button", { name: "Create bot" }).click();
       const command = await again.locator(".bot-setup .invite-link span").innerText({ timeout: 10_000 });
       const setupLink = /^zuna-bot init "(.+)"$/.exec(command)?.[1] ?? "";
       check("a new bot's setup link is shown, as the command to run", setupLink.includes("#k=") && setupLink.includes("&bot="), command.slice(0, 50));

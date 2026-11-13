@@ -15,9 +15,9 @@ window.addEventListener("drop", (event) => event.preventDefault());
 
 /** What the app needs from a browser: a secure page, its own files, and locks between tabs. */
 function unsupportedReason(): string | null {
-  if (!window.isSecureContext) return "Zuna has to be opened over HTTPS.";
+  if (!window.isSecureContext) return "Zuna must be opened over HTTPS.";
   if (!navigator.locks || !navigator.storage?.getDirectory || !("BroadcastChannel" in window) || !("indexedDB" in window)) {
-    return "This browser is missing what Zuna needs to keep your messages. Use a current version of Chrome, Edge, Firefox or Safari.";
+    return "This browser doesn't support what Zuna needs to store your messages. Use a recent version of Chrome, Edge, Firefox or Safari.";
   }
   return null;
 }
@@ -28,7 +28,7 @@ async function storageReason(): Promise<string | null> {
     await navigator.storage.getDirectory();
     return null;
   } catch {
-    return "This browser won't let Zuna keep your messages here, which happens in private windows. Open Zuna in a normal window.";
+    return "This browser won't let Zuna store your messages, which happens in private windows. Open Zuna in a normal window.";
   }
 }
 

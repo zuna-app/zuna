@@ -115,7 +115,7 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
               Add some
             </button>
           ) : (
-            "Its admins add them."
+            "Admins can add them."
           )}
         </p>
       ) : (
@@ -178,7 +178,7 @@ function SoundRow({ sound }: { sound: SoundView }) {
     });
   const remove = () =>
     run(async () => {
-      if (!window.confirm(`Delete ${sound.name}? It goes from everyone's soundboard.`)) return;
+      if (!window.confirm(`Delete ${sound.name}? It will be removed from everyone's soundboard.`)) return;
       await session().deleteSound(sound.id);
     });
 
@@ -267,8 +267,7 @@ export function ServerSoundboardSection() {
     <>
       <h1>Soundboard</h1>
       <p className="settings-lead">
-        Sounds anyone in a voice channel or a call can play to everyone there. Each is cut to five seconds and made about as loud as the rest. What they're called and how they sound are
-        encrypted, so the server can't hear them.
+        Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.
       </p>
       <div className="sound-add">
         <div className="sound-add-fields">

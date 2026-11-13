@@ -234,7 +234,7 @@ function ChannelTyping({ conversation }: { conversation: ConversationView }) {
 function SlowMode({ conversation }: { conversation: ConversationView }) {
   return (
     <span className="channel-slow">
-      <Tooltip text={`One message every ${timerText(conversation.slowMode)} for each person, except admins`} side="top">
+      <Tooltip text={`Each person can send one message every ${timerText(conversation.slowMode)}, except admins`} side="top">
         <span className="channel-slow-text">
           <Timer size={14} />
           Slow mode is on
@@ -257,7 +257,7 @@ function ChannelWelcome({ conversation, voice }: { conversation: ConversationVie
         This is the start of the #{conversation.title} channel.{conversation.description ? ` ${conversation.description}` : ""}
       </p>
       <p className="channel-welcome-lock">
-        <Lock size={13} /> End-to-end encrypted. Everyone on this server can read it, and the server itself can't.
+        <Lock size={13} /> End-to-end encrypted. Everyone on this server can read it, but the server itself can't.
       </p>
       {isAdmin && conversation.groupId && (
         <button className="channel-welcome-edit" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>

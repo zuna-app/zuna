@@ -348,7 +348,7 @@ export const useVoice = create<VoiceState>((set, get) => {
         quality: (quality, rtt) => {
           if (current() && (quality !== get().quality || rtt !== get().rtt)) set({ quality, rtt });
         },
-        micLost: () => app.toast("Your microphone went away, so Zuna switched to the default one.", "info"),
+        micLost: () => app.toast("Your microphone was disconnected, so Zuna switched to the default one.", "info"),
         participants: (came, left) => {
           if (came || left) sound(came ? "join" : "leave");
         },
@@ -395,13 +395,13 @@ export const useVoice = create<VoiceState>((set, get) => {
     closeStage(serverId, channelId);
     const message: Record<string, string> = {
       elsewhere: "You joined this voice channel on another device.",
-      disconnected: "An admin took you out of the voice channel.",
+      disconnected: "An admin removed you from the voice channel.",
       deleted: "That voice channel was deleted.",
       banned: "You were removed from this server.",
     };
     const call: Record<string, string> = {
       elsewhere: "You joined this call on another device.",
-      removed: "You're no longer in this conversation, so you left its call.",
+      removed: "You're no longer in this conversation, so you left the call.",
       deleted: "That conversation was deleted.",
       banned: "You were removed from this server.",
     };

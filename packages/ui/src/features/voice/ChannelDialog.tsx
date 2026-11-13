@@ -6,7 +6,7 @@ import { timerText } from "@/lib/disappearing";
 import { useActiveServer, useApp } from "@/state/store";
 
 const AUDIO_QUALITIES = [
-  { kbps: 0, label: "Usual (64 kbit/s)" },
+  { kbps: 0, label: "Standard (64 kbit/s)" },
   { kbps: 96, label: "Better (96 kbit/s)" },
   { kbps: 128, label: "Great (128 kbit/s)" },
   { kbps: 256, label: "Best (256 kbit/s)" },
@@ -58,7 +58,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
 
   const remove = () =>
     run(async () => {
-      if (!channel || !window.confirm(`Delete ${channel.name}? Its messages go for everyone.`)) return;
+      if (!channel || !window.confirm(`Delete ${channel.name}? Its messages will be deleted for everyone.`)) return;
       await session().deleteChannel(channel.id);
       if (server?.activeKey === channel.key) selectConversation(null);
       onClose();
@@ -100,13 +100,13 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
               <Volume2 size={18} />
               <span>
                 <b>Voice</b>
-                <span>Talk, share a camera or a screen</span>
+                <span>Talk, and share your camera or screen</span>
               </span>
             </button>
           </div>
         </div>
       )}
-      {type === "voice" && !voiceReady && <p className="channel-voice-note">This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit (see SELF_HOSTING.md).</p>}
+      {type === "voice" && !voiceReady && <p className="channel-voice-note">This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).</p>}
       <Field
         label="Name"
         autoFocus
@@ -128,7 +128,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       <div className="field channel-switch">
         <span className="grow">
           <span className="field-label">Slow mode</span>
-          <span className="setting-hint">Each person waits between messages, except admins.</span>
+          <span className="setting-hint">Everyone except admins has to wait between messages.</span>
         </span>
         <Switch on={slowOn} onChange={setSlowOn} label="Slow mode" />
       </div>
@@ -158,7 +158,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
           </div>
           <label className="field">
             <span className="field-label">
-              People who fit: <b style={{ fontWeight: 500 }}>{userLimit === 0 ? "no limit" : userLimit}</b>
+              Max people: <b style={{ fontWeight: 500 }}>{userLimit === 0 ? "no limit" : userLimit}</b>
             </span>
             <input className="voice-slider" type="range" min={0} max={99} value={userLimit} onChange={(event) => setUserLimit(Number(event.target.value))} />
           </label>
@@ -182,7 +182,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
           <div className="field channel-switch">
             <span className="grow">
               <span className="field-label">Watch together</span>
-              <span className="setting-hint">Anyone in the channel can put a YouTube video on for everyone there. It only plays for those who press Watch.</span>
+              <span className="setting-hint">Anyone in the channel can start a YouTube video for everyone. It only plays for people who press Watch.</span>
             </span>
             <Switch on={watch} onChange={setWatch} label="Watching together in this channel" />
           </div>

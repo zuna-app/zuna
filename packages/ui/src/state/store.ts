@@ -316,7 +316,7 @@ export const useApp = create<AppState>((set, get) => {
         });
         const order = entries.filter((entry) => servers[entry.id]).map((entry) => entry.id);
         set((state) => ({ servers: { ...state.servers, ...servers }, phase: "ready", order, activeServerId: order[0] ?? null }));
-        for (const entry of failed) get().toast(`${entry.name} didn't open. Reload the page to try it again.`, "error");
+        for (const entry of failed) get().toast(`${entry.name} couldn't be opened. Reload the page to try again.`, "error");
         // What came in while the app was closed counts from the start, not from the next message.
         updateBadge();
       } catch (error) {

@@ -445,7 +445,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
       <div className="voice-stage">
         {room.call ? (
           <header className="voice-head is-call">
-            <Tooltip text="End-to-end encrypted, with keys from this conversation's members. The server and the media server can't listen in or watch.">
+            <Tooltip text="End-to-end encrypted, with keys only this conversation's members have. Neither the server nor the media server can listen in or watch.">
               <span className="voice-e2ee">
                 <Lock size={12} /> Encrypted
               </span>
@@ -478,7 +478,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
             <h3 className="truncate">{room.title}</h3>
             {room.topic && <span className="voice-topic truncate">{room.topic}</span>}
             <span className="grow" />
-            <Tooltip text="End-to-end encrypted, with keys from this channel's members. The server and the media server can't listen in or watch.">
+            <Tooltip text="End-to-end encrypted, with keys only this channel's members have. Neither the server nor the media server can listen in or watch.">
               <span className="voice-e2ee">
                 <Lock size={12} /> Encrypted
               </span>
@@ -499,7 +499,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
         {status === "connecting" ? (
           <div className="voice-connecting">
             <Spinner size={26} />
-            <p>{room.call ? "Connecting the call…" : `Coming into ${room.title}…`}</p>
+            <p>{room.call ? "Connecting the call…" : `Joining ${room.title}…`}</p>
           </div>
         ) : (
           <>

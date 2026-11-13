@@ -71,7 +71,7 @@ export function ShareLocation({ conversationKey, onClose }: { conversationKey: s
         )}
       </div>
       <p className="faint" style={{ fontSize: 12.5 }}>
-        It's sent encrypted, like a message. Nobody else learns it, unless someone opens it on a map.
+        It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.
       </p>
     </Modal>
   );

@@ -42,10 +42,10 @@ export function WatchConsent({ action, onCancel, onAgree }: { action: string; on
       }
     >
       <p style={{ fontSize: 13.5 }}>
-        Videos play from YouTube, in YouTube's own player. When you watch one, Google learns this device's IP address, which video it is and when, as it would if you opened it on YouTube, and that it plays on this web app's address. Nobody is signed in to YouTube here, so there may be adverts.
+        Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube, and that it's playing on this web app's address. You aren't signed in to YouTube here, so you may see ads.
       </p>
       <p className="muted" style={{ fontSize: 13.5 }}>
-        Your server only learns that something was sent in the room, never which video. Until you press Watch, this device contacts nobody. You can turn this off in Settings, Privacy.
+        Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.
       </p>
       <p style={{ fontSize: 13 }}>
         <a href={YOUTUBE_TERMS} target="_blank" rel="noreferrer">
@@ -91,7 +91,7 @@ export function WatchLinkDialog({ onClose }: { onClose: () => void }) {
             Cancel
           </button>
           <button className="btn btn-primary" disabled={busy || !link.trim()} onClick={() => void submit()}>
-            {busy ? <Spinner /> : "Put it on"}
+            {busy ? <Spinner /> : "Share video"}
           </button>
         </>
       }
@@ -112,7 +112,7 @@ export function WatchLinkDialog({ onClose }: { onClose: () => void }) {
         />
       </label>
       {error && <p className="field-error">{error}</p>}
-      <p className="setting-hint">It plays for everyone here who presses Watch, at the same moment. Anyone in the room can pause it, skip, change its speed or stop it.</p>
+      <p className="setting-hint">It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.</p>
     </Modal>
   );
 }
@@ -244,7 +244,7 @@ export function WatchStage({ watch }: { watch: WatchView }) {
   const note = status?.error
     ? WATCH_ERRORS[status.error]
     : blocked
-      ? "Your browser didn't let it start. Press play in the video once."
+      ? "Your browser blocked it from starting. Press play in the video."
       : watching && status?.phase === "catching-up"
         ? "Catching up…"
         : null;
@@ -259,7 +259,7 @@ export function WatchStage({ watch }: { watch: WatchView }) {
           <div className="watch-cover-text">
             <h3>{title}</h3>
             {watch.video.author && <p>{watch.video.author}</p>}
-            <p className="muted">Put on by {nameOf(server, watch.video.startedBy)}. It plays from YouTube once you press Watch.</p>
+            <p className="muted">Shared by {nameOf(server, watch.video.startedBy)}. It plays from YouTube when you press Watch.</p>
             <button className="btn btn-primary" onClick={press}>
               <Tv size={16} /> Watch
             </button>
@@ -269,7 +269,7 @@ export function WatchStage({ watch }: { watch: WatchView }) {
       <div className="watch-bar" role="toolbar" aria-label="Video">
         <div className="watch-bar-text">
           <b className="truncate">{title}</b>
-          <span className="truncate muted">{note ?? changed ?? `Put on by ${nameOf(server, watch.video.startedBy)}${watch.video.author ? ` · ${watch.video.author}` : ""}`}</span>
+          <span className="truncate muted">{note ?? changed ?? `Shared by ${nameOf(server, watch.video.startedBy)}${watch.video.author ? ` · ${watch.video.author}` : ""}`}</span>
         </div>
         {watching && (
           <div className="watch-volume">

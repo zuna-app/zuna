@@ -97,7 +97,7 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
         return;
       }
       selectConversation(channel.key);
-      toast("This server has no media server yet, so its voice channels can't be joined.", "info");
+      toast("This server doesn't have a media server yet, so you can't join its voice channels.", "info");
       return;
     }
     selectConversation(channel.key);
@@ -214,7 +214,7 @@ export function ChannelSections({ query }: { query: string }) {
             icon: <Trash2 size={15} />,
             danger: true,
             onSelect: () => {
-              if (window.confirm(`Delete ${channelTitle(channel)}? Its messages go for everyone.`)) {
+              if (window.confirm(`Delete ${channelTitle(channel)}? Its messages will be deleted for everyone.`)) {
                 void session()
                   .deleteChannel(channel.id)
                   .catch((error: Error) => toast(error.message, "error"));

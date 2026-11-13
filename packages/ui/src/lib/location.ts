@@ -25,7 +25,7 @@ export function mapLink({ lat, lon }: SharedLocation): string {
 export function locate(): Promise<SharedLocation> {
   return new Promise((resolve, reject) => {
     if (!("geolocation" in navigator)) {
-      reject(new Error("This device can't tell where it is."));
+      reject(new Error("This device can't find its location."));
       return;
     }
     navigator.geolocation.getCurrentPosition(

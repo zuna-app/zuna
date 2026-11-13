@@ -189,8 +189,8 @@ function CameraPreview({ deviceId }: { deviceId: string }) {
 }
 
 const NOISE_CHOICES: { id: NoiseSuppression; label: string; hint: string }[] = [
-  { id: "zuna", label: "Enhanced", hint: "Removes fans, keyboards and traffic, on this device." },
-  { id: "standard", label: "Standard", hint: "Your browser's own, lighter." },
+  { id: "zuna", label: "Enhanced", hint: "Removes fan, keyboard and traffic noise. Runs on this device." },
+  { id: "standard", label: "Standard", hint: "Your browser's built-in filter. Uses less CPU." },
   { id: "off", label: "Off", hint: "For a good microphone in a quiet room." },
 ];
 
@@ -248,7 +248,7 @@ export function VoiceSettingsSection() {
         </>
       ) : (
         <>
-          <SettingRow title="Push-to-talk key" hint="Works while this window is in front.">
+          <SettingRow title="Push-to-talk key" hint="Only works while this window is focused.">
             <KeyBinder />
           </SettingRow>
           <label className="field">
@@ -304,7 +304,7 @@ export function VoiceSettingsSection() {
           ))}
         </div>
       </div>
-      <SettingRow title="Echo cancellation" hint="Keeps your speakers out of your microphone.">
+      <SettingRow title="Echo cancellation" hint="Stops your microphone from picking up your speakers.">
         <Switch on={settings.echoCancellation} onChange={(value) => update({ echoCancellation: value })} label="Echo cancellation" />
       </SettingRow>
       <SettingRow title="Automatic gain control" hint="Keeps your voice at a steady level.">

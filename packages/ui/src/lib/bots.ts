@@ -39,4 +39,4 @@ export function commandsFor(conversation: ConversationView, users: Record<string
 }
 
 /** What someone is told before they add a bot to a group. */
-export const BOT_READS = "A bot is a program. It reads everything said here from now on, on whichever machine runs it, and gets nothing from before.";
+export const BOT_READS = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before.";

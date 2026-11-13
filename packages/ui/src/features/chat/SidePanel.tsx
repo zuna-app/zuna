@@ -203,7 +203,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         )}
         {peer?.bot && !peer.deleted && (
           <p className="faint" style={{ fontSize: 12.5, textAlign: "center" }}>
-            {peer.bot.ownerId === server?.self?.userId ? "Your bot" : `${server?.users[peer.bot.ownerId]?.displayName ?? "Someone"}'s bot`}. A program runs it, and reads everything said in the chats it's in.
+            {peer.bot.ownerId === server?.self?.userId ? "Your bot" : `${server?.users[peer.bot.ownerId]?.displayName ?? "Someone"}'s bot`}. It's run by a program, which can read everything said in the chats it's in.
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}
@@ -215,7 +215,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
             {peer.trust === "verified" ? <ShieldCheck size={20} /> : peer.trust === "changed" ? <ShieldAlert size={20} /> : <Shield size={20} />}
             <span className="grow">
               <b>{peer.trust === "verified" ? "Verified" : peer.trust === "changed" ? "Security key changed" : "Not verified yet"}</b>
-              <span>{peer.trust === "verified" ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is in between."}</span>
+              <span>{peer.trust === "verified" ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is intercepting your messages."}</span>
             </span>
           </button>
         </div>
@@ -263,7 +263,7 @@ function ReportRow({ userId, name }: { userId: string; name: string }) {
         <Flag size={17} />
         <span className="grow">
           Report {name}
-          <span className="side-row-hint">The server's admins see whom and why, never what was said or who reported.</span>
+          <span className="side-row-hint">The server's admins will see who you reported and why, but not what was said or who reported them.</span>
         </span>
       </button>
       {menu && (
@@ -295,7 +295,7 @@ function BlockRow({ userId, name }: { userId: string; name: string }) {
       <Ban size={17} />
       <span className="grow">
         {blocked ? `Unblock ${name}` : `Block ${name}`}
-        {!blocked && <span className="side-row-hint">You won't see their messages or hear about them. They aren't told.</span>}
+        {!blocked && <span className="side-row-hint">You won't see their messages or get notified about them. They won't be told.</span>}
       </span>
     </button>
   );
@@ -333,7 +333,7 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
           {conversation.muted ? <BellOff size={17} /> : <Bell size={17} />}
           <span className="grow">
             {conversation.muted ? "Unmute" : "Mute"}
-            <span className="side-row-hint">{conversation.muted ? "You won't hear about anything here." : "You hear about what's said to you."}</span>
+            <span className="side-row-hint">{conversation.muted ? "You won't be notified about anything here." : "You're notified when someone mentions you or replies to you."}</span>
           </span>
         </button>
         {muteMenu && <PopupMenu x={muteMenu.x} y={muteMenu.y} alignRight entries={muteEntries((until) => void session().mute(conversation.key, until))} onClose={() => setMuteMenu(null)} />}
@@ -344,7 +344,7 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
           <Lock size={17} />
           <span className="grow">
             End-to-end encrypted
-            <span className="side-row-hint">Everyone on this server can read it, and the server itself can't.</span>
+            <span className="side-row-hint">Everyone on this server can read it, but the server itself can't.</span>
           </span>
         </div>
       </div>
@@ -463,7 +463,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
                   {member.userId === selfId && <span className="faint"> (you)</span>}
                 </span>
                 <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>
-                  {member.notOnRoster ? "Has this chat's keys, but isn't listed as a member" : member.noKeys ? "No device in this chat yet" : `@${user?.username}`}
+                  {member.notOnRoster ? "Can read this chat, but isn't listed as a member" : member.noKeys ? "No device in this chat yet" : `@${user?.username}`}
                 </span>
               </span>
               {member.notOnRoster && <ShieldAlert size={14} className="conv-warning" aria-label="Not listed as a member" />}
@@ -631,7 +631,7 @@ function SearchContent({ conversation }: { conversation: ConversationView }) {
       {query.trim().length >= 2 && results.length === 0 && !searching && <p className="muted" style={{ textAlign: "center", padding: 18 }}>No messages found.</p>}
       {query.trim().length < 2 && (
         <p className="faint" style={{ fontSize: 12.5, textAlign: "center", padding: "18px 10px" }}>
-          Search runs on this device. The server never sees what you look for.
+          Search happens on this device. The server never sees what you search for.
         </p>
       )}
       {results.map((result) => (

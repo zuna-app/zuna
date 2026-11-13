@@ -123,11 +123,11 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       className={`msg-meta${onlyImages ? " is-overlay" : ""}`}
       title={[
         formatFull(message.createdAt),
-        message.timeDiffers ? ". The sender's device gives a very different time for this message." : "",
+        message.timeDiffers ? ". The sender's device reported a very different time for this message." : "",
         message.expiresAt ? `. Disappears ${formatFull(message.expiresAt)}.` : "",
       ].join("")}
     >
-      {message.timeDiffers && <ShieldAlert size={11} aria-label="The time of this message may not be right" />}
+      {message.timeDiffers && <ShieldAlert size={11} aria-label="This message's time may be wrong" />}
       {message.expiresAt && <Timer size={10} className="msg-timer" aria-label="Disappears" />}
       {message.pinnedAt && <Pin size={10} className="msg-pinned" />}
       {message.editedAt && !isDeleted && <span>edited</span>}
@@ -149,8 +149,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
         </span>
       )}
       {message.timeDiffers && (
-        <span className="cmsg-flag" title="The sender's device gives a very different time for this message.">
-          <ShieldAlert size={13} aria-label="The time of this message may not be right" />
+        <span className="cmsg-flag" title="The sender's device reported a very different time for this message.">
+          <ShieldAlert size={13} aria-label="This message's time may be wrong" />
         </span>
       )}
       {message.expiresAt && (

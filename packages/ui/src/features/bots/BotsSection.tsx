@@ -28,7 +28,7 @@ function SetupLink({ link, onDone }: { link: string; onDone: () => void }) {
       <div className="notice">
         <Terminal size={15} />
         <span>
-          Set the bot up on the machine that will run it, within the hour. Its keys are made there, so not even you hold them. This link works once, and this is the only time it's shown.
+          Set up the bot on the computer that will run it within the next hour. Its keys are created there, so not even you have them. This link works once and won't be shown again.
         </span>
       </div>
       <div className="invite-link">
@@ -42,7 +42,7 @@ function SetupLink({ link, onDone }: { link: string; onDone: () => void }) {
         </button>
       </div>
       <p className="setting-hint">
-        Then start it with <span className="mono">zuna-bot run</span>. Whichever machine runs a bot can read that bot's chats.
+        Then start it with <span className="mono">zuna-bot run</span>. Whoever controls the computer running a bot can read its chats.
       </p>
       <div>
         <button className="btn btn-small" onClick={onDone}>Done</button>
@@ -78,7 +78,7 @@ function NewBot({ canList, onCreated, onCancel }: { canList: boolean; onCreated:
         </div>
       </div>
       {canList && (
-        <SettingRow title="List it for everyone" hint="If off, it's private: only you see it, and whoever is in a chat with it. Other admins don't.">
+        <SettingRow title="List it for everyone" hint="If off, the bot is private: only you and people in chats with it can see it. Other admins can't.">
           <Switch on={listed} onChange={setListed} label="List it for everyone" />
         </SettingRow>
       )}
@@ -89,7 +89,7 @@ function NewBot({ canList, onCreated, onCancel }: { canList: boolean; onCreated:
           </select>
         </SettingRow>
       )}
-      <SettingRow title="Let it send files" hint="Within the server's limit on a file's size.">
+      <SettingRow title="Let it send files" hint="Up to the server's file size limit.">
         <Switch on={files} onChange={setFiles} label="Let it send files" />
       </SettingRow>
       <div className="row">
@@ -103,7 +103,7 @@ function NewBot({ canList, onCreated, onCancel }: { canList: boolean; onCreated:
             })
           }
         >
-          {busy ? <Spinner /> : "Make the bot"}
+          {busy ? <Spinner /> : "Create bot"}
         </button>
         <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
       </div>
@@ -137,7 +137,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
     <div className="bot-settings">
       {!bot.setUp ? (
         <>
-          <p className="setting-hint">Its program hasn't been set up yet. If the link ran out or was lost, a new one ends the one before.</p>
+          <p className="setting-hint">The bot hasn't been set up yet. If the link expired or got lost, make a new one. The old link will stop working.</p>
           <div className="row">
             <button className="btn btn-small" disabled={busy || !own} onClick={() => void run(async () => onLink(await session().newBotLink(bot.id)))}>
               <RefreshCw size={13} /> New setup link
@@ -160,7 +160,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
                 const file = event.target.files?.[0];
                 if (file) void run(async () => {
                   await session().updateBotProfile(bot.id, {}, await prepareAvatar(file, 256));
-                  toast("Sent to the bot, which sets it when it's running");
+                  toast("Sent to the bot. It'll update the next time it's running");
                 });
                 event.target.value = "";
               }}
@@ -176,7 +176,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
               disabled={busy || !name.trim() || (name === (user?.displayName ?? "") && bio === (user?.bio ?? ""))}
               onClick={() => void run(async () => {
                 await session().updateBotProfile(bot.id, { displayName: name.trim(), bio: bio.trim() });
-                toast("Sent to the bot, which sets it when it's running");
+                toast("Sent to the bot. It'll update the next time it's running");
               })}
             >
               Save
@@ -191,7 +191,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
               <MessageCircle size={13} /> Message
             </button>
           </div>
-          <SettingRow title="List it for everyone" hint={isAdmin || bot.listed ? "If off, it's private: only you see it, and whoever is in a chat with it. It leaves its channels." : "Only the server's admins can list a bot."}>
+          <SettingRow title="List it for everyone" hint={isAdmin || bot.listed ? "If off, the bot is private: only you and people in chats with it can see it. It will leave its channels." : "Only the server's admins can list a bot."}>
             <Switch on={bot.listed} onChange={(listed) => (isAdmin || !listed ? change({ listed }) : undefined)} label="List it for everyone" />
           </SettingRow>
           {bot.listed && (
@@ -209,7 +209,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
       {bot.setUp && bot.listed && isAdmin && textChannels.length > 0 && (
         <div className="field">
           <span className="field-label">Channels</span>
-          <span className="setting-hint">It joins the ones it's given, and reads what's said there from then on.</span>
+          <span className="setting-hint">It joins the channels you pick and reads what's said there from then on.</span>
           <div className="bot-channels">
             {textChannels.map((channel) => {
               const given = bot.channels.includes(channel.id);
@@ -250,7 +250,7 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
             });
           }}
         >
-          {bot.setUp ? "It's signed out and taken out of every chat it's in. What it sent stays with the people it sent it to. It can't be undone." : "Its setup link stops working."}
+          {bot.setUp ? "It'll be signed out and removed from all its chats. Messages it sent will stay. This can't be undone." : "Its setup link will stop working."}
         </Confirm>
       )}
     </div>
@@ -289,7 +289,7 @@ export function BotsSection() {
     <>
       <h1>Bots</h1>
       <p className="settings-lead">
-        A bot is an account a program runs, on a machine its owner chooses. It reads everything said in the chats it's in, from when it was added, and shows a <BotBadge /> wherever its name does.
+        A bot is an account run by a program, on a computer its owner chooses. It can read everything said in its chats after it's added, and always shows a <BotBadge /> next to its name.
       </p>
       {link ? (
         <SetupLink link={link} onDone={() => setLink(null)} />
@@ -308,12 +308,12 @@ export function BotsSection() {
           <button className="btn btn-primary" disabled={mine >= most} onClick={() => setCreating(true)}>
             <Plus size={15} /> New bot
           </button>
-          {mine >= most && <p className="setting-hint" style={{ marginTop: 6 }}>You have as many bots as this server lets one person have.</p>}
+          {mine >= most && <p className="setting-hint" style={{ marginTop: 6 }}>You've reached this server's limit of bots per person.</p>}
         </div>
       ) : (
         <div className="notice">
           <Bot size={15} />
-          <span>On this server, only admins can make bots.</span>
+          <span>On this server, only admins can create bots.</span>
         </div>
       )}
       {bots === null ? (
@@ -348,11 +348,11 @@ export function BotsSection() {
       {isAdmin && (
         <>
           <div className="settings-divider" />
-          <SettingRow title="Let members make private bots" hint="If off, only admins make bots. Only admins ever make listed ones.">
-            <Switch on={server.info?.allow_member_bots ?? false} onChange={(value) => void run(() => session().updateServerSettings({ allow_member_bots: value }))} label="Let members make private bots" />
+          <SettingRow title="Let members create private bots" hint="If off, only admins can create bots. Listed bots can only ever be created by admins.">
+            <Switch on={server.info?.allow_member_bots ?? false} onChange={(value) => void run(() => session().updateServerSettings({ allow_member_bots: value }))} label="Let members create private bots" />
           </SettingRow>
-          <SettingRow title="Bots each person can have">
-            <select className="select" style={{ width: 90 }} value={most} onChange={(event) => void run(() => session().updateServerSettings({ max_bots: Number(event.target.value) }))} aria-label="Bots each person can have">
+          <SettingRow title="Bots per person">
+            <select className="select" style={{ width: 90 }} value={most} onChange={(event) => void run(() => session().updateServerSettings({ max_bots: Number(event.target.value) }))} aria-label="Bots per person">
               {[...new Set([1, 3, 5, 10, 25, most])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </SettingRow>

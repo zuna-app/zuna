@@ -200,7 +200,7 @@ function PrivacySection() {
       </SettingRow>
       <div className="settings-divider" />
       <h3>Blocked people</h3>
-      {blocked.length === 0 && <p className="setting-hint">Nobody. You can block someone from their details in a chat, or from a group's members.</p>}
+      {blocked.length === 0 && <p className="setting-hint">Nobody yet. You can block someone from their details in a chat, or from a group's member list.</p>}
       {blocked.map((user) => (
         <div key={user.id} className="setting-row">
           <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={32} />
@@ -213,18 +213,18 @@ function PrivacySection() {
           </button>
         </div>
       ))}
-      <p className="setting-hint">You don't see messages from people you block, or hear about them. Nobody is told, and your server can't see who you block.</p>
+      <p className="setting-hint">You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.</p>
       <div className="settings-divider" />
       <h3>On this device</h3>
       <SettingRow
         title="Link previews"
-        hint="When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it."
+        hint="When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it."
       >
         <Switch on={settings.linkPreviews} onChange={(value) => update({ linkPreviews: value })} label="Link previews" />
       </SettingRow>
       <SettingRow
         title="Remove metadata from files"
-        hint="Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."
+        hint="Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."
       >
         <Switch
           on={settings.removeMetadata}
@@ -234,7 +234,7 @@ function PrivacySection() {
       </SettingRow>
       <SettingRow
         title="Play YouTube videos"
-        hint="A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first."
+        hint="People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first."
       >
         <Switch on={settings.playYouTube} onChange={(value) => update({ playYouTube: value })} label="Play YouTube videos" />
       </SettingRow>
@@ -256,9 +256,9 @@ function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; on
   return (
     <Confirm title="Send files with their metadata?" action="Turn off" width={440} onCancel={onCancel} onConfirm={onConfirm}>
       <p style={{ fontSize: 13.5 }}>
-        Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.
+        Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.
       </p>
-      <p className="muted" style={{ fontSize: 13.5 }}>Your server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.</p>
+      <p className="muted" style={{ fontSize: 13.5 }}>Your server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.</p>
     </Confirm>
   );
 }
@@ -284,8 +284,8 @@ function NotificationsSection() {
         title="Desktop notifications"
         hint={
           settings.notifications && permission === "denied"
-            ? "Your browser blocks notifications from this site. Allow them in its settings for the site."
-            : "While you're on another device, they wait 30 seconds, and don't show if you read the chat there."
+            ? "Your browser is blocking notifications from this site. Allow them in your browser's site settings."
+            : "If you're using another device, they wait 30 seconds and won't show if you read the chat there."
         }
       >
         <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label="Desktop notifications" />
@@ -372,7 +372,7 @@ function DevicesCard() {
       {server && (
         // A server that makes its own certificate needs its pin too, which only its links carry.
         <span className="field-hint">
-          To add one, sign in there to <span className="mono selectable" style={{ overflowWrap: "anywhere" }}>{server.entry.address}</span>
+          To add a device, sign in on it at <span className="mono selectable" style={{ overflowWrap: "anywhere" }}>{server.entry.address}</span>
         </span>
       )}
     </div>
@@ -400,7 +400,7 @@ function SecuritySection() {
         <Lock size={15} />
         <span>{platform.keyWarning}</span>
       </div>
-      <SettingRow title="Your security key" hint="Compare it with friends to prove nobody is in between.">
+      <SettingRow title="Your security key" hint="Compare it with friends to make sure nobody is intercepting your messages.">
         <button className="btn btn-small" onClick={() => server?.self && setOverlay({ type: "verify", userId: server.self.userId })}>
           <KeyRound size={14} /> View
         </button>
@@ -499,7 +499,7 @@ function ServerDataSection() {
     <>
       <h1>Your data</h1>
       <p className="settings-lead">
-        Everything {server.entry.name} keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.
+        Everything {server.entry.name} says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.
       </p>
       <div className="row" style={{ gap: 8 }}>
         {shown && (
@@ -533,7 +533,7 @@ function ServerDataSection() {
       ))}
       {shown && (
         <p className="data-footnote">
-          This is what {server.entry.name} says it keeps. A server someone changed could keep more than it says, which is why what matters is encrypted on your devices before it's sent.
+          This is what {server.entry.name} says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.
         </p>
       )}
     </>
