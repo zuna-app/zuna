@@ -4,6 +4,12 @@ import type { AvatarRef, Attachment, MessageView } from "@zuna/core";
 import { useEffect, useState } from "react";
 import { useApp } from "@/state/store";
 
+/**
+ * What a decrypted file is kept by: its server, its ID and the key it was opened with. A message
+ * elsewhere can name the same file with any key, and must never be shown this one's copy for it.
+ */
+const cacheKey = (serverId: string, ref: { fileId: string; key: string; prefix?: string }): string => [serverId, ref.fileId, ref.key, ref.prefix ?? ""].join("\n");
+
 /** Decrypted files kept for drawing again, by count and by what they hold, whichever is reached first. */
 const MAX_CACHED = 300;
 const MAX_CACHED_BYTES = 256 << 20;
@@ -28,11 +34,12 @@ function trimCache(): void {
 }
 
 function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }): Promise<string> {
-  const cached = cache.get(ref.fileId);
+  const id = cacheKey(serverId, ref);
+  const cached = cache.get(id);
   if (cached) {
     // Moving it to the end of the map keeps recently used files cached.
-    cache.delete(ref.fileId);
-    cache.set(ref.fileId, cached);
+    cache.delete(id);
+    cache.set(id, cached);
     return cached;
   }
   const pending = useApp
@@ -42,17 +49,17 @@ function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; pr
     .then((blob) => {
       const url = URL.createObjectURL(blob);
       // It may have been let go while it downloaded, and is then only handed to whoever asked.
-      if (cache.get(ref.fileId) === pending) {
-        ready.set(ref.fileId, url);
-        sizes.set(ref.fileId, blob.size);
+      if (cache.get(id) === pending) {
+        ready.set(id, url);
+        sizes.set(id, blob.size);
         cachedBytes += blob.size;
         trimCache();
       }
       return url;
     });
-  cache.set(ref.fileId, pending);
+  cache.set(id, pending);
   pending.catch(() => {
-    if (cache.get(ref.fileId) === pending) cache.delete(ref.fileId);
+    if (cache.get(id) === pending) cache.delete(id);
   });
   trimCache();
   return pending;
@@ -60,10 +67,11 @@ function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; pr
 
 export function useDecryptedUrl(serverId: string | null, ref: AvatarRef | Attachment | null | undefined, enabled = true) {
   const fileId = ref?.fileId;
-  const [url, setUrl] = useState<string | null>(() => (fileId && ready.get(fileId)) || null);
+  const id = serverId && ref?.fileId ? cacheKey(serverId, ref) : null;
+  const [url, setUrl] = useState<string | null>(() => (id && ready.get(id)) || null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    setUrl((fileId && ready.get(fileId)) || null);
+    setUrl((id && ready.get(id)) || null);
     setFailed(false);
     if (!serverId || !ref?.fileId || !enabled) return;
     let cancelled = false;
@@ -77,7 +85,7 @@ export function useDecryptedUrl(serverId: string | null, ref: AvatarRef | Attach
     return () => {
       cancelled = true;
     };
-  }, [serverId, fileId, enabled]);
+  }, [serverId, fileId, id, enabled]);
   return { url, failed };
 }
 
@@ -120,20 +128,21 @@ function takeFrame(url: string): Promise<string> {
 }
 
 function fetchFrame(serverId: string, attachment: Attachment): Promise<string> {
-  const cached = frames.get(attachment.fileId);
+  const id = cacheKey(serverId, attachment);
+  const cached = frames.get(id);
   if (cached) {
-    frames.delete(attachment.fileId);
-    frames.set(attachment.fileId, cached);
+    frames.delete(id);
+    frames.set(id, cached);
     return cached;
   }
   const pending = fetchDecrypted(serverId, attachment)
     .then(takeFrame)
     .then((frame) => {
-      readyFrames.set(attachment.fileId, frame);
+      readyFrames.set(id, frame);
       return frame;
     });
-  frames.set(attachment.fileId, pending);
-  pending.catch(() => frames.delete(attachment.fileId));
+  frames.set(id, pending);
+  pending.catch(() => frames.delete(id));
   if (frames.size > MAX_CACHED) {
     const oldestId = frames.keys().next().value as string;
     frames.delete(oldestId);
@@ -149,9 +158,10 @@ function fetchFrame(serverId: string, attachment: Attachment): Promise<string> {
  */
 export function useVideoFrame(serverId: string | null, attachment: Attachment | null, enabled = true): string | null {
   const fileId = attachment?.fileId;
-  const [frame, setFrame] = useState<string | null>(() => (fileId && readyFrames.get(fileId)) || null);
+  const id = serverId && attachment?.fileId ? cacheKey(serverId, attachment) : null;
+  const [frame, setFrame] = useState<string | null>(() => (id && readyFrames.get(id)) || null);
   useEffect(() => {
-    setFrame((fileId && readyFrames.get(fileId)) || null);
+    setFrame((id && readyFrames.get(id)) || null);
     if (!serverId || !attachment?.fileId || !enabled) return;
     let cancelled = false;
     fetchFrame(serverId, attachment)
@@ -160,7 +170,7 @@ export function useVideoFrame(serverId: string | null, attachment: Attachment | 
     return () => {
       cancelled = true;
     };
-  }, [serverId, fileId, enabled]);
+  }, [serverId, fileId, id, enabled]);
   return frame;
 }
 
@@ -276,7 +286,7 @@ export const loadsByItself = (attachment: Attachment): boolean => attachment.siz
 
 /** Saves a file. One already drawn is saved from memory; anything else isn't kept there once saved. */
 export async function downloadAttachment(serverId: string, attachment: Attachment): Promise<void> {
-  const shown = ready.get(attachment.fileId);
+  const shown = ready.get(cacheKey(serverId, attachment));
   const url = shown ?? URL.createObjectURL(await useApp.getState().session(serverId).downloadFile(attachment));
   const link = document.createElement("a");
   link.href = url;
