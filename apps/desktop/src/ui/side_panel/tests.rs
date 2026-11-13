@@ -6,7 +6,7 @@ use gpui::TestAppContext;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::state::Panel;
+use crate::state::{Panel, SharedKind};
 use crate::testing::fixtures::*;
 use crate::testing::{App as Running, World};
 
@@ -168,4 +168,40 @@ fn a_chats_preferences_and_who_its_with(cx: &mut TestAppContext) {
             "members": [{ "userId": ME, "role": "admin", "joinedAt": NOW }, { "userId": "u-gone", "role": "member", "joinedAt": NOW }] }));
     });
     assert!(app.drawn(cx, "pin-row") && !app.drawn(cx, "trust-card") && !app.drawn(cx, "block"));
+}
+
+#[gpui::test]
+fn what_a_chat_shared_of_each_kind(cx: &mut TestAppContext) {
+    let app = open(cx, "panel-media", &format!("user:{BOB}"), |_| {});
+    app.answer("loadMedia", |_| Ok(json!({ "messages": messages(DM), "hasMore": false })));
+    let file = "f".repeat(32);
+    for kind in [SharedKind::Photo, SharedKind::Video, SharedKind::File, SharedKind::Audio, SharedKind::Link, SharedKind::Voice] {
+        app.update(cx, |state, cx| state.toggle_panel(Panel::Media(kind), cx));
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.panel), Some(Panel::Media(kind)));
+    }
+    // Something listed is found in the chat from its own menu.
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::File), cx));
+    let id = format!("shared-row-m05-{file}");
+    let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+    let at = window.debug_bounds(Box::leak(id.into_boxed_str())).expect("the file is listed").center();
+    window.simulate_event(gpui::MouseDownEvent { position: at, modifiers: gpui::Modifiers::none(), button: gpui::MouseButton::Right, click_count: 1, first_mouse: false });
+    app.run(cx);
+    pick(&app, cx, 0);
+    let chat = app.window.update(cx, |root, _, _| root.open_chat()).unwrap().expect("a chat is open");
+    assert_eq!(cx.read(|cx| chat.read(cx).highlighted()), Some("m05".to_string()), "it jumps to the message");
+    // A video's tile, which has no picture to show bigger, goes to its message.
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::Video), cx));
+    assert!(app.drawn(cx, &format!("shared-m08-{file}")));
+    app.click(cx, &format!("shared-m08-{file}"));
+    assert_eq!(cx.read(|cx| chat.read(cx).highlighted()), Some("m08".to_string()));
+    // Groups they're in too, opened from there.
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::Groups), cx));
+    app.click(cx, &format!("common-group:{GROUP}"));
+    assert_eq!(app.read(cx, |state| state.servers[SERVER].active_key.clone()), Some(format!("group:{GROUP}")));
+    // Nothing of a kind left says so.
+    let app = open(cx, "panel-media-none", &format!("user:{BOB}"), |_| {});
+    app.answer("loadMedia", |_| Ok(json!({ "messages": [], "hasMore": false })));
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::Photo), cx));
+    assert!(!app.drawn(cx, &format!("shared-m04-{file}")));
 }

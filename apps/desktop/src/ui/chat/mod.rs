@@ -553,6 +553,11 @@ impl ChatView {
     pub fn composer_text(&self, cx: &gpui::App) -> String {
         self.composer.read(cx).text().to_string()
     }
+
+    /// The message jumped to last, for tests outside the chat's own.
+    pub fn highlighted(&self) -> Option<String> {
+        self.highlight.as_ref().map(|(id, _)| id.clone())
+    }
 }
 
 impl Render for ChatView {

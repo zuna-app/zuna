@@ -205,8 +205,7 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
     let full = picture.clone();
     let hover = SharedString::from(format!("shared-{}-{}", message.id, attachment.file_id));
     let mut square = round_corners(
-        div()
-            .id(hover.clone())
+        named_div(hover.clone())
             .group(hover.clone())
             .relative()
             .w_full()
@@ -288,8 +287,7 @@ fn attachment_row(state: &Entity<AppState>, server: &ServerState, message: &Mess
     let server_id = server.entry.id.clone();
     let file = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
     let name = attachment.name.clone();
-    div()
-        .id(SharedString::from(format!("shared-row-{}-{}", message.id, attachment.file_id)))
+    named_div(SharedString::from(format!("shared-row-{}-{}", message.id, attachment.file_id)))
         .flex()
         .flex_col()
         .gap(px(3.))
@@ -406,8 +404,7 @@ pub fn groups(state: &Entity<AppState>, server: &ServerState, peer_id: Option<&s
         });
         let (open_state, key) = (state.clone(), group.key.clone());
         list = list.child(
-            div()
-                .id(SharedString::from(format!("common-{}", group.key)))
+            named_div(SharedString::from(format!("common-{}", group.key)))
                 .flex()
                 .items_center()
                 .gap(px(10.))
