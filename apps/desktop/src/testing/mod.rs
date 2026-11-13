@@ -173,6 +173,22 @@ impl App {
         self.run(cx);
     }
 
+    /// Clicks the button, icon button or switch with this id where the window drew it, as the
+    /// person would, and lets what follows run.
+    pub fn click(&self, cx: &mut TestAppContext, id: &str) {
+        let selector: &'static str = Box::leak(id.to_string().into_boxed_str());
+        let mut window = gpui::VisualTestContext::from_window(self.window.into(), cx);
+        let bounds = window.debug_bounds(selector).unwrap_or_else(|| panic!("nothing drawn is called {id}"));
+        window.simulate_click(bounds.center(), gpui::Modifiers::none());
+        self.run(cx);
+    }
+
+    /// Whether a control with this id is drawn.
+    pub fn drawn(&self, cx: &mut TestAppContext, id: &str) -> bool {
+        let selector: &'static str = Box::leak(id.to_string().into_boxed_str());
+        gpui::VisualTestContext::from_window(self.window.into(), cx).debug_bounds(selector).is_some()
+    }
+
     /// Changes the window's root as the person would, and lets it draw what follows.
     pub fn root(&self, cx: &mut TestAppContext, change: impl FnOnce(&mut Root, &mut gpui::Window, &mut gpui::Context<Root>)) {
         self.window.update(cx, |root, window, cx| change(root, window, cx)).expect("the window is open");

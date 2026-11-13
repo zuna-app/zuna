@@ -134,6 +134,18 @@ pub enum ButtonSize {
 }
 
 /// `.btn`: a rounded button with text, and an icon if it has one.
+/// Names a control for the tests by its id, which find it where it's drawn to click it
+/// (`testing::App::click`). Nothing in a build anyone uses.
+fn named(el: Div, id: &ElementId) -> Div {
+    #[cfg(test)]
+    return el.debug_selector(|| id.to_string());
+    #[cfg(not(test))]
+    {
+        let _ = id;
+        el
+    }
+}
+
 pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disabled: bool, cx: &App) -> Stateful<Div> {
     let theme = theme(cx);
     let (bg, fg, hover) = match kind {
@@ -149,7 +161,7 @@ pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disa
     };
     let id = id.into();
     let key = format!("btn-{id:?}");
-    let mut el = super::motion::track_hover(div().id(id), key.clone())
+    let mut el = super::motion::track_hover(named(div(), &id).id(id), key.clone())
         .relative()
         .flex()
         .flex_none()
@@ -195,7 +207,7 @@ pub fn icon_button_in(id: impl Into<ElementId>, name: &str, icon_size: f32, smal
     // `.icon-btn`: its background and color come up over 100 ms under the pointer. GPUI's
     // icons take no color from around them, so the icon brightens with the button itself.
     let svg_el = svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(icon_size)).flex_none();
-    let mut el = super::motion::track_hover(div().id(id), key.clone())
+    let mut el = super::motion::track_hover(named(div(), &id).id(id), key.clone())
         .relative()
         .flex()
         .flex_none()
@@ -220,7 +232,7 @@ pub fn switch(id: impl Into<ElementId>, on: bool, cx: &App) -> Stateful<Div> {
     let to = if on { 1. } else { 0. };
     let (accent, knob_on) = (theme.accent, theme.on_accent);
     // `.switch`: its color over 120 ms, and its knob over 120 ms with `--ease-out`.
-    div()
+    named(div(), &id)
         .id(id)
         .relative()
         .flex_none()
