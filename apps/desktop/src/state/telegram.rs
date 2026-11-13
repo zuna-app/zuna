@@ -185,3 +185,166 @@ impl AppState {
         cx.notify();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The linked Telegram account as the state keeps it: each step of linking, the account
+    //! joining the rail and leaving it, and what's done in its chats that the core answers.
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::SERVER_ID;
+    use crate::testing::{App, World, refused};
+
+    fn entry() -> Value {
+        json!({ "id": SERVER_ID, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "tg-me" })
+    }
+
+    /// The fixtures' world with an account linked, or not.
+    fn world(name: &str, linked: bool) -> World {
+        let mut world = World::new(name);
+        if linked {
+            world.client["listServers"].as_array_mut().unwrap().push(entry());
+        }
+        world
+    }
+
+    fn step(app: &App, cx: &mut TestAppContext, link: Value) {
+        app.event(cx, json!({ "type": "telegram", "link": link }));
+    }
+
+    fn linking(app: &App, cx: &mut TestAppContext) -> Option<String> {
+        app.read(cx, |state| state.telegram_link.as_ref().map(|link| link.step.clone()))
+    }
+
+    #[gpui::test]
+    fn linking_follows_each_step_into_the_rail_and_out_again(cx: &mut TestAppContext) {
+        let app = App::open(cx, &world("telegram-linking", false));
+        assert_eq!(app.read(cx, |state| state.can_link_telegram()), crate::telegram::available());
+        app.answer("linkTelegram", |_| Err(refused("Telegram's engine isn't here.")));
+        app.update(cx, |state, cx| state.link_telegram(cx));
+        assert_eq!(linking(&app, cx).as_deref(), Some("failed"));
+        assert_eq!(app.read(cx, |state| state.telegram_link.as_ref().unwrap().reason.clone()), "Telegram's engine isn't here.");
+
+        app.answer("linkTelegram", |_| Ok(Value::Null));
+        app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": true })));
+        app.update(cx, |state, cx| state.link_telegram(cx));
+        assert_eq!(linking(&app, cx).as_deref(), Some("starting"));
+        step(&app, cx, json!({ "step": "code", "via": "telegram", "length": 5 }));
+        assert_eq!(linking(&app, cx).as_deref(), Some("code"));
+        // Begun over, as from the QR code to a phone number: unlinked, then linked again.
+        app.forget_calls();
+        app.update(cx, |state, cx| state.restart_telegram_link(cx));
+        let order: Vec<String> = app.calls().into_iter().map(|call| call.method).filter(|method| method.ends_with("Telegram")).collect();
+        assert_eq!(order, vec!["unlinkTelegram", "linkTelegram"]);
+        assert_eq!(linking(&app, cx).as_deref(), Some("starting"));
+        step(&app, cx, json!({ "step": "unlinked" }));
+        assert_eq!(linking(&app, cx), None, "nothing in the rail to take away");
+        app.answer("linkTelegram", |_| Err(refused("No network.")));
+        app.update(cx, |state, cx| state.restart_telegram_link(cx));
+        assert_eq!(linking(&app, cx).as_deref(), Some("failed"));
+
+        // Ready: it joins the rail, as a server does.
+        let mut servers = World::new("telegram-linking").client["listServers"].clone();
+        servers.as_array_mut().unwrap().push(entry());
+        app.answer("listServers", move |_| Ok(servers.clone()));
+        step(&app, cx, json!({ "step": "ready" }));
+        assert_eq!(linking(&app, cx), None);
+        assert!(app.read(cx, |state| state.servers.contains_key(SERVER_ID) && state.active_server.as_deref() == Some(SERVER_ID)));
+        assert!(!app.read(cx, |state| state.can_link_telegram()), "one account at a time");
+        // A step once it's linked means it stopped working.
+        step(&app, cx, json!({ "step": "failed", "reason": "Telegram can't be reached." }));
+        assert!(app.toasts(cx).contains(&"Telegram can't be reached.".to_string()));
+        assert_eq!(linking(&app, cx), None, "the dialog isn't brought back for it");
+        step(&app, cx, json!({ "step": "starting" }));
+        // Ended from another device.
+        step(&app, cx, json!({ "step": "unlinked" }));
+        assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)));
+        assert!(app.toasts(cx).contains(&"Your Telegram session was ended, so Telegram was unlinked here.".to_string()));
+    }
+
+    #[gpui::test]
+    fn unlinking_says_when_telegram_couldnt_be_told(cx: &mut TestAppContext) {
+        let app = App::open(cx, &world("telegram-unlinking", true));
+        assert!(app.read(cx, |state| state.servers.contains_key(SERVER_ID)));
+        app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": false })));
+        app.update(cx, |state, cx| state.unlink_telegram(cx));
+        assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)), "erased here either way");
+        assert!(app.toasts(cx).iter().any(|toast| toast.starts_with("Telegram was unlinked here, but Telegram couldn't be told.")));
+        app.answer("unlinkTelegram", |_| Err(refused("The engine stopped.")));
+        app.update(cx, |state, cx| state.unlink_telegram(cx));
+        assert!(app.toasts(cx).contains(&"The engine stopped.".to_string()));
+    }
+
+    #[gpui::test]
+    fn what_is_done_in_telegrams_chats_says_what_telegram_allowed(cx: &mut TestAppContext) {
+        let app = App::open(cx, &world("telegram-chats", true));
+        app.update(cx, |state, _| state.toasts.clear());
+        let delete = |cx: &mut TestAppContext, choices: Value| {
+            app.answer("deleteChoices", move |_| Ok(choices.clone()));
+            app.update(cx, |state, cx| state.delete_telegram_message("chat-1".into(), "m-1".into(), cx));
+        };
+        app.answer("deleteMessages", |_| Ok(Value::Null));
+        delete(cx, json!({ "forEveryone": true, "forSelf": true }));
+        assert_eq!(app.calls_of("deleteMessages"), vec![vec![json!("chat-1"), json!(["m-1"]), json!(true)]]);
+        assert!(app.toasts(cx).is_empty(), "for everyone, nothing to say");
+        delete(cx, json!({ "forSelf": true }));
+        assert_eq!(app.calls_of("deleteMessages")[1][2], json!(false));
+        assert_eq!(app.toasts(cx).last().unwrap(), "Deleted for you alone: Telegram keeps it for the others.");
+        delete(cx, json!({}));
+        assert_eq!(app.toasts(cx).last().unwrap(), "Telegram doesn't let this message be deleted.");
+        app.answer("deleteMessages", |_| Err(refused("MESSAGE_DELETE_FORBIDDEN")));
+        delete(cx, json!({ "forEveryone": true }));
+        assert_eq!(app.toasts(cx).last().unwrap(), "MESSAGE_DELETE_FORBIDDEN");
+
+        // A bot's button, and what the bot answers.
+        for (answer, toast) in [(Ok(json!("Done!")), Some("Done!")), (Ok(json!("")), None), (Err(refused("BOT_RESPONSE_TIMEOUT")), Some("BOT_RESPONSE_TIMEOUT"))] {
+            app.update(cx, |state, _| state.toasts.clear());
+            let answer = RefCell::new(Some(answer));
+            app.answer("pressButton", move |_| answer.borrow_mut().take().unwrap());
+            app.update(cx, |state, cx| state.press_telegram_button("chat-1".into(), "m-2".into(), 1, 2, cx));
+            assert_eq!(app.toasts(cx).first().map(String::as_str), toast);
+        }
+        assert_eq!(app.calls_of("pressButton")[0], vec![json!("chat-1"), json!("m-2"), json!(1), json!(2)]);
+
+        // A group joined by its link opens.
+        let joined = Rc::new(RefCell::new(Vec::new()));
+        let join = |cx: &mut TestAppContext, link: &str| {
+            let task = app.state.update(cx, |state, cx| state.join_telegram_group(link.into(), cx));
+            let joined = joined.clone();
+            cx.update(|cx| cx.spawn(async move |_| joined.borrow_mut().push(task.await)).detach());
+            app.run(cx);
+        };
+        app.answer("joinByLink", |args| if args[0] == "bad" { Err(refused("INVITE_HASH_INVALID")) } else { Ok(json!("777")) });
+        join(cx, "https://t.me/+abc");
+        join(cx, "bad");
+        assert_eq!(*joined.borrow(), vec![Ok(()), Err("INVITE_HASH_INVALID".to_string())]);
+        assert_eq!(app.read(cx, |state| (state.active_server.clone(), state.servers[SERVER_ID].active_key.clone())), (Some(SERVER_ID.into()), Some("group:777".into())));
+
+        // A draft goes to Telegram once typing pauses, and one from another device comes back.
+        let key = "group:777".to_string();
+        app.update(cx, |state, cx| {
+            state.drafts.insert(key.clone(), "half written".into());
+            state.save_telegram_draft(key.clone(), cx);
+            state.save_telegram_draft(key.clone(), cx);
+        });
+        cx.executor().advance_clock(Duration::from_millis(1600));
+        cx.run_until_parked();
+        assert_eq!(app.calls_of("saveDraft"), vec![vec![json!(key), json!("half written")]], "once, as it paused");
+        let loaded = Rc::new(RefCell::new(Vec::new()));
+        app.answer("getDraft", |args| Ok(json!(if args[0] == "group:888" { "from my phone" } else { "" })));
+        for key in ["group:777", "group:888", "group:999"] {
+            let task = app.state.update(cx, |state, cx| state.load_telegram_draft(key.into(), cx));
+            let loaded = loaded.clone();
+            cx.update(|cx| cx.spawn(async move |_| loaded.borrow_mut().push(task.await)).detach());
+            cx.run_until_parked();
+        }
+        assert_eq!(*loaded.borrow(), vec![None, Some("from my phone".to_string()), None], "one written here stays, and an empty one is none");
+        assert_eq!(app.calls_of("getDraft").len(), 2);
+    }
+}

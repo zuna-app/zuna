@@ -333,8 +333,120 @@ impl Dialog {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::{App, World, refused};
+
     #[test]
     fn a_login_link_makes_a_qr_code() {
         assert!(super::qr_image("tg://login?token=AQEGV_ZqeAeVY_LiJgznHZALm63fhhDSJkn8gPrfeYLHVQ").is_some());
+    }
+
+    fn dialog(app: &App, cx: &mut TestAppContext) -> Entity<Dialog> {
+        app.window.update(cx, |root, _, _| root.overlay.as_ref().and_then(|(_, view)| view.clone().downcast::<Dialog>().ok())).unwrap().expect("a dialog is up")
+    }
+
+    fn step(app: &App, cx: &mut TestAppContext, link: Value) {
+        app.event(cx, json!({ "type": "telegram", "link": link }));
+    }
+
+    /// Fills one of the linking form's fields, as typing does.
+    fn fill(app: &App, cx: &mut TestAppContext, pick: fn(&TelegramForm) -> Entity<TextInput>, text: &str) {
+        let dialog = dialog(app, cx);
+        let input = cx.read(|cx| pick(dialog.read(cx).telegram_form.as_ref().unwrap()));
+        input.update(cx, |input, cx| input.set_text(text, cx));
+        app.run(cx);
+    }
+
+    fn problem(app: &App, cx: &mut TestAppContext) -> Option<String> {
+        let dialog = dialog(app, cx);
+        cx.read(|cx| dialog.read(cx).telegram_form.as_ref().unwrap().problem.clone())
+    }
+
+    #[gpui::test]
+    fn an_account_is_linked_step_by_step_from_the_dialog(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = App::open(cx, &World::new("telegram-dialog"));
+        for method in ["linkTelegram", "linkWithQr", "resendCode"] {
+            app.answer(method, |_| Ok(Value::Null));
+        }
+        app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": true })));
+        app.answer("linkWithPhone", |args| if args[0] == "+1 555" { Err(refused("PHONE_NUMBER_INVALID")) } else { Ok(Value::Null) });
+        app.answer("enterCode", |_| Ok(Value::Null));
+        app.answer("enterPassword", |_| Err(refused("PASSWORD_HASH_INVALID")));
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Telegram), cx));
+        // What it is and what Telegram learns comes first, before anything reaches Telegram.
+        assert!(app.calls_of("linkTelegram").is_empty());
+        app.click(cx, "tg-continue");
+        assert_eq!(app.calls_of("linkTelegram").len(), 1);
+        // The engine waits for a phone number, and is asked for a QR code instead, once.
+        step(&app, cx, json!({ "step": "phone" }));
+        step(&app, cx, json!({ "step": "phone" }));
+        assert_eq!(app.calls_of("linkWithQr").len(), 1);
+        step(&app, cx, json!({ "step": "qr", "link": "tg://login?token=AQEGV_ZqeAeVY_LiJgznHZALm63fhhDSJkn8gPrfeYLHVQ" }));
+        let view = dialog(&app, cx);
+        assert!(cx.read(|cx| view.read(cx).telegram_form.as_ref().unwrap().qr.as_ref().is_some_and(|(held, _)| held.contains("AQEGV"))), "its QR code is drawn");
+        // A phone number instead: linking begins again for it.
+        app.click(cx, "tg-phone");
+        assert_eq!(app.calls_of("unlinkTelegram").len(), 1);
+        step(&app, cx, json!({ "step": "qr", "link": "tg://login?token=other" }));
+        fill(&app, cx, |form| form.phone.clone(), "+1 555");
+        app.click(cx, "tg-send");
+        assert_eq!(app.calls_of("linkWithPhone"), vec![vec![json!("+1 555")]]);
+        assert_eq!(problem(&app, cx).as_deref(), Some("PHONE_NUMBER_INVALID"));
+        fill(&app, cx, |form| form.phone.clone(), "+1 555 010 0000");
+        assert_eq!(problem(&app, cx), None, "typing again takes the error away");
+        app.click(cx, "tg-send");
+        // Where the code went, and another asked for.
+        for (via, step_name) in [("telegram", "code"), ("call", "code"), ("fragment", "code"), ("sms", "code"), ("", "email")] {
+            step(&app, cx, json!({ "step": step_name, "via": via, "canResend": true, "pattern": if via.is_empty() { "a***@example.com" } else { "" } }));
+        }
+        step(&app, cx, json!({ "step": "email", "canResend": true }));
+        app.click(cx, "tg-resend");
+        assert_eq!(app.calls_of("resendCode").len(), 1);
+        fill(&app, cx, |form| form.code.clone(), "12345");
+        app.click(cx, "tg-code");
+        assert_eq!(app.calls_of("enterCode"), vec![vec![json!("12345")]]);
+        let dialog_now = dialog(&app, cx);
+        assert_eq!(cx.read(|cx| dialog_now.read(cx).telegram_form.as_ref().unwrap().code.read(cx).text().to_string()), "", "a code tried isn't kept");
+        // Its password, checked, and never kept on screen.
+        step(&app, cx, json!({ "step": "password", "hint": "the usual" }));
+        fill(&app, cx, |form| form.password.clone(), "hunter2");
+        app.click(cx, "tg-password");
+        assert_eq!(app.calls_of("enterPassword"), vec![vec![json!("hunter2")]]);
+        assert_eq!(problem(&app, cx).as_deref(), Some("PASSWORD_HASH_INVALID"));
+        assert_eq!(cx.read(|cx| dialog_now.read(cx).telegram_form.as_ref().unwrap().password.read(cx).text().to_string()), "");
+        // No account is made here, and what failed says why.
+        step(&app, cx, json!({ "step": "signup" }));
+        assert!(app.drawn(cx, "tg-cancel"));
+        step(&app, cx, json!({ "step": "failed", "reason": "Telegram is down." }));
+        // Closed before it's linked, what was started is erased.
+        app.click(cx, "tg-cancel");
+        assert_eq!(app.calls_of("unlinkTelegram").len(), 2);
+        assert_eq!(app.read(cx, |state| (state.overlay.clone(), state.telegram_link.clone())), (None, None));
+        // And closed before it began, nothing is.
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Telegram), cx));
+        app.click(cx, "tg-cancel");
+        assert_eq!(app.calls_of("unlinkTelegram").len(), 2);
+    }
+
+    #[gpui::test]
+    fn a_telegram_group_is_joined_by_its_link(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = App::open(cx, &World::new("telegram-join"));
+        app.answer("joinByLink", |args| if args[0] == "nope" { Err(refused("That link leads nowhere.")) } else { Ok(json!("42")) });
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::TelegramJoin), cx));
+        let view = dialog(&app, cx);
+        let name = cx.read(|cx| view.read(cx).name.clone());
+        name.update(cx, |input, cx| input.set_text("  nope ", cx));
+        app.click(cx, "tg-join");
+        assert_eq!(app.calls_of("joinByLink"), vec![vec![json!("nope")]], "trimmed");
+        assert_eq!(cx.read(|cx| view.read(cx).link_error.clone()).as_deref(), Some("That link leads nowhere."));
+        name.update(cx, |input, cx| input.set_text("https://t.me/+abc", cx));
+        app.click(cx, "tg-join");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), None, "joined, the dialog closes");
     }
 }
