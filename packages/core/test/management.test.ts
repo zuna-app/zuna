@@ -102,6 +102,20 @@ describe("a group's details and who runs it", () => {
   });
 });
 
+describe("an admin's channels", () => {
+  it("orders channels as asked, and makes or changes none without a name", async () => {
+    const first = await alice.session.createChannel({ type: "text", name: "first" });
+    const second = await alice.session.createChannel({ type: "text", name: "second" });
+    await alice.session.reorderChannels([second, "no-such-channel", first]);
+    const order = () => alice.session.getChannels().filter((item) => item.id === first || item.id === second).map((item) => item.name);
+    expect(order()).toEqual(["second", "first"]);
+    await waitFor(() => bob.session.getChannels().filter((item) => item.id === first || item.id === second).map((item) => item.name).join() === "second,first", "bob to see the new order");
+    await expect(alice.session.createChannel({ type: "text", name: "  " })).rejects.toThrow("A channel needs a name.");
+    await expect(alice.session.updateChannel("no-such-channel", { name: "x" })).rejects.toThrow("That channel doesn't exist.");
+    await expect(alice.session.updateChannel(first, { name: "" })).rejects.toThrow("A channel needs a name.");
+  });
+});
+
 describe("verifying someone", () => {
   it("has nothing to compare for someone unknown, and takes no comparison of another kind", async () => {
     expect(alice.session.safetyCheck("nobody")).toBeNull();
