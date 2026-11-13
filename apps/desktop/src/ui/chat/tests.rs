@@ -345,3 +345,67 @@ fn every_messages_menu(cx: &mut TestAppContext) {
     assert!(!app.calls_of("retryMessage").is_empty());
 }
 
+
+#[gpui::test]
+fn an_empty_chat_says_whose_it_is_and_offers_to_verify(cx: &mut TestAppContext) {
+    let mut world = World::new("empty-chats");
+    world.server.insert("loadMessages".into(), json!({ "messages": [], "hasMore": false }));
+    world.server["getCalls"] = json!([]);
+    // Carol's keys changed, and she's no longer blocked, so her chat offers to compare them.
+    world.server["getConversations"][4]["blocked"] = json!(false);
+    world.server["getPreferences"]["blocked"] = json!([]);
+    let (app, _) = open_chat(cx, &world, &format!("user:{CAROL}"));
+    app.update(cx, |state, _| state.settings.reduce_motion = true);
+    app.click(cx, "verify-empty");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::Verify { user_id: CAROL.into() }));
+    // A group's, your own notes', and a chat with someone verified ask for nothing.
+    for key in [format!("group:{GROUP}"), format!("user:{ME}"), format!("user:{BOB}")] {
+        app.update(cx, |state, cx| {
+            state.set_overlay(None, cx);
+            state.select_conversation(Some(key.clone()), cx);
+        });
+        assert!(!app.drawn(cx, "verify-empty"), "{key}");
+    }
+}
+
+#[gpui::test]
+fn the_at_button_goes_to_each_unread_mention_in_turn(cx: &mut TestAppContext) {
+    let mut world = World::new("mentions");
+    world.server["getCalls"] = json!([]);
+    world.server.insert("loadMessages".into(), json!({ "messages": crate::testing::fixtures::messages(GROUP), "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("group:{GROUP}"));
+    app.answer("unreadMentions", |_| Ok(json!([{ "id": "m02", "seq": 2 }, { "id": "m03", "seq": 3 }])));
+    app.answer("markMentionSeen", |_| Ok(Value::Null));
+    app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.select_conversation(None, cx);
+    });
+    app.update(cx, |state, cx| state.select_conversation(Some(format!("group:{GROUP}")), cx));
+    assert!(app.drawn(cx, "to-mention"));
+    app.click(cx, "to-mention");
+    assert_eq!(app.calls_of("markMentionSeen"), vec![vec![json!(GROUP), json!("m02")]], "the oldest first, seen as it's gone to");
+    let chat = chat_of(&app, cx);
+    assert_eq!(cx.read(|cx| chat.read(cx).mentions.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()), vec!["m03".to_string()], "the next waits");
+}
+
+#[gpui::test]
+fn emotes_among_words_and_alone_large(cx: &mut TestAppContext) {
+    let kappa = json!({ "Kappa": { "id": "01KAPPA", "owner": "someone" } });
+    let messages = json!([
+        message("e1", DM, 1.0, BOB, "look Kappa here, and a long line of words after it that wraps somewhere along the way", json!({ "emotes": kappa })),
+        message("e2", DM, 2.0, BOB, "Kappa Kappa", json!({ "emotes": kappa })),
+        message("e3", DM, 3.0, ME, "> Kappa quoted\nKappa", json!({ "emotes": kappa })),
+    ]);
+    let mut world = World::new("emote-messages");
+    world.server["getCalls"] = json!([]);
+    world.server.insert("loadMessages".into(), json!({ "messages": messages, "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("user:{BOB}"));
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    assert_eq!(crate::markup::jumbo_size("Kappa Kappa", &serde_json::from_value(kappa.clone()).unwrap()), 2);
+    // And in a channel, as its lines draw them.
+    let mut channel = World::new("emote-channel");
+    channel.server["getCalls"] = json!([]);
+    channel.server.insert("loadMessages".into(), json!({ "messages": [message("c1", GENERAL, 1.0, BOB, "Kappa", json!({ "emotes": kappa })), message("c2", GENERAL, 2.0, BOB, "words Kappa words", json!({ "emotes": kappa }))], "hasMore": false }));
+    let (app, _) = open_chat(cx, &channel, &format!("group:{GENERAL}"));
+    app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
+}

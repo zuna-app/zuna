@@ -483,8 +483,7 @@ impl ChatView {
         let group = conversation.group_id.clone()?;
         let count = self.mentions.len();
         Some(
-            div()
-                .id("to-mention")
+            named_div("to-mention")
                 .absolute()
                 .right(px(14.))
                 .bottom(px(if conversation.kind == "channel" { 44. } else if raised { 66. } else { 16. }))
