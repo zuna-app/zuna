@@ -701,3 +701,55 @@ fn a_channels_box_lets_go_of_a_reply_and_picks(cx: &mut TestAppContext) {
     app.click(cx, "emoji");
     assert!(cx.read(|cx| crate::ui::picker::is_open(cx)), "a channel's box has the picker too");
 }
+
+#[gpui::test]
+fn the_list_follows_its_messages_as_they_come_go_and_change(cx: &mut TestAppContext) {
+    let page = |from: usize, to: usize| (from..=to).map(|n| message(&format!("n{n:02}"), DM, n as f64, if n % 2 == 0 { BOB } else { ME }, &format!("Message number {n}, long enough to take a line of its own"), json!({}))).collect::<Vec<_>>();
+    let mut world = World::new("list-changes");
+    world.server["getCalls"] = json!([]);
+    world.server["getConversations"][0]["unread"] = json!(0);
+    world.server.insert("loadMessages".into(), json!({ "messages": page(10, 50), "hasMore": true }));
+    let (app, chat) = open_chat(cx, &world, &format!("user:{BOB}"));
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    app.run(cx);
+    let ids = |cx: &mut TestAppContext| cx.read(|cx| chat.read(cx).rows.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>());
+    let wanted = |cx: &mut TestAppContext| app.read(cx, |state| state.lists[DM].items.iter().map(|item| item.id.clone()).collect::<Vec<_>>());
+    let change = |cx: &mut TestAppContext, change: &dyn Fn(&mut Vec<crate::models::MessageView>)| {
+        app.update(cx, |state, cx| {
+            change(&mut state.lists.get_mut(DM).unwrap().items);
+            cx.notify();
+        });
+        // A new message glides in over 180 ms of the clock on the wall.
+        std::thread::sleep(std::time::Duration::from_millis(220));
+        app.run(cx);
+        assert_eq!(ids(cx), wanted(cx));
+    };
+    let new = |id: &str, seq: f64| serde_json::from_value::<crate::models::MessageView>(message(id, DM, seq, BOB, "Just now", json!({}))).unwrap();
+    // One arrives at the end, and one already there is edited.
+    change(cx, &|items| items.push(new("n51", 51.)));
+    change(cx, &|items| items[5].text = "Changed since".into());
+    change(cx, &|items| {
+        items.push(new("n52", 52.));
+        items[0].text = "Changed too".into();
+    });
+    // Older ones above, one gone from the middle, and two there replaced by one.
+    change(cx, &|items| items.insert(0, new("n09", 9.)));
+    change(cx, &|items| {
+        items.remove(20);
+    });
+    change(cx, &|items| {
+        items.splice(10..12, [new("n-x", 20.5)]);
+    });
+    // Scrolled up, older ones are asked for, and the button down goes back to the newest.
+    app.forget_calls();
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    let middle = window.debug_bounds("to-bottom").map(|bounds| bounds.center()).unwrap_or(gpui::point(gpui::px(800.), gpui::px(500.)));
+    for _ in 0..6 {
+        window.simulate_event(gpui::ScrollEvent { position: gpui::point(middle.x - gpui::px(200.), gpui::px(500.)), delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(900.))), modifiers: gpui::Modifiers::none(), touch_phase: gpui::TouchPhase::Moved, source: gpui::ScrollSource::Pointer });
+        app.run(cx);
+    }
+    assert!(!app.calls_of("loadMessages").is_empty(), "older messages, well before the top");
+    assert!(app.drawn(cx, "to-bottom"));
+    app.click(cx, "to-bottom");
+    assert!(cx.read(|cx| chat.read(cx).at_bottom));
+}

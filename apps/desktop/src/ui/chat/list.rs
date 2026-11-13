@@ -137,7 +137,7 @@ impl ChatView {
                     .when_some(jump_bar, |el, bar| el.child(bar))
                     .when(!is_channel && (!self.at_bottom || detached), |el| {
                         el.child(
-                            crate::ui::motion::track_hover(div().id("to-bottom"), "to-bottom".into())
+                            crate::ui::motion::track_hover(named_div("to-bottom"), "to-bottom".into())
                                 .absolute()
                                 .right(px(14.))
                                 .bottom(px(16.))
