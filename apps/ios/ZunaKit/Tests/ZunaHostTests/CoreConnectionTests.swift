@@ -58,6 +58,61 @@ final class CoreConnectionTests: XCTestCase {
             for try await count in group { XCTAssertEqual(count, 0) }
         }
     }
+
+    /// Posts a message to every channel, as the core does with an event.
+    private func post(_ expression: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            runtime.evaluateForTesting("__zunaHost.post(0, \(expression)); 'posted'") { _ in continuation.resume() }
+        }
+    }
+
+    func testEventsAreReadAndWhatTheModelsLackIsReportedOnce() async throws {
+        let events = Locked<[CoreEvent]>([])
+        let listening = CoreConnection(runtime: runtime) { events.value.append($0) }
+        // As the core writes one, its kind first, and with its fields in another order, read whole.
+        await post("JSON.stringify({ kind: 'event', event: { type: 'users', serverId: 's' } })")
+        await post("JSON.stringify({ event: { type: 'typing', serverId: 's', groupId: 'g', userId: 'u' }, kind: 'event' })")
+        // A field the models don't have is reported, once however often it comes.
+        for _ in 0..<2 { await post("JSON.stringify({ kind: 'event', event: { type: 'channels', serverId: 's', somethingNew: 1 } })") }
+        // What Swift can't read, and what isn't for it, is let go.
+        await post("JSON.stringify({ kind: 'event', event: { type: 'brand_new', serverId: 's' } })")
+        await post("'not json'")
+        await post("JSON.stringify({ kind: 'something else' })")
+        await post("JSON.stringify({ kind: 'reply', id: 99999, ok: true })")
+        let read = await eventually { events.value.count == 4 }
+        XCTAssertTrue(read, "\(events.value)")
+        XCTAssertEqual(events.value, [.users(serverId: "s"), .typing(serverId: "s", groupId: "g", userId: "u"), .channels(serverId: "s"), .channels(serverId: "s")])
+        XCTAssertEqual(listening.driftReports, ["event: somethingNew"])
+    }
+
+    func testRepliesAreReadWhicheverWayTheyreWritten() async throws {
+        let listening = CoreConnection(runtime: runtime) { _ in }
+        // A call that waits on a server that never answers, which a reply written another way answers first.
+        let silent = try await LocalHTTP.start { _ in nil }
+        defer { silent.stop() }
+        async let waiting = listening.call("serverInfo", [silent.base], as: String.self)
+        let asked = await eventually { !silent.requests.isEmpty }
+        XCTAssertTrue(asked)
+        // This connection's first call is its number 2.
+        await post("JSON.stringify({ id: 2, kind: 'reply', ok: true, value: 'answered' })")
+        let answered = try await waiting
+        XCTAssertEqual(answered, "answered")
+
+        // A call with no result reads as null, and a result of another shape is an error.
+        let nothing = try await listening.call("nudge", as: Bool?.self)
+        XCTAssertNil(nothing)
+        do {
+            _ = try await listening.call("listServers", as: Int.self)
+            XCTFail("a list was read as a number")
+        } catch is DecodingError {}
+        XCTAssertEqual(CoreCallError(message: "No.", code: nil, status: nil).description, "No.")
+    }
+
+    func testBytesComeTaggedAndBadOnesAreRefused() throws {
+        XCTAssertEqual(try CoreConnection.decoder.decode(Data.self, from: Data(#"{"$bytes":"AQID"}"#.utf8)), Data([1, 2, 3]))
+        XCTAssertThrowsError(try CoreConnection.decoder.decode(Data.self, from: Data(#"{"$bytes":"*"}"#.utf8)))
+        XCTAssertThrowsError(try CoreConnection.decoder.decode(Data.self, from: Data(#"{"other":"AQID"}"#.utf8)))
+    }
 }
 
 final class DriftTests: XCTestCase {
