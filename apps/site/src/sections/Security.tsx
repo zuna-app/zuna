@@ -138,7 +138,7 @@ export function Security() {
           </div>
         </div>
 
-        {/* SITE_PLAN asks for the missing audit up front, not in small print. */}
+        {/* docs/SITE.md asks for the missing audit up front, not in small print. */}
         <aside className="sec-audit reveal">
           <Info size={18} aria-hidden="true" />
           <p>

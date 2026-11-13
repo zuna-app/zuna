@@ -13,7 +13,7 @@ export const CONTENT_SECURITY_POLICY = [
   "form-action 'none'",
 ].join("; ");
 
-/** What the server sends with every page, as the Caddy example under "Hosting" in docs/SITE_PLAN.md does. */
+/** What the server sends with every page, as the Caddy example under "Hosting" in docs/SITE.md does. */
 export const HEADERS = {
   "content-security-policy": `${CONTENT_SECURITY_POLICY}; frame-ancestors 'none'`,
   "x-content-type-options": "nosniff",

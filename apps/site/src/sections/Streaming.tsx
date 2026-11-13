@@ -7,7 +7,7 @@ const MOST_FPS = 240;
 
 /**
  * Each the most its setting goes to, from SCREEN_RATES and SCREEN_HEIGHTS, and the maintainers' measured latency. All three the same size, so none
- * is the headline, as docs/SITE_PLAN.md asks, since one share doesn't do all three at once.
+ * is the headline, as docs/SITE.md asks, since one share doesn't do all three at once.
  */
 const SPECS: { lead: string; value: number; unit: string; label: string }[] = [
   { lead: "Up to", value: MOST_FPS, unit: "fps", label: "Every frame of a fast game" },

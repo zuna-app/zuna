@@ -8,7 +8,7 @@
  * Left out: playing a video message took more of a core natively (5.0%) than in Electron (1.9%), so the page claims less processor only while
  * scrolling.
  *
- * Native everywhere is claimed for the first release, on the maintainers' word: docs/SITE_PLAN.md says what's left.
+ * Native everywhere is claimed for the first release, on the maintainers' word: docs/SITE.md says what's left.
  */
 const MEMORY = { zuna: 137, electron: 614 };
 

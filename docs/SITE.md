@@ -1,4 +1,4 @@
-# zuna.chat: plan
+# zuna.chat
 
 The project's landing page, at `https://zuna.chat`, in English. It lives in `apps/site` (`@zuna/site`) beside the apps, because what it claims has to change in the same commit as the code it describes.
 
@@ -41,7 +41,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`,
 
 - Headings are plain sentences that say one thing. No "military-grade", "zero metadata", "unhackable", "seamless".
 - Every claim is one the code and the docs back. The page says what the server and the relay can see, and that Zuna hasn't had an independent audit.
-- Comparisons with other apps stay accurate: Discord's voice and video are end-to-end encrypted, its text isn't. The comparison is Matrix as Element and Synapse ship it, and Fluxer as fluxer.com and its self-hosted server do, as of November 2026, from each project's own pages, which `Compare.tsx` lists line by line. The page doesn't date it, so it's checked again when either ships something, such as MLS in Matrix, or Fluxer's encrypted calls and direct messages. Zuna's native apps are claimed for the first release, on the maintainers' word, ahead of what ships: today the native desktop app runs on Windows, Linux and macOS, but the release workflow publishes none of them (its desktop job went with the Electron app on 2026-11-08), macOS has no package until there's a Developer ID, and the iPhone and iPad app isn't out. Before the first release, the release workflow builds the native installers, which the download buttons give (`downloads.ts`); until then each falls back to the releases page, as macOS's .dmg does. The table's "No limits" on file size is also the maintainers' word, though a server takes files up to 100 MB unless its admins raise it, to at most 100,000 MB.
+- Comparisons with other apps stay accurate: Discord's voice and video are end-to-end encrypted, its text isn't. The comparison is Matrix as Element and Synapse ship it, and Fluxer as fluxer.com and its self-hosted server do, as of November 2026, from each project's own pages, which `Compare.tsx` lists line by line. The page doesn't date it, so it's checked again when either ships something, such as MLS in Matrix, or Fluxer's encrypted calls and direct messages. Zuna's native apps are claimed for the first release, on the maintainers' word, ahead of what ships: the desktop app's Windows installer, Linux packages and macOS DMG are on every release, so far nightlies alone, and the iPhone and iPad app isn't out. The download buttons give the files of the latest stable release (`downloads.ts`), and each falls back to the releases page while there's none. The table's "No limits" on file size is also the maintainers' word, though a server takes files up to 100 MB unless its admins raise it, to at most 100,000 MB.
 - What has only run in part says so. Screen sharing at 240 fps has been measured natively on Windows; AMD's and Intel's encoders haven't run, so the page says "encoded on your GPU" rather than naming them. The latency of about 80 ms is the maintainers' own measurement, not at 4K and 240 fps at once, and `docs/SCREEN_SHARE.md` doesn't record it yet.
 
 ## Build
@@ -49,7 +49,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`,
 - React 19, Vite 7 and `@vitejs/plugin-react` 5, the versions the rest of the repository uses.
 - Prerendered at build time: Vite builds a server bundle, `react-dom/static` renders each page into its HTML, and the browser hydrates it. No framework.
 - Plain CSS with custom properties, as `packages/ui` does. Fonts from `@fontsource-variable`, icons from `lucide-react`.
-- Download links are fetched from the latest GitHub release at build time, since file names carry the version. Without a release, they lead to the releases page. The visitor's browser never contacts GitHub.
+- Download links are fetched from the latest GitHub release at build time, since file names carry the version. GitHub's latest release leaves nightlies out, so until the first stable release they lead to the releases page. The visitor's browser never contacts GitHub.
 - No cookies, analytics or requests to any other origin, under a strict content security policy. `apps/site/test/site-check.mjs` checks that, with screenshots at 375, 768 and 1440 pixels wide and no sideways scrolling.
 - A sitemap and `robots.txt` are made at build time. The picture a shared link shows, `public/og.png`, is drawn by `og.mjs` in the page's fonts, and kept in the repository.
 - The maintainers host it on their own server, not on GitHub. "Hosting" below says how.
@@ -94,5 +94,4 @@ zuna.chat {
 
 ## Left to decide
 
-- The repository, `zuna-app/zuna`, is public but has no release yet, so download links have nothing to download until there is one.
 - A contact address for `/support` and `/privacy`, which Apple asks for.
