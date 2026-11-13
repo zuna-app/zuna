@@ -497,9 +497,10 @@ impl Render for Root {
             }))
             .capture_any_mouse_up(cx.listener(|root, _: &MouseUpEvent, window, cx| root.refocus_composer(window, cx)))
             // A press anywhere lets go of selected text, and one on a message's text starts anew.
+            // With Shift, the message's own press stretches it there instead (`selection::press`).
             .capture_any_mouse_down(cx.listener(|root, event: &gpui::MouseDownEvent, _, cx| {
                 root.note_input(cx);
-                if event.button == MouseButton::Left && selection::clear() {
+                if event.button == MouseButton::Left && !event.modifiers.shift && selection::clear() {
                     root.text_selection_changed(cx);
                 }
             }))
