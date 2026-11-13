@@ -202,8 +202,9 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 
 // handleChannelHistoryGrant hands someone waiting for a channel's older keys what
 // a member's device sealed for them. They check it was signed by a member, and only
-// use it to fill in what they don't have.
-func (s *Server) handleChannelHistoryGrant(w http.ResponseWriter, r *http.Request, _ *store.Session, _ *store.GroupMember) {
+// use it to fill in what they don't have. A few members answer each request, never the
+// same one twice, and their app keeps whichever keys open something.
+func (s *Server) handleChannelHistoryGrant(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 	id := r.PathValue("id")
 	var body struct {
 		UserID string `json:"user_id"`
@@ -220,16 +221,49 @@ func (s *Server) handleChannelHistoryGrant(w http.ResponseWriter, r *http.Reques
 		writeFailure(w, err)
 		return
 	}
-	answered, err := s.db.AnswerHistoryRequest(r.Context(), id, body.UserID, body.Data)
+	answered, err := s.db.AnswerHistoryRequest(r.Context(), id, body.UserID, sess.UserID, body.Data)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	// Someone else got there first, which is no failure.
+	// Enough others got there first, or this member answered them already, which is no failure.
 	if !answered {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "taken": true})
 		return
 	}
 	s.hub.ToUsers([]string{body.UserID}, Event{Type: "welcome", Data: map[string]string{"group_id": id}})
+	writeOK(w)
+}
+
+// handleChannelHistoryWanted is a member saying whether they're still waiting for a
+// channel's older keys: no once what they were handed opens something, and yes again
+// when it didn't, which those who answered before don't answer. A bot gets nothing from
+// before it came in.
+func (s *Server) handleChannelHistoryWanted(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+	id := r.PathValue("id")
+	var body struct {
+		Want bool `json:"want"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if sess.Bot && body.Want {
+		writeError(w, http.StatusForbidden, "bot", "A bot gets nothing from before it came in.")
+		return
+	}
+	if _, err := s.db.Channel(r.Context(), id); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if err := s.db.SetHistoryWanted(r.Context(), id, sess.UserID, body.Want); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if body.Want {
+		// The others' apps answer from the list of who's in it, as for someone coming in.
+		if group, err := s.db.Group(r.Context(), id); err == nil {
+			s.hub.ToUsersExcept(memberIDs(group), sess.DeviceID, Event{Type: "group", Data: seenBy(group, "")})
+		}
+	}
 	writeOK(w)
 }

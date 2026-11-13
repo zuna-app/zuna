@@ -462,6 +462,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP TABLE channels;
 		ALTER TABLE group_members DROP COLUMN proof;
 		ALTER TABLE group_members DROP COLUMN history_wanted;
+		ALTER TABLE group_members DROP COLUMN history_answers;
 		ALTER TABLE push_registrations DROP COLUMN filters;
 		ALTER TABLE push_registrations DROP COLUMN call_handle;
 		ALTER TABLE push_registrations DROP COLUMN notified;
@@ -491,6 +492,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE groups ADD COLUMN group_info BLOB;
 		DROP TABLE group_infos;
 		DROP TABLE log_entries;
+		DROP TABLE history_answered;
 		INSERT INTO groups(id, kind, created_by, created_at, group_info) VALUES('g', 'group', 'u', 1, x'0102');
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');

@@ -52,6 +52,8 @@ export const TYPING_THROTTLE_MS = 3000;
 export const RECONCILE_JITTER_MS = 2500;
 /** How long members wait to hand someone a channel's older keys, so that one of them does. */
 export const GRANT_JITTER_MS = 2000;
+/** How long a newcomer to a channel waits before asking again for its history, when what was handed on didn't open it. */
+export const HISTORY_ASK_AGAIN_MS = 6 * 3600 * 1000;
 export const MAX_COMMIT_ATTEMPTS = 6;
 /** How long the messages of a chat you were removed from stay, unless you clear them first. */
 export const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;

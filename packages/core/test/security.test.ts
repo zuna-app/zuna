@@ -5,7 +5,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { Api, ApiError, decode } from "../src/api";
-import { CONTENT_LABEL, createCertificate, derivePasswordKeys, parseCertificate, randomId, sealEnvelope, sealSignal, verifyCertificate } from "../src/crypto";
+import { CONTENT_LABEL, createCertificate, derivePasswordKeys, parseCertificate, randomId, sealEnvelope, sealHistoryGrant, sealSignal, verifyCertificate } from "../src/crypto";
 import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
@@ -688,5 +688,46 @@ describe("a member making a message weigh megabytes for everyone with reactions 
     await waitFor(async () => (await apiOf(bob).message(channelId, sent.id)).reactions!.length === 1, "the junk to be cleared", 30_000);
     expect((await bob.session.messageById(channelId, sent.id))?.reactions).toMatchObject([{ key: "👍", userIds: [bob.userId] }]);
     expect(securityEvents(bob)).toEqual([]);
+  });
+});
+
+describe("a member handing a newcomer wrong keys for a channel's history (Z-66)", () => {
+  it("doesn't keep them from it, and tells them whose device it was", async () => {
+    const channelId = await alice.session.createChannel({ type: "text", name: "history" });
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const joined = (app: TestApp) => !!app.session.getChannels().find((item) => item.id === channelId)?.conversation?.ready;
+    const status = async (app: TestApp, id: string) => (await app.session.loadMessages(channelId)).messages.find((item) => item.id === id)?.status;
+    for (const app of [bob, mal]) await waitFor(() => joined(app), "them to come into the channel");
+    const sent = alice.session.sendMessage(`group:${channelId}`, { text: "said before anyone new came" });
+    for (const app of [bob, mal]) await waitFor(async () => (await status(app, sent.id)) === "sent", "delivery");
+
+    // Mal's app is changed to hand a newcomer keys of its own making, at once, before any honest app does.
+    const session = sessionOf(mal);
+    session.scheduleHistoryGrants = (groupId: string) => {
+      void (async () => {
+        const group = session.groups.get(groupId);
+        for (const userId of group?.historyWanted ?? []) {
+          if (userId === mal.userId) continue;
+          const user = await session.ensureUser(userId, true);
+          const keys: Record<number, string> = {};
+          for (let epoch = 0; epoch <= group.epoch + 8; epoch++) keys[epoch] = toBase64(wasm.randomBytes(32));
+          await apiOf(mal).grantChannelHistory(groupId, userId, sealHistoryGrant(user.hpkeKey, groupId, userId, session.signer, session.account.deviceSecret, keys));
+        }
+      })().catch(() => undefined);
+    };
+
+    const carol = await person("carol");
+    await waitFor(() => joined(carol), "carol to come in");
+    // The others' keys come too, and the one that opens it wins.
+    await waitFor(async () => (await status(carol, sent.id)) === "sent", "carol to read what came before", 30_000);
+    await waitFor(() => warned(carol, "handed you a wrong key"), "carol to be told");
+    expect(securityEvents(carol).find((event) => (event as { message: string }).message.includes("handed you a wrong key"))).toMatchObject({ userId: mal.userId });
+    // Once it opened, she stopped waiting, and nobody else need answer.
+    await waitFor(
+      () => !(withServerDatabase((db) => db.prepare("SELECT history_wanted AS wanted FROM group_members WHERE group_id = ? AND user_id = ?").get(channelId, carol.userId)) as { wanted: number }).wanted,
+      "carol to stop waiting",
+    );
+    delete session.scheduleHistoryGrants;
   });
 });

@@ -588,6 +588,7 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			`DELETE FROM account_slots WHERE user_id = ?`,
 			`DELETE FROM vault_items WHERE user_id = ?`,
 			`DELETE FROM history_grants WHERE user_id = ?`,
+			`DELETE FROM history_answered WHERE user_id = ?`,
 			`DELETE FROM push_registrations WHERE user_id = ?`,
 			`DELETE FROM group_members WHERE user_id = ?`,
 			`DELETE FROM reports WHERE user_id = ?`,

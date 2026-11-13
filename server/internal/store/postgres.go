@@ -665,4 +665,12 @@ CREATE TABLE log_entries (
 CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
 `, `
 ALTER TABLE channels ADD COLUMN watch BIGINT NOT NULL DEFAULT 1;
+`, `
+ALTER TABLE group_members ADD COLUMN history_answers BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE history_answered (
+	group_id TEXT COLLATE "C" NOT NULL,
+	user_id TEXT COLLATE "C" NOT NULL,
+	granted_by TEXT COLLATE "C" NOT NULL,
+	PRIMARY KEY (group_id, user_id, granted_by)
+);
 `}

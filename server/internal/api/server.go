@@ -432,6 +432,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/channels/{id}", s.admin(s.handleDeleteChannel))
 	mux.HandleFunc("POST /api/channels/{id}/join", s.withDevice(s.handleJoinChannel))
 	mux.HandleFunc("POST /api/channels/{id}/history-grants", s.member(s.handleChannelHistoryGrant))
+	mux.HandleFunc("PUT /api/channels/{id}/history", s.member(s.handleChannelHistoryWanted))
 
 	// Voice, through a media server that only ever carries encrypted media
 	mux.HandleFunc("POST /api/channels/{id}/voice", s.member(s.handleVoiceToken(false)))

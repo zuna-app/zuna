@@ -10,7 +10,7 @@ import { parseChannelDetails, parseWatch } from "../validate";
 import { decodeFrameData } from "../socket";
 import { NOT_A_YOUTUBE_LINK, readYouTubeLink, sameWatch, WATCH_RATES, watchBeats, watchPosition, type WatchSignal, type WatchState, type WatchVideo } from "../watch";
 import type { CallView, ChannelType, ChannelView, ScreenAccess, VoiceAccess, VoiceMember, VoiceUpdate, WatchView } from "../types";
-import { GRANT_JITTER_MS, voiceTiming, WATCH_ANSWERERS, WATCH_ANSWER_STEP_MS, WATCH_CORRECT_EVERY_MS, WATCH_DETAILS_WAIT_MS, WATCH_FRESH_MS, type CachedChannel, slowModeOf } from "./shared";
+import { GRANT_JITTER_MS, HISTORY_ASK_AGAIN_MS, voiceTiming, WATCH_ANSWERERS, WATCH_ANSWER_STEP_MS, WATCH_CORRECT_EVERY_MS, WATCH_DETAILS_WAIT_MS, WATCH_FRESH_MS, type CachedChannel, slowModeOf } from "./shared";
 import { SessionManagement } from "./management";
 
 export abstract class SessionChannels extends SessionManagement {
@@ -151,7 +151,9 @@ export abstract class SessionChannels extends SessionManagement {
     const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
     for (const userId of group.historyWanted ?? []) {
       // Only once they're really in: until then, it's only the server saying so. Their commit will bring this back.
-      if (userId === this.account.userId || !inTree.has(userId)) continue;
+      // A few members answer each newcomer, and this one only once while they wait.
+      const asked = `${groupId}/${userId}`;
+      if (userId === this.account.userId || !inTree.has(userId) || this.historyHandedOn.has(asked)) continue;
       const user = await this.ensureUser(userId, true);
       if (!user) continue;
       const apiUser = await this.api.user(userId);
@@ -159,7 +161,40 @@ export abstract class SessionChannels extends SessionManagement {
       if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
       const sealed = sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, this.allEpochKeys(groupId));
       await this.api.grantChannelHistory(groupId, userId, sealed);
+      this.historyHandedOn.add(asked);
     }
+  }
+
+  /**
+   * A key a member handed on opened one of a channel's messages from before this device came in,
+   * so it stops waiting for the history: others needn't hand it on too.
+   */
+  protected historyArrived(groupId: string, epoch: number): void {
+    const group = this.groups.get(groupId);
+    const self = this.account.userId;
+    const joined = this.joinedEpoch(groupId);
+    if (group?.kind !== "channel" || !group.historyWanted?.includes(self) || joined === null || epoch >= joined || this.historySettled.has(groupId)) return;
+    this.historySettled.add(groupId);
+    group.historyWanted = group.historyWanted.filter((id) => id !== self);
+    this.persistGroup(group);
+    void this.api.wantChannelHistory(groupId, false).catch((error) => console.warn("[zuna] saying a channel's history arrived", error));
+  }
+
+  /**
+   * Earlier messages of a channel that still don't open under the keys members handed on, with nobody
+   * left answering: this device asks again, now and then, and those who answered before don't answer.
+   */
+  protected askForHistoryAgain(groupId: string): void {
+    const group = this.groups.get(groupId);
+    const joined = this.joinedEpoch(groupId);
+    if (group?.kind !== "channel" || group.removedAt || this.account.bot || joined === null || group.historyWanted?.includes(this.account.userId)) return;
+    if (!this.db.get("SELECT 1 FROM messages WHERE group_id = ? AND status = 'undecryptable' AND epoch < ? LIMIT 1", [groupId, joined])) return;
+    const asked = this.getKv<Record<string, number>>("history_asked") ?? {};
+    if (Date.now() - (asked[groupId] ?? 0) < HISTORY_ASK_AGAIN_MS) return;
+    asked[groupId] = Date.now();
+    this.setKv("history_asked", asked);
+    this.historySettled.delete(groupId);
+    void this.api.wantChannelHistory(groupId, true).catch((error) => console.warn("[zuna] asking for a channel's history again", error));
   }
 
   /** Whether the server lists as a channel what this device or this account's vault holds as something else. */

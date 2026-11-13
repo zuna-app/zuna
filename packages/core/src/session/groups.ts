@@ -48,31 +48,77 @@ export abstract class SessionGroups extends SessionRotation {
   /**
    * Stores an epoch's key. What MLS itself gives is always right. A key from this
    * account's vault or from a grant only fills a gap, and a granted one isn't
-   * passed on to the vault until it has opened a properly signed message.
+   * passed on to the vault until it has opened a properly signed message. The
+   * account's own copy takes the place of a granted key nothing has proved yet, and
+   * every granted one is kept, with whose device signed it, until one proves itself
+   * (`keyThatOpens`), so that a wrong one never stands in the way of a right one.
    */
-  protected saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant"): void {
+  protected saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant", signer?: string): void {
+    const sealed = this.sealLocal("epoch", `${groupId}:${epoch}`, key);
     if (source === "mls") {
       this.epochKeys.set(this.epochCacheKey(groupId, epoch), key);
-      this.db.run(
-        `INSERT OR REPLACE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
-        [groupId, epoch, this.sealLocal("epoch", `${groupId}:${epoch}`, key), KEY_NOT_UPLOADED, Date.now()],
-      );
+      this.db.run(`INSERT OR REPLACE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`, [groupId, epoch, sealed, KEY_NOT_UPLOADED, Date.now()]);
       return;
     }
-    // A key from an undone epoch of the same number is no reason to turn the account's own copy away.
-    if (source === "vault" && this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_VOIDED])) {
+    // A key from an undone epoch of the same number, or one a grant gave that nothing proved,
+    // is no reason to turn the account's own copy away.
+    if (source === "vault" && this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded IN (?, ?)", [groupId, epoch, KEY_VOIDED, KEY_UNPROVEN])) {
       this.db.run("DELETE FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
       this.epochKeys.delete(this.epochCacheKey(groupId, epoch));
     }
-    this.db.run(
-      `INSERT OR IGNORE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
-      [groupId, epoch, this.sealLocal("epoch", `${groupId}:${epoch}`, key), source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN, Date.now()],
-    );
+    if (source === "grant" && signer) {
+      this.db.run("INSERT OR REPLACE INTO granted_keys(group_id, epoch, signer, key) VALUES(?, ?, ?, ?)", [groupId, epoch, signer, this.sealLocal("granted", `${groupId}:${epoch}:${signer}`, key)]);
+    }
+    this.db.run(`INSERT OR IGNORE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`, [
+      groupId,
+      epoch,
+      sealed,
+      source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN,
+      Date.now(),
+    ]);
   }
 
-  /** A granted key opened a properly signed message, so it's real enough to keep for other devices. */
+  /**
+   * Another key handed on for an epoch whose held one, which nothing has proved, doesn't open
+   * `opens`: one that does is put in its place and returned. Only for a granted key: the
+   * account's own and what MLS gives are right.
+   */
+  protected keyThatOpens(groupId: string, epoch: number, opens: (key: Uint8Array) => boolean): Uint8Array | null {
+    const held = this.epochKey(groupId, epoch);
+    if (!held || !this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_UNPROVEN])) return null;
+    const rows = this.db.all<{ signer: string; key: Uint8Array }>("SELECT signer, key FROM granted_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    for (const row of rows) {
+      const key = this.openLocal("granted", `${groupId}:${epoch}:${row.signer}`, row.key);
+      if (equalBytes(key, held) || !opens(key)) continue;
+      this.db.run("UPDATE epoch_keys SET key = ? WHERE group_id = ? AND epoch = ? AND uploaded = ?", [this.sealLocal("epoch", `${groupId}:${epoch}`, key), groupId, epoch, KEY_UNPROVEN]);
+      this.epochKeys.set(this.epochCacheKey(groupId, epoch), key);
+      return key;
+    }
+    return null;
+  }
+
+  /**
+   * A granted key opened a properly signed message, so it's real enough to keep for other devices.
+   * Whoever's device handed on another key for the same epoch handed on a wrong one, and the person
+   * is told whose. A newcomer to a channel whose history now opens stops waiting for it.
+   */
   protected keyProvedItself(groupId: string, epoch: number): void {
+    const ref = this.epochCacheKey(groupId, epoch);
+    if (this.provenEpochs.has(ref)) return;
+    this.provenEpochs.add(ref);
+    if (!this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_UNPROVEN])) return;
     this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ? AND uploaded = ?", [KEY_NOT_UPLOADED, groupId, epoch, KEY_UNPROVEN]);
+    const proven = this.epochKey(groupId, epoch);
+    const rows = this.db.all<{ signer: string; key: Uint8Array }>("SELECT signer, key FROM granted_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    this.db.run("DELETE FROM granted_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    for (const row of rows) {
+      const key = this.openLocal("granted", `${groupId}:${epoch}:${row.signer}`, row.key);
+      if (proven && equalBytes(key, proven)) continue;
+      const [userId] = row.signer.split("/");
+      const name = this.users.get(userId ?? "")?.profile.displayName ?? "Someone";
+      this.warnOnce(`wrong-grant/${groupId}/${row.signer}`, `${name}'s device handed you a wrong key for a channel's earlier messages. It was set aside for one that works.`, userId ?? "");
+    }
+    this.historyArrived(groupId, epoch);
   }
 
   protected joinedEpoch(groupId: string): number | null {
@@ -321,6 +367,11 @@ export abstract class SessionGroups extends SessionRotation {
       doubtful,
       historyWanted: listed.filter((member) => member.history_wanted).map((member) => member.user_id),
     };
+    // Someone who stopped waiting for a channel's history and asks again is answered again.
+    for (const asked of this.historyHandedOn) {
+      const [groupId, userId] = asked.split("/");
+      if (groupId === api.id && !group.historyWanted?.includes(userId!)) this.historyHandedOn.delete(asked);
+    }
     this.showRosterRoles(group);
     this.groups.set(api.id, group);
     this.checkSendKey(api.id, api.epoch, api.send_key);

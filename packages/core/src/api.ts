@@ -801,7 +801,9 @@ export class Api {
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>
     this.request<{ group: ApiGroup }>("POST", at`/api/channels/${id}/join`, { proof, want_history: wantHistory });
   grantChannelHistory = (id: string, userId: string, data: Uint8Array) =>
-    this.request("POST", at`/api/channels/${id}/history-grants`, { user_id: userId, data });
+    this.request<{ ok: boolean; taken?: boolean }>("POST", at`/api/channels/${id}/history-grants`, { user_id: userId, data });
+  /** Whether this person still waits for a channel's older keys: no once what came opens something, yes again when it didn't. */
+  wantChannelHistory = (id: string, want: boolean) => this.request("PUT", at`/api/channels/${id}/history`, { want });
   voiceToken = (id: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/channels/${id}/voice`, {});
   startScreen = (id: string, how: { sound: boolean }) => this.request<{ sound: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);

@@ -151,25 +151,39 @@ func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []b
 		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof, history_wanted)
 			VALUES(?, ?, ?, ?, ?, ?)
 			ON CONFLICT(group_id, user_id) DO UPDATE SET role = excluded.role, proof = excluded.proof,
+				history_answers = CASE WHEN excluded.history_wanted > group_members.history_wanted THEN 0 ELSE group_members.history_answers END,
 				history_wanted = CASE WHEN excluded.history_wanted > group_members.history_wanted THEN excluded.history_wanted ELSE group_members.history_wanted END`,
 			id, userID, role, Now(), proof, wantHistory)
 		return err
 	})
 }
 
-// AnswerHistoryRequest takes someone's request for a channel's older keys and keeps
-// the keys sealed to them, together: false, with nothing kept, when someone else
-// answered first. Either both happen or neither, so a request is never used up
-// without its keys being there.
-func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID string, data []byte) (bool, error) {
+// HistoryAnswers is how many members' keys someone waiting for a channel's older ones is
+// handed before their request closes by itself: any member may hand on wrong keys, and the
+// first to answer could always be the one who does, so a few answer, and the newcomer's app
+// keeps whichever keys open something.
+const HistoryAnswers = 3
+
+// AnswerHistoryRequest takes someone's request for a channel's older keys and keeps the
+// keys a member sealed to them, together: false, with nothing kept, when the request is
+// closed or this member answered them already, this time or a time before. Either both
+// happen or neither, so an answer is never counted without its keys being there.
+func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID, grantedBy string, data []byte) (bool, error) {
 	var answered bool
 	err := d.tx(ctx, func(tx handle) error {
 		answered = false
-		res, err := tx.ExecContext(ctx, `UPDATE group_members SET history_wanted = 0 WHERE group_id = ? AND user_id = ? AND history_wanted = 1`, groupID, userID)
+		res, err := tx.ExecContext(ctx, `UPDATE group_members SET history_answers = history_answers + 1,
+			history_wanted = CASE WHEN history_answers + 1 >= ? THEN 0 ELSE 1 END
+			WHERE group_id = ? AND user_id = ? AND history_wanted = 1
+			AND NOT EXISTS (SELECT 1 FROM history_answered WHERE group_id = ? AND user_id = ? AND granted_by = ?)`,
+			HistoryAnswers, groupID, userID, groupID, userID, grantedBy)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO history_answered(group_id, user_id, granted_by) VALUES(?,?,?)`, groupID, userID, grantedBy); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO history_grants(user_id, group_id, data, created_at) VALUES(?,?,?,?)`, userID, groupID, data, Now()); err != nil {
@@ -179,6 +193,34 @@ func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID string, d
 		return nil
 	})
 	return answered, err
+}
+
+// SetHistoryWanted is someone saying whether they're still waiting for a channel's older
+// keys: no once what they were handed opens something, and yes again when it didn't, as
+// a new request, which those who answered before don't answer again. Until they've said
+// no, nobody is answered twice by the same member.
+func (d *DB) SetHistoryWanted(ctx context.Context, groupID, userID string, wanted bool) error {
+	return d.tx(ctx, func(tx handle) error {
+		value := 0
+		if wanted {
+			value = 1
+		}
+		res, err := tx.ExecContext(ctx, `UPDATE group_members SET history_wanted = ?, history_answers = 0 WHERE group_id = ? AND user_id = ?`, value, groupID, userID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			if err == nil {
+				err = ErrNotFound
+			}
+			return err
+		}
+		if wanted {
+			return nil
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM history_answered WHERE group_id = ? AND user_id = ?`, groupID, userID)
+		return err
+	})
 }
 
 // SetChannelRoles makes someone's role in every channel follow their role on the server.

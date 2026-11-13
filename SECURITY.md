@@ -108,7 +108,7 @@ A server can go by its IP address instead of a domain. No certificate authority 
 
 ### Channels
 
-Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What's said in them is encrypted as in any group. A newcomer gets a channel's history from a member's device, and a member with bad intentions could give them a wrong key for old messages, which then wouldn't open. Nothing sent from then on is at risk.
+Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What's said in them is encrypted as in any group. A newcomer gets a channel's history from a few members' devices, and keeps whichever keys open something. A member with bad intentions can hand them a wrong key for old messages, but it doesn't keep the right one out: the newcomer's app goes by the key that works, says whose device handed on the wrong one, and asks again if nothing opens. Several members working together could still keep someone from the history. Nothing sent from then on is at risk.
 
 ### Bots
 

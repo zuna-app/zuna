@@ -463,7 +463,7 @@ export abstract class SessionVault extends SessionLocal {
             const number = Number(epoch);
             if (!Number.isSafeInteger(number) || number < 0 || number >= joined || typeof key !== "string") continue;
             const bytes = fromBase64(key);
-            if (bytes.length === 32) this.saveEpochKey(grant.group_id, number, bytes, "grant");
+            if (bytes.length === 32) this.saveEpochKey(grant.group_id, number, bytes, "grant", `${opened.signer.userId}/${opened.signer.deviceId}`);
           }
           this.retryUndecryptable(grant.group_id);
         } else {

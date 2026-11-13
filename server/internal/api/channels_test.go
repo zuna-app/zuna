@@ -177,27 +177,85 @@ func TestChannelAdminsFollowTheServersRoles(t *testing.T) {
 	}
 }
 
-func TestOnlyTheFirstAnswerToAHistoryRequestGoesThrough(t *testing.T) {
+// A few members answer someone's request for a channel's older keys, never the same one
+// twice, and the request stays theirs to close once what they were handed opens something,
+// or to make again when it didn't, which those who answered before don't answer.
+func TestAFewAnswerAHistoryRequestNeverTheSameTwice(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
 	member := h.register("member", owner.newInvite())
 	channel := owner.createChannel("text", 0)
 	member.joinChannel(channel.ID, true)
-
-	body := map[string]any{"user_id": member.userID, "data": []byte("sealed keys")}
-	h.mustDo("POST", "/api/channels/"+channel.ID+"/history-grants", owner.token, body, nil)
-	h.mustDo("POST", "/api/channels/"+channel.ID+"/history-grants", owner.token, body, nil)
-	grants, err := h.db.HistoryGrants(t.Context(), member.userID)
-	if err != nil {
-		t.Fatal(err)
+	others := []*client{}
+	for _, name := range []string{"ann", "ben", "cat", "dan"} {
+		other := h.register(name, owner.newInvite())
+		other.joinChannel(channel.ID, false)
+		others = append(others, other)
 	}
-	if len(grants) != 1 {
-		t.Fatalf("%d grants for one request", len(grants))
+	body := map[string]any{"user_id": member.userID, "data": []byte("sealed keys")}
+	answer := func(c *client) bool {
+		t.Helper()
+		var resp map[string]any
+		h.mustDo("POST", "/api/channels/"+channel.ID+"/history-grants", c.token, body, &resp)
+		return resp["taken"] != true
+	}
+	count := func() int {
+		t.Helper()
+		grants, err := h.db.HistoryGrants(t.Context(), member.userID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(grants)
+	}
+	waiting := func() bool {
+		t.Helper()
+		group, err := h.db.Group(t.Context(), channel.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range group.Members {
+			if m.UserID == member.userID {
+				return m.HistoryWanted
+			}
+		}
+		t.Fatal("the member isn't in the channel")
+		return false
+	}
+	if !waiting() {
+		t.Fatal("someone who asked for the history isn't waiting for it")
+	}
+
+	if !answer(owner) || answer(owner) {
+		t.Fatal("the same member answered one request twice")
+	}
+	if !answer(others[0]) || !answer(others[1]) || answer(others[2]) {
+		t.Fatal("a request didn't take three answers, and only three")
+	}
+	if count() != store.HistoryAnswers || waiting() {
+		t.Fatalf("%d grants, and still waiting: %v", count(), waiting())
+	}
+
+	// Asked again, as what came opened nothing: those who answered don't, and others do.
+	h.mustDo("PUT", "/api/channels/"+channel.ID+"/history", member.token, map[string]any{"want": true}, nil)
+	if answer(owner) || answer(others[0]) || !answer(others[2]) {
+		t.Fatal("a request made again was answered by someone who answered before, or not by someone new")
+	}
+	// Done: nobody answers, and next time anyone may.
+	h.mustDo("PUT", "/api/channels/"+channel.ID+"/history", member.token, map[string]any{"want": false}, nil)
+	if waiting() || answer(others[3]) {
+		t.Fatal("a request its member closed was answered")
+	}
+	h.mustDo("PUT", "/api/channels/"+channel.ID+"/history", member.token, map[string]any{"want": true}, nil)
+	if !answer(owner) {
+		t.Fatal("after a request was closed, a new one couldn't be answered by someone who answered the last")
 	}
 
 	outsider := h.register("outsider", owner.newInvite())
 	if status, _ := h.do("POST", "/api/channels/"+channel.ID+"/history-grants", outsider.token, body, nil); status != http.StatusForbidden {
 		t.Fatalf("someone not in the channel handing out its keys got %d", status)
+	}
+	if status, _ := h.do("PUT", "/api/channels/"+channel.ID+"/history", outsider.token, map[string]any{"want": true}, nil); status != http.StatusForbidden {
+		t.Fatalf("someone not in the channel asking for its keys got %d", status)
 	}
 }
 

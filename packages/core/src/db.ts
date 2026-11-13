@@ -208,6 +208,9 @@ const MIGRATIONS: string[] = [
   // Each key goes to the vault with what its conversation is (vault.ts), and a key kept without
   // that is never read, so every one already there goes again.
   `UPDATE epoch_keys SET uploaded = 0 WHERE uploaded = 1;`,
+  // Every key a channel's members handed on for an epoch, sealed, with whose device signed it,
+  // until one opens something: a member may hand on a wrong one, which mustn't stand in the way.
+  `CREATE TABLE granted_keys (group_id TEXT NOT NULL, epoch INTEGER NOT NULL, signer TEXT NOT NULL, key BLOB NOT NULL, PRIMARY KEY (group_id, epoch, signer));`,
 ];
 
 export function migrate(db: LocalDb): void {

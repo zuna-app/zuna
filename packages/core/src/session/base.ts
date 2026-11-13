@@ -71,6 +71,12 @@ export abstract class SessionBase {
   protected learning = new Set<string>();
   /** Reactions nobody can open that this device, a group's admin's, has asked the server to drop (`clearJunkReactions`). */
   protected clearedReactions = new Set<string>();
+  /** Epochs whose key this device knows opened something, so a message doesn't check again (`keyProvedItself`). */
+  protected provenEpochs = new Set<string>();
+  /** Who in each channel this device handed its history to, while they still wait (`grantChannelHistory`). */
+  protected historyHandedOn = new Set<string>();
+  /** Channels this device told the server its history opened for (`historyArrived`). */
+  protected historySettled = new Set<string>();
   /** Messages being fetched whole, as a copy held couldn't take a change on its own (`refetchMessage`). */
   protected refetching = new Set<string>();
   protected syncing = new Map<string, { again: boolean; done: Promise<void> }>();
@@ -287,7 +293,7 @@ export abstract class SessionBase {
   protected abstract checkRemovals(api: ApiUser): void;
   protected abstract rotateSoon(delay: number): void;
   protected abstract syncAccountSoon(): void;
-  protected abstract saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant"): void;
+  protected abstract saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant", signer?: string): void;
   protected abstract joinedEpoch(groupId: string): number | null;
   protected abstract topUpKeyPackages(): Promise<void>;
   protected abstract dmWith(userId: string): CachedGroup | undefined;
@@ -322,6 +328,8 @@ export abstract class SessionBase {
   protected abstract holdsCommunityKey(channelId: string, userId: string, proof: string | null | undefined): boolean;
   protected abstract applyChannels(list: ApiChannel[], save?: boolean): void;
   protected abstract scheduleHistoryGrants(groupId: string): void;
+  protected abstract historyArrived(groupId: string, epoch: number): void;
+  protected abstract askForHistoryAgain(groupId: string): void;
   protected abstract noticeVoiceEpoch(): void;
   protected abstract forgetCall(groupId: string): void;
   protected abstract applySounds(list: ApiSound[], save?: boolean): void;

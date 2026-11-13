@@ -590,4 +590,14 @@ CREATE INDEX log_entries_user ON log_entries(user_id, era, idx);
 `, `
 -- Whether people in a voice channel may watch YouTube together there.
 ALTER TABLE channels ADD COLUMN watch INTEGER NOT NULL DEFAULT 1;
+`, `
+-- A channel's history is handed on by a few members, not the first to answer, and whoever
+-- answered someone once doesn't answer them again when they ask again (channels.go).
+ALTER TABLE group_members ADD COLUMN history_answers INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE history_answered (
+	group_id TEXT NOT NULL,
+	user_id TEXT NOT NULL,
+	granted_by TEXT NOT NULL,
+	PRIMARY KEY (group_id, user_id, granted_by)
+);
 `}

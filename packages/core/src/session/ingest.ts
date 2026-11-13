@@ -305,8 +305,20 @@ export abstract class SessionIngest extends SessionChanges {
     let laterEdit: MessageRow | null = null;
     if (!message.deleted_at && message.envelope) {
       const envelope = decode(message.envelope);
-      const key = this.epochKey(message.group_id, message.epoch);
-      const checked = key ? this.checkMessage(message, key) : null;
+      let key = this.epochKey(message.group_id, message.epoch);
+      let checked = key ? this.checkMessage(message, key) : null;
+      if (checked?.state === "closed" && this.keyUnproven(message.group_id, message.epoch)) {
+        // Another member may have handed on the key that opens it, where the one held came from someone who handed on a wrong one.
+        const opens = (other: Uint8Array) => {
+          const tried = this.checkMessage(message, other);
+          return tried.state === "signed" && this.couldBeSent(message, tried.signer);
+        };
+        const other = this.keyThatOpens(message.group_id, message.epoch, opens);
+        if (other) {
+          key = other;
+          checked = this.checkMessage(message, other);
+        }
+      }
       if (!checked || (checked.state === "closed" && this.keyUnproven(message.group_id, message.epoch))) {
         // Without the right key there's no telling who wrote it, or whether anyone did.
         status = "undecryptable";
@@ -797,6 +809,7 @@ export abstract class SessionIngest extends SessionChanges {
     }
     this.retryWithheld(groupId);
     this.retryWaitingReactions(groupId);
+    this.askForHistoryAgain(groupId);
     const group = this.groups.get(groupId);
     if (group) {
       this.refreshGroupSecrets(group);
