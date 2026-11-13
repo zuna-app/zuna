@@ -205,3 +205,29 @@ fn what_a_chat_shared_of_each_kind(cx: &mut TestAppContext) {
     app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::Photo), cx));
     assert!(!app.drawn(cx, &format!("shared-m04-{file}")));
 }
+
+#[gpui::test]
+fn a_groups_people_its_history_and_new_members(cx: &mut TestAppContext) {
+    let group = format!("group:{GROUP}");
+    let app = open(cx, "panel-group-people", &group, |world| {
+        let members = &mut world.server["getConversations"][1]["members"];
+        members[1]["noKeys"] = json!(true);
+        members[2]["notOnRoster"] = json!(true);
+        world.server["getConversations"][1]["historyVisible"] = json!(false);
+    });
+    app.click(cx, "add-people");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::AddMembers { group_id: GROUP.into() }));
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Earlier messages for those who join, from the switch, and a refusal said.
+    app.answer("updateGroupMeta", |_| Err(crate::testing::refused("Only admins can")));
+    scroll_to_end(&app, cx, "history-visible");
+    app.click(cx, "history-visible");
+    assert_eq!(app.calls_of("updateGroupMeta")[0][3], json!(true));
+    assert!(app.toasts(cx).contains(&"Only admins can".to_string()));
+    // A channel's own details say what it's for.
+    let app = open(cx, "panel-channel-topic", &format!("group:{GENERAL}"), |world| {
+        world.server["getChannels"][0]["conversation"]["description"] = json!("Anything goes");
+    });
+    assert!(app.drawn(cx, "edit-channel"));
+}
