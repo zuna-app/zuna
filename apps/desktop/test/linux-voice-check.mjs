@@ -405,7 +405,7 @@ try {
     await page.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Watch together" }).click();
     await page.locator(".modal", { hasText: "Play YouTube videos?" }).getByRole("button", { name: "Continue" }).click();
     await page.getByLabel("YouTube link").fill(`https://youtu.be/${VIDEO}?t=30`);
-    await page.getByRole("button", { name: "Play" }).click();
+    await page.getByRole("button", { name: "Share video" }).click();
     await page.locator(".watch-frame").waitFor({ timeout: 15_000 });
     await sleep(2500);
     await shot("05-watch-cover");

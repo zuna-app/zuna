@@ -384,9 +384,9 @@ impl VoiceStage {
         } else if !watch.playing {
             format!("Paused by {}", self.person_name(&watch.changed_by, cx))
         } else if watch.video.author.is_empty() {
-            format!("Started by {put_on_by}")
+            format!("Shared by {put_on_by}")
         } else {
-            format!("Started by {put_on_by} · {}", watch.video.author)
+            format!("Shared by {put_on_by} · {}", watch.video.author)
         };
         if watching {
             self.sync_player(watch, cx);
@@ -453,13 +453,13 @@ impl VoiceStage {
                         } else if let Some(problem) = problem {
                             problem
                         } else if plays_here {
-                            format!("Started by {put_on_by}. It plays from YouTube when you press Watch.")
+                            format!("Shared by {put_on_by}. It plays from YouTube when you press Watch.")
                         } else if crate::host::net::proxy().is_some() {
-                            format!("Started by {put_on_by}. This app can't play videos through a proxy yet, so it won't play while one is set.")
+                            format!("Shared by {put_on_by}. This app can't play videos through a proxy yet, so it won't play while one is set.")
                         } else if cfg!(windows) {
-                            format!("Started by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which comes with Windows 11. Install it, then restart Zuna.")
+                            format!("Shared by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which comes with Windows 11. Install it, then restart Zuna.")
                         } else {
-                            format!("Started by {put_on_by}. This app can't play it on this system yet, but the web app and the iPhone app can.")
+                            format!("Shared by {put_on_by}. This app can't play it on this system yet, but the web app and the iPhone app can.")
                         }))
                         .when(!plays_here && cfg!(windows) && crate::host::net::proxy().is_none(), |el| {
                             el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))

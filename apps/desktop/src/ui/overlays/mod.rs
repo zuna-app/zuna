@@ -564,7 +564,7 @@ impl Dialog {
             .flex()
             .gap(px(8.))
             .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Starting…" } else { "Play" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
+            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Sharing…" } else { "Share video" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
             .into_any_element();
         self.modal(Some("Watch together".into()), 460., body, Some(footer), cx)
     }
