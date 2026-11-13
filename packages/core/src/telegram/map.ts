@@ -234,7 +234,8 @@ export function conversationView(chat: TdObject, context: ChatContext): Conversa
     kind,
     groupId: String(id),
     peerId: peer ? String(peer) : null,
-    title: str(chat.title, MAX_TITLE) || (peerUser ? displayName(peerUser) : "Unknown"),
+    // The chat with oneself is Telegram's Saved Messages, which TDLib titles with the account's own name.
+    title: peer !== null && peer === context.selfId ? "Saved messages" : str(chat.title, MAX_TITLE) || (peerUser ? displayName(peerUser) : "Unknown"),
     avatar: null,
     description: "",
     lastMessage: context.lastMessage,

@@ -361,6 +361,16 @@ describe("what the engine says is checked", () => {
     expect(conversationView(unlisted, { selfId: SELF, now: 0, defaults: { private: 0, group: 0 }, users: new Map(), lastMessage: null })).toBeNull();
   });
 
+  it("calls the chat with oneself Saved messages, whatever name TDLib gives it", () => {
+    const listed = [{ list: { "@type": "chatListMain" }, order: "1" }];
+    const chats = { selfId: SELF, now: 0, defaults: { private: 0, group: 0 }, users: new Map(), lastMessage: null };
+    const saved = conversationView({ "@type": "chat", id: SELF, type: { "@type": "chatTypePrivate", user_id: SELF }, title: "Ada Lovelace", positions: listed }, chats)!;
+    expect(saved.title).toBe("Saved messages");
+    expect(saved.peerId).toBe(String(SELF));
+    const other = conversationView({ "@type": "chat", id: GRACE, type: { "@type": "chatTypePrivate", user_id: GRACE }, title: "Grace Hopper", positions: listed }, chats)!;
+    expect(other.title).toBe("Grace Hopper");
+  });
+
   it("holds strings, entities, buttons and places to their limits", () => {
     const long = "x".repeat(100_000);
     const message = messageView(
