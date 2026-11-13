@@ -19,14 +19,14 @@ use crate::testing::fixtures::{BOB, DM, GENERAL, LOUNGE, SERVER};
 use crate::testing::{App, World};
 
 /// An empty folder of the test's own.
-fn fresh(name: &str) -> PathBuf {
+pub(crate) fn fresh(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("zuna-plugins-{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn manifest(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Value {
+pub(crate) fn manifest(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Value {
     let mut manifest = json!({
         "manifest": 1, "id": id, "name": format!("Plugin {id}"), "version": "1.0.0", "description": "For the tests.",
         "author": { "name": "Someone" }, "license": "MIT", "main": "main.js", "api": 1, "permissions": permissions,
@@ -36,7 +36,7 @@ fn manifest(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> 
 }
 
 /// A developer's folder of a plugin with these permissions, and whatever else `change` sets in its manifest.
-fn source(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> PathBuf {
+pub(crate) fn source(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> PathBuf {
     let dir = fresh(&format!("{id}-source"));
     let manifest = manifest(id, permissions, change);
     std::fs::write(dir.join("plugin.json"), manifest.to_string()).unwrap();
@@ -49,7 +49,7 @@ fn source(id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Pa
 }
 
 /// An unsigned package of a plugin.
-fn package(manifest: &Value, script: &[u8]) -> Vec<u8> {
+pub(crate) fn package(manifest: &Value, script: &[u8]) -> Vec<u8> {
     use std::io::Write;
     let mut out = std::io::Cursor::new(Vec::new());
     {
@@ -67,7 +67,7 @@ fn package(manifest: &Value, script: &[u8]) -> Vec<u8> {
 }
 
 /// The plugins' side of the app, keeping its data in `data`, as the app makes it.
-fn plugins_in(cx: &mut TestAppContext, data: &Path, no_plugins: bool) -> Entity<Plugins> {
+pub(crate) fn plugins_in(cx: &mut TestAppContext, data: &Path, no_plugins: bool) -> Entity<Plugins> {
     cx.update(|cx| {
         let plugins = cx.new(|cx| Plugins::new(data.to_path_buf(), Some(&[9u8; 32]), no_plugins, cx));
         cx.set_global(PluginStore(plugins.clone()));
@@ -77,15 +77,15 @@ fn plugins_in(cx: &mut TestAppContext, data: &Path, no_plugins: bool) -> Entity<
 
 /// The app open on its test server, with one plugin from a developer's folder running in a host
 /// the test speaks for.
-struct Harness {
-    app: App,
-    plugins: Entity<Plugins>,
-    uid: String,
+pub(crate) struct Harness {
+    pub app: App,
+    pub plugins: Entity<Plugins>,
+    pub uid: String,
     next: Cell<u64>,
 }
 
 impl Harness {
-    fn open(cx: &mut TestAppContext, id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Harness {
+    pub(crate) fn open(cx: &mut TestAppContext, id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Harness {
         let app = App::open(cx, &World::new(id));
         app.update(cx, |state, cx| state.select_server(SERVER, cx));
         let plugins = plugins_in(cx, &fresh(id), false);
@@ -101,16 +101,16 @@ impl Harness {
         harness
     }
 
-    fn read<T>(&self, cx: &mut TestAppContext, read: impl FnOnce(&Plugins) -> T) -> T {
+    pub(crate) fn read<T>(&self, cx: &mut TestAppContext, read: impl FnOnce(&Plugins) -> T) -> T {
         cx.read(|cx| read(self.plugins.read(cx)))
     }
 
     /// Says something as the plugin's host would, and lets the app take it in.
-    fn say(&self, cx: &mut TestAppContext, message: Value) {
+    pub(crate) fn say(&self, cx: &mut TestAppContext, message: Value) {
         self.say_raw(cx, Some(message.to_string()));
     }
 
-    fn say_raw(&self, cx: &mut TestAppContext, message: Option<String>) {
+    pub(crate) fn say_raw(&self, cx: &mut TestAppContext, message: Option<String>) {
         cx.update(|cx| {
             if let Some(running) = self.plugins.read(cx).running.get(&self.uid) {
                 running.process.say(message);
@@ -120,17 +120,17 @@ impl Harness {
     }
 
     /// What the app sent the plugin's host since this was last asked.
-    fn sent(&self, cx: &mut TestAppContext) -> Vec<Value> {
+    pub(crate) fn sent(&self, cx: &mut TestAppContext) -> Vec<Value> {
         self.read(cx, |plugins| plugins.running.get(&self.uid).map(|running| running.process.sent()).unwrap_or_default())
     }
 
     /// Asks the broker for something as the plugin would, and gives its answer.
-    fn ask(&self, cx: &mut TestAppContext, op: &str, args: Value) -> Result<Value, String> {
+    pub(crate) fn ask(&self, cx: &mut TestAppContext, op: &str, args: Value) -> Result<Value, String> {
         let n = self.ask_later(cx, op, args);
         self.reply(cx, n)
     }
 
-    fn ask_later(&self, cx: &mut TestAppContext, op: &str, args: Value) -> u64 {
+    pub(crate) fn ask_later(&self, cx: &mut TestAppContext, op: &str, args: Value) -> u64 {
         let n = self.next.get() + 1;
         self.next.set(n);
         self.sent(cx);
@@ -139,7 +139,7 @@ impl Harness {
     }
 
     /// The broker's answer to an ask, once it's come.
-    fn reply(&self, cx: &mut TestAppContext, n: u64) -> Result<Value, String> {
+    pub(crate) fn reply(&self, cx: &mut TestAppContext, n: u64) -> Result<Value, String> {
         for _ in 0..50 {
             if let Some(reply) = self.sent(cx).into_iter().find(|message| message["t"] == "reply" && message["n"] == n) {
                 return if reply["ok"] == true { Ok(reply["value"].clone()) } else { Err(reply["error"]["message"].as_str().unwrap_or_default().to_string()) };
@@ -150,19 +150,19 @@ impl Harness {
     }
 
     /// The person just used the plugin, as a click on its button does.
-    fn activate(&self, cx: &mut TestAppContext) {
+    pub(crate) fn activate(&self, cx: &mut TestAppContext) {
         self.plugins.update(cx, |plugins, _| plugins.activate(&self.uid));
     }
 
-    fn running(&self, cx: &mut TestAppContext) -> bool {
+    pub(crate) fn running(&self, cx: &mut TestAppContext) -> bool {
         self.read(cx, |plugins| plugins.running(&self.uid))
     }
 
-    fn log(&self, cx: &mut TestAppContext) -> Vec<String> {
+    pub(crate) fn log(&self, cx: &mut TestAppContext) -> Vec<String> {
         self.read(cx, |plugins| plugins.logs.get(&self.uid).map(|log| log.iter().map(|LogLine { text, .. }| text.clone()).collect()).unwrap_or_default())
     }
 
-    fn off_reason(&self, cx: &mut TestAppContext) -> Option<String> {
+    pub(crate) fn off_reason(&self, cx: &mut TestAppContext) -> Option<String> {
         self.read(cx, |plugins| plugins.record.find(&self.uid).and_then(|record| record.off_reason.clone()))
     }
 }

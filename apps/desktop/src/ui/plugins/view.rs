@@ -20,6 +20,12 @@ thread_local! {
     static INPUTS: RefCell<HashMap<String, (Entity<TextInput>, Subscription)>> = RefCell::new(HashMap::new());
 }
 
+/// The field a plugin's view holds at a place, for the tests.
+#[cfg(test)]
+pub fn input_of(uid: &str, path: &str) -> Option<Entity<TextInput>> {
+    INPUTS.with(|inputs| inputs.borrow().get(&format!("{uid}|{path}")).map(|(input, _)| input.clone()))
+}
+
 /// Forgets the fields of a plugin that stopped.
 pub fn forget(uid: &str) {
     INPUTS.with(|inputs| inputs.borrow_mut().retain(|key, _| !key.starts_with(&format!("{uid}|"))));

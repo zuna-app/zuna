@@ -24,7 +24,7 @@ pub mod view;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_running;
+pub(crate) mod tests_running;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
