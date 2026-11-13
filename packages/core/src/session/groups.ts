@@ -249,8 +249,8 @@ export abstract class SessionGroups extends SessionRotation {
    */
   protected refuseRewind(groupId: string): void {
     if (!this.startedHere(groupId)) return;
-    this.warnOnce(`rewind/${groupId}`, "The server said one of your conversations never started, which can't be right. Zuna didn't start it over, so that conversation won't work until the server stops saying so.");
-    throw new Error("This conversation can't be used right now: the server's answer about it doesn't hold together.");
+    this.warnOnce(`rewind/${groupId}`, "The server claimed one of your conversations never started, which can't be right. Zuna didn't start it over, so that conversation won't work until the server stops claiming this.");
+    throw new Error("This conversation can't be used right now because the server sent an invalid response about it.");
   }
 
   protected refuseDoubtful(groupId: string): void {
@@ -275,7 +275,7 @@ export abstract class SessionGroups extends SessionRotation {
         doubtful = others.length > 1;
       }
       if (others.some((id) => id !== peerId)) {
-        this.warnOnce(`dm-roster/${api.id}`, "The server listed someone else in one of your direct messages. They were left out, and any keys they got are being taken back.");
+        this.warnOnce(`dm-roster/${api.id}`, "The server listed someone else in one of your direct messages. They were removed, and the conversation's keys are being changed so they can't read it.");
       }
     }
     let listed = api.members.filter((member) => kind !== "dm" || member.user_id === selfId || member.user_id === peerId);
@@ -283,7 +283,7 @@ export abstract class SessionGroups extends SessionRotation {
       // Nobody without the community key can be on a channel's roster, and leaving them
       // off it means they're taken out of its tree, whatever the server says.
       const held = listed.filter((member) => this.holdsCommunityKey(api.id, member.user_id, member.proof));
-      if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, "The server listed someone in a channel who isn't really part of this server. They were left out, and any keys they got are being taken back.");
+      if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, "The server listed someone in a channel who isn't really part of this server. They were removed, and the conversation's keys are being changed so they can't read it.");
       listed = held;
     }
     const group: CachedGroup = {
@@ -410,7 +410,7 @@ export abstract class SessionGroups extends SessionRotation {
   protected nextRoster(groupId: string, change: Pick<Roster, "admins" | "members">): Uint8Array {
     const group = this.groups.get(groupId);
     const held = group && this.rosterOf(group);
-    if (!held) throw new Error("Who's in this group can't be checked yet. Please try again.");
+    if (!held) throw new Error("Couldn't check who's in this group yet. Please try again.");
     const by = { userId: this.account.userId, deviceId: this.account.deviceId };
     return sealRoster({ group: groupId, version: held.roster.version + 1, admins: change.admins, members: change.members, prev: rosterHash(held.bytes), by }, this.account.deviceSecret);
   }

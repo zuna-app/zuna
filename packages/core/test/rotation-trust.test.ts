@@ -323,13 +323,13 @@ describe("signing in, against a server that chose the keys", () => {
   it("refuses an account key that opens a core of the server's own", async () => {
     const dave = await person("dave");
     sealToPasswordSlot(dave, fakeCore(0));
-    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("inconsistent details");
   });
 
   it("refuses a core naming the account's real first key, without its secret", async () => {
     const dave = await person("dave");
     sealToPasswordSlot(dave, fakeCore(0, { rootPublic: sessionOf(dave).account.core.rootPublic }));
-    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("inconsistent details");
   });
 
   it("refuses them at a later generation too, with a link saying the key is right", async () => {
@@ -347,7 +347,7 @@ describe("signing in, against a server that chose the keys", () => {
     db.prepare("UPDATE account_slots SET sealed_key = ? WHERE user_id = ? AND kind = 'password'").run(sealToSlot(seal, "password", usernameOf(dave), 1, hash(forged), chosen), dave.userId);
     db.prepare("UPDATE users SET vault_core = ? WHERE id = ?").run(sealVaultCore(chosen, core, dave.userId), dave.userId);
     db.close();
-    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("inconsistent details");
   });
 
   /** Seals the password's slot again with what `contents` makes of it, as someone who knows the password could, working with the server. */

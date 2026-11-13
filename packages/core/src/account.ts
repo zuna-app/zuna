@@ -210,7 +210,7 @@ export async function previewInvite(link: string, pin: (url: string, pin: string
   return { ...parsed, setup: details.setup, server: details.server };
 }
 
-const BOT_LINK_ELSEWHERE = "That link sets up a bot. Give it to zuna-bot on the machine that will run the bot.";
+const BOT_LINK_ELSEWHERE = "That link sets up a bot. Give it to zuna-bot on the computer that will run the bot.";
 
 /** A plain server address works too, if that server has open sign-ups. */
 async function previewOpenServer(address: string, trust: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
@@ -362,7 +362,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
     bot_proof: input.bot ? wasm.sign(lastingKeyFromSeed(input.bot.seed).secretKey, botProofInput(input.bot.id, core.identityPublic)) : undefined,
   });
-  if (input.bot && created.user_id !== input.bot.id) throw new Error("The server made another account than the one this link is for. Not continuing.");
+  if (input.bot && created.user_id !== input.bot.id) throw new Error("The server created a different account than this link is for, so Zuna stopped.");
   api.token = created.token;
   // What the link says the log held, which the server never saw, and which this device holds it to.
   // The link names the log's key by its hash, which the key the server gives a session has to have.
@@ -372,7 +372,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     const info = await api.info();
     const key = info.log_key ? fromBase64(info.log_key) : null;
     if (!key || !equalBytes(logKeyHash(key), linked.keyHash)) {
-      throw new Error("This server's log of keys isn't the one the invite link names. Not continuing.");
+      throw new Error("This server's record of keys doesn't match the invite link, so Zuna stopped.");
     }
     head = { key, era: linked.era, size: linked.size, root: linked.root };
   }
@@ -383,7 +383,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   if (input.bot) {
     ownerKey = decode((await api.user(input.bot.ownerId)).identity_key);
     if (!equalBytes(ownerKeyHash(ownerKey), input.bot.ownerKeyHash)) {
-      throw new Error("The server lists another key for this bot's owner than the setup link names. Not continuing.");
+      throw new Error("The server shows a different key for this bot's owner than the setup link does, so Zuna stopped.");
     }
   }
   return {
@@ -410,7 +410,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
  */
 export async function registerBot(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<RegisterResult & { pin: string | null }> {
   const parsed = parseInviteLink(link);
-  if (!parsed?.bot || !parsed.communityKey) throw new Error("That isn't a bot's setup link. Copy it again from Settings, Bots, with everything after the #.");
+  if (!parsed?.bot || !parsed.communityKey) throw new Error("That isn't a bot's setup link. Copy it again from Settings, under Bots, including everything after the #.");
   if (parsed.pin) await pin(parsed.url, parsed.pin);
   const details = await new Api(parsed.url).inviteInfo(parsed.code);
   if (!details.bot) throw new Error("That link isn't for setting up a bot.");
@@ -440,7 +440,7 @@ const holdsRoot = (core: VaultCore, root: Uint8Array): boolean =>
 
 /** Opens what a sign-in handed over, through the slot for the secret that was used. */
 function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | RecoveryKeys, session: LoginResponse): OpenedAccount {
-  const unfit = new Error("What the server sent for this account doesn't fit together. Not continuing.");
+  const unfit = new Error("The server sent inconsistent details for this account, so Zuna stopped.");
   if (!session.slot) throw unfit;
   const { generation } = session;
   const payload = session.head_link ? decode(session.head_link.payload) : null;
@@ -463,7 +463,7 @@ function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | 
  * is what the device goes by from then on.
  */
 async function checkSignInLog(api: Api, session: LoginResponse): Promise<NonNullable<AccountState["log"]>> {
-  const unfit = new Error("The server handed this device another version of your account's keys than its own record of them shows. Not continuing.");
+  const unfit = new Error("The server sent a version of your account's keys that doesn't match its own record of them, so Zuna stopped.");
   const info = await api.info();
   if (!info.log_key) throw unfit;
   const key = fromBase64(info.log_key);

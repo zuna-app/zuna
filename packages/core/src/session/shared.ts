@@ -81,7 +81,7 @@ export const MANIFEST_PARTS = "manifest_parts";
 /** A manifest's parts for a rotation, which can't go without it. */
 export function sealedManifest(manifest: TrustManifest): { id: string; data: Uint8Array; version: number }[] {
   const parts = manifestParts(manifest);
-  if (!parts) throw new Error("Your account trusts more people than its vault can list, so its keys can't be replaced.");
+  if (!parts) throw new Error("Your account trusts more people than it can store, so its keys can't be replaced.");
   return parts;
 }
 /** What's sealed at rest names its table and row, so it can't be moved to another row or table. */

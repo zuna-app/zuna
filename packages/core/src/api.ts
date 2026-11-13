@@ -465,7 +465,7 @@ export function pinIn(fragment: string): string | null {
 export function checkPinnable(url: string): void {
   const { protocol, hostname } = new URL(url);
   if (protocol !== "https:" || !(hostname.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(hostname))) {
-    throw new Error("Only a server reached over HTTPS by its IP address makes its own certificate, so only its links have a pin.");
+    throw new Error("Only servers reached over HTTPS by IP address use their own certificate, so only their links can include a pin.");
   }
 }
 

@@ -40,7 +40,7 @@ export abstract class SessionLocal extends SessionBase {
       if (!(data instanceof Uint8Array)) throw new Error("not sealed");
       return this.openJson<T>(name, row, data);
     } catch {
-      this.warnOnce("local-tampered", "Something outside Zuna changed what this device keeps about whom to trust. Compare emoji with the people who matter to you before trusting them.");
+      this.warnOnce("local-tampered", "Something outside Zuna changed this device's list of who to trust. Compare emoji with the people who matter to you before trusting them.");
       return careful;
     }
   }

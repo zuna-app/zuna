@@ -85,7 +85,7 @@ describe("a share extension beside the app", () => {
 
   it("writes nothing while suspended, and reads everything again on resuming if something tried", async () => {
     phone.client.suspend();
-    expect(() => phone.session.sendMessage(`user:${bob.userId}`, { text: "too soon" })).toThrow(/in use elsewhere/);
+    expect(() => phone.session.sendMessage(`user:${bob.userId}`, { text: "too soon" })).toThrow(/busy right now/);
     expect(await phone.client.resume()).toBe(true);
     await phone.online();
     phone.session.sendMessage(`user:${bob.userId}`, { text: "once awake" });

@@ -65,7 +65,7 @@ describe("a server's address", () => {
     expect(() => parseServerAddress("zuna://open")).toThrow("That doesn't look like a server's address.");
     expect(() => parseServerAddress("http://chat.example.com")).toThrow("Zuna servers must use HTTPS.");
     // A pin is only for a server reached by its IP address.
-    expect(() => parseServerAddress(`chat.example.com#pin=${"A".repeat(43)}`)).toThrow("Only a server reached over HTTPS by its IP address");
+    expect(() => parseServerAddress(`chat.example.com#pin=${"A".repeat(43)}`)).toThrow("Only servers reached over HTTPS by IP address");
   });
 
   it("previews nothing for an address no server answers at, or a bot's link", async () => {

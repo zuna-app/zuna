@@ -116,7 +116,7 @@ export function derivePasswordKeys(password: string, kdf: KdfParams, target: Sig
     kdf.parallelism >= 1 &&
     kdf.parallelism <= MAX_KDF_PARALLELISM &&
     kdf.salt.length === KDF_SALT_BYTES;
-  if (!valid) throw new Error("The server asked for unsafe password settings. Not continuing.");
+  if (!valid) throw new Error("The server asked for unsafe password settings, so Zuna stopped.");
   const master = wasm.argon2id(utf8(password.normalize("NFKC")), kdf.salt, kdf.memory, kdf.iterations, kdf.parallelism, 32);
   return {
     authKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/auth/v2|${signInContext(target)}`), 32),

@@ -269,7 +269,7 @@ export abstract class SessionChanges extends SessionJoining {
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 403) throw error;
       // Being refused this says nothing about still being in the group. Someone else may yet be able to.
-      this.warnOnce(`stuck/${groupId}/${group.epoch}`, "One of your conversations has a broken update that only one of its admins can undo. It will carry on once one of them opens Zuna.");
+      this.warnOnce(`stuck/${groupId}/${group.epoch}`, "One of your conversations got a broken update that only its admins can fix. It'll start working again once one of them opens Zuna.");
       return;
     }
     this.applyGroup(await this.api.group(groupId));

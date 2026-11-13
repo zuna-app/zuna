@@ -389,7 +389,7 @@ export abstract class SessionJoining extends SessionGroups {
       // Nothing goes to a leaf nobody could check. This can wait until the server answers.
       const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
       if (this.treeMembers(groupId).some((member) => member.unchecked && roster.has(member.userId))) {
-        throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation yet. This will go when the server answers.");
+        throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation yet. Waiting for the server.");
       }
       if ((await this.staleLeaves(groupId)).length === 0) {
         this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));

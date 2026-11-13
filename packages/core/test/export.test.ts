@@ -165,14 +165,14 @@ describe("the server's export, in plain words", () => {
     expect(rows.map((row) => row.label)).toEqual([
       "Password check",
       "Recovery key check",
-      "Keys sealed to your password",
-      "Keys sealed to your recovery key",
-      "Keys sealed to “passkey”",
-      "How your password is stretched",
+      "Keys locked with your password",
+      "Keys locked with your recovery key",
+      "Keys locked with “passkey”",
+      "How your password is hashed",
       "Sign-in attempts",
     ]);
-    expect(rows[2]!.note).toMatch(/only your password opens it/);
-    expect(rows[3]!.note).toMatch(/only your recovery key opens it/);
+    expect(rows[2]!.note).toMatch(/only your password can unlock it/);
+    expect(rows[3]!.note).toMatch(/only your recovery key can unlock it/);
     expect(rows[5]!.value).toBe("Argon2id, 64 MiB, 3 passes");
     expect(rows[6]!.value).toBe("4, the last 2026-11-12 09:15");
     expect(section(describeExport(raw(), context()), "sign-in")!.rows.map((row) => row.label)).not.toContain("Sign-in attempts");
@@ -208,15 +208,15 @@ describe("the server's export, in plain words", () => {
       ["Signing in", "1 session"],
     ]);
     expect(rows[0]!.note).toBe(
-      "Signed in 2026-11-01 12:00. 2 sessions, the last used 2026-11-05 11:00. Its public keys, which others encrypt to it with and check what it signs against. " +
-        "100 keys for others to add it to conversations with, 1 MB. 1 invitation to conversations waiting for it, 300 bytes, encrypted. Your account key sealed to it, 200 bytes.",
+      "Signed in 2026-11-01 12:00. 2 sessions, the last used 2026-11-05 11:00. Its public keys, which others use to encrypt to it and to check its signatures. " +
+        "100 keys others can use to add it to conversations, 1 MB. 1 invitation to conversations waiting for it, 300 bytes, encrypted. Your account key, encrypted for it, 200 bytes.",
     );
     // A removed device keeps no keys to speak of.
     expect(rows[3]!.note).toBe("Signed in 2026-11-01 12:00.");
     expect(rows[4]!.note).toBe(
-      "The relay's handles for it are left out, as they'd let anyone wake it. 2 chats muted there, so as not to be pushed. Notified about 1 chat not read since. It hides what it shouldn't show itself, so it's pushed for everything.",
+      "Its push notification handles are left out, since anyone with them could wake it. No notifications for 2 muted chats. Notified about 1 chat, unread since. It filters notifications itself, so the server notifies it about everything.",
     );
-    expect(rows[5]!.note).toBe("The relay's handles for it are left out, as they'd let anyone wake it.");
+    expect(rows[5]!.note).toBe("Its push notification handles are left out, since anyone with them could wake it.");
     // This device, unnamed here.
     const unnamed = describeExport(raw({ devices: [device("d-this")] }), context());
     expect(section(unnamed, "devices")!.rows[0]!.label).toBe("This device");
@@ -257,9 +257,9 @@ describe("the server's export, in plain words", () => {
     expect(byLabel("Direct message with someone who left it")).toMatchObject({ value: "Left", note: "No messages kept." });
     expect(byLabel("Channel with 40 members").note).toBe("No messages kept. Its name, picture and description: 300 bytes, encrypted.");
     expect(byLabel("Group with @cy, a deleted account and 2 more").note).toBe(
-      "5 messages, 50 bytes encrypted, the last 2026-11-03 12:00. 3 changes to who's in it or its keys by you, the last 2026-11-07 12:00. 1 change about you.",
+      "5 messages, 50 bytes encrypted, the last 2026-11-03 12:00. 3 changes you made to its members or keys, the last 2026-11-07 12:00. 1 change about you.",
     );
-    expect(byLabel("Group with @cy and a deleted account").note).toBe("No messages kept. 1 change to who's in it or its keys by you, the last 2026-11-03 12:00.");
+    expect(byLabel("Group with @cy and a deleted account").note).toBe("No messages kept. 1 change you made to its members or keys, the last 2026-11-03 12:00.");
     expect(byLabel("Group with only you")).toBeDefined();
     expect(rows.at(-1)!.label).toBe("Your saved messages");
 
@@ -274,7 +274,7 @@ describe("the server's export, in plain words", () => {
       ["Files that are yours", "None"],
       ["Uploaded in the last 30 days", "Nothing"],
     ]);
-    expect(rowOf(none, "sending", "Tokens given to you")).toMatchObject({ value: "None kept", note: "Forgotten once they can't be spent." });
+    expect(rowOf(none, "sending", "Tokens given to you")).toMatchObject({ value: "None kept", note: "Deleted once they expire." });
 
     const files = [
       { id: "f-1", size: 10, created_at: at(4), completed_at: at(4), attached_at: null, standalone: true },
@@ -305,7 +305,7 @@ describe("the server's export, in plain words", () => {
       ["Uploaded in the last 30 days", "7 MiB on 2 days"],
     ]);
     expect(section(some, "files")!.rows[0]!.note).toBe("Uploaded 2026-11-04 12:00.");
-    expect(rowOf(some, "sending", "Tokens given to you")).toMatchObject({ value: "1,705 in 2 six-hour spans", note: "The last six hours began 2026-11-12 00:00. Forgotten once they can't be spent." });
+    expect(rowOf(some, "sending", "Tokens given to you")).toMatchObject({ value: "1,705 in 2 six-hour spans", note: "The current six-hour period began 2026-11-12 00:00. Deleted once they expire." });
   });
 
   it("lists invites, bots, channels, sounds and bans made, and leaves the section out when there are none", () => {
@@ -348,17 +348,17 @@ describe("the server's export, in plain words", () => {
       ["Sounds you added", "2"],
       ["People you banned", "@spam and a deleted account"],
     ]);
-    expect(rows[0]!.note).toBe("Made 2026-11-02 12:00. Its code is left out, as anyone with it could join.");
-    expect(rows[1]!.note).toBe("Made 2026-11-03 12:00. Expires 2026-11-20 12:00. Its code is left out, as anyone with it could join.");
-    expect(rows[2]!.note).toBe("Made 2026-11-04 12:00. Expired 2026-11-05 12:00. Revoked 2026-11-04 13:00. Its code is left out, as anyone with it could join.");
-    expect(rows[3]!.note).toBe("Made 2026-11-05 12:00. Given 2 channels. Its name, picture and commands are encrypted, in its own profile.");
-    expect(rows[4]!.note).toBe("Made 2026-11-06 12:00. Not set up yet. Its name, picture and commands are encrypted, in its own profile.");
-    expect(rows[5]!.note).toBe("Made 2026-11-07 12:00. Deleted 2026-11-08 12:00. Its name, picture and commands are encrypted, in its own profile.");
+    expect(rows[0]!.note).toBe("Made 2026-11-02 12:00. Its code is left out, since anyone with it could join.");
+    expect(rows[1]!.note).toBe("Made 2026-11-03 12:00. Expires 2026-11-20 12:00. Its code is left out, since anyone with it could join.");
+    expect(rows[2]!.note).toBe("Made 2026-11-04 12:00. Expired 2026-11-05 12:00. Revoked 2026-11-04 13:00. Its code is left out, since anyone with it could join.");
+    expect(rows[3]!.note).toBe("Made 2026-11-05 12:00. Given 2 channels. Its name, picture and commands are encrypted in its own profile.");
+    expect(rows[4]!.note).toBe("Made 2026-11-06 12:00. Not set up yet. Its name, picture and commands are encrypted in its own profile.");
+    expect(rows[5]!.note).toBe("Made 2026-11-07 12:00. Deleted 2026-11-08 12:00. Its name, picture and commands are encrypted in its own profile.");
   });
 
   it("says when the account's keys were last replaced, and what it never keeps", () => {
     const never = describeExport(raw(), context());
-    expect(rowOf(never, "keys", "Keys replaced")).toMatchObject({ value: "Never", note: "As happens when a device is removed or your password changes." });
+    expect(rowOf(never, "keys", "Keys replaced")).toMatchObject({ value: "Never", note: "This happens when a device is removed or your password changes." });
     const replaced = describeExport(
       raw({
         key_changes: {

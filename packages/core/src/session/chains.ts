@@ -44,7 +44,7 @@ export abstract class SessionChains extends SessionVault {
         this.chains.set(row.user_id, [...this.chainOf(row.user_id), link]);
       } else {
         broken.add(row.user_id);
-        this.warnOnce("local-tampered", "Something outside Zuna changed what this device keeps about whom to trust. Compare emoji with the people who matter to you before trusting them.");
+        this.warnOnce("local-tampered", "Something outside Zuna changed this device's list of who to trust. Compare emoji with the people who matter to you before trusting them.");
       }
     }
   }

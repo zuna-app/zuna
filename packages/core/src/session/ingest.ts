@@ -191,7 +191,7 @@ export abstract class SessionIngest extends SessionChanges {
       } else {
         // A message's author never changes. A signature only proves who signed what's arriving now.
         if (author && author.userId !== checked.signer.userId) {
-          this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message was left as it was.");
+          this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message wasn't changed.");
           return;
         }
         author = checked.signer;

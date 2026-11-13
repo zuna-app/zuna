@@ -70,7 +70,7 @@ export abstract class SessionServer extends SessionChannels {
    */
   async addSound(file: Blob, name: string, emoji = ""): Promise<string> {
     if (!parseSoundDetails({ name, emoji, durationMs: 1, file: { fileId: "0".repeat(32), key: "", prefix: "", chunks: 1 } })) {
-      throw new Error("A sound needs a name, of up to 32 characters.");
+      throw new Error("A sound needs a name of up to 32 characters.");
     }
     const { wav, durationMs } = prepareSound(await this.files.read(file, 0, this.files.size(file)));
     const ref = await this.uploadBlob({ size: wav.length, read: async (start, end) => wav.subarray(start, end) });
@@ -89,7 +89,7 @@ export abstract class SessionServer extends SessionChannels {
     const sound = this.sounds.get(id);
     if (!sound?.details) throw new Error("That sound isn't on the soundboard anymore.");
     const details = parseSoundDetails({ ...sound.details, ...changes });
-    if (!details) throw new Error("A sound needs a name, of up to 32 characters.");
+    if (!details) throw new Error("A sound needs a name of up to 32 characters.");
     const version = sound.version + 1;
     const sealed = sealSoundDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
     await this.api.updateSound(id, sealed);
@@ -112,7 +112,7 @@ export abstract class SessionServer extends SessionChannels {
     let fetched = this.soundFiles.get(file.fileId);
     if (!fetched) {
       fetched = this.downloadFile({ ...file, mime: "audio/wav" }).then(async (blob) => {
-        if (!readWav(await this.files.read(blob, 0, this.files.size(blob)))) throw new Error("That sound's file isn't what it should be.");
+        if (!readWav(await this.files.read(blob, 0, this.files.size(blob)))) throw new Error("That sound's file is damaged.");
         return blob;
       });
       fetched.catch(() => this.soundFiles.delete(file.fileId));
@@ -277,7 +277,7 @@ export abstract class SessionServer extends SessionChannels {
     const listed = input.listed ?? false;
     const created = await this.api.createBot({ username: input.username, listed, add: listed ? (input.add ?? "owner") : "owner", files: input.files ?? true });
     if (created.bot.owner_id !== this.account.userId || created.bot.username.toLowerCase() !== input.username.toLowerCase()) {
-      throw new Error("The bot wasn't made: the server's answer doesn't hold together.");
+      throw new Error("The bot wasn't created because the server sent an invalid response.");
     }
     return { bot: this.botView(created.bot), link: this.setupLinkFor(created.bot, created.code, input.name) };
   }

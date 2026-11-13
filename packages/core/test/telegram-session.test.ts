@@ -202,7 +202,7 @@ describe("linking, the rest of the way", () => {
     engine.refuse("checkAuthenticationPassword", "Something nobody's heard of");
     await expect(session.enterPassword("x")).rejects.toThrow("Telegram said: Something nobody's heard of");
     engine.refuse("checkAuthenticationCode", "FORBIDDEN", 403);
-    await expect(session.enterCode("1")).rejects.toThrow("Zuna doesn't do that on Telegram.");
+    await expect(session.enterCode("1")).rejects.toThrow("Zuna doesn't support that on Telegram.");
   });
 
   it("says Telegram stopped working when the broker does, and fails what was waiting", async () => {
@@ -601,7 +601,7 @@ describe("sending, and what Telegram refuses", () => {
     engine.refuse("sendMessage", "MESSAGE_TOO_LONG");
     await expect(session.sendMessage(`user:${GRACE}`, { text: "long" })).rejects.toThrow("That message is too long for Telegram.");
     engine.answer("sendMessage", { "@type": "message", id: 0, chat_id: GRACE });
-    await expect(session.sendMessage(`user:${GRACE}`, { text: "lost" })).rejects.toThrow("Telegram didn't take that message.");
+    await expect(session.sendMessage(`user:${GRACE}`, { text: "lost" })).rejects.toThrow("Telegram didn't accept that message.");
   });
 
   it("finds a chat by its key, as a person's, a group's or its bare number, and refuses what isn't one", async () => {
@@ -751,7 +751,7 @@ describe("groups, the rest of the way", () => {
     engine.refuse("createNewBasicGroupChat", "USERS_TOO_MUCH");
     await expect(session.createGroup("Big", [String(GRACE)])).rejects.toThrow("That group is full.");
     engine.answer("createNewBasicGroupChat", { "@type": "createdBasicGroupChat", chat_id: 0 });
-    await expect(session.createGroup("Nothing", [])).rejects.toThrow("Telegram didn't make that group.");
+    await expect(session.createGroup("Nothing", [])).rejects.toThrow("Telegram couldn't create that group.");
     engine.refuse("addChatMembers", "USER_NOT_MUTUAL_CONTACT");
     await expect(session.addMembers(String(GROUP), [String(BOT), "-5"])).rejects.toThrow("Only their contacts can add them.");
     expect(engine.requests("addChatMembers")[0]!.user_ids).toEqual([BOT]);
@@ -764,7 +764,7 @@ describe("groups, the rest of the way", () => {
     engine.refuse("createChatInviteLink", "CHAT_ADMIN_REQUIRED");
     await expect(session.createInvite(String(GROUP))).rejects.toThrow("Only the group's admins can do that.");
     engine.answer("createChatInviteLink", { "@type": "chatInviteLink", invite_link: "https://evil.example/+x" });
-    await expect(session.createInvite(String(GROUP))).rejects.toThrow("Telegram didn't make a link.");
+    await expect(session.createInvite(String(GROUP))).rejects.toThrow("Telegram couldn't create a link.");
   });
 
   it("sends a group's new picture a part at a time, as any file goes", async () => {
@@ -781,12 +781,12 @@ describe("groups, the rest of the way", () => {
   it("joins by a link only where Telegram lets this account in here", async () => {
     const { engine, session } = await ready();
     engine.refuse("checkChatInviteLink", "INVITE_HASH_EXPIRED");
-    await expect(session.joinByLink("https://t.me/+old")).rejects.toThrow("That link doesn't lead anywhere any more.");
+    await expect(session.joinByLink("https://t.me/+old")).rejects.toThrow("That link doesn't work anymore.");
     engine.answer("checkChatInviteLink", { "@type": "chatInviteLinkInfo", chat_id: 0, type: { "@type": "inviteLinkChatTypeSupergroup" }, subscription_info: { "@type": "chatInviteLinkSubscriptionInfo" } });
-    await expect(session.joinByLink("https://t.me/+paid")).rejects.toThrow("asks for a payment");
+    await expect(session.joinByLink("https://t.me/+paid")).rejects.toThrow("requires a payment");
     engine.answer("checkChatInviteLink", { "@type": "chatInviteLinkInfo", chat_id: 0, type: { "@type": "inviteLinkChatTypeSupergroup" }, subscription_info: null });
     engine.answer("joinChatByInviteLink", { "@type": "chatJoinResultGuardBotApprovalRequired" });
-    await expect(session.joinByLink("https://telegram.me/joinchat/guarded")).rejects.toThrow("That group's bot has to let you in first");
+    await expect(session.joinByLink("https://telegram.me/joinchat/guarded")).rejects.toThrow("That group's bot needs to let you in first");
     engine.answer("joinChatByInviteLink", { "@type": "chatJoinResultSomethingNew" });
     await expect(session.joinByLink("https://t.me/+new")).rejects.toThrow("Telegram didn't let you in.");
     engine.refuse("joinChatByInviteLink", "USERS_TOO_MUCH");

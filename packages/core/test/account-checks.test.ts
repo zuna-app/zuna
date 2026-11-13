@@ -77,8 +77,8 @@ describe("signing up", () => {
     const preview = await stranger.client.previewInvite(await alice.session.createInvite(0, 0));
     expect(preview.log).toBeTruthy();
     const other = (answer: any) => ({ ...answer, log_key: toBase64(new Uint8Array(32).fill(7)) });
-    await expect(answering(info, other, () => stranger.client.register(preview, "frank", "correct horse battery", { displayName: "Frank" }))).rejects.toThrow("This server's log of keys isn't the one the invite link names.");
-    await expect(answering(info, (answer) => ({ ...answer, log_key: undefined }), () => stranger.client.register(preview, "grace", "correct horse battery", { displayName: "Grace" }))).rejects.toThrow("This server's log of keys isn't the one the invite link names.");
+    await expect(answering(info, other, () => stranger.client.register(preview, "frank", "correct horse battery", { displayName: "Frank" }))).rejects.toThrow("This server's record of keys doesn't match the invite link");
+    await expect(answering(info, (answer) => ({ ...answer, log_key: undefined }), () => stranger.client.register(preview, "grace", "correct horse battery", { displayName: "Grace" }))).rejects.toThrow("This server's record of keys doesn't match the invite link");
   });
 
   it("tells a bot's link from a person's, either way", async () => {
@@ -100,13 +100,13 @@ describe("setting up a bot", () => {
   it("goes no further where the server says the link isn't a bot's, or makes another account", async () => {
     const { link } = await alice.session.createBot({ username: "checked_bot", name: "Checked" });
     await expect(answering((url) => url.includes("/api/invites/"), (answer) => ({ ...answer, bot: false }), () => stranger.client.registerBot(link))).rejects.toThrow("That link isn't for setting up a bot.");
-    await expect(answering((url) => url.endsWith("/api/auth/register"), (answer) => ({ ...answer, user_id: "0".repeat(32) }), () => stranger.client.registerBot(link))).rejects.toThrow("The server made another account than the one this link is for.");
+    await expect(answering((url) => url.endsWith("/api/auth/register"), (answer) => ({ ...answer, user_id: "0".repeat(32) }), () => stranger.client.registerBot(link))).rejects.toThrow("The server created a different account than this link is for");
   });
 
   it("goes no further where the server lists another key for its owner than the link names", async () => {
     const { link } = await alice.session.createBot({ username: "loyal_bot", name: "Loyal" });
     const owner = (url: string) => url.includes(`/api/users/${alice.userId}`);
-    await expect(answering(owner, (answer) => ({ ...answer, identity_key: toBase64(new Uint8Array(64).fill(3)) }), () => stranger.client.registerBot(link))).rejects.toThrow("The server lists another key for this bot's owner than the setup link names.");
+    await expect(answering(owner, (answer) => ({ ...answer, identity_key: toBase64(new Uint8Array(64).fill(3)) }), () => stranger.client.registerBot(link))).rejects.toThrow("The server shows a different key for this bot's owner than the setup link does");
   });
 });
 
@@ -114,7 +114,7 @@ describe("signing in", () => {
   it("takes no recovery key that isn't whole, and no sign-in without the account's slot", async () => {
     await expect(stranger.client.recover(server.url, "alice", "ABCD-EFGH", "a new password")).rejects.toThrow("That recovery key isn't complete.");
     await expect(answering((url) => url.endsWith("/api/auth/login"), (answer) => ({ ...answer, slot: null }), () => stranger.client.login(server.url, "alice", "correct horse battery"))).rejects.toThrow(
-      "What the server sent for this account doesn't fit together.",
+      "The server sent inconsistent details for this account",
     );
   });
 });

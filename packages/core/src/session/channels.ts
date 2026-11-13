@@ -109,7 +109,7 @@ export abstract class SessionChannels extends SessionManagement {
     if (!held || held.removedAt || !held.members.some((member) => member.userId === self)) {
       // A bot gets nothing from before it came in.
       const { group } = await this.api.joinChannel(id, channelProof(this.account.core.communityKey, id, self), !this.account.bot);
-      if (group.kind !== "channel" || group.id !== id) throw new Error("The server's answer about this channel doesn't hold together.");
+      if (group.kind !== "channel" || group.id !== id) throw new Error("The server sent an invalid response about this channel.");
       this.applyGroup(group);
     }
     await this.withLock(id, () => this.ensureReady(id));
@@ -191,7 +191,7 @@ export abstract class SessionChannels extends SessionManagement {
       proof: channelProof(communityKey, id, this.account.userId),
     });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
-      throw new Error("The channel wasn't created: the server's answer doesn't hold together.");
+      throw new Error("The channel wasn't created because the server sent an invalid response.");
     }
     this.applyGroup(created.group);
     await this.withLock(id, () => this.initGroup(created.group, []));
@@ -323,7 +323,7 @@ export abstract class SessionChannels extends SessionManagement {
   async voiceAccess(channelId: string): Promise<VoiceAccess> {
     await this.readyForVoice(channelId);
     const access = this.isCall(channelId) ? await this.api.callToken(channelId) : await this.api.voiceToken(channelId);
-    if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error("The server's answer about this voice channel doesn't hold together.");
+    if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error("The server sent an invalid response about this voice channel.");
     return { url: access.url, token: access.token, identity: access.identity, serverMuted: access.server_muted };
   }
 
@@ -480,7 +480,7 @@ export abstract class SessionChannels extends SessionManagement {
    * which group the call is in. Coming into it is up to the room, through `voiceAccess`.
    */
   async prepareCall(key: string): Promise<string> {
-    if (!this.callsOn || !this.info?.calls) throw new Error("This server can't make calls.");
+    if (!this.callsOn || !this.info?.calls) throw new Error("This server doesn't support calls.");
     if (key === `user:${this.account.userId}`) throw new Error("There's nobody to call here.");
     if (key.startsWith("user:") && this.isBlocked(key.slice(5))) throw new Error("You blocked this person.");
     const groupId = await this.groupIdForKey(key);
@@ -589,9 +589,9 @@ export abstract class SessionChannels extends SessionManagement {
   async watchControl(channelId: string, change: { playing?: boolean; position?: number; rate?: number }): Promise<void> {
     this.watchable(channelId);
     const held = this.heldWatch(channelId);
-    if (!held?.video) throw new Error("Nothing is on.");
+    if (!held?.video) throw new Error("Nothing is playing.");
     if (change.rate !== undefined && !(WATCH_RATES as readonly number[]).includes(change.rate)) throw new Error("YouTube can't play at that speed.");
-    if (change.position !== undefined && (!Number.isFinite(change.position) || change.position < 0)) throw new Error("That isn't a place in the video.");
+    if (change.position !== undefined && (!Number.isFinite(change.position) || change.position < 0)) throw new Error("That isn't a valid position in the video.");
     const now = this.serverNow();
     await this.changeWatch(channelId, {
       ...held,
@@ -657,7 +657,7 @@ export abstract class SessionChannels extends SessionManagement {
   protected async sendWatch(channelId: string, signal: WatchSignal, to?: string): Promise<void> {
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
-    if (!key) throw new Error("This device can't watch here yet.");
+    if (!key) throw new Error("This device isn't ready to watch here yet.");
     const sealed = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "watch", channelId, this.account.userId, epoch, signal, this.signer));
     await (this.isCall(channelId) ? this.api.callWatch(channelId, sealed, to) : this.api.watch(channelId, sealed, to));
   }

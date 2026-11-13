@@ -91,7 +91,7 @@ export abstract class SessionRotation extends SessionDirectory {
           type: "security",
           serverId: this.serverId,
           userId: "",
-          message: "Zuna hasn't been able to finish replacing your account's keys after a device was removed. It keeps trying.",
+          message: "Zuna couldn't finish replacing your account's keys after a device was removed. It'll keep trying.",
         });
       }
       this.rotateSoon(rotationTiming.retryMs);

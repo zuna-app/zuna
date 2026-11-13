@@ -91,16 +91,16 @@ export type LogStanding = "named" | "gone" | "absent" | "unknown";
 
 const WARNINGS = {
   proof: "The server showed different people different records of who holds which keys. Someone may be posing as people you talk to. Compare emoji with the people who matter to you.",
-  back: "The server's record of who holds which keys went back, or it's keeping part of it from this device. Compare emoji with the people who matter to you.",
-  link: "The server's record of who holds which keys isn't the one the invite link you joined with saw. Someone may be posing as people on this server. Compare emoji with the people who matter to you.",
-  manifest: "The server's record of who holds which keys isn't the one your other devices saw. Someone may be posing as people you talk to. Compare emoji with the people who matter to you.",
-  serverKey: "The server signed its record of who holds which keys with another key than this device knows. Nothing new in it was taken.",
-  unfit: "The server's record of who holds which keys doesn't fit together. Nothing new in it was taken.",
+  back: "The server's record of who holds which keys was rolled back, or the server is hiding part of it from this device. Compare emoji with the people who matter to you.",
+  link: "The server's record of who holds which keys doesn't match the one the invite link you joined with saw. Someone may be posing as people on this server. Compare emoji with the people who matter to you.",
+  manifest: "The server's record of who holds which keys doesn't match what your other devices saw. Someone may be posing as people you talk to. Compare emoji with the people who matter to you.",
+  serverKey: "The server signed its record of who holds which keys with a key this device doesn't recognize. Nothing new in it was accepted.",
+  unfit: "The server's record of who holds which keys is inconsistent. Nothing new in it was accepted.",
   odd: "Part of the server's record of who holds which keys doesn't make sense, and was ignored.",
-  withheld: "The server is keeping back part of its record of someone's keys from this device.",
-  era: "The server started its record of who holds which keys again, as after restoring a backup. Nothing this device trusts changed.",
-  nameTaken: "The server signed someone else up under your username. Their account counts for nothing to the apps, but compare emoji with the people who matter to you.",
-  ownLeftOut: "The server left this device out of its record of who holds which keys, so the people you write to won't accept it.",
+  withheld: "The server is hiding part of its record of someone's keys from this device.",
+  era: "The server restarted its record of who holds which keys, as can happen after restoring a backup. Nothing this device trusts has changed.",
+  nameTaken: "The server registered someone else under your username. Apps will ignore that account, but compare emoji with the people who matter to you.",
+  ownLeftOut: "The server left this device out of its record of who holds which keys, so the people you message won't accept messages from it.",
   ownHistory: "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
 } as const;
 

@@ -174,7 +174,7 @@ describe("a linked account's chats", () => {
     // In one event, which says whose place it takes, so the chat swaps the row where it is.
     expect(events.some((event) => event.type === "message_removed" && event.id === pending.id)).toBe(false);
     expect(moved).toMatchObject({ message: { status: "sent", text: "**On** my way" }, isNew: false, replaces: pending.id });
-    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Those files were made for a Zuna server");
+    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Those files were uploaded to a Zuna server");
   });
 
   it("reads up to a message on every device, and hears when another device read", async () => {
@@ -538,7 +538,7 @@ describe("media, stickers and groups", () => {
     expect(engine.requests("addChatToList").at(-1)).toMatchObject({ chat_id: BOT, chat_list: { "@type": "chatListMain" } });
     await until(() => !session.getPreferences().hidden.includes(`user:${BOT}`), "the chat back");
     expect(engine.requests("addChatToList")).toHaveLength(2);
-    await expect(session.updatePreferences({ blocked: [] })).rejects.toThrow("Telegram keeps that in its own apps.");
+    await expect(session.updatePreferences({ blocked: [] })).rejects.toThrow("That's only available in Telegram's own apps.");
   });
 
   it("keeps drafts on Telegram, where the account's other devices find them", async () => {
@@ -575,9 +575,9 @@ describe("media, stickers and groups", () => {
     expect(await session.joinByLink("https://t.me/+AbCdEf123")).toBe(String(GROUP));
     expect(engine.requests("joinChatByInviteLink")).toEqual([]);
     expect(await session.joinByLink("tg://join?invite=XyZ")).toBe(String(GROUP));
-    await expect(session.joinByLink("https://t.me/+club-ask")).rejects.toThrow("You asked to join.");
+    await expect(session.joinByLink("https://t.me/+club-ask")).rejects.toThrow("Request sent.");
     await expect(session.joinByLink("https://example.com/+AbCdEf123")).rejects.toThrow("That isn't a link to a Telegram group.");
-    await expect(session.joinByLink("t.me/+news")).rejects.toThrow("channels stay in Telegram's own app");
+    await expect(session.joinByLink("t.me/+news")).rejects.toThrow("Channels are only in Telegram's own app");
   });
 
   it("presses a bot's button, forwards inside Telegram, and deletes as Telegram allows", async () => {

@@ -158,7 +158,7 @@ export abstract class SessionManagement extends SessionSending {
     const root = this.pinnedIdentity(userId);
     if (!root || !this.users.has(userId)) return;
     const [scheme, encoded] = covers.split(":");
-    const outdated = new Error("What you compared isn't what the server shows now. Compare the emoji again.");
+    const outdated = new Error("The keys you compared no longer match what the server shows. Compare the emoji again.");
     if (scheme !== "heads") throw outdated;
     const compared = fromBase64(encoded ?? "");
     let pin = root;
@@ -224,7 +224,7 @@ export abstract class SessionManagement extends SessionSending {
     }
     const created = await this.api.createGroup(historyVisible);
     if (created.group.kind !== "group" || created.group.created_by !== this.account.userId) {
-      throw new Error("The group wasn't created: the server's answer doesn't hold together.");
+      throw new Error("The group wasn't created because the server sent an invalid response.");
     }
     const groupId = created.group.id;
     this.applyGroup(created.group);

@@ -276,7 +276,7 @@ export abstract class SessionVault extends SessionLocal {
     const manifest = this.nextManifest();
     const parts = manifestParts(manifest);
     if (!parts) {
-      this.warnOnce("manifest/size", "Your account trusts more people than its vault can list, so what you verify here doesn't reach your other devices.");
+      this.warnOnce("manifest/size", "Your account trusts more people than it can store, so people you verify here won't show as verified on your other devices.");
       return true;
     }
     try {
@@ -317,7 +317,7 @@ export abstract class SessionVault extends SessionLocal {
   protected checkManifestFloor(): void {
     const floor = this.account.core.manifest ?? 0;
     if (floor > (this.manifest?.v ?? 0)) {
-      this.warnOnce("manifest/floor", "Not everything your account trusts arrived from the server, so people you've verified may show as unverified here. Compare emoji with them again before trusting them.");
+      this.warnOnce("manifest/floor", "Not all of your account's trusted people arrived from the server, so people you've verified may show as unverified here. Compare emoji with them again before trusting them.");
     }
   }
 

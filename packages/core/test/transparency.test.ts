@@ -141,7 +141,7 @@ describe("reading the log", () => {
       try {
         await reader.open();
         await sessionOf(reader).syncLog().catch(() => undefined);
-        await waitFor(() => warned(reader, "doesn't fit together"), `${change.what} to be refused`);
+        await waitFor(() => warned(reader, "is inconsistent"), `${change.what} to be refused`);
         expect(sessionOf(reader).logState().frontier.size, change.what).toBe(held);
         expect(sessionOf(reader).logCurrent(), change.what).toBe(false);
       } finally {
@@ -158,7 +158,7 @@ describe("reading the log", () => {
     const taken = truncateLog(logSize() - 2);
     try {
       await sessionOf(dave).syncLog();
-      expect(warned(dave, "went back")).toBe(true);
+      expect(warned(dave, "rolled back")).toBe(true);
       expect(sessionOf(dave).logCurrent()).toBe(false);
     } finally {
       restoreLog(taken);
@@ -303,7 +303,7 @@ describe("what the server keeps back", () => {
       // Erin signs in on another device, which the server would rather dave didn't know of.
       const phone = await new TestApp("erin-phone").open();
       await phone.login(sessionOf(erin).account.serverUrl, erin.session.getSelf().username);
-      await waitFor(() => warned(dave, "keeping back part"), "dave to notice");
+      await waitFor(() => warned(dave, "hiding part of its record"), "dave to notice");
       phone.client.stop();
     } finally {
       session.api.log = log;
@@ -336,7 +336,7 @@ describe("what the server keeps back", () => {
     session.noteNewlyKnown(someone);
     await waitFor(() => asked === someone, "dave to ask");
     await sleep(50);
-    expect(warned(dave, "keeping back part")).toBe(true);
+    expect(warned(dave, "hiding part of its record")).toBe(true);
   });
 });
 
@@ -628,7 +628,7 @@ describe("the manifest, invite links and signing in", () => {
       db.prepare("UPDATE account_slots SET sealed_key = ? WHERE user_id = ? AND kind = 'password'").run(kept.slot.sealed_key, dave.userId);
     });
     const phone = await new TestApp("dave-phone").open();
-    await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/record of them shows/);
+    await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/match its own record of them/);
     phone.client.stop();
   });
 });

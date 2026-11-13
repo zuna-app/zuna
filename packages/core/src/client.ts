@@ -118,7 +118,7 @@ class PausableDb implements LocalDb {
   private check(): void {
     if (!this.paused) return;
     this.refused = true;
-    throw new Error("This device's data is in use elsewhere for a moment. Please try again.");
+    throw new Error("This device's data is busy right now. Please try again.");
   }
 
   run(sql: string, params?: SqlValue[]): void {
@@ -325,7 +325,7 @@ export class ZunaClient {
    */
   private async pin(url: string, pin: string): Promise<void> {
     if (!this.options.pinServer) {
-      throw new Error("This server makes its own certificate, which a browser can't check. Use the Zuna app on a computer or phone to reach it.");
+      throw new Error("This server uses its own certificate, which browsers can't verify. Use the Zuna app on a computer or phone to connect to it.");
     }
     const known = this.listServers().find((server) => server.url === url);
     if (known && known.address !== serverAddress(url, pin)) {

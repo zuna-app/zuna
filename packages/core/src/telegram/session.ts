@@ -134,17 +134,17 @@ function explain(error: unknown): Error {
     PHONE_NUMBER_INVALID: "That isn't a phone number Telegram knows.",
     PHONE_NUMBER_BANNED: "Telegram has banned that number.",
     PHONE_CODE_INVALID: "That code isn't right.",
-    PHONE_CODE_EXPIRED: "That code has run out. Ask for a new one.",
+    PHONE_CODE_EXPIRED: "That code has expired. Ask for a new one.",
     EMAIL_CODE_INVALID: "That code isn't right.",
     PASSWORD_HASH_INVALID: "That password isn't right.",
-    AUTH_TOKEN_EXPIRED: "That code has run out. A new one is on its way.",
+    AUTH_TOKEN_EXPIRED: "That code has expired. A new one is on its way.",
     MESSAGE_TOO_LONG: "That message is too long for Telegram.",
     CHAT_WRITE_FORBIDDEN: "You can't write in this chat.",
     USER_IS_BLOCKED: "You can't write to this person.",
     MESSAGE_NOT_MODIFIED: "Nothing changed.",
-    INVITE_HASH_INVALID: "That link doesn't lead anywhere any more.",
-    INVITE_HASH_EXPIRED: "That link doesn't lead anywhere any more.",
-    "Wrong invite link": "That link doesn't lead anywhere any more.",
+    INVITE_HASH_INVALID: "That link doesn't work anymore.",
+    INVITE_HASH_EXPIRED: "That link doesn't work anymore.",
+    "Wrong invite link": "That link doesn't work anymore.",
     USERS_TOO_MUCH: "That group is full.",
     CHANNELS_TOO_MUCH: "You're in as many groups as Telegram allows.",
     CHAT_ADMIN_REQUIRED: "Only the group's admins can do that.",
@@ -154,7 +154,7 @@ function explain(error: unknown): Error {
   };
   // A code is matched whole, as one can end another: USER_CHANNELS_TOO_MUCH isn't CHANNELS_TOO_MUCH.
   for (const [code, text] of Object.entries(known)) if (new RegExp(`(^|[^A-Z_])${code}($|[^A-Z_])`).test(message)) return new Error(text);
-  return new Error(error.code === 403 ? "Zuna doesn't do that on Telegram." : `Telegram said: ${message}`);
+  return new Error(error.code === 403 ? "Zuna doesn't support that on Telegram." : `Telegram said: ${message}`);
 }
 
 export interface TelegramSessionOptions {
@@ -373,9 +373,9 @@ export class TelegramSession {
         // No account is made here: someone new signs up in Telegram's own app first.
         return this.setLink({ step: "signup" });
       case "authorizationStateWaitEmailAddress":
-        return this.setLink({ step: "failed", reason: "Telegram asks this account for a login email first. Add one in Telegram's app, then link again." });
+        return this.setLink({ step: "failed", reason: "Telegram needs this account to have a login email first. Add one in Telegram's app, then link again." });
       case "authorizationStateWaitPremiumPurchase":
-        return this.setLink({ step: "failed", reason: "Telegram asks this account to buy Premium before it can sign in here." });
+        return this.setLink({ step: "failed", reason: "Telegram needs this account to have Premium before it can sign in here." });
       case "authorizationStateReady":
         if (this.linking) {
           this.linking = false;
@@ -595,7 +595,7 @@ export class TelegramSession {
         this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: "offline" });
         return this.setLink({ step: "failed", reason: `Telegram stopped working here: ${str(update.reason, 200)}` });
       case "zunaRestarted":
-        this.engine.failAll(new TelegramError("Telegram started again.", 503));
+        this.engine.failAll(new TelegramError("Telegram restarted.", 503));
         return;
     }
   }
@@ -1121,7 +1121,7 @@ export class TelegramSession {
   }
 
   async sendMessage(groupKey: string, body: MessageBody): Promise<MessageView> {
-    if (body.attachments?.length) throw new Error("Those files were made for a Zuna server, not for Telegram.");
+    if (body.attachments?.length) throw new Error("Those files were uploaded to a Zuna server, so they can't be sent to Telegram.");
     if (body.forwarded) throw new Error("Nothing is forwarded between Zuna and Telegram.");
     const text = (body.text ?? "").trim();
     if (!text && !body.location) throw new Error("There's nothing to send.");
@@ -1137,7 +1137,7 @@ export class TelegramSession {
       });
     this.remember(sent);
     const view = this.view(sent);
-    if (!view) throw new Error("Telegram didn't take that message.");
+    if (!view) throw new Error("Telegram didn't accept that message.");
     this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
     return view;
   }
@@ -1281,7 +1281,7 @@ export class TelegramSession {
    */
   async updatePreferences(patch: Partial<Preferences>): Promise<void> {
     const { pinned, hidden, ...rest } = patch;
-    if (Object.keys(rest).length > 0) throw new Error("Telegram keeps that in its own apps.");
+    if (Object.keys(rest).length > 0) throw new Error("That's only available in Telegram's own apps.");
     if (pinned) await this.setPinnedChats(pinned);
     if (hidden) await this.setArchived(hidden);
   }
@@ -1419,7 +1419,7 @@ export class TelegramSession {
       throw explain(error);
     });
     const chatId = idOf(created.chat_id);
-    if (!chatId) throw new Error("Telegram didn't make that group.");
+    if (!chatId) throw new Error("Telegram couldn't create that group.");
     return String(chatId);
   }
 
@@ -1480,7 +1480,7 @@ export class TelegramSession {
       throw explain(error);
     });
     const url = str(link.invite_link, 256);
-    if (!/^https:\/\/t\.me\//.test(url)) throw new Error("Telegram didn't make a link.");
+    if (!/^https:\/\/t\.me\//.test(url)) throw new Error("Telegram couldn't create a link.");
     return url;
   }
 
@@ -1492,16 +1492,16 @@ export class TelegramSession {
     const info = await this.engine.request({ "@type": "checkChatInviteLink", invite_link: url }).catch((error) => {
       throw explain(error);
     });
-    if (kindOf(info.type) === "inviteLinkChatTypeChannel") throw new Error("That's a channel, and channels stay in Telegram's own app.");
-    if (isObject(info.subscription_info)) throw new Error("That group asks for a payment, which is made in Telegram's own app.");
+    if (kindOf(info.type) === "inviteLinkChatTypeChannel") throw new Error("That's a channel. Channels are only in Telegram's own app.");
+    if (isObject(info.subscription_info)) throw new Error("That group requires a payment, which you can make in Telegram's own app.");
     const known = idOf(info.chat_id);
     if (known && this.listed(known)) return String(known);
     const joined = await this.engine.request({ "@type": "joinChatByInviteLink", invite_link: url }).catch((error) => {
       throw explain(error);
     });
     const result = kindOf(joined);
-    if (result === "chatJoinResultRequestSent") throw new Error("You asked to join. The group's admins decide, and it appears here once they let you in.");
-    if (result === "chatJoinResultGuardBotApprovalRequired") throw new Error("That group's bot has to let you in first, in Telegram's own app.");
+    if (result === "chatJoinResultRequestSent") throw new Error("Request sent. The group will appear here once its admins let you in.");
+    if (result === "chatJoinResultGuardBotApprovalRequired") throw new Error("That group's bot needs to let you in first, in Telegram's own app.");
     const chatId = result === "chatJoinResultSuccess" ? idOf(joined.chat_id) : null;
     if (!chatId) throw new Error("Telegram didn't let you in.");
     return String(chatId);
