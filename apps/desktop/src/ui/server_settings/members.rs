@@ -133,8 +133,7 @@ impl ServerSettings {
                     .child(text)
             };
             list = list.child(
-                div()
-                    .id(SharedString::from(format!("server-member-{}", user.id)))
+                named_div(SharedString::from(format!("server-member-{}", user.id)))
                     .w_full()
                     .flex()
                     .items_center()
@@ -296,5 +295,96 @@ impl ServerSettings {
             Self::lead(&format!("People banned from {}. Unbanned, they can sign in again, and they're back in their direct messages and channels. Groups have to add them again.", server.entry.name), cx),
             list,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A server's members, reports and bans in its settings, as its owner uses them: someone
+    //! made an admin and banned after the question, found by a search; a report dismissed or
+    //! its person banned; and someone banned let back in.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World};
+
+    fn open(cx: &mut TestAppContext, name: &str, section: &str, change: impl FnOnce(&mut World)) -> Running {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        change(&mut world);
+        let app = Running::open(cx, &world);
+        for method in ["setServerRole", "banUser", "unbanUser", "dismissReports"] {
+            app.answer(method, |_| Ok(Value::Null));
+        }
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::ServerSettings { section: Some(section.into()) }), cx);
+        });
+        app
+    }
+
+    fn settings(app: &Running, cx: &mut TestAppContext) -> Entity<ServerSettings> {
+        app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<ServerSettings>().ok())).unwrap().expect("the server's settings are open")
+    }
+
+    fn choose(app: &Running, cx: &mut TestAppContext, label: &str) {
+        assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose(label, window, cx)).unwrap(), "{label} is in the menu");
+        app.run(cx);
+    }
+
+    #[gpui::test]
+    fn a_member_is_made_an_admin_found_and_banned(cx: &mut TestAppContext) {
+        let app = open(cx, "server-members", "members", |_| {});
+        app.click(cx, &format!("server-member-{BOB}"));
+        assert_eq!(cx.read(|cx| crate::ui::menu::open_labels(cx)), vec!["Make admin".to_string(), "Ban from server".to_string()]);
+        choose(&app, cx, "Make admin");
+        assert_eq!(app.calls_of("setServerRole"), vec![vec![json!(BOB), json!("admin")]]);
+        // Carol is an admin already, and a bot never is one.
+        app.click(cx, &format!("server-member-{CAROL}"));
+        choose(&app, cx, "Remove admin");
+        assert_eq!(app.calls_of("setServerRole")[1], vec![json!(CAROL), json!("member")]);
+        app.click(cx, &format!("server-member-{BOT}"));
+        assert_eq!(cx.read(|cx| crate::ui::menu::open_labels(cx)), vec!["Ban from server".to_string()]);
+        // Banned only once the question is answered.
+        choose(&app, cx, "Ban from server");
+        app.click(cx, "confirm-cancel");
+        assert!(app.calls_of("banUser").is_empty());
+        app.click(cx, &format!("server-member-{BOB}"));
+        choose(&app, cx, "Ban from server");
+        app.click(cx, "confirm-action");
+        assert_eq!(app.calls_of("banUser"), vec![vec![json!(BOB)]]);
+        // A search narrows the list.
+        let view = settings(&app, cx);
+        let search = cx.read(|cx| view.read(cx).member_search.clone());
+        search.update(cx, |input, cx| input.set_text("car", cx));
+        app.run(cx);
+        assert!(app.drawn(cx, &format!("server-member-{CAROL}")) && !app.drawn(cx, &format!("server-member-{BOB}")));
+    }
+
+    #[gpui::test]
+    fn reports_are_dismissed_or_acted_on_and_bans_undone(cx: &mut TestAppContext) {
+        let app = open(cx, "server-reports", "reports", |world| {
+            world.server["getReports"] = json!([{ "userId": BOB, "count": 2, "reasons": ["spam", "other"], "lastAt": NOW }, { "userId": CAROL, "count": 1, "reasons": ["harassment"], "lastAt": NOW }]);
+            world.server["getUsers"].as_array_mut().unwrap().push(json!({ "id": "u-dan", "username": "dan", "displayName": "Dan", "role": "member", "banned": true }));
+            world.server["getBans"] = json!([{ "userId": "u-dan", "bannedAt": NOW, "bannedBy": ME }, { "userId": "u-unknown", "bannedAt": NOW, "bannedBy": "" }, { "userId": BOB, "bannedAt": NOW, "bannedBy": ME }]);
+        });
+        app.click(cx, &format!("dismiss-{CAROL}"));
+        assert_eq!(app.calls_of("dismissReports"), vec![vec![json!(CAROL)]]);
+        assert!(app.calls_of("getReports").len() >= 2, "read again after");
+        app.click(cx, &format!("ban-{BOB}"));
+        app.click(cx, "confirm-action");
+        assert_eq!(app.calls_of("banUser"), vec![vec![json!(BOB)]]);
+        // In Bans, someone is let back in.
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some("bans".into()) }), cx));
+        assert!(!app.drawn(cx, &format!("unban-{BOB}")), "someone unbanned elsewhere is off the list before it's read again");
+        app.click(cx, "unban-u-unknown");
+        assert!(app.calls_of("unbanUser").is_empty(), "nobody the server knows of can't be unbanned from here");
+        app.click(cx, "unban-u-dan");
+        assert_eq!(app.calls_of("unbanUser"), vec![vec![json!("u-dan")]]);
     }
 }
