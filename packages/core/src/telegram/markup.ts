@@ -87,8 +87,6 @@ const RULES: { pattern: RegExp; kind: string; plain?: boolean }[] = [
   { pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/y, kind: "textEntityTypeItalic" },
 ];
 
-const MAX_DEPTH = 8;
-
 /** Zuna's markup as Telegram's formatted text, for sending. */
 export function fromMarkup(markup: string): FormattedText {
   const out: FormattedText = { text: "", entities: [] };
@@ -120,7 +118,7 @@ export function fromMarkup(markup: string): FormattedText {
       let first = true;
       while (index < lines.length && /^> ?/.test(lines[index]!)) {
         if (!first) out.text += "\n";
-        inline(lines[index]!.replace(/^> ?/, ""), out, 0);
+        inline(lines[index]!.replace(/^> ?/, ""), out);
         first = false;
         index++;
       }
@@ -128,18 +126,19 @@ export function fromMarkup(markup: string): FormattedText {
       continue;
     }
     if (index > 0) out.text += "\n";
-    inline(line, out, 0);
+    inline(line, out);
     index++;
   }
   out.entities.sort((a, b) => a.offset - b.offset || b.length - a.length);
   return out;
 }
 
-function inline(source: string, out: FormattedText, depth: number): void {
-  if (depth >= MAX_DEPTH) {
-    out.text += source;
-    return;
-  }
+/**
+ * A mark's inner text, read again for the marks inside it. Each rule takes the nearest closing, or
+ * has none of its mark inside, so no mark holds itself, and one chain of marks is at most as deep
+ * as there are rules that nest.
+ */
+function inline(source: string, out: FormattedText): void {
   let at = 0;
   let plainFrom = 0;
   while (at < source.length) {
@@ -160,7 +159,7 @@ function inline(source: string, out: FormattedText, depth: number): void {
     const offset = out.text.length;
     const inner = matched.match[1]!;
     if (matched.rule.plain) out.text += inner;
-    else inline(inner, out, depth + 1);
+    else inline(inner, out);
     out.entities.push({ offset, length: out.text.length - offset, type: { "@type": matched.rule.kind } });
     at += matched.match[0].length;
     plainFrom = at;

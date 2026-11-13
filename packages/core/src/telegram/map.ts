@@ -124,7 +124,7 @@ export function waveformFromTelegram(packed: string): string | undefined {
   const bars = new Uint8Array(count);
   for (let index = 0; index < count; index++) {
     const bit = index * 5;
-    const pair = (bytes[bit >> 3] ?? 0) | ((bytes[(bit >> 3) + 1] ?? 0) << 8);
+    const pair = bytes[bit >> 3]! | ((bytes[(bit >> 3) + 1] ?? 0) << 8);
     bars[index] = Math.round((((pair >> (bit & 7)) & 31) * 255) / 31);
   }
   return base64Of(bars);
@@ -137,7 +137,7 @@ export function waveformToTelegram(bars: string | undefined): string {
   const count = 100;
   const packed = new Uint8Array(Math.ceil((count * 5) / 8) + 1);
   for (let index = 0; index < count; index++) {
-    const value = Math.round(((values[Math.floor((index * values.length) / count)] ?? 0) * 31) / 255);
+    const value = Math.round((values[Math.floor((index * values.length) / count)]! * 31) / 255);
     const bit = index * 5;
     packed[bit >> 3] = (packed[bit >> 3]! | (value << (bit & 7))) & 0xff;
     packed[(bit >> 3) + 1] = (packed[(bit >> 3) + 1]! | (value >> (8 - (bit & 7)))) & 0xff;
