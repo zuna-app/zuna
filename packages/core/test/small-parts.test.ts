@@ -8,6 +8,8 @@ import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
 import { fromRecoveryText, toRecoveryText, utf8 } from "../src/encoding";
 import { previewText } from "../src/notify";
+import { ZunaClient } from "../src/client";
+import { MemoryDbProvider } from "./helpers";
 import { loadCrypto } from "./helpers";
 
 beforeAll(loadCrypto);
@@ -146,5 +148,30 @@ describe("a message as one short line", () => {
     expect(line({})).toBe("📎 notes.pdf");
     expect(previewText({ text: "x".repeat(200), attachments: [] })).toHaveLength(141);
     expect(previewText({ text: "", attachments: [] })).toBe("");
+  });
+});
+
+describe("a link's preview, as the client keeps it", () => {
+  it("asks again for a page that didn't answer, and keeps no more than the last fifty", async () => {
+    let asked = 0;
+    const web = {
+      fetch: async () => {
+        asked++;
+        throw new Error("offline");
+      },
+      shrinkImage: async () => null,
+    };
+    const client = new ZunaClient({ db: new MemoryDbProvider(), deviceKey: new Uint8Array(32).fill(5), deviceName: "Test", onEvent: () => undefined, web });
+    await client.open();
+    expect(await client.linkPreview("https://example.com/page")).toBeNull();
+    expect(await client.linkPreview("https://example.com/page")).toBeNull();
+    expect(asked).toBe(2);
+    await Promise.all(Array.from({ length: 52 }, (_, index) => client.linkPreview(`https://example.com/${index}`)));
+    expect((client as any).previews.size).toBeLessThanOrEqual(50);
+    // Without a way to fetch pages, there are no previews.
+    const without = new ZunaClient({ db: new MemoryDbProvider(), deviceKey: new Uint8Array(32).fill(6), deviceName: "Test", onEvent: () => undefined });
+    expect(await without.linkPreview("https://example.com/page")).toBeNull();
+    client.stop();
+    without.stop();
   });
 });

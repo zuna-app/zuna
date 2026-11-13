@@ -166,6 +166,25 @@ describe("running a server", () => {
     await alice.session.updateServerSettings({ registration: "invite" });
   });
 
+  it("says what a server is, gives an invite's link again, and a bot's setup link anew", async () => {
+    expect(await alice.client.serverInfo(server.url)).toMatchObject({ registration: expect.any(String), name: expect.any(String) });
+    const link = await alice.session.createInvite(1, 3600);
+    const code = (await alice.session.invites()).find((invite) => link.includes(encodeURIComponent(invite.code)))!.code;
+    expect(alice.session.linkForInvite(code)).toBe(link);
+    const { bot, link: first } = await alice.session.createBot({ username: "later_bot" });
+    const second = await alice.session.newBotLink(bot.id);
+    expect(second).not.toBe(first);
+    expect(second).toContain("&bot=");
+  });
+
+  it("finds the server's emotes among words by their names, and says where a picture of one is", () => {
+    const [emote] = alice.session.getEmotes().emotes;
+    expect(emote).toBeDefined();
+    expect(alice.session.emotesIn(`hello ${emote!.name} there`)).toEqual({ [emote!.name]: { id: emote!.id, animated: emote!.animated, zeroWidth: emote!.zero_width, owner: emote!.owner } });
+    expect(alice.session.emotesIn("hello there")).toEqual({});
+    expect(alice.session.emoteUrl(emote!.id, 4)).toContain(emote!.id);
+  });
+
   it("refuses a wrong password to delete an account, and the account stays", async () => {
     await expect(carol.session.deleteAccount("not my password")).rejects.toThrow();
     await carol.session.sendMessage(`user:${alice.userId}`, { text: "still here" });

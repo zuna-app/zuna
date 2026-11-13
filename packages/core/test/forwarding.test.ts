@@ -177,6 +177,17 @@ describe("forwarding", () => {
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(photo);
   });
 
+  it("sends words alone to another server as a message of their own", async () => {
+    const carolId = carol.client.session(carolFirst).getSelf().userId;
+    bob.client.session(bobFirst).sendMessage(`user:${carolId}`, { text: "just words to pass on" });
+    await waitFor(() => !!received(carol, "just words to pass on", carolFirst), "carol to get the words");
+    const words = received(carol, "just words to pass on", carolFirst)!;
+    const bobOnSecond = bob.client.session(bobSecond).getSelf().userId;
+    await carol.client.forwardMessages(carolFirst, words.groupId, [words.id], carolSecond, `user:${bobOnSecond}`);
+    await waitFor(() => !!received(bob, "just words to pass on", bobSecond), "bob to get them on his own server");
+    expect(received(bob, "just words to pass on", bobSecond)).toMatchObject({ forwarded: {}, attachments: [] });
+  });
+
   it("keeps the label and the preview when a forward that failed is tried again", async () => {
     const session = bob.client.session(bobFirst);
     const carolId = carol.client.session(carolFirst).getSelf().userId;
