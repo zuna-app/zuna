@@ -48,7 +48,9 @@ impl ScreenPicker {
         let voice = crate::voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
         let load = cx.spawn(async move |this, cx| {
-            let found = cx.background_executor().spawn(async move { screens::screens().into_iter().chain(screens::windows()).collect::<Vec<_>>() }).await;
+            // Tests list nothing of the system's: capturing each screen and window for its picture
+            // can wait for ever on a runner with no desktop to capture.
+            let found = if cfg!(test) { Vec::new() } else { cx.background_executor().spawn(async move { screens::screens().into_iter().chain(screens::windows()).collect::<Vec<_>>() }).await };
             this.update(cx, |picker, cx| {
                 for source in &found {
                     if let Some(bgra) = &source.thumbnail {
@@ -65,7 +67,7 @@ impl ScreenPicker {
         });
         // Apps only show while they play, so they come and go.
         let apps = cx.spawn(async move |this, cx| loop {
-            let found = cx.background_executor().spawn(async move { crate::voice::screen::sound_apps() }).await;
+            let found = if cfg!(test) { Vec::new() } else { cx.background_executor().spawn(async move { crate::voice::screen::sound_apps() }).await };
             if this.update(cx, |picker, cx| {
                 picker.sound_apps = found;
                 cx.notify();

@@ -8,7 +8,9 @@ impl Dialog {
         self.location = None;
         cx.notify();
         cx.spawn(async move |dialog, cx| {
-            let found = cx.background_executor().spawn(async { crate::platform::location::locate() }).await;
+            // Tests ask the system nothing: on a runner, Windows may never answer whether the app
+            // may know where it is, and the test waits for ever.
+            let found = if cfg!(test) { Err("Your location isn't available right now.".to_string()) } else { cx.background_executor().spawn(async { crate::platform::location::locate() }).await };
             dialog
                 .update(cx, |dialog, cx| {
                     dialog.location = Some(found);
