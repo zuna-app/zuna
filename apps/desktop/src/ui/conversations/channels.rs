@@ -62,8 +62,7 @@ impl ConversationList {
                 .pl(px(6.))
                 .min_h(px(24.))
                 .child(
-                    div()
-                        .id(SharedString::from(format!("section-title-{name}")))
+                    named_div(SharedString::from(format!("section-title-{name}")))
                         .group(SharedString::from(format!("section-title-{name}")))
                         .flex_1()
                         .min_w_0()
@@ -156,8 +155,7 @@ impl ConversationList {
         let group = SharedString::from(format!("channel-{}", channel.id));
         let (open_state, open_channel) = (self.state.clone(), channel.clone());
         let menu = self.channel_menu(server, channel);
-        let mut row = div()
-            .id(group.clone())
+        let mut row = named_div(group.clone())
             .group(group.clone())
             .relative()
             .mx(px(8.))
@@ -220,8 +218,7 @@ impl ConversationList {
             .when(is_admin && (active || self.hovered_channel.as_ref() == Some(&channel.id)), |el| {
                 let (state, id) = (self.state.clone(), channel.id.clone());
                 el.child(
-                    div()
-                        .id(SharedString::from(format!("edit-{}", channel.id)))
+                    named_div(SharedString::from(format!("edit-{}", channel.id)))
                         .group("channel-edit")
                         .flex_none()
                         .flex()
@@ -413,9 +410,9 @@ pub(super) fn section_of(channel: &ChannelView) -> String {
 /// A channel being dragged to another place in the list, and what follows the mouse.
 #[derive(Clone)]
 pub(super) struct ChannelDrag {
-    id: String,
-    name: String,
-    section: String,
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) section: String,
 }
 
 impl Render for ChannelDrag {

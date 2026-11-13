@@ -178,3 +178,91 @@ fn the_servers_menu_and_a_rows_own(cx: &mut TestAppContext) {
     assert_eq!(labels(&entries(cx, &format!("user:{BOT}"), true, false)).last().unwrap(), "Archive");
     assert_eq!(labels(&entries(cx, &format!("user:{ME}"), true, true)), ["Pin to top", "Mark as unread", "Mute"]);
 }
+
+#[gpui::test]
+fn the_channels_fold_open_and_move(cx: &mut TestAppContext) {
+    let mut world = World::new("channel-list");
+    world.server["getCalls"] = json!([]);
+    world.server["getChannels"][0]["conversation"]["unreadMentions"] = json!(120);
+    world.server["getChannels"].as_array_mut().unwrap().push(json!({ "id": "c-misc", "type": "text", "key": "group:c-misc", "name": "misc", "position": 3,
+        "conversation": { "key": "group:c-misc", "kind": "channel", "groupId": "c-misc", "title": "misc", "ready": true, "lastActivityAt": NOW, "ownRead": 0, "muted": true } }));
+    let app = open(cx, &world);
+    for method in ["reorderChannels", "deleteChannel"] {
+        app.answer(method, |_| Ok(Value::Null));
+    }
+    let view = list(&app, cx);
+    // Folded, a heading keeps showing what mentions this person, and a channel with no heading of its own goes under its type's.
+    assert!(app.drawn(cx, "section-title-Text channels") && app.drawn(cx, "channel-c-misc"));
+    app.click(cx, "section-title-Talk");
+    assert_eq!(app.read(cx, |state| state.settings.collapsed_categories.clone()), ["Talk"]);
+    assert!(app.drawn(cx, &format!("channel-{GENERAL}")) && !app.drawn(cx, "channel-c-news"));
+    app.click(cx, "section-title-Talk");
+    assert!(app.read(cx, |state| state.settings.collapsed_categories.is_empty()) && app.drawn(cx, "channel-c-news"));
+    // One that can't be read doesn't open; one that can does, with its settings beside it for an admin.
+    app.click(cx, "channel-c-news");
+    assert_eq!(app.read(cx, |state| state.servers[SERVER].active_key.clone()), None);
+    app.click(cx, &format!("channel-{GENERAL}"));
+    assert_eq!(app.read(cx, |state| state.servers[SERVER].active_key.clone()), Some(format!("group:{GENERAL}")));
+    app.click(cx, &format!("edit-{GENERAL}"));
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Channel { channel_id: Some(GENERAL.into()), category: None }));
+    app.update(cx, |state, cx| state.set_overlay(None, cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // A right click's menu: muting, editing and deleting it, which asks first.
+    let bounds = VisualTestContext::from_window(app.window.into(), cx).debug_bounds("channel-c-misc").unwrap();
+    VisualTestContext::from_window(app.window.into(), cx).simulate_event(MouseDownEvent { position: bounds.center(), modifiers: Modifiers::none(), button: MouseButton::Right, click_count: 1, first_mouse: false });
+    app.run(cx);
+    assert_eq!(cx.read(|cx| crate::ui::menu::open_labels(cx)), ["Unmute", "Edit channel", "Delete channel"]);
+    let menu = cx.read(|cx| {
+        let state = app.state.read(cx);
+        let server = &state.servers[SERVER];
+        view.read(cx).channel_menu(server, server.channels.iter().find(|channel| channel.id == GENERAL).unwrap())
+    });
+    assert_eq!(menu[0].label, "Mute");
+    let run = |cx: &mut TestAppContext, entry: &crate::ui::menu::MenuEntry| {
+        let action = entry.action.clone().expect("it does something");
+        app.window.update(cx, |_, window, cx| action(window, cx)).unwrap();
+        app.run(cx);
+    };
+    let misc = cx.read(|cx| {
+        let state = app.state.read(cx);
+        let server = &state.servers[SERVER];
+        view.read(cx).channel_menu(server, server.channels.iter().find(|channel| channel.id == "c-misc").unwrap())
+    });
+    run(cx, &misc[0]);
+    assert_eq!(app.calls_of("unmute"), vec![vec![json!("group:c-misc")]]);
+    run(cx, &misc[2]);
+    cx.simulate_prompt_answer("Cancel");
+    app.run(cx);
+    assert!(app.calls_of("deleteChannel").is_empty());
+    run(cx, &misc[2]);
+    cx.simulate_prompt_answer("Delete");
+    app.run(cx);
+    assert_eq!(app.calls_of("deleteChannel"), vec![vec![json!("c-misc")]]);
+
+    // Dragged within its heading, past the middle of where it goes; elsewhere it stays.
+    let order: Vec<String> = [GENERAL, "c-news", LOUNGE, "c-misc"].iter().map(|id| id.to_string()).collect();
+    let news = channels::ChannelDrag { id: "c-news".into(), name: "news".into(), section: "Talk".into() };
+    view.update(cx, |list, cx| {
+        list.drag_channel_over(&news, "c-misc", "Text channels", &order, -5., cx);
+        list.drag_channel_over(&news, "c-news", "Talk", &order, -5., cx);
+        list.drag_channel_over(&news, GENERAL, "Talk", &order, 5., cx);
+    });
+    assert_eq!(cx.read(|cx| view.read(cx).drag_order.clone()), None, "nothing moved yet");
+    view.update(cx, |list, cx| list.drag_channel_over(&news, GENERAL, "Talk", &order, -5., cx));
+    app.run(cx);
+    view.update(cx, |list, cx| list.drop_channel(cx));
+    app.run(cx);
+    assert_eq!(app.calls_of("reorderChannels"), vec![vec![json!(["c-news", GENERAL, LOUNGE, "c-misc"])]]);
+    assert_eq!(cx.read(|cx| view.read(cx).drag_order.clone()), None);
+    // A refused order says why.
+    app.answer("reorderChannels", |_| Err(crate::testing::refused("Not allowed")));
+    view.update(cx, |list, cx| list.drag_channel_over(&news, GENERAL, "Talk", &order, -5., cx));
+    view.update(cx, |list, cx| list.drop_channel(cx));
+    app.run(cx);
+    assert!(app.toasts(cx).contains(&"Not allowed".to_string()));
+    // Let go with nothing moved, nothing's sent.
+    view.update(cx, |list, cx| list.drop_channel(cx));
+    app.run(cx);
+    assert_eq!(app.calls_of("reorderChannels").len(), 2);
+}
