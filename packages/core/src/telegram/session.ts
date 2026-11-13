@@ -1447,6 +1447,9 @@ export class TelegramSession {
     await this.engine.request({ "@type": "leaveChat", chat_id: chatId }).catch((error) => {
       throw explain(error);
     });
+    // Out of the list too, as Telegram's apps leave a group: a basic group left stays in it
+    // otherwise, with nothing to do there. Its history goes for this account alone.
+    await this.engine.request({ "@type": "deleteChatHistory", chat_id: chatId, remove_from_chat_list: true, revoke: false }).catch(() => undefined);
   }
 
   /** A group's name, and its picture, sent a part at a time as any file is. */

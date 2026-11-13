@@ -268,6 +268,14 @@ export class FakeTdlib implements TelegramAdapter {
             { "@type": "chatMember", member_id: { "@type": "messageSenderUser", user_id: BOT }, status: { "@type": "chatMemberStatusLeft" }, joined_chat_date: 1_700_000_200 },
           ],
         });
+      case "deleteChatHistory": {
+        const chat = this.chats.get(request.chat_id);
+        if (chat && request.remove_from_chat_list) {
+          chat.positions = [];
+          this.emit({ "@type": "updateChatPosition", chat_id: chat.id, position: { ...position("0"), order: "0" } });
+        }
+        return ok();
+      }
       case "createChatInviteLink":
         return answer({ "@type": "chatInviteLink", invite_link: "https://t.me/+AbCdEf123" });
       case "checkChatInviteLink": {

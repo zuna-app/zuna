@@ -567,6 +567,9 @@ describe("media, stickers and groups", () => {
     expect(await session.createInvite(id)).toBe("https://t.me/+AbCdEf123");
     await session.leaveGroup(id);
     expect(engine.requests("leaveChat")[0]).toMatchObject({ chat_id: -400 });
+    // And out of the list, for this account alone, as Telegram's apps leave one.
+    expect(engine.requests("deleteChatHistory")[0]).toMatchObject({ chat_id: -400, remove_from_chat_list: true, revoke: false });
+    await until(() => !session.getConversations().some((chat) => chat.key === "group:-400"), "the group gone from the list");
     // Who's in a group comes as it's opened, without those who left.
     await session.loadMessages(String(GROUP));
     const group = await until(() => session.getConversations().find((chat) => chat.key === `group:${GROUP}` && chat.members.length > 0), "the members");

@@ -36,6 +36,7 @@
     "addChatMembers": true,
     "setChatMemberStatus": { "status": [{ "@type": "chatMemberStatusLeft" }] },
     "leaveChat": true,
+    "deleteChatHistory": { "remove_from_chat_list": [true], "revoke": [false] },
     "setChatTitle": true,
     "setChatPhoto": true,
     "createChatInviteLink": true,
