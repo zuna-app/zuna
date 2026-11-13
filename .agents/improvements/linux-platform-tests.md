@@ -8,14 +8,6 @@ Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire),
 
 Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
 
-### The tray's icon and menu
-- Where: apps/desktop/src/platform/linux/tray.rs (6.6%)
-- Category: tests
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `ZunaTray`'s methods are pure, apart from `start` and `activate`, and untested.
-- Suggested change: make a `ZunaTray { unread, events }` with an `unbounded` channel. Test `id`, `title`, `category`, `tool_tip` with and without unread messages, `icon_pixmap` (six sizes, ARGB, `w * h * 4` bytes each), and `menu()`: activating "Open Zuna" and "Quit" sends `TrayEvent::Open` and `TrayEvent::Quit`.
-- Check after: `cargo test --bin zuna -- platform::linux::tray`
-
 ### Small ones, if there's room
 - Where: apps/desktop/src/platform/linux/mod.rs (14%), apps/desktop/src/platform/unix/single.rs (0%), apps/desktop/src/platform/linux/ptt.rs (37%)
 - Category: tests

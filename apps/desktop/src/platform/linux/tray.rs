@@ -111,3 +111,66 @@ pub fn remove() {
         tray.shutdown().wait();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ksni::Tray;
+
+    fn tray(unread: u32) -> (ZunaTray, UnboundedReceiver<TrayEvent>) {
+        let (events, receiver) = unbounded();
+        (ZunaTray { unread, events }, receiver)
+    }
+
+    #[test]
+    fn names_itself_as_the_app() {
+        let (tray, _) = tray(0);
+        assert_eq!(tray.id(), "zuna");
+        assert_eq!(tray.title(), "Zuna");
+        assert_eq!(tray.category(), ksni::Category::Communications);
+    }
+
+    #[test]
+    fn says_how_many_are_unread_in_its_tooltip() {
+        assert_eq!(tray(0).0.tool_tip().title, "Zuna");
+        assert_eq!(tray(1).0.tool_tip().title, "Zuna: 1 unread");
+        assert_eq!(tray(42).0.tool_tip().title, "Zuna: 42 unread");
+    }
+
+    #[test]
+    fn hands_over_its_icon_in_argb_at_six_sizes() {
+        let icons = tray(0).0.icon_pixmap();
+        assert_eq!(icons.iter().map(|icon| (icon.width, icon.height)).collect::<Vec<_>>(), [16, 22, 24, 32, 48, 64].map(|side| (side, side)));
+        for icon in &icons {
+            assert_eq!(icon.data.len(), (icon.width * icon.height * 4) as usize);
+            let rgba = crate::platform::app_icon(icon.width as u32);
+            let argb: Vec<u8> = rgba.pixels().flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]]).collect();
+            assert!(icon.data == argb, "at {}", icon.width);
+        }
+        // The same each time it's asked.
+        assert_eq!(tray(3).0.icon_pixmap()[2].data, icons[2].data);
+    }
+
+    #[test]
+    fn opens_and_quits_from_its_menu() {
+        let (mut tray, mut events) = tray(0);
+        let menu = tray.menu();
+        assert_eq!(menu.len(), 3);
+        assert!(matches!(menu[1], MenuItem::Separator));
+        let mut picked = Vec::new();
+        for item in &menu {
+            if let MenuItem::Standard(item) = item {
+                (item.activate)(&mut tray);
+                picked.push((item.label.clone(), events.try_recv().ok()));
+            }
+        }
+        assert_eq!(picked, [("Open Zuna".to_string(), Some(TrayEvent::Open)), ("Quit".to_string(), Some(TrayEvent::Quit))]);
+    }
+
+    #[test]
+    fn sends_nothing_once_nobody_listens() {
+        let (tray, events) = tray(0);
+        drop(events);
+        tray.send(TrayEvent::Open);
+    }
+}
