@@ -10,21 +10,39 @@ use zbus::MatchRule;
 
 /// Whether KDE's setting, and GNOME's, has animations off. Either can, as a portal answers
 /// the other desktop's key with its default.
-static KDE_OFF: AtomicBool = AtomicBool::new(false);
-static GNOME_OFF: AtomicBool = AtomicBool::new(false);
+struct Animations {
+    kde_off: AtomicBool,
+    gnome_off: AtomicBool,
+}
+
+impl Animations {
+    const fn new() -> Self {
+        Animations { kde_off: AtomicBool::new(false), gnome_off: AtomicBool::new(false) }
+    }
+
+    fn set(&self, namespace: &str, off: bool) {
+        let before = self.off();
+        if namespace.starts_with("org.kde") { &self.kde_off } else { &self.gnome_off }.store(off, Ordering::Relaxed);
+        if self.off() != before {
+            log::info!("the desktop's animations are {}", if self.off() { "off" } else { "on" });
+        }
+    }
+
+    fn off(&self) -> bool {
+        self.kde_off.load(Ordering::Relaxed) || self.gnome_off.load(Ordering::Relaxed)
+    }
+}
+
+static ANIMATIONS: Animations = Animations::new();
 
 fn set_animations_off(namespace: &str, off: bool) {
-    let before = animations_off();
-    if namespace.starts_with("org.kde") { &KDE_OFF } else { &GNOME_OFF }.store(off, Ordering::Relaxed);
-    if animations_off() != before {
-        log::info!("the desktop's animations are {}", if animations_off() { "off" } else { "on" });
-    }
+    ANIMATIONS.set(namespace, off);
 }
 
 /// Whether the desktop has its animations off: KDE's speed at its slowest end, GNOME's
 /// switch turned off.
 pub fn animations_off() -> bool {
-    KDE_OFF.load(Ordering::Relaxed) || GNOME_OFF.load(Ordering::Relaxed)
+    ANIMATIONS.off()
 }
 
 /// What a setting's value says about animations, if it's one about them.
@@ -74,4 +92,65 @@ pub fn start() {
             }
         })
         .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KDE: (&str, &str) = ("org.kde.kdeglobals.KDE", "AnimationDurationFactor");
+    const GNOME: (&str, &str) = ("org.gnome.desktop.interface", "enable-animations");
+
+    fn says((namespace, key): (&str, &str), value: Value) -> Option<bool> {
+        says_off(namespace, key, &value)
+    }
+
+    #[test]
+    fn reads_kdes_animation_speed() {
+        assert_eq!(says(KDE, Value::F64(0.)), Some(true));
+        assert_eq!(says(KDE, Value::F64(-1.)), Some(true));
+        assert_eq!(says(KDE, Value::F64(1.)), Some(false));
+        assert_eq!(says(KDE, Value::F64(0.25)), Some(false));
+        assert_eq!(says(KDE, Value::from("0")), Some(true));
+        assert_eq!(says(KDE, Value::from("1.5")), Some(false));
+        assert_eq!(says(KDE, Value::from("abc")), None);
+        assert_eq!(says(KDE, Value::Bool(false)), None);
+        // As the portal's ReadOne wraps it.
+        assert_eq!(says(KDE, Value::Value(Box::new(Value::F64(0.)))), Some(true));
+        assert_eq!(says(KDE, Value::Value(Box::new(Value::from("1")))), Some(false));
+    }
+
+    #[test]
+    fn reads_gnomes_animation_switch() {
+        assert_eq!(says(GNOME, Value::Bool(false)), Some(true));
+        assert_eq!(says(GNOME, Value::Bool(true)), Some(false));
+        assert_eq!(says(GNOME, Value::Value(Box::new(Value::Bool(false)))), Some(true));
+        assert_eq!(says(GNOME, Value::from("false")), None);
+        assert_eq!(says(GNOME, Value::F64(0.)), None);
+    }
+
+    #[test]
+    fn ignores_every_other_setting() {
+        assert_eq!(says(("org.kde.kdeglobals.KDE", "SingleClick"), Value::F64(0.)), None);
+        assert_eq!(says(("org.gnome.desktop.interface", "color-scheme"), Value::Bool(false)), None);
+        assert_eq!(says(("org.freedesktop.appearance", "AnimationDurationFactor"), Value::F64(0.)), None);
+        assert_eq!(says(("org.kde.kdeglobals.KDE", "enable-animations"), Value::Bool(false)), None);
+    }
+
+    #[test]
+    fn has_animations_off_while_either_desktop_says_so() {
+        // Its own, as the app's are read by other tests.
+        let animations = Animations::new();
+        assert!(!animations.off());
+        animations.set(KDE.0, true);
+        assert!(animations.off());
+        animations.set(GNOME.0, true);
+        animations.set(KDE.0, false);
+        assert!(animations.off(), "GNOME's still is");
+        animations.set(GNOME.0, false);
+        assert!(!animations.off());
+        // A namespace that isn't KDE's counts as GNOME's.
+        animations.set("org.freedesktop.appearance", true);
+        assert!(animations.gnome_off.load(Ordering::Relaxed) && !animations.kde_off.load(Ordering::Relaxed));
+    }
 }
