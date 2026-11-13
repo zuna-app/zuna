@@ -325,8 +325,12 @@ impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         let telegram_in_front = self.state.read(cx).active().is_some_and(|server| server.entry.is_telegram());
+        let has_connections = crate::telegram::available() || self.state.read(cx).servers.contains_key(crate::telegram::SERVER_ID);
         if telegram_in_front && SERVER_SECTIONS.contains(&self.section.as_str()) {
             self.section = "connections".into();
+        }
+        if self.section == "connections" && !has_connections {
+            self.section = "profile".into();
         }
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
@@ -368,7 +372,8 @@ impl Render for SettingsView {
             .flex_col()
             .gap(px(1.))
             .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child("Settings"))
-            .children(SECTIONS.iter().filter(|(id, _, _)| !telegram_in_front || !SERVER_SECTIONS.contains(id)).map(|(id, label, icon_name)| {
+            // Connections only where Telegram can be linked, or one is: a build without an api_id has nothing to say there.
+            .children(SECTIONS.iter().filter(|(id, _, _)| (!telegram_in_front || !SERVER_SECTIONS.contains(id)) && (*id != "connections" || has_connections)).map(|(id, label, icon_name)| {
                 let active = self.section == *id;
                 let id_string = id.to_string();
                 div()
