@@ -834,9 +834,9 @@ export class TelegramSession {
   getConversations(): ConversationView[] {
     const now = Date.now();
     const views: ConversationView[] = [];
-    for (const chat of this.chats.values()) {
+    for (const [id, chat] of this.chats) {
       const last = isObject(chat.last_message) ? this.view(chat.last_message) : null;
-      const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last, members: this.members.get(idOf(chat.id) ?? 0) ?? [] });
+      const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last, members: this.members.get(id) ?? [] });
       if (view) views.push(view);
     }
     return views;
@@ -1006,7 +1006,7 @@ export class TelegramSession {
     const chatId = this.chatOf(groupId);
     if (before === undefined) await this.open(chatId);
     const found = await this.history(chatId, before ?? 0, 0, PAGE_SIZE);
-    const older = found.filter((message) => before === undefined || (idOf(message.id) ?? 0) < before);
+    const older = found.filter((message) => before === undefined || idOf(message.id)! < before);
     return { messages: this.views(older), hasMore: older.length >= PAGE_SIZE / 2 };
   }
 
@@ -1017,7 +1017,7 @@ export class TelegramSession {
 
   async loadNewer(groupId: string, after: number): Promise<{ messages: MessageView[]; hasMore: boolean }> {
     const chatId = this.chatOf(groupId);
-    const found = (await this.history(chatId, after, -PAGE_SIZE, PAGE_SIZE + 1)).filter((message) => (idOf(message.id) ?? 0) > after);
+    const found = (await this.history(chatId, after, -PAGE_SIZE, PAGE_SIZE + 1)).filter((message) => idOf(message.id)! > after);
     return { messages: this.views(found), hasMore: found.length >= PAGE_SIZE };
   }
 
@@ -1084,7 +1084,7 @@ export class TelegramSession {
       cursor = Math.min(...[...found.keys()]);
     }
     for (const message of found.values()) this.remember(message);
-    return [...found.values()].sort((a, b) => (idOf(a.id) ?? 0) - (idOf(b.id) ?? 0));
+    return [...found.entries()].sort(([a], [b]) => a - b).map(([, message]) => message);
   }
 
   private views(messages: TdObject[]): MessageView[] {
