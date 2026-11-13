@@ -34,6 +34,11 @@ export function Privacy() {
             <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Whoever puts a video on has their device fetch its title and picture, in
             the web app through its host.
           </li>
+          <li>
+            Telegram, from the Windows app, only on a device where you link your own Telegram account, which it uses through Telegram's API. Those chats
+            aren't end-to-end encrypted: Telegram keeps them under <a href="https://telegram.org/privacy">its privacy policy</a>, and sees your IP address and
+            when you're online. The project's servers and yours never see them.
+          </li>
         </ul>
 
         <p>
