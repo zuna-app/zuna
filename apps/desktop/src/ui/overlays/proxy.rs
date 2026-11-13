@@ -248,3 +248,67 @@ impl Dialog {
 fn milliseconds(took: Duration) -> String {
     format!("{} ms", took.as_millis().max(1))
 }
+
+#[cfg(test)]
+mod tests {
+    //! The proxy's dialog, short of saving, which would send this process's every connection
+    //! through it: the switch, and what its fields must hold before it's tried.
+
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::{App as Running, World};
+
+    fn dialog(app: &Running, cx: &mut TestAppContext) -> Entity<Dialog> {
+        app.window.update(cx, |root, _, _| root.overlay.as_ref().and_then(|(_, view)| view.clone().downcast::<Dialog>().ok())).unwrap().expect("the proxy's dialog is up")
+    }
+
+    #[gpui::test]
+    fn a_proxy_is_checked_only_once_its_fields_make_one(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("proxy-dialog"));
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Proxy { from_settings: true }), cx));
+        let view = dialog(&app, cx);
+        let fields = cx.read(|cx| {
+            let form = view.read(cx).proxy_form.as_ref().unwrap();
+            [form.host.clone(), form.port.clone(), form.username.clone(), form.password.clone()]
+        });
+        let problem = |cx: &mut TestAppContext| cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().problem.clone());
+        let fill = |cx: &mut TestAppContext, values: [&str; 4]| {
+            for (field, value) in fields.iter().zip(values) {
+                field.update(cx, |input, cx| input.set_text(value, cx));
+            }
+            app.run(cx);
+        };
+        // With none set yet, it opens switched on, for one to be written.
+        assert!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().on));
+        for (values, why) in [
+            (["", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
+            (["proxy example", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
+            (["proxy.example/socks", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
+            (["127.0.0.1", "0", "", ""], "The port is a number from 1 to 65535."),
+            (["127.0.0.1", "70000", "", ""], "The port is a number from 1 to 65535."),
+        ] {
+            fill(cx, values);
+            app.click(cx, "proxy-check");
+            assert_eq!(problem(cx).as_deref(), Some(why), "{values:?}");
+        }
+        let long = "x".repeat(256);
+        fill(cx, ["[::1]", "9050", &long, ""]);
+        app.click(cx, "proxy-check");
+        assert_eq!(problem(cx).as_deref(), Some("SOCKS5 carries a username and a password of at most 255 bytes each."));
+        // Typing again takes what was wrong away.
+        fill(cx, ["[::1]", "9050", "me", "secret"]);
+        assert_eq!(problem(cx), None);
+        assert_eq!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().proxy(cx)).map(|proxy| (proxy.host, proxy.port, proxy.username, proxy.password)), Ok(("::1".into(), 9050, "me".into(), "secret".into())));
+        // Switched off, its fields go, and Escape in one closes it, back to Settings.
+        app.click(cx, "proxy-on");
+        assert!(!cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().on) && !app.drawn(cx, "proxy-check"));
+        app.click(cx, "proxy-on");
+        fields[0].update(cx, |_, cx| cx.emit(InputEvent::Escape));
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Settings { section: Some("privacy".into()) }));
+        assert_eq!(super::milliseconds(Duration::from_micros(10)), "1 ms");
+    }
+}
