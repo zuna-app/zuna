@@ -342,7 +342,8 @@ export function toLiveKit(message: Uint8Array): Rewritten {
       }),
     };
   } catch (error) {
-    return { dropped: `a message to LiveKit the relay couldn't read: ${error instanceof Error ? error.message : String(error)}` };
+    // Only what can't be read throws here, as nothing of the host's is called.
+    return { dropped: `a message to LiveKit the relay couldn't read: ${(error as Malformed).message}` };
   }
 }
 
