@@ -455,6 +455,12 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		writeFailure(w, err)
 		return
 	}
+	// Banned first, which ends their sessions, so that nothing they do meanwhile counts:
+	// a channel joined while they're taken out of the rest would keep them on its roster.
+	if err := s.db.MarkBanned(r.Context(), targetID, sess.UserID); err != nil {
+		writeFailure(w, err)
+		return
+	}
 	// Their bots go with them, for good.
 	if err := s.deleteBotsOf(r, targetID); err != nil {
 		writeFailure(w, err)

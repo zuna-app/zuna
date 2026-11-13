@@ -423,6 +423,24 @@ func (d *DB) SetRole(ctx context.Context, userID, role string) error {
 }
 
 // BanUser marks the user banned by the admin bannedBy and ends all of their sessions.
+// MarkBanned marks an account banned and ends its sessions, the first thing a ban does, so
+// that nothing it does while it's taken out of its conversations counts, such as joining
+// a channel. BanUser does the rest.
+func (d *DB) MarkBanned(ctx context.Context, userID, bannedBy string) error {
+	return d.tx(ctx, func(tx handle) error {
+		now := Now()
+		res, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = ?, banned_by = ?, updated_at = ? WHERE id = ?`, now, bannedBy, now, userID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID)
+		return err
+	})
+}
+
 func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
 	return d.tx(ctx, func(tx handle) error {
 		now := Now()
