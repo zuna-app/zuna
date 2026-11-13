@@ -87,8 +87,7 @@ impl ChatView {
                     .text_color(theme.text2)
                     .child(div().flex_1().min_w_0().flex().child("Replying to ").child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(sender)))
                     .child(
-                        div()
-                            .id("cancel-reply")
+                        named_div("cancel-reply")
                             .size(px(26.))
                             .rounded_full()
                             .flex()
@@ -220,8 +219,7 @@ impl ChatView {
                                 .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_bytes(staged.size as f64))),
                         )
                         .child(
-                            div()
-                                .id(("remove-file", index))
+                            named_div(SharedString::from(format!("remove-file-{index}")))
                                 .absolute()
                                 .top(px(3.))
                                 .right(px(3.))
@@ -269,8 +267,7 @@ impl ChatView {
         // icon under the pointer; a chat's are plain `.icon-btn`s.
         let composer_button = |id: &'static str, icon_name: &'static str, cx: &mut Context<Self>| {
             if is_channel {
-                div()
-                    .id(id)
+                named_div(id)
                     .group(id)
                     .w(px(36.))
                     .h(px(44.))
@@ -470,8 +467,7 @@ impl ChatView {
             };
             let chosen = self.selected == Some(index);
             list = list.child(
-                div()
-                    .id(SharedString::from(format!("suggestion-{}", suggestion.key)))
+                named_div(SharedString::from(format!("suggestion-{}", suggestion.key)))
                     .w_full()
                     .flex()
                     .items_center()

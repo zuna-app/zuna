@@ -608,3 +608,96 @@ fn a_messages_text_is_selected_stretched_and_copied(cx: &mut TestAppContext) {
     app.run(cx);
     assert_eq!(crate::ui::selection::text(), None, "a click without a drag selects nothing");
 }
+
+#[gpui::test]
+fn the_box_in_each_state_a_chat_can_be_in(cx: &mut TestAppContext) {
+    let mut world = World::new("composer-states");
+    world.server["getCalls"] = json!([]);
+    let (app, chat) = open_chat(cx, &world, &format!("user:{BOB}"));
+    app.update(cx, |state, _| state.settings.reduce_motion = true);
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    let item = |cx: &mut TestAppContext, id: &str| app.read(cx, |state| state.lists[DM].items.iter().find(|message| message.id == id).cloned().unwrap());
+    // Editing, let go of from its line above the box, which empties it.
+    let mine = item(cx, "m02");
+    app.update(cx, |state, cx| state.set_editing(DM, Some(mine), cx));
+    app.click(cx, "cancel-context");
+    assert!(app.read(cx, |state| !state.editing.contains_key(DM)));
+    assert_eq!(typed(&chat, cx), "");
+    // A reply, the same way.
+    let theirs = item(cx, "m03");
+    app.update(cx, |state, cx| state.set_reply(DM, Some(theirs), cx));
+    app.click(cx, "cancel-context");
+    assert!(app.read(cx, |state| !state.reply_to.contains_key(DM)));
+    // A file taken off before it goes.
+    let dir = std::env::temp_dir().join(format!("zuna-composer-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), b"a").unwrap();
+    composer_event(&app, &chat, cx, InputEvent::Files(vec![dir.join("a.txt")]));
+    app.click(cx, "remove-file-0");
+    assert!(cx.read(|cx| chat.read(cx).files.is_empty()));
+    // A link's preview, put away for this link.
+    type_in(&app, cx, "look https://example.com/thing ");
+    app.settle(cx, |_| true);
+    app.run(cx);
+    if app.drawn(cx, "remove-link") {
+        app.click(cx, "remove-link");
+        assert_eq!(cx.read(|cx| chat.read(cx).dismissed_link.clone()), Some("https://example.com/thing".into()));
+    }
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
+    // Emoji and emotes from the picker go where the cursor is, an emote with a space before it.
+    app.click(cx, "emoji");
+    assert!(cx.read(|cx| crate::ui::picker::is_open(cx)));
+    let pick = |cx: &mut TestAppContext, pick: crate::ui::picker::Pick| {
+        app.window.update(cx, |_, window, cx| crate::ui::picker::choose(pick, window, cx)).unwrap();
+        app.run(cx);
+    };
+    pick(cx, crate::ui::picker::Pick::Emoji("😀".into()));
+    assert!(cx.read(|cx| crate::ui::picker::is_open(cx)), "it stays open for another emoji");
+    let kappa: crate::models::Emote = serde_json::from_value(json!({ "id": "01KAPPA", "name": "Kappa", "animated": false, "width": 28, "height": 28 })).unwrap();
+    pick(cx, crate::ui::picker::Pick::Emote(kappa));
+    assert_eq!(typed(&chat, cx), "😀 Kappa ");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
+    // A suggestion taken with the mouse.
+    type_in(&app, cx, "@bo");
+    let first = cx.read(|cx| chat.read(cx).suggestions.first().map(|suggestion| suggestion.key.clone())).expect("someone's suggested");
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    let at = window.debug_bounds(Box::leak(format!("suggestion-{first}").into_boxed_str())).expect("drawn").center();
+    window.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    window.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+    window.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+    app.run(cx);
+    assert!(typed(&chat, cx).starts_with("@bob"), "{}", typed(&chat, cx));
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
+
+    // Someone blocked: no box, but a way to unblock them.
+    app.answer("setBlocked", |_| Ok(Value::Null));
+    app.update(cx, |state, cx| state.select_conversation(Some(format!("user:{CAROL}")), cx));
+    app.click(cx, "unblock");
+    assert_eq!(app.calls_of("setBlocked"), vec![vec![json!(CAROL), json!(false)]]);
+    // A chat this person was taken out of: removed from this device at once if they like.
+    app.answer("forgetConversation", |_| Ok(Value::Null));
+    let mut world = World::new("composer-removed");
+    world.server["getCalls"] = json!([]);
+    world.server["getConversations"][1]["removed"] = json!(true);
+    let (app, _) = open_chat(cx, &world, &format!("group:{GROUP}"));
+    app.answer("forgetConversation", |_| Ok(Value::Null));
+    app.click(cx, "forget");
+    assert_eq!(app.calls_of("forgetConversation"), vec![vec![json!(GROUP)]]);
+    assert_eq!(app.read(cx, |state| state.servers[SERVER].active_key.clone()), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[gpui::test]
+fn a_channels_box_lets_go_of_a_reply_and_picks(cx: &mut TestAppContext) {
+    // A channel's reply line, let go of from its own cross.
+    let mut world = World::new("channel-box");
+    world.server["getCalls"] = json!([]);
+    let (app, _) = open_chat(cx, &world, &format!("group:{GENERAL}"));
+    app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
+    let any = app.read(cx, |state| state.lists[GENERAL].items[0].clone());
+    app.update(cx, |state, cx| state.set_reply(GENERAL, Some(any), cx));
+    app.click(cx, "cancel-reply");
+    assert!(app.read(cx, |state| !state.reply_to.contains_key(GENERAL)));
+    app.click(cx, "emoji");
+    assert!(cx.read(|cx| crate::ui::picker::is_open(cx)), "a channel's box has the picker too");
+}
