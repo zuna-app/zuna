@@ -5,6 +5,17 @@ import UIKit
 import ZunaHost
 import ZunaModels
 
+extension AvatarRef {
+    /// What a decrypted picture is kept by while the app runs: its file and the key it opens with. A
+    /// message elsewhere can name the same file with any key, and must never be shown this one's copy.
+    var cacheId: String { "\(fileId)\n\(key)\n\(prefix)" }
+}
+
+extension Attachment {
+    /// The same, for a file a message carries.
+    var cacheId: String { "\(fileId)\n\(key)\n\(prefix)" }
+}
+
 /// Decrypted avatars and server icons, kept in memory while the app runs.
 @MainActor
 @Observable
@@ -34,7 +45,7 @@ final class ImageStore {
 
     /// A person's or group's avatar, decrypted by the core.
     func avatar(_ avatar: AvatarRef, serverId: String, size: CGFloat) async -> UIImage? {
-        await load(avatar.fileId, size: size) { [core] in
+        await load(avatar.cacheId, size: size) { [core] in
             let file = try await core.session(serverId).downloadFile(avatar)
             return try Data(contentsOf: URL(fileURLWithPath: file.path))
         }
@@ -42,14 +53,14 @@ final class ImageStore {
 
     /// A picture sent in a message, decrypted by the core.
     func attachment(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
-        await load("file:\(attachment.fileId)", size: size) { [self] in
+        await load("file:\(attachment.cacheId)", size: size) { [self] in
             try Data(contentsOf: try await decrypted(attachment, serverId: serverId))
         }
     }
 
     /// A frame from a video sent in a message, taken once the core has decrypted it.
     func videoFrame(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
-        await load("frame:\(attachment.fileId)", size: size) { [self] in
+        await load("frame:\(attachment.cacheId)", size: size) { [self] in
             let file = try await decrypted(attachment, serverId: serverId)
             let asset = AVURLAsset(url: file, options: [AVURLAssetOverrideMIMETypeKey: attachment.mime])
             let generator = AVAssetImageGenerator(asset: asset)
@@ -63,7 +74,7 @@ final class ImageStore {
     }
 
     func cachedVideoFrame(_ attachment: Attachment) -> UIImage? {
-        attachment.fileId.isEmpty ? nil : cached("frame:\(attachment.fileId)")
+        attachment.fileId.isEmpty ? nil : cached("frame:\(attachment.cacheId)")
     }
 
     /// The decrypted file under its own name, for QuickLook and the share sheet.
@@ -81,7 +92,7 @@ final class ImageStore {
 
     /// All of a file, decrypted, once while the app runs: a video playing as it comes gives it once it has all come.
     private func decrypted(_ attachment: Attachment, serverId: String) async throws -> URL {
-        let id = attachment.fileId
+        let id = attachment.cacheId
         if let file = decryptedFiles[id], FileManager.default.fileExists(atPath: file.path) { return file }
         if let task = decrypting[id] { return try await task.value }
         let task = Task { [core, stream = videoStreams[id]] in
@@ -98,16 +109,16 @@ final class ImageStore {
     /// A video to play at once: from its file once all of it is here, otherwise as it comes, a few
     /// chunks ahead of where it plays. Nil for one that can't play as it comes, which plays once it's all here.
     func videoAsset(_ attachment: Attachment, serverId: String) -> AVURLAsset? {
-        if let file = decryptedFiles[attachment.fileId] { return AVURLAsset(url: file, options: [AVURLAssetOverrideMIMETypeKey: attachment.mime]) }
-        if let stream = videoStreams[attachment.fileId] { return stream.asset() }
+        if let file = decryptedFiles[attachment.cacheId] { return AVURLAsset(url: file, options: [AVURLAssetOverrideMIMETypeKey: attachment.mime]) }
+        if let stream = videoStreams[attachment.cacheId] { return stream.asset() }
         guard let stream = VideoStream(attachment, session: core.session(serverId)) else { return nil }
-        videoStreams[attachment.fileId] = stream
+        videoStreams[attachment.cacheId] = stream
         return stream.asset()
     }
 
     /// Done with a video for now: what AVPlayer isn't waiting for stops coming.
     func stopFetching(_ attachment: Attachment) {
-        videoStreams[attachment.fileId]?.pause()
+        videoStreams[attachment.cacheId]?.pause()
     }
 
     /// After an admin changes the server's picture, the next look fetches it again.
@@ -117,7 +128,7 @@ final class ImageStore {
     }
 
     func cachedAttachment(_ attachment: Attachment) -> UIImage? {
-        cached("file:\(attachment.fileId)")
+        cached("file:\(attachment.cacheId)")
     }
 
     /// The small blurred preview a message carries, as a data URL.
@@ -224,7 +235,7 @@ struct AvatarView: View {
     private var cacheKey: String? {
         switch source {
         case .none: nil
-        case let .avatar(avatar, _): avatar.fileId
+        case let .avatar(avatar, _): avatar.cacheId
         case let .serverIcon(entry): "icon:\(entry.url)"
         case let .serverAt(url, _): "icon:\(url)"
         }

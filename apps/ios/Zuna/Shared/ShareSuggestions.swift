@@ -41,13 +41,13 @@ enum ShareSuggestions {
     /// The chat's picture, small, as the share sheet shows it.
     @MainActor private static func picture(_ avatar: AvatarRef?, serverId: String, through core: CoreConnection) async -> INImage? {
         guard let avatar else { return nil }
-        if let data = pictures[avatar.fileId] { return INImage(imageData: data) }
+        if let data = pictures[avatar.cacheId] { return INImage(imageData: data) }
         guard let file = try? await core.session(serverId).downloadFile(avatar),
               let image = UIImage(contentsOfFile: file.path),
               let small = await image.byPreparingThumbnail(ofSize: CGSize(width: 180, height: 180)),
               let data = small.jpegData(compressionQuality: 0.8) else { return nil }
         if pictures.count >= 64 { pictures.removeAll() }
-        pictures[avatar.fileId] = data
+        pictures[avatar.cacheId] = data
         return INImage(imageData: data)
     }
 }
