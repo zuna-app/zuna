@@ -281,6 +281,25 @@ impl ChatView {
             let added = new_ids.len() - old_ids.len();
             self.list.splice(0..0, added);
             self.list.splice(added..added + 1, 1);
+        } else if let Some((prefix, old_middle, new_middle)) = small_change(&old_ids, &new_ids) {
+            // A few rows taken away, added or put in another's place, as a message deleted, or
+            // sent to Telegram and given its number there: only those are laid out again, and the
+            // list stays where it is. Laid out anew, it went to its start and back to its end.
+            self.list.splice(prefix..prefix + old_middle, new_middle);
+            let suffix = new_rows.len() - prefix - new_middle;
+            for index in (0..prefix).chain(new_rows.len() - suffix..new_rows.len()) {
+                let old_index = if index < prefix { index } else { index + old_middle - new_middle };
+                if old[old_index].1 != new_rows[index].1 {
+                    self.list.splice(index..index + 1, 1);
+                }
+            }
+            // Neighbors change shape when a run of messages changes beside them.
+            if prefix > 0 {
+                self.list.splice(prefix - 1..prefix, 1);
+            }
+            if suffix > 0 {
+                self.list.splice(prefix + new_middle..prefix + new_middle + 1, 1);
+            }
         } else {
             // At the newest again, so no glide is left to go there.
             self.list.reset(new_rows.len());
@@ -664,5 +683,52 @@ impl ChatView {
                     }),
             )
             .into_any_element()
+    }
+}
+
+/// Where two lists of rows differ, when that's one short stretch: how many rows before it are the
+/// same, and how many it holds in the old list and the new. None for a change that's long or
+/// leaves nothing in place, as a window moved to the newest does, which is laid out anew.
+fn small_change(old: &[&String], new: &[&String]) -> Option<(usize, usize, usize)> {
+    const MOST: usize = 10;
+    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let most_suffix = old.len().min(new.len()) - prefix;
+    let suffix = old.iter().rev().zip(new.iter().rev()).take(most_suffix).take_while(|(a, b)| a == b).count();
+    let (old_middle, new_middle) = (old.len() - prefix - suffix, new.len() - prefix - suffix);
+    (prefix + suffix > 0 && old_middle <= MOST && new_middle <= MOST).then_some((prefix, old_middle, new_middle))
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::small_change;
+
+    fn ids(names: &str) -> Vec<String> {
+        names.split(' ').filter(|name| !name.is_empty()).map(String::from).collect()
+    }
+
+    fn change(old: &str, new: &str) -> Option<(usize, usize, usize)> {
+        let (old, new) = (ids(old), ids(new));
+        small_change(&old.iter().collect::<Vec<_>>(), &new.iter().collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_few_rows_changed_anywhere_are_one_stretch() {
+        // A message sent to Telegram, given its number there.
+        assert_eq!(change("a b c tmp", "a b c 9"), Some((3, 1, 1)));
+        // Two sent close together, the first given its number while the second still goes.
+        assert_eq!(change("a b tmp1 tmp2", "a b 8 tmp2"), Some((2, 1, 1)));
+        // One deleted in the middle, and one at the end.
+        assert_eq!(change("a b c d e", "a b d e"), Some((2, 1, 0)));
+        assert_eq!(change("a b c", "a b"), Some((2, 1, 0)));
+        // A row in between two that came apart.
+        assert_eq!(change("a c", "a b c"), Some((1, 0, 1)));
+    }
+
+    #[test]
+    fn a_long_change_or_none_kept_is_laid_out_anew() {
+        assert_eq!(change("a b c", "x y z"), None);
+        let old = (0..30).map(|n| n.to_string()).collect::<Vec<_>>().join(" ");
+        let new = format!("0 {}", (100..120).map(|n| n.to_string()).collect::<Vec<_>>().join(" "));
+        assert_eq!(change(&old, &new), None);
     }
 }

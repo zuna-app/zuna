@@ -491,9 +491,8 @@ export class TelegramSession {
         const chatId = idOf(message.chat_id);
         if (!chatId) return;
         this.messages.get(chatId)?.delete(old);
-        this.options.onEvent({ type: "message_removed", serverId: TELEGRAM_ID, groupId: String(chatId), id: String(old) });
         this.remember(message);
-        this.emitMessage(message, false);
+        this.emitMessage(message, false, old);
         return;
       }
       case "updateMessageSendFailed": {
@@ -501,12 +500,10 @@ export class TelegramSession {
         const old = idOf(update.old_message_id);
         if (!isObject(message)) return;
         const chatId = idOf(message.chat_id);
-        if (chatId && old && old !== idOf(message.id)) {
-          this.messages.get(chatId)?.delete(old);
-          this.options.onEvent({ type: "message_removed", serverId: TELEGRAM_ID, groupId: String(chatId), id: String(old) });
-        }
+        const replaced = chatId && old && old !== idOf(message.id) ? old : undefined;
+        if (chatId && replaced) this.messages.get(chatId)?.delete(replaced);
         this.remember(message);
-        this.emitMessage(message, false);
+        this.emitMessage(message, false, replaced);
         return;
       }
       case "updateMessageContent":
@@ -723,11 +720,17 @@ export class TelegramSession {
     return chat && chatKind(chat) ? chat : undefined;
   }
 
-  private emitMessage(raw: TdObject, isNew: boolean): void {
+  /**
+   * A message for the interface. One that took the place of another, as one sent takes the number
+   * Telegram gives it, says which in the same event, so the chat swaps it where it is: taken away
+   * and added again, its list was laid out anew and jumped.
+   */
+  private emitMessage(raw: TdObject, isNew: boolean, replaces?: number): void {
     const chatId = idOf(raw.chat_id);
     if (!chatId || !this.listed(chatId)) return;
     const message = this.view(raw);
-    if (message) this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message, isNew });
+    if (message) this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message, isNew, ...(replaces ? { replaces: String(replaces) } : {}) });
+    else if (replaces) this.options.onEvent({ type: "message_removed", serverId: TELEGRAM_ID, groupId: String(chatId), id: String(replaces) });
     this.queueConversations();
   }
 

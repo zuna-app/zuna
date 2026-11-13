@@ -103,6 +103,20 @@ impl AppState {
         }
     }
 
+    /// Puts a message where another was, as a message sent to Telegram takes the number Telegram
+    /// gives it, so the chat swaps one row and keeps its place.
+    pub(super) fn replace_message(&mut self, old: &str, message: MessageView) {
+        let Some(list) = self.lists.get_mut(&message.group_id) else { return };
+        list.items.retain(|item| item.id != message.id);
+        match list.items.iter().position(|item| item.id == old) {
+            Some(index) => {
+                list.items[index] = message;
+                sort_messages(&mut list.items);
+            }
+            None => self.upsert_message(message),
+        }
+    }
+
     pub fn handle_event(&mut self, event: Value, cx: &mut Context<Self>) {
         // Plugins hear what their permissions cover, and someone typing and a notification pass
         // their filters first, when any has one.
@@ -159,7 +173,11 @@ impl AppState {
                         }
                     }
                 }
-                self.upsert_message(message);
+                // A message sent to Telegram, under the number Telegram gave it: where it was.
+                match event.get("replaces").and_then(Value::as_str) {
+                    Some(old) => self.replace_message(old, message),
+                    None => self.upsert_message(message),
+                }
             }
             "message_removed" => {
                 let group = text("groupId");

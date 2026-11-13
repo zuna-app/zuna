@@ -772,7 +772,17 @@ export type CoreEvent =
   | { type: "call"; serverId: string; groupId: string; call: CallView | null }
   /** The calls going on were caught up on, so ask again for them and who's in them. */
   | { type: "calls"; serverId: string }
-  | { type: "message"; serverId: string; message: MessageView; isNew: boolean }
+  | {
+      type: "message";
+      serverId: string;
+      message: MessageView;
+      isNew: boolean;
+      /**
+       * The message this one takes the place of, where it was: one sent to the linked Telegram
+       * account, under the number Telegram gave it. Never set for a server's.
+       */
+      replaces?: string;
+    }
   | { type: "message_removed"; serverId: string; groupId: string; id: string }
   | { type: "message_moved"; serverId: string; fromGroupId: string; message: MessageView }
   | { type: "users"; serverId: string }

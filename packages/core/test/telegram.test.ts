@@ -171,8 +171,9 @@ describe("a linked account's chats", () => {
     expect(request.input_message_content.text).toEqual({ "@type": "formattedText", text: "On my way", entities: [{ offset: 0, length: 2, type: { "@type": "textEntityTypeBold" } }] });
     expect(request.reply_to).toMatchObject({ message_id: serverId(3) });
     const moved = await until(() => events.find((event) => event.type === "message" && event.message.id === String(serverId(101))), "the sent message");
-    expect(events.some((event) => event.type === "message_removed" && event.id === pending.id)).toBe(true);
-    expect(moved).toMatchObject({ message: { status: "sent", text: "**On** my way" } });
+    // In one event, which says whose place it takes, so the chat swaps the row where it is.
+    expect(events.some((event) => event.type === "message_removed" && event.id === pending.id)).toBe(false);
+    expect(moved).toMatchObject({ message: { status: "sent", text: "**On** my way" }, isNew: false, replaces: pending.id });
     await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Those files were made for a Zuna server");
   });
 
