@@ -4,7 +4,7 @@
 use super::*;
 
 /// What someone is told before they add a bot to a group (`BOT_READS`).
-const BOT_READS: &str = "A bot is a program. It reads everything said here from now on, on whichever machine runs it, and gets nothing from before.";
+const BOT_READS: &str = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before.";
 
 impl Dialog {
     /// The bots among the people picked.

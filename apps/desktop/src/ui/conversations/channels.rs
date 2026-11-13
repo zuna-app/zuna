@@ -380,7 +380,7 @@ impl ConversationList {
             let (state, id, name) = (self.state.clone(), channel.id.clone(), channel.name.clone());
             entries.push(
                 MenuEntry::new("Delete channel", "trash", move |window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {name}?"), Some("Its messages go for everyone."), &["Delete", "Cancel"], cx);
+                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {name}?"), Some("Its messages will be deleted for everyone."), &["Delete", "Cancel"], cx);
                     let (state, id) = (state.clone(), id.clone());
                     cx.spawn(async move |cx| {
                         if answer.await == Ok(0) {

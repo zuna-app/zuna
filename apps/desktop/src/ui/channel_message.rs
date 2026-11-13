@@ -104,7 +104,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .line_height(px(18.))
                 .text_color(theme.channel_muted)
                 .child(div().mt(px(2.)).child(icon("lock", 13., theme.channel_muted)))
-                .child(div().flex_1().min_w_0().child("End-to-end encrypted. Everyone on this server can read it, and the server itself can't.")),
+                .child(div().flex_1().min_w_0().child("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.")),
         );
     if let (true, Some(channel_id)) = (context.is_server_admin, context.channel_id.clone()) {
         let state = context.state.clone();
@@ -436,7 +436,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
                 line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(theme.channel_muted).child("(edited)"));
             }
             if message.time_differs == Some(true) {
-                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip("The sender's device gives a very different time for this message.")).child(icon("shield-alert", 13., theme.channel_muted)));
+                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip("The sender's device reported a very different time for this message.")).child(icon("shield-alert", 13., theme.channel_muted)));
             }
             if let Some(expires) = message.expires_at {
                 line = line.child(div().id(SharedString::from(format!("timer-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(format!("Disappears {}", format_full(expires)))).child(icon("timer", 12., theme.channel_muted)));

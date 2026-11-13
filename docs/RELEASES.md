@@ -126,7 +126,7 @@ What this doesn't protect against: both maintainers can push a `v*` tag, and the
 
 **Settings, in About.** The version line reads "Version 0.1.1 nightly 1150 for Windows", or "Version 0.1.0 for Windows" for a stable release. Under it:
 
-- **Updates:** Stable or Nightly. "Nightly gets every change as it's made, and is tested less."
+- **Updates:** Stable or Nightly. "Nightly builds get new changes first, but are tested less."
 - A status line, "Up to date, checked 12 minutes ago" or "Downloading 0.2.0", with Check now, or Update and restart once one is ready, and What's new, which opens the release's page.
 
 **Channels.** A build starts on the channel it was made for, until the person picks one, kept as `updateChannel` in `settings.json`. Going to nightly checks at once. Going back to stable never installs an older build, as the app's data has already moved on: the app stays where it is until a stable release passes it, and the switch says so.

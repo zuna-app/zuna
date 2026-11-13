@@ -64,7 +64,7 @@ impl Proposal {
             lines.push((format!("Read your messages and send them to {}", self.hosts.join(", ")), true));
         }
         for permission in &self.permissions {
-            let line = if *permission == Permission::Network { format!("Contact {}: each learns your address and whatever the plugin sends", self.hosts.join(", ")) } else { permission.told().to_string() };
+            let line = if *permission == Permission::Network { format!("Connect to {}. Each can see your IP address and whatever the plugin sends it", self.hosts.join(", ")) } else { permission.told().to_string() };
             lines.push((line, permission.strong()));
         }
         lines
@@ -93,7 +93,7 @@ impl Plugins {
     /// Proposes a package from a file the person picked or dropped on the Plugins page.
     pub fn propose_file(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) -> Result<u64, String> {
         if !self.usable() {
-            return Err("Plugins can't be installed, as this device's key couldn't be read.".into());
+            return Err("Plugins can't be installed because this device's key couldn't be read.".into());
         }
         let package = Package::open(&bytes)?;
         let verified = trust::verified(&package);
@@ -101,7 +101,7 @@ impl Plugins {
             return Err("This plugin isn't one Zuna checked. To install it anyway, turn on \"Allow plugins Zuna hasn't checked\" under Advanced first.".into());
         }
         if package.sha256.as_ref().is_some_and(|hash| self.record.revoked_hashes.contains(hash)) || self.market.revoked(&package) {
-            return Err("Zuna withdrew this plugin as harmful.".into());
+            return Err("Zuna pulled this plugin because it's harmful.".into());
         }
         let origin = if verified { Origin::Verified } else { Origin::File };
         let installed = self.installed_manifest(origin, &package.manifest.id);
@@ -130,10 +130,10 @@ impl Plugins {
     /// Proposes the newest version of a plugin on the marketplace, from what the index says of it.
     pub fn propose_market(&mut self, plugin: &str, cx: &mut Context<Self>) -> Result<(), String> {
         let Some(index) = self.market.index.as_ref() else { return Err("The marketplace isn't loaded.".into()) };
-        let Some((entry, version)) = index.newest(plugin).map(|(entry, version)| (entry.clone(), version.clone())) else { return Err("No version of it runs in this Zuna.".into()) };
+        let Some((entry, version)) = index.newest(plugin).map(|(entry, version)| (entry.clone(), version.clone())) else { return Err("No version of it works with this version of Zuna.".into()) };
         let permissions: Vec<Permission> = version.permissions.iter().filter_map(|name| Permission::parse(name)).collect();
         if permissions.len() != version.permissions.len() {
-            return Err("It asks for something this Zuna doesn't know.".into());
+            return Err("It needs something this version of Zuna doesn't support.".into());
         }
         let mut sorted = permissions.clone();
         sorted.sort();

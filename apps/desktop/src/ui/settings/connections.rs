@@ -19,7 +19,7 @@ impl SettingsView {
         let available = crate::telegram::available();
         let mut parts = vec![
             Self::heading("Connections", &theme),
-            Self::lead("Accounts elsewhere that Zuna can use on this device. Nothing about them reaches your servers.".into(), &theme),
+            Self::lead("Other accounts Zuna can use on this device. Your servers never learn about them.".into(), &theme),
         ];
         let control = match (&linked, available) {
             (Some(_), _) if self.confirming_unlink => div()
@@ -49,9 +49,9 @@ impl SettingsView {
             (None, false) => div().into_any_element(),
         };
         let hint = match (&linked, available) {
-            (Some(_), _) if self.confirming_unlink => "Zuna signs out of Telegram and erases its chats from this device. Telegram's own apps keep everything.".to_string(),
+            (Some(_), _) if self.confirming_unlink => "Zuna will sign out of Telegram and erase its chats from this device. Everything stays in Telegram's own apps.".to_string(),
             (Some(text), _) => format!("{text} These chats aren't end-to-end encrypted: Telegram keeps them on its servers."),
-            (None, true) => "Read and write your Telegram chats here. Zuna signs in as another device, using Telegram's API, and isn't made by Telegram.".to_string(),
+            (None, true) => "Read and send your Telegram messages here. Zuna signs in as another device using Telegram's API. Zuna isn't made by Telegram.".to_string(),
             (None, false) => "This build of Zuna can't use Telegram: it was built without an api_id from Telegram.".to_string(),
         };
         parts.push(Self::row("Telegram", Some(&hint), control, &theme));

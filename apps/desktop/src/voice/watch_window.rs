@@ -141,9 +141,9 @@ impl Voice {
         log::warn!("watch: the player's window can't play: {problem:?}");
         self.watch_here.window = None;
         let words = match problem {
-            Problem::NotThere => "This copy of Zuna has no player for it: zuna-watch isn't beside it.".into(),
+            Problem::NotThere => "This copy of Zuna is missing its video player, zuna-watch.".into(),
             Problem::NoWebKit => format!("Playing it here needs WebKitGTK. Install {} and press Watch again.", crate::platform::watch_view::webkit_package()),
-            Problem::Other(_) => "The player's window couldn't open. Press Watch to try again.".into(),
+            Problem::Other(_) => "The player window couldn't open. Press Watch to try again.".into(),
         };
         self.watch_here.problem = Some((session.to_string(), words));
         self.watching = None;

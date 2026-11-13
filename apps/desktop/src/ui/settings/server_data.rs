@@ -40,7 +40,7 @@ impl SettingsView {
             Self::heading("Your data", &theme),
             Self::lead(
                 format!(
-                    "Everything {} keeps about your account, as it says itself. What you write, your name and picture, and your files are encrypted on your devices before they're sent, so here they're only sizes.",
+                    "Everything {} says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.",
                     server.entry.name
                 ),
                 &theme,
@@ -93,7 +93,7 @@ impl SettingsView {
                 .text_size(px(12.5))
                 .text_color(theme.text3)
                 .child(format!(
-                    "This is what {} says it keeps. A server someone changed could keep more than it says, which is why what matters is encrypted on your devices before it's sent.",
+                    "This is what {} says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.",
                     server.entry.name
                 ))
                 .into_any_element(),

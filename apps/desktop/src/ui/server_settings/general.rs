@@ -51,7 +51,7 @@ impl ServerSettings {
                 }))
                 .into_any_element(),
             Self::divider(cx),
-            Self::row("Address", Some("People and apps reach your server here."), div().max_w(px(260.)).font_family(FONT_MONO).text_size(px(12.5)).child(server.entry.address.clone()).into_any_element(), cx),
+            Self::row("Address", Some("The address people and apps use to reach your server."), div().max_w(px(260.)).font_family(FONT_MONO).text_size(px(12.5)).child(server.entry.address.clone()).into_any_element(), cx),
             Self::row("Version", None, div().font_family(FONT_MONO).text_size(px(12.5)).child(version).into_any_element(), cx),
         ]
     }
@@ -94,7 +94,7 @@ impl ServerSettings {
         }
         vec![
             Self::heading("Emotes"),
-            Self::lead("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' addresses. It checks 7TV for changes to the set every few hours.", cx),
+            Self::lead("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. It checks 7TV for changes to the set every few hours.", cx),
             div()
                 .flex()
                 .items_center()
@@ -278,7 +278,7 @@ mod tests {
         world.server["getCalls"] = json!([]);
         world.server["getUsers"][0]["avatar"] = json!({ "fileId": "a".repeat(32), "key": "k", "prefix": "p", "chunks": 1, "mime": "image/png" });
         let app = Running::open(cx, &world);
-        app.answer("updateProfile", |args| if args[0]["displayName"] == "" { Err(refused("A name is needed.")) } else { Ok(Value::Null) });
+        app.answer("updateProfile", |args| if args[0]["displayName"] == "" { Err(refused("Enter a name.")) } else { Ok(Value::Null) });
         app.update(cx, |state, cx| {
             state.settings.reduce_motion = true;
             state.select_server(SERVER, cx);

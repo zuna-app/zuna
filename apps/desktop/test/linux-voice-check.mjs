@@ -405,7 +405,7 @@ try {
     await page.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Watch together" }).click();
     await page.locator(".modal", { hasText: "Play YouTube videos?" }).getByRole("button", { name: "Continue" }).click();
     await page.getByLabel("YouTube link").fill(`https://youtu.be/${VIDEO}?t=30`);
-    await page.getByRole("button", { name: "Put it on" }).click();
+    await page.getByRole("button", { name: "Play" }).click();
     await page.locator(".watch-frame").waitFor({ timeout: 15_000 });
     await sleep(2500);
     await shot("05-watch-cover");
@@ -459,7 +459,7 @@ try {
       const window = await playerWindow();
       return window && (!window.minimized || window.demandsAttention);
     }, "the window to be asked for", 5_000).catch(() => false);
-    check("the stage's Show its window asks the desktop for it", wanted, JSON.stringify(await playerWindow()));
+    check("the stage's Show the video's window asks the desktop for it", wanted, JSON.stringify(await playerWindow()));
     // Closing the window stops watching here alone, and Stop in the web app closes it for all.
     await drive({ do: "close", appId: "zuna", title: "A film about a rabbit" });
     const closed = await until(async () => !(await playerWindow()), "the window to close", 10_000).catch(() => false);
@@ -490,16 +490,16 @@ try {
   await sleep(800);
   await shot("04a-stream-stats");
   const stats = clipboard();
-  check("Copy all of it puts the stream stats on Wayland's clipboard, with a click after another app copied something", stats.startsWith("# Connection") && stats.includes("# Robin's microphone"), stats.split("\n")[0]);
+  check("Copy all puts the stream stats on Wayland's clipboard, with a click after another app copied something", stats.startsWith("# Connection") && stats.includes("# Robin's microphone"), stats.split("\n")[0]);
   const theirs = stats.split("\n\n").find((section) => section.startsWith("# Robin's microphone")) ?? "";
-  const madeUp = theirs.split("\n").find((line) => line.startsWith("Made up to hide gaps"));
+  const madeUp = theirs.split("\n").find((line) => line.startsWith("Concealed"));
   check("the web app's muted microphone shows as muted in the native app, and what's made up over its silence isn't flagged", theirs.includes("Muted: Yes") && !madeUp?.endsWith("(!)"), `${madeUp}, ${theirs.split("\n").find((line) => line.startsWith("Bitrate"))}`);
   // And the native app's, in the web app's own panel.
   const desktop = await page.evaluate(() => {
     const section = [...document.querySelectorAll(".stream-stats-section")].find((element) => element.querySelector("summary")?.textContent === "Linux Owner's microphone");
     return [...(section?.querySelectorAll(".stream-stats-rows > div") ?? [])].map((row) => ({ label: row.querySelector("dt")?.textContent, value: row.querySelector("dd")?.textContent, warn: row.classList.contains("is-warn") }));
   });
-  const desktopMadeUp = desktop.find((row) => row.label === "Made up to hide gaps");
+  const desktopMadeUp = desktop.find((row) => row.label === "Concealed");
   check("and the native app's in the web app's", desktop.some((row) => row.label === "Muted" && row.value === "Yes") && !desktopMadeUp?.warn, JSON.stringify(desktopMadeUp));
   // Closed by their ×es.
   await drive({ do: "click", x: 1369, y: 111 });

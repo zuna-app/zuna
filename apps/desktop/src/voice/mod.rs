@@ -310,7 +310,7 @@ pub fn open_channel(state: &Entity<AppState>, channel: &ChannelView, _window: &m
     if !ready {
         state.update(cx, |state, cx| {
             state.select_conversation(Some(key), cx);
-            state.toast("This server has no media server yet, so its voice channels can't be joined.", ToastKind::Info, cx);
+            state.toast("This server doesn't have a media server yet, so you can't join its voice channels.", ToastKind::Info, cx);
         });
         return;
     }

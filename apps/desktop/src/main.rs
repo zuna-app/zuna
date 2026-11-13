@@ -71,7 +71,7 @@ fn main() {
     // Without Wayland, GPUI would run with no window at all.
     #[cfg(target_os = "linux")]
     if !platform::wayland_session() {
-        eprintln!("Zuna needs a Wayland session, and this isn't one.");
+        eprintln!("Zuna needs Wayland, but this session isn't using it.");
         std::process::exit(1);
     }
     // One Zuna for each data folder: a second start hands its zuna:// link to the first, or asks it to show itself.

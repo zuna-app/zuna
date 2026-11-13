@@ -12,7 +12,7 @@ impl ServerSettings {
         Some(crate::ui::overlays::confirm(
             format!("Delete your account on {server_name}?"),
             "Delete account",
-            "It can't be undone. What you sent stays with the people you sent it to, from \"Deleted account\".".into(),
+            "It can't be undone. Messages you sent stay with the people you sent them to, shown as from \"Deleted account\".".into(),
             move |_, cx| {
                 cancel
                     .update(cx, |view, cx| {
@@ -61,7 +61,7 @@ impl ServerSettings {
         if server.me.as_ref().is_some_and(|me| me.role == "owner") {
             return vec![
                 Self::heading("Delete account"),
-                Self::lead(&format!("You own {name}, and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it."), cx),
+                Self::lead(&format!("You own {name}, and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data."), cx),
             ];
         }
         let typed = !self.delete_password.read(cx).text().is_empty();
@@ -69,7 +69,7 @@ impl ServerSettings {
         vec![
             Self::heading("Delete account"),
             Self::lead(
-                &format!("This deletes your account on {name}, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from \"Deleted account\". Your username becomes free for someone else. It can't be undone."),
+                &format!("This deletes your account on {name}, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from \"Deleted account\". Someone else will be able to take your username. It can't be undone."),
                 cx,
             ),
             field(Some("Password"), self.delete_password.clone(), None, None, false, None, cx).into_any_element(),

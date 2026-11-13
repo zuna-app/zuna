@@ -70,8 +70,8 @@ impl std::fmt::Display for Failure {
                 4 => "The proxy can't reach that server.",
                 5 => "That server refused the proxy's connection.",
                 6 => "The proxy's connection timed out.",
-                7 => "The proxy doesn't do that.",
-                8 => "The proxy doesn't take that kind of address.",
+                7 => "The proxy doesn't support that.",
+                8 => "The proxy doesn't support that type of address.",
                 _ => "The proxy couldn't make the connection.",
             }),
         }

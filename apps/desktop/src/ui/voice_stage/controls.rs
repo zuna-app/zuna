@@ -179,7 +179,7 @@ impl VoiceStage {
                 .gap(px(6.))
                 .px(px(10.))
                 .h(px(40.))
-                .child(encrypted("End-to-end encrypted, with keys from this conversation's members. The server and the media server can't listen in or watch."))
+                .child(encrypted("End-to-end encrypted, with keys only this conversation's members have. Neither the server nor the media server can listen in or watch."))
                 .when_some(call_started, |el, started| {
                     let seconds = ((crate::format::now_ms() - started) / 1000.).max(0.) as u64;
                     let (hours, minutes, seconds) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);
@@ -207,7 +207,7 @@ impl VoiceStage {
             .child(div().flex_none().max_w(gpui::relative(0.45)).one_line().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child(title.to_string()))
             .when(!topic.is_empty(), |el| el.child(div().min_w_0().one_line().border_l_1().border_color(theme.line_strong).pl(px(10.)).text_size(px(13.)).text_color(theme.text3).child(topic.to_string())))
             .child(div().flex_1())
-            .child(encrypted("End-to-end encrypted, with keys from this channel's members. The server and the media server can't listen in or watch."))
+            .child(encrypted("End-to-end encrypted, with keys only this channel's members have. Neither the server nor the media server can listen in or watch."))
             .child(stats)
             .into_any_element()
     }

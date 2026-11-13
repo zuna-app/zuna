@@ -25,7 +25,7 @@ impl SidePanel {
                 "channel-mute",
                 if muted { "bell-off" } else { "bell" },
                 if muted { "Unmute" } else { "Mute" }.into(),
-                Some(if muted { "You won't hear about anything here." } else { "You hear about what's said to you." }.into()),
+                Some(if muted { "You won't be notified about anything here." } else { "You're notified when someone mentions you or replies to you." }.into()),
                 false,
                 cx,
             )
@@ -52,7 +52,7 @@ impl SidePanel {
                         .py(px(7.))
                         .text_size(px(13.5))
                         .child(icon("lock", 17., theme.text2))
-                        .child(div().flex_1().min_w_0().flex().flex_col().child("End-to-end encrypted").child(div().text_size(px(12.)).text_color(theme.text3).child("Everyone on this server can read it, and the server itself can't."))),
+                        .child(div().flex_1().min_w_0().flex().flex_col().child("End-to-end encrypted").child(div().text_size(px(12.)).text_color(theme.text3).child("Everyone on this server can read it, but the server itself can't."))),
                 )
                 .into_any_element(),
         );
@@ -229,7 +229,7 @@ impl SidePanel {
             let detail = if telegram {
                 if username.is_empty() { String::new() } else { format!("@{username}") }
             } else if member.not_on_roster == Some(true) {
-                "Has this chat's keys, but isn't listed as a member".to_string()
+                "Can read this chat, but isn't listed as a member".to_string()
             } else if member.no_keys == Some(true) {
                 "No device in this chat yet".to_string()
             } else {

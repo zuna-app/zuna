@@ -23,8 +23,8 @@ fn percent(level: f32) -> f32 {
 }
 
 const NOISE_CHOICES: [(&str, &str, &str); 3] = [
-    ("zuna", "Enhanced", "Removes fans, keyboards and traffic, on this device."),
-    ("standard", "Standard", "WebRTC's own, lighter."),
+    ("zuna", "Enhanced", "Removes fan, keyboard and traffic noise. Runs on this device."),
+    ("standard", "Standard", "WebRTC's built-in filter. Uses less CPU."),
     ("off", "Off", "For a good microphone in a quiet room."),
 ];
 
@@ -342,7 +342,7 @@ impl Render for VoiceSettingsPage {
         let no_push_to_talk = support.is_some_and(|support| !support.anywhere);
         let why_not = support.and_then(|support| support.why).filter(|_| no_push_to_talk).map(|why| match why {
             crate::platform::NoKeyWatch::Uninstalled => "Push to talk needs an installed copy of Zuna, since your system only gives global shortcuts to installed apps. Start Zuna from your applications menu, or install your distribution's package.",
-            crate::platform::NoKeyWatch::Compositor => "Your compositor has no global shortcuts, so push to talk can't work here.",
+            crate::platform::NoKeyWatch::Compositor => "Your compositor doesn't support global shortcuts, so push to talk can't work here.",
             crate::platform::NoKeyWatch::Permission => "Push to talk needs Input Monitoring. Allow Zuna in System Settings, under Privacy & Security, then Input Monitoring, and open Zuna again.",
         });
         parts.push(field(
@@ -458,7 +458,7 @@ impl Render for VoiceSettingsPage {
         let toggle_row = |id: &'static str, title: &'static str, hint: &'static str, on: bool, set: fn(&mut VoiceSettings, bool), voice: Entity<Voice>, cx: &mut Context<Self>| {
             SettingsView::row(title, Some(hint), switch(id, on, cx).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| set(settings, !on), cx))), &theme)
         };
-        parts.push(toggle_row("echo", "Echo cancellation", "Keeps your speakers out of your microphone.", settings.echo_cancellation, |settings, on| settings.echo_cancellation = on, voice_entity.clone(), cx));
+        parts.push(toggle_row("echo", "Echo cancellation", "Stops your microphone from picking up your speakers.", settings.echo_cancellation, |settings, on| settings.echo_cancellation = on, voice_entity.clone(), cx));
         parts.push(toggle_row("auto-gain", "Automatic gain control", "Keeps your voice at a steady level.", settings.auto_gain, |settings, on| settings.auto_gain = on, voice_entity.clone(), cx));
 
         parts.push(subhead("Video"));
@@ -524,12 +524,12 @@ impl Render for ScreenSettingsPage {
         parts.push(number_select("screen-resolution", "Resolution", Some(settings.screen_resolution), &resolutions, height_name, None, limit(shown.max_height), set(&self.voice, Rc::new(|settings, value| settings.screen_resolution = value.unwrap_or(0))), cx));
         parts.push(number_select("screen-frame-rate", "Frame rate", Some(settings.screen_frame_rate), &SCREEN_RATES, rate_name, None, limit(shown.max_fps), set(&self.voice, Rc::new(|settings, value| settings.screen_frame_rate = value.unwrap_or(SCREEN_DEFAULT_FPS))), cx));
         parts.push(number_select("screen-max-bitrate", "Max bitrate", settings.screen_max_bitrate, &SCREEN_BITRATES, bitrate_name, Some(format!("Automatic ({})", bitrate_name(automatic))), limit(shown.max_kbps), set(&self.voice, Rc::new(|settings, value| settings.screen_max_bitrate = value)), cx));
-        parts.push(hint_text("It sends less when the picture or your connection needs less. Lower it if your upload is slow."));
+        parts.push(hint_text("This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."));
         parts.push(toggle("screen-cursor", "Show cursor", None, settings.screen_cursor, |settings, on| settings.screen_cursor = on, self.voice.clone(), cx));
 
         parts.push(subhead("Audio"));
         if shown.sound {
-            parts.push(toggle("sound-default", "Include audio", Some("A screen starts with your computer's audio, and a window with its app's. You can change it each time."), settings.screen_sound_by_default, |settings, on| settings.screen_sound_by_default = on, self.voice.clone(), cx));
+            parts.push(toggle("sound-default", "Include audio", Some("Sharing a screen includes your computer's audio, and sharing a window includes that app's audio. You can change this each time."), settings.screen_sound_by_default, |settings, on| settings.screen_sound_by_default = on, self.voice.clone(), cx));
         } else {
             parts.push(note("This server doesn't allow audio in screen shares."));
         }
@@ -559,11 +559,11 @@ impl Render for ScreenSettingsPage {
                     (name.to_string(), action)
                 })
                 .collect();
-            parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("Automatic uses the graphics card driving your screen. If the one you pick can't be used, the share doesn't start and says why."), cx));
+            parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("Automatic uses the graphics card connected to your display. If the one you pick can't be used, the share won't start and you'll see why."), cx));
             let codec_voice = self.voice.clone();
             parts.push(SettingsView::row(
                 "Codec",
-                Some("AV1 is experimental and needs a graphics card that encodes it. It's sharper at the same bitrate, but only Zuna's desktop app can watch it."),
+                Some("AV1 is experimental and needs a graphics card that can encode it. It looks sharper at the same bitrate, but only Zuna's desktop app can play it."),
                 segmented("screen-codec", &settings.screen_codec, &[("h264", "H.264"), ("av1", "AV1")], &[], Rc::new(move |codec, cx| codec_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_codec = codec.into(), cx))), cx),
                 &theme,
             ));

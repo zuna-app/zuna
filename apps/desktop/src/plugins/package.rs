@@ -72,15 +72,15 @@ impl Package {
         if bytes.len() > MAX_PACKAGE {
             return Err("It's larger than 8 MB.".into());
         }
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| "It isn't a plugin's package.".to_string())?;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| "It isn't a plugin package.".to_string())?;
         if archive.len() > MAX_FILES + 1 {
-            return Err(format!("It holds more than {MAX_FILES} files."));
+            return Err(format!("It has more than {MAX_FILES} files."));
         }
         let mut files = BTreeMap::new();
         let mut total = 0usize;
         for index in 0..archive.len() {
-            let mut entry = archive.by_index(index).map_err(|_| "Its zip is broken.".to_string())?;
-            let name = entry.name().map(|name| name.to_string()).map_err(|_| "A name in its zip isn't text.".to_string())?;
+            let mut entry = archive.by_index(index).map_err(|_| "Its zip file is damaged.".to_string())?;
+            let name = entry.name().map(|name| name.to_string()).map_err(|_| "Its zip file has a file name that can't be read.".to_string())?;
             // Folders come in some zips as their own entries, which hold nothing.
             if entry.is_dir() {
                 let folder = name.trim_end_matches('/');
@@ -105,7 +105,7 @@ impl Package {
                 return Err("It unpacks to more than 8 MB.".into());
             }
             if files.insert(name.clone(), data).is_some() {
-                return Err(format!("It holds {name} twice."));
+                return Err(format!("It contains {name} twice."));
             }
         }
         let mut package = Package::from_files(files, false)?;
@@ -144,7 +144,7 @@ impl Package {
                 let data = read(path)?;
                 total += data.len();
                 if total > MAX_PACKAGE || files.len() >= MAX_FILES {
-                    return Err("The folder holds more than a package may.".into());
+                    return Err("The folder is larger than a package can be.".into());
                 }
                 files.insert(name, data);
             }
@@ -163,20 +163,20 @@ impl Package {
         let signature = match files.remove("signature") {
             Some(text) => {
                 use base64::Engine;
-                let text = String::from_utf8(text).map_err(|_| "Its signature isn't readable.".to_string())?;
-                Some(base64::engine::general_purpose::STANDARD.decode(text.trim()).map_err(|_| "Its signature isn't readable.".to_string())?)
+                let text = String::from_utf8(text).map_err(|_| "Its signature can't be read.".to_string())?;
+                Some(base64::engine::general_purpose::STANDARD.decode(text.trim()).map_err(|_| "Its signature can't be read.".to_string())?)
             }
             None => None,
         };
         if !manifest.scripted() && files.contains_key("main.js") {
-            return Err("It has a main.js its manifest doesn't name.".into());
+            return Err("It has a main.js that its manifest doesn't list.".into());
         }
         if manifest.scripted() && !files.contains_key("main.js") && !folder {
-            return Err("Its manifest names main.js, and it has none.".into());
+            return Err("Its manifest lists main.js, but there isn't one.".into());
         }
         if let Some(icon) = &manifest.icon {
             if !files.contains_key(icon) {
-                return Err("Its icon isn't in it.".into());
+                return Err("Its icon is missing.".into());
             }
         }
         Ok(Package { manifest, files, signature, sha256: None })

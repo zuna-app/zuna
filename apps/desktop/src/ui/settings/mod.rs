@@ -271,7 +271,7 @@ impl SettingsView {
         let theme = theme(cx);
         let found = updates::current();
         if !found.enabled {
-            let note = "This copy doesn't update itself. Only an installed release does.";
+            let note = "This copy doesn't update automatically. Only installed releases do.";
             return if cfg!(windows) { vec![div().text_center().text_size(px(12.5)).text_color(theme.text3).child(note).into_any_element()] } else { Vec::new() };
         }
         let channels = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).children([Channel::Stable, Channel::Nightly].into_iter().map(|channel| {
@@ -297,9 +297,9 @@ impl SettingsView {
         }));
         // Going back to stable never installs an older build, as the app's data has moved on.
         let hint = match (found.following, Channel::of_build()) {
-            (Channel::Nightly, _) => "Nightly gets every change as it's made, and is tested less.",
-            (Channel::Stable, Channel::Nightly) => "This is a nightly build, so it stays as it is until a stable release passes it. Stable releases are tested before they're out.",
-            (Channel::Stable, Channel::Stable) => "Stable releases are tested before they're out.",
+            (Channel::Nightly, _) => "Nightly builds get new changes first, but are tested less.",
+            (Channel::Stable, Channel::Nightly) => "This is a nightly build, so it won't update until a newer stable release comes out. Stable releases are fully tested before they come out.",
+            (Channel::Stable, Channel::Stable) => "Stable releases are fully tested before they come out.",
         };
         let page = found.ready.as_ref().map(|update| update.page()).or_else(updates::own_page);
         let busy = found.activity != Activity::Idle;

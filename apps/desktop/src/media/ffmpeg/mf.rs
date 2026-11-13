@@ -48,7 +48,7 @@ pub fn details(path: &Path) -> Option<Details> {
 pub fn decode_audio(path: &Path) -> Result<(Vec<f32>, u32), String> {
     init();
     let mut input = ffmpeg::format::input(path).map_err(text)?;
-    let stream = input.streams().best(media::Type::Audio).ok_or("There's no sound in it.")?;
+    let stream = input.streams().best(media::Type::Audio).ok_or("It has no audio.")?;
     let index = stream.index();
     let mut decoder = codec::Context::from_parameters(stream.parameters()).map_err(text)?.decoder().audio().map_err(text)?;
     let mut mono = Vec::new();
@@ -104,7 +104,7 @@ impl VideoFrames {
     pub fn open(path: &Path) -> Result<VideoFrames, String> {
         init();
         let input = ffmpeg::format::input(path).map_err(text)?;
-        let stream = input.streams().best(media::Type::Video).ok_or("There's no picture in it.")?;
+        let stream = input.streams().best(media::Type::Video).ok_or("It has no video.")?;
         let index = stream.index();
         let seconds_per_tick = f64::from(stream.time_base());
         let decoder = codec::Context::from_parameters(stream.parameters()).map_err(text)?.decoder().video().map_err(text)?;

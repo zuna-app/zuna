@@ -290,9 +290,9 @@ impl Reader {
                 // With a proxy set, which way the call's media goes through it (voice/proxy.rs).
                 row("Proxy", crate::voice::proxy::way().map(str::to_string), crate::voice::proxy::way().is_some_and(|way| way.ends_with("TCP"))),
                 row("In the room", Some(extra.people.to_string()), false),
-                row("Encryption", Some(if extra.encrypted { format!("End to end{}", extra.key.map(|(index, epoch)| format!(", key {index} from epoch {epoch}")).unwrap_or_default()) } else { "Off".into() }), !extra.encrypted),
+                row("Encryption", Some(if extra.encrypted { format!("End-to-end{}", extra.key.map(|(index, epoch)| format!(", key {index} from epoch {epoch}")).unwrap_or_default()) } else { "Off".into() }), !extra.encrypted),
                 row("Round trip", connection.round_trip.map(|value| format!("{:.0} ms", value * 1000.)), false),
-                row("Network allows", bits(connection.allows), false),
+                row("Available bandwidth", bits(connection.allows), false),
             ]
             .into_iter()
             .flatten()
@@ -308,24 +308,24 @@ impl Reader {
                 audio: false,
                 headline: Some(Headline { fps: sent, label: "sent", wanted: Some(share.fps), history }),
                 rows: [
-                    row("Sent through", Some("This app, on the graphics card".into()), false),
+                    row("Encoded by", Some("This app, on the graphics card".into()), false),
                     row("Sharing", Some(share.name.clone()), false),
                     row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
-                    row("Codec", share.info.as_ref().and_then(|info| info.get("codec")).and_then(serde_json::Value::as_str).map(|codec| if codec == "AV1" { "AV1, experimental: only the desktop app opens it".to_string() } else { codec.to_string() }), false),
+                    row("Codec", share.info.as_ref().and_then(|info| info.get("codec")).and_then(serde_json::Value::as_str).map(|codec| if codec == "AV1" { "AV1 (experimental, desktop app only)".to_string() } else { codec.to_string() }), false),
                     row("Picture", size(number("width"), number("height")), false),
-                    row("Tallest asked for", (share.height > 0).then(|| format!("{} lines", share.height)), false),
-                    row("Held to the server's limits", (!share.held.is_empty()).then(|| share.held.join(", ")), false),
+                    row("Max height", (share.height > 0).then(|| format!("{} lines", share.height)), false),
+                    row("Limited by the server", (!share.held.is_empty()).then(|| share.held.join(", ")), false),
                     row("New frames", fps(number("fps")), false),
                     row("Repeated frames", fps(number("repeatFps")), false),
                     row("Bitrate", bits(number("kbps").map(|value| value * 1000.)), false),
-                    row("Most asked for", bits(Some(share.kbps as f64 * 1000.)), false),
-                    row("Network allows", bits(number("targetKbps").map(|value| value * 1000.)), false),
-                    row("Encoder set to", bits(number("encoderKbps").map(|value| value * 1000.)), false),
+                    row("Max bitrate", bits(Some(share.kbps as f64 * 1000.)), false),
+                    row("Available bandwidth", bits(number("targetKbps").map(|value| value * 1000.)), false),
+                    row("Encoder bitrate", bits(number("encoderKbps").map(|value| value * 1000.)), false),
                     row("Encode time", number("encodeMsAvg").map(|average| format!("{average:.1} ms, at most {:.1} ms", number("encodeMsMax").unwrap_or(0.))), false),
                     row("CPU", number("cpuCores").map(|cores| format!("{:.1}% of a core", cores * 100.)), false),
                     row("Keyframes", number("allKeys").map(|keys| format!("{}, {} asked for, {} for a new bitrate", count(Some(keys)).unwrap_or_default(), count(number("allKeyRequests")).unwrap_or_default(), count(number("allBitrateChanges")).unwrap_or_default())), false),
-                    row("Frames refused", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
-                    row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End to end".to_string() } else { "Off".to_string() }), false),
+                    row("Frames rejected", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
+                    row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End-to-end".to_string() } else { "Off".to_string() }), false),
                 ]
                 .into_iter()
                 .flatten()
@@ -351,7 +351,7 @@ impl Reader {
             };
             let bitrate = per_second("bytes").map(|bytes| bytes * 8.);
             let text = |name: &str| sample.texts.get(name).cloned();
-            let encryption = row("Encryption", Some(if sample.encrypted { "End to end".into() } else { "Off".into() }), !sample.encrypted);
+            let encryption = row("Encryption", Some(if sample.encrypted { "End-to-end".into() } else { "Off".into() }), !sample.encrypted);
             let (mine, theirs) = match sample.source {
                 Source::Microphone => ("Your microphone", "microphone"),
                 Source::Camera => ("Your camera", "camera"),
@@ -377,13 +377,13 @@ impl Reader {
                             row("Codec", text("codec"), false),
                             row("Encoder", text("encoder"), false),
                             row("Bitrate", bits(bitrate), false),
-                            row("Encoder aims for", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
+                            row("Target bitrate", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
                             row("Encode time", ms(each("encode_time", "frames_encoded").map(|seconds| seconds * 1000.)), false),
                             row("Limited by", Some(limited.clone().unwrap_or_else(|| "Nothing".into())), limited.is_some()),
                             row("Keyframes", joined(&[count(get("key_frames")), Some(format!("{} asked for", count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
                             row("Huge frames", count(get("huge_frames").filter(|value| *value > 0.)), false),
                             row("Packets", joined(&[count(get("packets")), Some(format!("{} sent again", count(get("resent")).unwrap_or_else(|| "0".into()))), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
-                            row("Lost on the way", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row("Packet loss", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             row("Round trip", get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
                             encryption,
                         ]
@@ -406,7 +406,7 @@ impl Reader {
                         audio: false,
                         headline: Some(Headline { fps: decoded, label: "decoded", wanted: None, history }),
                         rows: [
-                            row("Sent through", (sample.source == Source::Screen).then(|| if sample.native { "Their desktop app, on their graphics card".to_string() } else { "Their browser".to_string() }), false),
+                            row("Encoded by", (sample.source == Source::Screen).then(|| if sample.native { "Their desktop app, on their graphics card".to_string() } else { "Their browser".to_string() }), false),
                             row("Receiving", fps(per_second("frames_received")), false),
                             row("Decoding", fps(decoded), false),
                             row("Frames dropped", joined(&[count(get("frames_dropped")), dropped.filter(|value| *value > 0.).map(|value| format!("{value:.1} a second"))]), dropped.unwrap_or(0.) > 0.),
@@ -437,12 +437,12 @@ impl Reader {
                         headline: None,
                         rows: [
                             row("Muted", sample.muted.then(|| "Yes".to_string()), false),
-                            row("Cleaned up by", (sample.source == Source::Microphone).then(|| extra.filters.clone()), false),
+                            row("Processing", (sample.source == Source::Microphone).then(|| extra.filters.clone()), false),
                             row("Codec", text("codec"), false),
                             row("Bitrate", bits(bitrate), false),
-                            row("Encoder aims for", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
+                            row("Target bitrate", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
                             row("Packets", count(get("packets")), false),
-                            row("Lost on the way", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row("Packet loss", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             row("Round trip", get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
                             encryption,
                         ]
@@ -470,7 +470,7 @@ impl Reader {
                             row("Bitrate", bits(bitrate), false),
                             row("Jitter buffer", ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
                             row("Network jitter", ms(get("jitter").map(|seconds| seconds * 1000.)), false),
-                            row("Made up to hide gaps", percent(concealed), !sample.muted && concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row("Concealed", percent(concealed), !sample.muted && concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
                             row("Packets", count(get("packets")), false),
                             row("Lost", joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             encryption,
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(sections.len(), 5);
         assert_eq!(sections[0].title, "Connection");
         assert!(sections[0].rows.iter().any(|row| row.label == "Status" && row.warn));
-        assert!(sections[0].rows.iter().any(|row| row.value == "End to end, key 2 from epoch 7"));
+        assert!(sections[0].rows.iter().any(|row| row.value == "End-to-end, key 2 from epoch 7"));
         std::thread::sleep(std::time::Duration::from_millis(20));
         let second = [
             sample("cam", true, true, Source::Camera, &[("frames_sent", 30.), ("frames_encoded", 30.), ("bytes", 250_000.), ("encode_time", 0.3), ("width", 1280.), ("height", 720.), ("target_bitrate", 2_000_000.), ("key_frames", 3.), ("pli", 1.), ("huge_frames", 2.), ("packets", 1234.), ("resent", 5.), ("nack", 4.), ("fraction_lost", 0.05), ("round_trip", 0.03)]),
@@ -559,13 +559,13 @@ mod tests {
         assert_eq!(value("cam", "Picture").as_deref(), Some("1280×720"));
         assert_eq!(value("cam", "Limited by").as_deref(), Some("bandwidth"));
         assert_eq!(value("cam", "Packets").as_deref(), Some("1,234, 5 sent again, 4 NACK"));
-        assert_eq!(value("cam", "Lost on the way").as_deref(), Some("5.00%"));
+        assert_eq!(value("cam", "Packet loss").as_deref(), Some("5.00%"));
         assert_eq!(section("screen").title, "Bob's screen");
-        assert_eq!(value("screen", "Sent through").as_deref(), Some("Their desktop app, on their graphics card"));
+        assert_eq!(value("screen", "Encoded by").as_deref(), Some("Their desktop app, on their graphics card"));
         assert_eq!(value("screen", "Lost").as_deref(), Some("10, 10.0%"));
         assert!(section("mic").audio);
-        assert_eq!(value("mic", "Cleaned up by").as_deref(), Some("Noise suppression"));
-        assert_eq!(value("mic", "Lost on the way").as_deref(), Some("0.10%"));
+        assert_eq!(value("mic", "Processing").as_deref(), Some("Noise suppression"));
+        assert_eq!(value("mic", "Packet loss").as_deref(), Some("0.10%"));
         assert_eq!(section("muted").title, "Bob's shared sound");
         assert_eq!(value("muted", "Muted").as_deref(), Some("Yes"));
         let text = as_text(&sections);
@@ -581,10 +581,10 @@ mod tests {
         let native = sections.iter().find(|section| section.id == "native").expect("the share's own section");
         assert_eq!(native.headline.as_ref().unwrap().wanted, Some(60));
         let value = |label: &str| native.rows.iter().find(|row| row.label == label).map(|row| row.value.clone());
-        assert_eq!(value("Codec").as_deref(), Some("AV1, experimental: only the desktop app opens it"));
+        assert_eq!(value("Codec").as_deref(), Some("AV1 (experimental, desktop app only)"));
         assert_eq!(value("Keyframes").as_deref(), Some("1,234, 2 asked for, 3 for a new bitrate"));
         assert_eq!(value("Bitrate").as_deref(), Some("6.0 Mbit/s"));
-        assert!(native.rows.iter().any(|row| row.label == "Frames refused" && row.warn));
+        assert!(native.rows.iter().any(|row| row.label == "Frames rejected" && row.warn));
         // Unencrypted, it says so.
         let plain = Extra { encrypted: false, key: None, ..extra(None, None) };
         let sections = reader.read(&[], &Connection::default(), &plain, &|_| String::new());

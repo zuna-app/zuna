@@ -163,8 +163,8 @@ impl std::fmt::Display for Refused {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.write_str(match self {
             Refused::Signature => "its manifest isn't signed with one of Zuna's keys",
-            Refused::WrongKey => "its manifest is signed with the other channel's key",
-            Refused::Channel => "it's a nightly, and this app follows stable releases",
+            Refused::WrongKey => "it's signed for the other update channel",
+            Refused::Channel => "it's a nightly, and this app is set to stable releases",
             Refused::Old => "it isn't newer than this app",
             Refused::Malformed => "its manifest can't be read",
             Refused::NoFile => "it has no installer for this system",
@@ -439,7 +439,7 @@ pub fn status_line(updates: &Updates, now: SystemTime) -> String {
     match (&updates.problem, updates.checked) {
         (Some(problem), _) => format!("Couldn't check for updates: {problem}"),
         // A release is out that this app won't take, which is worth a person's knowing.
-        (None, Some(_)) if updates.refused.is_some() => format!("The newest release wasn't taken: {}", updates.refused.as_deref().unwrap_or_default()),
+        (None, Some(_)) if updates.refused.is_some() => format!("Skipped the latest release: {}", updates.refused.as_deref().unwrap_or_default()),
         (None, Some(checked)) => format!("Up to date, checked {}", ago(checked, now)),
         (None, None) => "Not checked yet".into(),
     }
@@ -1040,7 +1040,7 @@ mod tests {
         updates.checked = Some(ago_minutes(200));
         assert_eq!(status_line(&updates, now), "Up to date, checked 3 hours ago");
         updates.refused = Some("its manifest isn't signed with one of Zuna's keys".into());
-        assert_eq!(status_line(&updates, now), "The newest release wasn't taken: its manifest isn't signed with one of Zuna's keys");
+        assert_eq!(status_line(&updates, now), "Skipped the latest release: its manifest isn't signed with one of Zuna's keys");
         updates.refused = None;
         updates.problem = Some("no connection".into());
         assert_eq!(status_line(&updates, now), "Couldn't check for updates: no connection");

@@ -648,7 +648,7 @@ mod tests {
         let second = png(300, 200);
         app.answer("downloadFile", move |args| match args[0]["fileId"].as_str() {
             Some("b") => Ok(json!({ "$bytes": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &second) })),
-            _ => Err(refused("It's gone from the server.")),
+            _ => Err(refused("It's no longer on the server.")),
         });
         let first = png(800, 600);
         let gallery = || Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("a")), Item::of(&picture("b")), Item::of(&picture("c"))], 0, Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(800, 600))));

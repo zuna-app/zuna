@@ -135,8 +135,8 @@ impl Voice {
                     match futures::future::select(next, &mut timeout).await {
                         futures::future::Either::Left((Some(Event::Ready(ready)), _)) => break Ok(ready),
                         futures::future::Either::Left((Some(Event::Stats(_)), _)) => continue,
-                        futures::future::Either::Left((Some(Event::Ended(problem)), _)) => break Err(problem.unwrap_or_else(|| "It stopped by itself.".into())),
-                        futures::future::Either::Left((None, _)) => break Err("It stopped by itself.".into()),
+                        futures::future::Either::Left((Some(Event::Ended(problem)), _)) => break Err(problem.unwrap_or_else(|| "It stopped unexpectedly.".into())),
+                        futures::future::Either::Left((None, _)) => break Err("It stopped unexpectedly.".into()),
                         futures::future::Either::Right(_) => break Err("It took too long to start.".into()),
                     }
                 }
@@ -146,7 +146,7 @@ impl Voice {
                 Err(problem) => {
                     native.stop();
                     // FFmpeg's word for a card without AV1 says nothing of what to do about it.
-                    let problem = if codec == Codec::Av1 && problem.starts_with("Opening av1_") { format!("This graphics card may not encode AV1, so try H.264 in Settings, Screen sharing. {problem}") } else { problem };
+                    let problem = if codec == Codec::Av1 && problem.starts_with("Opening av1_") { format!("This graphics card may not support AV1. Try H.264 in Settings, under Screen sharing. {problem}") } else { problem };
                     this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
                     return;
                 }
@@ -386,7 +386,7 @@ impl Voice {
                                 if let Some(room) = voice.room.clone() {
                                     crate::host::tokio().spawn(async move { room.stop_share_sound().await });
                                 }
-                                voice.toast(format!("Your screen's sound stopped: {problem}"), ToastKind::Error, cx);
+                                voice.toast(format!("Your screen's audio stopped: {problem}"), ToastKind::Error, cx);
                             })
                             .ok();
                         }
@@ -396,7 +396,7 @@ impl Voice {
                     log::warn!("sharing the computer's sound: {error}");
                     let room = room.clone();
                     crate::host::tokio().spawn(async move { room.stop_share_sound().await });
-                    voice.toast("Your screen is being shared without its sound.", ToastKind::Info, cx);
+                    voice.toast("Your screen is being shared without audio.", ToastKind::Info, cx);
                 }
             })
             .ok();

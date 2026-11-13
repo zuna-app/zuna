@@ -285,8 +285,8 @@ fn what_a_plugin_draws_opens_only_right_after_the_person_uses_it(cx: &mut TestAp
     for kind in ["panel", "page", "dialog"] {
         harness.ask(cx, "ui.register", json!({ "kind": kind, "id": "main" })).unwrap();
     }
-    assert!(harness.ask(cx, "ui.open", json!({ "kind": "panel", "id": "main" })).unwrap_err().contains("right after the person uses it"));
-    assert!(harness.ask(cx, "ui.open", json!({ "kind": "panel", "id": "other" })).unwrap_err().contains("No such thing"));
+    assert!(harness.ask(cx, "ui.open", json!({ "kind": "panel", "id": "main" })).unwrap_err().contains("right after someone interacts with it"));
+    assert!(harness.ask(cx, "ui.open", json!({ "kind": "panel", "id": "other" })).unwrap_err().contains("Nothing with that name"));
     harness.activate(cx);
     for kind in ["panel", "page", "dialog"] {
         harness.ask(cx, "ui.open", json!({ "kind": kind, "id": "main" })).unwrap();
@@ -307,7 +307,7 @@ fn what_a_plugin_draws_opens_only_right_after_the_person_uses_it(cx: &mut TestAp
     // Nothing of a plugin's opens over a question the app is asking.
     harness.app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: BOB.into() }), cx));
     harness.activate(cx);
-    assert!(harness.ask(cx, "ui.open", json!({ "kind": "page", "id": "main" })).unwrap_err().contains("asking the person"));
+    assert!(harness.ask(cx, "ui.open", json!({ "kind": "page", "id": "main" })).unwrap_err().contains("showing a prompt"));
     // Nor long after the person used it.
     harness.app.update(cx, |state, cx| state.set_overlay(None, cx));
     harness.plugins.update(cx, |plugins, _| plugins.running.get_mut(&harness.uid).unwrap().activated_until = Some(std::time::Instant::now() - Duration::from_secs(1)));
@@ -343,7 +343,7 @@ fn toasts_and_notifications_go_under_the_plugins_name_a_few_at_a_time(cx: &mut T
 #[gpui::test]
 fn the_message_box_and_the_clipboard_need_the_person(cx: &mut TestAppContext) {
     let harness = Harness::open(cx, "clipper", &["clipboard.read", "clipboard.write"], |_| {});
-    assert!(harness.ask(cx, "composer.insert", json!({ "text": "hi" })).unwrap_err().contains("right after the person uses it"));
+    assert!(harness.ask(cx, "composer.insert", json!({ "text": "hi" })).unwrap_err().contains("right after someone interacts with it"));
     assert!(harness.ask(cx, "clipboard.write", json!({ "text": "copied" })).unwrap_err().contains("right after"));
     assert!(harness.ask(cx, "clipboard.read", json!({})).unwrap_err().contains("right after"));
     harness.app.update(cx, |state, cx| state.select_conversation(Some(format!("user:{BOB}")), cx));
@@ -375,9 +375,9 @@ fn storage_and_settings_keep_what_they_may(cx: &mut TestAppContext) {
     assert!(harness.ask(cx, "storage.set", json!({ "key": "big", "value": "x".repeat(600 << 10) })).is_err());
 
     harness.ask(cx, "settings.set", json!({ "key": "language", "value": "pl" })).unwrap();
-    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "language", "value": "de" })).unwrap_err(), "That isn't a value the setting takes.");
-    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "level", "value": 2 })).unwrap_err(), "That isn't a value the setting takes.");
-    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "colour", "value": "red" })).unwrap_err(), "The manifest names no such setting.");
+    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "language", "value": "de" })).unwrap_err(), "That isn't a valid value for this setting.");
+    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "level", "value": 2 })).unwrap_err(), "That isn't a valid value for this setting.");
+    assert_eq!(harness.ask(cx, "settings.set", json!({ "key": "colour", "value": "red" })).unwrap_err(), "The manifest has no setting with that name.");
     assert_eq!(harness.read(cx, |plugins| plugins.settings_of(&harness.uid)), serde_json::from_value::<serde_json::Map<String, Value>>(json!({ "language": "pl", "level": 0.5 })).unwrap());
 
     // The person changes one in Settings: the plugin is told, and decorations are asked for again.
@@ -400,11 +400,11 @@ fn a_plugin_reaches_the_core_only_as_the_table_allows(cx: &mut TestAppContext) {
     let call = |method: &str, server: Option<&str>, args: Value| json!({ "method": method, "server": server, "args": args });
     assert!(harness.ask(cx, "core.call", call("changePassword", Some(SERVER), json!([]))).unwrap_err().contains("No plugin may call changePassword"));
     assert!(harness.ask(cx, "core.call", call("loadMessages", Some(SERVER), json!([DM]))).unwrap_err().contains("messages.read permission"));
-    assert!(harness.ask(cx, "core.call", call("getUsers", Some("server-9"), json!([]))).unwrap_err().contains("isn't a server this device is on"));
-    assert!(harness.ask(cx, "core.call", call("getUsers", Some(crate::telegram::SERVER_ID), json!([]))).unwrap_err().contains("isn't a server"), "never the linked Telegram account");
-    assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!((0..17).collect::<Vec<_>>()))).unwrap_err().contains("larger than a call takes"));
-    assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!(["x".repeat(300 << 10)]))).unwrap_err().contains("larger"));
-    assert!(harness.ask(cx, "core.call", call("sendMessage", Some(SERVER), json!(["user:u-bob", { "text": "hi", "attachments": [{ "$file": { "path": "/etc/passwd" } }] }]))).unwrap_err().contains("never a path"));
+    assert!(harness.ask(cx, "core.call", call("getUsers", Some("server-9"), json!([]))).unwrap_err().contains("This device isn't on that server"));
+    assert!(harness.ask(cx, "core.call", call("getUsers", Some(crate::telegram::SERVER_ID), json!([]))).unwrap_err().contains("isn't on that server"), "never the linked Telegram account");
+    assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!((0..17).collect::<Vec<_>>()))).unwrap_err().contains("are too large"));
+    assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!(["x".repeat(300 << 10)]))).unwrap_err().contains("too large"));
+    assert!(harness.ask(cx, "core.call", call("sendMessage", Some(SERVER), json!(["user:u-bob", { "text": "hi", "attachments": [{ "$file": { "path": "/etc/passwd" } }] }]))).unwrap_err().contains("not its path"));
     assert!(harness.log(cx).iter().any(|line| line.starts_with("Refused core.call changePassword")));
 
     // What a message from a plugin may carry: what the person could write, and nothing else.
@@ -448,7 +448,7 @@ fn messages_are_read_and_sent_through_the_broker(cx: &mut TestAppContext) {
     harness.ask(cx, "messages.search", json!({ "serverId": SERVER, "query": "hi" })).unwrap();
     assert_eq!(app.calls_of("search")[1], vec![json!("hi")], "everywhere, without a group");
 
-    assert_eq!(harness.ask(cx, "messages.send", json!({ "serverId": SERVER, "conversationKey": "user:u-bob", "text": "   " })).unwrap_err(), "A message has text.");
+    assert_eq!(harness.ask(cx, "messages.send", json!({ "serverId": SERVER, "conversationKey": "user:u-bob", "text": "   " })).unwrap_err(), "A message needs text.");
     app.answer("sendMessage", |_| Ok(json!({ "id": "new" })));
     assert_eq!(harness.ask(cx, "messages.send", json!({ "serverId": SERVER, "conversationKey": "user:u-bob", "text": "hello" })).unwrap(), Value::Null);
     assert_eq!(app.calls_of("sendMessage")[0], vec![json!("user:u-bob"), json!({ "text": "hello", "mentions": [], "emotes": {} })]);
@@ -460,7 +460,7 @@ fn messages_are_read_and_sent_through_the_broker(cx: &mut TestAppContext) {
     assert_eq!(app.calls_of("deleteMessage")[0], vec![json!(DM), json!("m02")]);
     harness.ask(cx, "messages.react", json!({ "serverId": SERVER, "groupId": DM, "id": "m02", "emoji": "👍".repeat(20) })).unwrap();
     assert_eq!(app.calls_of("toggleReaction")[0][2].as_str().unwrap().chars().count(), 16);
-    assert!(harness.ask(cx, "messages.history", json!({ "serverId": "server-9", "groupId": DM })).unwrap_err().contains("isn't a server"));
+    assert!(harness.ask(cx, "messages.history", json!({ "serverId": "server-9", "groupId": DM })).unwrap_err().contains("isn't on that server"));
 
     let reader = Harness::open(cx, "onlyreads", &["messages.read"], |_| {});
     assert!(reader.ask(cx, "messages.send", json!({ "serverId": SERVER, "conversationKey": "user:u-bob", "text": "hi" })).unwrap_err().contains("messages.send permission"));
@@ -473,7 +473,7 @@ fn voice_and_files_need_their_permissions(cx: &mut TestAppContext) {
     let harness = Harness::open(cx, "voicer", &["voice.read", "voice.control", "files.read"], |_| {});
     let members = harness.ask(cx, "voice.members", json!({ "serverId": SERVER })).unwrap();
     assert_eq!(members[0]["channelId"], LOUNGE);
-    assert!(harness.ask(cx, "voice.members", json!({ "serverId": "server-9" })).unwrap_err().contains("isn't a server"));
+    assert!(harness.ask(cx, "voice.members", json!({ "serverId": "server-9" })).unwrap_err().contains("isn't on that server"));
     assert!(harness.ask(cx, "voice.join", json!({ "serverId": SERVER, "channelId": GENERAL })).unwrap_err().contains("isn't a voice channel"), "a text channel");
     assert!(harness.ask(cx, "voice.join", json!({ "serverId": "server-9", "channelId": LOUNGE })).unwrap_err().contains("isn't a voice channel"));
 
@@ -489,9 +489,9 @@ fn voice_and_files_need_their_permissions(cx: &mut TestAppContext) {
     });
     let file = harness.ask(cx, "files.attachment", json!({ "serverId": SERVER, "groupId": DM, "messageId": "m05" })).unwrap();
     assert_eq!(file, json!({ "name": "notes.txt", "mime": "text/plain", "bytes": base64::engine::general_purpose::STANDARD.encode(bytes) }));
-    assert!(harness.ask(cx, "files.attachment", json!({ "serverId": SERVER, "groupId": DM, "messageId": "big" })).unwrap_err().contains("at most 16 MB"));
+    assert!(harness.ask(cx, "files.attachment", json!({ "serverId": SERVER, "groupId": DM, "messageId": "big" })).unwrap_err().contains("up to 16 MB"));
     assert!(harness.ask(cx, "files.attachment", json!({ "serverId": SERVER, "groupId": DM, "messageId": "m05", "index": 3 })).unwrap_err().contains("no such file"));
-    assert!(harness.ask(cx, "files.attachment", json!({ "serverId": "server-9", "groupId": DM, "messageId": "m05" })).unwrap_err().contains("isn't a server"));
+    assert!(harness.ask(cx, "files.attachment", json!({ "serverId": "server-9", "groupId": DM, "messageId": "m05" })).unwrap_err().contains("isn't on that server"));
     harness.app.answer("downloadFile", |_| Ok(json!({})));
     assert!(harness.ask(cx, "files.attachment", json!({ "serverId": SERVER, "groupId": DM, "messageId": "m05" })).unwrap_err().contains("didn't download"));
 
@@ -529,9 +529,9 @@ fn files_go_in_and_out_only_through_the_persons_own_dialogs(cx: &mut TestAppCont
     let n = harness.ask_later(cx, "files.open", json!({}));
     cx.simulate_path_prompt_response(|_| Some(vec![large.clone()]));
     cx.run_until_parked();
-    assert!(harness.reply(cx, n).unwrap_err().contains("at most 8 MB"));
+    assert!(harness.reply(cx, n).unwrap_err().contains("up to 8 MB"));
 
-    assert_eq!(harness.ask(cx, "files.save", json!({ "name": "x", "bytes": "not base64!" })).unwrap_err(), "The file's bytes aren't readable.");
+    assert_eq!(harness.ask(cx, "files.save", json!({ "name": "x", "bytes": "not base64!" })).unwrap_err(), "The file couldn't be read.");
     let target = dir.join("saved.txt");
     let n = harness.ask_later(cx, "files.save", json!({ "name": "../../evil:name", "bytes": base64::engine::general_purpose::STANDARD.encode("saved") }));
     cx.simulate_new_path_selection(|_| Some(target.clone()));
@@ -561,9 +561,9 @@ fn the_network_is_the_brokers_and_refuses_before_it_connects(cx: &mut TestAppCon
         panic!("the fetch never answered: {n}");
     };
     assert!(refused(cx, json!({ "url": "not a url" })).contains("isn't an address"));
-    assert!(refused(cx, json!({ "url": "https://evil.example.org/" })).contains("may only reach api.example.com, printer.local, over HTTPS"));
-    assert!(refused(cx, json!({ "url": "https://api.example.com/", "method": "CONNECT" })).contains("isn't a method"));
-    assert!(refused(cx, json!({ "url": "https://api.example.com/", "method": "POST", "body": "%%%" })).contains("body isn't readable"));
+    assert!(refused(cx, json!({ "url": "https://evil.example.org/" })).contains("can only connect to api.example.com, printer.local over HTTPS"));
+    assert!(refused(cx, json!({ "url": "https://api.example.com/", "method": "CONNECT" })).contains("can't use that HTTP method"));
+    assert!(refused(cx, json!({ "url": "https://api.example.com/", "method": "POST", "body": "%%%" })).contains("body couldn't be read"));
     let big = base64::engine::general_purpose::STANDARD.encode(vec![0u8; (1 << 20) + 1]);
     assert!(refused(cx, json!({ "url": "https://api.example.com/", "method": "POST", "body": big })).contains("at most 1 MB"));
     let many: serde_json::Map<String, Value> = (0..41).map(|n| (format!("x-{n}"), json!("v"))).collect();
@@ -578,14 +578,14 @@ fn the_network_is_the_brokers_and_refuses_before_it_connects(cx: &mut TestAppCon
 fn a_name_on_this_computers_network_is_refused_as_its_resolved() {
     let hosts = vec!["printer.local".to_string()];
     let fetched = futures::executor::block_on(super::net::fetch(json!({ "url": "https://printer.local/" }), hosts.clone(), false));
-    assert!(fetched.unwrap_err().contains("on this computer's network"));
+    assert!(fetched.unwrap_err().contains("on your local network"));
 }
 
 #[gpui::test]
 fn plugins_hear_only_the_events_they_may(cx: &mut TestAppContext) {
     let harness = Harness::open(cx, "listener", &["messages.read"], |_| {});
     assert!(harness.ask(cx, "subscribe", json!({ "type": "voice" })).unwrap_err().contains("voice.read permission"));
-    assert_eq!(harness.ask(cx, "subscribe", json!({ "type": "security" })).unwrap_err(), "No plugin is told of security.");
+    assert_eq!(harness.ask(cx, "subscribe", json!({ "type": "security" })).unwrap_err(), "Plugins don't receive security events.");
     harness.ask(cx, "subscribe", json!({ "type": "message" })).unwrap();
     let message = json!({ "id": "m1", "groupId": DM, "senderId": BOB, "text": "hi", "attachments": [{ "fileId": "f", "key": "k", "name": "a.png", "mime": "image/png", "size": 1 }] });
     harness.plugins.update(cx, |plugins, _| {
@@ -653,7 +653,7 @@ fn filters_change_stop_or_hold_what_the_app_does(cx: &mut TestAppContext) {
     cx.executor().advance_clock(Duration::from_millis(600));
     cx.run_until_parked();
     assert_eq!(*slot.borrow(), Some(Some(Verdict::Go(json!({ "serverId": SERVER })))));
-    assert_eq!(harness.off_reason(cx).as_deref(), Some("It failed to answer in time three times in a row."));
+    assert_eq!(harness.off_reason(cx).as_deref(), Some("It didn't respond in time three times in a row."));
     harness.app.run(cx);
     assert!(harness.app.toasts(cx).iter().any(|toast| toast.starts_with("Plugin filterer was turned off.")));
     assert_eq!(*verdict(cx, FilterKind::Outgoing, draft).borrow(), Some(None), "and its filters with it");
@@ -783,11 +783,11 @@ fn decorations_are_asked_for_once_and_dropped_as_messages_change(cx: &mut TestAp
 fn a_host_that_crashes_overreaches_or_talks_nonsense_is_turned_off(cx: &mut TestAppContext) {
     let cases: Vec<(&str, Option<String>, &str)> = vec![
         ("crasher", None, "It stopped working."),
-        ("garbler", Some("{not json".into()), "It sent what a plugin can't."),
-        ("stranger", Some(json!({ "t": "hello" }).to_string()), "It sent what a plugin can't."),
+        ("garbler", Some("{not json".into()), "It sent something plugins aren't allowed to send."),
+        ("stranger", Some(json!({ "t": "hello" }).to_string()), "It sent something plugins aren't allowed to send."),
         ("failer", Some(json!({ "t": "failed", "error": "x".repeat(400) }).to_string()), "It didn't start: "),
-        ("glutton", Some(json!({ "t": "fault", "reason": "memory" }).to_string()), "It used more memory than a plugin may."),
-        ("flooder", Some(json!({ "t": "fault", "reason": "flood" }).to_string()), "It sent more than a plugin may."),
+        ("glutton", Some(json!({ "t": "fault", "reason": "memory" }).to_string()), "It used more memory than plugins are allowed."),
+        ("flooder", Some(json!({ "t": "fault", "reason": "flood" }).to_string()), "It sent more data than plugins are allowed."),
     ];
     for (id, message, reason) in cases {
         let harness = Harness::open(cx, id, &[], |_| {});
@@ -854,7 +854,7 @@ fn files_are_installed_checked_again_and_removed_with_all_they_kept(cx: &mut Tes
     assert_eq!(cx.read(|cx| again.read(cx).loaded[&uid].manifest().version.clone()), "1.1.0");
     std::fs::write(super::store::packages(&data).join("file-installed-1.1.0.zunaplugin"), &first).unwrap();
     let tampered = plugins_in(cx, &data, false);
-    assert!(cx.read(|cx| tampered.read(cx).problems[&uid].contains("changed on disk")));
+    assert!(cx.read(|cx| tampered.read(cx).problems[&uid].contains("has changed since it was installed")));
     std::fs::remove_file(super::store::packages(&data).join("file-installed-1.1.0.zunaplugin")).unwrap();
     let missing = plugins_in(cx, &data, false);
     assert_eq!(cx.read(|cx| missing.read(cx).problems[&uid].clone()), "Its package is missing.");
@@ -865,8 +865,8 @@ fn files_are_installed_checked_again_and_removed_with_all_they_kept(cx: &mut Tes
     // Withdrawn by its hash, it isn't proposed or installed.
     missing.update(cx, |plugins, cx| {
         plugins.record.revoked_hashes.push(super::package::sha256_hex(&first));
-        assert_eq!(plugins.propose_file(first.clone(), cx).unwrap_err(), "Zuna withdrew this plugin as harmful.");
-        assert_eq!(plugins.install(&first, None, cx).unwrap_err(), "Zuna withdrew this plugin as harmful.");
+        assert_eq!(plugins.propose_file(first.clone(), cx).unwrap_err(), "Zuna pulled this plugin because it's harmful.");
+        assert_eq!(plugins.install(&first, None, cx).unwrap_err(), "Zuna pulled this plugin because it's harmful.");
         assert!(plugins.propose_file(b"not a package".to_vec(), cx).is_err());
     });
     std::fs::remove_dir_all(&data).ok();
@@ -893,7 +893,7 @@ fn the_index_withdraws_what_it_names_and_holds_updates_that_ask_for_more(cx: &mu
     cx.read(|cx| {
         let plugins = plugins.read(cx);
         assert_eq!(plugins.record.seen_serial, 7);
-        assert_eq!(plugins.problems[&uid], "Zuna withdrew it: It steals.");
+        assert_eq!(plugins.problems[&uid], "Zuna pulled it: It steals.");
         assert!(!plugins.record.find(&uid).unwrap().enabled);
         assert!(plugins.market.revoked(&plugins.loaded[&uid].package));
     });
@@ -920,7 +920,7 @@ fn the_index_withdraws_what_it_names_and_holds_updates_that_ask_for_more(cx: &mu
         assert!(plugins.wants_market(), "a device with a verified plugin looks for its updates");
         plugins.apply_index(index(json!([])), cx);
         assert!(plugins.market.waiting.contains_key("verified:shown"));
-        assert!(plugins.problems.get(&uid).is_none_or(|problem| problem.contains("withdrew")), "{:?}", plugins.problems);
+        assert!(plugins.problems.get(&uid).is_none_or(|problem| problem.contains("pulled")), "{:?}", plugins.problems);
         plugins.propose_market("shown", cx).unwrap();
         let proposal = plugins.proposal.clone().unwrap();
         assert!(proposal.verified);
@@ -975,7 +975,7 @@ fn a_start_that_never_finished_twice_starts_without_plugins(cx: &mut TestAppCont
     super::note_start(&data);
     let safe = plugins_in(cx, &data, false);
     let reason = cx.read(|cx| safe.read(cx).safe_mode.clone()).expect("safe mode");
-    assert!(reason.contains("didn't finish starting twice"));
+    assert!(reason.contains("failed to start twice"));
     safe.update(cx, |plugins, cx| plugins.start_all(cx));
     app.run(cx);
     assert!(app.toasts(cx).contains(&reason));
@@ -1006,7 +1006,7 @@ fn a_developers_folder_loads_again_as_its_files_change(cx: &mut TestAppContext) 
     harness.sent(cx);
     cx.executor().advance_clock(Duration::from_millis(1100));
     cx.run_until_parked();
-    assert!(harness.log(cx).iter().any(|line| line == "Its files changed, so it was loaded again."));
+    assert!(harness.log(cx).iter().any(|line| line == "Its files changed, so it was reloaded."));
     let boot = harness.sent(cx).into_iter().find(|message| message["t"] == "boot").expect("it boots again");
     assert!(boot["source"].as_str().unwrap().contains("changed"));
     // A change that breaks it is a problem shown, not a crash.
@@ -1014,7 +1014,7 @@ fn a_developers_folder_loads_again_as_its_files_change(cx: &mut TestAppContext) 
     std::fs::File::options().write(true).open(dir.join("plugin.json")).unwrap().set_modified(later + Duration::from_secs(60)).unwrap();
     cx.executor().advance_clock(Duration::from_millis(1100));
     cx.run_until_parked();
-    assert!(harness.read(cx, |plugins| plugins.problems.get(&harness.uid).is_some_and(|problem| problem.contains("doesn't parse"))));
+    assert!(harness.read(cx, |plugins| plugins.problems.get(&harness.uid).is_some_and(|problem| problem.contains("is invalid"))));
     // Proposed again, a folder that's installed already loads without asking.
     std::fs::write(dir.join("plugin.json"), manifest("watched", &[], |_| {}).to_string()).unwrap();
     harness.plugins.update(cx, |plugins, cx| plugins.propose_folder(dir.clone(), cx)).unwrap();

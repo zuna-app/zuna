@@ -53,7 +53,7 @@ impl Dialog {
                             .flex()
                             .gap(px(8.))
                             .child(choice("text", "hash", "Text", "Messages, pictures and files", text, cx))
-                            .child(choice("voice", "volume-2", "Voice", "Talk, share a camera or a screen", !text, cx)),
+                            .child(choice("voice", "volume-2", "Voice", "Talk, and share your camera or screen", !text, cx)),
                     )
                     .into_any_element(),
             );
@@ -67,7 +67,7 @@ impl Dialog {
                     .bg(theme.amber_soft)
                     .text_size(px(13.))
                     .text_color(theme.amber)
-                    .child("This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit (see SELF_HOSTING.md).")
+                    .child("This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).")
                     .into_any_element(),
             );
         }
@@ -81,7 +81,7 @@ impl Dialog {
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Slow mode")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Each person waits between messages, except admins.")))
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Slow mode")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Everyone except admins has to wait between messages.")))
                 .child(switch("slow-mode", slow_on, cx).on_click(cx.listener(|dialog, _, _, cx| {
                     if let Some(form) = &mut dialog.channel_form {
                         form.slow_on = !form.slow_on;
@@ -129,7 +129,7 @@ impl Dialog {
                     .ok();
                 })
             };
-            let qualities = [(0., "Usual (64 kbit/s)"), (96., "Better (96 kbit/s)"), (128., "Great (128 kbit/s)"), (256., "Best (256 kbit/s)")];
+            let qualities = [(0., "Standard (64 kbit/s)"), (96., "Better (96 kbit/s)"), (128., "Great (128 kbit/s)"), (256., "Best (256 kbit/s)")];
             let quality_label = qualities.iter().find(|(kbps, _)| *kbps == form.bitrate).map(|(_, label)| label.to_string()).unwrap_or_else(|| format!("{} kbit/s", form.bitrate));
             let quality_choices = qualities.iter().map(|(kbps, label)| (label.to_string(), pick(*kbps, |form, value| form.bitrate = value))).collect();
             body.push(labeled("Audio quality", select_box("audio-quality", quality_label, quality_choices, cx).into_any_element(), cx));
@@ -139,7 +139,7 @@ impl Dialog {
                     .flex()
                     .flex_col()
                     .gap(px(5.))
-                    .child(div().flex().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("People who fit: ").child(div().text_color(theme.text1).child(if limit == 0. { "no limit".to_string() } else { (limit as u32).to_string() })))
+                    .child(div().flex().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Max people: ").child(div().text_color(theme.text1).child(if limit == 0. { "no limit".to_string() } else { (limit as u32).to_string() })))
                     .child(slider("user-limit", (limit / 99.) as f32, {
                         let weak = weak.clone();
                         move |value, _, cx| {
@@ -183,7 +183,7 @@ impl Dialog {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Watch together")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Anyone in the channel can put a YouTube video on for everyone there. It only plays for those who press Watch.")))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Watch together")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Anyone in the channel can start a YouTube video for everyone. It only plays for people who press Watch.")))
                     .child(switch("watch-together", watch, cx).on_click(cx.listener(|dialog, _, _, cx| {
                         if let Some(form) = &mut dialog.channel_form {
                             form.watch = !form.watch;
@@ -204,7 +204,7 @@ impl Dialog {
             .gap(px(8.))
             .when_some(delete_channel, |el, channel| {
                 el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child("Delete").on_click(cx.listener(move |_, _, window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {}?", channel.name), Some("Its messages go for everyone."), &["Delete", "Cancel"], cx);
+                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {}?", channel.name), Some("Its messages will be deleted for everyone."), &["Delete", "Cancel"], cx);
                     let (id, key) = (channel.id.clone(), channel.key.clone());
                     cx.spawn(async move |dialog, cx| {
                         if answer.await != Ok(0) {

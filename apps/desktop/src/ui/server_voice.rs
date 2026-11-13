@@ -245,7 +245,7 @@ impl ServerSoundboard {
                 .rounded(RADIUS_M)
                 .bg(theme.bg2)
                 .text_size(px(13.5))
-                .child(div().flex_1().min_w_0().child(format!("Delete {}? It goes from everyone's soundboard.", sound.name)))
+                .child(div().flex_1().min_w_0().child(format!("Delete {}? It will be removed from everyone's soundboard.", sound.name)))
                 .child(button(SharedString::from(format!("keep-{}", sound.id)), ButtonKind::Default, ButtonSize::Small, false, cx).child("Cancel").on_click(cx.listener(|view, _, _, cx| {
                     view.deleting = None;
                     cx.notify();
@@ -296,7 +296,7 @@ impl Render for ServerSoundboard {
         let file_label = self.file.as_ref().and_then(|path| path.file_name()).map(|name| name.to_string_lossy().to_string());
         let mut parts = vec![
             heading("Soundboard"),
-            lead("Sounds anyone in a voice channel or a call can play to everyone there. Each is cut to five seconds and made about as loud as the rest. What they're called and how they sound are encrypted, so the server can't hear them.", cx),
+            lead("Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.", cx),
             div()
                 .flex()
                 .flex_col()
@@ -424,11 +424,11 @@ impl Render for ServerScreenRules {
         let (sound_me, exempt_me) = (me.clone(), me.clone());
         let mut parts = vec![heading("Screen sharing"), lead("Screen shares are end-to-end encrypted, so the server never sees them.", cx)];
         if !voice_ready {
-            parts.push(div().text_size(px(13.)).text_color(theme.amber).bg(theme.amber_soft).rounded(RADIUS_M).px(px(10.)).py(px(8.)).child("This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit (see SELF_HOSTING.md).").into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.amber).bg(theme.amber_soft).rounded(RADIUS_M).px(px(10.)).py(px(8.)).child("This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).").into_any_element());
         }
         parts.push(subhead("Permissions"));
-        parts.push(row("Who can share", Some("Changing this stops shares it no longer allows."), who.into_any_element()));
-        parts.push(row("Allow audio", Some("Turning it off stops shares with audio."), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
+        parts.push(row("Who can share", Some("Changing this stops any shares it no longer allows."), who.into_any_element()));
+        parts.push(row("Allow audio", Some("Turning it off stops any shares with audio."), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
             view.rules.sound = !sound;
             cx.notify();
         })).into_any_element()));
@@ -439,12 +439,12 @@ impl Render for ServerScreenRules {
         parts.push(number_select("max-height", "Max resolution", Some(rules.max_height), &with_zero(&SCREEN_HEIGHTS), |value| if value == 0 { "No limit".into() } else { height_name(value) }, None, 0, self.change(|rules, value| rules.max_height = value.unwrap_or(0), cx), cx));
         parts.push(number_select("max-fps", "Max frame rate", Some(rules.max_fps), &with_zero(&SCREEN_RATES), |value| if value == 0 { "No limit".into() } else { rate_name(value) }, None, 0, self.change(|rules, value| rules.max_fps = value.unwrap_or(0), cx), cx));
         parts.push(number_select("max-kbps", "Max bitrate", Some(rules.max_kbps), &with_zero(&SCREEN_LIMIT_BITRATES), |value| if value == 0 { "No limit".into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_kbps = value.unwrap_or(0), cx), cx));
-        parts.push(div().mt(px(-8.)).child(note("Each viewer costs your media server up to this much bandwidth.")).into_any_element());
+        parts.push(div().mt(px(-8.)).child(note("Each viewer can use up to this much of your media server's bandwidth.")).into_any_element());
         parts.push(row("Admins bypass limits", Some("Quality limits and share counts don't apply to admins."), switch("rules-exempt", exempt, cx).on_click(move |_, _, cx| exempt_me.update(cx, |view, cx| {
             view.rules.admins_exempt = !exempt;
             cx.notify();
         })).into_any_element()));
-        parts.push(note("Each app keeps to the quality limits itself, since the media server can't see encrypted video. A share already going keeps what it started with."));
+        parts.push(note("Each app applies the quality limits itself, since the media server can't see encrypted video. Shares already running keep the settings they started with."));
         let busy = self.busy;
         parts.push(div().flex().child(button("save-screen-rules", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { spinner(15., theme.on_accent).into_any_element() } else { div().child("Save changes").into_any_element() }).when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.save(cx))))).into_any_element());
         div().flex().flex_col().gap(px(14.)).children(parts)

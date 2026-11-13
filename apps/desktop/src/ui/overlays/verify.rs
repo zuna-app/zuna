@@ -22,12 +22,12 @@ impl Dialog {
                 theme.danger_text,
                 format!("{}'s security key changed in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.", user.display_name),
             )),
-            "verified" => body.push(notice("shield-check", theme.text2, theme.bg2, theme.text2, format!("You've verified {}. Nobody can quietly get between you.", user.display_name))),
+            "verified" => body.push(notice("shield-check", theme.text2, theme.bg2, theme.text2, format!("You've verified {}. Nobody can secretly intercept your messages.", user.display_name))),
             _ if !is_self => body.push(
                 div()
                     .text_size(px(13.5))
                     .text_color(theme.text2)
-                    .child(format!("Compare these emoji with {} in person or on a call. If they match exactly, nobody, including this server, is reading your conversation.", user.display_name))
+                    .child(format!("Compare these emoji with {} in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.", user.display_name))
                     .into_any_element(),
             ),
             _ => {}

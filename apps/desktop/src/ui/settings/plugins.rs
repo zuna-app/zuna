@@ -83,7 +83,7 @@ impl SettingsView {
 
     pub(super) fn propose_file(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
         let result = match std::fs::metadata(path) {
-            Ok(meta) if meta.len() > crate::plugins::package::MAX_PACKAGE as u64 => Err("A plugin's package is at most 8 MB.".to_string()),
+            Ok(meta) if meta.len() > crate::plugins::package::MAX_PACKAGE as u64 => Err("A plugin package can be at most 8 MB.".to_string()),
             Ok(_) => std::fs::read(path).map_err(|error| error.to_string()),
             Err(error) => Err(error.to_string()),
         };
@@ -132,13 +132,13 @@ impl SettingsView {
         };
         let mut parts = vec![
             Self::heading("Plugins", &theme),
-            Self::lead("Plugins change what the app does here, on this device alone: no server knows of them. Each runs apart from your keys and asks only for what it was granted.".into(), &theme),
+            Self::lead("Plugins change how the app works on this device only, and no server knows about them. Each one runs separately from your keys and can only do what you've allowed.".into(), &theme),
         ];
         if let Some(reason) = safe_mode {
             parts.push(notice("info", reason, cx).into_any_element());
         }
         if !usable {
-            parts.push(notice("triangle-alert", "Plugins can't be installed, as this device's key couldn't be read.", cx).into_any_element());
+            parts.push(notice("triangle-alert", "Plugins can't be installed because this device's key couldn't be read.", cx).into_any_element());
         }
         parts.push(
             div()
@@ -153,7 +153,7 @@ impl SettingsView {
         parts.push(Self::divider(&theme));
         parts.push(Self::subheading("Installed"));
         if items.is_empty() {
-            parts.push(div().text_size(px(13.)).text_color(theme.text2).child("None. Nothing comes with the app, and a device with no plugins never contacts the marketplace.").into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.text2).child("None yet. No plugins come with the app, and a device without plugins never contacts the marketplace.").into_any_element());
         }
         for item in items {
             parts.push(self.installed_row(item, cx));
@@ -162,7 +162,7 @@ impl SettingsView {
         parts.push(Self::subheading("Advanced"));
         parts.push(Self::row(
             "Allow plugins Zuna hasn't checked",
-            Some("Plugins from a file or a folder, which nobody on Zuna's team has read. They wear a mark wherever they show."),
+            Some("Plugins from a file or folder that nobody on Zuna's team has reviewed. They're marked wherever they appear."),
             switch("plugins-unverified", allow, cx).on_click(cx.listener(move |view, _, _, cx| {
                 if allow {
                     if let Some(plugins) = crate::plugins::get(cx) {
@@ -183,7 +183,7 @@ impl SettingsView {
                 .child(button("plugins-folder", ButtonKind::Default, ButtonSize::Normal, !allow, cx).child("Load a folder…").when(allow, |el| el.on_click(cx.listener(|view, _, _, cx| view.pick_folder(cx)))))
                 .into_any_element(),
         );
-        parts.push(div().text_size(px(12.5)).text_color(theme.text3).child("A plugin's file can also be dropped here. Nothing in a chat installs one.").into_any_element());
+        parts.push(div().text_size(px(12.5)).text_color(theme.text3).child("You can also drop a plugin file here. Plugins can never be installed from a chat.").into_any_element());
         parts
     }
 
@@ -237,7 +237,7 @@ impl SettingsView {
             )
             .when_some(item.problem.clone(), |el, problem| el.child(div().text_size(px(12.5)).text_color(theme.red).child(problem)))
             .child(div().flex().flex_col().gap(px(3.)).children(if item.told.is_empty() {
-                vec![div().text_size(px(12.5)).text_color(theme.text2).child("Asks for nothing of your account.").into_any_element()]
+                vec![div().text_size(px(12.5)).text_color(theme.text2).child("Doesn't need any access to your account.").into_any_element()]
             } else {
                 item.told.iter().map(|(line, strong)| div().text_size(px(12.5)).text_color(theme.text2).when(*strong, |el| el.font_weight(FontWeight::SEMIBOLD).text_color(theme.text1)).child(format!("• {line}")).into_any_element()).collect()
             }))
@@ -307,7 +307,7 @@ impl SettingsView {
         let mut parts = Vec::new();
         parts.push(field(None, self.plugin_search.clone(), None, None, false, None, cx).into_any_element());
         if loading && index.is_none() {
-            parts.push(div().flex().items_center().gap(px(8.)).text_color(theme.text2).child(spinner(14., theme.text2)).child("Reading the marketplace…").into_any_element());
+            parts.push(div().flex().items_center().gap(px(8.)).text_color(theme.text2).child(spinner(14., theme.text2)).child("Loading the marketplace…").into_any_element());
         }
         if let Some(error) = error {
             parts.push(notice("triangle-alert", error, cx).into_any_element());
@@ -361,13 +361,13 @@ impl SettingsView {
                             .child(action),
                     )
                     .child(div().text_size(px(13.)).child(entry.summary.clone()))
-                    .child(div().text_size(px(12.)).text_color(theme.text2).child(if permissions.is_empty() { "Asks for nothing of your account.".to_string() } else { permissions.join(" · ") }))
+                    .child(div().text_size(px(12.)).text_color(theme.text2).child(if permissions.is_empty() { "Doesn't need any access to your account.".to_string() } else { permissions.join(" · ") }))
                     .when(!source.is_empty(), |el| el.child(div().id(SharedString::from(format!("market-source-{}", entry.id))).text_size(px(12.)).text_color(theme.link).cursor_pointer().child("Source").on_click(move |_, _, cx| cx.open_url(&source))))
                     .into_any_element(),
             );
         }
         if shown == 0 {
-            parts.push(div().text_size(px(13.)).text_color(theme.text2).child(if query.is_empty() { "Nothing is on the marketplace yet." } else { "No plugin matches." }).into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.text2).child(if query.is_empty() { "Nothing is on the marketplace yet." } else { "No plugins match." }).into_any_element());
         }
         parts
     }
@@ -477,7 +477,7 @@ impl SettingsView {
         crate::ui::overlays::confirm(
             "Allow plugins Zuna hasn't checked?".into(),
             "Allow them",
-            "Nobody on Zuna's team has read such a plugin's code, and nothing confirms who wrote it. One allowed to read your messages and reach the internet can send them anywhere. If someone told you to turn this on to fix a problem, to win something, or to see something hidden, it's a scam.".into(),
+            "Nobody on Zuna's team has reviewed these plugins, and there's no way to confirm who wrote them. One that can read your messages and access the internet could send them anywhere. If someone told you to turn this on to fix a problem, to win something, or to see something hidden, it's a scam.".into(),
             move |_, cx| {
                 cancel_view.update(cx, |view, cx| {
                     view.confirming_unverified = false;
@@ -573,7 +573,7 @@ mod tests {
         app.click(cx, "plugins-file");
         cx.simulate_path_prompt_response(|_| Some(vec![large.clone()]));
         app.run(cx);
-        assert!(app.toasts(cx).contains(&"A plugin's package is at most 8 MB.".to_string()));
+        assert!(app.toasts(cx).contains(&"A plugin package can be at most 8 MB.".to_string()));
         // And a developer's folder.
         let folder = source("folderplug", &[], |_| {});
         app.click(cx, "plugins-folder");
@@ -603,7 +603,7 @@ mod tests {
         harness.plugins.update(cx, |plugins, cx| {
             cx.notify();
             plugins.market.index = Some(index.clone());
-            plugins.market.error = Some("The marketplace's index is older than one this device has seen.".into());
+            plugins.market.error = Some("The marketplace sent an older list than this device has already seen.".into());
         });
         section(&harness, cx, "plugins");
         let view = settings(&harness, cx);
@@ -631,7 +631,7 @@ mod tests {
         });
         harness.app.run(cx);
         harness.app.click(cx, &format!("plugin-update-{uid}"));
-        assert!(harness.app.toasts(cx).contains(&"No version of it runs in this Zuna.".to_string()), "a folder's plugin isn't the marketplace's to update");
+        assert!(harness.app.toasts(cx).contains(&"No version of it works with this version of Zuna.".to_string()), "a folder's plugin isn't the marketplace's to update");
     }
 
     #[gpui::test]

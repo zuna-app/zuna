@@ -189,7 +189,7 @@ impl Engine {
             Some(given) => given,
             None => {
                 let credentials = credentials().ok_or("This build of Zuna can't use Telegram.")?;
-                (engine_path().filter(|path| path.is_file()).ok_or("Telegram's engine isn't beside the app.")?, credentials)
+                (engine_path().filter(|path| path.is_file()).ok_or("Telegram's engine wasn't found next to the app.")?, credentials)
             }
         };
         let key = match database_key(&self.data_dir, &self.device_key) {

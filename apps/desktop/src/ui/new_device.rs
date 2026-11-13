@@ -17,8 +17,8 @@ pub fn prompt(state: &Entity<AppState>, focus: &FocusHandle, cx: &App) -> Option
     let app = state.read(cx);
     let (title, text, buttons): (&str, String, Vec<AnyElement>) = if let Some((server_id, secret)) = app.device_removed.clone() {
         let text = match secret.as_deref() {
-            Some("recovery") => "Whoever signed in on it has your recovery key, so they can sign in again until you make a new one. Make one now.",
-            Some(_) => "Whoever signed in on it knows your password, so they can sign in again until you change it. Change it now.",
+            Some("recovery") => "Whoever signed in on it has your recovery key and can sign in again until you make a new one. Make a new one now.",
+            Some(_) => "Whoever signed in on it knows your password and can sign in again until you change it. Change it now.",
             None => "Whoever signed in on it may know your password or your recovery key. Change your password and make a new recovery key now.",
         };
         let action = if secret.as_deref() == Some("recovery") { "Make a new recovery key" } else { "Change password" };

@@ -190,8 +190,8 @@ try {
   await refuses("a manifest signed with Ed25519 alone, as releases from before were", [release({ signer2: null })], null);
   await refuses("a manifest whose ML-DSA-65 signature is someone else's", [release({ signer2: keys.stranger })], "isn't signed with one of Zuna's keys");
   await refuses("a manifest whose ML-DSA-65 signature is the other channel's", [release({ signer2: keys.stable })], "isn't signed with one of Zuna's keys");
-  await refuses("a stable release the nightly key signed", [release({ channel: "stable", signer: keys.nightly })], "signed with the other channel's key");
-  await refuses("a nightly, for an app on stable", [release({})], "it's a nightly, and this app follows stable releases", "stable");
+  await refuses("a stable release the nightly key signed", [release({ channel: "stable", signer: keys.nightly })], "signed for the other update channel");
+  await refuses("a nightly, for an app on stable", [release({})], "it's a nightly, and this app is set to stable releases", "stable");
   await refuses("an older build", [release({ build: OLD - 1 })], null);
   await refuses("this build again", [release({ build: OLD })], null);
   const changed = Buffer.from(installer);

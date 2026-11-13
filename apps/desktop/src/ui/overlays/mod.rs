@@ -499,7 +499,7 @@ impl Dialog {
     /// call, which that ends (`InstallUpdate`).
     fn install_update(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let version = crate::platform::updates::current().ready.map(|update| update.label()).unwrap_or_default();
-        let body = vec![div().text_size(px(13.5)).child(format!("Updating to {version} restarts Zuna, which takes you out of the call you're in. You can join again once it's back.")).into_any_element()];
+        let body = vec![div().text_size(px(13.5)).child(format!("Updating to {version} restarts Zuna, which will take you out of your call. You can rejoin once it's back.")).into_any_element()];
         let state = self.state.clone();
         let footer = div()
             .flex()
@@ -520,8 +520,8 @@ impl Dialog {
     fn watch_consent(&mut self, then_link: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let body = vec![
-            div().text_size(px(13.5)).child("Videos play from YouTube, in YouTube's own player. When you watch one, Google learns this device's IP address, which video it is and when, as it would if you opened it on YouTube. Nobody is signed in to YouTube here, so there may be adverts.").into_any_element(),
-            div().pt(px(10.)).text_size(px(13.5)).text_color(theme.text2).child("Your server only learns that something was sent in the room, never which video. Until you press Watch, this device contacts nobody. You can turn this off in Settings, Privacy.").into_any_element(),
+            div().text_size(px(13.5)).child("Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube. You aren't signed in to YouTube here, so you may see ads.").into_any_element(),
+            div().pt(px(10.)).text_size(px(13.5)).text_color(theme.text2).child("Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.").into_any_element(),
             div()
                 .pt(px(10.))
                 .flex()
@@ -557,14 +557,14 @@ impl Dialog {
         let focused = self.focused == Some(0);
         let mut body = vec![field(Some("YouTube link"), self.name.clone(), self.link_error.clone(), None, focused, None, cx).into_any_element()];
         if self.link_error.is_none() {
-            body.push(div().pt(px(8.)).text_size(px(12.5)).text_color(theme.text2).child("It plays for everyone here who presses Watch, at the same moment. Anyone in the room can pause it, skip, change its speed or stop it.").into_any_element());
+            body.push(div().pt(px(8.)).text_size(px(12.5)).text_color(theme.text2).child("It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.").into_any_element());
         }
         let busy = self.busy;
         let footer = div()
             .flex()
             .gap(px(8.))
             .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Putting it on…" } else { "Put it on" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
+            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Starting…" } else { "Play" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
             .into_any_element();
         self.modal(Some("Watch together".into()), 460., body, Some(footer), cx)
     }

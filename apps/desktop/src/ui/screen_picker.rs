@@ -240,7 +240,7 @@ impl Render for ScreenPicker {
                 body.push(div().id("screen-grid").max_h(px(320.)).overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(grid).child(scrollbar("screen-grid", Scrolls::Div(handle.clone()))).into_any_element());
                 if let Some(source) = source.as_ref().filter(|source| source.system_picks()) {
                     // `.setting-hint`.
-                    let asks = if source.screen { "Your system asks which screen, once you press Share." } else { "Your system asks which window, once you press Share." };
+                    let asks = if source.screen { "Your system will ask which screen to share after you press Share." } else { "Your system will ask which window to share after you press Share." };
                     body.push(div().text_size(px(12.5)).text_color(theme.text2).child(asks).into_any_element());
                 }
             }
@@ -291,9 +291,9 @@ impl Render for ScreenPicker {
             };
             let picked_name = listed.iter().find(|(app, _)| Some(&app.id) == picked.as_ref()).map(|(app, _)| app.name.clone());
             let hint = if pick == "everything" {
-                "Everything your computer plays, except Zuna.".to_string()
+                "All sound from your computer, except Zuna.".to_string()
             } else if let Some(name) = picked_name {
-                format!("Only what {} plays.", app_name(&name))
+                format!("Only sound from {}.", app_name(&name))
             } else {
                 "Apps appear here while they play audio.".to_string()
             };

@@ -111,9 +111,9 @@ impl Dialog {
                     .into_any_element()
             };
             body.push(point("These chats aren't end-to-end encrypted.", "Telegram keeps them on its servers, as it does for its own apps. Zuna's servers never see them."));
-            body.push(point("Telegram learns", "that you use Zuna, this device's address, its system and when you're online."));
-            body.push(point("Telegram watches accounts that use other apps,", "and sometimes limits one by mistake. Link an account you've had for a while."));
-            body.push(point("Channels, calls and secret chats", "stay in Telegram's own app."));
+            body.push(point("Telegram will see", "that you use Zuna, this device's IP address and operating system, and when you're online."));
+            body.push(point("Telegram monitors accounts that use other apps,", "and sometimes restricts them by mistake. It's safest to link an account you've had for a while."));
+            body.push(point("Channels, calls and secret chats", "are only in Telegram's own app."));
             footer.push(cancel("Cancel", cx));
             footer.push(
                 button("tg-continue", ButtonKind::Primary, ButtonSize::Normal, false, cx)
@@ -144,7 +144,7 @@ impl Dialog {
                                 .into_any_element(),
                         );
                     }
-                    body.push(small("The code changes every half minute or so. Nothing is typed into Zuna, and no code is sent by text message."));
+                    body.push(small("The code refreshes about every 30 seconds. You don't need to type anything, and no code is sent by text message."));
                     footer.push(
                         button("tg-phone", ButtonKind::Ghost, ButtonSize::Normal, false, cx)
                             .child("Use a phone number instead")
@@ -161,8 +161,8 @@ impl Dialog {
                     footer.push(cancel("Cancel", cx));
                 }
                 "qr" | "phone" => {
-                    body.push(text("The code comes in Telegram on another of your devices, or by email. Telegram doesn't send one by text message to an app like Zuna."));
-                    body.push(field(Some("Phone number"), form.phone.clone(), None, Some("With its country code.".into()), focused(dialog_focus, 0), None, cx).into_any_element());
+                    body.push(text("Telegram will send the code to your other devices, or by email. It doesn't send codes by text message to apps like Zuna."));
+                    body.push(field(Some("Phone number"), form.phone.clone(), None, Some("Include the country code.".into()), focused(dialog_focus, 0), None, cx).into_any_element());
                     footer.push(cancel("Cancel", cx));
                     footer.push(button("tg-send", ButtonKind::Primary, ButtonSize::Normal, form.busy, cx).child("Next").on_click(cx.listener(|dialog, _, _, cx| dialog.telegram_submit(cx))).into_any_element());
                 }
@@ -170,7 +170,7 @@ impl Dialog {
                     let link = link.clone().unwrap_or_default();
                     let whereto = match (link.step.as_str(), link.via.as_str()) {
                         ("email", _) => format!("Telegram sent a code to {}.", if link.pattern.is_empty() { "your login email" } else { link.pattern.as_str() }),
-                        (_, "telegram") => "Telegram sent a code to your account, in Telegram on your other devices.".to_string(),
+                        (_, "telegram") => "Telegram sent a code to the Telegram app on your other devices.".to_string(),
                         (_, "call") => "Telegram is calling you with a code.".to_string(),
                         (_, "fragment") => "Telegram sent a code to your number on Fragment.".to_string(),
                         _ => "Telegram sent you a code.".to_string(),
@@ -188,7 +188,7 @@ impl Dialog {
                 }
                 "password" => {
                     let hint = link.as_ref().map(|link| link.hint.clone()).unwrap_or_default();
-                    body.push(text("Your account has two-step verification. Its password is checked without being sent: Telegram's engine proves it knows it."));
+                    body.push(text("Your account has two-step verification. Your password is checked without ever being sent to Telegram."));
                     if form.password.read(cx).text().is_empty() && dialog_focus.is_none() {
                         form.password.focus_handle(cx).focus(window, cx);
                     }
@@ -197,7 +197,7 @@ impl Dialog {
                     footer.push(button("tg-password", ButtonKind::Primary, ButtonSize::Normal, form.busy, cx).child("Link").on_click(cx.listener(|dialog, _, _, cx| dialog.telegram_submit(cx))).into_any_element());
                 }
                 "signup" => {
-                    body.push(text("That number has no Telegram account. Zuna doesn't make one: sign up in Telegram's own app first, then link it here."));
+                    body.push(text("There's no Telegram account with that number. Zuna can't create one, so sign up in Telegram's own app first, then link it here."));
                     footer.push(cancel("Close", cx));
                 }
                 "failed" => {
@@ -291,7 +291,7 @@ impl Dialog {
     pub(super) fn telegram_join(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let mut body = vec![
-            div().text_size(px(13.5)).child("Paste a link to a Telegram group. Channels stay in Telegram's own app.").into_any_element(),
+            div().text_size(px(13.5)).child("Paste a link to a Telegram group. Channels are only in Telegram's own app.").into_any_element(),
             field(Some("Link"), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
         ];
         if let Some(problem) = &self.link_error {
@@ -437,14 +437,14 @@ mod tests {
     fn a_telegram_group_is_joined_by_its_link(cx: &mut TestAppContext) {
         crate::ui::motion::set_reduced(true);
         let app = App::open(cx, &World::new("telegram-join"));
-        app.answer("joinByLink", |args| if args[0] == "nope" { Err(refused("That link leads nowhere.")) } else { Ok(json!("42")) });
+        app.answer("joinByLink", |args| if args[0] == "nope" { Err(refused("That link doesn't work.")) } else { Ok(json!("42")) });
         app.update(cx, |state, cx| state.set_overlay(Some(Overlay::TelegramJoin), cx));
         let view = dialog(&app, cx);
         let name = cx.read(|cx| view.read(cx).name.clone());
         name.update(cx, |input, cx| input.set_text("  nope ", cx));
         app.click(cx, "tg-join");
         assert_eq!(app.calls_of("joinByLink"), vec![vec![json!("nope")]], "trimmed");
-        assert_eq!(cx.read(|cx| view.read(cx).link_error.clone()).as_deref(), Some("That link leads nowhere."));
+        assert_eq!(cx.read(|cx| view.read(cx).link_error.clone()).as_deref(), Some("That link doesn't work."));
         name.update(cx, |input, cx| input.set_text("https://t.me/+abc", cx));
         app.click(cx, "tg-join");
         assert_eq!(app.read(cx, |state| state.overlay.clone()), None, "joined, the dialog closes");

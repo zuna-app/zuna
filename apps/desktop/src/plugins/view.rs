@@ -146,7 +146,7 @@ impl Budget {
         let text: String = value.chars().take(MAX_TEXT).collect();
         self.text += text.len();
         if self.text > MAX_TOTAL_TEXT {
-            return Err("The view holds more text than one may.".into());
+            return Err("The view has too much text.".into());
         }
         Ok(text)
     }
@@ -189,11 +189,11 @@ fn children(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Res
 
 fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<Option<Node>, String> {
     if depth > MAX_DEPTH {
-        return Err("The view is deeper than one may be.".into());
+        return Err("The view is nested too deeply.".into());
     }
     budget.nodes += 1;
     if budget.nodes > MAX_NODES {
-        return Err("The view has more nodes than one may.".into());
+        return Err("The view has too many elements.".into());
     }
     let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
     let empty = serde_json::Map::new();
@@ -299,7 +299,7 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
             let mut shapes = Vec::new();
             for shape in prop("shapes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
                 if shapes.len() >= MAX_SHAPES {
-                    return Err("The canvas has more shapes than one may.".into());
+                    return Err("The canvas has too many shapes.".into());
                 }
                 let get = |name: &str| number(shape.get(name), -10_000., 10_000.).unwrap_or(0.);
                 let kind = shape.get("kind").and_then(Value::as_str).unwrap_or_default();

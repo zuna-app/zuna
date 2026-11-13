@@ -275,7 +275,7 @@ impl Render for VoiceStage {
                 .p(px(24.))
                 .text_color(theme.text2)
                 .child(spinner(26., theme.text2))
-                .child(if self.room.call { "Connecting the call…".to_string() } else { format!("Coming into {title}…") })
+                .child(if self.room.call { "Connecting the call…".to_string() } else { format!("Joining {title}…") })
                 .into_any_element()
         } else {
             let area = self.area.get();

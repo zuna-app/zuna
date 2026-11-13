@@ -213,18 +213,18 @@ impl Storage {
     /// Keeps a value, within the plugin's quota.
     pub fn set(&self, uid: &str, kind: Kind, name: &str, value: &Value) -> Result<(), String> {
         if name.is_empty() || name.len() > MAX_KEY {
-            return Err("A key is 1 to 200 bytes.".into());
+            return Err("A key must be 1 to 200 bytes.".into());
         }
         let json = serde_json::to_vec(value).map_err(|error| error.to_string())?;
         if json.len() > MAX_VALUE {
-            return Err("That's more than one value may hold (512 KB).".into());
+            return Err("That's more than one value can hold (512 KB).".into());
         }
         let (count, total): (i64, i64) = self
             .db
             .query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(value)), 0) FROM kv WHERE plugin = ? AND NOT (kind = ? AND key = ?)", rusqlite::params![uid, kind.name(), name], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(|error| error.to_string())?;
         if count as usize >= MAX_KEYS || total as usize + json.len() > MAX_TOTAL {
-            return Err("The plugin keeps as much as it may (4 MB).".into());
+            return Err("The plugin's storage is full (4 MB).".into());
         }
         let sealed = zuna_crypto::primitives::aead_seal(&self.keys.for_plugin(uid), &json, &Storage::aad(uid, kind, name)).map_err(|error| error.to_string())?;
         self.db

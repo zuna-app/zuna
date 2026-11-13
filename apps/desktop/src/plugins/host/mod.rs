@@ -102,7 +102,7 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
     let parsed: Boot = match serde_json::from_str::<Boot>(&boot) {
         Ok(boot) if boot.t == "boot" => boot,
         _ => {
-            say(json!({ "t": "failed", "error": "The host wasn't started as the app starts it." }));
+            say(json!({ "t": "failed", "error": "The plugin host wasn't started by the app." }));
             return 1;
         }
     };
@@ -145,7 +145,7 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
     // The prelude, the boot message, then the plugin's own script, each within the deadline.
     begin(&deadline);
     let started = context.with(|ctx| -> Result<(), String> {
-        install(&ctx, send.clone(), state.clone()).map_err(|_| "The host's functions didn't install.".to_string())?;
+        install(&ctx, send.clone(), state.clone()).map_err(|_| "The host's functions couldn't be set up.".to_string())?;
         ctx.eval::<(), _>(PRELUDE).map_err(|_| format!("The prelude didn't load: {}", exception(&ctx)))?;
         let receive: Function = ctx.globals().get("__zunaReceive").map_err(|_| "The prelude is broken.".to_string())?;
         receive.call::<_, ()>((boot.as_str(),)).map_err(|_| exception(&ctx))?;
@@ -159,9 +159,9 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
     drain(&runtime, &say);
     deadline.set(None);
     // A setup that ran past its deadline was ended: the plugin doesn't run.
-    let started = if interrupted.get() { Err("Its script ran too long as it started.".to_string()) } else { started };
+    let started = if interrupted.get() { Err("Its script took too long to start.".to_string()) } else { started };
     if let Err(error) = started {
-        let error = if interrupted.get() { "Its script ran too long as it started.".to_string() } else { error };
+        let error = if interrupted.get() { "Its script took too long to start.".to_string() } else { error };
         say(json!({ "t": "failed", "error": error }));
         return 1;
     }
@@ -284,10 +284,10 @@ fn install<'js>(ctx: &Ctx<'js>, send: Rc<RefCell<impl FnMut(&str) -> bool + 'sta
         "__zunaSend",
         Function::new(ctx.clone(), move |ctx: Ctx<'js>, json: String| -> rquickjs::Result<()> {
             if json.len() > MAX_FROM_HOST {
-                return Err(rquickjs::Exception::throw_range(&ctx, "That's more than a plugin may send at once."));
+                return Err(rquickjs::Exception::throw_range(&ctx, "That's more than a plugin can send at once."));
             }
             if !(send.borrow_mut())(&json) {
-                return Err(rquickjs::Exception::throw_internal(&ctx, "The app is gone."));
+                return Err(rquickjs::Exception::throw_internal(&ctx, "The app has closed."));
             }
             Ok(())
         })?,

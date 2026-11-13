@@ -118,7 +118,7 @@ impl SidePanel {
                 let whose = if bot.owner_id == server.self_id() { "Your bot".to_string() } else { format!("{}'s bot", server.users.get(&bot.owner_id).map(|owner| owner.display_name.clone()).unwrap_or_else(|| "Someone".into())) };
                 card = card
                     .child(div().mt(px(2.)).child(bot_badge(cx)))
-                    .child(div().mt(px(4.)).text_size(px(12.5)).text_color(theme.text3).child(format!("{whose}. A program runs it, and reads everything said in the chats it's in.")));
+                    .child(div().mt(px(4.)).text_size(px(12.5)).text_color(theme.text3).child(format!("{whose}. It's run by a program, which can read everything said in the chats it's in.")));
             } else if !is_self {
                 let showing = !peer.deleted && !peer.online;
                 crate::ui::components::redraw_last_seen(&mut self.last_seen_tick, peer.last_seen_at.filter(|_| showing), peer.hides_last_seen, cx);
@@ -152,8 +152,8 @@ impl SidePanel {
             let user_id = peer.id.clone();
             let (icon_name, color, title, text, bg) = match peer.trust.as_str() {
                 "verified" => ("shield-check", theme.green, "Verified", "You've confirmed this is really them.", None),
-                "changed" => ("shield-alert", theme.amber, "Security key changed", "Compare emoji to make sure nobody is in between.", Some(theme.amber_soft)),
-                _ => ("shield", theme.text2, "Not verified yet", "Compare emoji to make sure nobody is in between.", None),
+                "changed" => ("shield-alert", theme.amber, "Security key changed", "Compare emoji to make sure nobody is intercepting your messages.", Some(theme.amber_soft)),
+                _ => ("shield", theme.text2, "Not verified yet", "Compare emoji to make sure nobody is intercepting your messages.", None),
             };
             parts.push(
                 Self::section(cx)
@@ -196,7 +196,7 @@ impl SidePanel {
                             "block",
                             "ban",
                             if blocked { format!("Unblock {}", peer.display_name) } else { format!("Block {}", peer.display_name) },
-                            if blocked { None } else { Some("You won't see their messages or hear about them. They aren't told.".into()) },
+                            if blocked { None } else { Some("You won't see their messages or get notified about them. They won't be told.".into()) },
                             !blocked,
                             cx,
                         )
@@ -254,7 +254,7 @@ impl SidePanel {
                 .into_any_element();
         }
         let (state, id) = (self.state.clone(), peer.id.clone());
-        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins see whom and why, never what was said or who reported.".into()), true, cx)
+        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins will see who you reported and why, but not what was said or who reported them.".into()), true, cx)
             .on_click(move |event, _, cx| {
                 let entries = REPORT_REASONS
                     .iter()

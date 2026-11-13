@@ -102,11 +102,11 @@ impl reqwest::dns::Resolve for CheckedResolver {
         let host = name.as_str().to_string();
         Box::pin(async move {
             if local_name(&host) {
-                return Err("That address is on this computer's network.".into());
+                return Err("That address is on your local network.".into());
             }
             let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 443)).await?.collect();
             if addresses.is_empty() || addresses.iter().any(|address| private_address(address.ip())) {
-                return Err("That address is on this computer's network.".into());
+                return Err("That address is on your local network.".into());
             }
             Ok(Box::new(addresses.into_iter()) as reqwest::dns::Addrs)
         })
@@ -128,7 +128,7 @@ pub fn client(tls: rustls::ClientConfig) -> reqwest::Client {
             } else if previewable(attempt.url()) {
                 attempt.follow()
             } else {
-                attempt.error("The page went somewhere previews don't go.")
+                attempt.error("The page redirected somewhere previews can't go.")
             }
         }))
         .connect_timeout(TIMEOUT)

@@ -31,7 +31,7 @@ impl SettingsView {
         ];
         let blocked: Vec<_> = server.prefs.blocked().iter().filter_map(|id| server.users.get(id).cloned()).collect();
         if blocked.is_empty() {
-            parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("Nobody. You can block someone from their details in a chat, or from a group's members.").into_any_element());
+            parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("Nobody yet. You can block someone from their details in a chat, or from a group's member list.").into_any_element());
         }
         for user in blocked {
             let state = self.state.clone();
@@ -45,20 +45,20 @@ impl SettingsView {
                 &theme,
             ));
         }
-        parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("You don't see messages from people you block, or hear about them. Nobody is told, and your server can't see who you block.").into_any_element());
+        parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.").into_any_element());
         parts.push(Self::divider(&theme));
         parts.push(Self::subheading("On this device"));
         let link_previews = settings.link_previews;
         parts.push(Self::row(
             "Link previews",
-            Some("When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it."),
+            Some("When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it."),
             switch("link-previews", link_previews, cx).on_click(move |_, _, cx| state_c.update(cx, |state, cx| state.update_settings(|s| s.link_previews = !link_previews, cx))),
             &theme,
         ));
         let remove = settings.remove_metadata;
         parts.push(Self::row(
             "Remove metadata from files",
-            Some("Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."),
+            Some("Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."),
             switch("remove-metadata", remove, cx).on_click(cx.listener(move |view, _, _, cx| {
                 if remove {
                     view.confirming_keep = true;
@@ -74,9 +74,9 @@ impl SettingsView {
         parts.push(Self::row(
             "Proxy",
             Some(&if proxy.on {
-                format!("Everything this device sends goes through the SOCKS5 proxy at {}, for every server on it. Your servers see its address rather than yours.", crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
+                format!("Everything this device sends goes through the SOCKS5 proxy at {}, for every server. Your servers see the proxy's address instead of yours.", crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
             } else {
-                "Off. A SOCKS5 proxy can carry everything this device sends, so that your servers see its address rather than yours.".to_string()
+                "Off. A SOCKS5 proxy can carry everything this device sends, so your servers see the proxy's address instead of yours.".to_string()
             }),
             button("proxy-settings", ButtonKind::Default, ButtonSize::Small, false, cx)
                 .child(if proxy.on { "Change" } else { "Set up" })
@@ -87,7 +87,7 @@ impl SettingsView {
         let state_y = self.state.clone();
         parts.push(Self::row(
             "Play YouTube videos",
-            Some("A voice channel or a call can watch a YouTube video together. Watching one, this device plays it from YouTube, which learns its IP address, which video and when. Until you press Watch, it contacts nobody. Off, pressing Watch asks first."),
+            Some("People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first."),
             switch("play-youtube", play_youtube, cx).on_click(move |_, _, cx| state_y.update(cx, |state, cx| state.update_settings(|s| s.play_youtube = !play_youtube, cx))),
             &theme,
         ));
@@ -139,7 +139,7 @@ impl SettingsView {
             Self::lead("Previews are decrypted on this device. No notification service ever sees them.".into(), &theme),
             Self::row(
                 "Desktop notifications",
-                Some("While you're on another device, they wait 30 seconds, and don't show if you read the chat there."),
+                Some("If you're using another device, they wait 30 seconds and won't show if you read the chat there."),
                 switch("notifications-on", on, cx).on_click(move |_, _, cx| on_state.update(cx, |state, cx| state.update_settings(|s| s.notifications = !on, cx))),
                 &theme,
             ),
@@ -223,7 +223,7 @@ impl SettingsView {
                     state.update(cx, |state, cx| state.update_settings(|s| s.theme = Some(key), cx))
                 })));
             }
-            Self::row("Theme", Some("From your plugins. The accent above applies under Zuna's own."), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
+            Self::row("Theme", Some("From your plugins. The accent color above only applies to Zuna's own themes."), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
         });
         vec![
             Self::heading("Appearance", &theme),
@@ -288,8 +288,8 @@ impl SettingsView {
                             .pt(px(10.))
                             .pb(px(20.))
                             .text_size(px(13.5))
-                            .child("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.")
-                            .child(div().text_color(theme.text2).child("Your server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.")),
+                            .child("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.")
+                            .child(div().text_color(theme.text2).child("Your server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.")),
                     )
                     .child(
                         div()

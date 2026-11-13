@@ -175,10 +175,10 @@ impl Plugins {
 
     fn may_draw(&self, uid: &str, cx: &gpui::App) -> Result<(), String> {
         if !self.activated(uid) {
-            return Err("A plugin opens what it draws only right after the person uses it.".into());
+            return Err("A plugin can only open its views right after someone interacts with it.".into());
         }
         if super::security_question_up(cx) {
-            return Err("Not while the app is asking the person something.".into());
+            return Err("Not while the app is showing a prompt.".into());
         }
         Ok(())
     }
@@ -223,8 +223,8 @@ impl Plugins {
                         cx.notify();
                         saved
                     }
-                    (Some(_), _) => Err("That isn't a value the setting takes.".into()),
-                    (None, _) => Err("The manifest names no such setting.".into()),
+                    (Some(_), _) => Err("That isn't a valid value for this setting.".into()),
+                    (None, _) => Err("The manifest has no setting with that name.".into()),
                 }
             }
             "ui.register" => self.register(uid, args, cx),
@@ -262,7 +262,7 @@ impl Plugins {
                     _ => false,
                 });
                 if !registered {
-                    Err("No such thing is registered to open.".into())
+                    Err("Nothing with that name is registered to open.".into())
                 } else if let Err(error) = self.may_draw(uid, cx) {
                     Err(error)
                 } else {
@@ -309,7 +309,7 @@ impl Plugins {
             }
             "composer.insert" => {
                 if !self.activated(uid) {
-                    Err("A plugin writes in the message box only right after the person uses it.".into())
+                    Err("A plugin can only write in the message box right after someone interacts with it.".into())
                 } else {
                     let insert: String = text(args, "text").chars().take(crate::ui::chat::MAX_TEXT_LENGTH).collect();
                     if let Some(state) = state {
@@ -328,7 +328,7 @@ impl Plugins {
                         Ok(Value::Null)
                     }
                     Rule::Needs(permission) => Err(needs(permission)),
-                    Rule::Never => Err(format!("No plugin is told of {kind}.")),
+                    Rule::Never => Err(format!("Plugins don't receive {kind} events.")),
                 }
             }
             "filter.register" => {
@@ -422,7 +422,7 @@ impl Plugins {
                         let answer = match picked {
                             None => Ok(Value::Null),
                             Some(path) => match std::fs::metadata(&path) {
-                                Ok(meta) if meta.len() > 8 << 20 => Err("A plugin takes files of at most 8 MB.".to_string()),
+                                Ok(meta) if meta.len() > 8 << 20 => Err("Plugins can only handle files up to 8 MB.".to_string()),
                                 Ok(_) => std::fs::read(&path)
                                     .map(|bytes| json!({ "name": path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(), "bytes": base64::engine::general_purpose::STANDARD.encode(bytes) }))
                                     .map_err(|error| error.to_string()),
@@ -453,7 +453,7 @@ impl Plugins {
                         .detach();
                         return None;
                     }
-                    Err(_) => Err("The file's bytes aren't readable.".into()),
+                    Err(_) => Err("The file couldn't be read.".into()),
                 },
                 Err(error) => Err(error),
             },
@@ -467,13 +467,13 @@ impl Plugins {
             }
             "clipboard.read" => self.grant(uid, Permission::ClipboardRead).and_then(|_| {
                 if !self.activated(uid) {
-                    return Err("A plugin reads the clipboard only right after the person uses it.".into());
+                    return Err("A plugin can only read the clipboard right after someone interacts with it.".into());
                 }
                 Ok(json!(cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default()))
             }),
             "clipboard.write" => self.grant(uid, Permission::ClipboardWrite).and_then(|_| {
                 if !self.activated(uid) {
-                    return Err("A plugin writes to the clipboard only right after the person uses it.".into());
+                    return Err("A plugin can only write to the clipboard right after someone interacts with it.".into());
                 }
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text(args, "text").chars().take(100_000).collect()));
                 Ok(Value::Null)
@@ -486,7 +486,7 @@ impl Plugins {
         let kind = text(args, "kind");
         let id = text(args, "id");
         if !slot_id_ok(&id) {
-            return Err("A slot's id is 1 to 40 letters, digits, dots, hyphens and underscores.".into());
+            return Err("A slot's id must be 1 to 40 letters, digits, dots, hyphens or underscores.".into());
         }
         let label = args.get("label").and_then(Value::as_str).or_else(|| args.get("title").and_then(Value::as_str)).unwrap_or_default();
         let title: String = label.trim().chars().take(60).collect();
@@ -513,7 +513,7 @@ impl Plugins {
             _ => return Err(format!("There's no slot called {kind}.")),
         };
         if map.len() >= MAX_SLOTS && !map.contains_key(&id) {
-            return Err(format!("A plugin has at most {MAX_SLOTS} of these."));
+            return Err(format!("A plugin can have at most {MAX_SLOTS} of these."));
         }
         map.insert(id, slot);
         cx.notify();
@@ -556,14 +556,14 @@ impl Plugins {
         }
         if let Some(server) = &server {
             if !self.server_known(server, cx) {
-                return refused(self, "That isn't a server this device is on.".into());
+                return refused(self, "This device isn't on that server.".into());
             }
         }
         if call_args.len() > 16 || serde_json::to_vec(&call_args).map_or(true, |bytes| bytes.len() > MAX_ARGS) {
-            return refused(self, "Those arguments are larger than a call takes.".into());
+            return refused(self, "Those arguments are too large.".into());
         }
         if holds_path(&Value::Array(call_args.clone())) {
-            return refused(self, "A plugin hands the core bytes, never a path.".into());
+            return refused(self, "Plugins must pass a file's contents, not its path.".into());
         }
         // What a message may carry from a plugin: no buttons, no signal, nothing but what the person could write.
         match method.as_str() {
@@ -596,7 +596,7 @@ impl Plugins {
         }
         let server = text(args, "serverId");
         if !self.server_known(&server, cx) {
-            return Some(Err("That isn't a server this device is on.".into()));
+            return Some(Err("This device isn't on that server.".into()));
         }
         let group = text(args, "groupId");
         let id = text(args, "id");
@@ -625,7 +625,7 @@ impl Plugins {
             "messages.send" => {
                 let body: String = text(args, "text").chars().take(crate::ui::chat::MAX_TEXT_LENGTH).collect();
                 if body.trim().is_empty() {
-                    return Some(Err("A message has text.".into()));
+                    return Some(Err("A message needs text.".into()));
                 }
                 ("sendMessage", vec![json!(text(args, "conversationKey")), json!({ "text": body, "mentions": [], "emotes": {} })], |_, _| Value::Null)
             }
@@ -651,7 +651,7 @@ impl Plugins {
         if op == "voice.members" {
             let server = text(args, "serverId");
             if !self.server_known(&server, cx) {
-                return Some(Err("That isn't a server this device is on.".into()));
+                return Some(Err("This device isn't on that server.".into()));
             }
             self.ask_core(uid, n, Some(server), "getVoiceMembers", vec![], |_, value| sanitize(&value), cx);
             return None;
@@ -662,7 +662,7 @@ impl Plugins {
                 let (server, channel) = (text(args, "serverId"), text(args, "channelId"));
                 let is_voice = crate::state::try_store(cx).is_some_and(|state| state.read(cx).servers.get(&server).is_some_and(|known| known.channels.iter().any(|item| item.id == channel && item.kind == "voice")));
                 if !is_voice {
-                    return Some(Err("That isn't a voice channel on a server this device is on.".into()));
+                    return Some(Err("That isn't a voice channel on any server this device is on.".into()));
                 }
                 cx.defer(move |cx| voice.update(cx, |voice, cx| voice.join(server, channel, None, crate::voice::JoinHow::default(), cx)));
             }
@@ -698,7 +698,7 @@ impl Plugins {
         let (server, group, id) = (text(args, "serverId"), text(args, "groupId"), text(args, "messageId"));
         let index = args.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         if !self.server_known(&server, cx) {
-            return Some(Err("That isn't a server this device is on.".into()));
+            return Some(Err("This device isn't on that server.".into()));
         }
         let Some(state) = crate::state::try_store(cx) else { return Some(Err("The app isn't ready.".into())) };
         let core = state.read(cx).core.clone();
@@ -708,7 +708,7 @@ impl Plugins {
                 let message = core.call(Some(&server), "messageById", vec![json!(group), json!(id)]).await.map_err(|error| error.message)?;
                 let attachment = message.get("attachments").and_then(|items| items.get(index)).cloned().ok_or("That message has no such file.")?;
                 if attachment.get("size").and_then(Value::as_f64).unwrap_or(0.) > (16 << 20) as f64 {
-                    return Err("A plugin reads files of at most 16 MB.".to_string());
+                    return Err("Plugins can only read files up to 16 MB.".to_string());
                 }
                 let reference = json!({ "fileId": attachment["fileId"], "key": attachment["key"], "prefix": attachment["prefix"], "chunks": attachment["chunks"], "mime": attachment["mime"] });
                 let blob = core.call(Some(&server), "downloadFile", vec![reference]).await.map_err(|error| error.message)?;

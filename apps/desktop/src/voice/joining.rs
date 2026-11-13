@@ -191,7 +191,7 @@ impl Voice {
                         cx.notify();
                     }
                     if voice.mic.as_ref().is_some_and(|mic| mic.lost.load(std::sync::atomic::Ordering::Relaxed)) {
-                        voice.toast("Your microphone went away, so Zuna switched to the default one.", ToastKind::Info, cx);
+                        voice.toast("Your microphone was disconnected, so Zuna switched to the default one.", ToastKind::Info, cx);
                         voice.reopen_mic(Some("default".into()), cx);
                     }
                     true

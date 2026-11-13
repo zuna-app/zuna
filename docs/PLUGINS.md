@@ -89,7 +89,7 @@ The package is a zip of `plugin.json`, `main.js`, `assets/` and, for a verified 
 | `messages.send` | Sending, editing, deleting and reacting as the person | **Writes and deletes messages as you** |
 | `messages.intercept` | Changing or stopping what the person sends | Changes what you send before it's encrypted |
 | `messages.decorate` | Changing how messages look here; needs `messages.read` | Changes how messages are shown to you |
-| `activity.intercept` | Typing, read marks, and someone typing shown | Changes what others learn of your activity |
+| `activity.intercept` | Typing, read marks, and someone typing shown | Changes what others see of your activity |
 | `notifications` | Showing notifications, and with `messages.read` holding back or rewording the app's | Shows and hides notifications |
 | `voice.read`, `voice.control` | Who's in voice; joining, leaving, muting | Sees who's in voice; joins and mutes for you |
 | `clipboard.read`, `clipboard.write` | The clipboard | Reads, or writes, your clipboard |

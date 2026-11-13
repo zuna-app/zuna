@@ -152,7 +152,7 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 .child(if is_admin {
                     div().id("soundboard-add").font_weight(FontWeight::MEDIUM).text_color(theme.accent_text).cursor_pointer().on_click(move |_, _, cx| manage_link(cx)).child("Add some").into_any_element()
                 } else {
-                    div().child("Its admins add them.").into_any_element()
+                    div().child("Admins can add them.").into_any_element()
                 })
                 .into_any_element()
         } else {

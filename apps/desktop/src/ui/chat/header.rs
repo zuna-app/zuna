@@ -343,7 +343,7 @@ impl ChatView {
                         .gap(px(4.))
                         .text_size(px(13.))
                         .text_color(theme.text2)
-                        .tip(format!("One message every {} for each person, except admins", crate::format::timer_text(conversation.slow_mode)), Side::Top)
+                        .tip(format!("Each person can send one message every {}, except admins", crate::format::timer_text(conversation.slow_mode)), Side::Top)
                         .child(icon("timer", 14., theme.text2))
                         .child("Slow mode is on"),
                 )

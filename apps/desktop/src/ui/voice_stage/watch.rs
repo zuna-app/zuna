@@ -34,8 +34,8 @@ pub(super) struct PlayerStatus {
 /// What each of YouTube's errors is, in words, so people know it isn't Zuna (`WATCH_ERRORS`).
 fn error_words(error: &str) -> &'static str {
     match error {
-        "gone" => "This video is gone, or private.",
-        "not-embeddable" => "Its owner only lets it play on YouTube.",
+        "gone" => "This video was removed or is private.",
+        "not-embeddable" => "Its owner only allows it to play on YouTube.",
         "unplayable" => "YouTube won't play this video here.",
         "no-referrer" => "YouTube refused to play it here. That's a bug in Zuna.",
         _ => "YouTube couldn't play this video.",
@@ -169,10 +169,10 @@ impl VoiceStage {
             let voice = self.voice.clone();
             // Out of drawing, which this is called from.
             cx.defer(move |cx| voice.update(cx, |voice, cx| voice.set_watching(false, cx)));
-            Some(if rtss { format!("The video's player kept crashing, so it stopped. {rtss_words}") } else { "The video's player kept crashing, so it stopped. Press Watch to try again.".to_string() })
+            Some(if rtss { format!("The video player kept crashing, so it was stopped. {rtss_words}") } else { "The video player kept crashing, so it was stopped. Press Watch to try again.".to_string() })
         } else if rtss && !self.watch_told_rtss {
             self.watch_told_rtss = true;
-            Some(format!("The video's player crashed, so it was started again. {rtss_words}"))
+            Some(format!("The video player crashed and was restarted. {rtss_words}"))
         } else {
             None
         };
@@ -370,7 +370,7 @@ impl VoiceStage {
         #[cfg(target_os = "linux")]
         let (problem, decode_note) = (
             voice.watch_here.problem(&watch.session).map(str::to_string),
-            voice.watch_here.status().is_some_and(|here| here.cant_decode).then(|| format!("To play YouTube's videos here, install {}.", crate::platform::watch_view::decoder_packages())),
+            voice.watch_here.status().is_some_and(|here| here.cant_decode).then(|| format!("To play YouTube videos here, install {}.", crate::platform::watch_view::decoder_packages())),
         );
         #[cfg(not(target_os = "linux"))]
         let (problem, decode_note) = (None::<String>, None::<String>);
@@ -378,15 +378,15 @@ impl VoiceStage {
         let note = if let Some(error) = &status.error {
             error.clone()
         } else if status.blocked {
-            "It didn't start by itself. Press play in the video once.".to_string()
+            "It didn't start automatically. Press play in the video.".to_string()
         } else if watching && status.phase == "catching-up" {
             "Catching up…".to_string()
         } else if !watch.playing {
             format!("Paused by {}", self.person_name(&watch.changed_by, cx))
         } else if watch.video.author.is_empty() {
-            format!("Put on by {put_on_by}")
+            format!("Started by {put_on_by}")
         } else {
-            format!("Put on by {put_on_by} · {}", watch.video.author)
+            format!("Started by {put_on_by} · {}", watch.video.author)
         };
         if watching {
             self.sync_player(watch, cx);
@@ -449,24 +449,24 @@ impl VoiceStage {
                         .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(title.clone()))
                         .when(!watch.video.author.is_empty(), |el| el.child(div().text_size(px(13.)).child(watch.video.author.clone())))
                         .child(div().id("watch-where").text_size(px(13.)).text_color(theme::color(theme::white_a(0.75))).child(if in_window {
-                            decode_note.unwrap_or_else(|| "It's playing in a window of its own. Closing that window stops it here.".into())
+                            decode_note.unwrap_or_else(|| "It's playing in a separate window. Closing that window stops it here.".into())
                         } else if let Some(problem) = problem {
                             problem
                         } else if plays_here {
-                            format!("Put on by {put_on_by}. It plays from YouTube once you press Watch.")
+                            format!("Started by {put_on_by}. It plays from YouTube when you press Watch.")
                         } else if crate::host::net::proxy().is_some() {
-                            format!("Put on by {put_on_by}. This app can't play it through a proxy yet, so it doesn't play here while one is set.")
+                            format!("Started by {put_on_by}. This app can't play videos through a proxy yet, so it won't play while one is set.")
                         } else if cfg!(windows) {
-                            format!("Put on by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which Windows 11 comes with. Install it, then start Zuna again.")
+                            format!("Started by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which comes with Windows 11. Install it, then restart Zuna.")
                         } else {
-                            format!("Put on by {put_on_by}. This app doesn't play it on this system; the web app and the iPhone app do.")
+                            format!("Started by {put_on_by}. This app can't play it on this system yet, but the web app and the iPhone app can.")
                         }))
                         .when(!plays_here && cfg!(windows) && crate::host::net::proxy().is_none(), |el| {
                             el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
                         })
                         .when(in_window, |el| {
                             let voice = voice.clone();
-                            el.child(button("watch-raise", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("app-window", 16., theme.text1)).child("Show its window").on_click(move |_, _, cx| {
+                            el.child(button("watch-raise", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("app-window", 16., theme.text1)).child("Show the video's window").on_click(move |_, _, cx| {
                                 #[cfg(target_os = "linux")]
                                 voice.read(cx).watch_here.raise();
                                 let _ = (&voice, cx);

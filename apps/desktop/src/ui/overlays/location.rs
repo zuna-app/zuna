@@ -47,7 +47,7 @@ impl Dialog {
                 .child(div().size(px(52.)).flex_none().rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 26., theme.on_accent)))
                 .child(text)
                 .into_any_element(),
-            div().text_size(px(12.5)).text_color(theme.text3).child("It's sent encrypted, like a message. Nobody else learns it, unless someone opens it on a map.").into_any_element(),
+            div().text_size(px(12.5)).text_color(theme.text3).child("It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.").into_any_element(),
         ];
         let busy = self.busy;
         let found = match &self.location {

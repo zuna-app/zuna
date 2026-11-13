@@ -249,7 +249,7 @@ impl Render for StreamStatsPanel {
                     }))
                     .child(icon("activity", 14., theme.text2))
                     .child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Stream stats"))
-                    .child(icon_button("stats-copy", if copied { "check" } else { "copy" }, 14., true, false, cx).tip(if copied { "Copied" } else { "Copy all of it" }, Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
+                    .child(icon_button("stats-copy", if copied { "check" } else { "copy" }, 14., true, false, cx).tip(if copied { "Copied" } else { "Copy all" }, Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(as_text(&panel.sections)));
                         panel.copied = true;
                         cx.notify();

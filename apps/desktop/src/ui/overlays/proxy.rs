@@ -66,13 +66,13 @@ impl ProxyForm {
     fn proxy(&self, cx: &App) -> Result<Proxy, String> {
         let host = self.host.read(cx).text().trim().trim_start_matches('[').trim_end_matches(']').to_string();
         if host.is_empty() || host.contains(char::is_whitespace) || host.contains('/') {
-            return Err("Give the proxy's address: a name or an IP address.".into());
+            return Err("Enter the proxy's address: a host name or an IP address.".into());
         }
-        let port = self.port.read(cx).text().trim().parse::<u16>().ok().filter(|port| *port > 0).ok_or("The port is a number from 1 to 65535.")?;
+        let port = self.port.read(cx).text().trim().parse::<u16>().ok().filter(|port| *port > 0).ok_or("The port must be a number from 1 to 65535.")?;
         let username = self.username.read(cx).text().to_string();
         let typed = self.password.read(cx).text().to_string();
         if username.len() > 255 || typed.len() > 255 {
-            return Err("SOCKS5 carries a username and a password of at most 255 bytes each.".into());
+            return Err("SOCKS5 usernames and passwords can be at most 255 bytes each.".into());
         }
         let password = if username.is_empty() {
             String::new()
@@ -94,7 +94,7 @@ impl Dialog {
         let mut body = vec![
             div()
                 .text_size(px(13.5))
-                .child("Everything this device sends can go through a SOCKS5 proxy you choose, for every server you've joined: messages, files, calls, link previews, updates and plugins. Your servers and their media servers then see the proxy's address rather than yours. The proxy sees which servers you reach, when and how much, but nothing you send, which stays encrypted.")
+                .child("You can send everything from this device through a SOCKS5 proxy of your choice, for every server you've joined: messages, files, calls, link previews, updates and plugins. Your servers and their media servers will see the proxy's address instead of yours. The proxy can see which servers you connect to, when, and how much you send, but not what you send, since that stays encrypted.")
                 .into_any_element(),
             div()
                 .flex()
@@ -132,7 +132,7 @@ impl Dialog {
                     .text_size(px(12.5))
                     .text_color(theme.text2)
                     .child(format!(
-                        "While the proxy can't be reached, Zuna connects to nothing, and never goes around it. SOCKS5 isn't encrypted on the way to the proxy, so its password and the names of your servers cross that stretch as they are: a proxy on this computer, such as Tor or ssh -D, has none.{}",
+                        "If the proxy can't be reached, Zuna won't connect at all. It never bypasses the proxy. SOCKS5 itself isn't encrypted, so the proxy's password and your servers' names travel to the proxy unencrypted. That isn't a concern for a proxy running on this computer, such as Tor or ssh -D.{}",
                         if cfg!(target_os = "macos") { "" } else { " Watching YouTube together doesn't go through a proxy on this system yet, so it's off while one is set." }
                     ))
                     .into_any_element(),
@@ -157,18 +157,18 @@ impl Dialog {
             let mut lines = Vec::new();
             match &report.signed_in {
                 Ok(took) => {
-                    lines.push(line(true, format!("Signed in to the proxy in {}.", milliseconds(*took))));
+                    lines.push(line(true, format!("Connected to the proxy in {}.", milliseconds(*took))));
                     lines.push(if report.udp {
-                        line(true, "It carries UDP, which calls use.".into())
+                        line(true, "It supports UDP, which calls use.".into())
                     } else {
-                        line(false, "It doesn't carry UDP, so calls through it would go over TCP, and may sound worse.".into())
+                        line(false, "It doesn't support UDP, so calls will use TCP instead and may sound worse.".into())
                     });
                 }
                 Err(failure) => lines.push(line(false, failure.to_string())),
             }
             for (name, reached) in &report.servers {
                 lines.push(match reached {
-                    Ok(took) => line(true, format!("Reached {name} through it in {}.", milliseconds(*took))),
+                    Ok(took) => line(true, format!("Reached {name} through the proxy in {}.", milliseconds(*took))),
                     Err(why) => line(false, format!("{name}: {why}")),
                 });
             }
@@ -231,7 +231,7 @@ impl Dialog {
                 }
             };
             if let Err(error) = ProxySetting::keep_password(&proxy.password) {
-                form.problem = Some(format!("The password couldn't be kept: {error}"));
+                form.problem = Some(format!("Couldn't save the password: {error}"));
                 cx.notify();
                 return;
             }
@@ -284,11 +284,11 @@ mod tests {
         // With none set yet, it opens switched on, for one to be written.
         assert!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().on));
         for (values, why) in [
-            (["", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
-            (["proxy example", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
-            (["proxy.example/socks", "1080", "", ""], "Give the proxy's address: a name or an IP address."),
-            (["127.0.0.1", "0", "", ""], "The port is a number from 1 to 65535."),
-            (["127.0.0.1", "70000", "", ""], "The port is a number from 1 to 65535."),
+            (["", "1080", "", ""], "Enter the proxy's address: a host name or an IP address."),
+            (["proxy example", "1080", "", ""], "Enter the proxy's address: a host name or an IP address."),
+            (["proxy.example/socks", "1080", "", ""], "Enter the proxy's address: a host name or an IP address."),
+            (["127.0.0.1", "0", "", ""], "The port must be a number from 1 to 65535."),
+            (["127.0.0.1", "70000", "", ""], "The port must be a number from 1 to 65535."),
         ] {
             fill(cx, values);
             app.click(cx, "proxy-check");
@@ -297,7 +297,7 @@ mod tests {
         let long = "x".repeat(256);
         fill(cx, ["[::1]", "9050", &long, ""]);
         app.click(cx, "proxy-check");
-        assert_eq!(problem(cx).as_deref(), Some("SOCKS5 carries a username and a password of at most 255 bytes each."));
+        assert_eq!(problem(cx).as_deref(), Some("SOCKS5 usernames and passwords can be at most 255 bytes each."));
         // Typing again takes what was wrong away.
         fill(cx, ["[::1]", "9050", "me", "secret"]);
         assert_eq!(problem(cx), None);
@@ -340,7 +340,7 @@ mod tests {
         host.update(cx, |input, cx| input.set_text("bad host", cx));
         host.update(cx, |_, cx| cx.emit(InputEvent::Submit));
         app.run(cx);
-        assert_eq!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().problem.clone()).as_deref(), Some("Give the proxy's address: a name or an IP address."));
+        assert_eq!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().problem.clone()).as_deref(), Some("Enter the proxy's address: a host name or an IP address."));
         host.update(cx, |_, cx| cx.emit(InputEvent::Blurred));
         app.run(cx);
         assert_eq!(cx.read(|cx| view.read(cx).focused), None);

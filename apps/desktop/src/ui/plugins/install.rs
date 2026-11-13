@@ -81,7 +81,7 @@ impl InstallDialog {
         let theme = theme(cx);
         let told = proposal.told();
         if told.is_empty() {
-            return vec![div().text_color(if danger { theme.danger_text } else { theme.text2 }).child("It asks for nothing of your account.").into_any_element()];
+            return vec![div().text_color(if danger { theme.danger_text } else { theme.text2 }).child("It doesn't need any access to your account.").into_any_element()];
         }
         told.into_iter()
             .map(|(line, strong)| {
@@ -112,7 +112,7 @@ impl Render for InstallDialog {
         let ready = self.may_install(proposal.verified);
         let update_line = proposal.update_of.as_ref().map(|(older, permissions, hosts)| {
             let more: Vec<String> = permissions.iter().map(|permission| permission.told().to_string()).chain(hosts.iter().map(|host| format!("Contacts {host}"))).collect();
-            if more.is_empty() { format!("This replaces version {older}.") } else { format!("This replaces version {older}, and asks for more: {}.", more.join("; ")) }
+            if more.is_empty() { format!("This replaces version {older}.") } else { format!("This replaces version {older} and needs more access: {}.", more.join("; ")) }
         });
         if proposal.verified {
             let card = div()
@@ -130,7 +130,7 @@ impl Render for InstallDialog {
                 .shadow(shadow_l())
                 .occlude()
                 .child(div().flex().items_center().gap(px(10.)).child(icon("puzzle", 20., theme.text2)).child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(format!("Install {}?", proposal.name))))
-                .child(div().text_size(px(13.)).text_color(theme.text2).child(format!("Version {}, by {}. Checked by Zuna's team, and signed by Zuna.", proposal.version, proposal.author)))
+                .child(div().text_size(px(13.)).text_color(theme.text2).child(format!("Version {}, by {}. Reviewed and signed by the Zuna team.", proposal.version, proposal.author)))
                 .when(!proposal.description.is_empty(), |el| el.child(div().text_size(px(13.5)).child(proposal.description.clone())))
                 .when_some(update_line, |el, line| el.child(notice("info", line, cx)))
                 .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Once installed it can:"))

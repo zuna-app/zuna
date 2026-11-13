@@ -64,7 +64,7 @@ impl AppState {
                 state.telegram_link = None;
                 match result {
                     Ok(value) if linked && value.get("signedOut").and_then(Value::as_bool) != Some(true) => state.toast(
-                        "Telegram was unlinked here, but Telegram couldn't be told. End Zuna's session in Telegram's app, under Devices.",
+                        "Telegram was unlinked from this device, but Zuna couldn't tell Telegram. End Zuna's session in Telegram's app, under Devices.",
                         ToastKind::Info,
                         cx,
                     ),
@@ -92,7 +92,7 @@ impl AppState {
             this.update(cx, |state, cx| match result {
                 None => state.toast("Telegram doesn't let this message be deleted.", ToastKind::Info, cx),
                 Some(Err(error)) => state.toast(error.message, ToastKind::Error, cx),
-                Some(Ok(_)) if !everyone && !saved => state.toast("Deleted for you alone: Telegram keeps it for the others.", ToastKind::Info, cx),
+                Some(Ok(_)) if !everyone && !saved => state.toast("Deleted only for you. Others in the chat can still see it.", ToastKind::Info, cx),
                 Some(Ok(_)) => {}
             })
             .ok();
@@ -167,7 +167,7 @@ impl AppState {
                 // over, from the QR code to a phone number, has nothing in the rail to take away.
                 if self.servers.contains_key(SERVER_ID) {
                     if self.telegram_link.is_none() && !matches!(self.overlay, Some(Overlay::Telegram)) {
-                        self.toast("Your Telegram session was ended, so Telegram was unlinked here.", ToastKind::Info, cx);
+                        self.toast("Your Telegram session was ended, so Telegram was unlinked from this device.", ToastKind::Info, cx);
                     }
                     self.remove_server(SERVER_ID, cx);
                 }
@@ -226,10 +226,10 @@ mod tests {
     fn linking_follows_each_step_into_the_rail_and_out_again(cx: &mut TestAppContext) {
         let app = App::open(cx, &world("telegram-linking", false));
         assert_eq!(app.read(cx, |state| state.can_link_telegram()), crate::telegram::available());
-        app.answer("linkTelegram", |_| Err(refused("Telegram's engine isn't here.")));
+        app.answer("linkTelegram", |_| Err(refused("Telegram's engine is missing.")));
         app.update(cx, |state, cx| state.link_telegram(cx));
         assert_eq!(linking(&app, cx).as_deref(), Some("failed"));
-        assert_eq!(app.read(cx, |state| state.telegram_link.as_ref().unwrap().reason.clone()), "Telegram's engine isn't here.");
+        assert_eq!(app.read(cx, |state| state.telegram_link.as_ref().unwrap().reason.clone()), "Telegram's engine is missing.");
 
         app.answer("linkTelegram", |_| Ok(Value::Null));
         app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": true })));
@@ -265,7 +265,7 @@ mod tests {
         // Ended from another device.
         step(&app, cx, json!({ "step": "unlinked" }));
         assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)));
-        assert!(app.toasts(cx).contains(&"Your Telegram session was ended, so Telegram was unlinked here.".to_string()));
+        assert!(app.toasts(cx).contains(&"Your Telegram session was ended, so Telegram was unlinked from this device.".to_string()));
     }
 
     #[gpui::test]
@@ -275,7 +275,7 @@ mod tests {
         app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": false })));
         app.update(cx, |state, cx| state.unlink_telegram(cx));
         assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)), "erased here either way");
-        assert!(app.toasts(cx).iter().any(|toast| toast.starts_with("Telegram was unlinked here, but Telegram couldn't be told.")));
+        assert!(app.toasts(cx).iter().any(|toast| toast.starts_with("Telegram was unlinked from this device, but Zuna couldn't tell Telegram.")));
         app.answer("unlinkTelegram", |_| Err(refused("The engine stopped.")));
         app.update(cx, |state, cx| state.unlink_telegram(cx));
         assert!(app.toasts(cx).contains(&"The engine stopped.".to_string()));
@@ -295,7 +295,7 @@ mod tests {
         assert!(app.toasts(cx).is_empty(), "for everyone, nothing to say");
         delete(cx, json!({ "forSelf": true }));
         assert_eq!(app.calls_of("deleteMessages")[1][2], json!(false));
-        assert_eq!(app.toasts(cx).last().unwrap(), "Deleted for you alone: Telegram keeps it for the others.");
+        assert_eq!(app.toasts(cx).last().unwrap(), "Deleted only for you. Others in the chat can still see it.");
         delete(cx, json!({}));
         assert_eq!(app.toasts(cx).last().unwrap(), "Telegram doesn't let this message be deleted.");
         app.answer("deleteMessages", |_| Err(refused("MESSAGE_DELETE_FORBIDDEN")));

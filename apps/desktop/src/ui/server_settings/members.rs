@@ -228,7 +228,7 @@ impl ServerSettings {
         };
         vec![
             Self::heading("Reports"),
-            Self::lead(&format!("People others on {} reported, and why. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.", server.entry.name), cx),
+            Self::lead(&format!("People reported by others on {}, and why. Messages are encrypted, so nobody here can see what was said, and who made each report isn't kept.", server.entry.name), cx),
             list,
         ]
     }
@@ -292,7 +292,7 @@ impl ServerSettings {
         };
         vec![
             Self::heading("Bans"),
-            Self::lead(&format!("People banned from {}. Unbanned, they can sign in again, and they're back in their direct messages and channels. Groups have to add them again.", server.entry.name), cx),
+            Self::lead(&format!("People banned from {}. Once unbanned, they can sign in again and get their direct messages and channels back. Groups will have to add them again.", server.entry.name), cx),
             list,
         ]
     }

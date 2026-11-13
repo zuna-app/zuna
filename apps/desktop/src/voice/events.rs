@@ -78,11 +78,11 @@ impl Voice {
         let was_call = !self.state.read(cx).servers.get(server_id).is_some_and(|server| server.channels.iter().any(|channel| channel.id == channel_id));
         let message = match (was_call, reason) {
             (false, "elsewhere") => "You joined this voice channel on another device.",
-            (false, "disconnected") => "An admin took you out of the voice channel.",
+            (false, "disconnected") => "An admin removed you from the voice channel.",
             (false, "deleted") => "That voice channel was deleted.",
             (_, "banned") => "You were removed from this server.",
             (true, "elsewhere") => "You joined this call on another device.",
-            (true, "removed") => "You're no longer in this conversation, so you left its call.",
+            (true, "removed") => "You're no longer in this conversation, so you left the call.",
             (true, "deleted") => "That conversation was deleted.",
             (true, _) => "You left the call.",
             (false, _) => "You left the voice channel.",

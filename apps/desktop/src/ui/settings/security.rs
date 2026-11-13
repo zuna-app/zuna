@@ -29,7 +29,7 @@ impl SettingsView {
         }
         parts.push(Self::row(
             "Your security key",
-            Some("Compare it with friends to prove nobody is in between."),
+            Some("Compare it with friends to make sure nobody is intercepting your messages."),
             button("view-key", ButtonKind::Default, ButtonSize::Small, false, cx)
                 .child(icon("key-round", 14., theme.text1))
                 .child("View")
@@ -79,7 +79,7 @@ impl SettingsView {
                 .gap(px(5.))
                 .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Your devices on this server"))
                 .child(devices)
-                .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("To add one, sign in there to {}", server.entry.address)))
+                .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("To add a device, sign in on it at {}", server.entry.address)))
                 .into_any_element(),
         );
         parts.push(Self::divider(&theme));

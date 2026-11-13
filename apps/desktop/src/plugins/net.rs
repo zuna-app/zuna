@@ -32,11 +32,11 @@ impl reqwest::dns::Resolve for Resolver {
         let local = self.local;
         Box::pin(async move {
             if !local && crate::host::web::local_name(&host) {
-                return Err("That host is on this computer's network.".into());
+                return Err("That host is on your local network.".into());
             }
             let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 443)).await?.collect();
             if addresses.is_empty() || (!local && addresses.iter().any(|address| crate::host::web::private_address(address.ip()))) {
-                return Err("That host is on this computer's network.".into());
+                return Err("That host is on your local network.".into());
             }
             Ok(Box::new(addresses.into_iter()) as reqwest::dns::Addrs)
         })
@@ -64,7 +64,7 @@ fn client(hosts: Vec<String>, local: bool) -> reqwest::Client {
             } else if allowed(attempt.url(), &hosts) {
                 attempt.follow()
             } else {
-                attempt.error("It redirected to a host the plugin doesn't name.")
+                attempt.error("It redirected to a host the plugin didn't list.")
             }
         }))
         .connect_timeout(Duration::from_secs(15))
@@ -78,21 +78,21 @@ fn client(hosts: Vec<String>, local: bool) -> reqwest::Client {
 pub async fn fetch(args: Value, hosts: Vec<String>, local: bool) -> Result<Value, String> {
     let url = Url::parse(args.get("url").and_then(Value::as_str).unwrap_or_default()).map_err(|_| "That isn't an address.".to_string())?;
     if !allowed(&url, &hosts) {
-        return Err(format!("The plugin may only reach {}, over HTTPS.", hosts.join(", ")));
+        return Err(format!("The plugin can only connect to {} over HTTPS.", hosts.join(", ")));
     }
     if !local && crate::host::net::proxy().is_some() && url.host_str().is_some_and(crate::host::web::local_name) {
-        return Err("That host is on this computer's network.".into());
+        return Err("That host is on your local network.".into());
     }
     let method = args.get("method").and_then(Value::as_str).unwrap_or("GET").to_ascii_uppercase();
     if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].contains(&method.as_str()) {
-        return Err("That isn't a method a plugin may use.".into());
+        return Err("Plugins can't use that HTTP method.".into());
     }
     let body = match args.get("body").and_then(Value::as_str) {
-        Some(encoded) => Some(base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "The body isn't readable.".to_string())?),
+        Some(encoded) => Some(base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "The request body couldn't be read.".to_string())?),
         None => None,
     };
     if body.as_ref().is_some_and(|body| body.len() > MAX_BODY) {
-        return Err("A request carries at most 1 MB.".into());
+        return Err("A request can be at most 1 MB.".into());
     }
     let headers: HashMap<String, String> = args.get("headers").and_then(|headers| serde_json::from_value(headers.clone()).ok()).unwrap_or_default();
     if headers.len() > 40 {
