@@ -164,12 +164,12 @@ fn a_bots_commands_and_files_to_send(cx: &mut TestAppContext) {
     assert_eq!(typed(&chat, cx), "/help ");
     // Suggestions shown but none picked: Enter makes a new line where Enter doesn't send.
     app.update(cx, |state, _| state.settings.enter_to_send = false);
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
     type_in(&app, cx, ":");
     composer_event(&app, &chat, cx, InputEvent::Submit);
     assert_eq!(typed(&chat, cx), ":\n");
     app.update(cx, |state, _| state.settings.enter_to_send = true);
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
 
     // Files dropped on the box go with the next message, read for their chips first.
     let dir = std::env::temp_dir().join(format!("zuna-chat-files-{}", std::process::id()));
@@ -214,7 +214,7 @@ fn a_channel_edits_in_place_and_waits_in_slow_mode(cx: &mut TestAppContext) {
     keys(&app, cx, "enter");
     assert_eq!(app.calls_of("sendMessage").len(), 1);
     assert_eq!(typed(&chat, cx), "Second");
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
 
     // Editing a channel's message happens where it is.
     let mine: crate::models::MessageView = app.read(cx, |state| state.lists[GENERAL].items[0].clone());

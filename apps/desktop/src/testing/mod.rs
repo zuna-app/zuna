@@ -34,6 +34,9 @@ pub fn data_dir() -> std::path::PathBuf {
     dir
 }
 
+/// The keys that empty a text box, as each system's own select everything first.
+pub const CLEAR_KEYS: &str = if cfg!(target_os = "macos") { "cmd-a backspace" } else { "ctrl-a backspace" };
+
 /// A call the app made of the core.
 #[derive(Clone, Debug)]
 pub struct Call {

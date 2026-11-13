@@ -76,7 +76,7 @@ fn an_invite_makes_an_account_and_names_the_server(cx: &mut TestAppContext) {
     assert_eq!(step_name(&onboarding, cx), "link");
 
     // One that works shows the server, and asks for a name, username and password.
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
     type_into(&app, &onboarding, cx, |view| view.link.clone(), "https://server-9.example/invite/abc#k=key");
     submit(&app, &onboarding, cx);
     assert_eq!(step_name(&onboarding, cx), "invite");
@@ -92,7 +92,7 @@ fn an_invite_makes_an_account_and_names_the_server(cx: &mut TestAppContext) {
     onboarding.update(cx, |view, _| view.strength = (4, "Strong".into()));
     submit(&app, &onboarding, cx);
     assert!(app.calls_of("register").is_empty());
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
     type_into(&app, &onboarding, cx, |view| view.confirm.clone(), "a long and fine password");
     onboarding.update(cx, |view, _| view.strength = (4, "Strong".into()));
     submit(&app, &onboarding, cx);
@@ -133,7 +133,7 @@ fn signing_in_and_recovering(cx: &mut TestAppContext) {
     type_into(&app, &onboarding, cx, |view| view.password.clone(), "wrong");
     keys(&app, cx, "enter");
     assert_eq!(error(&onboarding, cx).as_deref(), Some("Wrong username or password."));
-    keys(&app, cx, "ctrl-a backspace");
+    keys(&app, cx, crate::testing::CLEAR_KEYS);
     type_into(&app, &onboarding, cx, |view| view.password.clone(), "right");
     submit(&app, &onboarding, cx);
     assert_eq!(app.calls_of("login").len(), 2);
