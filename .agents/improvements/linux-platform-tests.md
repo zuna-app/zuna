@@ -8,14 +8,6 @@ Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire),
 
 Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
 
-### What a notification sends the server
-- Where: apps/desktop/src/platform/linux/notifications.rs (3.9%)
-- Category: tests
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `escaped` and `image_data` are pure, and `notify()` builds its arguments in the same function that calls the bus.
-- Suggested change: test `escaped` and `image_data`: `(width, height, width * 4, true, 8, 4, bytes)`, with `width * height * 4` bytes. Move building `Notify`'s arguments into a function of its own, which `notify()` calls before `call_method`, and test that the title and body are escaped, the hints are `desktop-entry`, `suppress-sound` and `category`, `image-data` is there only with a picture, and the actions are `["default", "Open"]`. If it comes out without a bus, test `NotificationCenter`'s `waiting` and `clear` by server, keys and message too.
-- Check after: `cargo test --bin zuna -- platform::linux::notifications`, and `linux-check.mjs`, which shows a notification and clicks it
-
 ### The window's edges
 - Where: apps/desktop/src/platform/linux/frame.rs (16%)
 - Category: tests
