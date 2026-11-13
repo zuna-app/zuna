@@ -48,7 +48,9 @@ describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
     await waitFor(() => !sessionOf(carol).treeUsers(groupId).includes(ghost.userId), "it to be removed");
     const sent = carol.session.sendMessage(`group:${groupId}`, { text: "after it was gone" });
     await waitFor(() => bob.texts(`group:${groupId}`).includes("after it was gone"), "bob to read it");
-    expect(sessionOf(carol).messageRow(groupId, sent.id).epoch).toBeGreaterThan(joinedAt);
+    // As bob read it: carol's own copy has its epoch only once the server's answer reaches her,
+    // which can come after bob has it.
+    expect(sessionOf(bob).messageRow(groupId, sent.id).epoch).toBeGreaterThan(joinedAt);
     // Whatever the server says, it's not the group's admin to anyone.
     withServerDatabase((db) => db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(groupId, ghost.userId));
     await sessionOf(bob).syncGroup(groupId);
