@@ -11,7 +11,7 @@ export function Privacy() {
           that they can't read them. The project itself runs two things: this website, and zuna-push, the relay that wakes iPhones and iPads. Neither sees what
           you write.
         </p>
-        <p className="prose-updated">Last changed on 11 November 2026.</p>
+        <p className="prose-updated">Last changed on 13 November 2026.</p>
 
         <h2>The apps</h2>
         <p>The apps for Windows, macOS, Linux, the web, iPhone and iPad send the project nothing: no analytics, no crash reports, and no account with us.</p>
@@ -35,6 +35,12 @@ export function Privacy() {
             the web app through its host.
           </li>
         </ul>
+
+        <p>
+          On a Mac, the desktop app can send all of that through a SOCKS5 proxy you choose, in Settings, Privacy, so that your servers and the sites you link
+          to see the proxy's address instead of yours, and it connects to nothing while the proxy can't be reached. Voice, calls and watching YouTube
+          together don't go through one yet, so they're off while one is set. The proxy sees which servers you reach and when, never what you send.
+        </p>
 
         <h2>Your server</h2>
         <p>

@@ -162,11 +162,33 @@ pub enum Overlay {
     WatchConsent { then_link: bool },
     /// A YouTube link to put on for everyone in the room.
     WatchLink,
+    /// The SOCKS5 proxy everything this device sends goes through, from Settings, which it
+    /// goes back to, or from the first screen.
+    Proxy { from_settings: bool },
     /// A plugin's dialog, in a frame the app draws, by the number the plugins know it by.
     Plugin(u32),
     /// Asking before a plugin is installed or updated: what it can do, and for one Zuna hasn't
     /// checked, the warning. The package waits in the plugins' state.
     PluginInstall { id: u64 },
+}
+
+/// Goes through the proxy the settings have, if that's a change: what's open ends and opens
+/// again the new way, and a call ends.
+pub fn apply_proxy(state: &gpui::Entity<AppState>, cx: &mut gpui::App) {
+    let proxy = state.read(cx).settings.proxy.in_use();
+    if !crate::host::net::set(proxy) {
+        return;
+    }
+    if let Some(voice) = crate::voice::get(cx) {
+        voice.update(cx, |voice, cx| {
+            if voice.status != crate::voice::VoiceStatus::Idle {
+                voice.leave(cx);
+            }
+            voice.set_watching(false, cx);
+        });
+    }
+    state.read(cx).core.network_changed();
+    cx.refresh_windows();
 }
 
 /// A media file decrypted to disk for playing.

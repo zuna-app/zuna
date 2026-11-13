@@ -454,12 +454,14 @@ impl VoiceStage {
                             problem
                         } else if plays_here {
                             format!("Put on by {put_on_by}. It plays from YouTube once you press Watch.")
+                        } else if crate::host::net::proxy().is_some() {
+                            format!("Put on by {put_on_by}. This app can't play it through a proxy yet, so it doesn't play here while one is set.")
                         } else if cfg!(windows) {
                             format!("Put on by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which Windows 11 comes with. Install it, then start Zuna again.")
                         } else {
                             format!("Put on by {put_on_by}. This app doesn't play it on this system; the web app and the iPhone app do.")
                         }))
-                        .when(!plays_here && cfg!(windows), |el| {
+                        .when(!plays_here && cfg!(windows) && crate::host::net::proxy().is_none(), |el| {
                             el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
                         })
                         .when(in_window, |el| {

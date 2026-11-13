@@ -96,6 +96,8 @@ fn main() {
     let device_key = host::device_key::load(&dir);
     // Started with --no-plugins, the app runs no plugin, as it does by itself after two failed starts with them.
     let no_plugins = args.iter().any(|arg| arg == "--no-plugins");
+    // Before anything connects, so that with a proxy set nothing ever goes around it.
+    host::net::set(settings::Settings::load().proxy.in_use());
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
     // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.

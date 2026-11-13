@@ -26,10 +26,12 @@ pub fn theme(cx: &App) -> Theme {
 
 /// The active server's connection while it isn't simply online (`ConnectionStatus`): an amber
 /// dot and the web's words.
+/// With a proxy set, and the proxy what's wrong, it says so instead (host/net.rs).
 pub fn connection_status(server: &crate::state::ServerState, theme: &Theme) -> Option<Div> {
+    let trouble = || crate::host::net::trouble().map(|failure| if failure == crate::host::net::Failure::Refused { "The proxy refused the password" } else { "Can't reach the proxy" });
     let status = match server.connection.as_str() {
-        "connecting" => "Connecting",
-        "offline" => "Waiting for network",
+        "connecting" => trouble().unwrap_or("Connecting"),
+        "offline" => trouble().unwrap_or("Waiting for network"),
         "syncing" => "Updating",
         _ => return None,
     };

@@ -37,7 +37,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Presence** | Online status, last seen, and which of your devices you're using and when you last used each | Hidden from other members if you choose, but not from the server. As on Telegram, whoever sees you write, type or read their messages sees you online for 30 seconds after, in their own app |
 | **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, which chats each phone was notified about since they were last read, and that a chat was read | What a push is about, and who sent the message it's for |
 | **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
-| **Network** | IP addresses of connecting devices | |
+| **Network** | IP addresses of connecting devices, or with a SOCKS5 proxy set on one, the proxy's | |
 | **Search** | Nothing: it runs on your device | Your queries |
 | **Reports** | Whom someone reported and why, and who sends a report as it arrives, which it doesn't keep | What was said |
 | **Bots** | That an account is a bot, whose it is, whether it's listed or private, who may add it, whether it may send files, the channels it was given, which chats it's in and when it's active, and that a message is one nobody is shown, as a button's press is | Its name, picture, description and commands, what it reads and what it sends, and which button was pressed |
@@ -47,6 +47,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 - **Use a long password you don't use anywhere else.** A malicious server can test guesses at it offline.
 - **Keep your recovery key safe.** It's shown once, when you sign up, and opens your account as your password does.
 - **Compare emoji** with the people who matter to you.
+- **To keep your address from your servers,** set a SOCKS5 proxy in the desktop app's Settings, Privacy, or give `zuna-bot` `--proxy`. Everything that device sends then goes through it, for every server, and nothing at all while it can't be reached: your servers see the proxy's address. The proxy sees which servers you reach, when and how much, never what you send. Voice, calls and watching YouTube together don't go through one yet, so they're off while it's set. The iPhone app and the web app have no such setting: a browser follows its own proxy.
 - **If you think your password or recovery key was stolen,** change them, and remove any device you don't recognize in Settings.
 - **See what your server keeps about you** in Settings, Your data, and save it as a file. It's what the server says it keeps, so a server someone changed could keep more.
 - **Paste invite links into the app** rather than opening them in a browser.

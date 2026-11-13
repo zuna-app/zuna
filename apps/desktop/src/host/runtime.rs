@@ -40,6 +40,8 @@ pub enum Task {
     Eval { source: String, done: futures::channel::oneshot::Sender<String> },
     /// How hard a password is to guess, as JSON `{ score, label }`, from the estimator every app shares.
     Password { password: String, related: Vec<String>, done: futures::channel::oneshot::Sender<String> },
+    /// The proxy changed (net.rs): everything open ends, and goes the new way when it's made again.
+    Network,
 }
 
 enum SocketCommand {
@@ -59,7 +61,7 @@ struct Host {
     web: reqwest::Client,
     timers: HashMap<u32, (AbortHandle, bool)>,
     requests: HashMap<u32, AbortHandle>,
-    sockets: HashMap<u32, UnboundedSender<SocketCommand>>,
+    sockets: HashMap<u32, (UnboundedSender<SocketCommand>, AbortHandle)>,
     files: PathBuf,
     post: Arc<dyn Fn(u32, String) + Send + Sync>,
 }
@@ -89,15 +91,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
     })));
     let context = Context::full(&runtime).expect("a QuickJS context");
 
-    let client = || {
-        reqwest::Client::builder()
-            .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .expect("an HTTP client")
-    };
-    let http = client();
-    let sealed_http = client();
+    let (http, sealed_http, web) = clients();
 
     let files = super::cache_in(&options.data_dir).join("files");
     std::fs::create_dir_all(&files).ok();
@@ -106,7 +100,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         tokio: options.tokio.clone(),
         http,
         sealed_http,
-        web: super::web::client(tls::client_config(&[b"h2", b"http/1.1"])),
+        web,
         timers: HashMap::new(),
         requests: HashMap::new(),
         sockets: HashMap::new(),
@@ -152,6 +146,13 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         });
         drain(&runtime);
     }
+}
+
+/// The core's clients: its session's, the sealed requests', on connections and a TLS session
+/// cache of their own, and link previews'. Through the proxy, where one is set (net.rs).
+fn clients() -> (reqwest::Client, reqwest::Client, reqwest::Client) {
+    let client = || super::net::client().use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"])).connect_timeout(Duration::from_secs(15)).build().expect("an HTTP client");
+    (client(), client(), super::web::client(tls::client_config(&[b"h2", b"http/1.1"])))
 }
 
 /// Runs the promise jobs a task left, until there are none.
@@ -236,8 +237,10 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
             )
         }
         Task::Socket { id, kind, data, code } => {
-            if kind == "close" {
-                host.borrow_mut().sockets.remove(&id);
+            // What a socket said before it was dropped for a change of proxy goes nowhere.
+            let open = if kind == "close" { host.borrow_mut().sockets.remove(&id).is_some() } else { host.borrow().sockets.contains_key(&id) };
+            if !open {
+                return Ok(());
             }
             call(
                 ctx,
@@ -246,6 +249,23 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
             )
         }
         Task::Password { .. } => Ok(()),
+        Task::Network => {
+            let (requests, sockets) = {
+                let mut host = host.borrow_mut();
+                (host.http, host.sealed_http, host.web) = clients();
+                (host.requests.drain().collect::<Vec<_>>(), host.sockets.drain().collect::<Vec<_>>())
+            };
+            for (id, handle) in requests {
+                handle.abort();
+                call(ctx, "__zunaHttpDone", vec![number(ctx, id as f64), number(ctx, 0.), string(ctx, "{}")?, Value::new_null(ctx.clone()), string(ctx, "The connection changed.")?])?;
+            }
+            for (id, (_, handle)) in sockets {
+                handle.abort();
+                call(ctx, "__zunaWsEvent", vec![number(ctx, id as f64), string(ctx, "error")?, Value::new_null(ctx.clone()), number(ctx, 0.)])?;
+                call(ctx, "__zunaWsEvent", vec![number(ctx, id as f64), string(ctx, "close")?, Value::new_null(ctx.clone()), number(ctx, 1006.)])?;
+            }
+            Ok(())
+        }
         Task::Eval { source, done } => {
             let result = match ctx.eval::<Value, _>(source.as_bytes()) {
                 Ok(value) => ctx.json_stringify(value).ok().flatten().and_then(|text| text.to_string().ok()).unwrap_or_else(|| "undefined".into()),
@@ -409,7 +429,11 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
                         Err(error) => done(0, "{}".into(), None, Some(error.to_string())),
                     }
                 }
-                Err(error) => done(0, "{}".into(), None, Some(describe_request_error(&error))),
+                Err(error) => {
+                    let error = error.without_url();
+                    log::debug!(target: "core", "a request didn't go through: {}", describe_request_error(&error));
+                    done(0, "{}".into(), None, Some(describe_request_error(&error)))
+                }
             }
         });
         host.requests.insert(id, handle.abort_handle());
@@ -429,8 +453,7 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         let mut host = h.borrow_mut();
         let tasks = host.tasks.clone();
         let (commands, mut inbox) = unbounded_channel::<SocketCommand>();
-        host.sockets.insert(id, commands);
-        host.tokio.spawn(async move {
+        let handle = host.tokio.spawn(async move {
             let event = |kind: &'static str, data: Option<String>, code: u16| {
                 tasks.send(Task::Socket { id, kind, data, code }).ok();
             };
@@ -440,7 +463,16 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
                 tokio_tungstenite::Connector::Plain
             };
             let config = WebSocketConfig::default().max_message_size(Some(16 << 20)).max_frame_size(Some(16 << 20));
-            let connecting = tokio_tungstenite::connect_async_tls_with_config(url.as_str(), Some(config), true, Some(connector));
+            // Its own connection, through the proxy where there is one (net.rs), then TLS and the
+            // WebSocket's handshake over it.
+            let connecting = async {
+                use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+                let request = url.as_str().into_client_request()?;
+                let host = request.uri().host().unwrap_or_default().to_string();
+                let port = request.uri().port_u16().unwrap_or(if url.starts_with("wss:") { 443 } else { 80 });
+                let stream = super::net::tcp(&host, port).await.map_err(tokio_tungstenite::tungstenite::Error::Io)?;
+                tokio_tungstenite::client_async_tls_with_config(request, stream, Some(config), Some(connector)).await
+            };
             let stream = match tokio::time::timeout(Duration::from_secs(15), connecting).await {
                 Ok(Ok((stream, _))) => stream,
                 Ok(Err(error)) => {
@@ -502,18 +534,19 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
                 }
             }
         });
+        host.sockets.insert(id, (commands, handle.abort_handle()));
         Ok(Value::new_undefined(c))
     });
 
     host_fn!(object, ctx, host, "wsSend", |c, h, a| {
-        if let Some(socket) = h.borrow().sockets.get(&(number_arg(&a, 0) as u32)) {
+        if let Some((socket, _)) = h.borrow().sockets.get(&(number_arg(&a, 0) as u32)) {
             socket.send(SocketCommand::Send(string_arg(&a, 1))).ok();
         }
         Ok(Value::new_undefined(c))
     });
 
     host_fn!(object, ctx, host, "wsClose", |c, h, a| {
-        if let Some(socket) = h.borrow().sockets.get(&(number_arg(&a, 0) as u32)) {
+        if let Some((socket, _)) = h.borrow().sockets.get(&(number_arg(&a, 0) as u32)) {
             socket.send(SocketCommand::Close(number_arg(&a, 1) as u16)).ok();
         }
         Ok(Value::new_undefined(c))

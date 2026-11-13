@@ -103,6 +103,38 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
         });
         return json!({ "ok": true });
     }
+    // The proxy, as Settings saves it, password and all, or none with null; and with `"show"`
+    // its dialog, for a screenshot. `{"connection": true}` says why the proxy can't be had.
+    if let Some(proxy) = request.get("proxy") {
+        if proxy.as_str() == Some("show") {
+            cx.update(|cx| {
+                if let Some(store) = cx.try_global::<crate::state::Store>() {
+                    store.0.clone().update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy { from_settings: false }), cx));
+                }
+            });
+            return json!({ "ok": true });
+        }
+        let setting = crate::settings::ProxySetting {
+            on: !proxy.is_null(),
+            host: proxy.get("host").and_then(Value::as_str).unwrap_or_default().to_string(),
+            port: proxy.get("port").and_then(Value::as_u64).unwrap_or(0) as u16,
+            username: proxy.get("username").and_then(Value::as_str).unwrap_or_default().to_string(),
+        };
+        if let Err(error) = crate::settings::ProxySetting::keep_password(proxy.get("password").and_then(Value::as_str).unwrap_or_default()) {
+            return json!({ "error": error.to_string() });
+        }
+        cx.update(|cx| {
+            if let Some(store) = cx.try_global::<crate::state::Store>() {
+                let state = store.0.clone();
+                state.update(cx, |state, cx| state.update_settings(|settings| settings.proxy = setting, cx));
+                crate::state::apply_proxy(&state, cx);
+            }
+        });
+        return json!({ "ok": true });
+    }
+    if request.get("connection").is_some() {
+        return json!({ "ok": { "proxy": crate::host::net::proxy().map(|proxy| proxy.address()), "trouble": crate::host::net::trouble().map(|failure| failure.to_string()) } });
+    }
     if request.get("quit").is_some() {
         cx.update(|cx| cx.dispatch_action(&crate::Quit));
         return json!({ "ok": true });

@@ -5,7 +5,8 @@
 //! found there would go into the message. So names are resolved here, refused if any
 //! address they lead to is private, and the connection goes to the addresses that were
 //! checked, with no moment between the check and the connection for the name to change.
-//! Redirects are followed one at a time, each checked the same way.
+//! Redirects are followed one at a time, each checked the same way. Through a proxy, which
+//! resolves names itself, only names and addresses as they're written are refused (`client`).
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -113,10 +114,14 @@ impl reqwest::dns::Resolve for CheckedResolver {
 }
 
 /// A client for previews alone: no cookies, the checked resolver, and each redirect checked.
+///
+/// Through a proxy nothing is resolved here, as the proxy resolves names: a link is refused by
+/// its name and its address alone (`previewable`), and where a name leads is the proxy's to
+/// decide, as with a proxy for the whole system.
 pub fn client(tls: rustls::ClientConfig) -> reqwest::Client {
-    reqwest::Client::builder()
-        .use_preconfigured_tls(tls)
-        .dns_resolver(Arc::new(CheckedResolver))
+    let builder = super::net::client().use_preconfigured_tls(tls);
+    let builder = if super::net::proxy().is_some() { builder } else { builder.dns_resolver(Arc::new(CheckedResolver)) };
+    builder
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() > MAX_REDIRECTS {
                 attempt.error("Too many redirects.")

@@ -105,7 +105,10 @@ class Reader {
   private waiting: (() => void) | null = null;
   private ended = false;
 
-  constructor(private readonly socket: Socket) {
+  private readonly socket: Socket;
+
+  constructor(socket: Socket) {
+    this.socket = socket;
     socket.on("data", this.onData);
     socket.on("close", this.onClose);
   }
@@ -165,7 +168,12 @@ export class SocksProxy {
   private readonly live = new Set<Socket>();
   private readonly sockets = new Set<UdpSocket>();
 
-  constructor(private readonly options: SocksProxyOptions = {}) {}
+  private readonly options: SocksProxyOptions;
+
+  // No parameter property, so that Node runs this file as it is, as the native app's checks do.
+  constructor(options: SocksProxyOptions = {}) {
+    this.options = options;
+  }
 
   /** The proxy as a URL, as zuna-bot's `--proxy` takes it. */
   get url(): string {

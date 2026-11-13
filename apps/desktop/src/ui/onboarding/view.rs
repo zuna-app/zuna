@@ -142,6 +142,25 @@ impl Onboarding {
                         .child("Host your own server")
                         .child(icon("arrow-up-right", 14., theme.text2)),
                 )
+                // Before any server is joined, so that even signing up goes through it.
+                .child({
+                    let state = self.state.clone();
+                    let on = state.read(cx).settings.proxy.on;
+                    div()
+                        .id("use-proxy")
+                        .self_center()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_size(px(13.))
+                        .text_color(theme.text2)
+                        .cursor_pointer()
+                        .hover(move |style| style.text_color(theme.text1))
+                        .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy { from_settings: false }), cx)))
+                        .child(icon("shield", 14., theme.text2))
+                        .child(if on { "Connecting through a proxy" } else { "Connect through a proxy" })
+                })
                 .into_any_element(),
         ]
     }

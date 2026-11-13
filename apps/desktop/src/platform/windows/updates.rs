@@ -21,13 +21,18 @@ pub fn installed(exe: &Path) -> bool {
     exe.to_string_lossy().to_lowercase().starts_with(&home.to_string_lossy().to_lowercase())
 }
 
-/// Downloads a file of a known size, and stops as soon as it's larger than that.
+/// Downloads a file of a known size, and stops as soon as it's larger than that, or the proxy
+/// changes, as its connection went the old way (host/net.rs).
 pub fn download(client: &reqwest::Client, url: &str, to: &Path, size: u64) -> Result<(), String> {
     let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
+    let generation = crate::host::net::generation();
     crate::host::tokio().block_on(async {
         let mut response = client.get(url).send().await.and_then(|response| response.error_for_status()).map_err(crate::platform::updates::problem)?;
         let mut written = 0u64;
         while let Some(chunk) = response.chunk().await.map_err(crate::platform::updates::problem)? {
+            if crate::host::net::generation() != generation {
+                return Err("the proxy changed".into());
+            }
             written += chunk.len() as u64;
             if written > size {
                 return Err(format!("{url} is larger than its manifest says"));

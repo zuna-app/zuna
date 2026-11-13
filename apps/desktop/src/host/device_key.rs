@@ -2,9 +2,24 @@
 //! with Windows's data protection for this user, as Electron's safeStorage did for
 //! the Electron app on Windows, so another account on this computer can't read it. On
 //! Linux it's kept in the Secret Service, and on macOS in the login keychain, where
-//! safeStorage keeps its own.
+//! safeStorage keeps its own. The proxy's password is sealed the same way (`seal`).
 
 use std::path::Path;
+
+/// What a secret is called where the system keeps it: the keychain's service on macOS, and on
+/// Linux the Secret Service's label and the attribute that names its item.
+#[derive(Clone, Copy)]
+pub struct Kind {
+    #[cfg_attr(windows, allow(dead_code))]
+    label: &'static str,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    attribute: &'static str,
+}
+
+pub const DEVICE_KEY: Kind = Kind { label: "Zuna device key", attribute: "device-key" };
+/// The password of the proxy everything goes through (host/net.rs), which can't wait for an
+/// account, as the proxy is needed before there is one.
+pub const PROXY_PASSWORD: Kind = Kind { label: "Zuna proxy password", attribute: "proxy-password" };
 
 pub struct DeviceKey {
     pub key: Vec<u8>,
@@ -17,7 +32,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
     let sealed_path = dir.join("device-key.sealed");
     let plain_path = dir.join("device-key.bin");
     if let Ok(sealed) = std::fs::read(&sealed_path) {
-        if let Some(key) = unprotect(&sealed) {
+        if let Some(key) = unprotect(DEVICE_KEY, &sealed) {
             return Ok(DeviceKey { key, protected: true });
         }
         return Err(std::io::Error::other(UNSEAL_FAILED));
@@ -26,7 +41,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
         // Kept plain because the system wouldn't seal it then, as when the app started with
         // the login before the Secret Service did: the same key is sealed once it will be,
         // and the plain copy goes.
-        if let Some(sealed) = protect(&key) {
+        if let Some(sealed) = protect(DEVICE_KEY, &key) {
             write_new(&sealed_path, &sealed)?;
             std::fs::remove_file(&plain_path).ok();
             return Ok(DeviceKey { key, protected: true });
@@ -34,7 +49,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
         return Ok(DeviceKey { key, protected: false });
     }
     let key = zuna_crypto::primitives::random_bytes(32).map_err(std::io::Error::other)?;
-    match protect(&key) {
+    match protect(DEVICE_KEY, &key) {
         Some(sealed) => {
             write_new(&sealed_path, &sealed)?;
             Ok(DeviceKey { key, protected: true })
@@ -44,6 +59,36 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
             Ok(DeviceKey { key, protected: false })
         }
     }
+}
+
+/// Seals a secret as the device key is, as `<name>.sealed` in `dir`, or where the system won't
+/// seal it, keeps it as it is in `<name>.bin`, for this person alone. Whatever was kept under
+/// that name before goes, from the system too.
+pub fn seal(dir: &Path, name: &str, kind: Kind, secret: &[u8]) -> std::io::Result<()> {
+    forget(dir, name, kind);
+    std::fs::create_dir_all(dir)?;
+    match protect(kind, secret) {
+        Some(sealed) => write_new(&dir.join(format!("{name}.sealed")), &sealed),
+        None => write_new(&dir.join(format!("{name}.bin")), secret),
+    }
+}
+
+/// A secret `seal` kept, if there is one and the system will unseal it.
+pub fn unseal(dir: &Path, name: &str, kind: Kind) -> Option<Vec<u8>> {
+    match std::fs::read(dir.join(format!("{name}.sealed"))) {
+        Ok(sealed) => unprotect(kind, &sealed),
+        Err(_) => std::fs::read(dir.join(format!("{name}.bin"))).ok(),
+    }
+}
+
+/// Takes a secret `seal` kept out of the system and off the disk.
+pub fn forget(dir: &Path, name: &str, kind: Kind) {
+    let sealed_path = dir.join(format!("{name}.sealed"));
+    if let Ok(sealed) = std::fs::read(&sealed_path) {
+        remove(kind, &sealed);
+    }
+    std::fs::remove_file(sealed_path).ok();
+    std::fs::remove_file(dir.join(format!("{name}.bin"))).ok();
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -56,7 +101,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+fn protect(_kind: Kind, data: &[u8]) -> Option<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData};
     let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -67,7 +112,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 #[cfg(windows)]
-fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+fn unprotect(_kind: Kind, data: &[u8]) -> Option<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData};
     let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -76,6 +121,10 @@ fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
         Some(take_blob(output))
     }
 }
+
+/// A blob of Windows's is the whole of what it sealed, kept on disk alone.
+#[cfg(windows)]
+fn remove(_kind: Kind, _sealed: &[u8]) {}
 
 #[cfg(windows)]
 unsafe fn take_blob(blob: windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB) -> Vec<u8> {
@@ -97,27 +146,39 @@ const UNSEAL_FAILED: &str = "The system's keyring couldn't unseal this device's 
 /// as Electron's safeStorage kept its own there, and what's written to disk only names its
 /// item. None with no Secret Service, and it's kept unprotected, as with `basic_text`.
 #[cfg(target_os = "linux")]
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+fn protect(kind: Kind, data: &[u8]) -> Option<Vec<u8>> {
     let id: String = zuna_crypto::primitives::random_bytes(16).ok()?.iter().map(|byte| format!("{byte:02x}")).collect();
     let data = data.to_vec();
     within_wait(async move {
         let keyring = keyring().await?;
         keyring.unlock().await.ok()?;
-        keyring.create_item("Zuna device key", &secret_attributes(&id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the device key wasn't sealed: {error}")).ok()?;
+        keyring.create_item(kind.label, &secret_attributes(kind, &id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the {} wasn't sealed: {error}", kind.label)).ok()?;
         Some(format!("{SECRET_PREFIX}{id}").into_bytes())
     })
 }
 
 #[cfg(target_os = "linux")]
-fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
+fn unprotect(kind: Kind, sealed: &[u8]) -> Option<Vec<u8>> {
     let id = std::str::from_utf8(sealed).ok()?.strip_prefix(SECRET_PREFIX)?.to_string();
     within_wait(async move {
         let keyring = keyring().await?;
-        let items = keyring.search_items(&secret_attributes(&id)).await.ok()?;
+        let items = keyring.search_items(&secret_attributes(kind, &id)).await.ok()?;
         let item = items.first()?;
         item.unlock().await.ok()?;
         Some(item.secret().await.ok()?.to_vec())
     })
+}
+
+#[cfg(target_os = "linux")]
+fn remove(kind: Kind, sealed: &[u8]) {
+    let Some(id) = std::str::from_utf8(sealed).ok().and_then(|text| text.strip_prefix(SECRET_PREFIX)).map(str::to_string) else { return };
+    within_wait(async move {
+        let keyring = keyring().await?;
+        for item in keyring.search_items(&secret_attributes(kind, &id)).await.ok()? {
+            item.delete().await.inspect_err(|error| log::warn!("the {} wasn't removed: {error}", kind.label)).ok();
+        }
+        Some(())
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -153,8 +214,8 @@ fn within_wait<T: Send + 'static>(work: impl std::future::Future<Output = Option
 }
 
 #[cfg(target_os = "linux")]
-fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String> {
-    std::collections::HashMap::from([("application", "chat.zuna".to_string()), ("device-key", id.to_string())])
+fn secret_attributes(kind: Kind, id: &str) -> std::collections::HashMap<&'static str, String> {
+    std::collections::HashMap::from([("application", "chat.zuna".to_string()), (kind.attribute, id.to_string())])
 }
 
 /// On macOS the key itself goes into the login keychain, as Electron's safeStorage kept its
@@ -162,20 +223,24 @@ fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String
 /// wrote an item read it back without asking, by its signature, which a build signed with the
 /// same identity keeps. None if the keychain won't take it, and it's kept unprotected.
 #[cfg(target_os = "macos")]
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+fn protect(kind: Kind, data: &[u8]) -> Option<Vec<u8>> {
     let id: String = zuna_crypto::primitives::random_bytes(16).ok()?.iter().map(|byte| format!("{byte:02x}")).collect();
-    security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, &id, data).inspect_err(|error| log::warn!("the device key wasn't put in the keychain: {error}")).ok()?;
+    security_framework::passwords::set_generic_password(kind.label, &id, data).inspect_err(|error| log::warn!("the {} wasn't put in the keychain: {error}", kind.label)).ok()?;
     Some(format!("{KEYCHAIN_PREFIX}{id}").into_bytes())
 }
 
 #[cfg(target_os = "macos")]
-fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
+fn unprotect(kind: Kind, sealed: &[u8]) -> Option<Vec<u8>> {
     let id = std::str::from_utf8(sealed).ok()?.strip_prefix(KEYCHAIN_PREFIX)?;
-    security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, id).inspect_err(|error| log::warn!("the device key wasn't read from the keychain: {error}")).ok()
+    security_framework::passwords::get_generic_password(kind.label, id).inspect_err(|error| log::warn!("the {} wasn't read from the keychain: {error}", kind.label)).ok()
 }
 
-/// The keychain item's service, as Keychain Access lists it, and the prefix of what names it on disk.
 #[cfg(target_os = "macos")]
-const KEYCHAIN_SERVICE: &str = "Zuna device key";
+fn remove(kind: Kind, sealed: &[u8]) {
+    let Some(id) = std::str::from_utf8(sealed).ok().and_then(|text| text.strip_prefix(KEYCHAIN_PREFIX)) else { return };
+    security_framework::passwords::delete_generic_password(kind.label, id).inspect_err(|error| log::warn!("the {} wasn't taken out of the keychain: {error}", kind.label)).ok();
+}
+
+/// The prefix of what names a keychain item on disk. Its service, as Keychain Access lists it, is its kind's label.
 #[cfg(target_os = "macos")]
 const KEYCHAIN_PREFIX: &str = "keychain:";

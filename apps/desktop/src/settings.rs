@@ -33,6 +33,49 @@ pub struct Settings {
     pub update_channel: Option<String>,
     /// A plugin's theme, as `<plugin uid>/<theme id>`, which applies while that plugin is on.
     pub theme: Option<String>,
+    /// The SOCKS5 proxy everything this device sends goes through, for every server on it
+    /// (host/net.rs). Its password is sealed apart, as the device key is (`PROXY_PASSWORD`).
+    pub proxy: ProxySetting,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProxySetting {
+    /// Everything goes through it, or it's kept here unused.
+    pub on: bool,
+    pub host: String,
+    pub port: u16,
+    /// Empty when the proxy takes nobody's name.
+    pub username: String,
+}
+
+/// What the proxy's password is kept as, in the app's data folder.
+const PROXY_PASSWORD: &str = "proxy-password";
+
+impl ProxySetting {
+    /// The proxy to go through, with its password, while it's on.
+    pub fn in_use(&self) -> Option<crate::host::net::Proxy> {
+        if !self.on || self.host.trim().is_empty() || self.port == 0 {
+            return None;
+        }
+        let password = if self.username.is_empty() { None } else { Self::kept_password() };
+        Some(crate::host::net::Proxy { host: self.host.trim().to_string(), port: self.port, username: self.username.clone(), password: password.unwrap_or_default() })
+    }
+
+    /// The proxy's password, as it's kept.
+    pub fn kept_password() -> Option<String> {
+        crate::host::device_key::unseal(&crate::host::data_dir(), PROXY_PASSWORD, crate::host::device_key::PROXY_PASSWORD).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Keeps the proxy's password, or forgets it when there's none.
+    pub fn keep_password(password: &str) -> std::io::Result<()> {
+        let dir = crate::host::data_dir();
+        if password.is_empty() {
+            crate::host::device_key::forget(&dir, PROXY_PASSWORD, crate::host::device_key::PROXY_PASSWORD);
+            return Ok(());
+        }
+        crate::host::device_key::seal(&dir, PROXY_PASSWORD, crate::host::device_key::PROXY_PASSWORD, password.as_bytes())
+    }
 }
 
 impl Default for Settings {
@@ -55,6 +98,7 @@ impl Default for Settings {
             voice_speed: 1.,
             update_channel: None,
             theme: None,
+            proxy: ProxySetting::default(),
         }
     }
 }

@@ -6,7 +6,9 @@ mod crypto;
 mod db;
 pub mod device_key;
 mod js;
+pub mod net;
 mod runtime;
+mod socks;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tls;
@@ -201,6 +203,12 @@ impl Core {
         }
     }
 
+    /// Tells the core's host the proxy changed (net.rs): it makes its clients again, and every
+    /// request and socket it has open ends, for the core to make again the new way.
+    pub fn network_changed(&self) {
+        self.inner.tasks.send(Task::Network).ok();
+    }
+
     /// Runs script in the core's context and returns its result as JSON, for checks.
     #[allow(dead_code)]
     pub async fn eval(&self, source: String) -> String {
@@ -273,17 +281,25 @@ pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
     if cfg!(test) {
         return futures::future::Either::Left(futures::future::ready(Err(format!("Tests reach no network, so not {url}."))));
     }
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    let client = CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
-                .connect_timeout(std::time::Duration::from_secs(15))
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .expect("an HTTP client")
-        })
-        .clone();
+    // Made again after the proxy changes, so nothing goes the old way.
+    static CLIENT: Mutex<Option<(u64, reqwest::Client)>> = Mutex::new(None);
+    let client = {
+        let mut held = CLIENT.lock();
+        let generation = net::generation();
+        match held.as_ref() {
+            Some((made, client)) if *made == generation => client.clone(),
+            _ => {
+                let client = net::client()
+                    .use_preconfigured_tls(tls::client_config(&[b"h2", b"http/1.1"]))
+                    .connect_timeout(std::time::Duration::from_secs(15))
+                    .timeout(std::time::Duration::from_secs(60))
+                    .build()
+                    .expect("an HTTP client");
+                *held = Some((generation, client.clone()));
+                client
+            }
+        }
+    };
     let task = tokio().spawn(async move {
         let response = client.get(&url).send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() {

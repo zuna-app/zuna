@@ -52,10 +52,12 @@ pub fn allowed(url: &Url, hosts: &[String]) -> bool {
         && matches!(url.host(), Some(url::Host::Domain(name)) if hosts.iter().any(|host| host == &name.to_ascii_lowercase()))
 }
 
+/// Through a proxy nothing is resolved here, as the proxy resolves names, so only the names a
+/// manifest gives are judged, as link previews judge theirs (host/web.rs).
 fn client(hosts: Vec<String>, local: bool) -> reqwest::Client {
-    reqwest::Client::builder()
-        .use_preconfigured_tls(crate::host::tls_config())
-        .dns_resolver(Arc::new(Resolver { local }))
+    let builder = crate::host::net::client().use_preconfigured_tls(crate::host::tls_config());
+    let builder = if crate::host::net::proxy().is_some() { builder } else { builder.dns_resolver(Arc::new(Resolver { local })) };
+    builder
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() > 5 {
                 attempt.error("Too many redirects.")
@@ -77,6 +79,9 @@ pub async fn fetch(args: Value, hosts: Vec<String>, local: bool) -> Result<Value
     let url = Url::parse(args.get("url").and_then(Value::as_str).unwrap_or_default()).map_err(|_| "That isn't an address.".to_string())?;
     if !allowed(&url, &hosts) {
         return Err(format!("The plugin may only reach {}, over HTTPS.", hosts.join(", ")));
+    }
+    if !local && crate::host::net::proxy().is_some() && url.host_str().is_some_and(crate::host::web::local_name) {
+        return Err("That host is on this computer's network.".into());
     }
     let method = args.get("method").and_then(Value::as_str).unwrap_or("GET").to_ascii_uppercase();
     if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].contains(&method.as_str()) {

@@ -6,6 +6,7 @@ mod groups;
 mod verify;
 mod location;
 mod channel;
+mod proxy;
 
 use std::collections::BTreeSet;
 
@@ -43,6 +44,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::InstallUpdate => cx.new(|cx| Dialog::new(state, DialogKind::InstallUpdate, window, cx)).into(),
         Overlay::WatchConsent { then_link } => cx.new(|cx| Dialog::new(state, DialogKind::WatchConsent { then_link }, window, cx)).into(),
         Overlay::WatchLink => cx.new(|cx| Dialog::new(state, DialogKind::WatchLink, window, cx)).into(),
+        Overlay::Proxy { from_settings } => cx.new(|cx| Dialog::new(state, DialogKind::Proxy { from_settings }, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -127,6 +129,7 @@ enum DialogKind {
     Channel { channel_id: Option<String>, kind: Option<String> },
     WatchConsent { then_link: bool },
     WatchLink,
+    Proxy { from_settings: bool },
 }
 
 /// What's being set for a channel, beside its name.
@@ -188,6 +191,7 @@ pub struct Dialog {
     location: Option<Result<(f64, f64, Option<f64>), String>>,
     /// Why a link to watch together wasn't put on.
     link_error: Option<String>,
+    proxy_form: Option<proxy::ProxyForm>,
     /// Holds focus where the dialog has no field to, so Escape closes it.
     focus: gpui::FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -265,6 +269,7 @@ impl Dialog {
             name.update(cx, |input, cx| input.set_placeholder("https://www.youtube.com/watch?v=…", cx));
             name.focus_handle(cx).focus(window, cx);
         }
+        let proxy_form = matches!(kind, DialogKind::Proxy { .. }).then(|| proxy::ProxyForm::new(&state, window, &mut subscriptions, cx));
         if matches!(kind, DialogKind::AddMembers(_)) {
             people_search.focus_handle(cx).focus(window, cx);
         }
@@ -276,7 +281,7 @@ impl Dialog {
         if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate | DialogKind::WatchConsent { .. }) {
             window.focus(&focus, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, focus, _subscriptions: subscriptions };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, proxy_form, focus, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -307,7 +312,8 @@ impl Dialog {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| state.set_overlay(None, cx));
+        let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("privacy".into()) });
+        self.state.update(cx, |state, cx| state.set_overlay(back, cx));
     }
 
     /// A modal card with a title and close button, as `Modal` draws it.
@@ -593,6 +599,7 @@ impl Render for Dialog {
                 self.watch_consent(then_link, cx)
             }
             DialogKind::WatchLink => self.watch_link(cx),
+            DialogKind::Proxy { .. } => self.proxy(cx),
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

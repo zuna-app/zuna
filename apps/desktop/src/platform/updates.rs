@@ -628,7 +628,7 @@ mod running {
     }
 
     pub(in crate::platform) fn client() -> Result<reqwest::Client, String> {
-        reqwest::Client::builder()
+        crate::host::net::client()
             .use_preconfigured_tls(crate::host::tls_config())
             .user_agent("Zuna")
             .connect_timeout(Duration::from_secs(15))

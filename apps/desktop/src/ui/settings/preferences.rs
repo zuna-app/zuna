@@ -69,6 +69,20 @@ impl SettingsView {
             })),
             &theme,
         ));
+        let proxy = settings.proxy.clone();
+        let state_p = self.state.clone();
+        parts.push(Self::row(
+            "Proxy",
+            Some(&if proxy.on {
+                format!("Everything this device sends goes through the SOCKS5 proxy at {}, for every server on it. Your servers see its address rather than yours.", crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
+            } else {
+                "Off. A SOCKS5 proxy can carry everything this device sends, so that your servers see its address rather than yours.".to_string()
+            }),
+            button("proxy-settings", ButtonKind::Default, ButtonSize::Small, false, cx)
+                .child(if proxy.on { "Change" } else { "Set up" })
+                .on_click(move |_, _, cx| state_p.update(cx, |state, cx| state.set_overlay(Some(Overlay::Proxy { from_settings: true }), cx))),
+            &theme,
+        ));
         let play_youtube = settings.play_youtube;
         let state_y = self.state.clone();
         parts.push(Self::row(

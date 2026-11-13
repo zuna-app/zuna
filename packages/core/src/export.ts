@@ -383,7 +383,7 @@ function notKeptSection(): ServerDataSection {
       row("Who you block and what you pin", "Not kept", "none", "They're in your vault, encrypted."),
       row("What you search for", "Not kept", "none", "Search runs on your device."),
       row("Who reports someone", "Not kept", "none", "A report keeps only whom it's about, why and when."),
-      row("Your IP address", "Not stored", "none", "The server sees it with each request, and counts requests by it in memory for at most a day so that nobody floods it. It never writes it down, though a proxy in front of it may log it, and the voice server sees it too while you're in a call."),
+      row("Your IP address", "Not stored", "none", "The server sees it with each request, and counts requests by it in memory for at most a day so that nobody floods it. It never writes it down, though a proxy in front of it may log it, and the voice server sees it too while you're in a call. With a SOCKS5 proxy set on a device, it sees the proxy's address instead."),
     ],
   };
 }
