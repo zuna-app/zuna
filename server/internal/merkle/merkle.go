@@ -1,6 +1,6 @@
 // Package merkle holds the formats of a server's log of who holds which keys: the
 // tree it's hashed into, as RFC 6962 hashes one, its records and their tags, and
-// what a head's signature is over. docs/KEY_TRANSPARENCY_PLAN.md has the design, and
+// what a head's signature is over. docs/KEY_TRANSPARENCY.md has the design, and
 // packages/core/src/transparency.ts is the same for devices, held to the same vectors.
 package merkle
 

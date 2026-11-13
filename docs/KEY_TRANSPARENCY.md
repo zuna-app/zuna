@@ -1,10 +1,10 @@
-# Key transparency: plan
+# Key transparency
 
-**Status:** written on 2026-11-11 against commit `9b4d8fed`, and built the same day, all six stages, at the owner's word, ahead of review. Nobody independent has reviewed it. The owner made section 12's decisions the same day, each as the plan had assumed. Its questions for a reviewer are open, and are what a reviewer should look at first. Where what's built differs from what follows, "As built" at the end says how. The code is `server/internal/merkle`, `server/internal/store/log.go`, `server/internal/api/log.go`, `packages/core/src/transparency.ts` and `packages/core/src/session/directory.ts`, and the tests `packages/core/test/transparency.test.ts` and `server/internal/api/log_test.go`.
+Each server keeps a log of every change to who holds which keys, and every device reads all of it. This page is the design. It was written on 2026-11-11 against commit `9b4d8fed`, and built the same day, at the owner's word, ahead of review: nobody independent has reviewed it, and its questions for a reviewer (section 10) are what a reviewer should look at first. The code is `server/internal/merkle`, `server/internal/store/log.go`, `server/internal/api/log.go`, `packages/core/src/transparency.ts` and `packages/core/src/session/directory.ts`, and the tests `packages/core/test/transparency.test.ts` and `server/internal/api/log_test.go`.
 
-**Scope:** which keys and devices each account on a server has. Today that's whatever the server says, held to the signatures it can't forge. This plan makes it a record the server can't change afterwards, can't show differently to different people without leaving proof, and that every account's own devices read.
+**Scope:** which keys and devices each account on a server has. Without the log, that's whatever the server says, held to the signatures it can't forge. The log makes it a record the server can't change afterwards, can't show differently to different people without leaving proof, and that every account's own devices read.
 
-**The owner's constraint holds:** no part of this may add a step, prompt or setting for people using the app.
+**The owner's constraint holds:** no part of this may add a step, prompt or setting for people using the app, with one exception the owner made: a device signing in to someone's account is a question on each of their devices from before it (5.7).
 
 Read [SECURITY.md](../SECURITY.md), [SECURITY_DETAILS.md](SECURITY_DETAILS.md) and [ACCOUNT_KEY_ROTATION.md](ACCOUNT_KEY_ROTATION.md) first. This builds on generations, links and carried devices, and uses their words.
 
@@ -39,9 +39,9 @@ Three limits, stated plainly because they decide whether this is worth building:
 
 "Server", "reader" and "holder" mean what they do in section 4 of [ACCOUNT_KEY_ROTATION.md](ACCOUNT_KEY_ROTATION.md): a malicious operator, a copy of the server's data, and someone with an account's keys as of some generation.
 
-## 3. What a server can do today
+## 3. What a server could do without it
 
-Checked against the code at commit `9b4d8fed`. Short paths are in `packages/core/src/` and `server/internal/`.
+As the code stood at commit `9b4d8fed`, before the log. Short paths are in `packages/core/src/` and `server/internal/`.
 
 | | What happens | Where |
 |---|---|---|
@@ -96,7 +96,7 @@ Every change to an account's keys or devices appends one entry, inside the trans
 | `account` | The account's ID, its username, the identity key it began with, its first HPKE key | `CreateUser` |
 | `device` | A device's ID and signing key, and hashes of its certificate, its enrollment proof and its seal key | `AddDevice` |
 | `certificate` | The hash of a device's new certificate | `SetDeviceCertificate` |
-| `seal` | The generation and hash of a device's new seal key (Stage 6) | `SetDeviceSealKey` |
+| `seal` | The generation and hash of a device's new seal key | `SetDeviceSealKey` |
 | `revoked` | A device is gone | `revokeDevice`, and for each device in `BanUser` and `DeleteAccount`, which revoke in bulk today |
 | `link` | A generation and the hash of its link's payload, before that rotation's `revoked` entries | `ApplyRotation` |
 | `deleted` | The account is deleted, and its username is free | `DeleteAccount` |
@@ -170,7 +170,8 @@ A device with no pin for someone takes it from their `account` entry. It no long
 The entries tagged for this account get the checks a device already makes of what the server says about itself, but now nothing can be kept from it:
 
 - **Its `account` entry** has the root its slot named and its own username.
-- **Each `device` entry** is this device, or passes `ownDeviceAccepted`: carried by the head link, or enrolled through a slot. The question whether a new device was the person is asked from the entry, so the server can't skip it ("As built"). One that fails is the fake device of the rotation's design, handled as it is today.
+- **Each `device` entry** is this device, or passes `ownDeviceAccepted`: carried by the head link, or enrolled through a slot. One that fails is the fake device of the rotation's design, handled as it is today.
+- **A device of the account after this one's own entry** is a question: it's kept until the person answers whether it was them, which each app asks over everything, with nothing but an answer to close it (`getNewDevices`, `answerNewDevice`, the `new_devices` event). No removes it and asks them to change the secret its enrollment proof names (`enrolledWith`). The answer isn't passed to the account's other devices, as whoever signed in could give it: each asks, and stops when a `revoked` entry for that device comes. The question is asked from the log's entry, so the server can't skip it, and there's no alert from the list of people beside it.
 - **Each `link` entry** is one this account's devices made. Anything else is the existing "different history of your account's keys" warning.
 - **A name tag that fits its username** on another account's entry gets a warning that someone was signed up under its name.
 
@@ -212,13 +213,13 @@ A server restored from a backup has a shorter log than its members' devices have
 - **Devices take a newer era** signed by the key they pinned, say so once, and read it from the start.
 - **Nothing they hold is given up.** Pins, chains and known devices are kept in tables of their own, and the new era's entries are held to them by the rules in 5.5. A key that changed across the reset is `changed`, as it would be today.
 
-So a malicious server gains nothing by starting again but a warning on every device. The same rewrite, as era 1, is how a server that had accounts before the log gets its first one.
+So a malicious server gains nothing by starting again but a warning on every device. A server's log starts empty, at era 1, with its key (`ensureLog`). Writing it from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 
 ## 6. What changes for an attacker
 
 Numbers are section 3's rows.
 
-| | Today | With the log |
+| | Without the log | With it |
 |---|---|---|
 | 1. A false first key | Silent until emoji are compared | In the log, where the owner's devices see it under their own ID, or in a second log, which the first message across gives away. Not possible at all against someone who joined by a link made after the real account was, if the link reached them unchanged |
 | 2. Different device lists for different people | Silent | Not possible under one head |
@@ -226,18 +227,19 @@ Numbers are section 3's rows.
 | 4. A false link from an old key | Silent to an unverified contact | In the log, where the owner's devices see a link they didn't make, and the real one can't share its generation. Or a second log |
 | 5. A device added with the current key | The owner may never be told | The owner's devices are always told. It can't be stopped, as whoever holds the current key is the account |
 | 6. A new device served an old generation | Lasts until a contact or another device warns | Refused at sign-in if the manifest's head is past it. Otherwise ends at the first head from anyone |
-| 7. An old seal key offered again | Works on a device that never saw the newer | Not possible under one head (Stage 6) |
+| 7. An old seal key offered again | Works on a device that never saw the newer | Not possible under one head |
 | 8. A second account under a name | Silent | The later one counts for nothing, and the name's holder is told |
 
 ## 7. What people see
 
-Checked against the constraint. Every line is a notice through the existing `security` event, or something that already exists.
+Every line but one is a notice through the existing `security` event, or something that already exists. The one is the question about a new device, the owner's exception (5.7).
 
 | Who | What | Asked to do |
 |---|---|---|
 | Everyone, always | Nothing | Nothing |
 | Someone making an invite | A longer link | Nothing |
-| The owner of an account someone was signed up over, or given a device or link | The existing warnings, which now always come | Nothing new |
+| The owner of an account someone was signed up over, or given a link | The existing warnings, which now always come | Nothing new |
+| The owner of an account a device signs in to | A question on each of their devices from before it: was it them | Yes or No, which closes it |
 | Everyone, when a server kept two logs or went back | One warning | Nothing. Comparing emoji stays optional |
 | Everyone, when a server's owner starts its log again | One notice | Nothing |
 
@@ -262,119 +264,7 @@ Checked against the constraint. Every line is a notice through the existing `sec
 | **Inclusion proofs for the people a device talks to, and no full read** | A proof shows an entry is there, never that a later one isn't. That takes the full read or a map |
 | **A witness that countersigns heads,** such as the push relay | A central service, which Zuna doesn't have. It could be added later without changing the log |
 
-## 10. Implementation plan
-
-Each stage ships on its own and leaves things working. Nothing is kept for older apps, as nothing is released. The attack tests are permanent, as those in `security.test.ts` are, in a new `packages/core/test/transparency.test.ts`, driving real clients against a real server whose database the test changes as a malicious server would.
-
-### Stage 0: decisions and review
-
-This document, and answers to section 12. The owner's are in. A reviewer's aren't, and whether building waits for them is the owner's to say.
-
-### Stage 1: the server keeps the log
-
-**Change:**
-
-- `server/internal/merkle`: leaf and node hashes, the frontier, the root. About a hundred lines, with no new dependency.
-- `store/log.go`: `appendLog`, called inside the transactions in section 5.2, and reading records and bodies. Tables at the end of `migrations` and `postgresMigrations`. The key and era in `settings`.
-- `api/log.go`: `GET /api/log` and `GET /api/log/bodies` under `withDevice`, with bodies by `canSee`, the head's signature, the `log` frame, and `log_key` in `GET /api/info`.
-- The first era written from the tables when a server with accounts has no log.
-- Vectors in `packages/core/test/fixtures/log-vectors.json`, which Go's tests and the core's both read, so the two can't drift.
-
-**Tests:**
-
-- RFC 6962's roots for trees of one to eight leaves, and the shared vectors.
-- Each route in section 5.2 appends exactly its entries, and a change that's rolled back appends none.
-- Two changes at once get two places, in SQLite and with `ZUNA_TEST_POSTGRES`.
-- A private bot's bodies go to its owner and to whoever is in a chat with it, and to nobody else.
-- A server with accounts and no log gets one that its tables agree with.
-
-### Stage 2: devices read it, and watch themselves
-
-**Change:** `packages/core/src/transparency.ts` (the tree, records, tags, heads, bodies, pure functions on the `sha256` and `verify` every host already gives). A new part of `ServerSession`, `session/directory.ts`, after `chains.ts`, under `// --- Key transparency ---`. Local tables at the end of `MIGRATIONS`. `api.ts`. The log read before the list of people in `lifecycle.ts`. Section 5.7. Nothing depends on the log yet.
-
-**Tests:**
-
-- A device's root is the server's, from an empty log and from a later place.
-- A record changed in the database, a body that doesn't fit its record, and a tag that doesn't fit its body are each refused.
-- A log shorter than the one held raises the warning.
-- A device added straight to the database with a certificate the identity key signed, and left out of the owner's list of people: the owner is warned.
-- An account added under someone's username: they're warned.
-- A body kept back about someone the device knows is noticed.
-- A first read of 100,000 records, timed in Node, QuickJS and JavaScriptCore. If hashing through a host is too slow, a batched append goes into the Rust core, with everything a new crypto function changes.
-
-### Stage 3: only what's in the log counts
-
-**Change:** section 5.6, and pins taken from `account` entries. `session/chains.ts`, `session/local.ts`.
-
-**Tests:**
-
-- A device in the list of people and not in the log counts for nothing, and is removed from a tree with the warning.
-- A removal the list of people hides is known from the log.
-- A link the server withholds: the contact knows the generation is missing, and the real device isn't removed over it.
-- Two `link` entries for a generation give the fork warning.
-- A second account under a held name gets no message encrypted to it.
-- The whole of `rotation*.test.ts` and `security*.test.ts`, which mustn't change.
-- `node apps/web/test/web-check.mjs` and the native app's check on its system, as how the app starts changes.
-
-### Stage 4: heads in messages
-
-**Change:** `log` in `MessageBody` (`types.ts`, `validate.ts`), sent from `sending.ts` and compared in `ingest.ts`, with sections 5.8 and 5.9. `previewPush` ignores it.
-
-**Tests:**
-
-- Two people given different logs, through a proxy that answers `GET /api/log` for one of them from a second log signed with the server's key: both warn at the first message, and both hold the two heads.
-- A head from someone ahead makes the device read on, then agree.
-- A head under another key gives the milder warning, naming its sender.
-- An old head sent again does nothing.
-- A message carries a head only when section 5.8 says so.
-
-### Stage 5: the manifest, invite links and signing in
-
-**Change:** `log` in the manifest (`manifest.ts`, `session/vault.ts`). `&log=` in `inviteLink` and `parseInviteLink` (`account.ts`), which the setup link for bots follows. Reading the log before a device registers, with records and its own account's bodies open to `authed`.
-
-**Tests:**
-
-- A new device starts from the manifest's head, and refuses a log that doesn't hold it.
-- Someone joining by a link is warned when the server's log doesn't hold the link's head.
-- A new device served an old generation, with a newer `link` entry in the log, doesn't take it.
-- An invite link without `log` still works, as on a server with open sign-ups.
-
-### Stage 6: eras and seal keys
-
-**Change:** a flag of `zuna-server` that starts a new era. Devices taking one (5.10). `seal` entries, and `sealKeyOf` going by the log's newest instead of what this device has seen. "Restoring a backup" in `docs/SELF_HOSTING.md`.
-
-**Tests:**
-
-- A new era gives one notice, and every pin and chain holds.
-- A key changed across a new era is `changed`.
-- An older era's head from someone does nothing.
-- An old seal key offered to a device that never saw the newer is refused.
-
-### After each stage
-
-The docs say only what's built, so they change with the stage that makes it true, not before:
-
-- `SECURITY.md`: "Knowing who you're talking to", the row for bots, and under "Limits" the lines about a brand-new device, old keys fooling a contact, and what the emoji check alone covers.
-- `docs/SECURITY_DETAILS.md`: a section for the log, and "Identity and devices".
-- `docs/ARCHITECTURE.md`: the server's job, and the order of catching up.
-- `docs/ACCOUNT_KEY_ROTATION.md`: section 10's table and question 15.
-- `apps/site`, if a page claims any of it.
-- `.agents/FEATURE_PARITY.md`: one row. It's in the core, so every platform has it at once.
-- `CLAUDE.md`: the session's parts, the quick reference, and the rows in section 11.
-
-The core's commits are a patch for the native app, as a security fix is. The server's alone are under the hood.
-
-## 11. What will have to change together
-
-For `CLAUDE.md`, once Stage 1 is in:
-
-| When you change | Also change |
-|---|---|
-| Anything on the server that adds, removes or changes an account's keys or devices | An entry in the same transaction (`appendLog`), its kind and rule in `transparency.ts`, and section 5.2 here |
-| The log's formats: records, tags, heads, bodies | `server/internal/merkle`, `store/log.go`, `packages/core/src/transparency.ts`, and the shared vectors |
-| Who an account is there for (`canSee`) | Who gets a body in `api/log.go` |
-
-## 12. Questions
+## 10. Questions
 
 ### For the reviewer
 
@@ -388,7 +278,7 @@ For `CLAUDE.md`, once Stage 1 is in:
 
 ### What the owner chose
 
-Decided on 2026-11-11, each as this plan had assumed. Each is still the owner's to change.
+Decided on 2026-11-11. Each is still the owner's to change.
 
 1. **Every device reads the whole log** (5.1), since every device already reads the whole list of people. Turned down: proofs on request, section 9's way, at several times the work.
 2. **Usernames are in the log** (row 8 of section 3). Turned down: the account's ID alone, which ties keys to something nobody ever sees.
@@ -467,17 +357,12 @@ The `log` frame says an era and a size, to everyone connected.
 
 A local migration adds `log_records(idx, record, root, body)` at the end of `MIGRATIONS`. The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
 
-## As built
+## Implementation notes
 
-Where the code differs from the plan above, which stays as it was decided:
+Where the code goes into more detail than the design above:
 
-- **A new device is a question, not an alert.** At the owner's word on 2026-11-11, which makes an exception to the constraint at the top, a device of the account after this one's own entry is kept until the person answers whether it was them, and each app asks over everything, with nothing but an answer to close it (`getNewDevices`, `answerNewDevice`, the `new_devices` event). No removes it and asks them to change the secret its enrollment proof names (`enrolledWith`). The answer isn't passed to the account's other devices, as whoever signed in could give it; each asks, and stops when a `revoked` entry for that device comes. The list-based alert in `applyUser` is gone, as the log's is the one the server can't skip.
-
-- **No first era from the tables.** The owner chose to start every server's database again rather than keep it, so a log starts empty, with its key, at era 1 (`ensureLog`). Writing the log from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 - **Roots before now.** A device keeps the tree's frontier after every 256th record rather than a root after each (`log_records.frontier`), and works out a root from before from the nearest one, which is at most 256 records to hash again. A root after every record would have tripled the hashing of a first read.
 - **Bodies.** A device doesn't keep the bodies, only whether each record's came (`log_records.opened`), and what they say of each account, sealed, one row each (`log_accounts`), with the usernames held, by a keyed hash of the name (`log_names`).
 - **Every page is signed.** `GET /api/log` signs the head at the end of each page, not only the newest, so a device checks each page as it comes and keeps none it can't.
-- **Seal entries came with the server's part,** in Stage 1, and devices go by them from Stage 6.
 - **A floor.** The head an invite link or the manifest carries is a floor the log has to hold: a page that runs past it with another root is refused whole, as is a log that ends before it, which gets the warning.
 - **Timing.** A first read of 100,000 records, checked and hashed, took about half a second in Node, and the same hashing through the iOS host's crypto in JavaScriptCore without a JIT, as on a device, 2.9 seconds (`tests/e2e/test/performance.test.ts`), both on an M-series Mac. That's in the background and once, so hashing stays in the core. QuickJS, the native desktop app's, wasn't timed.
-

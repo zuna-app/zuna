@@ -1,5 +1,5 @@
 // ServerSession, in part (see base.ts): the server's log of who holds which keys, read in full,
-// checked against its signed heads, and what it says about each account (docs/KEY_TRANSPARENCY_PLAN.md).
+// checked against its signed heads, and what it says about each account (docs/KEY_TRANSPARENCY.md).
 
 import { ApiError, decode, type ApiDevice } from "../api";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";

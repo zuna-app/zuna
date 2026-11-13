@@ -1,4 +1,4 @@
-// The log of who holds which keys (docs/KEY_TRANSPARENCY_PLAN.md): every device reads all of it,
+// The log of who holds which keys (docs/KEY_TRANSPARENCY.md): every device reads all of it,
 // works its root out itself, and holds what the server says about anyone's keys to it. These
 // drive real clients against a real server, whose database the tests change as a malicious
 // server would, holding the log's key as it does.

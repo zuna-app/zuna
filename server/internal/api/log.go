@@ -10,7 +10,7 @@ import (
 // --- The log of keys ---
 //
 // Every device reads all of it and works its root out itself (store/log.go,
-// docs/KEY_TRANSPARENCY_PLAN.md). Records go to everyone, and the body of each to
+// docs/KEY_TRANSPARENCY.md). Records go to everyone, and the body of each to
 // whoever its account is there for, as everything else about an account does
 // (canSee). A session with no device yet, signing in, gets its own account's.
 

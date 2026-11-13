@@ -23,7 +23,7 @@ import (
 // or seal key replaced, a new generation, an account deleted. Entries are hashed into
 // a Merkle tree, whose head the server signs. Everyone gets every record, which says
 // nothing by itself, and an entry's body only if its account is there for them.
-// docs/KEY_TRANSPARENCY_PLAN.md has the design.
+// docs/KEY_TRANSPARENCY.md has the design.
 
 const (
 	settingLogKey      = "log_key"

@@ -3,7 +3,7 @@
 // the heads the server signs, and the bodies of entries. Pure functions on the
 // `sha256` and `verify` every host gives. The server's half is server/internal/merkle,
 // held to the same vectors (test/fixtures/log-vectors.json), and the design is
-// docs/KEY_TRANSPARENCY_PLAN.md.
+// docs/KEY_TRANSPARENCY.md.
 
 import * as wasm from "@zuna/crypto";
 import { DEVICE_PUBLIC_BYTES, HPKE_PUBLIC_BYTES, LASTING_PUBLIC_BYTES, LASTING_SIGNATURE_BYTES, isDeviceKey, isLastingKey } from "./crypto";

@@ -177,7 +177,7 @@ Rules the core depends on:
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` and `apps/desktop/src/host/web.rs` |
 | The proxy sites `deploy/install.sh` writes, or what a proxy needs | The Caddy and nginx examples in `docs/SELF_HOSTING.md` and `docs/LINUX.md` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
-| Anything on the server that adds, removes or changes an account's keys or devices | An entry in the same transaction (`appendLog` in `server/internal/store/log.go`), its kind and rule in `packages/core/src/session/directory.ts` (`applyLogEntry`), `rewriteLog` for a new era, and section 5.2 of `docs/KEY_TRANSPARENCY_PLAN.md` |
+| Anything on the server that adds, removes or changes an account's keys or devices | An entry in the same transaction (`appendLog` in `server/internal/store/log.go`), its kind and rule in `packages/core/src/session/directory.ts` (`applyLogEntry`), `rewriteLog` for a new era, and section 5.2 of `docs/KEY_TRANSPARENCY.md` |
 | The log of keys' formats: records, tags, heads, bodies | `server/internal/merkle`, `server/internal/store/log.go`, `packages/core/src/transparency.ts`, and the shared vectors, `UPDATE_LOG_VECTORS=1 go test ./internal/merkle` |
 | Who an account is there for (`canSee`) | Who gets its log entries' bodies, `hiddenFrom` in `store/log.go` |
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
@@ -239,7 +239,7 @@ Rules the core depends on:
 | Adding the test server's people, who answer by themselves, or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
-| The log of who holds which keys | `docs/KEY_TRANSPARENCY_PLAN.md`, `packages/core/src/transparency.ts`, `// --- Key transparency ---` in `session/directory.ts`, `server/internal/store/log.go`, `server/internal/merkle`, `server/internal/api/log.go` |
+| The log of who holds which keys | `docs/KEY_TRANSPARENCY.md`, `packages/core/src/transparency.ts`, `// --- Key transparency ---` in `session/directory.ts`, `server/internal/store/log.go`, `server/internal/merkle`, `server/internal/api/log.go` |
 | Plugins in the native app: packages, the host process, the broker, slots, the marketplace | `docs/PLUGINS.md`, `docs/PLUGINS_PLAN.md`, `packages/plugin-sdk`, `apps/desktop/src/plugins` (`host/` is the process, `broker.rs` every request's check), `apps/desktop/src/ui/plugins`, `apps/desktop/src/ui/settings/plugins.rs`, `examples/plugins`, and the `zuna-app/plugins` repository |
 | A linked Telegram account: the engine, its box and door, the broker, the adapter | `docs/TELEGRAM.md`, `docs/TELEGRAM_PLAN.md`, `apps/desktop/telegram` (`zuna-telegram`), `apps/desktop/src/telegram` (the broker and door), `apps/desktop/src/platform/sandbox.rs`, `packages/core/src/telegram` (`TelegramSession`, `map.ts`, `functions.json`), `apps/desktop/src/state/telegram.rs`, `packages/core/test/telegram.test.ts` with its fake engine |
 | What's planned | `docs/ROADMAP.md` |
