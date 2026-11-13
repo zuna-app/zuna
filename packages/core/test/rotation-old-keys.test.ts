@@ -82,7 +82,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest:1'").run(dave.userId);
     db.close();
     const laptop = await secondDevice(dave, "dave-laptop");
-    expect(securityEvents(laptop).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+    expect(securityEvents(laptop).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
     expect(laptop.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
   });
 
@@ -116,7 +116,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
     db.close();
     const phone = await secondDevice(dave, "dave-phone");
-    expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+    expect(securityEvents(phone).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
     expect(phone.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
   });
 
@@ -152,7 +152,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
     db.close();
     const phone = await secondDevice(dave, "dave-phone");
-    expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+    expect(securityEvents(phone).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
   });
 
   it("doesn't lose what one device changed when another writes the manifest next", async () => {

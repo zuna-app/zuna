@@ -397,10 +397,10 @@ describe("after a rotation", () => {
     };
     session.setKv("rotation_stuck_since", Date.now() - 25 * 3600 * 1000);
     await dave.session.revokeDevice(phone.session.getSelf().deviceId);
-    await waitFor(() => securityEvents(dave).some((event) => event.message.includes("keeps trying")), "the notice");
+    await waitFor(() => securityEvents(dave).some((event) => event.message.includes("keep trying")), "the notice");
     session.api.rotate = realRotate;
     await atGeneration(dave, 1);
-    expect(securityEvents(dave).filter((event) => event.message.includes("keeps trying")).length).toBe(1);
+    expect(securityEvents(dave).filter((event) => event.message.includes("keep trying")).length).toBe(1);
   });
 
   it("gives someone new the whole of a long chain", async () => {

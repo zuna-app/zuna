@@ -84,8 +84,8 @@ describe("a server with its own certificate", () => {
   it("isn't reached from a browser, which can't check its certificate", async () => {
     const alice = apps.find((made) => made.name === "alice")!;
     const browser = await app("browser", false);
-    await expect(browser.client.previewInvite(await alice.session.createInvite(0, 0))).rejects.toThrow(/browser can't check/);
-    await expect(browser.client.login(alice.client.listServers()[0]!.address, "alice", "correct horse battery")).rejects.toThrow(/browser can't check/);
+    await expect(browser.client.previewInvite(await alice.session.createInvite(0, 0))).rejects.toThrow(/browsers can't verify/);
+    await expect(browser.client.login(alice.client.listServers()[0]!.address, "alice", "correct horse battery")).rejects.toThrow(/browsers can't verify/);
   });
 });
 
@@ -101,8 +101,8 @@ describe("a server's address", () => {
   });
 
   it("has a pin only when it's an IP address, over HTTPS", () => {
-    expect(() => parseServerAddress(`http://localhost:8080#pin=${key}`)).toThrow(/by its IP address/);
-    expect(() => parseServerAddress(`https://chat.example.com#pin=${key}`)).toThrow(/by its IP address/);
-    expect(() => parseServerAddress(`https://chat.example.com/invite/abc#k=key&pin=${key}`)).toThrow(/by its IP address/);
+    expect(() => parseServerAddress(`http://localhost:8080#pin=${key}`)).toThrow(/by IP address/);
+    expect(() => parseServerAddress(`https://chat.example.com#pin=${key}`)).toThrow(/by IP address/);
+    expect(() => parseServerAddress(`https://chat.example.com/invite/abc#k=key&pin=${key}`)).toThrow(/by IP address/);
   });
 });

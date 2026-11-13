@@ -118,13 +118,13 @@ describe("tokens", () => {
     const bob = await person("bob");
     await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
     await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "same keys");
-    expect(warned(bob, "other keys for sending")).toBe(false);
+    expect(warned(bob, "different sending keys")).toBe(false);
     // As if the server had shown bob keys of his own.
     const keys = sessionOf(bob).heldTokenKeys();
     for (const period of Object.keys(keys)) keys[period] = { small: toBase64(wasm.randomBytes(32)), large: toBase64(wasm.randomBytes(32)) };
     sessionOf(bob).setKv("token_keys", keys);
     await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "other keys");
-    expect(warned(bob, "other keys for sending")).toBe(true);
+    expect(warned(bob, "different sending keys")).toBe(true);
   });
 });
 
