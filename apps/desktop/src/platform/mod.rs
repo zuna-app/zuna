@@ -23,6 +23,7 @@ mod unix;
 pub use self::unix::single;
 
 pub mod notification;
+pub mod sandbox;
 // Named over each system's own `updates`, which it calls.
 pub mod updates;
 

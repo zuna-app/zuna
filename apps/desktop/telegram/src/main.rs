@@ -9,6 +9,8 @@
 
 mod door;
 mod frame;
+#[cfg(feature = "probe")]
+mod probe;
 mod td;
 
 use std::io::{BufReader, BufWriter};
@@ -53,6 +55,13 @@ fn errors_only() -> u8 {
 const REFUSED: &[&str] = &["addProxy", "editProxy", "enableProxy", "disableProxy", "removeProxy", "setTdlibParameters", "setLogStream", "testProxy", "testNetwork", "pingProxy"];
 
 fn main() {
+    #[cfg(feature = "probe")]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.first().map(String::as_str) == Some("--probe") {
+            return probe::run(&args[1..]);
+        }
+    }
     let (out, outgoing) = channel::<Outgoing>();
     let writer = std::thread::Builder::new().name("pipe-out".into()).spawn(move || write_out(outgoing)).expect("a thread");
 

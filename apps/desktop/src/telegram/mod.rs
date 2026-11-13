@@ -14,7 +14,7 @@ mod functions;
 
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use crate::platform::sandbox::Process as Child;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -77,8 +77,10 @@ pub fn credentials() -> Option<Credentials> {
 }
 
 /// Whether this build can link a Telegram account at all.
+/// Only where the engine has its box (platform/sandbox.rs), which is Windows so far: elsewhere it
+/// would run unconfined, so there's no Telegram there yet.
 pub fn available() -> bool {
-    credentials().is_some() && engine_path().is_some_and(|path| path.is_file())
+    cfg!(windows) && credentials().is_some() && engine_path().is_some_and(|path| path.is_file())
 }
 
 fn engine_path() -> Option<PathBuf> {
@@ -105,6 +107,7 @@ fn database_key(data_dir: &Path, device_key: &[u8]) -> Result<Vec<u8>, String> {
 pub fn erase(data_dir: &Path) {
     std::fs::remove_dir_all(folder(data_dir)).ok();
     std::fs::remove_file(key_file(data_dir)).ok();
+    crate::platform::sandbox::forget(&folder(data_dir));
 }
 
 /// How many requests the core may make, as a bucket that fills at `RATE` a second up to `BURST`:
@@ -186,25 +189,9 @@ impl Engine {
         let directory = folder(&self.data_dir);
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
-        let mut command = Command::new(&path);
-        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        // Nothing of the app's environment goes with it but what the system needs to start a
-        // program, and no window.
-        command.env_clear();
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            for name in ["SystemRoot", "windir"] {
-                if let Some(value) = std::env::var_os(name) {
-                    command.env(name, value);
-                }
-            }
-            command.creation_flags(0x0800_0000);
-        }
-        let mut child = command.spawn().map_err(|error| format!("Telegram's engine couldn't start: {error}"))?;
-        let stdin = child.stdin.take().ok_or("no pipe to the engine")?;
-        let stdout = child.stdout.take().ok_or("no pipe from the engine")?;
-        let stderr = child.stderr.take().ok_or("no pipe from the engine")?;
+        // In its box (platform/sandbox.rs): its folder, its pipes and nothing else of the person's.
+        let spawned = crate::platform::sandbox::spawn(&path, &[], &directory).map_err(|error| format!("Telegram's engine couldn't start: {error}"))?;
+        let crate::platform::sandbox::Spawned { stdin, stdout, stderr, process: child } = spawned;
 
         state.generation += 1;
         let generation = state.generation;
@@ -331,14 +318,14 @@ impl Engine {
         drop(running.out);
         running.door.close_all(false);
         if !wait_for_exit(&mut running.child, Duration::from_secs(10)) {
-            running.child.kill().ok();
-            running.child.wait().ok();
+            running.child.kill();
+            running.child.wait();
         }
         signed_out
     }
 
     /// Reads what the engine sends, until it goes.
-    fn read_in(&self, generation: u64, stdout: std::process::ChildStdout, door: Door) {
+    fn read_in(&self, generation: u64, stdout: std::fs::File, door: Door) {
         let mut input = BufReader::new(stdout);
         let why = loop {
             match read_frame(&mut input) {
@@ -410,8 +397,8 @@ impl Engine {
             return;
         }
         let Some(mut running) = state.running.take() else { return };
-        running.child.kill().ok();
-        running.child.wait().ok();
+        running.child.kill();
+        running.child.wait();
         if !state.wanted {
             return;
         }
@@ -447,7 +434,7 @@ impl Engine {
                     log::warn!(target: "telegram", "the engine stopped answering, so it's ended");
                     if let Some(running) = state.running.as_mut() {
                         // Its pipe closes as it goes, and `read_in` starts it again.
-                        running.child.kill().ok();
+                        running.child.kill();
                     }
                     return;
                 }
@@ -480,7 +467,7 @@ fn wait_for_exit(child: &mut Child, limit: Duration) -> bool {
     false
 }
 
-fn write_out(stdin: std::process::ChildStdin, outgoing: Receiver<Outgoing>) {
+fn write_out(stdin: std::fs::File, outgoing: Receiver<Outgoing>) {
     let mut pipe = BufWriter::new(stdin);
     while let Ok(message) = outgoing.recv() {
         let written = match message {

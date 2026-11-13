@@ -21,3 +21,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 getrandom = "0.3"
+
+[features]
+# `--probe`: tries what the box must refuse and the one thing it must allow, for the app's test
+# of the box (src/platform/sandbox.rs). No build anyone runs has it.
+probe = []
