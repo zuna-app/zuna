@@ -241,6 +241,7 @@ Rules the core depends on:
 | The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
 | The log of who holds which keys | `docs/KEY_TRANSPARENCY_PLAN.md`, `packages/core/src/transparency.ts`, `// --- Key transparency ---` in `session/directory.ts`, `server/internal/store/log.go`, `server/internal/merkle`, `server/internal/api/log.go` |
 | Plugins in the native app: packages, the host process, the broker, slots, the marketplace | `docs/PLUGINS.md`, `docs/PLUGINS_PLAN.md`, `packages/plugin-sdk`, `apps/desktop/src/plugins` (`host/` is the process, `broker.rs` every request's check), `apps/desktop/src/ui/plugins`, `apps/desktop/src/ui/settings/plugins.rs`, `examples/plugins`, and the `zuna-app/plugins` repository |
+| A linked Telegram account: the engine, its box and door, the broker, the adapter | `docs/TELEGRAM.md`, `docs/TELEGRAM_PLAN.md`, `apps/desktop/telegram` (`zuna-telegram`), `apps/desktop/src/telegram` (the broker and door), `apps/desktop/src/platform/sandbox.rs`, `packages/core/src/telegram` (`TelegramSession`, `map.ts`, `functions.json`), `apps/desktop/src/state/telegram.rs`, `packages/core/test/telegram.test.ts` with its fake engine |
 | What's planned | `docs/ROADMAP.md` |
 
 ## Decisions to keep

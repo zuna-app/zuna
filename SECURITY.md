@@ -15,6 +15,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 - **Your password opens your history.** It never leaves your device, but anyone who learns it can read everything you can.
 - **The emoji check proves who you're talking to.** Until you compare emoji with someone, a malicious server could have given you a fake key for them from the start, though it would have to show that key to their own devices too, or keep two stories, which the first message between you gives away.
 - **A bot reads the chats it's in.** It's a member like any other, run by a program on a machine its owner chose, and it shows a badge wherever its name does.
+- **A linked Telegram account's chats are Telegram's.** They aren't end-to-end encrypted, Telegram keeps them, and no Zuna server sees them or knows they're there.
 - **The installed apps are safer than the web app,** whose code comes from its host on every visit.
 
 ## What the server can and can't see
@@ -124,6 +125,12 @@ The desktop app takes plugins: packages you install to change how it looks and w
 Some things no plugin gets, whatever it asks for: your keys of any kind, your password and recovery key, your devices and who you've verified, the question a new device raises, sound and video themselves, the app's updates, the disk, and other plugins. Each plugin runs in a process of its own that holds none of that, behind a part of the app that checks every request it makes. Who wrote a message is the app's to show, from its signature: a plugin can change how a message looks on your device, under a line saying which plugin did it, but never who it's from.
 
 A verified plugin was read by Zuna's team, built from its source in the open, and signed with a key the app carries, apart from the keys that sign updates. Anything else is installed from a file, only after you turn on a switch in Settings, through a warning that covers the window, and it carries an "Unverified" mark wherever it shows. No link or chat can install a plugin. A device with no plugins never contacts the marketplace. [PLUGINS.md](docs/PLUGINS.md) says how to write one.
+
+### Telegram
+
+The desktop app on Windows can link your own Telegram account ([TELEGRAM.md](docs/TELEGRAM.md)). Those chats aren't end-to-end encrypted: Telegram keeps them on its servers, as it does for its own apps, and each says "Telegram" and that it isn't encrypted. Telegram learns that you use Zuna, the computer's address or your proxy's, that it runs Windows, and when you're online. No Zuna server hears of any of it, not even that an account is linked.
+
+Telegram's own code runs in a program of its own, which Windows boxes in: it reaches none of your files, other programs, the network or anything of Zuna's, only the app, which passes on only the requests Zuna makes and connects it only to Telegram's addresses, through your proxy if you set one. Its data on your computer is encrypted with a key sealed by this device's key. Nothing passes between Telegram's chats and Zuna's, and no plugin reaches Telegram's. Unlinking, or ending Zuna's session from another device, erases everything of the account here. The Linux and Mac apps don't box it in yet, so they don't offer it.
 
 ### Voice, video and calls
 
