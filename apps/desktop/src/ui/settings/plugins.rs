@@ -499,3 +499,171 @@ impl SettingsView {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Settings' Plugins page and a plugin's own section, clicked through: the switch for plugins
+    //! Zuna hasn't checked, asked about as it goes on; a plugin turned off and on, its log, and
+    //! removing it; installing from a file and a folder; the marketplace's listing as an index
+    //! gives it, an update waiting for the person; and each kind of setting a plugin declares.
+
+    use gpui::TestAppContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::plugins::tests_running::{Harness, manifest, package, source};
+    use crate::state::Overlay;
+
+    fn settings(harness: &Harness, cx: &mut TestAppContext) -> Entity<SettingsView> {
+        harness.app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<SettingsView>().ok())).unwrap().expect("Settings are open")
+    }
+
+    /// Opens a section of Settings, with nothing moving, so that what closed doesn't cover it while it goes.
+    fn section(harness: &Harness, cx: &mut TestAppContext, section: &str) {
+        harness.app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.toasts.clear();
+            state.set_overlay(Some(Overlay::Settings { section: Some(section.into()) }), cx);
+        });
+    }
+
+    #[gpui::test]
+    fn plugins_are_turned_on_and_off_installed_and_removed_from_settings(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let harness = Harness::open(cx, "settingsplug", &["messages.read", "network"], |m| m["hosts"] = json!(["api.example.com"]));
+        let (app, uid) = (&harness.app, harness.uid.clone());
+        harness.say(cx, json!({ "t": "log", "level": "error", "text": "Something broke" }));
+        harness.say(cx, json!({ "t": "log", "level": "warn", "text": "Careful" }));
+        section(&harness, cx, "plugins");
+        // Its log, from its row.
+        app.click(cx, &format!("plugin-log-{uid}"));
+        let view = settings(&harness, cx);
+        assert_eq!(cx.read(|cx| view.read(cx).showing_log.clone()), Some(uid.clone()));
+        app.click(cx, &format!("plugin-log-{uid}"));
+        assert_eq!(cx.read(|cx| view.read(cx).showing_log.clone()), None);
+        // Off and on again.
+        app.click(cx, &format!("plugin-on-{uid}"));
+        assert!(!harness.read(cx, |plugins| plugins.loaded[&uid].record.enabled));
+        app.click(cx, &format!("plugin-on-{uid}"));
+        assert!(harness.read(cx, |plugins| plugins.loaded[&uid].record.enabled));
+        // The switch for plugins Zuna hasn't checked: off at once, and on only once it's been explained.
+        app.click(cx, "plugins-unverified");
+        assert!(!harness.read(cx, |plugins| plugins.record.allow_unverified));
+        assert!(!cx.read(|cx| view.read(cx).confirming_unverified), "turning it off asks nothing");
+        app.click(cx, "plugins-unverified");
+        assert!(cx.read(|cx| view.read(cx).confirming_unverified));
+        app.click(cx, "confirm-cancel");
+        assert!(!harness.read(cx, |plugins| plugins.record.allow_unverified));
+        app.click(cx, "plugins-unverified");
+        app.click(cx, "confirm-action");
+        assert!(harness.read(cx, |plugins| plugins.record.allow_unverified));
+
+        // From a file the person picks: asked about first, and a file that's too large is refused.
+        let dir = crate::plugins::tests_running::fresh("settingsplug-files");
+        let file = dir.join("other.zunaplugin");
+        std::fs::write(&file, package(&manifest("otherplug", &[], |_| {}), b"globalThis.__zunaDefine(() => {});")).unwrap();
+        app.click(cx, "plugins-file");
+        cx.simulate_path_prompt_response(|_| Some(vec![file.clone()]));
+        app.run(cx);
+        assert!(matches!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::PluginInstall { .. })));
+        assert_eq!(harness.read(cx, |plugins| plugins.proposal.as_ref().map(|proposal| proposal.name.clone())), Some("Plugin otherplug".into()));
+        section(&harness, cx, "plugins");
+        let large = dir.join("large.zunaplugin");
+        std::fs::write(&large, vec![0u8; crate::plugins::package::MAX_PACKAGE + 1]).unwrap();
+        app.click(cx, "plugins-file");
+        cx.simulate_path_prompt_response(|_| Some(vec![large.clone()]));
+        app.run(cx);
+        assert!(app.toasts(cx).contains(&"A plugin's package is at most 8 MB.".to_string()));
+        // And a developer's folder.
+        let folder = source("folderplug", &[], |_| {});
+        app.click(cx, "plugins-folder");
+        cx.simulate_path_prompt_response(|_| Some(vec![folder.clone()]));
+        app.run(cx);
+        assert!(harness.read(cx, |plugins| plugins.proposal.as_ref().is_some_and(|proposal| proposal.name == "Plugin folderplug")));
+        section(&harness, cx, "plugins");
+
+        // Removed from its row, with everything it kept.
+        app.click(cx, &format!("plugin-remove-{uid}"));
+        assert!(harness.read(cx, |plugins| !plugins.loaded.contains_key(&uid) && plugins.record.find(&uid).is_none()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[gpui::test]
+    fn the_marketplace_lists_what_its_index_says_and_an_update_waits(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let harness = Harness::open(cx, "marketplug", &[], |_| {});
+        let index: crate::plugins::market::Index = serde_json::from_value(json!({
+            "serial": 3,
+            "plugins": [
+                { "id": "translator", "name": "Translator", "summary": "Translates.", "author": "Someone", "source": "https://example.com/src", "versions": [{ "version": "1.0.0", "api": 1, "file": "t.zunaplugin", "size": 1, "sha256": "aa", "permissions": ["messages.read", "network"], "hosts": ["api.example.com"] }] },
+                { "id": "future", "name": "Future", "versions": [{ "version": "1.0.0", "api": 9, "file": "f.zunaplugin", "size": 1, "sha256": "bb", "permissions": [] }] }
+            ]
+        }))
+        .unwrap();
+        harness.plugins.update(cx, |plugins, cx| {
+            cx.notify();
+            plugins.market.index = Some(index.clone());
+            plugins.market.error = Some("The marketplace's index is older than one this device has seen.".into());
+        });
+        section(&harness, cx, "plugins");
+        let view = settings(&harness, cx);
+        view.update(cx, |view, cx| {
+            view.browsing = true;
+            cx.notify();
+        });
+        harness.app.run(cx);
+        assert!(harness.app.drawn(cx, "market-translator") && !harness.app.drawn(cx, "market-future"), "only what runs in this Zuna");
+        let search = cx.read(|cx| view.read(cx).plugin_search.clone());
+        search.update(cx, |input, cx| input.set_text("nothing like it", cx));
+        harness.app.run(cx);
+        assert!(!harness.app.drawn(cx, "market-translator"));
+        search.update(cx, |input, cx| input.set_text("transl", cx));
+        harness.app.run(cx);
+        harness.app.click(cx, "market-translator");
+        assert!(harness.read(cx, |plugins| plugins.proposal.as_ref().is_some_and(|proposal| proposal.verified && proposal.name == "Translator")));
+
+        // An update that asks for more waits on the person's word, from the plugin's row.
+        section(&harness, cx, "plugins");
+        let uid = harness.uid.clone();
+        harness.plugins.update(cx, |plugins, cx| {
+            plugins.market.waiting.insert(uid.clone(), index.plugins[0].versions[0].clone());
+            cx.notify();
+        });
+        harness.app.run(cx);
+        harness.app.click(cx, &format!("plugin-update-{uid}"));
+        assert!(harness.app.toasts(cx).contains(&"No version of it runs in this Zuna.".to_string()), "a folder's plugin isn't the marketplace's to update");
+    }
+
+    #[gpui::test]
+    fn a_plugins_own_section_holds_each_kind_of_setting(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let harness = Harness::open(cx, "sectionplug", &[], |m| {
+            m["contributes"] = json!({ "settings": [
+                { "type": "switch", "key": "loud", "label": "Loud", "hint": "Makes it loud" },
+                { "type": "select", "key": "language", "label": "Language", "choices": ["en", "pl", "de"] },
+                { "type": "text", "key": "name", "label": "Name", "placeholder": "Yours" },
+                { "type": "slider", "key": "level", "label": "Level" }
+            ] });
+        });
+        let (app, uid) = (&harness.app, harness.uid.clone());
+        section(&harness, cx, &format!("plugin:{uid}"));
+        harness.sent(cx);
+        app.click(cx, &format!("plugin-setting-{uid}-loud"));
+        app.click(cx, &format!("plugin-setting-{uid}-language"));
+        app.click(cx, "menu-item-1");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        app.run(cx);
+        let told: Vec<serde_json::Value> = harness.sent(cx).into_iter().filter(|message| message["name"] == "settings").map(|message| message["data"].clone()).collect();
+        assert_eq!(told, vec![json!({ "key": "loud", "value": true }), json!({ "key": "language", "value": "pl" })]);
+        assert_eq!(harness.read(cx, |plugins| plugins.settings_of(&uid).get("language").cloned()), Some(json!("pl")));
+        // Its text, as it's typed.
+        let input = FIELDS.with(|fields| fields.borrow().get(&format!("{uid}|name")).map(|(input, _)| input.clone())).expect("its text field");
+        input.update(cx, |input, cx| input.set_text("Ann", cx));
+        app.run(cx);
+        assert_eq!(harness.read(cx, |plugins| plugins.settings_of(&uid).get("name").cloned()), Some(json!("Ann")));
+        // It's listed among Settings' sections while it's on.
+        assert!(cx.read(|cx| SettingsView::plugin_sections(cx)).iter().any(|(listed, _, _)| *listed == uid));
+        harness.plugins.update(cx, |plugins, cx| plugins.set_enabled(&uid, false, cx));
+        assert!(cx.read(|cx| SettingsView::plugin_sections(cx)).is_empty());
+    }
+}
