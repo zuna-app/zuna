@@ -178,8 +178,8 @@ jobs:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'desktop') }}
     runs-on: windows-latest
     # Building everything takes about 12 minutes on a runner with nothing cached, and TDLib
-    # a quarter of an hour more when it isn't saved.
-    timeout-minutes: 90
+    # about 40 more when it isn't saved.
+    timeout-minutes: 120
     env:
       # Windows Server has no Opus decoder, which Windows 10 and 11 get with their
       # Web Media Extensions, so the tests don't decode the fixtures' sound here.
@@ -200,14 +200,21 @@ jobs:
             ~/.cargo/registry
           key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-cargo-
-      # TDLib, which the Telegram engine links, built from its pinned source in a quarter of an
-      # hour (scripts/tdlib.mjs). What's saved here on main is what release.yml's windows job takes.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib, which the Telegram engine links, built from its pinned source in about 40 minutes
+      # on a runner (scripts/tdlib.mjs). What's saved here on main is what release.yml's windows
+      # job takes. It's saved as soon as it's built, so a later step that fails doesn't lose it.
+      - id: tdlib
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: apps/desktop/.deps/tdlib
           key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm ci
       - run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run dist:windows
       - run: node scripts/windows-app.mjs test --release
       # The engine's own tests, which the app's leave out as it isn't one of the workspace's default members.
