@@ -194,3 +194,80 @@ impl SettingsView {
         parts
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Security, clicked through: another device removed, the password changed once the new
+    //! one is strong and confirmed, and a new recovery key made and copied.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World, refused};
+
+    fn open(cx: &mut TestAppContext, name: &str) -> (Running, Entity<SettingsView>) {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.answer("revokeDevice", |_| Ok(Value::Null));
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::Settings { section: Some("security".into()) }), cx);
+        });
+        let view = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<SettingsView>().ok())).unwrap().expect("Settings are open");
+        (app, view)
+    }
+
+    #[gpui::test]
+    fn devices_the_password_and_the_recovery_key(cx: &mut TestAppContext) {
+        let (app, view) = open(cx, "security-settings");
+        assert!(!app.drawn(cx, "revoke-d-1"), "not this one");
+        app.click(cx, "revoke-d-2");
+        assert_eq!(app.calls_of("revokeDevice"), vec![vec![json!("d-2")]]);
+
+        // The password, changed only once the new one is strong and typed twice.
+        let (current, next, confirm) = cx.read(|cx| (view.read(cx).current.clone(), view.read(cx).next.clone(), view.read(cx).confirm.clone()));
+        let fill = |cx: &mut TestAppContext, values: [&str; 3]| {
+            for (input, value) in [&current, &next, &confirm].into_iter().zip(values) {
+                input.update(cx, |input, cx| input.set_text(value, cx));
+            }
+            // The tests' core rates nothing, so the rating the real one would give is set by hand.
+            app.run(cx);
+            view.update(cx, |view, cx| {
+                view.strength = (3, "Strong".into());
+                cx.notify();
+            });
+            app.run(cx);
+        };
+        app.answer("changePassword", |args| if args[0] == "wrong" { Err(refused("That isn't your password.")) } else { Ok(Value::Null) });
+        fill(cx, ["old one", "a much longer new one", "a much longer"]);
+        app.click(cx, "change-password");
+        assert!(app.calls_of("changePassword").is_empty(), "not while they differ");
+        fill(cx, ["wrong", "a much longer new one", "a much longer new one"]);
+        app.click(cx, "change-password");
+        assert!(app.toasts(cx).contains(&"That isn't your password.".to_string()));
+        fill(cx, ["old one", "a much longer new one", "a much longer new one"]);
+        app.click(cx, "change-password");
+        assert_eq!(app.calls_of("changePassword").last().unwrap(), &vec![json!("old one"), json!("a much longer new one")]);
+        assert!(app.toasts(cx).contains(&"Password changed".to_string()));
+        assert_eq!(cx.read(|cx| next.read(cx).text().to_string()), "", "and the fields emptied");
+
+        // A new recovery key, shown once and copied.
+        app.answer("regenerateRecoveryKey", |args| if args[0] == "wrong" { Err(refused("That isn't your password.")) } else { Ok(json!("AAAA-BBBB-CCCC-DDDD-EEEE")) });
+        let password = cx.read(|cx| view.read(cx).recovery_password.clone());
+        password.update(cx, |input, cx| input.set_text("wrong", cx));
+        app.run(cx);
+        app.click(cx, "new-recovery-key");
+        assert!(cx.read(|cx| view.read(cx).recovery_key.is_none()));
+        password.update(cx, |input, cx| input.set_text("old one", cx));
+        app.run(cx);
+        app.click(cx, "new-recovery-key");
+        assert_eq!(cx.read(|cx| view.read(cx).recovery_key.clone()).as_deref(), Some("AAAA-BBBB-CCCC-DDDD-EEEE"));
+        app.click(cx, "copy-new-key");
+        assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("AAAA-BBBB-CCCC-DDDD-EEEE"));
+    }
+}

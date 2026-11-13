@@ -132,7 +132,7 @@ impl World {
         server.insert("loadPins".into(), json!([message("m13", DM, 13.0, ME, "Pinned", json!({ "pinnedAt": NOW }))]));
         server.insert("loadMedia".into(), json!({ "messages": [messages(DM)[3].clone(), messages(DM)[4].clone()], "hasMore": false }));
         server.insert("mediaCounts".into(), json!({ "photo": 1, "video": 1, "file": 1, "audio": 1, "link": 1, "voice": 1 }));
-        server.insert("getDevices".into(), json!([{ "id": "d-1", "name": "This computer", "createdAt": NOW - 86_400_000.0, "current": true }, { "id": "d-2", "name": "Phone", "createdAt": NOW - 3_600_000.0 }]));
+        server.insert("getDevices".into(), json!([{ "id": "d-1", "name": "This computer", "createdAt": NOW - 86_400_000.0, "isCurrent": true }, { "id": "d-2", "name": "Phone", "createdAt": NOW - 3_600_000.0 }]));
         server.insert(
             "exportServerData".into(),
             json!({ "json": "{}", "fileName": "zuna-server-1.example-me-2026-11-12.json", "sections": [
