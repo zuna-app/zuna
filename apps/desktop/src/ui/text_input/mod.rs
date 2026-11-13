@@ -4,6 +4,8 @@
 
 mod actions;
 mod element;
+#[cfg(test)]
+mod tests;
 
 use element::TextElement;
 
