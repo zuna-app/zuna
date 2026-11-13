@@ -154,3 +154,54 @@ fn messages_are_forwarded_to_another_chat(cx: &mut TestAppContext) {
     assert_eq!(app.calls_of("forwardMessages").last().unwrap(), &vec![json!(SERVER), json!(DM), json!(["m01", "m05"]), json!(SERVER), json!(format!("user:{CAROL}"))]);
     assert_eq!(app.read(cx, |state| (state.overlay.clone(), state.servers[SERVER].active_key.clone())), (None, Some(format!("user:{CAROL}"))));
 }
+
+#[gpui::test]
+fn leaving_a_server_watching_youtube_and_joining_on_this_device(cx: &mut TestAppContext) {
+    // Leaving the server signs this device out of it and forgets it here.
+    let app = open(cx, "dialog-leave", Overlay::LeaveServer);
+    app.answer("leaveServer", |_| Ok(Value::Null));
+    app.click(cx, "leave");
+    assert_eq!(app.calls_of("leaveServer"), vec![vec![json!(SERVER)]]);
+    assert!(app.read(cx, |state| !state.servers.contains_key(SERVER)));
+
+    // A click beside a dialog puts it away, and so does Escape.
+    let app = open(cx, "dialog-beside", Overlay::LeaveServer);
+    let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_click(gpui::point(gpui::px(4.), gpui::px(600.)), gpui::Modifiers::none());
+    app.run(cx);
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    app.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx));
+    let view = dialog(&app, cx);
+    app.window.update(cx, |_, window, cx| view.read(cx).focus.clone().focus(window, cx)).unwrap();
+    gpui::VisualTestContext::from_window(app.window.into(), cx).simulate_keystrokes("escape");
+    app.run(cx);
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
+
+    // YouTube, asked about first: then a link to put on, which waits for a voice channel.
+    let app = open(cx, "dialog-youtube", Overlay::WatchConsent { then_link: true });
+    app.click(cx, "watch-agree");
+    assert!(app.read(cx, |state| state.settings.play_youtube));
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::WatchLink));
+    name(&app, cx, "https://youtu.be/dQw4w9WgXcQ");
+    let view = dialog(&app, cx);
+    let input = cx.read(|cx| view.read(cx).name.clone());
+    input.update(cx, |_, cx| cx.emit(InputEvent::Submit));
+    app.run(cx);
+    assert_eq!(cx.read(|cx| view.read(cx).link_error.clone()), Some("Join the voice channel to watch together.".into()));
+    input.update(cx, |_, cx| cx.emit(InputEvent::Escape));
+    app.run(cx);
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
+    let app = open(cx, "dialog-youtube-watch", Overlay::WatchConsent { then_link: false });
+    app.click(cx, "watch-agree");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None, "the video in the room plays");
+
+    // Another device of theirs is in a room: wherever that is, said in words, and cancelled.
+    for from in [LOUNGE, GENERAL, "c-news", DM, GROUP, "g-unknown"] {
+        let moving = crate::voice::VoiceMove { server_id: SERVER.into(), channel_id: if from == DM { DM.into() } else { LOUNGE.into() }, return_to: None, how: Default::default(), from: from.into() };
+        let app = open(cx, &format!("dialog-move-{from}"), Overlay::MoveVoice(moving));
+        assert!(app.drawn(cx, "move-voice"), "{from}");
+        app.click(cx, "cancel");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
+    }
+}
