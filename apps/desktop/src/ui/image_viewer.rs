@@ -381,8 +381,7 @@ impl Render for ImageViewer {
         let (index, count) = (self.index, self.items.len());
         // The pictures either side, as the web's arrows.
         let nav = |id: &'static str, name: &'static str, step: isize, cx: &mut Context<Self>| {
-            div()
-                .id(id)
+            named_div(id)
                 .absolute()
                 .top(gpui::relative(0.5))
                 .mt(px(-20.))
@@ -472,8 +471,7 @@ impl Render for ImageViewer {
             }))
             .when_some(image.filter(|_| fitted_width > 0.), |el, image| {
                 el.child(
-                    div()
-                        .id("image-viewer-picture")
+                    named_div("image-viewer-picture")
                         .absolute()
                         .left(px(left))
                         .top(px(top))
@@ -530,8 +528,7 @@ impl Render for ImageViewer {
                         }
                     })))
                     .child(
-                        div()
-                            .id("image-zoom")
+                        named_div("image-zoom")
                             .min_w(px(50.))
                             .h(px(30.))
                             .px(px(6.))
@@ -564,8 +561,7 @@ impl Render for ImageViewer {
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         // `.icon-btn.image-close`: on bg-3, and bg-4 under the pointer.
-                        div()
-                            .id("close-image")
+                        named_div("close-image")
                             .size(px(32.))
                             .flex()
                             .items_center()
@@ -588,7 +584,11 @@ impl Render for ImageViewer {
 
 #[cfg(test)]
 mod tests {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext};
+    use serde_json::json;
+
     use super::*;
+    use crate::testing::{App as Running, World, refused};
 
     fn picture(file_id: &str) -> Attachment {
         Attachment { file_id: file_id.into(), name: format!("{file_id}.png"), mime: "image/png".into(), width: Some(400.), height: Some(300.), ..Default::default() }
@@ -610,5 +610,159 @@ mod tests {
         let alone = Gallery::among("server", &messages, &picture("d"), image, &[]);
         assert_eq!(alone.items.iter().map(Item::file_id).collect::<Vec<_>>(), ["d"]);
         assert_eq!(alone.index, 0);
+    }
+
+    /// A picture of this size, as a PNG.
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(width, height, image::Rgba([200, 30, 30, 255])).write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    }
+
+    fn viewer<T>(handle: WindowHandle<ImageViewer>, cx: &mut TestAppContext, read: impl FnOnce(&ImageViewer) -> T) -> T {
+        handle.update(cx, |viewer, _, _| read(viewer)).expect("the viewer is open")
+    }
+
+    /// Where an element of the viewer's was drawn.
+    fn bounds_of(handle: WindowHandle<ImageViewer>, cx: &mut TestAppContext, selector: &'static str) -> Bounds<Pixels> {
+        VisualTestContext::from_window(handle.into(), cx).debug_bounds(selector).unwrap_or_else(|| panic!("{selector} is drawn"))
+    }
+
+    fn click(handle: WindowHandle<ImageViewer>, cx: &mut TestAppContext, selector: &'static str) {
+        let at = bounds_of(handle, cx, selector).center();
+        VisualTestContext::from_window(handle.into(), cx).simulate_click(at, Modifiers::none());
+    }
+
+    fn event(handle: WindowHandle<ImageViewer>, cx: &mut TestAppContext, event: impl gpui::InputEvent) {
+        VisualTestContext::from_window(handle.into(), cx).simulate_event(event);
+    }
+
+    fn wheel(position: gpui::Point<Pixels>, delta: ScrollDelta, control: bool) -> ScrollEvent {
+        ScrollEvent { position, delta, modifiers: Modifiers { control, ..Modifiers::none() }, touch_phase: gpui::TouchPhase::Moved, source: gpui::ScrollSource::Pointer }
+    }
+
+    #[gpui::test]
+    fn the_viewer_zooms_pans_goes_between_pictures_saves_and_closes(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("image-viewer"));
+        let second = png(300, 200);
+        app.answer("downloadFile", move |args| match args[0]["fileId"].as_str() {
+            Some("b") => Ok(json!({ "$bytes": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &second) })),
+            _ => Err(refused("It's gone from the server.")),
+        });
+        let first = png(800, 600);
+        let gallery = || Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("a")), Item::of(&picture("b")), Item::of(&picture("c"))], 0, Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(800, 600))));
+        app.window.update(cx, |_, window, cx| open(gallery(), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert_eq!(viewer(handle, cx, |viewer| (viewer.index, viewer.natural.map(|(_, width, height)| (width, height)))), (0, Some((800., 600.))));
+        assert!(app.calls_of("downloadFile").iter().any(|call| call[0]["fileId"] == "b"), "the one after is fetched before it's shown");
+        let scale = |cx: &mut TestAppContext| viewer(handle, cx, |viewer| viewer.view.scale);
+
+        // The keys and the buttons zoom, and the percentage fits it again.
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("=");
+        assert_eq!(scale(cx), 1.5);
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("-");
+        assert_eq!(scale(cx), 1.);
+        click(handle, cx, "zoom-in");
+        click(handle, cx, "zoom-in");
+        assert_eq!(scale(cx), 2.25);
+        click(handle, cx, "zoom-out");
+        assert_eq!(scale(cx), 1.5);
+        click(handle, cx, "image-zoom");
+        assert_eq!(scale(cx), 1.);
+        click(handle, cx, "zoom-out");
+        assert_eq!(scale(cx), 1., "no smaller than fitted");
+        for _ in 0..8 {
+            VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("=");
+        }
+        assert_eq!(scale(cx), MAX_ZOOM, "nor bigger than its limit");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("0");
+        assert_eq!(scale(cx), 1.);
+
+        // A mouse wheel's notch zooms towards the pointer, a touchpad pans, and a pinch zooms smoothly.
+        let middle = bounds_of(handle, cx, "image-viewer-picture").center();
+        event(handle, cx, wheel(middle, ScrollDelta::Lines(gpui::point(0., 1.)), false));
+        assert_eq!(scale(cx), 1.25);
+        event(handle, cx, wheel(middle, ScrollDelta::Lines(gpui::point(0., -1.)), false));
+        assert_eq!(scale(cx), 1.);
+        // Bigger than the screen, a touchpad pans it.
+        for _ in 0..4 {
+            VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("=");
+        }
+        let before = viewer(handle, cx, |viewer| viewer.view);
+        event(handle, cx, wheel(middle, ScrollDelta::Pixels(gpui::point(px(0.), px(20.))), false));
+        let after = viewer(handle, cx, |viewer| viewer.view);
+        assert!(after.scale == before.scale && (after.y - before.y - 20.).abs() < 0.5, "a touchpad pans it");
+        event(handle, cx, wheel(middle, ScrollDelta::Pixels(gpui::point(px(0.), px(-30.))), true));
+        assert!(scale(cx) < before.scale, "a pinch in");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("0");
+
+        // Two clicks show it at its own size or twice as big; two more fit it again.
+        let double = |cx: &mut TestAppContext| {
+            let at = bounds_of(handle, cx, "image-viewer-picture").center();
+            event(handle, cx, MouseDownEvent { position: at, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: 2, first_mouse: false });
+            event(handle, cx, MouseUpEvent { position: at, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: 2 });
+        };
+        double(cx);
+        assert_eq!(scale(cx), viewer(handle, cx, |viewer| viewer.closer_scale()));
+        assert!(scale(cx) >= 2.);
+        // Bigger than the screen, it's dragged around, and kept from leaving it.
+        let at = bounds_of(handle, cx, "image-viewer-picture").center();
+        event(handle, cx, MouseDownEvent { position: at, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: 1, first_mouse: false });
+        assert!(viewer(handle, cx, |viewer| viewer.drag.is_some()));
+        event(handle, cx, MouseMoveEvent { position: at + gpui::point(px(300.), px(300.)), modifiers: Modifiers::none(), pressed_button: Some(MouseButton::Left) });
+        let dragged = viewer(handle, cx, |viewer| viewer.view);
+        let (fitted_width, fitted_height) = viewer(handle, cx, |viewer| viewer.fitted());
+        let viewport = viewer(handle, cx, |viewer| viewer.viewport);
+        let spare = |fitted: f32, room: Pixels| ((fitted * dragged.scale - f32::from(room)) / 2.).max(0.);
+        assert_eq!((dragged.x, dragged.y), (spare(fitted_width, viewport.width), spare(fitted_height, viewport.height)), "as far as its edges reach past the screen, and no further");
+        assert!(dragged.x + dragged.y > 0.);
+        event(handle, cx, MouseUpEvent { position: at, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: 1 });
+        assert!(viewer(handle, cx, |viewer| viewer.drag.is_none()));
+        double(cx);
+        assert_eq!(scale(cx), 1.);
+
+        // Saved where the person says.
+        let dir = std::env::temp_dir().join(format!("zuna-viewer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("a.png");
+        click(handle, cx, "save-image");
+        cx.simulate_new_path_selection(|_| Some(target.clone()));
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&target).unwrap(), first);
+        std::fs::remove_dir_all(&dir).ok();
+
+        // The arrows go between the pictures: one fetched already, and one that can't be.
+        click(handle, cx, "image-after");
+        app.run(cx);
+        assert_eq!(viewer(handle, cx, |viewer| (viewer.index, viewer.image.is_some(), viewer.natural.map(|(_, width, _)| width))), (1, true, Some(300.)));
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("right");
+        app.run(cx);
+        assert_eq!(viewer(handle, cx, |viewer| (viewer.index, viewer.image.is_some(), viewer.failed)), (2, false, true), "This picture couldn't be loaded.");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("right");
+        assert_eq!(viewer(handle, cx, |viewer| viewer.index), 2, "no further than the last");
+        click(handle, cx, "image-before");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("left");
+        assert_eq!(viewer(handle, cx, |viewer| viewer.index), 0);
+
+        // Another picture opens in the same window.
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("z"))], 5, Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(10, 10)))), window, cx)).unwrap();
+        app.run(cx);
+        assert_eq!(cx.update(|cx| cx.global::<Open>().0), handle);
+        assert_eq!(viewer(handle, cx, |viewer| (viewer.index, viewer.items.len())), (0, 1), "a gallery's index is kept inside it");
+        // Escape closes it, and so does a click beside the picture.
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        app.window.update(cx, |_, window, cx| open(gallery(), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        VisualTestContext::from_window(handle.into(), cx).simulate_click(gpui::point(px(3.), px(300.)), Modifiers::none());
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        app.window.update(cx, |_, window, cx| open(gallery(), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        click(handle, cx, "close-image");
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
     }
 }
