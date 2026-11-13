@@ -402,8 +402,7 @@ impl Render for ServerScreenRules {
             let active = rules.who == id;
             let me = me.clone();
             who = who.child(
-                div()
-                    .id(SharedString::from(format!("who-{id}")))
+                named_div(SharedString::from(format!("who-{id}")))
                     .px(px(11.))
                     .py(px(4.))
                     .rounded(RADIUS_S)
@@ -449,5 +448,131 @@ impl Render for ServerScreenRules {
         let busy = self.busy;
         parts.push(div().flex().child(button("save-screen-rules", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { spinner(15., theme.on_accent).into_any_element() } else { div().child("Save changes").into_any_element() }).when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.save(cx))))).into_any_element());
         div().flex().flex_col().gap(px(14.)).children(parts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A server's soundboard and its rules for sharing screens, in its settings: a sound added
+    //! from a file, renamed and deleted after asking; and who may share, with sound or not,
+    //! how many, at what quality, saved.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World, refused};
+
+    fn open(cx: &mut TestAppContext, name: &str, section: &str) -> Running {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        for method in ["addSound", "updateSound", "deleteSound", "updateServerSettings"] {
+            app.answer(method, |_| Ok(Value::Null));
+        }
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::ServerSettings { section: Some(section.into()) }), cx);
+        });
+        app
+    }
+
+    fn soundboard(app: &Running, cx: &mut TestAppContext) -> gpui::Entity<super::ServerSoundboard> {
+        let settings = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<crate::ui::server_settings::ServerSettings>().ok())).unwrap().expect("the server's settings are open");
+        cx.read(|cx| settings.read(cx).soundboard()).expect("on its soundboard")
+    }
+
+    /// A short tone, as a WAV file.
+    fn tone() -> Vec<u8> {
+        let rate = 8000u32;
+        let samples: Vec<i16> = (0..rate / 5).map(|n| ((n as f32 * 0.3).sin() * 8000.) as i16).collect();
+        let mut out = Vec::new();
+        for part in [&b"RIFF"[..], &(36 + samples.len() as u32 * 2).to_le_bytes(), b"WAVEfmt ", &16u32.to_le_bytes(), &1u16.to_le_bytes(), &1u16.to_le_bytes(), &rate.to_le_bytes(), &(rate * 2).to_le_bytes(), &2u16.to_le_bytes(), &16u16.to_le_bytes(), b"data", &(samples.len() as u32 * 2).to_le_bytes()] {
+            out.extend_from_slice(part);
+        }
+        for sample in samples {
+            out.extend_from_slice(&sample.to_le_bytes());
+        }
+        out
+    }
+
+    #[gpui::test]
+    fn a_sound_is_added_renamed_and_deleted(cx: &mut TestAppContext) {
+        let app = open(cx, "soundboard-settings", "soundboard");
+        // From a file the person picks, named after it unless they name it.
+        let dir = std::env::temp_dir().join(format!("zuna-soundboard-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Air horn.wav");
+        std::fs::write(&file, tone()).unwrap();
+        app.click(cx, "choose-sound");
+        cx.simulate_path_prompt_response(|_| Some(vec![file.clone()]));
+        app.run(cx);
+        let view = soundboard(&app, cx);
+        assert_eq!(cx.read(|cx| view.read(cx).name.read(cx).text().to_string()), "Air horn");
+        let emoji = cx.read(|cx| view.read(cx).emoji.clone());
+        emoji.update(cx, |input, cx| input.set_text("📯", cx));
+        app.run(cx);
+        app.click(cx, "add-sound");
+        app.settle(cx, |_| !app_calls_empty(&app, "addSound"));
+        let added = &app.calls_of("addSound")[0];
+        assert_eq!((added[1].clone(), added[2].clone()), (json!("Air horn"), json!("📯")));
+        assert!(app.toasts(cx).contains(&"Added Air horn".to_string()));
+        // A file that isn't a sound says so.
+        let broken = dir.join("not a sound.wav");
+        std::fs::write(&broken, b"RIFF nothing").unwrap();
+        app.click(cx, "choose-sound");
+        cx.simulate_path_prompt_response(|_| Some(vec![broken.clone()]));
+        app.run(cx);
+        app.click(cx, "add-sound");
+        app.run(cx);
+        assert!(app.toasts(cx).contains(&"That file isn't a sound Zuna can read.".to_string()));
+
+        // Renamed in its row.
+        app.click(cx, "rename-s1");
+        let (emoji, name) = cx.read(|cx| view.read(cx).editing.clone().map(|(_, emoji, name)| (emoji, name))).expect("its fields");
+        assert_eq!(cx.read(|cx| name.read(cx).text().to_string()), "Boom");
+        name.update(cx, |input, cx| input.set_text("Big boom", cx));
+        emoji.update(cx, |input, cx| input.set_text("🧨", cx));
+        app.run(cx);
+        app.click(cx, "save-s1");
+        assert_eq!(app.calls_of("updateSound"), vec![vec![json!("s1"), json!({ "name": "Big boom", "emoji": "🧨" })]]);
+        app.click(cx, "rename-s1");
+        app.click(cx, "cancel-s1");
+        assert!(cx.read(|cx| view.read(cx).editing.is_none()));
+        // Deleted after asking.
+        app.click(cx, "remove-s1");
+        app.click(cx, "keep-s1");
+        assert!(app.calls_of("deleteSound").is_empty());
+        app.click(cx, "remove-s1");
+        app.click(cx, "delete-s1");
+        assert_eq!(app.calls_of("deleteSound"), vec![vec![json!("s1")]]);
+        app.answer("updateSound", |_| Err(refused("Not yours.")));
+        app.click(cx, "rename-s1");
+        app.click(cx, "save-s1");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn app_calls_empty(app: &Running, method: &str) -> bool {
+        app.calls_of(method).is_empty()
+    }
+
+    #[gpui::test]
+    fn the_rules_for_sharing_screens_are_saved_together(cx: &mut TestAppContext) {
+        let app = open(cx, "screen-rules", "screen");
+        app.click(cx, "who-admins");
+        app.click(cx, "rules-sound");
+        app.click(cx, "rules-exempt");
+        for (select, entry) in [("max-height", 1), ("max-fps", 1), ("max-kbps", 1)] {
+            app.click(cx, select);
+            let label = cx.read(|cx| crate::ui::menu::open_labels(cx))[entry].clone();
+            assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose(&label, window, cx)).unwrap());
+            app.run(cx);
+        }
+        app.click(cx, "save-screen-rules");
+        let saved = &app.calls_of("updateServerSettings")[0][0]["screen_share"];
+        assert_eq!((saved["who"].clone(), saved["sound"].clone()), (json!("admins"), json!(false)));
+        assert!(saved["max_height"].as_u64().unwrap() > 0 && saved["max_fps"].as_u64().unwrap() > 0 && saved["max_kbps"].as_u64().unwrap() > 0, "{saved}");
     }
 }

@@ -188,6 +188,14 @@ impl ServerSettings {
 
 }
 
+#[cfg(test)]
+impl ServerSettings {
+    /// The soundboard's page, once it's been opened, for tests outside the settings' own.
+    pub fn soundboard(&self) -> Option<Entity<super::server_voice::ServerSoundboard>> {
+        self.soundboard.clone()
+    }
+}
+
 impl Render for ServerSettings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
