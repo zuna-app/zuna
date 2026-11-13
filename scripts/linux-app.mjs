@@ -5,9 +5,12 @@
 //   node scripts/linux-app.mjs run [--release] [-- app args]   build and start it
 //   node scripts/linux-app.mjs build                            a release build in dist/linux, with
 //                                                               the screen share's encoder and FFmpeg in lib,
-//                                                               and zuna-watch beside it
+//                                                               and zuna-watch beside it, and zuna-telegram
+//                                                               where the app's api_id is given (scripts/tdlib.mjs)
 //   node scripts/linux-app.mjs dist                             that, as a .deb, an .rpm, a pacman
 //                                                               package, an AppImage and a .tar.gz
+//   node scripts/linux-app.mjs probe                            the Telegram engine's box tried from
+//                                                               inside (platform/sandbox.rs), with TDLib
 //
 // Its data is in ~/.local/share/zuna, or ZUNA_DATA_DIR.
 
@@ -18,10 +21,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
+import { ensureTdlib, telegramCredentials } from "./tdlib.mjs";
 import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 import { labelOf } from "./release.mjs";
 
-const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist"]);
+const { command, flags, appArgs } = parseAppArgs("linux", ["run", "build", "dist", "probe"]);
 const release = command === "build" || command === "dist" || flags.includes("--release");
 
 const crate = join(root, "apps", "desktop");
@@ -34,6 +38,18 @@ bundleCore();
 await ensureFfmpeg(nativeAppDeps);
 // LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
 await ensureWebrtcSys(nativeAppDeps);
+// Telegram, with the app's api_id where it's given (scripts/tdlib.mjs): TDLib built, the engine
+// built beside the app, and both values built into the app. Without them there's no Telegram.
+const telegram = telegramCredentials();
+if (telegram || command === "probe") await ensureTdlib(nativeAppDeps);
+
+if (command === "probe") {
+  // The engine built with --probe, which tries from inside what its box must refuse, started in
+  // its box by the app's own test of it.
+  const engine = buildTelegram(false, true);
+  run("cargo", ["test", "-p", "zuna-windows", "--bin", "zuna", "--", "platform::sandbox", "--nocapture"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_TELEGRAM_PROBE: engine } });
+  process.exit(0);
+}
 
 const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 // A build started here keeps its data in .dev-data, as on Windows and macOS, apart from an installed
@@ -45,19 +61,45 @@ const released = { version, channel: stamp.ZUNA_CHANNEL, build: stamp.ZUNA_BUILD
 // The window a video watched together plays in (apps/desktop/watch), which the app finds beside
 // itself, and which isn't a default member of its workspace, so that `cargo run` stays the app's.
 run("cargo", ["build", ...(release ? ["--release"] : []), "-p", "zuna-watch"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...stamp } });
-run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp } });
+if (telegram) buildTelegram(release, false);
+run("cargo", cargo, { cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ...stamp, ...telegram } });
 
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
   mkdirSync(dist, { recursive: true });
   copyFileSync(join(target, "release", "zuna"), join(dist, "zuna"));
   copyFileSync(join(target, "release", "zuna-watch"), join(dist, "zuna-watch"));
+  rmSync(join(dist, "zuna-telegram"), { force: true });
+  if (telegram) copyFileSync(join(target, "release", "zuna-telegram"), join(dist, "zuna-telegram"));
   // The screen share's encoder and FFmpeg's libraries, which the build gathered and the program
   // finds at $ORIGIN/lib.
   rmSync(join(dist, "lib"), { recursive: true, force: true });
   cpSync(join(target, "release", "lib"), join(dist, "lib"), { recursive: true });
-  console.log(`> wrote ${join(dist, "zuna")} and zuna-watch, with its libraries in ${join(dist, "lib")}`);
+  console.log(`> wrote ${join(dist, "zuna")} and zuna-watch${telegram ? " and zuna-telegram" : ""}, with its libraries in ${join(dist, "lib")}`);
   if (command === "dist") await packages(dist);
+}
+
+/**
+ * The Telegram engine (apps/desktop/telegram), linked whole, C library and all, so that its box
+ * lets it read no file of the system's (platform/sandbox.rs), and put where the app looks for it,
+ * beside itself. Built for the target by name, so that crt-static reaches the engine and not the
+ * build's own scripts and macros. `probe` adds `--probe`, for the box's test.
+ */
+function buildTelegram(release, probe) {
+  const triple = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`;
+  const profile = release ? "release" : "debug";
+  // The probe in a folder of its own, as cargo puts both builds at one path and needn't put the
+  // engine back after.
+  const into = probe ? join(target, "probe") : target;
+  run("cargo", ["build", ...(release ? ["--release"] : []), "-p", "zuna-telegram", "--target", triple, ...(probe ? ["--features", "probe"] : [])], {
+    cwd: crate,
+    env: { ...env, CARGO_TARGET_DIR: into, RUSTFLAGS: "-C target-feature=+crt-static" },
+  });
+  const built = join(into, triple, profile, "zuna-telegram");
+  if (probe) return built;
+  mkdirSync(join(target, profile), { recursive: true });
+  copyFileSync(built, join(target, profile, "zuna-telegram"));
+  return built;
 }
 
 /** The .deb, .rpm and pacman package, the AppImage and the .tar.gz, from the build in `dist`. */
@@ -96,6 +138,7 @@ async function packages(dist) {
   const contents = [
     { src: join(dist, "zuna"), dst: "/usr/lib/zuna/zuna", file_info: { mode: 0o755 } },
     { src: join(dist, "zuna-watch"), dst: "/usr/lib/zuna/zuna-watch", file_info: { mode: 0o755 } },
+    ...(existsSync(join(dist, "zuna-telegram")) ? [{ src: join(dist, "zuna-telegram"), dst: "/usr/lib/zuna/zuna-telegram", file_info: { mode: 0o755 } }] : []),
     { src: join(dist, "lib"), dst: "/usr/lib/zuna/lib", type: "tree" },
     { src: "/usr/lib/zuna/zuna", dst: "/usr/bin/zuna", type: "symlink" },
     { src: desktop, dst: "/usr/share/applications/zuna.desktop", file_info: { mode: 0o644 } },
@@ -185,6 +228,7 @@ async function packages(dist) {
   mkdirSync(join(appDir, "usr", "lib", "zuna"), { recursive: true });
   copyFileSync(join(dist, "zuna"), join(appDir, "usr", "lib", "zuna", "zuna"));
   copyFileSync(join(dist, "zuna-watch"), join(appDir, "usr", "lib", "zuna", "zuna-watch"));
+  if (existsSync(join(dist, "zuna-telegram"))) copyFileSync(join(dist, "zuna-telegram"), join(appDir, "usr", "lib", "zuna", "zuna-telegram"));
   cpSync(join(dist, "lib"), join(appDir, "usr", "lib", "zuna", "lib"), { recursive: true });
   symlinkSync("usr/lib/zuna/zuna", join(appDir, "AppRun"));
   // The runtime's own .desktop file and icon, for tools that look; the app writes its own as it starts.
@@ -206,6 +250,7 @@ async function packages(dist) {
   mkdirSync(staged);
   copyFileSync(join(dist, "zuna"), join(staged, "zuna"));
   copyFileSync(join(dist, "zuna-watch"), join(staged, "zuna-watch"));
+  if (existsSync(join(dist, "zuna-telegram"))) copyFileSync(join(dist, "zuna-telegram"), join(staged, "zuna-telegram"));
   cpSync(join(dist, "lib"), join(staged, "lib"), { recursive: true });
   run("tar", ["-czf", join(out, `Zuna-${label}-x86_64.tar.gz`), "-C", dist, folder]);
   rmSync(staged, { recursive: true, force: true });

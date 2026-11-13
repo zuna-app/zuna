@@ -84,10 +84,10 @@ pub fn credentials() -> Option<Credentials> {
 static TEST_ENGINE: Mutex<Option<(PathBuf, Credentials)>> = Mutex::new(None);
 
 /// Whether this build can link a Telegram account at all.
-/// Only where the engine has its box (platform/sandbox.rs), which is Windows so far: elsewhere it
-/// would run unconfined, so there's no Telegram there yet.
+/// Only where the engine has its box (platform/sandbox.rs), which is Windows and Linux so far:
+/// elsewhere it would run unconfined, so there's no Telegram there yet.
 pub fn available() -> bool {
-    cfg!(windows) && credentials().is_some() && engine_path().is_some_and(|path| path.is_file())
+    credentials().is_some() && engine_path().is_some_and(|path| path.is_file()) && crate::platform::sandbox::supported()
 }
 
 fn engine_path() -> Option<PathBuf> {
@@ -206,7 +206,12 @@ impl Engine {
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
         // In its box (platform/sandbox.rs): its folder, its pipes and nothing else of the person's.
-        let spawned = crate::platform::sandbox::spawn(&path, &[], &directory).map_err(|error| format!("Telegram's engine couldn't start: {error}"))?;
+        // The tests' stand-in for it is a program of the system's, which no box would let start.
+        #[cfg(all(test, unix))]
+        let spawned = crate::platform::sandbox::spawn_unboxed(&path, &[], &directory);
+        #[cfg(not(all(test, unix)))]
+        let spawned = crate::platform::sandbox::spawn(&path, &[], &directory);
+        let spawned = spawned.map_err(|error| format!("Telegram's engine couldn't start: {error}"))?;
         let crate::platform::sandbox::Spawned { stdin, stdout, stderr, process: child } = spawned;
 
         state.generation += 1;

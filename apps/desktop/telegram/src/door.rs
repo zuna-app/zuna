@@ -50,14 +50,44 @@ pub struct Door {
 
 fn random_text() -> String {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).expect("the system's random numbers");
+    random(&mut bytes).expect("the system's random numbers");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The system's random numbers. On Linux the call itself: the crate looks for glibc's function by
+/// name, which a program linked whole can't find, and then reads /dev/urandom, which the box
+/// keeps it from.
+#[cfg(target_os = "linux")]
+pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
+    let mut filled = 0;
+    while filled < bytes.len() {
+        let got = unsafe { libc::getrandom(bytes[filled..].as_mut_ptr().cast(), bytes.len() - filled, 0) };
+        if got < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+            continue;
+        }
+        filled += got as usize;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
+    getrandom::fill(bytes).map_err(|error| std::io::Error::other(error.to_string()))
+}
+
 impl Door {
-    /// Opens the proxy on a port of the system's choosing, and starts taking TDLib's connections.
-    pub fn open(out: Sender<Outgoing>) -> std::io::Result<Door> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    /// The door's port, of the system's choosing, on this process's own loopback: bound before the
+    /// engine closes its box, which leaves it no other (`lockdown.rs`).
+    pub fn bind() -> std::io::Result<TcpListener> {
+        TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+    }
+
+    /// Starts taking TDLib's connections on the door's port.
+    pub fn open(listener: TcpListener, out: Sender<Outgoing>) -> std::io::Result<Door> {
         let door = Door {
             port: listener.local_addr()?.port(),
             username: random_text(),

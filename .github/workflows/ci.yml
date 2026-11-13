@@ -260,7 +260,7 @@ jobs:
     if: ${{ contains(inputs.jobs, 'linux') }}
     runs-on: ubuntu-latest
     container: debian:12
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CC: clang-21
       CXX: clang++-21
@@ -279,6 +279,22 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+      # TDLib, built from its pinned source and saved on main for release.yml's linux job, as the
+      # desktop job saves Windows'.
+      - id: tdlib
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm ci
+      - run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run dist:linux
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
       - run: ls -l dist/linux/packages

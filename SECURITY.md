@@ -128,9 +128,9 @@ A verified plugin was read by Zuna's team, built from its source in the open, an
 
 ### Telegram
 
-The desktop app on Windows can link your own Telegram account ([TELEGRAM.md](docs/TELEGRAM.md)). Those chats aren't end-to-end encrypted: Telegram keeps them on its servers, as it does for its own apps, and each says "Telegram" and that it isn't encrypted. Telegram learns that you use Zuna, the computer's address or your proxy's, that it runs Windows, and when you're online. No Zuna server hears of any of it, not even that an account is linked.
+The desktop app on Windows and Linux can link your own Telegram account ([TELEGRAM.md](docs/TELEGRAM.md)). Those chats aren't end-to-end encrypted: Telegram keeps them on its servers, as it does for its own apps, and each says "Telegram" and that it isn't encrypted. Telegram learns that you use Zuna, the computer's address or your proxy's, whether it runs Windows or Linux, and when you're online. No Zuna server hears of any of it, not even that an account is linked.
 
-Telegram's own code runs in a program of its own, which Windows boxes in: it reaches none of your files, other programs, the network or anything of Zuna's, only the app, which passes on only the requests Zuna makes and connects it only to Telegram's addresses, through your proxy if you set one. Its data on your computer is encrypted with a key sealed by this device's key. Nothing passes between Telegram's chats and Zuna's, and no plugin reaches Telegram's. Unlinking, or ending Zuna's session from another device, erases everything of the account here. The Linux and Mac apps don't box it in yet, so they don't offer it.
+Telegram's own code runs in a program of its own, which the system boxes in: it reaches none of your files, other programs, the network or anything of Zuna's, only the app, which passes on only the requests Zuna makes and connects it only to Telegram's addresses, through your proxy if you set one. Its data on your computer is encrypted with a key sealed by this device's key. Nothing passes between Telegram's chats and Zuna's, and no plugin reaches Telegram's. Unlinking, or ending Zuna's session from another device, erases everything of the account here. The Mac app doesn't box it in yet, so it doesn't offer it.
 
 ### Voice, video and calls
 

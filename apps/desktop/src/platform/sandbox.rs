@@ -5,8 +5,19 @@
 //! On Windows that's an AppContainer of its own with no capabilities, which the system keeps from
 //! the network, the person's files, the keychain and other processes, given its folder alone, and
 //! started with only its three pipes inherited, unable to start a program, and in a job object
-//! that ends it with the app. Linux and macOS have no box yet (step 3's Known gap), so the app
-//! offers no Telegram there (`telegram::available`), and `plain` is only for building.
+//! that ends it with the app.
+//!
+//! On Linux it's made of what the kernel gives any program, in two halves. The app's, between
+//! fork and exec (`linux_box`): namespaces of its own for a user, the network and System V IPC, so
+//! that the only network it sees is its own loopback, where the door is, and it sees none of other
+//! programs' shared memory or abstract sockets; Landlock, which lets it open its folder and its own
+//! program and nothing else, and from kernel 6.12 keeps its signals and abstract sockets inside;
+//! no new privileges, no core dump, a limit on its memory, nothing the app has open but its
+//! three pipes, and an end when the app's comes, as Windows' job object gives it. The engine's, before it runs a line of TDLib's (`telegram/src/lockdown.rs`):
+//! seccomp, and Landlock again for TCP, which holds it to the door's port where a distribution
+//! keeps namespaces from programs. Its program is linked whole, so it needs no file of the
+//! system's. macOS has no box yet, so the app offers no Telegram there (`telegram::available`),
+//! and `plain` is only for building and the broker's tests.
 
 use std::fs::File;
 use std::path::Path;
@@ -23,11 +34,31 @@ pub struct Spawned {
 pub use windows_box::{Process, forget, spawn};
 
 #[cfg(not(windows))]
-pub use plain::{Process, spawn};
+pub use plain::Process;
+#[cfg(target_os = "linux")]
+pub use linux_box::{spawn, supported};
+#[cfg(all(unix, not(target_os = "linux")))]
+pub use plain::spawn;
+
+/// Whether this system can box the engine at all.
+#[cfg(windows)]
+pub fn supported() -> bool {
+    true
+}
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn supported() -> bool {
+    false
+}
 
 /// Forgets the box made for a folder, as the account it held is erased.
 #[cfg(not(windows))]
 pub fn forget(_folder: &Path) {}
+
+/// Starts the engine without a box, as the broker's tests do with a stand-in for it.
+#[cfg(all(test, unix))]
+pub fn spawn_unboxed(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
+    plain::spawned(plain::command(program, args, folder).spawn()?)
+}
 
 #[cfg(not(windows))]
 mod plain {
@@ -49,13 +80,180 @@ mod plain {
         }
     }
 
-    /// Not boxed yet on this system: started with nothing of the app's environment.
-    pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
-        let mut child = Command::new(program).args(args).current_dir(folder).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    /// The engine's command: in its folder, with its three pipes and nothing of the app's environment.
+    pub fn command(program: &Path, args: &[&str], folder: &Path) -> Command {
+        let mut command = Command::new(program);
+        command.args(args).current_dir(folder).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        command
+    }
+
+    pub fn spawned(mut child: Child) -> std::io::Result<Spawned> {
         let stdin = File::from(OwnedFd::from(child.stdin.take().ok_or_else(|| std::io::Error::other("no pipe"))?));
         let stdout = File::from(OwnedFd::from(child.stdout.take().ok_or_else(|| std::io::Error::other("no pipe"))?));
         let stderr = File::from(OwnedFd::from(child.stderr.take().ok_or_else(|| std::io::Error::other("no pipe"))?));
         Ok(Spawned { stdin, stdout, stderr, process: Process(child) })
+    }
+
+    /// Not boxed on this system.
+    #[cfg(not(target_os = "linux"))]
+    pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
+        spawned(command(program, args, folder).spawn()?)
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[path = "../../telegram/src/confine.rs"]
+mod confine;
+
+#[cfg(target_os = "linux")]
+mod linux_box {
+    use super::*;
+    use std::io::{Error, Result};
+    use std::os::fd::RawFd;
+    use std::os::unix::process::CommandExt;
+    use std::sync::OnceLock;
+
+    use super::confine;
+
+    /// A user, a network and System V IPC of its own.
+    const NAMESPACES: libc::c_int = libc::CLONE_NEWUSER | libc::CLONE_NEWNET | libc::CLONE_NEWIPC;
+    /// The most memory the engine may write to, past which it gets none, as Windows' job holds it.
+    const MEMORY_LIMIT: libc::rlim_t = 4 << 30;
+
+    /// Brings up the loopback of a network namespace just made, which starts down, and where the
+    /// door is. Only plain system calls, as it runs between fork and exec.
+    fn loopback_up() -> bool {
+        unsafe {
+            let socket = libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0);
+            if socket < 0 {
+                return false;
+            }
+            let mut request: libc::ifreq = std::mem::zeroed();
+            request.ifr_name[0] = b'l' as libc::c_char;
+            request.ifr_name[1] = b'o' as libc::c_char;
+            let mut up = libc::ioctl(socket, libc::SIOCGIFFLAGS, &mut request) == 0;
+            if up {
+                request.ifr_ifru.ifru_flags |= libc::IFF_UP as libc::c_short;
+                up = libc::ioctl(socket, libc::SIOCSIFFLAGS, &request) == 0;
+            }
+            libc::close(socket);
+            up
+        }
+    }
+
+    /// Whether a program may have namespaces of its own here, as most distributions let it and
+    /// some don't, tried once in a child that does nothing else.
+    fn namespaces_work() -> bool {
+        static WORKS: OnceLock<bool> = OnceLock::new();
+        *WORKS.get_or_init(|| unsafe {
+            match libc::fork() {
+                0 => libc::_exit(if libc::unshare(NAMESPACES) == 0 && loopback_up() { 0 } else { 1 }),
+                -1 => false,
+                child => {
+                    let mut status = 0;
+                    libc::waitpid(child, &mut status, 0) == child && libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0
+                }
+            }
+        })
+    }
+
+    /// Whether the engine can be boxed here: Landlock for its files, and for its network either a
+    /// namespace of its own or, from kernel 6.7, Landlock for TCP.
+    pub fn supported() -> bool {
+        let abi = confine::abi();
+        abi >= 4 || (abi >= 1 && namespaces_work())
+    }
+
+    /// Starts `program` in its box, able to read and write `folder` and nothing else of the person's.
+    pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> Result<Spawned> {
+        let abi = confine::abi();
+        if abi == 0 {
+            return Err(Error::other("this system has no Landlock, which the engine's box is made of"));
+        }
+        let namespaces = namespaces_work();
+        if !namespaces && abi < 4 {
+            return Err(Error::other("this system lets a program have no network of its own, and is too old to hold one to a port"));
+        }
+        if !namespaces {
+            log::info!(target: "telegram", "no namespaces for the engine here, so Landlock alone holds it to its port");
+        }
+        // Made here, as nothing may be allocated in the child.
+        let ruleset = confine::Ruleset::new(confine::files(abi), 0, confine::scopes(abi))?;
+        ruleset.allow_path(program, confine::READ_FILE | confine::EXECUTE)?;
+        ruleset.allow_path(folder, confine::files(abi))?;
+        let rules = ruleset.raw();
+        let app = std::process::id() as libc::pid_t;
+        let mut command = plain::command(program, args, folder);
+        unsafe { command.pre_exec(move || enter(rules, namespaces, app)) };
+        let child = on_spawner(move || command.spawn())?;
+        drop(ruleset);
+        plain::spawned(child)
+    }
+
+    /// Runs `work` on one thread that lasts as long as the app, which starts every engine: the
+    /// signal that ends the engine with the app is sent when the thread that started it goes,
+    /// and the broker starts one again from threads that end.
+    fn on_spawner<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        type Work = Box<dyn FnOnce() + Send>;
+        static SPAWNER: OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<Work>>> = OnceLock::new();
+        let spawner = SPAWNER.get_or_init(|| {
+            let (sender, works) = std::sync::mpsc::channel::<Work>();
+            std::thread::Builder::new()
+                .name("telegram-spawner".into())
+                .spawn(move || {
+                    for work in works {
+                        work();
+                    }
+                })
+                .expect("a thread");
+            std::sync::Mutex::new(sender)
+        });
+        let (done, result) = std::sync::mpsc::sync_channel(1);
+        let work: Work = Box::new(move || {
+            done.send(work()).ok();
+        });
+        spawner.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).send(work).expect("the spawner runs");
+        result.recv().expect("the spawner answers")
+    }
+
+    /// In the engine's process, between fork and exec: only plain system calls, and an error
+    /// made from a number, as nothing may be allocated here.
+    fn enter(rules: RawFd, namespaces: bool, app: libc::pid_t) -> Result<()> {
+        unsafe {
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(Error::last_os_error());
+            }
+            if namespaces {
+                if libc::unshare(NAMESPACES) != 0 {
+                    return Err(Error::last_os_error());
+                }
+                if !loopback_up() {
+                    return Err(Error::from_raw_os_error(libc::ENETDOWN));
+                }
+            }
+            // Ended with the app, as Windows' job ends it, so that a copy left running never
+            // holds TDLib's database from the next: set after the namespaces, whose new
+            // credentials would clear it, and with the app checked for after, if it went before.
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
+                return Err(Error::last_os_error());
+            }
+            if libc::getppid() != app {
+                return Err(Error::from_raw_os_error(libc::ESRCH));
+            }
+            // No core dump, which would hold the session's keys, and a limit on its memory.
+            let none = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            let memory = libc::rlimit { rlim_cur: MEMORY_LIMIT, rlim_max: MEMORY_LIMIT };
+            if libc::setrlimit(libc::RLIMIT_CORE, &none) != 0 || libc::setrlimit(libc::RLIMIT_DATA, &memory) != 0 {
+                return Err(Error::last_os_error());
+            }
+            confine::restrict(rules)?;
+            // Whatever else the app has open, as a library's socket left open across exec would
+            // be, stays with the app: the engine keeps its three pipes alone.
+            if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, libc::CLOSE_RANGE_CLOEXEC) != 0 {
+                return Err(Error::last_os_error());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -336,7 +534,7 @@ mod windows_box {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 mod tests {
     use super::*;
 
@@ -354,6 +552,14 @@ mod tests {
         let secret = base.join("device-key.sealed");
         std::fs::write(&secret, b"secret").unwrap();
         let elsewhere = dirs::home_dir().unwrap();
+        // A program's local socket outside the box, as the session's bus is.
+        #[cfg(target_os = "linux")]
+        let socket = base.join("bus");
+        #[cfg(target_os = "linux")]
+        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        #[cfg(target_os = "linux")]
+        let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap(), socket.to_str().unwrap()];
+        #[cfg(windows)]
         let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap()];
         let mut spawned = spawn(Path::new(&engine), &args, &own).expect("the engine starts in its box");
         drop(spawned.stdin);
@@ -367,11 +573,23 @@ mod tests {
         eprintln!("the probe said: {}", out.trim());
         let found: serde_json::Value = serde_json::from_str(out.trim()).unwrap_or_else(|_| panic!("the probe said {out:?}, exited {code:?}, and wrote {errors:?}"));
         let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
-        for key in ["ownFolder", "loopback"] {
+        for key in ["ownFolder", "moveFile", "loopback", "random"] {
             assert!(said(key).starts_with("allowed"), "{key} is {}", said(key));
         }
         for key in ["readSecret", "listElsewhere", "connectOut", "telegramDirect", "resolve", "startProgram"] {
             assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            for key in ["udp", "localSocket", "signal", "ptrace", "namespace", "fork"] {
+                assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
+            }
+            // Another port of its own is harmless in a network of its own, and refused by
+            // Landlock where it has none, from kernel 6.7.
+            if confine::abi() >= 4 {
+                assert!(said("bindOther").starts_with("denied"), "bindOther is {}", said("bindOther"));
+            }
+            assert_eq!(found["dumpable"], 0, "it can't be dumped or attached to");
         }
     }
 }

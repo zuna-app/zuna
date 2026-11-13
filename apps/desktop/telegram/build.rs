@@ -37,6 +37,11 @@ fn main() {
                 println!("cargo:rustc-link-lib=framework=CoreFoundation");
                 println!("cargo:rustc-link-lib=framework=Security");
             }
+            // Linked whole on Linux, C library and all (scripts/linux-app.mjs builds it with
+            // crt-static), so that its box lets it read no file of the system's at all.
+            _ if std::env::var("CARGO_CFG_TARGET_FEATURE").is_ok_and(|features| features.split(',').any(|feature| feature == "crt-static")) => {
+                println!("cargo:rustc-link-lib=static=stdc++");
+            }
             _ => {
                 println!("cargo:rustc-link-lib=dylib=stdc++");
                 println!("cargo:rustc-link-lib=dylib=dl");

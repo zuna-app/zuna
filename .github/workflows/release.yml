@@ -126,7 +126,8 @@ jobs:
     if: ${{ needs.plan.outputs.desktop == 'true' }}
     runs-on: ubuntu-latest
     container: debian:12
-    timeout-minutes: 60
+    # TDLib takes a while more when ci.yml's linux job hasn't saved it.
+    timeout-minutes: 90
     env:
       ZUNA_BUILD: ${{ needs.plan.outputs.build }}
       ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
@@ -147,8 +148,18 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+      # TDLib as ci.yml's linux job built it on main, or built here from source if it's not there.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm ci
+      # With the app's api_id the Telegram engine is built and goes in every package, as the
+      # windows job's comment says.
       - run: npm run dist:linux
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux

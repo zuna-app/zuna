@@ -1,11 +1,11 @@
 # Telegram in Zuna
 
-The desktop app on Windows can link your own Telegram account, with its people and groups under an icon of their own in the rail beside your servers. Zuna signs in as another of your devices, using Telegram's API. Zuna isn't made by Telegram, and no Zuna server hears that an account is linked. The Linux and Mac apps and the iPhone app don't have it yet, and the web app never will: a page can't keep Telegram's code apart from the rest of it. [TELEGRAM_PLAN.md](TELEGRAM_PLAN.md) has the design.
+The desktop app on Windows and Linux can link your own Telegram account, with its people and groups under an icon of their own in the rail beside your servers. Zuna signs in as another of your devices, using Telegram's API. Zuna isn't made by Telegram, and no Zuna server hears that an account is linked. The Mac app and the iPhone app don't have it yet, and the web app never will: a page can't keep Telegram's code apart from the rest of it. [TELEGRAM_PLAN.md](TELEGRAM_PLAN.md) has the design.
 
 ## Before you link one
 
 - **These chats aren't end-to-end encrypted.** Telegram keeps them on its servers, as it does for its own apps. Each chat says "Telegram" in its header and that it isn't encrypted, so it's never taken for one of Zuna's.
-- **Telegram learns** that you use Zuna, this computer's address, or your proxy's if you set one, that it runs Windows, and when you're online. Not the computer's model or the system's version.
+- **Telegram learns** that you use Zuna, this computer's address, or your proxy's if you set one, whether it runs Windows or Linux, and when you're online. Not the computer's model or the system's version.
 - **Telegram watches accounts that use other apps,** and sometimes limits one by mistake. Link an account you've had for a while.
 - **Channels, calls and secret chats stay in Telegram's own app.** Zuna doesn't list them.
 
@@ -39,4 +39,4 @@ The menu under Telegram's name at the top of its list, or Settings, Connections,
 
 ## How it's kept apart
 
-Telegram's own code, TDLib, runs in a program of its own, `zuna-telegram`, which Windows keeps in a box: it can't reach your files, other programs or the network, only the app, through one pipe. The app passes on only the requests Zuna makes, at a limited rate, and opens connections for it only to Telegram's own addresses, through your proxy if you set one. Its database is encrypted with a key sealed with this device's key, so a copy of the disk holds no session. [SECURITY.md](../SECURITY.md) says what that covers, and [SECURITY_DETAILS.md](SECURITY_DETAILS.md) how.
+Telegram's own code, TDLib, runs in a program of its own, `zuna-telegram`, which the system keeps in a box, an AppContainer on Windows and on Linux a network of its own with Landlock and seccomp: it can't reach your files, other programs or the network, only the app, through one pipe. The app passes on only the requests Zuna makes, at a limited rate, and opens connections for it only to Telegram's own addresses, through your proxy if you set one. Its database is encrypted with a key sealed with this device's key, so a copy of the disk holds no session. [SECURITY.md](../SECURITY.md) says what that covers, and [SECURITY_DETAILS.md](SECURITY_DETAILS.md) how.

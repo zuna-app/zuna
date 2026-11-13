@@ -9,6 +9,8 @@
 
 mod door;
 mod frame;
+#[cfg(target_os = "linux")]
+mod lockdown;
 #[cfg(feature = "probe")]
 mod probe;
 mod td;
@@ -55,11 +57,19 @@ fn errors_only() -> u8 {
 const REFUSED: &[&str] = &["addProxy", "editProxy", "enableProxy", "disableProxy", "removeProxy", "setTdlibParameters", "setLogStream", "testProxy", "testNetwork", "pingProxy"];
 
 fn main() {
+    // The door's port first, then the box closed behind it, on the one thread there is, before
+    // anything is read or TDLib does a thing (`lockdown.rs`).
+    let listener = Door::bind().unwrap_or_else(|error| fail(&format!("the door couldn't open: {error}")));
+    let port = listener.local_addr().map(|address| address.port()).unwrap_or_else(|error| fail(&format!("the door has no port: {error}")));
+    #[cfg(target_os = "linux")]
+    if let Err(error) = lockdown::lock(port) {
+        fail(&format!("the box couldn't be closed: {error}"));
+    }
     #[cfg(feature = "probe")]
     {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if args.first().map(String::as_str) == Some("--probe") {
-            return probe::run(&args[1..]);
+            return probe::run(&args[1..], listener);
         }
     }
     let (out, outgoing) = channel::<Outgoing>();
@@ -80,7 +90,8 @@ fn main() {
     // TDLib writes its log to standard error, which the app reads, at errors alone unless asked.
     td::execute(&json!({ "@type": "setLogVerbosityLevel", "new_verbosity_level": start.verbosity.min(5) }).to_string());
 
-    let door = Door::open(out.clone()).unwrap_or_else(|error| fail(&format!("the door couldn't open: {error}")));
+    let door = Door::open(listener, out.clone()).unwrap_or_else(|error| fail(&format!("the door couldn't open: {error}")));
+    debug_assert_eq!(door.port, port);
     let client = td::Client::new();
     // The way out first: a proxy added before the parameters takes effect as TDLib starts, before
     // it first connects (Td::init_options_and_network). TDLib keeps it, and a second start adds
