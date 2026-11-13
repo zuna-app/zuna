@@ -13,6 +13,11 @@ export interface TelegramAdapter {
    * everything of the account's on this device is erased: `zunaStopped` says how it went.
    */
   stop(signOut: boolean): void;
+  /**
+   * A file the engine wrote in its own folder, by the path TDLib gives, as the host's files are
+   * handed to the interface. The host checks it's inside that folder before anything reads it.
+   */
+  file(path: string, mime: string): Blob;
 }
 
 /** A TDLib object: its kind in `@type`, and its fields. */

@@ -602,6 +602,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
                 false,
                 move |pick, _, cx| {
                     let args = match pick {
+                        super::picker::Pick::Sticker(_) => return,
                         super::picker::Pick::Emoji(value) => vec![json!(group_id), json!(id), json!(value)],
                         super::picker::Pick::Emote(emote) => vec![json!(group_id), json!(id), json!(emote.name), emote.to_ref()],
                     };

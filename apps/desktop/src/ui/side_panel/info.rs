@@ -57,12 +57,16 @@ impl SidePanel {
                 Self::row("pin-row", if conversation.pinned { "pin-off" } else { "pin" }, if conversation.pinned { "Unpin from top" } else { "Pin to top" }.into(), None, false, cx)
                     .on_click(toggle("pinned", server.prefs.pinned.clone(), conversation.key.clone(), self.state.clone())),
             )
-            .when(!telegram, |el| {
-                el.child(
-                    Self::row("hide-row", if conversation.hidden { "eye" } else { "eye-off" }, if conversation.hidden { "Show in list" } else { "Hide from list" }.into(), None, false, cx)
-                        .on_click(toggle("hidden", server.prefs.hidden.clone(), conversation.key.clone(), self.state.clone())),
-                )
-            });
+            // On Telegram, hiding a chat archives it there, and its Saved messages can't be.
+            .when(!(telegram && conversation.peer_id.as_deref() == Some(server.self_id())), |section| section.child({
+                let label = match (telegram, conversation.hidden) {
+                    (true, true) => "Unarchive",
+                    (true, false) => "Archive",
+                    (false, true) => "Show in list",
+                    (false, false) => "Hide from list",
+                };
+                Self::row("hide-row", if conversation.hidden { "eye" } else { "eye-off" }, label.into(), None, false, cx).on_click(toggle("hidden", server.prefs.hidden.clone(), conversation.key.clone(), self.state.clone()))
+            }));
         section.into_any_element()
     }
 
@@ -108,7 +112,8 @@ impl SidePanel {
                 card = card.child(div().mt(px(8.)).text_size(px(13.5)).text_color(theme.text2).child(conversation.description.clone()));
             }
         } else if let Some(peer) = &peer {
-            if !peer.deleted {
+            // Someone on Telegram may have no username.
+            if !peer.deleted && !peer.username.is_empty() {
                 card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
             }
             if let (Some(bot), false) = (&peer.bot, peer.deleted) {
@@ -236,7 +241,7 @@ impl SidePanel {
                                 .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(if member.no_keys == Some(true) {
                                     "No device in this chat yet".to_string()
                                 } else {
-                                    format!("@{}", user.as_ref().map(|u| u.username.clone()).unwrap_or_default())
+                                    user.as_ref().filter(|u| !u.username.is_empty()).map(|u| format!("@{}", u.username)).unwrap_or_default()
                                 })),
                         )
                         .when(member.role == "admin", |el| el.child(icon("crown", 13., theme.text3)))
@@ -246,10 +251,8 @@ impl SidePanel {
             parts.push(members.into_any_element());
         }
 
-        if !telegram {
-            if let Some(rows) = self.media_rows(server, conversation, cx) {
-                parts.push(rows);
-            }
+        if let Some(rows) = self.media_rows(server, conversation, cx) {
+            parts.push(rows);
         }
         parts.push(self.disappearing_row(conversation, !telegram, cx));
 

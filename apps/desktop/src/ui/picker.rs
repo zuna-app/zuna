@@ -1,5 +1,6 @@
 //! Emoji and the server's emotes, in a panel above what opened it
-//! (packages/ui/src/features/chat/EmotePicker.tsx).
+//! (packages/ui/src/features/chat/EmotePicker.tsx), or on the linked Telegram account, emoji and
+//! the account's own stickers.
 
 use std::rc::Rc;
 
@@ -27,6 +28,35 @@ const EMOTE_ROW: f32 = 53.;
 pub enum Pick {
     Emoji(String),
     Emote(Emote),
+    /// One of the Telegram account's stickers, which goes as a message of its own.
+    Sticker(Sticker),
+}
+
+/// A sticker of the account's, as the Telegram session lists them (`getStickers`).
+#[derive(Clone, serde::Deserialize)]
+pub struct Sticker {
+    pub file: u32,
+    pub picture: String,
+    pub emoji: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// One of the account's sticker sets.
+#[derive(Clone, serde::Deserialize)]
+struct StickerSet {
+    id: String,
+    title: String,
+    cover: Option<String>,
+}
+
+/// The Telegram account's stickers while the picker is open on it.
+#[derive(Clone, Default)]
+struct Stickers {
+    sets: Vec<StickerSet>,
+    chosen: Option<String>,
+    shown: Vec<Sticker>,
+    loading: bool,
 }
 
 #[derive(Clone)]
@@ -51,6 +81,8 @@ pub struct PickerLayer {
     closing: Option<(Open, std::time::Instant)>,
     opened: u64,
     emotes_tab: bool,
+    /// On the Telegram account: its stickers, which take the place of a server's emotes.
+    stickers: Option<Stickers>,
     search: Entity<TextInput>,
     /// The line under the grid that names what's hovered: a view of its own, so that moving
     /// over hundreds of cells draws it again and not the grid.
@@ -128,7 +160,7 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
             _ => cx.notify(),
         })];
         let footer = cx.new(|_| PickerFooter { hovered: None });
-        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, search, footer, _subscriptions: subscriptions }
+        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, stickers: None, search, footer, _subscriptions: subscriptions }
     });
     cx.set_global(PickerGlobal(layer.clone()));
     layer
@@ -142,7 +174,13 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
     }
     let layer = picker_layer(window, cx);
     let has_emotes = store(cx).read(cx).active().is_some_and(|server| !server.emotes.emotes.is_empty());
+    // Stickers only for the message box, never a reaction.
+    let telegram = stays_for_emoji && store(cx).read(cx).active().is_some_and(|server| server.entry.is_telegram());
     layer.update(cx, |layer, cx| {
+        layer.stickers = telegram.then(|| Stickers { loading: true, ..Default::default() });
+        if telegram {
+            layer.load_sticker_sets(cx);
+        }
         layer.opened += 1;
         layer.closing = None;
         layer.open = Some(Open { id: layer.opened, position, on_pick: Rc::new(on_pick), stays_for_emoji });
@@ -152,6 +190,119 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
         layer.search.focus_handle(cx).focus(window, cx);
         cx.notify();
     });
+}
+
+impl PickerLayer {
+    /// The account's sticker sets, and the first one's stickers.
+    fn load_sticker_sets(&mut self, cx: &mut Context<Self>) {
+        let call = store(cx).read(cx).core.call(Some(crate::telegram::SERVER_ID), "getStickerSets", vec![]);
+        cx.spawn(async move |layer, cx| {
+            let sets: Vec<StickerSet> = call.await.ok().and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
+            layer
+                .update(cx, |layer, cx| {
+                    let first = sets.first().map(|set| set.id.clone());
+                    if let Some(stickers) = layer.stickers.as_mut() {
+                        stickers.sets = sets;
+                        stickers.loading = false;
+                    }
+                    if let Some(first) = first {
+                        layer.choose_sticker_set(first, cx);
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    fn choose_sticker_set(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(stickers) = self.stickers.as_mut() else { return };
+        stickers.chosen = Some(id.clone());
+        stickers.loading = true;
+        let call = store(cx).read(cx).core.call(Some(crate::telegram::SERVER_ID), "getStickers", vec![serde_json::json!(id)]);
+        cx.spawn(async move |layer, cx| {
+            let shown: Vec<Sticker> = call.await.ok().and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
+            layer
+                .update(cx, |layer, cx| {
+                    if let Some(stickers) = layer.stickers.as_mut().filter(|stickers| stickers.chosen.as_deref() == Some(id.as_str())) {
+                        stickers.shown = shown;
+                        stickers.loading = false;
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// A Telegram sticker's picture, downloaded through the engine as any of its files.
+    fn sticker_picture(file_id: &str, cx: &mut Context<Self>) -> Option<std::sync::Arc<gpui::Image>> {
+        let reference = crate::models::AvatarRef { file_id: file_id.to_string(), key: String::new(), prefix: String::new(), chunks: 0., mime: "image/webp".into() };
+        store(cx).update(cx, |state, cx| state.decrypted_picture(crate::telegram::SERVER_ID, &reference, cx))
+    }
+
+    /// The account's sets along the top, and the chosen one's stickers below.
+    fn sticker_grid(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let Some(stickers) = self.stickers.clone() else { return Vec::new() };
+        if stickers.sets.is_empty() {
+            let message = if stickers.loading { "Loading your stickers…" } else { "You have no stickers. Add some in Telegram's app." };
+            return vec![div().p(px(16.)).text_center().text_size(px(13.)).text_color(theme.text2).child(message).into_any_element()];
+        }
+        let mut sets = div().flex().flex_wrap().gap(px(4.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(theme.line);
+        for set in &stickers.sets {
+            let chosen = stickers.chosen.as_deref() == Some(set.id.as_str());
+            let picture = set.cover.as_deref().and_then(|cover| Self::sticker_picture(cover, cx));
+            let id = set.id.clone();
+            sets = sets.child(
+                div()
+                    .id(SharedString::from(format!("sticker-set-{}", set.id)))
+                    .size(px(36.))
+                    .rounded(RADIUS_S)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .tip(set.title.clone(), super::components::Side::Top)
+                    .when(chosen, |el| el.bg(theme.bg4))
+                    .when(!chosen, |el| el.hover(move |style| style.bg(theme.hover)))
+                    .on_click(cx.listener(move |layer, _, _, cx| layer.choose_sticker_set(id.clone(), cx)))
+                    .map(|el| match picture {
+                        Some(image) => el.child(img(image).size(px(28.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("sticker-cover-{}", set.id)))),
+                        None => el.child(div().text_size(px(11.)).text_color(theme.text3).child(set.title.chars().next().unwrap_or('?').to_string())),
+                    }),
+            );
+        }
+        let mut grid = div().flex().flex_wrap().gap(px(4.));
+        for sticker in stickers.shown {
+            let picture = Self::sticker_picture(&sticker.picture, cx);
+            let picked = sticker.clone();
+            grid = grid.child(
+                div()
+                    .id(SharedString::from(format!("sticker-{}", sticker.file)))
+                    .size(px(74.))
+                    .rounded(RADIUS_M)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(theme.hover))
+                    .on_click(cx.listener(move |layer, _, window, cx| {
+                        if let Some(open) = layer.open.clone() {
+                            layer.close();
+                            (open.on_pick)(Pick::Sticker(picked.clone()), window, cx);
+                        }
+                        cx.notify();
+                    }))
+                    .map(|el| match picture {
+                        Some(image) => el.child(img(image).size(px(64.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("sticker-picture-{}", sticker.file)))),
+                        None => el.child(div().text_size(px(24.)).child(sticker.emoji.clone())),
+                    }),
+            );
+        }
+        vec![sets.into_any_element(), grid.into_any_element()]
+    }
 }
 
 /// Whether the picker is open.
@@ -349,7 +500,8 @@ impl Render for PickerLayer {
             let to = -handle.offset().y + if seen > px(0.) { seen } else { px(HEIGHT) } + px(300.);
             (from / px(EMOTE_ROW)).floor() as usize..(to / px(EMOTE_ROW)).ceil() as usize
         };
-        let body = if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
+        let telegram = self.stickers.is_some();
+        let body = if emotes_tab && telegram { self.sticker_grid(cx) } else if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
         let footer = self.footer.clone();
         let panel = div()
             .id("picker")
@@ -380,7 +532,7 @@ impl Render for PickerLayer {
                     .pt(px(8.))
                     .border_b_1()
                     .border_color(theme.line)
-                    .child(tab("tab-emotes", if set_name.is_empty() { "Server emotes".into() } else { set_name }, emotes_tab, cx))
+                    .child(tab("tab-emotes", if telegram { "Stickers".into() } else if set_name.is_empty() { "Server emotes".into() } else { set_name }, emotes_tab, cx))
                     .child(tab("tab-emoji", "Emoji".into(), !emotes_tab, cx)),
             )
             .child(

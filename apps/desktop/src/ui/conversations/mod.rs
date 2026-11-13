@@ -116,6 +116,8 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
             "Voice message".into()
         } else if first.round == Some(true) {
             "Video message".into()
+        } else if first.sticker == Some(true) {
+            "Sticker".into()
         } else if first.mime.starts_with("image/") {
             "Photo".into()
         } else if first.mime.starts_with("video/") {
@@ -315,8 +317,11 @@ impl Render for ConversationList {
                         let state = header_state.clone();
                         if telegram {
                             let at = title_bounds.get();
-                            let (connections, unlink) = (state.clone(), state.clone());
+                            let (group, join, connections, unlink) = (state.clone(), state.clone(), state.clone(), state.clone());
                             let entries = vec![
+                                MenuEntry::new("New group", "users-round", move |_, cx| group.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx))),
+                                MenuEntry::new("Join a group by link", "link-2", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(Overlay::TelegramJoin), cx))),
+                                MenuEntry::separator(),
                                 MenuEntry::new("Connections", "link", move |_, cx| connections.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))),
                                 MenuEntry::separator(),
                                 MenuEntry::new("Unlink Telegram", "log-out", move |_, cx| unlink.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))).danger(),
@@ -357,13 +362,11 @@ impl Render for ConversationList {
             })
             // `.sidebar-head .titlebar-status`.
             .children(status.map(|status| status.flex_none().text_size(px(12.)).pr(px(4.))))
-            .when(!telegram, |el| {
-                el.child({
-                    let state = self.state.clone();
-                    icon_button("new-group", "square-pen", 17., false, false, cx)
-                        .tip("New group", Side::Bottom)
-                        .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
-                })
+            .child({
+                let state = self.state.clone();
+                icon_button("new-group", "square-pen", 17., false, false, cx)
+                    .tip("New group", Side::Bottom)
+                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
             });
 
         let has_query = !self.search.read(cx).text().is_empty();
@@ -547,7 +550,8 @@ impl Render for ConversationList {
                     }))
                     // `.hidden-toggle svg`: turned a quarter when open, over 100 ms.
                     .child(super::motion::transition(icon("chevron-right", 14., theme.text3).group_hover("hidden-toggle", move |style| style.text_color(theme.text2)), "hidden-toggle-chevron", if open { 1. } else { 0. }, 100, super::motion::ease(), |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(t * std::f32::consts::FRAC_PI_2)))))
-                    .child(format!("Hidden ({})", hidden.len()))
+                    // Telegram's archive is its hidden chats.
+                    .child(format!("{} ({})", if telegram { "Archived" } else { "Hidden" }, hidden.len()))
                     .into_any_element(),
             );
             if open {

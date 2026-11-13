@@ -19,6 +19,7 @@
     "getBasicGroupFullInfo": true,
     "getSupergroup": true,
     "getSupergroupFullInfo": true,
+    "getSupergroupMembers": true,
 
     "loadChats": true,
     "getChats": true,
@@ -31,6 +32,16 @@
     "searchContacts": true,
     "createPrivateChat": true,
     "createBasicGroupChat": true,
+    "createNewBasicGroupChat": true,
+    "addChatMembers": true,
+    "setChatMemberStatus": { "status": [{ "@type": "chatMemberStatusLeft" }] },
+    "leaveChat": true,
+    "setChatTitle": true,
+    "setChatPhoto": true,
+    "createChatInviteLink": true,
+    "checkChatInviteLink": true,
+    "joinChatByInviteLink": true,
+    "addChatToList": true,
 
     "getChatHistory": true,
     "getMessage": true,
@@ -38,8 +49,11 @@
     "getRepliedMessage": true,
     "searchChatMessages": true,
     "searchMessages": true,
+    "getChatMessageCount": true,
+    "getMessageProperties": true,
 
     "sendMessage": true,
+    "sendMessageAlbum": true,
     "editMessageText": true,
     "deleteMessages": true,
     "forwardMessages": true,
@@ -52,6 +66,7 @@
     "getCallbackQueryAnswer": true,
 
     "viewMessages": true,
+    "openMessageContent": true,
     "readAllChatMentions": true,
     "toggleChatIsMarkedAsUnread": true,
     "toggleChatIsPinned": true,
@@ -59,6 +74,11 @@
 
     "downloadFile": true,
     "cancelDownloadFile": true,
-    "getFile": true
+    "getFile": true,
+    "writeGeneratedFilePart": true,
+    "finishFileGeneration": true,
+
+    "getInstalledStickerSets": true,
+    "getStickerSet": true
   }
 }

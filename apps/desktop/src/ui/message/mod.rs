@@ -199,7 +199,17 @@ pub(super) fn message_buttons(message: &MessageView, context: &ChatContext, them
             } else if message.status == "sent" {
                 let state = context.state.clone();
                 let (group_id, message_id) = (message.group_id.clone(), message.id.clone());
-                cell = cell.on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("pressButton", vec![json!(group_id), json!(message_id), json!(row_index), json!(column)], cx)));
+                let telegram = context.server_id == crate::telegram::SERVER_ID;
+                cell = cell.on_click(move |_, _, cx| {
+                    state.update(cx, |state, cx| {
+                        // A Telegram bot may answer the press with words, which are shown.
+                        if telegram {
+                            state.press_telegram_button(group_id.clone(), message_id.clone(), row_index, column, cx);
+                        } else {
+                            state.act("pressButton", vec![json!(group_id), json!(message_id), json!(row_index), json!(column)], cx);
+                        }
+                    })
+                });
             }
             line = line.child(cell);
         }
@@ -344,11 +354,13 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
     let has_reactions = !message.reactions.is_empty();
     let placeholder = is_deleted || matches!(message.status.as_str(), "undecryptable" | "unverified" | "invalid");
     let meta_in_text = !message.text.is_empty() && jumbo == 0 && message.preview.is_none() && !has_reactions && !placeholder;
-    let images: Vec<&Attachment> = message.attachments.iter().filter(|a| a.mime.starts_with("image/") && a.width.is_some()).collect();
+    // A sticker alone goes without a bubble too, at its own size, not in a picture's grid.
+    let only_sticker = message.text.is_empty() && message.attachments.len() == 1 && message.attachments[0].sticker == Some(true) && message.reply.is_none() && message.forwarded.is_none() && !placeholder;
+    let images: Vec<&Attachment> = message.attachments.iter().filter(|a| a.mime.starts_with("image/") && a.width.is_some() && !only_sticker).collect();
     let only_images = message.text.is_empty() && !images.is_empty() && images.len() == message.attachments.len() && !has_reactions;
     // A video message alone is a circle, without a bubble, as large emoji are.
     let only_round = message.text.is_empty() && message.attachments.len() == 1 && message.attachments[0].round == Some(true) && message.reply.is_none() && message.forwarded.is_none() && !placeholder;
-    let bare = jumbo > 0 || only_round;
+    let bare = jumbo > 0 || only_round || only_sticker;
 
     let bubble_bg = if bare { gpui::transparent_black() } else if own { theme.bubble_own } else { theme.bubble_other };
     let text_color = if own { theme.bubble_own_text } else { theme.text1 };
@@ -499,7 +511,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         bubble = bubble.child(row);
     } else if !meta_in_text {
         if bare {
-            bubble = bubble.child(div().flex().justify_end().mt(px(if only_round { 3. } else { 1. })).child(meta));
+            bubble = bubble.child(div().flex().justify_end().mt(px(if only_round || only_sticker { 3. } else { 1. })).child(meta));
         } else if only_images {
             bubble = bubble.child(div().absolute().right(px(7.)).bottom(px(7.)).child(meta));
         } else {
@@ -647,6 +659,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                         false,
                         move |pick, _, cx| {
                             let args = match pick {
+                                super::picker::Pick::Sticker(_) => return,
                                 super::picker::Pick::Emoji(value) => vec![json!(group), json!(id), json!(value)],
                                 super::picker::Pick::Emote(emote) => vec![
                                     json!(group),

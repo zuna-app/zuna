@@ -387,6 +387,21 @@ impl Engine {
             }
             _ => {}
         }
+        // TDLib closed, as when its session was ended from another device: it isn't started
+        // again, and the core decides what happens to what it held.
+        if value.get("@type").and_then(Value::as_str) == Some("updateAuthorizationState")
+            && value.pointer("/authorization_state/@type").and_then(Value::as_str) == Some("authorizationStateClosed")
+        {
+            self.state.lock().wanted = false;
+        }
+        // Only files inside the engine's own folder reach the app: a path anywhere else, as a
+        // broken engine could name, or one that leads out of it, is taken off.
+        let json = if json.contains("\"localFile\"") {
+            let mut value = value;
+            if confine_paths(&mut value, &folder(&self.data_dir)) { value.to_string() } else { json }
+        } else {
+            json
+        };
         (self.deliver)(json);
     }
 
@@ -448,6 +463,38 @@ impl Engine {
     }
 }
 
+/// Whether a file the engine names is inside its own folder, once every link and junction on
+/// the way is followed: what the app reads and copies of Telegram's comes from there alone.
+pub fn inside_engine_folder(path: &Path, engine_folder: &Path) -> bool {
+    let (Ok(path), Ok(root)) = (std::fs::canonicalize(path), std::fs::canonicalize(engine_folder)) else { return false };
+    path.starts_with(&root) && path != root
+}
+
+/// Takes off every path of TDLib's `localFile`s in `value` that isn't inside the engine's folder,
+/// and says whether it took any.
+fn confine_paths(value: &mut Value, engine_folder: &Path) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut changed = false;
+            if map.get("@type").and_then(Value::as_str) == Some("localFile") {
+                if let Some(Value::String(path)) = map.get_mut("path") {
+                    if !path.is_empty() && !inside_engine_folder(Path::new(path.as_str()), engine_folder) {
+                        log::warn!(target: "telegram", "the engine named a file outside its folder, which was left out");
+                        path.clear();
+                        changed = true;
+                    }
+                }
+            }
+            for child in map.values_mut() {
+                changed |= confine_paths(child, engine_folder);
+            }
+            changed
+        }
+        Value::Array(items) => items.iter_mut().fold(false, |changed, item| confine_paths(item, engine_folder) | changed),
+        _ => false,
+    }
+}
+
 fn verbosity() -> u8 {
     if cfg!(debug_assertions) {
         std::env::var("ZUNA_TDLIB_VERBOSITY").ok().and_then(|value| value.parse().ok()).unwrap_or(1)
@@ -499,6 +546,34 @@ mod tests {
         erase(&dir);
         assert!(!key_file(&dir).exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn only_files_inside_the_engine_s_folder_get_through() {
+        let base = std::env::temp_dir().join(format!("zuna-telegram-paths-{}", std::process::id()));
+        let engine = folder(&base);
+        std::fs::create_dir_all(engine.join("files").join("photos")).unwrap();
+        let inside = engine.join("files").join("photos").join("1.jpg");
+        std::fs::write(&inside, b"jpeg").unwrap();
+        let outside = base.join("device-key.sealed");
+        std::fs::write(&outside, b"secret").unwrap();
+        let mut value = serde_json::json!({
+            "@type": "updateFile",
+            "file": { "@type": "file", "id": 1, "local": { "@type": "localFile", "path": inside.to_string_lossy() } },
+            "others": [
+                { "@type": "localFile", "path": outside.to_string_lossy() },
+                { "@type": "localFile", "path": engine.join("files").join("..").join("..").join("device-key.sealed").to_string_lossy() },
+                { "@type": "localFile", "path": "" },
+            ],
+        });
+        assert!(confine_paths(&mut value, &engine));
+        assert_eq!(value["file"]["local"]["path"], inside.to_string_lossy().as_ref());
+        assert_eq!(value["others"][0]["path"], "");
+        assert_eq!(value["others"][1]["path"], "");
+        assert_eq!(value["others"][2]["path"], "");
+        // The folder itself isn't a file of it.
+        assert!(!inside_engine_folder(&engine, &engine));
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

@@ -32,6 +32,28 @@ pub(super) fn tile_corners(grid: gpui::Corners<Pixels>, index: usize, count: usi
     }
 }
 
+/// A Telegram sticker alone: at most 160 px, as Telegram's apps show one, on nothing. It always
+/// loads by itself, being small.
+fn sticker(message: &MessageView, attachment: &Attachment, context: &ChatContext, cx: &mut App) -> AnyElement {
+    let (width, height) = (attachment.width.unwrap_or(512.).max(1.), attachment.height.unwrap_or(512.).max(1.));
+    let scale = (160. / width).min(160. / height);
+    let image = context.images.get(&attachment.file_id).cloned();
+    if image.is_some() {
+        context.state.read(cx).touch_media(&format!("file:{}", attachment.file_id));
+    } else if !attachment.file_id.is_empty() {
+        let server_id = context.server_id.clone();
+        let reference = crate::models::AvatarRef { file_id: attachment.file_id.clone(), key: attachment.key.clone(), prefix: attachment.prefix.clone(), chunks: attachment.chunks, mime: attachment.mime.clone() };
+        context.state.update(cx, |state, cx| {
+            state.decrypted_picture(&server_id, &reference, cx);
+        });
+    }
+    div()
+        .id(SharedString::from(format!("sticker-{}-{}", message.id, attachment.file_id)))
+        .w(px((width * scale) as f32))
+        .h(px((height * scale) as f32))
+        .when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain).enter_once(format!("sticker-in-{}-{}", message.id, attachment.file_id), Enter::Fade, 120)))
+        .into_any_element()
+}
 
 pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
@@ -155,6 +177,10 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
             column = column.child(crate::ui::media_views::round(attachment, context, cx));
             continue;
         }
+        if attachment.sticker == Some(true) && attachment.mime.starts_with("image/") {
+            column = column.child(sticker(message, attachment, context, cx));
+            continue;
+        }
         if attachment.mime.starts_with("video/") {
             column = column.child(crate::ui::media_views::video(attachment, context, cx));
             continue;
@@ -237,12 +263,12 @@ pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: se
             let Ok(call) = state.update(cx, |state, _| state.core.call(Some(&server_id), "downloadFile", vec![reference])) else { return };
             let result = call.await;
             state
-                .update(cx, |state, cx| match result {
+                .update(cx, |state, cx| match result.map_err(|error| error.message).and_then(|value| crate::state::checked_download(&server_id, value)) {
                     Ok(value) => match crate::host::save_value(&value, &path, false) {
                         Ok(()) => state.toast("Saved", ToastKind::Info, cx),
                         Err(error) => state.toast(format!("Couldn't save the file: {error}"), ToastKind::Error, cx),
                     },
-                    Err(error) => state.toast(error.message, ToastKind::Error, cx),
+                    Err(error) => state.toast(error, ToastKind::Error, cx),
                 })
                 .ok();
         })

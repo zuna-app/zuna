@@ -47,6 +47,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::WatchLink => cx.new(|cx| Dialog::new(state, DialogKind::WatchLink, window, cx)).into(),
         Overlay::Proxy { from_settings } => cx.new(|cx| Dialog::new(state, DialogKind::Proxy { from_settings }, window, cx)).into(),
         Overlay::Telegram => cx.new(|cx| Dialog::new(state, DialogKind::Telegram, window, cx)).into(),
+        Overlay::TelegramJoin => cx.new(|cx| Dialog::new(state, DialogKind::TelegramJoin, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
@@ -133,6 +134,7 @@ enum DialogKind {
     WatchLink,
     Proxy { from_settings: bool },
     Telegram,
+    TelegramJoin,
 }
 
 /// What's being set for a channel, beside its name.
@@ -210,6 +212,7 @@ impl Dialog {
             subscriptions.push(cx.subscribe_in(input, window, move |view, _, event, _, cx| {
                 match event {
                     InputEvent::Submit if index == 0 && matches!(view.kind, DialogKind::WatchLink) => view.put_on(cx),
+                    InputEvent::Submit if index == 0 && matches!(view.kind, DialogKind::TelegramJoin) => view.telegram_join_submit(cx),
                     InputEvent::Focused => view.focused = Some(index),
                     InputEvent::Blurred if view.focused == Some(index) => view.focused = None,
                     InputEvent::Escape => view.close(cx),
@@ -268,6 +271,10 @@ impl Dialog {
                 slow_on: channel.as_ref().is_some_and(|c| c.slow_mode > 0.),
                 slow_mode: channel.as_ref().map(|c| c.slow_mode).filter(|value| *value > 0.).unwrap_or(30.),
             });
+        }
+        if matches!(kind, DialogKind::TelegramJoin) {
+            name.update(cx, |input, cx| input.set_placeholder("https://t.me/+…", cx));
+            name.focus_handle(cx).focus(window, cx);
         }
         if matches!(kind, DialogKind::WatchLink) {
             name.update(cx, |input, cx| input.set_placeholder("https://www.youtube.com/watch?v=…", cx));
@@ -617,6 +624,7 @@ impl Render for Dialog {
             DialogKind::WatchLink => self.watch_link(cx),
             DialogKind::Proxy { .. } => self.proxy(cx),
             DialogKind::Telegram => self.telegram(window, cx),
+            DialogKind::TelegramJoin => self.telegram_join(cx),
             DialogKind::ShareLocation(key) => {
                 let key = key.clone();
                 self.share_location(key, cx)

@@ -47,6 +47,44 @@ export function textMessage(chat: number, id: number, from: number, text: string
   };
 }
 
+/** A still sticker of the account's set, or an animated one with nothing still to show. */
+export const sticker = (file: number, emoji: string, still = true): Td => ({
+  "@type": "sticker",
+  id: String(file),
+  set_id: "77",
+  width: 512,
+  height: 512,
+  emoji,
+  format: { "@type": still ? "stickerFormatWebp" : "stickerFormatTgs" },
+  thumbnail: still ? null : { "@type": "thumbnail", format: { "@type": "thumbnailFormatTgs" }, width: 128, height: 128, file: { "@type": "file", id: file + 1000, size: 100 } },
+  sticker: { "@type": "file", id: file, size: 20_000 },
+});
+
+/** The content of a message as Telegram makes it from what was sent. */
+function contentOf(input: Td, newFile: () => Td): Td {
+  switch (input["@type"]) {
+    case "inputMessagePhoto":
+      return { "@type": "messagePhoto", photo: { "@type": "photo", sizes: [{ "@type": "photoSize", type: "y", photo: newFile(), width: input.photo.width || 800, height: input.photo.height || 600 }] }, caption: input.caption };
+    case "inputMessageVoiceNote":
+      return { "@type": "messageVoiceNote", voice_note: { "@type": "voiceNote", duration: input.voice_note.duration, waveform: input.voice_note.waveform, mime_type: "audio/ogg", voice: newFile() }, caption: input.caption, is_listened: false };
+    case "inputMessageDocument":
+      return { "@type": "messageDocument", document: { "@type": "document", file_name: "notes.bin", mime_type: "application/octet-stream", document: newFile() }, caption: input.caption };
+    case "inputMessageSticker":
+      return { "@type": "messageSticker", sticker: { ...sticker(input.sticker.sticker.id, input.emoji), width: input.sticker.width, height: input.sticker.height } };
+    default:
+      return { "@type": "messageText", text: input.text };
+  }
+}
+
+/** Every file an input content asks TDLib to have made for it. */
+function generatedIn(value: unknown, found: Td[] = []): Td[] {
+  if (value && typeof value === "object") {
+    if ((value as Td)["@type"] === "inputFileGenerated") found.push(value as Td);
+    else for (const each of Object.values(value)) generatedIn(each, found);
+  }
+  return found;
+}
+
 export class FakeTdlib implements TelegramAdapter {
   /** Every request the adapter made, in order. */
   readonly asked: Td[] = [];
@@ -58,6 +96,10 @@ export class FakeTdlib implements TelegramAdapter {
   users = new Map<number, Td>();
   chats = new Map<number, Td>();
   history = new Map<number, Td[]>();
+  /** What the adapter wrote of each file the engine asked it for, by the name the adapter gave it. */
+  generated = new Map<string, { data: string; finished: boolean; error: string | null }>();
+  private generations = new Map<string, string>();
+  private nextFile = 500;
   private listener: ((json: string) => void) | null = null;
   private nextTemporary = 1;
   private loaded = false;
@@ -145,12 +187,17 @@ export class FakeTdlib implements TelegramAdapter {
         const found = this.history.get(request.chat_id)?.find((message) => message.id === request.message_id);
         return found ? answer(found) : fail(404, "Not Found");
       }
+      case "sendMessageAlbum": {
+        const messages = request.input_message_contents.map((content: Td) => this.sending(request.chat_id, content));
+        return answer({ "@type": "messages", total_count: messages.length, messages });
+      }
       case "sendMessage": {
         const temporary = this.nextTemporary++;
         const content = request.input_message_content;
+        this.generate(content);
         const message: Td = {
           ...textMessage(request.chat_id, temporary, SELF, ""),
-          content: { "@type": "messageText", text: content.text },
+          content: contentOf(content, () => this.newFile()),
           sending_state: { "@type": "messageSendingStatePending" },
           reply_to: request.reply_to ? { "@type": "messageReplyToMessage", chat_id: request.chat_id, message_id: request.reply_to.message_id } : null,
         };
@@ -178,9 +225,119 @@ export class FakeTdlib implements TelegramAdapter {
         const found = all.filter((message) => (pinned ? message.is_pinned : message.content.text?.text.toLowerCase().includes(query)));
         return answer({ "@type": request["@type"] === "searchMessages" ? "foundMessages" : "foundChatMessages", total_count: found.length, messages: found });
       }
+      case "writeGeneratedFilePart": {
+        const path = this.generations.get(request.generation_id);
+        const file = path ? this.generated.get(path) : undefined;
+        if (!file || request.offset !== atob(file.data).length) return fail(400, "Wrong offset");
+        file.data = btoa(atob(file.data) + atob(request.data));
+        return ok();
+      }
+      case "finishFileGeneration": {
+        const path = this.generations.get(request.generation_id);
+        const file = path ? this.generated.get(path) : undefined;
+        if (file) {
+          file.finished = true;
+          file.error = request.error?.message ?? null;
+        }
+        return ok();
+      }
+      case "downloadFile":
+        if (request.file_id === 404) return fail(400, "FILE_ID_INVALID");
+        return answer({ "@type": "file", id: request.file_id, size: 10, local: { "@type": "localFile", path: `C:/zuna/telegram/photos/${request.file_id}.jpg`, is_downloading_completed: true } });
+      case "getInstalledStickerSets":
+        return answer({ "@type": "stickerSets", total_count: 1, sets: [{ "@type": "stickerSetInfo", id: "77", title: "Cats", covers: [sticker(801, "🐱")] }] });
+      case "getStickerSet":
+        if (request.set_id !== "77") return fail(400, "STICKERSET_INVALID");
+        return answer({ "@type": "stickerSet", id: "77", title: "Cats", stickers: [sticker(801, "🐱"), sticker(802, "😺"), sticker(803, "🙀", false)] });
+      case "createNewBasicGroupChat": {
+        const chat: Td = { "@type": "chat", id: -400, type: { "@type": "chatTypeBasicGroup", basic_group_id: 400 }, title: request.title, positions: [position("9900")], unread_count: 0, notification_settings: settings() };
+        this.chats.set(chat.id, chat);
+        this.emit({ "@type": "updateNewChat", chat });
+        return answer({ "@type": "createdBasicGroupChat", chat_id: chat.id, failed_to_add_members: null });
+      }
+      case "getBasicGroupFullInfo":
+        return answer({
+          "@type": "basicGroupFullInfo",
+          members: [
+            { "@type": "chatMember", member_id: { "@type": "messageSenderUser", user_id: SELF }, status: { "@type": "chatMemberStatusCreator" }, joined_chat_date: 1_700_000_000 },
+            { "@type": "chatMember", member_id: { "@type": "messageSenderUser", user_id: GRACE }, status: { "@type": "chatMemberStatusMember" }, joined_chat_date: 1_700_000_100 },
+            { "@type": "chatMember", member_id: { "@type": "messageSenderUser", user_id: BOT }, status: { "@type": "chatMemberStatusLeft" }, joined_chat_date: 1_700_000_200 },
+          ],
+        });
+      case "createChatInviteLink":
+        return answer({ "@type": "chatInviteLink", invite_link: "https://t.me/+AbCdEf123" });
+      case "checkChatInviteLink": {
+        const channel = request.invite_link.endsWith("news");
+        const pending = request.invite_link.endsWith("ask");
+        // A group this account is in is known by its ID; one it isn't in, by nothing.
+        const member = request.invite_link.endsWith("123");
+        return answer({ "@type": "chatInviteLinkInfo", chat_id: member ? GROUP : 0, type: { "@type": channel ? "inviteLinkChatTypeChannel" : "inviteLinkChatTypeBasicGroup" }, title: pending ? "Club" : "Weekend trip", creates_join_request: pending, subscription_info: null });
+      }
+      case "joinChatByInviteLink":
+        return answer(request.invite_link.endsWith("ask") ? { "@type": "chatJoinResultRequestSent" } : { "@type": "chatJoinResultSuccess", chat_id: GROUP });
+      case "getMessageProperties": {
+        const message = this.history.get(request.chat_id)?.find((each) => each.id === request.message_id);
+        if (!message) return fail(404, "Not Found");
+        return answer({ "@type": "messageProperties", can_be_deleted_for_all_users: message.is_outgoing, can_be_deleted_only_for_self: true });
+      }
+      case "getCallbackQueryAnswer":
+        return answer({ "@type": "callbackQueryAnswer", text: "It's sunny", show_alert: false, url: "" });
+      case "addChatToList": {
+        ok();
+        const target = request.chat_list["@type"];
+        const other = target === "chatListArchive" ? "chatListMain" : "chatListArchive";
+        this.emit({ "@type": "updateChatPosition", chat_id: request.chat_id, position: { "@type": "chatPosition", list: { "@type": other }, order: "0", is_pinned: false } });
+        this.emit({ "@type": "updateChatPosition", chat_id: request.chat_id, position: { "@type": "chatPosition", list: { "@type": target }, order: "5000", is_pinned: false } });
+        return;
+      }
+      case "setChatDraftMessage":
+        ok();
+        return this.emit({ "@type": "updateChatDraftMessage", chat_id: request.chat_id, draft_message: request.draft_message, positions: [] });
+      case "forwardMessages":
+        return answer({ "@type": "messages", total_count: 0, messages: [] });
       default:
         return ok();
     }
+  }
+
+  /** A message being sent, which Telegram has sent a moment later. */
+  private sending(chatId: number, input: Td): Td {
+    const temporary = this.nextTemporary++;
+    this.generate(input);
+    const message = { ...textMessage(chatId, temporary, SELF, ""), content: contentOf(input, () => this.newFile()), sending_state: { "@type": "messageSendingStatePending" } };
+    setTimeout(() => {
+      const sent = { ...message, id: serverId(100 + temporary), sending_state: null };
+      this.history.get(chatId)?.push(sent);
+      this.emit({ "@type": "updateMessageSendSucceeded", message: sent, old_message_id: temporary });
+    }, 5);
+    return message;
+  }
+
+  private newFile(): Td {
+    return { "@type": "file", id: this.nextFile++, size: 1000 };
+  }
+
+  /** TDLib asks for each file it's to make, as the adapter named it. */
+  private generate(input: Td): void {
+    for (const file of generatedIn(input)) {
+      const generation = String(this.generations.size + 1);
+      this.generations.set(generation, file.original_path);
+      this.generated.set(file.original_path, { data: "", finished: false, error: null });
+      setTimeout(() => this.emit({ "@type": "updateFileGenerationStart", generation_id: generation, original_path: file.original_path, destination_path: `C:/tmp/${generation}`, conversion: file.conversion }), 0);
+    }
+  }
+
+  /** TDLib asks for a file nobody sent. */
+  askForFile(path: string): void {
+    const generation = String(this.generations.size + 1);
+    this.generations.set(generation, path);
+    this.generated.set(path, { data: "", finished: false, error: null });
+    this.emit({ "@type": "updateFileGenerationStart", generation_id: generation, original_path: path, destination_path: "C:/tmp/x", conversion: "zuna" });
+  }
+
+  /** A file the engine wrote, as the host wraps it: here, its path and type. */
+  file(path: string, mime: string): Blob {
+    return new Blob([path], { type: mime });
   }
 
   /** Telegram on another device lets this one in, after a QR code was scanned. */

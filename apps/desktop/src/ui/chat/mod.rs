@@ -511,6 +511,7 @@ impl ChatView {
         let telegram = self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram());
         let placeholder = if telegram { "Message on Telegram".to_string() } else if is_saved { "Write a note to yourself".to_string() } else if conversation.kind == "channel" { format!("Message #{}", conversation.title) } else { format!("Message {}", conversation.title) };
         let draft = self.state.read(cx).drafts.get(&conversation.key).cloned().unwrap_or_default();
+        let no_draft = draft.is_empty();
         self.composer.update(cx, |input, cx| {
             input.set_newline_on_enter(!enter);
             input.set_placeholder(placeholder, cx);
@@ -519,6 +520,22 @@ impl ChatView {
             }
         });
         self.state.update(cx, |state, cx| state.load_list(&list_id, conversation.group_id.clone(), cx));
+        // What's written in a Telegram chat on another device, if nothing is here.
+        if telegram && no_draft {
+            let task = self.state.update(cx, |state, cx| state.load_telegram_draft(conversation.key.clone(), cx));
+            let key = conversation.key.clone();
+            cx.spawn_in(window, async move |view, cx| {
+                let Some(text) = task.await else { return };
+                view.update_in(cx, |view, window, cx| {
+                    if view.conversation(cx).is_some_and(|open| open.key == key) && view.composer.read(cx).text().is_empty() {
+                        view.composer.update(cx, |input, cx| input.set_text(text, cx));
+                        view.composer.focus_handle(cx).focus(window, cx);
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
         self.sync_rows(cx);
         self.composer.focus_handle(cx).focus(window, cx);
     }
@@ -673,8 +690,7 @@ impl Render for ChatView {
                 }
             }))
             .on_drag_move(cx.listener(|view, event: &gpui::DragMoveEvent<ExternalPaths>, _, cx| {
-                // Nothing invites a drop into a Telegram chat, which takes no files yet.
-                let over = event.bounds.contains(&event.event.position) && !view.on_telegram(cx);
+                let over = event.bounds.contains(&event.event.position);
                 if over != view.drop_over {
                     view.drop_over = over;
                     cx.notify();

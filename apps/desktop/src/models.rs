@@ -174,6 +174,7 @@ pub struct Attachment {
     pub voice: Option<bool>,
     pub waveform: Option<String>,
     pub round: Option<bool>,
+    pub sticker: Option<bool>,
     pub share: Option<String>,
 }
 

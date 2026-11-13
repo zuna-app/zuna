@@ -103,7 +103,8 @@ impl Dialog {
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
         let query = self.people_search.read(cx).text().trim().to_lowercase();
         // Of the bots, only the ones this person may add.
-        let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned && !user.deleted && server.may_add(user)).cloned().collect();
+        // On Telegram, people only: a chat speaking as itself in a group is no one to add.
+        let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned && !user.deleted && server.may_add(user) && !user.id.starts_with("chat:")).cloned().collect();
         users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let filtered: Vec<_> = users.into_iter().filter(|user| query.is_empty() || user.display_name.to_lowercase().contains(&query) || user.username.to_lowercase().contains(&query)).collect();
         let people_scroll = scroll_handle("new-group-people");
@@ -229,8 +230,12 @@ impl Dialog {
         let theme = theme(cx);
         let query = self.people_search.read(cx).text().trim().to_lowercase();
         let state = self.state.read(cx);
-        // Nothing goes between Zuna's chats and the Telegram account's.
-        let order: Vec<String> = std::iter::once(from_server.clone()).chain(state.order.iter().filter(|id| **id != from_server && id.as_str() != crate::telegram::SERVER_ID).cloned()).collect();
+        // Nothing goes between Zuna's chats and the Telegram account's: from Telegram, only its own
+        // chats are offered, and from a server, never Telegram's.
+        let from_telegram = from_server == crate::telegram::SERVER_ID;
+        let order: Vec<String> = std::iter::once(from_server.clone())
+            .chain(state.order.iter().filter(|id| **id != from_server && !from_telegram && id.as_str() != crate::telegram::SERVER_ID).cloned())
+            .collect();
         let mut sections = Vec::new();
         for server_id in order {
             let Some(server) = state.servers.get(&server_id) else { continue };

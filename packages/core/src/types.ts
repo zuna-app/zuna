@@ -173,6 +173,8 @@ export interface Attachment {
   waveform?: string;
   /** A video message recorded in the app: square, shown in a circle, playing by itself without sound. */
   round?: boolean;
+  /** A sticker, from a linked Telegram account: shown on its own, without a bubble. */
+  sticker?: boolean;
   /**
    * The secret the file was made with, base64, which a message carrying it shows the server,
    * as one forwarding it does too. From then on the server keeps nothing of who uploaded it.

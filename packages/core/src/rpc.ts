@@ -58,13 +58,15 @@ const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
 };
 // What a linked Telegram account answers, under the server ID `telegram` (docs/TELEGRAM_PLAN.md).
 const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
-  start: true, stop: true, unlink: true, suspend: true, resume: true, nudge: true, flushOutbox: true, getConnectionState: true, setActive: true, isActiveElsewhere: true,
-  getLink: true, linkWithQr: true, linkWithPhone: true, enterCode: true, resendCode: true, enterPassword: true,
-  getInfo: true, getSelf: true, serverUrl: true, getUsers: true, getConversations: true, getPreferences: true, getChannels: true, getVoiceMembers: true, getCalls: true,
-  getSounds: true, getEmotes: true, emotesIn: true, getNewDevices: true,
-  loadMessages: true, loadAround: true, loadNewer: true, messageById: true, loadPins: true, search: true, sendMessage: true, editMessage: true, deleteMessage: true,
-  deleteMessages: true, toggleReaction: true, setPinned: true, sendTyping: true, markRead: true, markChatRead: true, unreadMentions: true, markMentionSeen: true,
-  setMarkedUnread: true, mute: true, unmute: true, setPinnedChats: true, updatePreferences: true, pressButton: true,
+  addMembers: true, createGroup: true, createInvite: true, deleteChoices: true, deleteMessage: true, deleteMessages: true, downloadFile: true, editMessage: true,
+  emotesIn: true, enterCode: true, enterPassword: true, flushOutbox: true, forwardMessages: true, getCalls: true, getChannels: true, getConnectionState: true,
+  getConversations: true, getDraft: true, getEmotes: true, getInfo: true, getLink: true, getNewDevices: true, getPreferences: true, getSelf: true, getSounds: true,
+  getStickerSets: true, getStickers: true, getUsers: true, getVoiceMembers: true, isActiveElsewhere: true, joinByLink: true, leaveGroup: true, linkWithPhone: true,
+  linkWithQr: true, loadAround: true, loadMedia: true, loadMessages: true, loadNewer: true, loadPins: true, markChatRead: true, markListened: true,
+  markMentionSeen: true, markRead: true, mediaCounts: true, messageById: true, mute: true, nudge: true, pressButton: true, removeMember: true, resendCode: true,
+  resume: true, saveDraft: true, search: true, sendMessage: true, sendSticker: true, sendTyping: true, sendWithAttachments: true, serverUrl: true, setActive: true,
+  setMarkedUnread: true, setPinned: true, setPinnedChats: true, start: true, stop: true, suspend: true, toggleReaction: true, unlink: true, unmute: true,
+  unreadMentions: true, updateGroupMeta: true, updatePreferences: true,
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   addMembers: true, addSound: true, answerNewDevice: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,

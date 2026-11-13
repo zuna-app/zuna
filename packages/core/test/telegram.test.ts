@@ -1,14 +1,16 @@
 // A Telegram account linked on a device (docs/TELEGRAM_PLAN.md), against a fake engine that
 // speaks TDLib's JSON: linking, the list, history, sending, reading, notifications and unlinking,
-// what's kept apart from Zuna's chats, and the mapping's checks. No server takes part.
+// what's kept apart from Zuna's chats, the mapping's checks, and media, stickers, drafts, the
+// archive and groups. No server takes part.
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { ZunaClient } from "../src/client";
 import { serveCore, type RpcPort } from "../src/rpc";
 import { fromMarkup, toMarkup } from "../src/telegram/markup";
-import { conversationView, messageView, userView } from "../src/telegram/map";
+import { attachmentsOf, conversationView, messageView, userView, waveformFromTelegram, waveformToTelegram } from "../src/telegram/map";
+import { previewText } from "../src/notify";
 import { TELEGRAM_ID, type CoreEvent, type TelegramLink } from "../src/types";
-import { BOT, CHANNEL, FakeTdlib, GRACE, GROUP, SECRET, SELF, serverId, textMessage } from "./fake-tdlib";
+import { BOT, CHANNEL, FakeTdlib, GRACE, GROUP, SECRET, SELF, serverId, sticker, textMessage } from "./fake-tdlib";
 import { loadCrypto, MemoryDbProvider } from "./helpers";
 
 beforeAll(loadCrypto);
@@ -295,7 +297,7 @@ describe("kept apart from Zuna's chats", () => {
     };
     expect((await call(1, "getConversations")).ok).toBe(true);
     // A server's own methods aren't the Telegram account's.
-    for (const [id, method] of [[2, "getDevices"], [3, "createInvite"], [4, "voiceAccess"], [5, "forwardMessage"]] as const) {
+    for (const [id, method] of [[2, "getDevices"], [3, "createChannel"], [4, "voiceAccess"], [5, "forwardMessage"]] as const) {
       expect(await call(id, method)).toMatchObject({ ok: false, error: { message: "The core has no such thing to do." } });
     }
     await expect(client.forwardMessages(TELEGRAM_ID, String(GRACE), [String(serverId(1))], "some-server", "user:x")).rejects.toThrow("Nothing is forwarded between Zuna and Telegram.");
@@ -396,5 +398,194 @@ describe("what the engine says is checked", () => {
     expect(joined.system).toEqual({ type: "member_added", actorId: String(GRACE), targetIds: [String(BOT)] });
     const call = messageView({ ...textMessage(GRACE, serverId(4), GRACE, ""), content: { "@type": "messageCall", is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 } }, context)!;
     expect(call.text).toBe("_Missed call, in Telegram's app_");
+  });
+});
+
+describe("media, stickers and groups", () => {
+  const context = { selfId: SELF, now: 1_800_000_000_000, find: () => undefined, nameOf: () => "Someone" };
+  const sent = (content: Record<string, unknown>) => messageView({ ...textMessage(GRACE, serverId(9), GRACE, ""), content }, context)!;
+
+  async function ready() {
+    const linked = await linkedClient({ authorized: true });
+    linked.client.linkTelegram();
+    await until(() => linked.client.telegramSession.getConversations().length === 3, "the list");
+    return { ...linked, session: linked.client.telegramSession };
+  }
+
+  it("shows Telegram's photos, voice messages, files and stickers as the app's attachments", () => {
+    const photo = sent({
+      "@type": "messagePhoto",
+      caption: { text: "Sunset", entities: [] },
+      photo: {
+        minithumbnail: { data: "AAEC" },
+        sizes: [
+          { type: "m", photo: { id: 11, size: 900 }, width: 320, height: 240 },
+          { type: "y", photo: { id: 12, size: 90_000 }, width: 1280, height: 960 },
+          { type: "w", photo: { id: 13, size: 900_000 }, width: 2560, height: 1920 },
+        ],
+      },
+    });
+    // The largest that fits in 1280 pixels, as Telegram's apps pick it.
+    expect(photo.text).toBe("Sunset");
+    expect(photo.attachments).toEqual([{ fileId: "tg:12", key: "", prefix: "", chunks: 0, size: 90_000, name: "photo.jpg", mime: "image/jpeg", width: 1280, height: 960, thumb: "data:image/jpeg;base64,AAEC" }]);
+    const voice = sent({ "@type": "messageVoiceNote", caption: { text: "", entities: [] }, voice_note: { duration: 3, waveform: waveformToTelegram(btoa("\xff\x00".repeat(50))), mime_type: "audio/ogg", voice: { id: 21, size: 4000 } } });
+    expect(voice.attachments[0]).toMatchObject({ fileId: "tg:21", voice: true, duration: 3, mime: "audio/ogg" });
+    // A name is only a name: nothing in it can point anywhere on the device.
+    const file = sent({ "@type": "messageDocument", caption: { text: "", entities: [] }, document: { file_name: "../../evil.exe", mime_type: "not a type", document: { id: 31, size: 10 } } });
+    expect(file.attachments[0]).toMatchObject({ name: "_.._evil.exe", mime: "application/octet-stream" });
+    const still = sent({ "@type": "messageSticker", sticker: sticker(801, "🐱") });
+    expect(still.text).toBe("");
+    expect(still.attachments[0]).toMatchObject({ fileId: "tg:801", sticker: true, mime: "image/webp", width: 512, height: 512 });
+    expect(previewText(still)).toBe("🖼️ Sticker");
+    // An animated one with nothing still to show is its emoji.
+    const animated = sent({ "@type": "messageSticker", sticker: sticker(803, "🙀", false) });
+    expect(animated).toMatchObject({ text: "🙀", attachments: [] });
+    // Seen once, it's never downloaded here.
+    const once = sent({ "@type": "messagePhoto", caption: { text: "", entities: [] }, photo: { sizes: [{ photo: { id: 41 }, width: 10, height: 10 }] }, self_destruct_type: { "@type": "messageSelfDestructTypeImmediately" } });
+    expect(once.attachments).toEqual([]);
+    expect(attachmentsOf({ "@type": "messagePhoto", photo: { sizes: [{ photo: { id: "41" }, width: 10, height: 10 }] } })).toBeNull();
+  });
+
+  it("packs a voice message's loudness as Telegram does, and back", () => {
+    const bars = Uint8Array.from({ length: 100 }, (_, index) => (index * 37) % 256);
+    const packed = waveformToTelegram(btoa(String.fromCharCode(...bars)));
+    expect(atob(packed)).toHaveLength(63);
+    const back = Uint8Array.from(atob(waveformFromTelegram(packed)!), (char) => char.charCodeAt(0));
+    expect(back).toHaveLength(100);
+    for (const [index, value] of back.entries()) expect(Math.abs(value - bars[index]!)).toBeLessThanOrEqual(5);
+    expect(waveformToTelegram(undefined)).toBe("");
+    expect(waveformFromTelegram("not base64!")).toBeUndefined();
+  });
+
+  it("hands over a file Telegram downloaded, and nothing that isn't one of its files", async () => {
+    const { session } = await ready();
+    const file = await session.downloadFile({ fileId: "tg:12", mime: "image/jpeg" });
+    expect(file.type).toBe("image/jpeg");
+    expect(await file.text()).toBe("C:/zuna/telegram/photos/12.jpg");
+    await expect(session.downloadFile({ fileId: "abc" })).rejects.toThrow("That isn't one of Telegram's files.");
+    await expect(session.downloadFile({ fileId: "tg:404" })).rejects.toThrow();
+  });
+
+  it("sends files a part at a time as TDLib asks, pictures together as one album", async () => {
+    const { engine, session, events } = await ready();
+    const bytes = (length: number, seed: number) => Uint8Array.from({ length }, (_, index) => (index * seed) % 251);
+    const big = bytes(600_000, 7);
+    const pictures = [
+      { blob: new Blob([bytes(1000, 3)], { type: "image/png" }), name: "a.png", mime: "image/png", width: 40, height: 30 },
+      { blob: new Blob([bytes(2000, 5)], { type: "image/jpeg" }), name: "b.jpg", mime: "image/jpeg", width: 30, height: 40 },
+    ];
+    await session.sendWithAttachments(`user:${GRACE}`, pictures, { text: "**Look**" }, { keepMetadata: true });
+    const [album] = engine.requests("sendMessageAlbum");
+    expect(album!.input_message_contents.map((content: any) => content["@type"])).toEqual(["inputMessagePhoto", "inputMessagePhoto"]);
+    expect(album!.input_message_contents[0].caption).toMatchObject({ text: "Look", entities: [{ offset: 0, length: 4, type: { "@type": "textEntityTypeBold" } }] });
+    expect(album!.input_message_contents[1].caption.text).toBe("");
+    await until(() => [...engine.generated.values()].filter((file) => file.finished).length === 2, "both pictures written");
+    const written = [...engine.generated.values()].map((file) => atob(file.data).length).sort((a, b) => a - b);
+    expect(written).toEqual([1000, 2000]);
+    expect(events.some((event) => event.type === "message" && event.message.attachments[0]?.mime === "image/jpeg")).toBe(true);
+
+    // A large file goes in parts, and a voice message as one, its loudness packed.
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob([big]), name: "notes.bin", mime: "application/octet-stream" }], { text: "" });
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob([bytes(500, 11)], { type: "audio/ogg" }), name: "voice.ogg", mime: "audio/ogg", voice: true, duration: 2.4, waveform: btoa("\x80".repeat(40)) }], { text: "" });
+    await until(() => [...engine.generated.values()].filter((file) => file.finished).length === 4, "every file written");
+    const document = [...engine.generated.values()].find((file) => atob(file.data).length === big.length);
+    expect(document).toMatchObject({ error: null });
+    expect(Uint8Array.from(atob(document!.data), (char) => char.charCodeAt(0))).toEqual(big);
+    expect(engine.requests("writeGeneratedFilePart").length).toBe(2 + 2 + 1);
+    // TDLib names a file by the last part of what it's asked for, so that's the file's own name.
+    expect(engine.requests("sendMessage").at(-2)!.input_message_content.document.document.original_path).toMatch(/^zuna-[a-z0-9-]+\/notes\.bin$/);
+    const voice = engine.requests("sendMessage").at(-1)!.input_message_content;
+    expect(voice).toMatchObject({ "@type": "inputMessageVoiceNote", voice_note: { duration: 2 } });
+    expect(waveformFromTelegram(voice.voice_note.waveform)).toBeDefined();
+
+    // TDLib asks for a file nobody here sent: it's told so, and given nothing.
+    engine.askForFile("C:/Users/someone/secret.txt");
+    await until(() => engine.generated.get("C:/Users/someone/secret.txt")?.finished, "the refusal");
+    expect(engine.generated.get("C:/Users/someone/secret.txt")).toMatchObject({ data: "", error: "That file isn't being sent" });
+  });
+
+  it("lists the account's stickers, and sends one", async () => {
+    const { engine, session } = await ready();
+    expect(await session.getStickerSets()).toEqual([{ id: "77", title: "Cats", cover: "tg:801" }]);
+    // An animated sticker shows its still thumbnail, and one with none isn't offered.
+    expect(await session.getStickers("77")).toEqual([
+      { file: 801, picture: "tg:801", emoji: "🐱", width: 512, height: 512 },
+      { file: 802, picture: "tg:802", emoji: "😺", width: 512, height: 512 },
+    ]);
+    expect(await session.getStickers("../1")).toEqual([]);
+    await session.sendSticker(`user:${GRACE}`, 801, "🐱", 512, 512);
+    expect(engine.requests("sendMessage").at(-1)!.input_message_content).toMatchObject({ "@type": "inputMessageSticker", sticker: { sticker: { "@type": "inputFileId", id: 801 } }, emoji: "🐱" });
+    await expect(session.sendSticker(`user:${GRACE}`, 0, "", 1, 1)).rejects.toThrow("That isn't one of your stickers.");
+  });
+
+  it("archives what's hidden here, and brings it back", async () => {
+    const { engine, session } = await ready();
+    await session.updatePreferences({ hidden: [`user:${BOT}`] });
+    expect(engine.requests("addChatToList").at(-1)).toMatchObject({ chat_id: BOT, chat_list: { "@type": "chatListArchive" } });
+    await until(() => session.getPreferences().hidden.includes(`user:${BOT}`), "the chat archived");
+    expect(session.getConversations().find((chat) => chat.key === `user:${BOT}`)).toMatchObject({ hidden: true });
+    await session.updatePreferences({ hidden: [] });
+    expect(engine.requests("addChatToList").at(-1)).toMatchObject({ chat_id: BOT, chat_list: { "@type": "chatListMain" } });
+    await until(() => !session.getPreferences().hidden.includes(`user:${BOT}`), "the chat back");
+    expect(engine.requests("addChatToList")).toHaveLength(2);
+    await expect(session.updatePreferences({ blocked: [] })).rejects.toThrow("Telegram keeps that in its own apps.");
+  });
+
+  it("keeps drafts on Telegram, where the account's other devices find them", async () => {
+    const { engine, session } = await ready();
+    await session.saveDraft(`user:${GRACE}`, "  **soon**  ");
+    expect(engine.requests("setChatDraftMessage")[0]).toMatchObject({ chat_id: GRACE, draft_message: { content: { "@type": "draftMessageContentText", text: { text: "soon", entities: [{ type: { "@type": "textEntityTypeBold" } }] } } } });
+    await until(() => session.getDraft(`user:${GRACE}`) === "**soon**", "the draft");
+    await session.saveDraft(`user:${GRACE}`, " ");
+    expect(engine.requests("setChatDraftMessage")[1]).toMatchObject({ draft_message: null });
+    await until(() => session.getDraft(`user:${GRACE}`) === "", "no draft");
+  });
+
+  it("makes groups, changes who's in them, and joins one by its link", async () => {
+    const { engine, session } = await ready();
+    await expect(session.createGroup("  ", [String(GRACE)])).rejects.toThrow("A group needs a name.");
+    const id = await session.createGroup("Book club", [String(GRACE), "x"]);
+    expect(id).toBe("-400");
+    expect(engine.requests("createNewBasicGroupChat")[0]).toMatchObject({ title: "Book club", user_ids: [GRACE] });
+    await until(() => session.getConversations().some((chat) => chat.key === "group:-400"), "the new group");
+    await session.addMembers(id, [String(BOT)]);
+    await session.removeMember(id, String(BOT));
+    expect(engine.requests("setChatMemberStatus")[0]).toMatchObject({ chat_id: -400, member_id: { user_id: BOT }, status: { "@type": "chatMemberStatusLeft" } });
+    await session.updateGroupMeta(id, { name: "Books" });
+    expect(engine.requests("setChatTitle")[0]).toMatchObject({ title: "Books" });
+    await expect(session.updateGroupMeta(id, { name: "" })).rejects.toThrow("A group needs a name.");
+    expect(await session.createInvite(id)).toBe("https://t.me/+AbCdEf123");
+    await session.leaveGroup(id);
+    expect(engine.requests("leaveChat")[0]).toMatchObject({ chat_id: -400 });
+    // Who's in a group comes as it's opened, without those who left.
+    await session.loadMessages(String(GROUP));
+    const group = await until(() => session.getConversations().find((chat) => chat.key === `group:${GROUP}` && chat.members.length > 0), "the members");
+    expect(group.members.map((member) => [member.userId, member.role])).toEqual([[String(SELF), "admin"], [String(GRACE), "member"]]);
+    // A group this account is already in opens; another is joined.
+    expect(await session.joinByLink("https://t.me/+AbCdEf123")).toBe(String(GROUP));
+    expect(engine.requests("joinChatByInviteLink")).toEqual([]);
+    expect(await session.joinByLink("tg://join?invite=XyZ")).toBe(String(GROUP));
+    await expect(session.joinByLink("https://t.me/+club-ask")).rejects.toThrow("You asked to join.");
+    await expect(session.joinByLink("https://example.com/+AbCdEf123")).rejects.toThrow("That isn't a link to a Telegram group.");
+    await expect(session.joinByLink("t.me/+news")).rejects.toThrow("channels stay in Telegram's own app");
+  });
+
+  it("presses a bot's button, forwards inside Telegram, and deletes as Telegram allows", async () => {
+    const { engine, client, session } = await ready();
+    engine.history.set(BOT, [
+      { ...textMessage(BOT, serverId(5), BOT, "Weather?"), reply_markup: { "@type": "replyMarkupInlineKeyboard", rows: [[{ text: "Today", type: { "@type": "inlineKeyboardButtonTypeCallback", data: "AQID" } }]] } },
+    ]);
+    await session.loadMessages(String(BOT));
+    expect(await session.pressButton(String(BOT), String(serverId(5)), 0, 0)).toBe("It's sunny");
+    expect(engine.requests("getCallbackQueryAnswer")[0]).toMatchObject({ chat_id: BOT, message_id: serverId(5), payload: { data: "AQID" } });
+    await expect(session.pressButton(String(BOT), String(serverId(5)), 0, 1)).rejects.toThrow("That button isn't there any more.");
+
+    await client.forwardMessages(TELEGRAM_ID, String(GRACE), [String(serverId(1))], TELEGRAM_ID, `group:${GROUP}`);
+    expect(engine.requests("forwardMessages")[0]).toMatchObject({ chat_id: GROUP, from_chat_id: GRACE, message_ids: [serverId(1)], send_copy: false });
+
+    expect(await session.deleteChoices(String(GRACE), String(serverId(2)))).toEqual({ forEveryone: true, forSelf: true });
+    expect(await session.deleteChoices(String(GRACE), String(serverId(1)))).toEqual({ forEveryone: false, forSelf: true });
+    await session.deleteMessages(String(GRACE), [String(serverId(1))], false);
+    expect(engine.requests("deleteMessages")[0]).toMatchObject({ chat_id: GRACE, message_ids: [serverId(1)], revoke: false });
   });
 });

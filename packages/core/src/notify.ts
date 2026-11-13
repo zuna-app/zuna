@@ -17,6 +17,7 @@ export function previewText(view: Preview): string {
   if (view.location) return "📍 Location";
   const first = view.attachments[0];
   if (!first) return "";
+  if (first.sticker) return "🖼️ Sticker";
   if (first.mime.startsWith("image/")) return "📷 Photo";
   if (first.round) return "📹 Video message";
   if (first.mime.startsWith("video/")) return "🎬 Video";

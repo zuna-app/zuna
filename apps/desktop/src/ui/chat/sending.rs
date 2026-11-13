@@ -121,11 +121,16 @@ impl ChatView {
                 let Some(conversation) = self.conversation(cx) else { return };
                 let text = self.composer.read(cx).text().to_string();
                 let key = conversation.key.clone();
-                self.state.update(cx, |state, _| {
+                let telegram = self.server_id == crate::telegram::SERVER_ID;
+                self.state.update(cx, |state, cx| {
                     if text.is_empty() {
                         state.drafts.remove(&key);
                     } else {
-                        state.drafts.insert(key, text.clone());
+                        state.drafts.insert(key.clone(), text.clone());
+                    }
+                    // Telegram keeps a chat's draft, which the account's other devices show.
+                    if telegram {
+                        state.save_telegram_draft(key, cx);
                     }
                 });
                 if let Some(group) = conversation.group_id.clone() {
@@ -371,17 +376,7 @@ impl ChatView {
     }
 
     /// Adds files to go with the next message, up to ten, read for their chips away from the window.
-    /// Whether this chat is the linked Telegram account's, which takes text alone for now.
-    pub(super) fn on_telegram(&self, cx: &gpui::App) -> bool {
-        self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram())
-    }
-
     pub(super) fn add_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        // Dropped or pasted there, they'd wait in the box for a send that can't take them.
-        if self.on_telegram(cx) {
-            self.state.update(cx, |state, cx| state.toast("Zuna can't send files on Telegram yet.", ToastKind::Info, cx));
-            return;
-        }
         let room = MAX_FILES.saturating_sub(self.files.len());
         let paths: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).take(room).collect();
         if paths.is_empty() {

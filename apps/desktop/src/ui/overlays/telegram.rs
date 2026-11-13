@@ -286,6 +286,51 @@ impl Dialog {
     }
 }
 
+impl Dialog {
+    /// Joining a Telegram group by a link to it, which the group's people give out.
+    pub(super) fn telegram_join(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let mut body = vec![
+            div().text_size(px(13.5)).child("Paste a link to a Telegram group. Channels stay in Telegram's own app.").into_any_element(),
+            field(Some("Link"), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
+        ];
+        if let Some(problem) = &self.link_error {
+            body.push(div().text_size(px(13.)).text_color(theme.danger_text).child(problem.clone()).into_any_element());
+        }
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("tg-join", ButtonKind::Primary, ButtonSize::Normal, self.busy, cx).child("Join").on_click(cx.listener(|dialog, _, _, cx| dialog.telegram_join_submit(cx))))
+            .into_any_element();
+        self.modal(Some("Join a Telegram group".into()), 440., body, Some(footer), cx)
+    }
+
+    pub(super) fn telegram_join_submit(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let link = self.name.read(cx).text().trim().to_string();
+        self.busy = true;
+        self.link_error = None;
+        let task = self.state.update(cx, |state, cx| state.join_telegram_group(link, cx));
+        cx.spawn(async move |dialog, cx| {
+            let result = task.await;
+            dialog
+                .update(cx, |dialog, cx| {
+                    dialog.busy = false;
+                    if let Err(why) = result {
+                        dialog.link_error = Some(why);
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

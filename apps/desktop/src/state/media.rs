@@ -2,6 +2,20 @@
 
 use super::*;
 
+/// A download from the linked Telegram account is read only from inside its engine's folder, where
+/// TDLib keeps what it downloads (`telegram::inside_engine_folder`), whatever the engine says.
+pub fn checked_download(server_id: &str, value: serde_json::Value) -> Result<serde_json::Value, String> {
+    if server_id != crate::telegram::SERVER_ID {
+        return Ok(value);
+    }
+    let path = value.get("$file").and_then(|file| file.get("path")).and_then(serde_json::Value::as_str).ok_or("Telegram sent no file")?;
+    if crate::telegram::inside_engine_folder(std::path::Path::new(path), &crate::telegram::folder(&host::data_dir())) {
+        Ok(value)
+    } else {
+        Err("That file isn't one of Telegram's.".into())
+    }
+}
+
 impl AppState {
     pub(super) fn store_picture(&mut self, key: String, result: Result<(Vec<u8>, String), String>, cx: &mut Context<Self>) {
         let picture = match result {
@@ -54,8 +68,9 @@ impl AppState {
         self.pictures.insert(key.clone(), Picture::Loading);
         let reference = serde_json::to_value(avatar).unwrap_or_default();
         let mime = avatar.mime.clone();
+        let server = server_id.to_string();
         self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
-            let bytes = result.map_err(|error| error.message).and_then(|value| host::value_bytes(&value).ok_or_else(|| "no picture".to_string()));
+            let bytes = result.map_err(|error| error.message).and_then(|value| checked_download(&server, value)).and_then(|value| host::value_bytes(&value).ok_or_else(|| "no picture".to_string()));
             state.store_picture(key, bytes.map(|bytes| (bytes, mime)), cx);
         });
         None
@@ -72,12 +87,16 @@ impl AppState {
         let reference = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
         let id = attachment.file_id.clone();
         let extension = media_extension(&attachment.mime, &attachment.name);
+        let server = server_id.to_string();
         self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
             let target = host::cache_dir().join("media").join(format!("{id}.{extension}"));
             let written = result.map_err(|error| error.message).and_then(|value| {
                 std::fs::create_dir_all(target.parent().unwrap()).map_err(|error| error.to_string())?;
-                // Moved rather than copied, so there's one decrypted copy, under the name Media Foundation needs.
-                host::save_value(&value, &target, true)
+                // Moved rather than copied, so there's one decrypted copy, under the name Media Foundation
+                // needs; but a Telegram file is copied, as it's the engine's, which keeps it.
+                let telegram = server == crate::telegram::SERVER_ID;
+                let value = checked_download(&server, value)?;
+                host::save_value(&value, &target, !telegram)
             });
             let ready = written.is_ok();
             state.touch_media(&id);

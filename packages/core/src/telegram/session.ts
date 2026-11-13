@@ -9,6 +9,7 @@ import type {
   ConnectionState,
   ConversationView,
   CoreEvent,
+  GroupMemberView,
   EmoteSet,
   MessageBody,
   MessageView,
@@ -19,9 +20,62 @@ import type {
   UserView,
 } from "../types";
 import { TELEGRAM_ID } from "../types";
+import { blobFiles, type FileAdapter } from "../files";
+import { withoutMetadata, type ByteSource } from "../metadata";
+import { previewText } from "../notify";
 import { Engine, TelegramError, type TdObject, type TelegramAdapter } from "./engine";
-import { chatKey, chatKind, chatSenderView, conversationView, displayName, idOf, int, isObject, kindOf, list, messageView, muteFor, positionIn, presenceOf, senderOf, str, userView } from "./map";
-import { fromMarkup } from "./markup";
+import {
+  TELEGRAM_FILE,
+  attachmentsOf,
+  chatKey,
+  chatKind,
+  chatSenderView,
+  conversationView,
+  displayName,
+  formatted,
+  idOf,
+  int,
+  isObject,
+  kindOf,
+  list,
+  messageView,
+  muteFor,
+  positionIn,
+  presenceOf,
+  senderOf,
+  str,
+  userView,
+  waveformToTelegram,
+} from "./map";
+import { fromMarkup, toMarkup } from "./markup";
+
+/** A file the person sends: what `sendWithAttachments` takes, as a server's session does. */
+export interface OutgoingFile {
+  blob: Blob;
+  name: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  voice?: boolean;
+  waveform?: string;
+  round?: boolean;
+}
+
+/** What a chat's details list on their own, as TDLib's search filters find them. */
+const MEDIA_FILTERS: Record<string, string> = {
+  photo: "searchMessagesFilterPhoto",
+  video: "searchMessagesFilterVideo",
+  file: "searchMessagesFilterDocument",
+  audio: "searchMessagesFilterAudio",
+  voice: "searchMessagesFilterVoiceNote",
+  link: "searchMessagesFilterUrl",
+};
+
+/** How much of a file to send the engine at once, as it's written there a part at a time. */
+const UPLOAD_PART = 512 * 1024;
+/** Telegram's own limit for a file from an account without Premium. */
+const MOST_UPLOAD = 2000 * 1024 * 1024;
 
 export { TELEGRAM_ID };
 
@@ -66,6 +120,8 @@ const HANDLED = new Set([
   "updateMessageInteractionInfo",
   "updateDeleteMessages",
   "updateChatAction",
+  "updateFileGenerationStart",
+  "updateFileGenerationStop",
 ]);
 
 /** What Telegram's errors mean, in the app's words. */
@@ -86,6 +142,15 @@ function explain(error: unknown): Error {
     CHAT_WRITE_FORBIDDEN: "You can't write in this chat.",
     USER_IS_BLOCKED: "You can't write to this person.",
     MESSAGE_NOT_MODIFIED: "Nothing changed.",
+    INVITE_HASH_INVALID: "That link doesn't lead anywhere any more.",
+    INVITE_HASH_EXPIRED: "That link doesn't lead anywhere any more.",
+    "Wrong invite link": "That link doesn't lead anywhere any more.",
+    USERS_TOO_MUCH: "That group is full.",
+    CHANNELS_TOO_MUCH: "You're in as many groups as Telegram allows.",
+    CHAT_ADMIN_REQUIRED: "Only the group's admins can do that.",
+    USER_PRIVACY_RESTRICTED: "Their privacy settings on Telegram don't let you add them.",
+    USER_NOT_MUTUAL_CONTACT: "Only their contacts can add them.",
+    USER_CHANNELS_TOO_MUCH: "They're in as many groups as Telegram allows.",
   };
   for (const [code, text] of Object.entries(known)) if (message.includes(code)) return new Error(text);
   return new Error(error.code === 403 ? "Zuna doesn't do that on Telegram." : `Telegram said: ${message}`);
@@ -103,6 +168,8 @@ export interface TelegramSessionOptions {
   onLinked: () => void;
   /** The account is gone from this device: unlinked here, or its session ended from another device. */
   onGone: () => void;
+  /** How the files the person sends are read, as the host gives them. */
+  files?: FileAdapter;
 }
 
 export class TelegramSession {
@@ -127,9 +194,16 @@ export class TelegramSession {
   private signingOut = false;
   private ended = false;
   private linking: boolean;
+  /**
+   * Files being sent, by the name each was given to TDLib: it never reads them itself, but asks
+   * for each when it needs it (`updateFileGenerationStart`), and is written it a part at a time.
+   */
+  private outgoing = new Map<string, ByteSource>();
+  /** A group's people, as last asked of TDLib, for its details. */
+  private members = new Map<number, GroupMemberView[]>();
 
   constructor(
-    adapter: TelegramAdapter,
+    private readonly adapter: TelegramAdapter,
     private readonly options: TelegramSessionOptions,
   ) {
     this.engine = new Engine(adapter, (update) => this.onUpdate(update));
@@ -320,12 +394,17 @@ export class TelegramSession {
       this.users.set(this.selfId ?? 0, me);
       this.queueUsers();
       if (this.active) this.setActive(true);
-      // The list comes as updates, a page at a time, until Telegram says there's no more.
-      for (let page = 0; page < 50; page++) {
-        await this.engine.request({ "@type": "loadChats", chat_list: { "@type": "chatListMain" }, limit: 100 });
+      // The list comes as updates, a page at a time, until Telegram says there's no more, and the
+      // archive after it, which the app shows as its hidden chats.
+      for (const listKind of ["chatListMain", "chatListArchive"]) {
+        try {
+          for (let page = 0; page < 50; page++) await this.engine.request({ "@type": "loadChats", chat_list: { "@type": listKind }, limit: 100 });
+        } catch (error) {
+          if (!(error instanceof TelegramError && error.code === 404)) console.warn("[zuna] Telegram's chats couldn't be loaded", error);
+        }
       }
     } catch (error) {
-      if (!(error instanceof TelegramError && error.code === 404)) console.warn("[zuna] Telegram's chats couldn't be loaded", error);
+      console.warn("[zuna] Telegram's account couldn't be read", error);
     }
     this.queueConversations();
   }
@@ -445,8 +524,35 @@ export class TelegramSession {
       }
       case "updateChatAction":
         return this.onChatAction(update);
+      case "updateFileGenerationStart":
+        return void this.generate(update);
+      case "updateFileGenerationStop":
+        return;
       default:
         return this.patchChat(update);
+    }
+  }
+
+  /** TDLib asks for a file being sent: it's written there a part at a time, from the app's copy. */
+  private async generate(update: TdObject): Promise<void> {
+    const generation = str(update.generation_id, 24);
+    const source = this.outgoing.get(str(update.original_path, 300));
+    if (!/^\d+$/.test(generation)) return;
+    if (!source || str(update.conversion, 16) !== "zuna") {
+      await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: "That file isn't being sent" } }).catch(() => undefined);
+      return;
+    }
+    try {
+      for (let offset = 0; offset < source.size; offset += UPLOAD_PART) {
+        const part = await source.read(offset, Math.min(source.size, offset + UPLOAD_PART));
+        let binary = "";
+        for (const byte of part) binary += String.fromCharCode(byte);
+        await this.engine.request({ "@type": "writeGeneratedFilePart", generation_id: generation, offset, data: btoa(binary) });
+      }
+      await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: null });
+      this.outgoing.delete(str(update.original_path, 300));
+    } catch (error) {
+      await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: String(error) } }).catch(() => undefined);
     }
   }
 
@@ -617,13 +723,13 @@ export class TelegramSession {
     if (raw.is_outgoing === true || raw.disable_notification === true) return;
     const chatId = idOf(raw.chat_id);
     const chat = chatId ? this.listed(chatId) : undefined;
-    if (!chat || !positionIn(chat, "chatListMain")) return;
+    if (!chat || !(positionIn(chat, "chatListMain") || positionIn(chat, "chatListArchive"))) return;
     if (muteFor(chat, this.defaults) > 0 && raw.contains_unread_mention !== true) return;
     const message = this.view(raw);
     const key = chatKey(chat);
     if (!message || !key) return;
     const sender = this.nameOf(message.senderId);
-    const what = message.text.replace(/[*_~|`]/g, "").trim() || "Message";
+    const what = previewText(message) || "Message";
     const group = chatKind(chat) === "group";
     this.options.onEvent({
       type: "notify",
@@ -713,7 +819,7 @@ export class TelegramSession {
     const views: ConversationView[] = [];
     for (const chat of this.chats.values()) {
       const last = isObject(chat.last_message) ? this.view(chat.last_message) : null;
-      const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last });
+      const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last, members: this.members.get(idOf(chat.id) ?? 0) ?? [] });
       if (view) views.push(view);
     }
     return views;
@@ -725,12 +831,15 @@ export class TelegramSession {
     const mutedUntil: Record<string, number> = {};
     const markedUnread: string[] = [];
     const blocked: string[] = [];
+    const hidden: string[] = [];
     const now = Date.now();
     for (const chat of this.chats.values()) {
       const key = chatKey(chat);
       const position = positionIn(chat, "chatListMain");
-      if (!key || !position) continue;
-      if (position.pinned) pinned.push({ key, order: position.order });
+      const archived = positionIn(chat, "chatListArchive");
+      if (!key || !(position || archived)) continue;
+      if (position?.pinned) pinned.push({ key, order: position.order });
+      if (!position && archived) hidden.push(key);
       const mute = muteFor(chat, this.defaults);
       if (mute >= 366 * 86400) muted.push(key);
       else if (mute > 0) mutedUntil[key] = now + mute * 1000;
@@ -738,7 +847,7 @@ export class TelegramSession {
       if (chat.block_list != null && key.startsWith("user:")) blocked.push(key.slice(5));
     }
     pinned.sort((a, b) => (a.order < b.order ? 1 : a.order > b.order ? -1 : 0));
-    return { pinned: pinned.map((entry) => entry.key), hidden: [], muted, mutedUntil, markedUnread, mentionsOnly: [], blocked, reported: [], sendReadReceipts: true };
+    return { pinned: pinned.map((entry) => entry.key), hidden, muted, mutedUntil, markedUnread, mentionsOnly: [], blocked, reported: [], sendReadReceipts: true };
   }
 
   // What a server has and Telegram here doesn't: asked for alike, and empty.
@@ -762,6 +871,109 @@ export class TelegramSession {
   }
   getNewDevices(): [] {
     return [];
+  }
+
+  // --- Files ---
+
+  /**
+   * A file a message or a picture shows, by its `tg:` number: TDLib downloads it into its own
+   * folder, and the host hands that file to the interface, which reads it there.
+   */
+  async downloadFile(ref: { fileId: string; mime?: string }): Promise<Blob> {
+    const number = ref.fileId.match(TELEGRAM_FILE)?.[1];
+    if (!number) throw new Error("That isn't one of Telegram's files.");
+    const file = await this.engine.request({ "@type": "downloadFile", file_id: Number(number), priority: 16, offset: 0, limit: 0, synchronous: true }).catch((error) => {
+      throw explain(error);
+    });
+    const local = file.local as TdObject | undefined;
+    const path = str(local?.path, 4096);
+    if (local?.is_downloading_completed !== true || !path) throw new Error("Telegram didn't send that file.");
+    return this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
+  }
+
+  /** Sends files, each as the kind of message Telegram has for it, with the text on the first. */
+  async sendWithAttachments(groupKey: string, files: OutgoingFile[], body: MessageBody, options: { keepMetadata?: boolean } = {}): Promise<string> {
+    const reader = this.options.files ?? blobFiles;
+    if (files.length === 0) return (await this.sendMessage(groupKey, body)).id;
+    const tooBig = files.find((file) => reader.size(file.blob) > MOST_UPLOAD);
+    if (tooBig) throw new Error(`${tooBig.name} is larger than Telegram's 2 GB limit.`);
+    const chatId = await this.chatForKey(groupKey);
+    const caption = (body.text ?? "").trim();
+    const contents: TdObject[] = [];
+    for (const [index, file] of files.entries()) {
+      const whole: ByteSource = { size: reader.size(file.blob), read: (start, end) => reader.read(file.blob, start, end) };
+      // What the Privacy switch says goes for Telegram too: a voice or video message is recorded here, and holds nothing of it.
+      const source = options.keepMetadata || file.voice || file.round ? whole : await withoutMetadata(whole, file.mime, file.name);
+      contents.push(this.inputContent(file, source, index === 0 ? caption : ""));
+    }
+    const replyTo = body.replyTo && /^\d+$/.test(body.replyTo) ? { "@type": "inputMessageReplyToMessage", message_id: Number(body.replyTo), quote: null } : null;
+    // Pictures and videos together go as one album, of up to ten, as Telegram's apps send them.
+    const album = contents.length > 1 && contents.length <= 10 && contents.every((content) => content["@type"] === "inputMessagePhoto" || content["@type"] === "inputMessageVideo");
+    const sent: TdObject[] = [];
+    if (album) {
+      const answer = await this.engine.request({ "@type": "sendMessageAlbum", chat_id: chatId, topic_id: null, reply_to: replyTo, options: null, input_message_contents: contents }).catch((error) => {
+        throw explain(error);
+      });
+      sent.push(...list(answer.messages, 10).filter(isObject));
+    } else {
+      for (const [index, content] of contents.entries()) {
+        const message = await this.engine
+          .request({ "@type": "sendMessage", chat_id: chatId, topic_id: null, reply_to: index === 0 ? replyTo : null, options: null, reply_markup: null, input_message_content: content })
+          .catch((error) => {
+            throw explain(error);
+          });
+        sent.push(message);
+      }
+    }
+    for (const message of sent) {
+      this.remember(message);
+      const view = this.view(message);
+      if (view) this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
+    }
+    return String(idOf(sent[0]?.id) ?? "");
+  }
+
+  /** How one file goes to Telegram: as the engine will ask for it by a name made for this send. */
+  private inputContent(file: OutgoingFile, source: ByteSource, caption: string): TdObject {
+    const name = uploadName(file.name);
+    this.outgoing.set(name, source);
+    const input = { "@type": "inputFileGenerated", original_path: name, conversion: "zuna", expected_size: source.size };
+    const text = { "@type": "formattedText", ...fromMarkup(caption) };
+    const width = Math.max(0, Math.round(file.width ?? 0));
+    const height = Math.max(0, Math.round(file.height ?? 0));
+    const duration = Math.max(0, Math.round(file.duration ?? 0));
+    if (file.voice) return { "@type": "inputMessageVoiceNote", voice_note: { "@type": "inputVoiceNote", voice_note: input, duration, waveform: waveformToTelegram(file.waveform) }, caption: text, self_destruct_type: null };
+    if (file.round) return { "@type": "inputMessageVideoNote", video_note: { "@type": "inputVideoNote", video_note: input, thumbnail: null, duration, length: Math.min(width || 384, 640) }, self_destruct_type: null };
+    if (file.mime === "image/gif") return { "@type": "inputMessageAnimation", animation: { "@type": "inputAnimation", animation: input, thumbnail: null, added_sticker_file_ids: [], duration, width, height }, caption: text, show_caption_above_media: false, has_spoiler: false };
+    if (/^image\/(jpeg|png|webp)$/.test(file.mime)) return { "@type": "inputMessagePhoto", photo: { "@type": "inputPhoto", photo: input, thumbnail: null, video: null, added_sticker_file_ids: [], width, height }, caption: text, show_caption_above_media: false, self_destruct_type: null, has_spoiler: false };
+    if (file.mime.startsWith("video/")) return { "@type": "inputMessageVideo", video: { "@type": "inputVideo", video: input, thumbnail: null, cover: null, start_timestamp: 0, added_sticker_file_ids: [], duration, width, height, supports_streaming: true }, caption: text, show_caption_above_media: false, self_destruct_type: null, has_spoiler: false };
+    if (file.mime.startsWith("audio/")) return { "@type": "inputMessageAudio", audio: { "@type": "inputAudio", audio: input, album_cover_thumbnail: null, duration, title: "", performer: "" }, caption: text };
+    return { "@type": "inputMessageDocument", document: { "@type": "inputDocument", document: input, thumbnail: null, disable_content_type_detection: false }, caption: text };
+  }
+
+  /** How many of each kind a chat holds, as Telegram counts them, for a chat's details. */
+  async mediaCounts(groupId: string): Promise<Record<string, number>> {
+    const chatId = this.chatOf(groupId);
+    const counts: Record<string, number> = {};
+    for (const [kind, filter] of Object.entries(MEDIA_FILTERS)) {
+      const found = await this.engine.request({ "@type": "getChatMessageCount", chat_id: chatId, topic_id: null, filter: { "@type": filter }, return_local: false }).catch(() => null);
+      counts[kind] = int(found?.count, 0, 2 ** 31, 0);
+    }
+    return counts;
+  }
+
+  /** One kind of what a chat holds, newest first, a page at a time. */
+  async loadMedia(groupId: string, kind: string, before?: number, limit = PAGE_SIZE): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+    const chatId = this.chatOf(groupId);
+    const filter = MEDIA_FILTERS[kind];
+    if (!filter) return { messages: [], hasMore: false };
+    const count = Math.max(1, Math.min(limit, 100));
+    const found = await this.engine
+      .request({ "@type": "searchChatMessages", chat_id: chatId, topic_id: null, query: "", sender_id: null, from_message_id: before ?? 0, offset: 0, limit: count, filter: { "@type": filter } })
+      .catch(() => null);
+    const messages = list(found?.messages, 100).filter(isObject).filter((message) => before === undefined || (idOf(message.id) ?? 0) < before);
+    for (const message of messages) this.remember(message);
+    return { messages: this.views(messages), hasMore: messages.length >= count };
   }
 
   // --- Messages ---
@@ -868,6 +1080,7 @@ export class TelegramSession {
     if (this.opened !== null) void this.engine.request({ "@type": "closeChat", chat_id: this.opened }).catch(() => undefined);
     this.opened = chatId;
     await this.engine.request({ "@type": "openChat", chat_id: chatId }).catch(() => undefined);
+    void this.loadMembers(chatId);
   }
 
   /** Where a conversation's key points, making the chat with someone if there's none yet. */
@@ -888,7 +1101,7 @@ export class TelegramSession {
   }
 
   async sendMessage(groupKey: string, body: MessageBody): Promise<MessageView> {
-    if (body.attachments?.length) throw new Error("Files can't be sent to Telegram from Zuna yet.");
+    if (body.attachments?.length) throw new Error("Those files were made for a Zuna server, not for Telegram.");
     if (body.forwarded) throw new Error("Nothing is forwarded between Zuna and Telegram.");
     const text = (body.text ?? "").trim();
     if (!text && !body.location) throw new Error("There's nothing to send.");
@@ -923,10 +1136,11 @@ export class TelegramSession {
     await this.deleteMessages(groupId, [id]);
   }
 
-  async deleteMessages(groupId: string, ids: string[]): Promise<void> {
+  /** Deletes for everyone, unless `forEveryone` is false, when it's for this account alone. */
+  async deleteMessages(groupId: string, ids: string[], forEveryone = true): Promise<void> {
     const chatId = this.chatOf(groupId);
     const messageIds = ids.map(Number).filter((id) => Number.isSafeInteger(id));
-    await this.engine.request({ "@type": "deleteMessages", chat_id: chatId, message_ids: messageIds, revoke: true }).catch((error) => {
+    await this.engine.request({ "@type": "deleteMessages", chat_id: chatId, message_ids: messageIds, revoke: forEveryone }).catch((error) => {
       throw explain(error);
     });
   }
@@ -981,11 +1195,24 @@ export class TelegramSession {
     if (int(chat?.unread_mention_count, 0, 1_000_000, 0) > 0) await this.engine.request({ "@type": "readAllChatMentions", chat_id: chatId }).catch(() => undefined);
   }
 
-  unreadMentions(): { id: string; seq: number }[] {
-    return [];
+  /** The unread messages that mention this account in a group, oldest first, for jumping to each. */
+  async unreadMentions(groupId: string, after = 0): Promise<{ id: string; seq: number }[]> {
+    const chatId = this.chatOf(groupId);
+    const found = await this.engine
+      .request({ "@type": "searchChatMessages", chat_id: chatId, topic_id: null, query: "", sender_id: null, from_message_id: 0, offset: 0, limit: 100, filter: { "@type": "searchMessagesFilterUnreadMention" } })
+      .catch(() => null);
+    return list(found?.messages, 100)
+      .map((message) => idOf((message as TdObject).id))
+      .filter((id): id is number => !!id && id > after)
+      .sort((a, b) => a - b)
+      .map((id) => ({ id: String(id), seq: id }));
   }
 
-  markMentionSeen(): void {}
+  /** A mention jumped to is read, as Telegram counts it. */
+  markMentionSeen(groupId: string, id: string): void {
+    const chatId = this.chatOf(groupId);
+    void this.engine.request({ "@type": "viewMessages", chat_id: chatId, message_ids: [Number(id)], source: { "@type": "messageSourceChatHistory" }, force_read: true }).catch(() => undefined);
+  }
 
   async setMarkedUnread(key: string, marked: boolean): Promise<void> {
     const chatId = await this.chatForKey(key);
@@ -1033,14 +1260,37 @@ export class TelegramSession {
    * pinned chats are Telegram's own pins. What Telegram has no such thing for is refused.
    */
   async updatePreferences(patch: Partial<Preferences>): Promise<void> {
-    const { pinned, ...rest } = patch;
+    const { pinned, hidden, ...rest } = patch;
     if (Object.keys(rest).length > 0) throw new Error("Telegram keeps that in its own apps.");
     if (pinned) await this.setPinnedChats(pinned);
+    if (hidden) await this.setArchived(hidden);
   }
 
-  /** A bot's button with data: Telegram asks the bot, and its answer, if any, is words to show. */
-  async pressButton(groupId: string, messageId: string, data: string): Promise<string> {
+  /** Telegram's archive is the app's hidden chats: what's hidden here is archived there, and back. */
+  private async setArchived(keys: string[]): Promise<void> {
+    const wanted = new Set(keys);
+    for (const chat of this.chats.values()) {
+      const key = chatKey(chat);
+      if (!key) continue;
+      const archived = !!positionIn(chat, "chatListArchive");
+      if (archived === wanted.has(key) || (!archived && !positionIn(chat, "chatListMain"))) continue;
+      const target = wanted.has(key) ? "chatListArchive" : "chatListMain";
+      await this.engine.request({ "@type": "addChatToList", chat_id: chat.id, chat_list: { "@type": target } }).catch((error) => {
+        throw explain(error);
+      });
+    }
+  }
+
+  /**
+   * A bot's button with data, by where it is under the message, as a server's session takes it:
+   * Telegram asks the bot, and its answer, if any, is words to show.
+   */
+  async pressButton(groupId: string, messageId: string, row: number, column: number): Promise<string> {
     const chatId = this.chatOf(groupId);
+    const message = this.find(chatId, Number(messageId));
+    const view = message ? this.view(message) : null;
+    const data = view?.buttons[row]?.[column]?.data;
+    if (data === undefined) throw new Error("That button isn't there any more.");
     const answer = await this.engine
       .request({ "@type": "getCallbackQueryAnswer", chat_id: chatId, message_id: Number(messageId), payload: { "@type": "callbackQueryPayloadData", data } })
       .catch((error) => {
@@ -1048,4 +1298,234 @@ export class TelegramSession {
       });
     return str(answer.text, 200);
   }
+
+  // --- Forwarding, drafts and what a message allows ---
+
+  /** Forwards messages to another of Telegram's chats, saying whose they were, as Telegram does. */
+  async forwardMessages(groupId: string, ids: string[], toKey: string): Promise<void> {
+    const fromChat = this.chatOf(groupId);
+    const toChat = await this.chatForKey(toKey);
+    const messageIds = ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    await this.engine
+      .request({ "@type": "forwardMessages", chat_id: toChat, topic_id: null, from_chat_id: fromChat, message_ids: messageIds, options: null, send_copy: false, remove_caption: false })
+      .catch((error) => {
+        throw explain(error);
+      });
+  }
+
+  /** What Telegram has for a chat as written but not sent, on any device of the account. */
+  getDraft(key: string): string {
+    const chat = [...this.chats.values()].find((candidate) => chatKey(candidate) === key);
+    const content = (chat?.draft_message as TdObject | undefined)?.content as TdObject | undefined;
+    if (kindOf(content) !== "draftMessageContentText") return "";
+    return toMarkup(formatted(content?.text));
+  }
+
+  /** Keeps what's written in a chat as Telegram's draft, which the account's other devices show. */
+  async saveDraft(key: string, text: string): Promise<void> {
+    const chatId = await this.chatForKey(key);
+    const trimmed = text.trim();
+    const draft = trimmed
+      ? { "@type": "draftMessage", reply_to: null, date: 0, content: { "@type": "draftMessageContentText", text: { "@type": "formattedText", ...fromMarkup(trimmed) }, link_preview_options: null }, effect_id: "0", suggested_post_info: null }
+      : null;
+    await this.engine.request({ "@type": "setChatDraftMessage", chat_id: chatId, topic_id: null, draft_message: draft }).catch(() => undefined);
+  }
+
+  /** Whether a message can go for everyone, or only for this account, as Telegram allows. */
+  async deleteChoices(groupId: string, id: string): Promise<{ forEveryone: boolean; forSelf: boolean }> {
+    const chatId = this.chatOf(groupId);
+    const properties = await this.engine.request({ "@type": "getMessageProperties", chat_id: chatId, message_id: Number(id) }).catch(() => null);
+    return { forEveryone: properties?.can_be_deleted_for_all_users === true, forSelf: properties?.can_be_deleted_only_for_self === true };
+  }
+
+  /** Marks a voice or video message as listened to, which its sender's apps show. */
+  async markListened(groupId: string, id: string): Promise<void> {
+    const chatId = this.chatOf(groupId);
+    await this.engine.request({ "@type": "openMessageContent", chat_id: chatId, message_id: Number(id) }).catch(() => undefined);
+  }
+
+  // --- Stickers ---
+
+  /** The account's own sticker sets, each with a picture of its first sticker. */
+  async getStickerSets(): Promise<{ id: string; title: string; cover: string | null }[]> {
+    const found = await this.engine.request({ "@type": "getInstalledStickerSets", sticker_type: { "@type": "stickerTypeRegular" } }).catch(() => null);
+    return list(found?.sets, 200)
+      .filter(isObject)
+      .flatMap((set) => {
+        const id = str(set.id, 24);
+        if (!/^\d+$/.test(id)) return [];
+        const first = list(set.covers, 1)[0] as TdObject | undefined;
+        return [{ id, title: str(set.title, 64) || "Stickers", cover: first ? stickerPicture(first)?.fileId ?? null : null }];
+      });
+  }
+
+  /** A set's stickers, each with the picture the app shows of it and what sending it takes. */
+  async getStickers(setId: string): Promise<{ file: number; picture: string; emoji: string; width: number; height: number }[]> {
+    if (!/^\d+$/.test(setId)) return [];
+    const set = await this.engine.request({ "@type": "getStickerSet", set_id: setId }).catch(() => null);
+    return list(set?.stickers, 200)
+      .filter(isObject)
+      .flatMap((sticker) => {
+        const file = int((sticker.sticker as TdObject | undefined)?.id, 1, 2 ** 31 - 1, 0);
+        const picture = stickerPicture(sticker);
+        if (!file || !picture) return [];
+        return [{ file, picture: picture.fileId, emoji: str(sticker.emoji, 16), width: int(sticker.width, 1, 2048, 512), height: int(sticker.height, 1, 2048, 512) }];
+      });
+  }
+
+  /** Sends one of the account's stickers, as Telegram's apps do. */
+  async sendSticker(groupKey: string, file: number, emoji: string, width: number, height: number): Promise<void> {
+    if (!Number.isSafeInteger(file) || file <= 0) throw new Error("That isn't one of your stickers.");
+    const chatId = await this.chatForKey(groupKey);
+    const content = { "@type": "inputMessageSticker", sticker: { "@type": "inputSticker", sticker: { "@type": "inputFileId", id: file }, thumbnail: null, width: Math.round(width), height: Math.round(height) }, emoji: emoji.slice(0, 16) };
+    const sent = await this.engine
+      .request({ "@type": "sendMessage", chat_id: chatId, topic_id: null, reply_to: null, options: null, reply_markup: null, input_message_content: content })
+      .catch((error) => {
+        throw explain(error);
+      });
+    this.remember(sent);
+    const view = this.view(sent);
+    if (view) this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
+  }
+
+  // --- Groups ---
+
+  /** Makes a group with these people, as Telegram's apps make a small one, and says its ID. */
+  async createGroup(name: string, memberIds: string[]): Promise<string> {
+    const title = name.trim().slice(0, 128);
+    if (!title) throw new Error("A group needs a name.");
+    const users = memberIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    const created = await this.engine.request({ "@type": "createNewBasicGroupChat", user_ids: users, title, message_auto_delete_time: 0 }).catch((error) => {
+      throw explain(error);
+    });
+    const chatId = idOf(created.chat_id);
+    if (!chatId) throw new Error("Telegram didn't make that group.");
+    return String(chatId);
+  }
+
+  async addMembers(groupId: string, userIds: string[]): Promise<void> {
+    const chatId = this.chatOf(groupId);
+    const users = userIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    await this.engine.request({ "@type": "addChatMembers", chat_id: chatId, user_ids: users }).catch((error) => {
+      throw explain(error);
+    });
+    void this.loadMembers(chatId);
+  }
+
+  async removeMember(groupId: string, userId: string): Promise<void> {
+    const chatId = this.chatOf(groupId);
+    await this.engine
+      .request({ "@type": "setChatMemberStatus", chat_id: chatId, member_id: { "@type": "messageSenderUser", user_id: Number(userId) }, status: { "@type": "chatMemberStatusLeft" } })
+      .catch((error) => {
+        throw explain(error);
+      });
+    void this.loadMembers(chatId);
+  }
+
+  async leaveGroup(groupId: string): Promise<void> {
+    const chatId = this.chatOf(groupId);
+    await this.engine.request({ "@type": "leaveChat", chat_id: chatId }).catch((error) => {
+      throw explain(error);
+    });
+  }
+
+  /** A group's name, and its picture, sent a part at a time as any file is. */
+  async updateGroupMeta(groupId: string, changes: { name?: string }, avatarBlob?: Blob | null): Promise<void> {
+    const chatId = this.chatOf(groupId);
+    if (changes.name !== undefined) {
+      const title = changes.name.trim().slice(0, 128);
+      if (!title) throw new Error("A group needs a name.");
+      await this.engine.request({ "@type": "setChatTitle", chat_id: chatId, title }).catch((error) => {
+        throw explain(error);
+      });
+    }
+    if (avatarBlob) {
+      const reader = this.options.files ?? blobFiles;
+      const whole: ByteSource = { size: reader.size(avatarBlob), read: (start, end) => reader.read(avatarBlob, start, end) };
+      const source = await withoutMetadata(whole, reader.type(avatarBlob), "picture.jpg");
+      const name = uploadName("picture.jpg");
+      this.outgoing.set(name, source);
+      await this.engine
+        .request({ "@type": "setChatPhoto", chat_id: chatId, photo: { "@type": "inputChatPhotoStatic", photo: { "@type": "inputFileGenerated", original_path: name, conversion: "zuna", expected_size: source.size } } })
+        .catch((error) => {
+          throw explain(error);
+        });
+    }
+  }
+
+  /** A link that brings people into a group, made by Telegram. */
+  async createInvite(groupId: string): Promise<string> {
+    const chatId = this.chatOf(groupId);
+    const link = await this.engine.request({ "@type": "createChatInviteLink", chat_id: chatId, name: "", expiration_date: 0, member_limit: 0, creates_join_request: false }).catch((error) => {
+      throw explain(error);
+    });
+    const url = str(link.invite_link, 256);
+    if (!/^https:\/\/t\.me\//.test(url)) throw new Error("Telegram didn't make a link.");
+    return url;
+  }
+
+  /** Joins a group by a link to it, and says its chat's ID. */
+  async joinByLink(link: string): Promise<string> {
+    const url = link.trim();
+    if (!/^(https?:\/\/)?(t\.me|telegram\.me)\/(\+|joinchat\/)[\w-]+$/i.test(url) && !/^tg:\/\/join\?invite=[\w-]+$/i.test(url)) throw new Error("That isn't a link to a Telegram group.");
+    // What it leads to, first: a channel or a paid group stays in Telegram's own app.
+    const info = await this.engine.request({ "@type": "checkChatInviteLink", invite_link: url }).catch((error) => {
+      throw explain(error);
+    });
+    if (kindOf(info.type) === "inviteLinkChatTypeChannel") throw new Error("That's a channel, and channels stay in Telegram's own app.");
+    if (isObject(info.subscription_info)) throw new Error("That group asks for a payment, which is made in Telegram's own app.");
+    const known = idOf(info.chat_id);
+    if (known && this.listed(known)) return String(known);
+    const joined = await this.engine.request({ "@type": "joinChatByInviteLink", invite_link: url }).catch((error) => {
+      throw explain(error);
+    });
+    const result = kindOf(joined);
+    if (result === "chatJoinResultRequestSent") throw new Error("You asked to join. The group's admins decide, and it appears here once they let you in.");
+    if (result === "chatJoinResultGuardBotApprovalRequired") throw new Error("That group's bot has to let you in first, in Telegram's own app.");
+    const chatId = result === "chatJoinResultSuccess" ? idOf(joined.chat_id) : null;
+    if (!chatId) throw new Error("Telegram didn't let you in.");
+    return String(chatId);
+  }
+
+  /** A group's people, as TDLib knows them, for its details. */
+  private async loadMembers(chatId: number): Promise<void> {
+    const chat = this.chats.get(chatId);
+    if (!chat || chatKind(chat) !== "group") return;
+    let members: unknown[] = [];
+    if (kindOf(chat.type) === "chatTypeBasicGroup") {
+      const info = await this.engine.request({ "@type": "getBasicGroupFullInfo", basic_group_id: (chat.type as TdObject).basic_group_id }).catch(() => null);
+      members = list(info?.members, 1000);
+    } else {
+      const found = await this.engine
+        .request({ "@type": "getSupergroupMembers", supergroup_id: (chat.type as TdObject).supergroup_id, filter: { "@type": "supergroupMembersFilterRecent" }, offset: 0, limit: 200 })
+        .catch(() => null);
+      members = list(found?.members, 200);
+    }
+    this.members.set(
+      chatId,
+      members.filter(isObject).flatMap((member) => {
+        const userId = senderOf(member.member_id);
+        const status = kindOf(member.status);
+        if (!userId || status === "chatMemberStatusLeft" || status === "chatMemberStatusBanned") return [];
+        return [{ userId, role: status === "chatMemberStatusCreator" || status === "chatMemberStatusAdministrator" ? ("admin" as const) : ("member" as const), joinedAt: int(member.joined_chat_date, 0, 2 ** 31, 0) * 1000 }];
+      }),
+    );
+    this.queueConversations();
+  }
 }
+
+/**
+ * What TDLib is told a file being sent is called: a name made for this send, which TDLib asks for
+ * it by, and the file's own name after it, which TDLib takes for the name Telegram shows.
+ */
+function uploadName(name: string): string {
+  const own = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "").slice(-200) || "file";
+  return `zuna-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}/${own}`;
+}
+
+/** The picture the app shows of a sticker: itself if it's still, its still thumbnail if not. */
+function stickerPicture(sticker: TdObject): { fileId: string } | null {
+  const found = attachmentsOf({ "@type": "messageSticker", sticker });
+  return found?.[0] ? { fileId: found[0].fileId } : null;
+}
+

@@ -186,13 +186,13 @@ impl SidePanel {
         let is_admin = conversation.is_admin(&self_id);
         let group = conversation.group_id.clone().unwrap_or_default();
         let mut parts = vec![self.group_card(conversation, is_admin, cx)];
-        // A Telegram group: what it is and its notifications. Its members and leaving it come later.
-        if server.entry.is_telegram() {
+        // A Telegram group says where its lock would be that it isn't end-to-end encrypted.
+        let telegram = server.entry.is_telegram();
+        if telegram {
             parts.push(Self::telegram_card(cx));
-            parts.push(self.preferences(server, conversation, cx));
-            return parts;
+        } else {
+            parts.push(notice("lock", "The server can see who is in this group, but not its name, picture or messages.", cx).into_any_element());
         }
-        parts.push(notice("lock", "The server can see who is in this group, but not its name, picture or messages.", cx).into_any_element());
         if let Some(rows) = self.media_rows(server, conversation, cx) {
             parts.push(rows);
         }
@@ -225,7 +225,10 @@ impl SidePanel {
                 self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
             });
             let is_me = member.user_id == self_id;
-            let detail = if member.not_on_roster == Some(true) {
+            let username = user.as_ref().map(|user| user.username.clone()).unwrap_or_default();
+            let detail = if telegram {
+                if username.is_empty() { String::new() } else { format!("@{username}") }
+            } else if member.not_on_roster == Some(true) {
                 "Has this chat's keys, but isn't listed as a member".to_string()
             } else if member.no_keys == Some(true) {
                 "No device in this chat yet".to_string()
@@ -275,8 +278,27 @@ impl SidePanel {
             );
         }
         parts.push(members.into_any_element());
-        parts.push(self.disappearing_row(conversation, is_admin, cx));
-        if is_admin {
+        // Telegram's own app sets a group's timer, and who reads what came before.
+        parts.push(self.disappearing_row(conversation, is_admin && !telegram, cx));
+        if telegram && is_admin {
+            let (state, group) = (self.state.clone(), group.clone());
+            parts.push(
+                Self::section(cx)
+                    .child(Self::row("invite-link", "link", "Copy invite link".into(), Some("Anyone with it can join this group on Telegram.".into()), false, cx).on_click(move |_, _, cx| {
+                        state.update(cx, |state, cx| {
+                            state.call(Some(crate::telegram::SERVER_ID), "createInvite", vec![json!(group)], cx, |state, result, cx| match result {
+                                Ok(value) => {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.as_str().unwrap_or_default().to_string()));
+                                    state.toast("Copied the invite link", crate::state::ToastKind::Info, cx);
+                                }
+                                Err(error) => state.toast(error.message, crate::state::ToastKind::Error, cx),
+                            })
+                        })
+                    }))
+                    .into_any_element(),
+            );
+        }
+        if is_admin && !telegram {
             let (state, server_id, group) = (self.state.clone(), self.server_id.clone(), group.clone());
             let on = conversation.history_visible;
             parts.push(
@@ -314,7 +336,7 @@ impl SidePanel {
                         state.select_conversation(None, cx);
                     })
                 }))
-                .when(is_admin, |el| {
+                .when(is_admin && !telegram, |el| {
                     el.child(Self::row("delete-group", "trash", "Delete group for everyone".into(), None, true, cx).on_click(move |_, _, cx| {
                         delete_state.update(cx, |state, cx| {
                             state.act("deleteGroup", vec![json!(delete_group)], cx);
@@ -335,6 +357,16 @@ impl SidePanel {
         let mut entries = Vec::new();
         let (s, key) = (state.clone(), format!("user:{user_id}"));
         entries.push(MenuEntry::new("Message", "check", move |_, cx| s.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
+        // A Telegram group's people have no keys of Zuna's to verify, and its admins are set in Telegram's app.
+        let telegram = server.entry.is_telegram();
+        if telegram {
+            if is_admin && user_id != server.self_id() {
+                entries.push(MenuEntry::separator());
+                let (s, g, id) = (state.clone(), group.clone(), user_id.clone());
+                entries.push(MenuEntry::new("Remove from group", "user-minus", move |_, cx| s.update(cx, |state, cx| state.act("removeMember", vec![json!(g), json!(id)], cx))).danger());
+            }
+            return entries;
+        }
         let (s, id) = (state.clone(), user_id.clone());
         entries.push(MenuEntry::new("Verify security key", "shield", move |_, cx| s.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: id.clone() }), cx))));
         if user_id != server.self_id() {

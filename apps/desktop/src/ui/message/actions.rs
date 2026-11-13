@@ -84,13 +84,11 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
         let (state, list_id, message) = (state.clone(), list_id.clone(), message.clone());
         entries.push(MenuEntry::new("Reply", "corner-up-left", move |_, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(message.clone()), cx))));
         let (forward_state, server_id, forward_group, forward_id) = (context.state.clone(), context.server_id.clone(), group.clone(), id.clone());
-        // Nothing goes between Zuna's chats and Telegram's, and forwarding inside Telegram comes later.
-        if context.server_id != crate::telegram::SERVER_ID {
-            entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
-                let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
-                forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
-            }));
-        }
+        // From Telegram, only to Telegram's own chats (the picker keeps them apart).
+        entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
+            let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
+            forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
+        }));
         let (select_state, select_list, select_id) = (context.state.clone(), context.list_id.clone(), id.clone());
         entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
@@ -143,7 +141,13 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
         entries.push(MenuEntry::new("Discard", "trash", move |_, cx| state.update(cx, |state, cx| state.act("discardMessage", vec![json!(group), json!(id)], cx))).danger());
     }
-    if can_act && (own || (context.is_group && context.is_group_admin)) {
+    if can_act && context.server_id == crate::telegram::SERVER_ID {
+        // Telegram decides: for everyone where it allows it, and for this account alone otherwise,
+        // which the app then says.
+        entries.push(MenuEntry::separator());
+        let (state, group, id) = (state.clone(), group.clone(), id.clone());
+        entries.push(MenuEntry::new("Delete", "trash", move |_, cx| state.update(cx, |state, cx| state.delete_telegram_message(group.clone(), id.clone(), cx))).danger());
+    } else if can_act && (own || (context.is_group && context.is_group_admin)) {
         entries.push(MenuEntry::separator());
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
         entries.push(MenuEntry::new("Delete for everyone", "trash", move |_, cx| state.update(cx, |state, cx| state.act("deleteMessage", vec![json!(group), json!(id)], cx))).danger());

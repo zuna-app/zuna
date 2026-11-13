@@ -260,9 +260,8 @@ impl ChatView {
             return area.into_any_element();
         }
         let wait = if editing.is_none() { self.slow_wait(conversation, cx) } else { 0 };
-        // With nothing written, the camera and the microphone are where the send button was. Not on
-        // Telegram, which takes no files from here yet, a recording among them.
-        let show_record = !can_send && editing.is_none() && wait == 0 && !telegram;
+        // With nothing written, the camera and the microphone are where the send button was.
+        let show_record = !can_send && editing.is_none() && wait == 0;
         let send_ready = can_send;
         // A channel's waiting send button is text-2, a chat's text-3.
         let send_color = if send_ready { theme.text1 } else if is_channel { theme.text2 } else { theme.text3 };
@@ -309,7 +308,7 @@ impl ChatView {
                 .children(crate::ui::plugins::composer_buttons(cx).into_iter().map(|button| div().h(px(44.)).flex().items_center().child(button)))
         } else {
             let plugin_buttons = if editing.is_none() && !telegram { crate::ui::plugins::composer_buttons(cx) } else { Vec::new() };
-            div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none() && !telegram, |el| {
+            div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
                 el.child(icon_button("attach", "paperclip", 18., false, false, cx).tip("Attach", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
             })
             .children(plugin_buttons)
@@ -336,6 +335,7 @@ impl ChatView {
                 )
                 .child(composer_button("emoji", "face-slightly-smiling", cx).child(emoji_probe).tip("Emoji and emotes", Side::Top).on_click(cx.listener(move |view, _: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
+                    let (sticker_state, sticker_key) = (view.state.clone(), view.key.clone());
                     // As the web's: 330 px left of the button's right edge, at its top.
                     let at = emoji_bounds.get();
                     let position = gpui::point(at.right() - px(330.), at.top());
@@ -343,8 +343,21 @@ impl ChatView {
                         position,
                         true,
                         move |pick, window, cx| {
+                            // A Telegram sticker goes at once, as a message of its own.
+                            if let crate::ui::picker::Pick::Sticker(sticker) = &pick {
+                                let args = vec![json!(sticker_key), json!(sticker.file), json!(sticker.emoji), json!(sticker.width), json!(sticker.height)];
+                                sticker_state.update(cx, |state, cx| {
+                                    state.call(Some(crate::telegram::SERVER_ID), "sendSticker", args, cx, |state, result, cx| {
+                                        if let Err(error) = result {
+                                            state.toast(error.message, ToastKind::Error, cx);
+                                        }
+                                    })
+                                });
+                                return;
+                            }
                             composer.update(cx, |input, cx| {
                                 let text = match pick {
+                                    crate::ui::picker::Pick::Sticker(_) => String::new(),
                                     crate::ui::picker::Pick::Emoji(value) => value,
                                     crate::ui::picker::Pick::Emote(emote) => {
                                         let before = &input.text()[..input.cursor().min(input.text().len())];

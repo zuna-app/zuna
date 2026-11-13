@@ -474,6 +474,7 @@ export class ZunaClient {
     const adapter = this.options.telegram!;
     const session: TelegramSession = new TelegramSession(adapter, {
       linking,
+      files: this.options.files,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);
       },
@@ -537,6 +538,7 @@ export class ZunaClient {
   async forwardMessages(fromServerId: string, groupId: string, ids: string[], toServerId: string, toKey: string): Promise<void> {
     // Telegram's chats aren't end-to-end encrypted, and a Zuna chat's messages never go there, nor
     // Telegram's into one: copying text is the person's own act.
+    if (fromServerId === TELEGRAM_ID && toServerId === TELEGRAM_ID) return this.telegramSession.forwardMessages(groupId, ids, toKey);
     if (fromServerId === TELEGRAM_ID || toServerId === TELEGRAM_ID) throw new Error("Nothing is forwarded between Zuna and Telegram.");
     const source = this.session(fromServerId);
     // All of them are checked before any is sent.
