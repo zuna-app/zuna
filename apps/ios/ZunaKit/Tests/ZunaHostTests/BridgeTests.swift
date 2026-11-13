@@ -1,5 +1,8 @@
+import CoreGraphics
+import ImageIO
 import JavaScriptCore
 import Network
+import UniformTypeIdentifiers
 import XCTest
 @testable import ZunaHost
 
@@ -207,5 +210,83 @@ final class BridgeTests: XCTestCase {
             __zunaDb.exec(insert, [1]);
             __zunaDb.exec(insert, [1]);
             """))
+        XCTAssertThrowsError(try run("__zunaDb.run(__zunaDb.open('bad'), 'NOT SQL AT ALL')"))
+        XCTAssertThrowsError(try run("__zunaDb.run(12345, 'SELECT 1')"), "a closed database")
+        // A name that can't be a file can't be opened.
+        XCTAssertThrowsError(try run("__zunaDb.open('no/such/folder/db')"))
+    }
+
+    func testValuesOfEveryKindAreStoredAsTheCoreGivesThem() throws {
+        let result = try run("""
+            const db = __zunaDb.open('kinds');
+            __zunaDb.run(db, 'CREATE TABLE t (v)');
+            const insert = __zunaDb.prepare(db, 'INSERT INTO t VALUES (?)');
+            __zunaDb.exec(insert, [true]);
+            __zunaDb.exec(insert, [false]);
+            __zunaDb.exec(insert, [undefined]);
+            __zunaDb.exec(insert, [new Uint8Array([4, 5]).buffer]);
+            __zunaDb.exec(insert, [new ArrayBuffer(0)]);
+            let tooBig = '';
+            try { __zunaDb.exec(insert, [2n ** 70n]); } catch (error) { tooBig = error.message; }
+            const rows = __zunaDb.query(__zunaDb.prepare(db, 'SELECT v FROM t'), []);
+            [rows.map(r => r.v instanceof Uint8Array ? 'bytes:' + r.v.join(',') : String(r.v)).join(' '), tooBig].join('|')
+            """)
+        XCTAssertEqual(result.toString(), "1 0 null bytes:4,5 bytes:|A number too big to store.")
+    }
+
+    func testARemovedDatabaseIsClosedAndGone() throws {
+        try run("""
+            const db = __zunaDb.open('gone');
+            __zunaDb.run(db, 'CREATE TABLE t (x INTEGER)');
+            globalThis.select = __zunaDb.prepare(db, 'SELECT x FROM t');
+            __zunaDb.remove('gone');
+            __zunaDb.remove('never-opened');
+            """)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: database.path(for: "gone").path))
+        XCTAssertThrowsError(try run("__zunaDb.query(select, [])"))
+        XCTAssertEqual(try run("__zunaDb.query(__zunaDb.prepare(__zunaDb.open('gone'), 'SELECT 1 AS one'), [])[0].one").toInt32(), 1)
+    }
+
+    func testBytesAreReadFromABufferAndAsWholeNumbers() throws {
+        XCTAssertEqual(JSBytes.read(try run("new Uint8Array([1, 2, 3]).buffer")), Data([1, 2, 3]))
+        XCTAssertEqual(JSBytes.read(try run("new ArrayBuffer(0)")), Data())
+        XCTAssertNil(JSBytes.read(try run("'text'")))
+        XCTAssertNil(JSBytes.read(nil))
+        XCTAssertEqual(JSBytes.readUInt32s(try run("new Uint32Array([1, 70000])")), [1, 70000])
+        XCTAssertEqual(JSBytes.readUInt32s(nil), [])
+        XCTAssertEqual(try run("[1, 2, 3]").arrayElements.map { $0.toInt32() }, [1, 2, 3])
+    }
+
+    func testTheWatchPageFramesOnlyThePlayerItsGiven() throws {
+        let page = try XCTUnwrap(WatchPage.html(player: "https://player.example"))
+        XCTAssertTrue(page.contains("https://player.example"))
+        XCTAssertFalse(page.contains("{{player}}"))
+        XCTAssertTrue(try XCTUnwrap(WatchPage.html()).contains(WatchPage.youtube))
+    }
+
+    func testPicturesAreShrunkOntoWhiteAsJPEG() throws {
+        let canvas = try XCTUnwrap(CGContext(data: nil, width: 400, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        canvas.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 0.5))
+        canvas.fill(CGRect(x: 0, y: 0, width: 200, height: 200))
+        let png = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(png, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(canvas.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let shrunk = try XCTUnwrap(WebBridge.shrink(png as Data, maxSize: 100))
+        XCTAssertEqual(shrunk.width, 100)
+        XCTAssertEqual(shrunk.height, 50)
+        XCTAssertTrue(shrunk.data.hasPrefix("data:image/jpeg;base64,"))
+        XCTAssertNil(WebBridge.shrink(Data("not a picture".utf8), maxSize: 100))
+
+        // As the core asks for it.
+        let bridge = WebBridge(queue: DispatchQueue(label: "shrink")) { _, _ in }
+        let object = JSValue(newObjectIn: context)!
+        bridge.install(into: object)
+        context.setObject(object, forKeyedSubscript: "web" as NSString)
+        context.setObject(JSBytes.make(png as Data, in: context), forKeyedSubscript: "png" as NSString)
+        XCTAssertEqual(try run("const small = web.imageShrink(png, 40); [small.width, small.height, small.data.slice(0, 10)].join(',')").toString(), "40,20,data:image")
+        XCTAssertTrue(try run("web.imageShrink(new Uint8Array([1, 2, 3]), 40)").isNull)
     }
 }
