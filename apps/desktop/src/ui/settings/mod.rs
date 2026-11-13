@@ -321,6 +321,14 @@ impl SettingsView {
     }
 }
 
+#[cfg(test)]
+impl SettingsView {
+    /// The profile's name and about fields, for tests outside the settings' own.
+    pub fn profile_fields(&self) -> (Entity<TextInput>, Entity<TextInput>) {
+        (self.display_name.clone(), self.bio.clone())
+    }
+}
+
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);

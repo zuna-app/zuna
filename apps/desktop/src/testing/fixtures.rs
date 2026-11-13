@@ -115,7 +115,7 @@ impl World {
         server.insert("getUsers".into(), users);
         server.insert("getConversations".into(), conversations);
         server.insert("getChannels".into(), channels);
-        server.insert("getEmotes".into(), json!({ "setId": "set", "setName": "Our set", "emotes": [{ "id": "01KAPPA", "name": "Kappa", "animated": false, "width": 28, "height": 28 }] }));
+        server.insert("getEmotes".into(), json!({ "set_id": "set", "set_name": "Our set", "emotes": [{ "id": "01KAPPA", "name": "Kappa", "animated": false, "width": 28, "height": 28 }] }));
         server.insert("getPreferences".into(), json!({ "pinned": [format!("user:{BOB}")], "hidden": [], "muted": [format!("group:{GROUP}")], "sendReadReceipts": true, "blocked": [CAROL] }));
         server.insert("getSelf".into(), json!({ "userId": ME, "username": "alice", "role": "owner", "deviceId": "d-1" }));
         server.insert("getConnectionState".into(), json!("online"));

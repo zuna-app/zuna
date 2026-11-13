@@ -59,8 +59,7 @@ impl SettingsView {
                         .when(me.avatar.is_some(), |el| {
                             let state = self.state.clone();
                             el.child(
-                                div()
-                                    .id("remove-avatar")
+                                named_div("remove-avatar")
                                     .text_size(px(13.))
                                     .text_color(theme.text2)
                                     .cursor_pointer()

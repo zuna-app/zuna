@@ -192,3 +192,106 @@ impl ServerSettings {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The server's invites and emote set, and this person's profile, from their settings.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World, refused};
+
+    fn open(cx: &mut TestAppContext, name: &str, overlay: Overlay) -> Running {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        world.server["invites"][0]["expiresAt"] = json!(NOW + 86_400_000.0 * 3.0);
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(overlay), cx);
+        });
+        app
+    }
+
+    fn settings(app: &Running, cx: &mut TestAppContext) -> Entity<ServerSettings> {
+        app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<ServerSettings>().ok())).unwrap().expect("the server's settings are open")
+    }
+
+    fn pick(app: &Running, cx: &mut TestAppContext, select: &str, entry: usize) {
+        app.click(cx, select);
+        let label = cx.read(|cx| crate::ui::menu::open_labels(cx))[entry].clone();
+        assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose(&label, window, cx)).unwrap());
+        app.run(cx);
+    }
+
+    #[gpui::test]
+    fn invites_are_made_copied_and_revoked(cx: &mut TestAppContext) {
+        let app = open(cx, "invite-settings", Overlay::ServerSettings { section: Some("invites".into()) });
+        app.answer("createInvite", |_| Ok(json!("https://server-1.example/invite/new")));
+        app.answer("linkForInvite", |_| Ok(json!("https://server-1.example/invite/abc")));
+        app.answer("revokeInvite", |_| Ok(Value::Null));
+        pick(&app, cx, "invite-expiry", 0);
+        pick(&app, cx, "invite-uses", 0);
+        app.click(cx, "create-invite");
+        let made = &app.calls_of("createInvite")[0];
+        assert_eq!(made.len(), 2);
+        assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("https://server-1.example/invite/new"), "copied as it's made");
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(String::new()));
+        app.click(cx, "copy-invite");
+        assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("https://server-1.example/invite/new"));
+        app.click(cx, "copy-abc");
+        assert_eq!(app.calls_of("linkForInvite"), vec![vec![json!("abc")]]);
+        app.click(cx, "revoke-abc");
+        assert_eq!(app.calls_of("revokeInvite"), vec![vec![json!("abc")]]);
+        app.answer("createInvite", |_| Err(refused("Too many invites.")));
+        app.click(cx, "create-invite");
+        assert!(app.toasts(cx).contains(&"Too many invites.".to_string()));
+    }
+
+    #[gpui::test]
+    fn a_new_emote_set_and_the_one_in_use_refreshed(cx: &mut TestAppContext) {
+        let app = open(cx, "emote-settings", Overlay::ServerSettings { section: Some("emotes".into()) });
+        app.answer("setEmoteSet", |args| if args[0] == "bad" { Err(refused("That isn't a 7TV set.")) } else { Ok(json!({ "set_name": "Fresh", "count": 12 })) });
+        let view = settings(&app, cx);
+        let link = cx.read(|cx| view.read(cx).emote_link.clone());
+        link.update(cx, |input, cx| input.set_text("https://7tv.app/emote-sets/01NEWSET", cx));
+        app.run(cx);
+        app.click(cx, "use-set");
+        assert!(app.toasts(cx).contains(&"Now using Fresh (12 emotes)".to_string()));
+        assert_eq!(cx.read(|cx| link.read(cx).text().to_string()), "", "the link emptied once it's used");
+        app.click(cx, "refresh-emotes");
+        assert_eq!(app.calls_of("setEmoteSet").last().unwrap(), &vec![json!("set")], "the set in use, read again");
+        link.update(cx, |input, cx| input.set_text("bad", cx));
+        app.run(cx);
+        app.click(cx, "use-set");
+        assert!(app.toasts(cx).contains(&"That isn't a 7TV set.".to_string()));
+    }
+
+    #[gpui::test]
+    fn a_profile_is_saved_and_its_picture_taken_off(cx: &mut TestAppContext) {
+        let mut world = World::new("profile-settings");
+        world.server["getCalls"] = json!([]);
+        world.server["getUsers"][0]["avatar"] = json!({ "fileId": "a".repeat(32), "key": "k", "prefix": "p", "chunks": 1, "mime": "image/png" });
+        let app = Running::open(cx, &world);
+        app.answer("updateProfile", |args| if args[0]["displayName"] == "" { Err(refused("A name is needed.")) } else { Ok(Value::Null) });
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::Settings { section: Some("profile".into()) }), cx);
+        });
+        let view = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<crate::ui::settings::SettingsView>().ok())).unwrap().expect("Settings are open");
+        let (name, bio) = cx.read(|cx| view.read(cx).profile_fields());
+        name.update(cx, |input, cx| input.set_text("Alice A.", cx));
+        bio.update(cx, |input, cx| input.set_text("Still me", cx));
+        app.run(cx);
+        app.click(cx, "save-profile");
+        assert_eq!(app.calls_of("updateProfile")[0], vec![json!({ "displayName": "Alice A.", "bio": "Still me" })]);
+        app.click(cx, "remove-avatar");
+        assert_eq!(app.calls_of("updateProfile")[1], vec![json!({}), Value::Null]);
+    }
+}
