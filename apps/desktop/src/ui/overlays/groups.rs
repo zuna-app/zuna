@@ -121,8 +121,7 @@ impl Dialog {
             });
             let row_bg = if selected { theme.bg3 } else { theme.bg1 };
             people = people.child(
-                div()
-                    .id(SharedString::from(format!("person-{}", user.id)))
+                named_div(SharedString::from(format!("person-{}", user.id)))
                     .w_full()
                     .flex()
                     .items_center()
@@ -272,8 +271,7 @@ impl Dialog {
                 let (to_server, key) = (server_id.clone(), chat.key.clone());
                 let (from_server, group_id, ids) = (from_server.clone(), group_id.clone(), ids.clone());
                 section = section.child(
-                    div()
-                        .id(SharedString::from(format!("forward-{server_id}-{}", chat.key)))
+                    named_div(SharedString::from(format!("forward-{server_id}-{}", chat.key)))
                         .w_full()
                         .flex()
                         .items_center()
@@ -355,8 +353,7 @@ impl Dialog {
             });
             let row_bg = if selected { theme.bg3 } else { theme.bg1 };
             people = people.child(
-                div()
-                    .id(SharedString::from(format!("person-{}", user.id)))
+                named_div(SharedString::from(format!("person-{}", user.id)))
                     .w_full()
                     .flex()
                     .items_center()

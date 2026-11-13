@@ -8,6 +8,8 @@ mod location;
 mod channel;
 mod proxy;
 mod telegram;
+#[cfg(test)]
+mod tests;
 
 use std::collections::BTreeSet;
 

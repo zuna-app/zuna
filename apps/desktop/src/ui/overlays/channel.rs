@@ -16,8 +16,7 @@ impl Dialog {
         if channel.is_none() {
             let choice = |kind: &'static str, icon_name: &'static str, title: &'static str, text: &'static str, active: bool, cx: &mut Context<Self>| {
                 // Two equal columns, as `.channel-types`, the text wrapping inside each.
-                div()
-                    .id(kind)
+                named_div(kind)
                     .flex_1()
                     .flex_basis(px(0.))
                     .min_w_0()
