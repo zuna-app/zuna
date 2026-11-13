@@ -260,8 +260,9 @@ impl ChatView {
             return area.into_any_element();
         }
         let wait = if editing.is_none() { self.slow_wait(conversation, cx) } else { 0 };
-        // With nothing written, the camera and the microphone are where the send button was.
-        let show_record = !can_send && editing.is_none() && wait == 0;
+        // With nothing written, the camera and the microphone are where the send button was. Not on
+        // Telegram, which takes no files from here yet, a recording among them.
+        let show_record = !can_send && editing.is_none() && wait == 0 && !telegram;
         let send_ready = can_send;
         // A channel's waiting send button is text-2, a chat's text-3.
         let send_color = if send_ready { theme.text1 } else if is_channel { theme.text2 } else { theme.text3 };

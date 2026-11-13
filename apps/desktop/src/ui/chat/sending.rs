@@ -371,7 +371,17 @@ impl ChatView {
     }
 
     /// Adds files to go with the next message, up to ten, read for their chips away from the window.
+    /// Whether this chat is the linked Telegram account's, which takes text alone for now.
+    pub(super) fn on_telegram(&self, cx: &gpui::App) -> bool {
+        self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram())
+    }
+
     pub(super) fn add_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        // Dropped or pasted there, they'd wait in the box for a send that can't take them.
+        if self.on_telegram(cx) {
+            self.state.update(cx, |state, cx| state.toast("Zuna can't send files on Telegram yet.", ToastKind::Info, cx));
+            return;
+        }
         let room = MAX_FILES.saturating_sub(self.files.len());
         let paths: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).take(room).collect();
         if paths.is_empty() {

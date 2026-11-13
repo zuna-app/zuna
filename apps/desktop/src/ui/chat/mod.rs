@@ -673,7 +673,8 @@ impl Render for ChatView {
                 }
             }))
             .on_drag_move(cx.listener(|view, event: &gpui::DragMoveEvent<ExternalPaths>, _, cx| {
-                let over = event.bounds.contains(&event.event.position);
+                // Nothing invites a drop into a Telegram chat, which takes no files yet.
+                let over = event.bounds.contains(&event.event.position) && !view.on_telegram(cx);
                 if over != view.drop_over {
                     view.drop_over = over;
                     cx.notify();
