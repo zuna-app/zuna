@@ -1,10 +1,10 @@
 # Rotating the account key
 
-**Status:** built through Stage 5, at the owner's direction, ahead of cryptographic review, and most of Stage 6: nothing is kept for older clients, since there's been no release. **Nobody independent has reviewed it.** Section 13 is what a reviewer should look at first. What's left of Stage 6 is dropping the root secret from the core. Swift couldn't be compiled where this was built, so the iOS side has only been read, and needs `npm run build:ios` and the iOS tests on a Mac. The web app runs the same core, so it does all of this too, and its check passed in Edge, but not yet in Firefox or WebKit.
+**Status:** built, at the owner's direction, ahead of cryptographic review, apart from dropping the root secret from the core (section 12). Nothing is kept for older clients, since there's been no release. **Nobody independent has reviewed it.** Section 13 is what a reviewer should look at first. Swift couldn't be compiled where this was built, so the iOS side has only been read, and needs `npm run build:ios` and the iOS tests on a Mac. The web app runs the same core, so it does all of this too, and its check passed in Edge, but not yet in Firefox or WebKit.
 
 **Scope:** finding Z-04 of the security audit of 2026-10-31. Sessions already ended when they should (commit `c8aedbb`), but the keys behind them never changed, so someone who once had an account couldn't really be put out of it.
 
-Section 3 describes how things worked before this, checked against the code at commit `048130c`, and its file and line references are to that commit. The rest of this document describes what's built. The code is in `packages/core/src/generations.ts`, the "Account generations" part of `session.ts`, and `server/internal/api/generations.go` and `store/generations.go`.
+Section 3 describes how things worked before this, checked against the code at commit `048130c`, and its file and line references are to that commit. The rest of this document describes what's built. The code is in `packages/core/src/generations.ts`, the "Account generations" part of `ServerSession` (`packages/core/src/session/`), and `server/internal/api/generations.go` and `store/generations.go`.
 
 **The owner's constraint:** no part of this may add a step, prompt or setting for people using the app.
 
@@ -108,7 +108,7 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | Thing | Rotates | How |
 |---|---|---|
 | **Account key** | Every generation | New random 32 bytes. |
-| **Identity key** | Every generation | New Ed25519 pair, announced by a link. The root stays in `users.identity_key`, since every chain starts from it. |
+| **Identity key** | Every generation | A new lasting hybrid key, Ed25519 and ML-DSA-65, announced by a link. The root stays in `users.identity_key`, since every chain starts from it. |
 | **HPKE key** | Every generation | New pair, named in the link. The last 16 secrets stay in the core, because a contact who hasn't heard yet may still seal a grant to an old key. |
 | **Vault core** | Every generation | Sealed under the new account key. Holds the keys above and the older account keys until the generation closes. |
 | **Vault items that carry trust** (`pin:`, `verified:`, `trust:`, `chain:`, `prefs`, `device:`) | Every generation | Sealed again in the same server transaction as the rotation, since a new device believes them. |
@@ -164,7 +164,7 @@ There's one slot for the password and one for the recovery key:
 ```
 slot key    = HKDF(Argon2id master or recovery key, "zuna/slot/v1|kind|server|username")   (lowercase username)
 seal pair   = hpkeKeygen()                  (X-Wing: ML-KEM-768 and X25519)
-sign pair   = signingKeygen()               (Ed25519)
+sign pair   = newLastingKey()               (Ed25519 and ML-DSA-65, a lasting hybrid key)
 
 sealed_secret = AEAD(slot key, seal secret + sign secret + IK_0)   changes only with the secret
 sealed_key    = HPKE(seal public, AK_g)                            changes every generation
@@ -213,7 +213,7 @@ So a stolen identity key and a malicious server can't get a fake device the new 
 | **Keep the account key and rotate only what's below it** | Rejected | The holder of the old key opens whatever is below it. |
 | **OPAQUE or another OPRF for the password** | Separate question | It would stop offline guessing by someone holding the server's data, without a key from the server. It doesn't help rewrap, and it doesn't stop a malicious server. |
 | **Pre-rotation** (each link commits to a hash of the next identity key, as in KERI) | Rejected | The next secret has to reach new devices without a step, so anyone who can enroll gets it. A stolen device already has it. Under the constraint, it stops nobody who isn't already stopped. |
-| **Seal to each device's Ed25519 key converted to X25519** | Rejected, for review | It would need no registration, so even a device that hasn't updated could be sealed to. It uses one key for signing and for encryption, and a dedicated key needs only one background request. Question 12 asks the reviewer to confirm. |
+| **Seal to each device's Ed25519 key converted to X25519** | Rejected | It would need no registration, so even a device that hasn't updated could be sealed to. It uses one key for signing and for encryption, and a dedicated key needs only one background request. And it wouldn't be post-quantum, as an X-Wing seal key is. |
 | **A key transparency log** | Out of scope here, built since | It catches a server showing people different chains. It was thought to need someone independent to watch it, which Zuna doesn't have, but every device already reads every account, so the members' devices watch it themselves: [KEY_TRANSPARENCY.md](KEY_TRANSPARENCY.md). Trees shared with contacts still do part of this (section 9.2). |
 | **Keep the identity secret out of the vault** | Rejected | A new device could then only get a certificate from another device, which is a step. |
 
@@ -402,112 +402,27 @@ Pressing "they match" (`markVerified`) says which key the emoji covered, and tha
 
 ## 11. Versions
 
-There's been no release, so nothing is kept for clients or servers from before any of this: an account has both slots from sign-up, every certificate is signed by the identity key of the generation it names, every device registers a seal key that says its generation, and the server has none of the older routes or wrappers. A client and a server have to be of the same version. Once there's a release, a change to any of this will need a plan for the versions in between, as section 12 once had.
+There's been no release, so nothing is kept for clients or servers from before any of this: an account has both slots from sign-up, every certificate is signed by the identity key of the generation it names, every device registers a seal key that says its generation, and the server has none of the older routes or wrappers. A client and a server have to be of the same version. Once there's a release, a change to any of this will need a plan for the versions in between.
 
-"Zuna accounts keep the same key for life" stopped being true at Stage 3, on the verify screens (`Overlays.tsx`, `VerifyView.swift`) and in `SECURITY.md`.
+"Zuna accounts keep the same key for life" stopped being true with the identity chain, on the verify screens (`Overlays.tsx`, `VerifyView.swift`) and in `SECURITY.md`.
 
-## 12. Implementation plan
+## 12. Not built
 
-Each stage ships on its own and leaves things working. Rotation stays off until Stage 2's tests pass and review has signed off on what it depends on.
-
-End-to-end tests are in `packages/core/test/rotation.test.ts`, driving real clients against a real server, as the rest of the suite does. The attack tests are permanent, as the ones in `security.test.ts` are.
-
-The stages below say what was built in what order, and what each was tested by when it went in. Tests about older clients, the bridge and the routes kept for them went when those did.
-
-### Stage 0: review
-
-This document, and answers to section 13. The owner chose to build ahead of this, so the review is still to come, and its answers may change what's below.
-
-### Stage 1: slots, seal keys and proofs, with no rotation
-
-**Change:** server tables and routes. Slots at sign-up. Seal keys on every device. Enrollment proofs. A local path for saving account state. Remove `PUT /api/vault/core`. Rework `recover()` so the device comes first.
-
-**Tests:**
-- Signing in opens a slot.
-- A wrong password can't open a slot, and costs one Argon2id to test.
-- A seal key not signed by its device is refused.
-- A server can't swap a seal key or slot key on a device that has pinned it.
-- Crash partway through a recovery: the old password still works, and trying again works.
-- iOS: `npm run test:ios:check` and `test:ios`, which need a Mac.
-
-### Stage 2: rotating the account and HPKE keys
-
-**Change:** generations, the intent, compare-and-swap, the paused uploads, sealing again, closing, and all the triggers. Keeps the identity key. This gets G1 and G3 on its own, and it's the part worth having soonest.
-
-**Tests:**
-- After a device is removed, its copy of the old account key opens nothing the account seals from then on, read straight from the server's database. This is the test for Z-04.
-- A password change: the same, and the old password's slot is gone.
-- Recovery sign-in: everything readable afterwards, on a new device, with all others lost.
-- A crash at every row of section 8.3, by stopping the core at each point and starting a new one from the same database.
-- Two devices rotating at once: one winner, both end up at the same generation with the same key, and the loser's removal or password change takes effect.
-- A device registering during a rotation.
-- A device offline through three generations catches up.
-- A device not carried ends up signed out, with its data kept.
-- A forged bundle (right device, wrong key) fails the commitment check.
-- A forged `verified:` under an old key, inserted directly on the server, is refused.
-- Epoch keys wait during a rotation, and go up under the new key.
-- On an account with both slots, a fake device with a valid certificate and no proof gets no bundle, and raises the warning.
-- An attacker's sign-out on a stolen device still causes a rotation.
-- A large vault: sealing again without hitting the write limit. The test uses a few thousand items rather than 500,000, which is a matter of arithmetic from there: 2,500 requests.
-- Grants sealed to an older HPKE key still open.
-- The web app's check (`apps/web/test/web-check.mjs`) and the native app's on its system (`linux-check.mjs`, `mac-voice-check.mjs`), because how the app starts changes.
-
-### Stage 3: the identity chain
-
-**Change:** links, certificates with `h`, the carried rule, the `identity_chain` table, `chain:` items, profile signatures by the head, and HPKE keys from the head link. Clients that check links ship one release before clients that write them.
-
-**Tests:**
-- A certificate signed by an old identity key for a new device: refused when claiming key packages, removed from trees, and warned about, on updated clients. This is the second half of Z-04.
-- A carried device's old certificate stays valid through several generations.
-- A device removed in a link stops being genuine even if the server still lists it as active.
-- A fork: the first link stays, the second raises `changed`.
-- A server serving a shorter chain changes nothing.
-- A new device starts from `chain:` rather than from what the server says, as in the existing test for Z-11.
-- A link that fails any one of the three signatures is refused.
-- A chain of many generations for a contact long offline.
-
-### Stage 4: verified contacts
-
-**Change:** continuity, `trust:` items, the emoji over heads, the neutral line, and the changed wording. This changes something people can see, so it goes to every platform: `validate.ts`, `MessageItem.tsx`, `Models.swift` and `MessageRow.swift`.
-
-**Tests:**
-- A rotation by a long-standing device: verified stays.
-- A rotation by a new device: unverified, with no warning.
-- Comparing emoji after a rotation: they match for both people on updated clients.
-- The forged case: emoji differ, and adopting the chain that matches works.
-- `node apps/web/test/web-check.mjs`, and `npm run test:ios:ui`.
-
-### Stage 5: refreshing leaves
-
-**Change:** new certificates in leaves at the next commit. This is a Rust change, so `mls.rs`, `wasm.rs`, `native.rs`, `apps/ios/core-bundle/src/crypto.ts` and `CryptoBridge.swift` move together.
-
-**Tests:**
-- A crypto test in `mls.rs`: a commit changes a leaf's credential, and other members see it, including one who joined by Welcome and one by external commit.
-- A key package and an external join use the new credential.
-- A contact held back from a link learns of it from a leaf.
-- A server withholding a link: a real device is removed, rejoins, and is warned about, without looping quickly.
-
-### Stage 6: retiring compatibility
-
-**Built:** certificates are signed only by the identity key of the generation they name, profiles by the current key, and the server's `hpke_key` stays the first one, since later ones come from links. The old routes, wrappers, the bridge, `account_protocol`, the `426` answer, the first-slot route and seal keys that don't say their generation are gone, and every account has both slots from sign-up.
-
-**Not built:** dropping the root secret from the core. Signing in checks that a core can sign with the root secret, so that has to change with it: to the link chain from the root, checked as far as the head's key commitment, which has to be available before a device exists.
+Dropping the root secret from the core. Signing in checks that a core can sign with the root secret, so that has to change with it: to the link chain from the root, checked as far as the head's key commitment, which has to be available before a device exists.
 
 ## 13. Questions
 
 ### For the reviewer
 
-1. **Slots.** Is a random HPKE pair and a random Ed25519 pair, both sealed under an HKDF output of the Argon2id master, a sound replacement for a symmetric wrapper? Anything in using one Argon2id output for the sign-in key, the old wrap key and the slot key beyond the labels (`crypto.ts:72`)?
+1. **Slots.** Is a random HPKE pair and a random lasting signing key, both sealed under an HKDF output of the Argon2id master, a sound replacement for a symmetric wrapper? Anything in using one Argon2id output for the sign-in key, the old wrap key and the slot key beyond the labels (`crypto.ts:72`)?
 2. **Enrollment proofs.** Do they really stop a fake device from getting the new key on an account with both slots, as section 7.4 claims? Can rule 3 of that section be narrowed for accounts with one slot?
 3. **Key commitment.** Is `HKDF(AK_g, label)` in a public link safe, and enough to stop different keys being given to different devices? Should sealed-to-slot and sealed-to-device keys bind the link's hash in HPKE's associated data as proposed, or is there a better way?
 4. **The link.** Is it right that there are three signatures, and is the possession signature worth having? Does signing exact JSON bytes, as certificates do (`crypto.ts:170`), leave any ambiguity worth closing with a binary format?
-5. **Certificates.** A certificate is signed by the identity key of the generation it names, and one without a generation or that signature is refused. Is anything lost by the payload keeping its `v: 1` and the `zuna/device-cert/v2` label?
 6. **Continuity.** Does "held a leaf in a shared tree for a week" mean what section 9.3 says, against a server that splits trees? Is a week right, and should the rule apply to unverified contacts at all? Is it right that a non-continuous rotation is quiet, rather than the loud `changed`?
 7. **The emoji.** It covers the heads only (section 9.4). Is there anything a server gains by showing two people different chains, beyond a false mismatch?
 9. **Who outranks whom.** Should the recovery key outrank a hostile rotation? A recovery slot's signing key could sign a link that wins over another at the same generation, so someone who took over with a stolen password couldn't keep the owner out. That only holds if a password alone can no longer replace the recovery key, as it can today (`api/accounts.go:511`), which would be a change in itself.
 10. **Replay within a generation.** A server can still serve an older copy of a vault item under the same key, for instance a `verified:` from before a re-verification, since items have no version. That's possible today. Should items carry a counter, and how much does that matter here?
 11. **Credential changes in MLS.** Is changing a `BasicCredential` in a self-update, keeping the signature key, sound in RFC 9420 terms, given that the tree check is what validates it? OpenMLS 0.9.2 accepts it, including for members who joined afterwards by Welcome and by external commit (`a_commit_gives_a_leaf_its_new_certificate` in `mls.rs`), which says it works, not that it's sound.
-12. **Seal keys.** Do you agree with rejecting the conversion of Ed25519 device keys to X25519 (section 7.5), given that it would remove the late-delivery case entirely?
 13. **Post-quantum.** Built since this was asked, with MLS in the same change, as either alone leaves the other open ([POST_QUANTUM.md](POST_QUANTUM.md)): slots, bundles and grants are sealed with X-Wing, ML-KEM-768 and X25519 together, under `zuna/account-slot/v2` and `zuna/account-bundle/v2`, and identity keys, slots' signing keys and links are signed with Ed25519 and ML-DSA-65 together. Is anything in a rotation's design weaker for the larger keys, or for a link checked with hybrid signatures?
 15. **Seal key generations.** A seal key now also has a signature saying its generation, and the log of keys has an entry for each one a device registers, so a rotation seals only to the newest the log has for that device, which a device that never saw it can tell too. What a device has seen is only what's left while the log can't be read. Should a rotation also refuse a seal key from too far behind the current generation, at the cost of leaving out a device that's been away?
 16. **What a slot proves.** A slot's sealed secret names the root, and whoever signs in requires a core that can sign with its secret. That stops a server alone, but not a holder, who has the root secret. Is there something a device can publish without the secret, that someone who signs in can check, that a holder can't make? Slots can't be rewritten without their secret, so it would have to come from the slot's public half or a link.
@@ -518,7 +433,7 @@ These were built as this document recommended, when the owner said to build it w
 
 1. **The bridge.** Gone, with the accounts from before slots it was for.
 2. **The neutral line.** When a verified contact's badge drops, a line in the chat says so and asks for nothing: "Dave's security key changed since you verified it. You can compare keys again if you'd like." The alternative is only the badge changing. The line is more honest, since a dropped badge is easy to miss, but it's worth checking against the constraint: it's a notice, not a step.
-3. **Retiring compatibility.** Done before any release, apart from dropping the root secret (Stage 6).
+3. **Retiring compatibility.** Done before any release, apart from dropping the root secret (section 12).
 4. **A rotation that keeps failing.** After a day, the device raises the existing security event. It asks for nothing, but it's a message people didn't get before. The alternative is silence, with uploads paused.
 5. **Signing out and back in.** With one device, this rotates and drops badges with verified contacts (section 9.3). An attacker signing out a stolen device looks the same, which is why it isn't exempt.
 
@@ -536,7 +451,7 @@ Checked against the constraint. Nothing here asks anyone to do anything they don
 
 ## Appendix A: formats
 
-Hashes are SHA-256. Signed JSON is signed as the exact bytes sent, as certificates are today (`crypto.ts:170`).
+Hashes are SHA-256. Signed JSON is signed as the exact bytes sent. Every signature is a hybrid one: a device's, or a lasting key's for identity keys and slots.
 
 ### Link
 
@@ -559,8 +474,10 @@ by_device = Sign(signer,     "zuna/identity-link/v1" | payload)
 ### Keys sealed for someone
 
 ```
-bundle     = HPKE(device seal public, info "zuna/account-bundle/v1|user|device|gen", aad H(link payload), AK_gen)
-sealed_key = HPKE(slot seal public,   info "zuna/account-slot/v1/key|kind|username|gen", aad H(link payload), AK_gen)
+bundle     = HPKE(device seal public, info "zuna/account-bundle/v2|user|device|gen", aad H(link payload), AK_gen)
+sealed_key = HPKE(slot seal public,   info "zuna/account-slot/v2/key|kind|username|gen", aad H(link payload), AK_gen)
+
+HPKE is X-Wing, ML-KEM-768 and X25519, with HKDF-SHA-256 and ChaCha20-Poly1305.
 ```
 
 The slot's label uses the lowercase username because a new account's slots are made before it has an ID. At generation 0 there's no link, so the associated data is empty.
@@ -577,12 +494,11 @@ enroll proof  = Sign(slot sign,  "zuna/device-enroll/v1|user|device|" | device k
 ### Certificates
 
 ```
-p = { v: 1, user, device, key, gen }
-h = Sign(IK_gen, "zuna/device-cert/v2" | p)
-certificate = { p, h }
+payload     = 3 | length | user | length | device | gen (u32) | device key (1,345 bytes)
+certificate = payload | Sign(IK_gen, "zuna/device-cert/v3" | payload)       4.8 KB in all
 ```
 
-A certificate with no `gen` or `h` is refused.
+Anything else, or one whose key isn't a device's, is refused (`createCertificate`, `parseCertificate` in `crypto.ts`).
 
 ### Sealed at rest on the server
 

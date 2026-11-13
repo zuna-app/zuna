@@ -132,7 +132,7 @@ Measured on 2026-11-11 on Windows, natively in release, with `measure_groups` an
 Everything above ran on Windows on 2026-11-11: the crate's tests as WebAssembly and natively, the server's, the core's end to end, `zuna-bot`'s against a real server, the watch player's, the release script's, the desktop app's, the Windows update check, and the web check in Chromium.
 
 - **The iPhone app was built, not run.** Swift can't be compiled on Windows, but the release workflow archived it on macOS for `v0.1.0-nightly.1202` on 2026-11-12 and sent it to TestFlight, so it compiles. No Swift changed but the bridge test's expected sizes, as the bridge's functions kept their names and arguments, and the core bundle and the crate it calls through UniFFI are the ones tested here. Nobody has used it on a phone since, nor run its tests on a Mac. Its notification extension now follows only groups of up to about fifty devices, which no test on a phone has covered, and its TLS from iOS 26 is the system's.
-- **The native app on Linux and macOS wasn't built.** aws-lc-rs builds there as rustls's own default, but the app's build with it, and its tests, ran on Windows alone.
+- **The native app's tests ran on Windows alone.** Every release has built it on Linux and macOS since, with aws-lc-rs, which is rustls's own default there.
 - **The installer's check** (`deploy/test/install-check.sh`) needs Lima: the summary's new line and the larger body limits were only checked by `bash -n` and by testing the version comparison.
 - **The web check in Firefox and WebKit,** which don't run on Windows, and the landing page's check, as its change was two lines of copy, looked at in the browser.
 - **PostgreSQL:** no SQL changed, and no schema, but the server's tests ran in SQLite only.

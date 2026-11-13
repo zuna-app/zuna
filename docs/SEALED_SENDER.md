@@ -34,8 +34,9 @@ A mechanism that hands the server the sender and asks it not to look fails the s
 
 ```
 envelope   = nonce || XChaCha20-Poly1305(content key, aad, pad(inner))
-inner      = 3 || user ID || device ID || signature || body          (the IDs with their lengths)
-signature  = Ed25519(device key, "zuna/envelope-sig/v3|user|device|" || SHA-256(aad) || commitment || SHA-256(body))
+inner      = 4 || user ID || device ID || signature || body          (the IDs with their lengths)
+signature  = Sign(device key, "zuna/envelope-sig/v4|user|device|" || SHA-256(aad) || commitment || SHA-256(body))
+             a device's hybrid signature, Ed25519 and ML-DSA-44 together, 2,485 bytes
 commitment = HKDF(content key, "zuna/envelope-commit/v1")
 aad        = kind, group, item, epoch
 ```
@@ -191,7 +192,7 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 
 - **PostgreSQL.** The new SQL ran in SQLite only, as the machine it was built on had no PostgreSQL. Run the server's and the core's tests with `ZUNA_TEST_POSTGRES`.
 - **A row with no known author on iOS.** Its drawing was written on Windows and builds on a Mac, but no test has such a message, and nobody has looked at one. iOS's sealed connection, written the same way, has run since: the core's tests on the iOS host and the app's UI tests send through it.
-- **The native app on Linux and macOS,** which was built on Windows only.
+- **The native app on Linux and macOS,** which was built on Windows only at the time. Every release has built it on both since.
 - **The web's check in Firefox and WebKit,** which don't run on that machine. Chromium's passed every step up to the bots, which fail as they did before sealed sender.
 
 ## What a determined server can still tell
