@@ -79,6 +79,10 @@ pub fn credentials() -> Option<Credentials> {
     Some(Credentials { api_id, api_hash, test_dc })
 }
 
+/// The engine the tests run, with credentials of their own, in place of the one beside the app.
+#[cfg(test)]
+static TEST_ENGINE: Mutex<Option<(PathBuf, Credentials)>> = Mutex::new(None);
+
 /// Whether this build can link a Telegram account at all.
 /// Only where the engine has its box (platform/sandbox.rs), which is Windows so far: elsewhere it
 /// would run unconfined, so there's no Telegram there yet.
@@ -177,8 +181,17 @@ impl Engine {
     }
 
     fn launch(&self, state: &mut State) -> Result<(), String> {
-        let credentials = credentials().ok_or("This build of Zuna can't use Telegram.")?;
-        let path = engine_path().filter(|path| path.is_file()).ok_or("Telegram's engine isn't beside the app.")?;
+        #[cfg(test)]
+        let given = TEST_ENGINE.lock().clone();
+        #[cfg(not(test))]
+        let given: Option<(PathBuf, Credentials)> = None;
+        let (path, credentials) = match given {
+            Some(given) => given,
+            None => {
+                let credentials = credentials().ok_or("This build of Zuna can't use Telegram.")?;
+                (engine_path().filter(|path| path.is_file()).ok_or("Telegram's engine isn't beside the app.")?, credentials)
+            }
+        };
         let key = match database_key(&self.data_dir, &self.device_key) {
             Ok(key) => key,
             Err(why) => {
@@ -579,6 +592,102 @@ mod tests {
         // The folder itself isn't a file of it.
         assert!(!inside_engine_folder(&engine, &engine));
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// What the engine delivered, as JSON, waited for until `wanted` says so.
+    fn wait_for(heard: &Mutex<Vec<String>>, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
+        for _ in 0..500 {
+            if let Some(found) = heard.lock().iter().filter_map(|json| serde_json::from_str::<Value>(json).ok()).find(|value| wanted(value)) {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the engine never delivered {what}");
+    }
+
+    /// An engine that says back whatever it's sent, as `cat` does with the frames, which are the
+    /// same both ways: what the core asks comes back as if TDLib had answered it.
+    #[cfg(unix)]
+    #[test]
+    fn an_engine_runs_answers_and_is_started_again_until_it_keeps_failing() {
+        let dir = std::env::temp_dir().join(format!("zuna-telegram-engine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A key that won't open is a database nobody can read: it's erased and made anew.
+        std::fs::write(key_file(&dir), b"not a sealed key").unwrap();
+        *TEST_ENGINE.lock() = Some((PathBuf::from("/bin/cat"), Credentials { api_id: 1, api_hash: "0".repeat(32), test_dc: true }));
+        let heard = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = heard.clone();
+        let engine = Engine::new(dir.clone(), vec![7; 32], Arc::new(move |json| keep.lock().push(json)));
+        engine.start().unwrap();
+        engine.start().expect("starting what runs already does nothing");
+        assert!(database_key(&dir, &[7; 32]).is_ok(), "a new key was made");
+        engine.send(r#"{"@type":"getChats","limit":10,"@extra":"1"}"#);
+        assert_eq!(wait_for(&heard, "the answer", |value| value["@extra"] == "1")["@type"], "getChats");
+        assert!(!heard.lock().iter().any(|json| json.contains("\"apiHash\"")), "what starts it is the broker's, and never the core's to hear");
+        let say = |json: Value| engine.state.lock().running.as_ref().unwrap().out.send(Outgoing::Json(json.to_string())).unwrap();
+        // The watchdog's question, answered, and the broker's own, which go to nobody.
+        engine.state.lock().asked = Some(Instant::now());
+        say(json!({ "@type": "getOption", "name": "version", "@extra": "zuna:watchdog" }));
+        say(json!({ "@type": "error", "message": "no", "@extra": "zuna:mine" }));
+        // The door: a name it's asked to open is refused, and told so.
+        say(json!({ "zuna": "open", "id": 3, "host": "example.com", "port": 443 }));
+        say(json!({ "zuna": "closed", "id": 3 }));
+        engine.network_changed();
+        say(json!({ "@type": "updateFile", "file": { "@type": "file", "local": { "@type": "localFile", "path": "/etc/passwd" } }, "@extra": "2" }));
+        let file = wait_for(&heard, "the file's update", |value| value["@extra"] == "2");
+        assert_eq!(file["file"]["local"]["path"], "", "a file outside its folder never reaches the app");
+        assert!(engine.state.lock().asked.is_none(), "the watchdog was answered");
+        assert!(!heard.lock().iter().any(|json| json.contains("zuna:")), "nothing of the broker's own reached the core");
+
+        // Gone without being stopped, it's started again, a few times in a row and no more.
+        for _ in 0..MOST_RESTARTS {
+            engine.state.lock().running.as_mut().unwrap().child.kill();
+            wait_for(&heard, "a restart", |value| value["@type"] == "zunaRestarted");
+            heard.lock().retain(|json| !json.contains("zunaRestarted"));
+            for _ in 0..100 {
+                if engine.state.lock().running.is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        engine.state.lock().running.as_mut().unwrap().child.kill();
+        assert_eq!(wait_for(&heard, "the failure", |value| value["@type"] == "zunaFailed")["reason"], "it stopped");
+        assert!(!engine.state.lock().wanted);
+
+        // Closed by TDLib itself, as when the session was ended elsewhere, it isn't started again.
+        engine.start().unwrap();
+        say(json!({ "@type": "updateAuthorizationState", "authorization_state": { "@type": "authorizationStateClosed" } }));
+        wait_for(&heard, "the closing", |value| value["@type"] == "updateAuthorizationState");
+        assert!(!engine.state.lock().wanted);
+        engine.state.lock().running.as_mut().unwrap().child.kill();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!heard.lock().iter().any(|json| json.contains("zunaRestarted")));
+
+        // Stopped, it says so, and keeps what it held unless it's signed out.
+        engine.start().unwrap();
+        let stopping = Instant::now();
+        engine.stop(false);
+        let stopped = wait_for(&heard, "the stop", |value| value["@type"] == "zunaStopped");
+        assert!(stopping.elapsed() < Duration::from_secs(5), "its pipe closed, so it went by itself rather than being ended after waiting: {:?}", stopping.elapsed());
+        assert_eq!((stopped["erased"].clone(), stopped["signedOut"].clone()), (json!(false), json!(false)));
+        assert!(key_file(&dir).exists());
+        engine.send(r#"{"@type":"getChats","limit":10,"@extra":"3"}"#);
+        assert_eq!(wait_for(&heard, "the refusal", |value| value["@extra"] == "3")["code"], 503);
+        *TEST_ENGINE.lock() = None;
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_flood_of_requests_is_held_to_its_rate() {
+        let heard = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = heard.clone();
+        let engine = Engine::new(std::env::temp_dir(), vec![0; 32], Arc::new(move |json| keep.lock().push(json)));
+        for n in 0..(BURST as usize + 10) {
+            engine.send(&format!(r#"{{"@type":"getChats","limit":10,"@extra":"{n}"}}"#));
+        }
+        let codes: Vec<u64> = heard.lock().iter().filter_map(|json| serde_json::from_str::<Value>(json).ok()?.get("code")?.as_u64()).collect();
+        assert!(codes.contains(&429), "past its burst, a request is refused");
     }
 
     #[test]
