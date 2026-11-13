@@ -107,8 +107,7 @@ impl SettingsView {
         let preview_state = self.state.clone();
         // As the web's select: the choice, and a menu of the three under it.
         let (select_bounds, select_probe) = bounds_probe();
-        let select = div()
-            .id("notification-preview")
+        let select = named_div("notification-preview")
             .w(px(180.))
             .h(px(36.))
             .px(px(10.))
@@ -172,8 +171,7 @@ impl SettingsView {
             let active = settings.accent == accent;
             let check = if matches!(accent, Accent::Neutral | Accent::Amber) { theme::color(theme::hex(0x111113)) } else { gpui::white() };
             let state = self.state.clone();
-            div()
-                .id(SharedString::from(format!("accent-{}", accent.label())))
+            named_div(SharedString::from(format!("accent-{}", accent.label())))
                 .size(px(32.))
                 .rounded_full()
                 .bg(Theme::swatch(accent))
@@ -197,8 +195,7 @@ impl SettingsView {
                 TextSize::Large => "Large",
             };
             let state = self.state.clone();
-            div()
-                .id(label)
+            named_div(label)
                 .px(px(11.))
                 .py(px(4.))
                 .rounded(RADIUS_S)
@@ -313,5 +310,103 @@ impl SettingsView {
                     ),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Privacy, Notifications and Appearance, clicked through: read receipts and last seen told
+    //! to the core, link previews, keeping files' details asked about first, YouTube, what a
+    //! notification says and whether it sounds, the tray, the accent, the text's size, motion,
+    //! and what Enter does.
+
+    use gpui::TestAppContext;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::state::Overlay;
+    use crate::testing::fixtures::*;
+    use crate::testing::{App as Running, World};
+
+    fn open(cx: &mut TestAppContext, name: &str) -> Running {
+        let mut world = World::new(name);
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.answer("updatePreferences", |_| Ok(Value::Null));
+        app.answer("setHideLastSeen", |_| Ok(Value::Null));
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+        });
+        app
+    }
+
+    fn section(app: &Running, cx: &mut TestAppContext, section: &str) {
+        app.update(cx, |state, cx| {
+            state.toasts.clear();
+            state.set_overlay(Some(Overlay::Settings { section: Some(section.into()) }), cx);
+        });
+    }
+
+    fn settings(app: &Running, cx: &mut TestAppContext) -> crate::settings::Settings {
+        app.read(cx, |state| state.settings.clone())
+    }
+
+    #[gpui::test]
+    fn privacy_is_told_to_the_core_and_kept_here(cx: &mut TestAppContext) {
+        let app = open(cx, "privacy-settings");
+        section(&app, cx, "privacy");
+        app.click(cx, "receipts");
+        app.click(cx, "online");
+        assert_eq!(app.calls_of("updatePreferences"), vec![vec![json!({ "sendReadReceipts": false })]]);
+        assert_eq!(app.calls_of("setHideLastSeen"), vec![vec![json!(true)]]);
+        let before = settings(&app, cx);
+        app.click(cx, "link-previews");
+        app.click(cx, "play-youtube");
+        let after = settings(&app, cx);
+        assert_eq!((after.link_previews, after.play_youtube), (!before.link_previews, !before.play_youtube));
+        // Keeping files' details is asked about, and a no keeps them removed.
+        assert!(after.remove_metadata);
+        app.click(cx, "remove-metadata");
+        app.click(cx, "keep-cancel");
+        assert!(settings(&app, cx).remove_metadata);
+        app.click(cx, "remove-metadata");
+        app.click(cx, "keep-confirm");
+        assert!(!settings(&app, cx).remove_metadata);
+        app.click(cx, "remove-metadata");
+        assert!(settings(&app, cx).remove_metadata, "turning it back on asks nothing");
+        app.click(cx, "proxy-settings");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Proxy { from_settings: true }));
+    }
+
+    #[gpui::test]
+    fn notifications_and_appearance(cx: &mut TestAppContext) {
+        let app = open(cx, "appearance-settings");
+        section(&app, cx, "notifications");
+        let before = settings(&app, cx);
+        app.click(cx, "notifications-on");
+        app.click(cx, "notification-sound");
+        // Windows and Linux keep the app in the tray; macOS keeps it in the Dock, and asks nothing.
+        let tray = cfg!(not(target_os = "macos"));
+        assert_eq!(app.drawn(cx, "close-to-tray"), tray);
+        if tray {
+            app.click(cx, "close-to-tray");
+        }
+        let after = settings(&app, cx);
+        assert_eq!((after.notifications, after.notification_sound, after.close_to_tray), (!before.notifications, !before.notification_sound, before.close_to_tray != tray));
+        app.click(cx, "notification-preview");
+        assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose("Nothing", window, cx)).unwrap());
+        app.run(cx);
+        assert_eq!(settings(&app, cx).notification_preview, "none");
+
+        section(&app, cx, "appearance");
+        app.click(cx, "accent-Blue");
+        app.click(cx, "Large");
+        let before = settings(&app, cx);
+        app.click(cx, "reduce-motion");
+        app.click(cx, "enter-to-send");
+        let after = settings(&app, cx);
+        assert_eq!((after.accent, after.message_size), (crate::theme::Accent::Blue, crate::theme::TextSize::Large));
+        assert_eq!((after.reduce_motion, after.enter_to_send), (!before.reduce_motion, !before.enter_to_send));
     }
 }

@@ -117,6 +117,10 @@ impl Settings {
     }
 
     pub fn save(&self) {
+        // The tests share one data folder, so what one of them changes isn't kept for the others.
+        if cfg!(test) {
+            return;
+        }
         if let Ok(json) = serde_json::to_vec_pretty(self) {
             std::fs::create_dir_all(crate::host::data_dir()).ok();
             if let Err(error) = crate::host::write_whole(&path(), &json) {
