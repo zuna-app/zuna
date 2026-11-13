@@ -178,16 +178,21 @@ impl VoiceSettingsPage {
             }
         });
         // Whether a key held in another window can be heard, which the system may not allow.
-        let (told, answered) = futures::channel::oneshot::channel::<()>();
-        crate::platform::ptt::check_support(move || {
-            told.send(()).ok();
-        });
-        cx.spawn(async move |this, cx| {
-            if answered.await.is_ok() {
-                this.update(cx, |_, cx| cx.notify()).ok();
-            }
-        })
-        .detach();
+        // Tests ask the system nothing: on Linux the answer comes from this desktop's portal, on a
+        // thread of its own, whenever it comes, which GPUI's test scheduler fails a test for, and
+        // on macOS asking may put up the system's request for Input Monitoring.
+        if !cfg!(test) {
+            let (told, answered) = futures::channel::oneshot::channel::<()>();
+            crate::platform::ptt::check_support(move || {
+                told.send(()).ok();
+            });
+            cx.spawn(async move |this, cx| {
+                if answered.await.is_ok() {
+                    this.update(cx, |_, cx| cx.notify()).ok();
+                }
+            })
+            .detach();
+        }
         VoiceSettingsPage { state, voice, choosing_key: false, camera: None, camera_image: None, retired: Vec::new(), devices_read: crate::devices::reads(), _tick: tick }
     }
 
