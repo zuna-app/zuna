@@ -311,4 +311,38 @@ mod tests {
         assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Settings { section: Some("privacy".into()) }));
         assert_eq!(super::milliseconds(Duration::from_micros(10)), "1 ms");
     }
+
+    #[gpui::test]
+    fn a_checks_report_says_what_worked(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("proxy-report"));
+        app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Proxy { from_settings: false }), cx));
+        let view = dialog(&app, cx);
+        let show = |cx: &mut TestAppContext, checking: bool, report: Option<crate::host::net::Report>| {
+            view.update(cx, |dialog, cx| {
+                let form = dialog.proxy_form.as_mut().unwrap();
+                form.checking = checking;
+                form.report = report;
+                cx.notify();
+            });
+            app.run(cx);
+        };
+        // While it's checked, then each way it went.
+        show(cx, true, None);
+        assert!(app.drawn(cx, "proxy-check"));
+        let reached = vec![("Test Server".to_string(), Ok(Duration::from_millis(40))), ("Elsewhere".to_string(), Err("It refused the connection.".to_string()))];
+        show(cx, false, Some(crate::host::net::Report { signed_in: Ok(Duration::from_millis(12)), udp: true, servers: reached.clone() }));
+        show(cx, false, Some(crate::host::net::Report { signed_in: Ok(Duration::from_millis(12)), udp: false, servers: reached }));
+        show(cx, false, Some(crate::host::net::Report { signed_in: Err(crate::host::socks::Failure::Refused), udp: false, servers: Vec::new() }));
+        // Typing in a field takes the report away, and Enter there tries to save what's wrong.
+        let host = cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().host.clone());
+        host.update(cx, |_, cx| cx.emit(InputEvent::Focused));
+        host.update(cx, |input, cx| input.set_text("bad host", cx));
+        host.update(cx, |_, cx| cx.emit(InputEvent::Submit));
+        app.run(cx);
+        assert_eq!(cx.read(|cx| view.read(cx).proxy_form.as_ref().unwrap().problem.clone()).as_deref(), Some("Give the proxy's address: a name or an IP address."));
+        host.update(cx, |_, cx| cx.emit(InputEvent::Blurred));
+        app.run(cx);
+        assert_eq!(cx.read(|cx| view.read(cx).focused), None);
+    }
 }
