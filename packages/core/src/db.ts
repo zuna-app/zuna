@@ -205,6 +205,9 @@ const MIGRATIONS: string[] = [
   CREATE TABLE log_accounts (user_id TEXT PRIMARY KEY, sealed BLOB NOT NULL);
   CREATE TABLE log_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);
   `,
+  // Each key goes to the vault with what its conversation is (vault.ts), and a key kept without
+  // that is never read, so every one already there goes again.
+  `UPDATE epoch_keys SET uploaded = 0 WHERE uploaded = 1;`,
 ];
 
 export function migrate(db: LocalDb): void {

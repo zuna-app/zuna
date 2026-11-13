@@ -2,6 +2,7 @@
 
 import { decode, type ApiCall, type ApiChannel, type ApiVoiceState } from "../api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../channels";
+import { readFounding } from "../roster";
 import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope, sealHistoryGrant, verifyHpkeKey } from "../crypto";
 import { equalBytes, toBase64, u64Bytes, utf8 } from "../encoding";
 import { VOICE_LABEL, voiceIdentity } from "../voice";
@@ -93,8 +94,9 @@ export abstract class SessionChannels extends SessionManagement {
     for (;;) {
       const id = [...this.channels.keys()].find((id) => {
         const group = this.groups.get(id);
-        // One whose details don't open would mean this device doesn't hold the same community key as the others.
-        return !tried.has(id) && !!this.channels.get(id)?.details && (!group || group.removedAt || !this.hasMlsGroup(id));
+        // One whose details don't open would mean this device doesn't hold the same community key as the others,
+        // and one this account knows as something else isn't a channel, whatever the server lists.
+        return !tried.has(id) && !!this.channels.get(id)?.details && !this.notAChannel(id) && (!group || group.removedAt || !this.hasMlsGroup(id));
       });
       if (!id || this.stopped) return;
       tried.add(id);
@@ -104,6 +106,7 @@ export abstract class SessionChannels extends SessionManagement {
 
   /** Comes into a channel. It needs no other member online, though only one can hand over its history. */
   protected async joinChannel(id: string): Promise<void> {
+    if (this.notAChannel(id)) throw new Error("That isn't a channel.");
     const self = this.account.userId;
     const held = this.groups.get(id);
     if (!held || held.removedAt || !held.members.some((member) => member.userId === self)) {
@@ -127,9 +130,23 @@ export abstract class SessionChannels extends SessionManagement {
     this.grantTimers.set(groupId, timer);
   }
 
+  /**
+   * Whether this device knows a conversation to be a channel, by everything it has: what it holds it
+   * as, the charter in its MLS state, and what this account's vault kept its keys under. A group's
+   * roster there, or a vault that says otherwise, means it isn't, whatever the server calls it.
+   */
+  protected knownChannel(groupId: string): boolean {
+    if (this.groups.get(groupId)?.kind !== "channel") return false;
+    const vaulted = this.vaultKind(groupId);
+    if (vaulted && (vaulted === "disputed" || vaulted.kind !== "channel")) return false;
+    const bytes = this.hasMlsGroup(groupId) ? this.rosterIn(groupId) : undefined;
+    return !bytes || readFounding(groupId, bytes)?.kind === "channel";
+  }
+
   protected async grantChannelHistory(groupId: string): Promise<void> {
     const group = this.groups.get(groupId);
-    if (group?.kind !== "channel" || group.removedAt || !this.hasMlsGroup(groupId)) return;
+    // A channel's keys are for anyone on the server. Nothing else's ever are.
+    if (!group || !this.knownChannel(groupId) || group.removedAt || !this.hasMlsGroup(groupId)) return;
     const inTree = new Set(this.treeUsers(groupId));
     const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
     for (const userId of group.historyWanted ?? []) {
@@ -145,10 +162,18 @@ export abstract class SessionChannels extends SessionManagement {
     }
   }
 
+  /** Whether the server lists as a channel what this device or this account's vault holds as something else. */
+  protected notAChannel(id: string): boolean {
+    const group = this.groups.get(id);
+    const vaulted = this.vaultKind(id);
+    return (!!group && group.kind !== "channel") || (!!vaulted && (vaulted === "disputed" || vaulted.kind !== "channel"));
+  }
+
   /** Every channel on this server, in order. */
   getChannels(): ChannelView[] {
     const now = Date.now();
     return [...this.channels.values()]
+      .filter(({ api }) => !this.notAChannel(api.id))
       .sort((a, b) => a.api.position - b.api.position || a.api.created_at - b.api.created_at)
       .map(({ api, details }) => {
         const group = this.groups.get(api.id);

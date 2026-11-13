@@ -4,6 +4,11 @@
 // that wrote it and names the one before, so a device holding one version can tell
 // whether the next could have come from someone allowed to write it. The server's
 // list of who's in a group, and who's its admin, only decides what the server does.
+//
+// A direct message and a channel have a charter there instead, which says what the
+// conversation is, and for a direct message who it's between. It's written once, by
+// whoever starts the conversation, and never changes. So what a conversation is comes
+// from its own state, which the server can't write, and never from the server's word.
 
 import * as wasm from "@zuna/crypto";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
@@ -58,6 +63,7 @@ export function readRoster(groupId: string, bytes: Uint8Array): SignedRoster | n
     const raw = JSON.parse(outer.r);
     const fine =
       raw?.v === 1 &&
+      raw.kind === undefined &&
       raw.group === groupId &&
       Number.isSafeInteger(raw.version) &&
       raw.version >= 1 &&
@@ -110,3 +116,65 @@ export function rosterJump(held: SignedRoster, next: SignedRoster, context: Rost
   if (next.roster.version === held.roster.version + 1) return rosterStep(held, next, context);
   return held.roster.admins.includes(next.roster.by.userId) ? null : "whoever made it wasn't an admin when this device last knew";
 }
+
+/** What a direct message or a channel is, as the charter in its MLS context says. */
+export interface Charter {
+  group: string;
+  kind: "dm" | "channel";
+  /** A direct message's people: both, or the one for saved messages. A channel has none. */
+  people: string[];
+  by: Signer;
+}
+
+export interface SignedCharter {
+  charter: Charter;
+  bytes: Uint8Array;
+  signedBy(devicePublic: Uint8Array): boolean;
+}
+
+const CHARTER_LABEL = "zuna/conversation-charter/v1";
+
+const charterInput = (group: string, text: string) => concat(utf8(`${CHARTER_LABEL}|${group}|`), wasm.sha256(utf8(text)));
+
+/** Signs a direct message's or a channel's charter as the device given, for its context. */
+export function sealCharter(charter: Charter, deviceSecret: Uint8Array): Uint8Array {
+  const text = JSON.stringify({ v: 1, kind: charter.kind, group: charter.group, people: [...charter.people].sort(), by: charter.by });
+  return utf8(JSON.stringify({ r: text, s: toBase64(wasm.sign(deviceSecret, charterInput(charter.group, text))) }));
+}
+
+/** What a charter says, without believing it, or null if it isn't one for this conversation. */
+export function readCharter(groupId: string, bytes: Uint8Array): SignedCharter | null {
+  try {
+    const outer = JSON.parse(fromUtf8(bytes));
+    if (typeof outer?.r !== "string" || typeof outer.s !== "string") return null;
+    const raw = JSON.parse(outer.r);
+    const fine =
+      raw?.v === 1 &&
+      (raw.kind === "dm" || raw.kind === "channel") &&
+      raw.group === groupId &&
+      people(raw.people) &&
+      (raw.kind === "dm" ? raw.people.length >= 1 && raw.people.length <= 2 : raw.people.length === 0) &&
+      typeof raw.by?.userId === "string" &&
+      typeof raw.by?.deviceId === "string";
+    if (!fine) return null;
+    const charter: Charter = { group: raw.group, kind: raw.kind, people: raw.people, by: { userId: raw.by.userId, deviceId: raw.by.deviceId } };
+    const signature = fromBase64(outer.s);
+    return { charter, bytes, signedBy: (devicePublic) => wasm.verify(devicePublic, charterInput(groupId, outer.r), signature) };
+  } catch {
+    return null;
+  }
+}
+
+/** What a conversation's MLS context says it is: a group, by its roster, or what its charter says. */
+export type Founding = { kind: "group"; signed: SignedRoster } | { kind: "dm" | "channel"; signed: SignedCharter };
+
+/** Reads whatever a conversation's context holds, or null if it's neither a roster nor a charter. */
+export function readFounding(groupId: string, bytes: Uint8Array): Founding | null {
+  const roster = readRoster(groupId, bytes);
+  if (roster) return { kind: "group", signed: roster };
+  const charter = readCharter(groupId, bytes);
+  return charter ? { kind: charter.charter.kind, signed: charter } : null;
+}
+
+/** Who signed what a conversation's context holds. */
+export const foundingSigner = (founding: Founding): Signer => (founding.kind === "group" ? founding.signed.roster.by : founding.signed.charter.by);

@@ -2,11 +2,24 @@
 
 import { ApiError, decode } from "../api";
 import { openHistoryGrant, openVaultItem, sealVaultItem } from "../crypto";
-import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
+import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
 import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestPart, type TrustManifest } from "../manifest";
 import { parsePreferences } from "../validate";
-import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PARTS, KEY_NOT_UPLOADED, KEY_UPLOADED, type CachedUser } from "./shared";
+import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PARTS, KEY_NOT_UPLOADED, KEY_UPLOADED, KIND_WARNING, type CachedGroup, type CachedUser } from "./shared";
 import { SessionLocal } from "./local";
+
+/**
+ * An epoch key as the vault keeps it: the key, then what its conversation is (`kindTag`), sealed
+ * together, so the server can't serve one without the other, or pass a key off as another kind's.
+ */
+const keptKey = (key: Uint8Array, tag: string): Uint8Array => concat(key, utf8(tag));
+
+const readKeptKey = (data: Uint8Array): { key: Uint8Array; kind: string } | null => {
+  if (data.length <= 32) return null;
+  const kind = fromUtf8(data.subarray(32));
+  const fine = kind === "group" || kind === "channel" || (kind.startsWith("dm:") && kind.length > 3);
+  return fine ? { key: data.slice(0, 32), kind } : null;
+};
 
 export abstract class SessionVault extends SessionLocal {
   // --- Vault ---
@@ -37,9 +50,10 @@ export abstract class SessionVault extends SessionLocal {
         }
         if (item.id.startsWith("ek:")) {
           const [, groupId, epoch] = item.id.split(":");
-          if (Number.isSafeInteger(Number(epoch)) && data.length === 32) {
-            this.saveEpochKey(groupId!, Number(epoch), data, "vault");
-            touchedGroups.add(groupId!);
+          const kept = readKeptKey(data);
+          if (groupId && Number.isSafeInteger(Number(epoch)) && kept && this.takeVaultKind(groupId, kept.kind)) {
+            this.saveEpochKey(groupId, Number(epoch), kept.key, "vault");
+            touchedGroups.add(groupId);
           }
         } else if (isManifestPart(item.id)) {
           // Who this account trusts comes from here alone, so nothing in it can be left out by itself.
@@ -51,12 +65,58 @@ export abstract class SessionVault extends SessionLocal {
         }
       }
       this.setKv("vault_cursor", cursor);
+      this.saveVaultKinds();
       // A page short of full was the last, with no need to ask for an empty one to be sure.
       if (items.length < VAULT_PAGE) break;
     }
     for (const groupId of touchedGroups) this.retryUndecryptable(groupId);
     // A new device names itself in the vault, which is how the person asked about it knows it.
     if (named) this.emitNewDevices();
+  }
+
+  /**
+   * What a conversation is, as this device holds it, in the words the vault keeps it in: a key
+   * is only ever used for a conversation of the kind it was kept under, so a new device learns
+   * what each is from its own account, which the server can't write, rather than from the server.
+   */
+  protected kindTag(group: Pick<CachedGroup, "kind" | "peerId">): string {
+    return group.kind === "dm" ? `dm:${group.peerId ?? this.account.userId}` : group.kind;
+  }
+
+  protected vaultKinds(): Map<string, string> {
+    this.vaultKindsHeld ??= new Map(Object.entries(this.getKv<Record<string, string>>("vault_kinds") ?? {}));
+    return this.vaultKindsHeld;
+  }
+
+  protected saveVaultKinds(): void {
+    if (this.vaultKindsHeld) this.setKv("vault_kinds", Object.fromEntries(this.vaultKindsHeld));
+  }
+
+  /** What the vault says a conversation is, or "disputed" if its keys were kept under more than one kind, or null if it says nothing. */
+  protected vaultKind(groupId: string): { kind: CachedGroup["kind"]; peerId: string | null } | "disputed" | null {
+    const tag = this.vaultKinds().get(groupId);
+    if (!tag) return null;
+    if (tag === "disputed") return tag;
+    return tag.startsWith("dm:") ? { kind: "dm", peerId: tag.slice(3) } : { kind: tag as "group" | "channel", peerId: null };
+  }
+
+  /**
+   * Notes what a key from the vault says its conversation is, and whether the key may be used: not
+   * when this device holds the conversation as something else. One account's devices only disagree
+   * when the server told one of them something untrue the first time it saw a conversation.
+   */
+  protected takeVaultKind(groupId: string, tag: string): boolean {
+    const kinds = this.vaultKinds();
+    const held = kinds.get(groupId);
+    const group = this.groups.get(groupId);
+    const disagrees = (group && this.kindTag(group) !== tag) || (held !== undefined && held !== tag);
+    if (disagrees) {
+      kinds.set(groupId, "disputed");
+      this.warnOnce(`kind/${groupId}`, KIND_WARNING);
+      return false;
+    }
+    kinds.set(groupId, tag);
+    return true;
   }
 
   protected refreshTrust(userId: string): void {
@@ -360,13 +420,22 @@ export abstract class SessionVault extends SessionLocal {
 
   /** One batch of keys into the vault. True when it was full, so there may be more. */
   protected async uploadKeyBatch(): Promise<boolean> {
+    // Only for conversations this device knows, as each key goes with what its conversation is. The rest wait.
     const rows = this.db.all<{ group_id: string; epoch: number; key: Uint8Array }>(
-      "SELECT group_id, epoch, key FROM epoch_keys WHERE uploaded = ? LIMIT ?",
+      "SELECT e.group_id, e.epoch, e.key FROM epoch_keys e JOIN groups g ON g.id = e.group_id WHERE e.uploaded = ? LIMIT ?",
       [KEY_NOT_UPLOADED, VAULT_BATCH],
     );
     if (rows.length === 0) return false;
-    const items = rows.map((row) => ({ id: `ek:${row.group_id}:${row.epoch}`, data: this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key) }));
-    if (!(await this.putItems(items))) return false;
+    const items: { id: string; data: Uint8Array }[] = [];
+    for (const row of rows) {
+      const group = this.groups.get(row.group_id);
+      // What the vault already says, or a conversation it disputes, is never written over by what this device holds.
+      const tag = group && this.kindTag(group);
+      const vaulted = this.vaultKinds().get(row.group_id);
+      if (!tag || (vaulted && vaulted !== tag)) continue;
+      items.push({ id: `ek:${row.group_id}:${row.epoch}`, data: keptKey(this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key), tag) });
+    }
+    if (items.length > 0 && !(await this.putItems(items))) return false;
     this.db.transaction(() => {
       for (const row of rows) {
         this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ?", [KEY_UPLOADED, row.group_id, row.epoch]);

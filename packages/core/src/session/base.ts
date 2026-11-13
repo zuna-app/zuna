@@ -58,6 +58,11 @@ export abstract class SessionBase {
   /** What the app asked for notifications: where to push, "off" to stop them, or null if it never said. */
   protected push: PushSettings | "off" | null = null;
   protected deviceNames = new Map<string, string>();
+  /**
+   * What this account's vault says each conversation is, by group: "group", "channel", "dm:<their
+   * user ID>", or "disputed" when its keys were kept under more than one (vault.ts). Loaded once.
+   */
+  protected vaultKindsHeld: Map<string, string> | null = null;
   protected locks = new Map<string, Mutex>();
   protected epochKeys = new Map<string, Uint8Array>();
   /** Messages that arrived live before their keys did, notified once they open. */

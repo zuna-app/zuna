@@ -16,7 +16,7 @@ import {
   subkey,
 } from "../crypto";
 import { equalBytes, fromBase64, toBase64, u64Bytes, utf8 } from "../encoding";
-import { readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type Roster, type RosterContext, type SignedRoster } from "../roster";
+import { foundingSigner, readFounding, readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type Founding, type Roster, type RosterContext, type SignedRoster } from "../roster";
 import { sealedRows } from "../sendable";
 import { parseGroupDetails, parseReadState } from "../validate";
 import {
@@ -30,10 +30,13 @@ import {
   KEY_UPLOADED,
   KEY_UNPROVEN,
   KEY_VOIDED,
+  KIND_WARNING,
   type GroupMeta,
   type CachedGroup,
 } from "./shared";
 import { SessionRotation } from "./rotation";
+
+const KIND_NAMES = { group: "a group", dm: "a direct message", channel: "a channel" } as const;
 
 export abstract class SessionGroups extends SessionRotation {
   // --- Epoch keys ---
@@ -260,15 +263,22 @@ export abstract class SessionGroups extends SessionRotation {
   protected applyGroup(api: ApiGroup): CachedGroup {
     const previous = this.groups.get(api.id);
     const selfId = this.account.userId;
-    // What a conversation is, and for a DM who it's with, is settled when it's first
-    // seen. The server's list is only its word, and a DM is between two people.
-    const kind = previous?.kind ?? api.kind;
+    // What a conversation is, and for a DM who it's with, is settled when it's first seen: from
+    // what this account's vault kept its keys under, when it holds any, which the server can't
+    // write. Only where there's nothing else does the server's word count, and the conversation's
+    // own MLS state is held to it as soon as this device joins (rosterRefusal). A DM is between two people.
+    const vaulted = this.vaultKind(api.id);
+    const known = vaulted && vaulted !== "disputed" ? vaulted : null;
+    const kind = previous?.kind ?? known?.kind ?? api.kind;
+    if (kind !== api.kind) this.warnOnce(`kind/${api.id}`, KIND_WARNING);
     const others = [...new Set(api.members.map((member) => member.user_id))].filter((id) => id !== selfId);
     let peerId: string | null = null;
     let doubtful = false;
     if (kind === "dm") {
       if (previous && !previous.doubtful) {
         peerId = previous.peerId;
+      } else if (known?.peerId) {
+        peerId = known.peerId;
       } else {
         // Someone banned or gone is off the list, but not out of the conversation.
         peerId = others[0] ?? api.dm_users?.find((id) => id !== selfId) ?? previous?.peerId ?? selfId;
@@ -376,20 +386,26 @@ export abstract class SessionGroups extends SessionRotation {
     return { adminPresent: prev.roster.admins.some((id) => listed.has(id)), signerServerAdmin: !!group.serverAdmins?.includes(next.roster.by.userId) };
   }
 
-  /** Who signed a roster, if this device doesn't know their device yet. */
+  /** Who signed a roster or charter, if this device doesn't know their device yet. */
   protected unknownRosterSigner(groupId: string, bytes: Uint8Array | undefined): string | null {
-    const by = bytes && readRoster(groupId, bytes)?.roster.by;
+    const founding = bytes && readFounding(groupId, bytes);
+    const by = founding ? foundingSigner(founding) : null;
     return by && !this.users.get(by.userId)?.devices.has(by.deviceId) ? by.userId : null;
   }
 
   /**
-   * Why a group's roster can't become `bytes`, what MLS now holds, or null if it can.
-   * It runs between applying a change and keeping it, so it only uses what's already
-   * known. `committer` made the change; without one, it came with a group joined again.
+   * Why a conversation's MLS context can't become `bytes`, what MLS now holds, or null if it can.
+   * A group's has its roster, and a DM's or a channel's its charter (roster.ts), which say what it
+   * is: what this device holds it as has to be that, whatever the server calls it. It runs between
+   * applying a change and keeping it, so it only uses what's already known. `committer` made the
+   * change; without one, it came with a conversation joined, or joined again.
    */
   protected rosterRefusal(groupId: string, bytes: Uint8Array | undefined, committer: DeviceCertificate | null): string | null {
     const group = this.groups.get(groupId);
-    if (!group || group.kind !== "group") return null;
+    if (!group) return null;
+    const founding = bytes ? readFounding(groupId, bytes) : null;
+    if (founding && founding.kind !== group.kind) return `it's ${KIND_NAMES[founding.kind]} rather than ${KIND_NAMES[group.kind]}`;
+    if (group.kind !== "group") return this.charterRefusal(group, bytes, founding);
     const held = this.rosterOf(group);
     if (!bytes) return held ? "it took the group's roster away" : "the group has no roster";
     if (held && equalBytes(bytes, held.bytes)) return null;
@@ -404,6 +420,28 @@ export abstract class SessionGroups extends SessionRotation {
     if (!committer && group.rosterBefore && equalBytes(bytes, fromBase64(group.rosterBefore))) return null;
     const context = this.rosterContext(group, held, next);
     return committer ? rosterStep(held, next, context) : rosterJump(held, next, context);
+  }
+
+  /**
+   * Why a DM's or a channel's charter can't be `bytes`. It's written once, when the conversation
+   * starts, so it never changes from the one this device holds. A DM's names its two people, and
+   * one of them signed it. One started before charters has none, and its keys only ever go with
+   * what this account's vault kept them under (`vaultKind`).
+   */
+  protected charterRefusal(group: CachedGroup, bytes: Uint8Array | undefined, founding: Founding | null): string | null {
+    const held = group.roster ? fromBase64(group.roster) : null;
+    if (held) return bytes && equalBytes(bytes, held) ? null : "what it says it is was changed";
+    if (!bytes) return null;
+    if (!founding || founding.kind === "group") return "what it says it is can't be read";
+    const { charter } = founding.signed;
+    if (group.kind === "dm") {
+      const people = this.dmPeople(group);
+      if (charter.people.length !== people.length || people.some((id) => !charter.people.includes(id))) return "it's between other people";
+      if (!charter.people.includes(charter.by.userId)) return "neither of its people started it";
+    }
+    // Whoever started it may have signed out of that device since: it was theirs when it signed, as for a message.
+    const key = this.deviceKey(charter.by);
+    return key && founding.signed.signedBy(key) ? null : "it isn't signed by a device of whoever it names";
   }
 
   /** The next version of a group's roster, signed by this device. */

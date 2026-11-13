@@ -4,7 +4,7 @@ import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
 import { equalBytes, u64Bytes, utf8 } from "../encoding";
-import { sealRoster, type Roster } from "../roster";
+import { sealCharter, sealRoster, type Roster } from "../roster";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
 import { SessionGroups } from "./groups";
 
@@ -415,11 +415,14 @@ export abstract class SessionJoining extends SessionGroups {
     const targets = cached?.kind === "dm" ? this.dmPeople(cached) : [...new Set([selfId, ...extraUsers])];
 
     const groupBytes = utf8(group.id);
-    // A group starts with its creator as its admin, and whoever they asked for let in.
+    if (!cached) throw new Error("This conversation hasn't been started yet.");
+    // A group starts with its creator as its admin, and whoever they asked for let in. A DM or a
+    // channel starts with a charter, which says what it is, and a DM's who it's between, for good.
+    const by = { userId: selfId, deviceId: this.account.deviceId };
     const roster =
-      cached?.kind === "group"
-        ? sealRoster({ group: group.id, version: 1, admins: [selfId], members: targets, prev: "", by: { userId: selfId, deviceId: this.account.deviceId } }, this.account.deviceSecret)
-        : null;
+      cached.kind === "group"
+        ? sealRoster({ group: group.id, version: 1, admins: [selfId], members: targets, prev: "", by }, this.account.deviceSecret)
+        : sealCharter({ group: group.id, kind: cached.kind, people: cached.kind === "dm" ? targets : [], by }, this.account.deviceSecret);
     this.mls.deleteGroup(groupBytes);
     this.mls.createGroup(groupBytes, roster);
     this.saveMls();

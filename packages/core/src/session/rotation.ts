@@ -582,6 +582,11 @@ export abstract class SessionRotation extends SessionDirectory {
           }
           try {
             const data = openVaultItem(key, item.id, decode(item.data), item.generation);
+            // A key kept without what its conversation is (vault.ts) is never read, so it isn't carried over.
+            if (data.length <= 32) {
+              remove.push(item.id);
+              continue;
+            }
             sealed.push({ id: item.id, data: sealVaultItem(accountKey, item.id, data, core.generation) });
           } catch {
             remove.push(item.id);

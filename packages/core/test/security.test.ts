@@ -10,8 +10,9 @@ import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate";
+import { channelProof, sealChannelDetails } from "../src/channels";
 import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
-import { server, alice, person, apiOf, groupWith, securityEvents, ghostClient, sessionOf, startServer } from "./security-setup";
+import { server, alice, open, person, apiOf, groupWith, securityEvents, sentAndSeen, ghostClient, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
 
@@ -515,5 +516,99 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     expect(dave.texts(`group:${groupId}`)).toContain("kept");
     alice.session.sendMessage(`group:${groupId}`, { text: "still with us" });
     await waitFor(() => dave.texts(`group:${groupId}`).includes("still with us"), "delivery after rejoining");
+  });
+});
+
+describe("a server that calls a group or a direct message a channel (Z-64)", () => {
+  const read = async (app: TestApp, groupId: string) =>
+    (await app.session.loadMessages(groupId)).messages.filter((item) => !item.system).map((item) => (item.status === "sent" ? item.text : `<${item.status}>`));
+
+  /**
+   * What the server writes to call a conversation a channel: its kind, a channel's row with details
+   * mal's device signed, and for each of its people the proof a channel's roster carries.
+   */
+  function relabel(mal: TestApp, groupId: string, name: string, people: string[]): void {
+    const session = sessionOf(mal);
+    const { communityKey } = session.account.core;
+    const signer = { userId: session.account.userId, deviceId: session.account.deviceId };
+    const details = sealChannelDetails(communityKey, groupId, { name }, 1, signer, session.account.deviceSecret);
+    withServerDatabase((db) => {
+      db.prepare("UPDATE groups SET kind = 'channel' WHERE id = ?").run(groupId);
+      db.prepare("INSERT INTO channels(id, type, position, details, created_by, created_at) VALUES(?, 'text', 99, ?, ?, ?)").run(groupId, details, signer.userId, Date.now());
+      for (const userId of people) {
+        db.prepare("UPDATE group_members SET proof = ? WHERE group_id = ? AND user_id = ?").run(channelProof(communityKey, groupId, userId), groupId, userId);
+      }
+    });
+  }
+
+  it("never hands their history to someone the server lets in, through a new device of one of their people", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const groupId = await groupWith(ann, [bob], false, "Family");
+    await sentAndSeen(ann, [bob], groupId, "the alarm code is 4471");
+    ann.session.sendMessage(`user:${bob.userId}`, { text: "my bank PIN, just for you: 9920" });
+    await waitFor(() => bob.session.getConversations().some((item) => item.key === `user:${ann.userId}` && item.groupId), "the direct message");
+    const dmId = bob.session.getConversations().find((item) => item.key === `user:${ann.userId}`)!.groupId!;
+    await waitFor(async () => (await read(bob, dmId)).includes("my bank PIN, just for you: 9920"), "bob to read it");
+    // Bob's keys for both are in his vault, as they are for any new device of his.
+    await sessionOf(bob).uploadEpochKeys();
+    const username = bob.session.getSelf().username;
+
+    // Ann's and Bob's devices are off, and the server calls both conversations channels.
+    for (const app of [ann, bob]) app.client.stop();
+    relabel(mal, groupId, "general", [ann.userId, bob.userId]);
+    relabel(mal, dmId, "random", [ann.userId, bob.userId]);
+
+    // Mal's app is changed to come into whatever the server calls a channel, whatever its own state says.
+    // As shipped, it refuses: each conversation's own state says what it is.
+    sessionOf(mal).rosterRefusal = () => null;
+    await sessionOf(mal).syncChannels();
+    for (const id of [groupId, dmId]) await waitFor(() => sessionOf(mal).hasMlsGroup(id), "mal to come in");
+
+    // Bob signs in on a new device, which learns what each conversation is from his own account.
+    const phone = await new TestApp("bob's new phone").open();
+    open.push(phone);
+    await phone.login(server.url, username);
+    await waitFor(async () => (await read(phone, groupId)).includes("the alarm code is 4471"), "bob's new device to read its own history");
+    await waitFor(async () => (await read(phone, dmId)).includes("my bank PIN, just for you: 9920"), "bob's new device to read the direct message");
+    await waitFor(() => warned(phone, "pass one of your conversations off"), "bob's new device to be told");
+    const kinds = sessionOf(phone).groups as Map<string, { kind: string; peerId: string | null }>;
+    expect(kinds.get(groupId)?.kind).toBe("group");
+    expect(kinds.get(dmId)).toMatchObject({ kind: "dm", peerId: ann.userId });
+    expect(phone.session.getChannels().some((item) => item.id === groupId || item.id === dmId)).toBe(false);
+
+    // What the new device sends goes to the conversation's people only: mal is taken out first.
+    const sent = phone.session.sendMessage(`group:${groupId}`, { text: "written from my new phone" });
+    await waitFor(async () => (await phone.session.loadMessages(groupId)).messages.some((item) => item.id === sent.id && item.status === "sent"), "the new device's message to go");
+    await sleep(3000);
+    expect(await read(mal, groupId)).not.toContain("the alarm code is 4471");
+    expect(await read(mal, groupId)).not.toContain("written from my new phone");
+    expect(await read(mal, dmId)).not.toContain("my bank PIN, just for you: 9920");
+
+    // Without his vault's keys, a new device still won't take either for a channel: their own state says what they are.
+    phone.client.stop();
+    await sleep(500);
+    withServerDatabase((db) => db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id LIKE 'ek:%'").run(bob.userId));
+    const tablet = await new TestApp("bob's new tablet").open();
+    open.push(tablet);
+    await tablet.login(server.url, username);
+    await waitFor(() => warned(tablet, "a group rather than a channel"), "the tablet to refuse the group");
+    await waitFor(() => warned(tablet, "a direct message rather than a channel"), "the tablet to refuse the direct message");
+    expect(sessionOf(tablet).hasMlsGroup(groupId)).toBe(false);
+    expect(sessionOf(tablet).hasMlsGroup(dmId)).toBe(false);
+    expect(await read(mal, groupId)).not.toContain("the alarm code is 4471");
+  });
+
+  it("only hands on a channel's keys while everything this device has says it's one", async () => {
+    const channelId = await alice.session.createChannel({ type: "text", name: "lounge" });
+    const session = sessionOf(alice);
+    await waitFor(() => session.hasMlsGroup(channelId), "the channel to start");
+    expect(session.knownChannel(channelId)).toBe(true);
+    // Not one this account's vault knows as something else, whatever this device was told.
+    session.vaultKinds().set(channelId, `dm:${alice.userId}`);
+    expect(session.knownChannel(channelId)).toBe(false);
+    expect(alice.session.getChannels().some((item) => item.id === channelId)).toBe(false);
+    session.vaultKinds().set(channelId, "channel");
   });
 });

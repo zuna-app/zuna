@@ -145,6 +145,9 @@ export const KEY_UNPROVEN = 2;
  */
 export const KEY_VOIDED = 3;
 
+/** What a person is told when the server calls a conversation something other than what it is. */
+export const KIND_WARNING = "The server tried to pass one of your conversations off as a different kind of conversation. Zuna didn't go along with it.";
+
 export interface CachedDevice {
   id: string;
   signatureKey: Uint8Array;
@@ -231,8 +234,9 @@ export interface CachedGroup {
   /** In a channel: who's waiting for a member to hand them its older keys. */
   historyWanted?: string[];
   /**
-   * A group's roster as MLS last gave this device (see roster.ts), kept when the MLS
-   * state isn't, so whatever comes next is held to it. Only groups have one.
+   * A group's roster as MLS last gave this device (see roster.ts), or a DM's or a channel's
+   * charter, kept when the MLS state isn't, so whatever comes next is held to it. A DM or
+   * channel started before charters has none.
    */
   roster?: string;
   /** The version before it, which a group whose newest change was undone goes back to. */
