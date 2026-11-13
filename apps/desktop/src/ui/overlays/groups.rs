@@ -148,7 +148,7 @@ impl Dialog {
                             .flex()
                             .flex_col()
                             .child(div().flex().items_center().gap(px(6.)).child(div().min_w_0().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).when(user.bot.is_some(), |el| el.child(bot_badge(cx))))
-                            .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))),
+                            .when(!user.username.is_empty(), |el| el.child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username)))),
                     )
                     .child(
                         div()
@@ -381,7 +381,7 @@ impl Dialog {
                             .flex()
                             .flex_col()
                             .child(div().flex().items_center().gap(px(6.)).child(div().min_w_0().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).when(user.bot.is_some(), |el| el.child(bot_badge(cx))))
-                            .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))),
+                            .when(!user.username.is_empty(), |el| el.child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username)))),
                     )
                     .child(
                         div()

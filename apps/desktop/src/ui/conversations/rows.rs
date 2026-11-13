@@ -13,7 +13,8 @@ impl ConversationList {
         let call = item.group_id.as_ref().is_some_and(|group| server.calls.contains_key(group));
         let preview = preview_for(item.last_message.as_ref(), &server.users, &self_id, &item.kind);
         let fallback = if item.kind == "dm" && !is_saved {
-            peer.as_ref().map(|peer| format!("@{}", peer.username)).unwrap_or_default()
+            // Someone on Telegram may have no username.
+            peer.as_ref().filter(|peer| !peer.username.is_empty()).map(|peer| format!("@{}", peer.username)).unwrap_or_default()
         } else if is_saved {
             "Notes to yourself".into()
         } else {

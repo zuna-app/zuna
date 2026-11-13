@@ -306,7 +306,8 @@ impl ChatView {
                     all.sort_by_cached_key(|user| user.display_name.to_lowercase());
                     all
                 };
-                people.retain(|user| !user.banned && !user.deleted && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
+                // Someone on Telegram with no username can't be mentioned by one.
+                people.retain(|user| !user.banned && !user.deleted && !user.username.is_empty() && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
                 people
                     .into_iter()
                     .take(MAX_SUGGESTIONS)
