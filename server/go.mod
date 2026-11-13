@@ -3,8 +3,8 @@ module zuna/server
 go 1.26.0
 
 // What builds it where the Go at hand is older, and what CI builds and checks it with: the
-// first 1.26 whose standard library has the fixes for GO-2026-6617 and GO-2026-6809.
-toolchain go1.26.10
+// first 1.26 whose standard library has the fixes for GO-2026-6617, GO-2026-6809 and GO-2026-6859.
+toolchain go1.26.11
 
 require (
 	github.com/cloudflare/circl v1.6.5
