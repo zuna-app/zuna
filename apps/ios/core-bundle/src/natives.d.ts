@@ -33,6 +33,15 @@ declare const __zunaHost: {
   webFetch(id: number, url: string, maxBytes: number): void;
   /** Shrinks a picture to fit within maxSize pixels, as a JPEG data URL. */
   imageShrink(bytes: Uint8Array, maxSize: number): { data: string; width: number; height: number } | null;
+  /**
+   * A linked Telegram account's engine, behind the host's broker (docs/TELEGRAM_PLAN.md), which
+   * only the native desktop app gives so far. What it says comes back through __zunaTelegram.
+   */
+  telegramAvailable?: boolean;
+  /** Starts the engine, and says why it can't, or "". */
+  telegramStart?(): string;
+  telegramSend?(json: string): void;
+  telegramStop?(signOut: boolean): void;
 };
 
 declare const __zunaCrypto: {

@@ -18,6 +18,8 @@ import { migrate, type DbProvider, type LocalDb, type SqlValue } from "./db";
 import type { FileAdapter } from "./files";
 import { findLink, makeLinkPreview, makeVideoPreview, type WebAdapter } from "./links";
 import { ServerSession } from "./session";
+import type { TelegramAdapter } from "./telegram/engine";
+import { TELEGRAM_ID, TelegramSession } from "./telegram/session";
 import type { CoreEvent, InvitePreview, LinkPreview, MessageBody, Profile, ServerEntry, ServerInfo } from "./types";
 
 export const INDEX_DB = "zuna-index";
@@ -91,6 +93,11 @@ export interface ZunaClientOptions {
    * takes, so the web app leaves it out, and they go without credentials.
    */
   sealedFetch?: (url: string, init: RequestInit) => Promise<Response>;
+  /**
+   * A linked Telegram account's engine, which the host runs apart from the core, behind its
+   * broker (docs/TELEGRAM_PLAN.md). Without it, as on the web and in zuna-bot, there's no Telegram.
+   */
+  telegram?: TelegramAdapter;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -147,6 +154,7 @@ export class ZunaClient {
   private active = false;
   private shownServer: string | null = null;
   private previews = new Map<string, Promise<LinkPreview | null>>();
+  private telegram: TelegramSession | null = null;
 
   constructor(private readonly options: ZunaClientOptions) {}
 
@@ -170,6 +178,10 @@ export class ZunaClient {
       this.index.run("ALTER TABLE servers ADD COLUMN signed_out TEXT");
       this.index.run("ALTER TABLE servers ADD COLUMN signed_out_at INTEGER");
     }
+    // Whether a Telegram account is linked on this device, and where its icon sits among the
+    // servers': nothing of Telegram's own, which stays in its engine.
+    this.index.run("CREATE TABLE IF NOT EXISTS telegram (position INTEGER NOT NULL)");
+    if (this.index.get("SELECT position FROM telegram") && this.options.telegram && !this.telegram) this.startTelegram();
     const rows = this.index.all<{ id: string; account: Uint8Array; signed_out_at: number | null }>("SELECT id, account, signed_out_at FROM servers ORDER BY position");
     for (const row of rows) {
       if (row.signed_out_at && Date.now() - row.signed_out_at > SIGNED_OUT_KEPT_MS) {
@@ -200,6 +212,8 @@ export class ZunaClient {
     this.active = active;
     this.shownServer = shownServer;
     for (const [serverId, session] of this.sessions) session.setActive(this.activeOn(serverId));
+    // Telegram shows the account online only while it's the one in front, as its own apps do.
+    this.telegram?.setActive(this.active && this.shownServer === TELEGRAM_ID);
   }
 
   private activeOn(serverId: string): boolean {
@@ -277,7 +291,10 @@ export class ZunaClient {
     const serverId = randomId();
     const sealed = wasm.aeadSeal(this.serverKey(serverId), utf8(encodeAccount(account)), label("account"));
     const info = await new Api(account.serverUrl).info();
-    const position = (this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM servers")?.next ?? 1);
+    const position = Math.max(
+      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM servers")?.next ?? 1,
+      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM telegram")?.next ?? 1,
+    );
     this.index.run("INSERT INTO servers(id, position, account, name, has_icon) VALUES(?, ?, ?, ?, ?)", [
       serverId,
       position,
@@ -365,10 +382,10 @@ export class ZunaClient {
   // --- Servers ---
 
   listServers(): ServerEntry[] {
-    const rows = this.index.all<{ id: string; account: Uint8Array; name: string; has_icon: number; signed_out: string | null }>(
-      "SELECT id, account, name, has_icon, signed_out FROM servers ORDER BY position",
+    const rows = this.index.all<{ id: string; account: Uint8Array; name: string; has_icon: number; signed_out: string | null; position: number }>(
+      "SELECT id, account, name, has_icon, signed_out, position FROM servers ORDER BY position",
     );
-    return rows.flatMap((row) => {
+    const servers = rows.flatMap((row): (ServerEntry & { position: number })[] => {
       let account;
       try {
         account = JSON.parse(fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account"))));
@@ -376,23 +393,35 @@ export class ZunaClient {
         // Its account won't open, so there's nothing to list it by. The rest still are.
         return [];
       }
-      return {
-        id: row.id,
-        url: account.serverUrl,
-        address: serverAddress(account.serverUrl, account.pin),
-        name: row.name,
-        hasIcon: row.has_icon !== 0,
-        username: account.username,
-        userId: account.userId,
-        role: this.sessions.get(row.id)?.getSelf().role ?? account.role,
-        signedOut: row.signed_out ?? null,
-      };
+      return [
+        {
+          kind: "server",
+          id: row.id,
+          url: account.serverUrl,
+          address: serverAddress(account.serverUrl, account.pin),
+          name: row.name,
+          hasIcon: row.has_icon !== 0,
+          username: account.username,
+          userId: account.userId,
+          role: this.sessions.get(row.id)?.getSelf().role ?? account.role,
+          signedOut: row.signed_out ?? null,
+          position: row.position,
+        },
+      ];
     });
+    const linked = this.telegram ? this.index.get<{ position: number }>("SELECT position FROM telegram") : undefined;
+    if (linked && this.telegram) {
+      const self = this.telegram.getSelf();
+      servers.push({ kind: "telegram", id: TELEGRAM_ID, url: "", address: "", name: "Telegram", hasIcon: false, username: self.username, userId: self.userId, role: "member", signedOut: null, position: linked.position });
+    }
+    return servers.sort((a, b) => a.position - b.position).map(({ position: _, ...entry }) => entry);
   }
 
   reorderServers(ids: string[]): void {
     this.index.transaction(() => {
-      ids.forEach((id, position) => this.index.run("UPDATE servers SET position = ? WHERE id = ?", [position, id]));
+      ids.forEach((id, position) =>
+        id === TELEGRAM_ID ? this.index.run("UPDATE telegram SET position = ?", [position]) : this.index.run("UPDATE servers SET position = ? WHERE id = ?", [position, id]),
+      );
     });
   }
 
@@ -400,6 +429,72 @@ export class ZunaClient {
     const session = this.sessions.get(serverId);
     if (!session) throw new Error("That server isn't connected.");
     return session;
+  }
+
+  /** The linked Telegram account's session, which `rpc.ts` reaches under `TELEGRAM_ID`. */
+  get telegramSession(): TelegramSession {
+    if (!this.telegram) throw new Error("No Telegram account is linked here.");
+    return this.telegram;
+  }
+
+  // --- Telegram ---
+
+  /** Whether this app can link a Telegram account: its host runs the engine. */
+  telegramAvailable(): boolean {
+    return !!this.options.telegram;
+  }
+
+  /**
+   * Starts linking a Telegram account on this device, whose steps come as `telegram` events:
+   * its icon goes in the rail after the servers', and stays there while it's linked. One account
+   * at a time, and nothing of it reaches a Zuna server.
+   */
+  linkTelegram(): void {
+    if (!this.options.telegram) throw new Error("This app can't use Telegram.");
+    if (this.telegram) return;
+    const position = Math.max(
+      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM servers")?.next ?? 1,
+      this.index.get<{ next: number }>("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM telegram")?.next ?? 1,
+    );
+    this.index.transaction(() => {
+      this.index.run("DELETE FROM telegram");
+      this.index.run("INSERT INTO telegram(position) VALUES(?)", [position]);
+    });
+    this.startTelegram();
+  }
+
+  /**
+   * Signs the Telegram account out, which ends its session at Telegram if it can, and erases
+   * everything of it on this device either way. Says whether Telegram was told: if it wasn't,
+   * the session is ended from another device.
+   */
+  async unlinkTelegram(): Promise<{ signedOut: boolean }> {
+    const session = this.telegram;
+    if (!session) {
+      this.index.run("DELETE FROM telegram");
+      return { signedOut: false };
+    }
+    const signedOut = await session.unlink();
+    return { signedOut };
+  }
+
+  private startTelegram(): void {
+    const adapter = this.options.telegram!;
+    const session: TelegramSession = new TelegramSession(adapter, {
+      onEvent: (event) => {
+        if (this.telegram === session) this.options.onEvent(event);
+      },
+      // Unlinked here, or its session ended from another device: nothing of it stays.
+      onGone: () => {
+        if (this.telegram !== session) return;
+        this.telegram = null;
+        this.index.run("DELETE FROM telegram");
+        this.options.onEvent({ type: "conversations", serverId: TELEGRAM_ID });
+      },
+    });
+    this.telegram = session;
+    session.setActive(this.active && this.shownServer === TELEGRAM_ID);
+    session.start();
   }
 
   // --- Messages across servers ---
@@ -438,6 +533,9 @@ export class ZunaClient {
    * and its files are uploaded there again.
    */
   async forwardMessages(fromServerId: string, groupId: string, ids: string[], toServerId: string, toKey: string): Promise<void> {
+    // Telegram's chats aren't end-to-end encrypted, and a Zuna chat's messages never go there, nor
+    // Telegram's into one: copying text is the person's own act.
+    if (fromServerId === TELEGRAM_ID || toServerId === TELEGRAM_ID) throw new Error("Nothing is forwarded between Zuna and Telegram.");
     const source = this.session(fromServerId);
     // All of them are checked before any is sent.
     const originals = ids.map((id) => ({ id, ...source.forwardable(groupId, id) }));
@@ -541,5 +639,7 @@ export class ZunaClient {
       session.setActive(false);
       session.stop();
     }
+    this.telegram?.setActive(false);
+    this.telegram?.stop();
   }
 }

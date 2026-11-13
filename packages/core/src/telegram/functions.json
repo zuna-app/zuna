@@ -1,0 +1,64 @@
+{
+  "about": "The TDLib functions the core may ask of a linked Telegram account's engine (docs/TELEGRAM_PLAN.md, The broker). The desktop app's broker is built from this file (apps/desktop/src/telegram/functions.rs), and nothing changes it while the app runs. A function maps to true, or to the values each named field may have. Anything not here is refused: deleting the account, its password, number or login email, ending other sessions, payments, contacts from an address book, proxies, raw queries. The broker itself signs out and closes the engine.",
+  "functions": {
+    "getAuthorizationState": true,
+    "requestQrCodeAuthentication": true,
+    "setAuthenticationPhoneNumber": true,
+    "resendAuthenticationCode": true,
+    "checkAuthenticationCode": true,
+    "checkAuthenticationEmailCode": true,
+    "checkAuthenticationPassword": true,
+
+    "getOption": true,
+    "setOption": { "name": ["online"] },
+
+    "getMe": true,
+    "getUser": true,
+    "getUserFullInfo": true,
+    "getBasicGroup": true,
+    "getBasicGroupFullInfo": true,
+    "getSupergroup": true,
+    "getSupergroupFullInfo": true,
+
+    "loadChats": true,
+    "getChats": true,
+    "getChat": true,
+    "openChat": true,
+    "closeChat": true,
+    "searchPublicChat": true,
+    "searchChats": true,
+    "searchChatsOnServer": true,
+    "searchContacts": true,
+    "createPrivateChat": true,
+    "createBasicGroupChat": true,
+
+    "getChatHistory": true,
+    "getMessage": true,
+    "getMessages": true,
+    "getRepliedMessage": true,
+    "searchChatMessages": true,
+    "searchMessages": true,
+
+    "sendMessage": true,
+    "editMessageText": true,
+    "deleteMessages": true,
+    "forwardMessages": true,
+    "addMessageReaction": true,
+    "removeMessageReaction": true,
+    "pinChatMessage": true,
+    "unpinChatMessage": true,
+    "sendChatAction": true,
+    "setChatDraftMessage": true,
+    "getCallbackQueryAnswer": true,
+
+    "viewMessages": true,
+    "readAllChatMentions": true,
+    "toggleChatIsMarkedAsUnread": true,
+    "toggleChatIsPinned": true,
+    "setChatNotificationSettings": true,
+
+    "downloadFile": true,
+    "cancelDownloadFile": true,
+    "getFile": true
+  }
+}

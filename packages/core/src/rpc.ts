@@ -4,7 +4,8 @@
 
 import type { ZunaClient } from "./client";
 import type { ServerSession } from "./session";
-import type { CoreEvent } from "./types";
+import type { TelegramSession } from "./telegram/session";
+import { TELEGRAM_ID, type CoreEvent } from "./types";
 
 type Remote<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : never;
@@ -53,7 +54,17 @@ type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknow
 const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   deleteAccount: true, findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
   previewInvite: true, recover: true, register: true, registerBot: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
-  stop: true, suspend: true
+  stop: true, suspend: true, telegramAvailable: true, linkTelegram: true, unlinkTelegram: true,
+};
+// What a linked Telegram account answers, under the server ID `telegram` (docs/TELEGRAM_PLAN.md).
+const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
+  start: true, stop: true, unlink: true, suspend: true, resume: true, nudge: true, flushOutbox: true, getConnectionState: true, setActive: true, isActiveElsewhere: true,
+  getLink: true, linkWithQr: true, linkWithPhone: true, enterCode: true, resendCode: true, enterPassword: true,
+  getInfo: true, getSelf: true, serverUrl: true, getUsers: true, getConversations: true, getPreferences: true, getChannels: true, getVoiceMembers: true, getCalls: true,
+  getSounds: true, getEmotes: true, emotesIn: true, getNewDevices: true,
+  loadMessages: true, loadAround: true, loadNewer: true, messageById: true, loadPins: true, search: true, sendMessage: true, editMessage: true, deleteMessage: true,
+  deleteMessages: true, toggleReaction: true, setPinned: true, sendTyping: true, markRead: true, markChatRead: true, unreadMentions: true, markMentionSeen: true,
+  setMarkedUnread: true, mute: true, unmute: true, setPinnedChats: true, pressButton: true,
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   addMembers: true, addSound: true, answerNewDevice: true, banUser: true, catchUpFirst: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true, dismissReports: true,
@@ -78,11 +89,13 @@ export function serveCore(port: RpcPort, getClient: () => ZunaClient | Promise<Z
     const call = data as CallMessage;
     if (call.kind !== "call") return;
     try {
-      if (typeof call.method !== "string" || !Object.hasOwn(call.serverId ? SESSION_METHODS : CLIENT_METHODS, call.method)) {
+      const telegram = call.serverId === TELEGRAM_ID;
+      const methods = telegram ? TELEGRAM_METHODS : call.serverId ? SESSION_METHODS : CLIENT_METHODS;
+      if (typeof call.method !== "string" || !Object.hasOwn(methods, call.method)) {
         throw new Error("The core has no such thing to do.");
       }
       const client = await getClient();
-      const target: any = call.serverId ? client.session(call.serverId) : client;
+      const target: any = telegram ? client.telegramSession : call.serverId ? client.session(call.serverId) : client;
       const value = await target[call.method](...call.args);
       port.postMessage({ kind: "reply", id: call.id, ok: true, value } satisfies ReplyMessage);
     } catch (error) {

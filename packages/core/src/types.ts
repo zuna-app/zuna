@@ -697,7 +697,34 @@ export type MediaKind = "photo" | "video" | "file" | "audio" | "voice" | "link";
 /** How many of each kind a chat holds. A message with links counts once, however many it has. */
 export type MediaCounts = Record<MediaKind, number>;
 
+/**
+ * Where linking a Telegram account stands, as the linking screens show it: a QR code to scan,
+ * a phone number, its code, a password, or why it stopped. Telegram is a third party, and its
+ * chats aren't end-to-end encrypted (docs/TELEGRAM_PLAN.md).
+ */
+export type TelegramLink =
+  | { step: "starting" }
+  | { step: "qr"; link: string }
+  | { step: "phone" }
+  /** `via` is where the code went: "telegram", "sms", "call", "fragment" or "other". */
+  | { step: "code"; phone: string; length: number; via: string; canResend: boolean }
+  | { step: "email"; pattern: string; length: number }
+  | { step: "password"; hint: string }
+  /** The number isn't on Telegram, and nobody signs up from Zuna. */
+  | { step: "signup" }
+  | { step: "ready" }
+  | { step: "failed"; reason: string }
+  /** Unlinked, here or by a session ended from another device, and whether Telegram was told. */
+  | { step: "unlinked"; signedOut: boolean };
+
+/** The server ID a linked Telegram account goes by, everywhere a server's does. */
+export const TELEGRAM_ID = "telegram";
+
+/** What a rail icon is: a server, or the Telegram account linked on this device. */
+export type ServerKind = "server" | "telegram";
+
 export interface ServerEntry {
+  kind: ServerKind;
   id: string;
   url: string;
   /** What to enter to sign in on another device: the url, with the pin of a server that makes its own certificate. */
@@ -774,4 +801,6 @@ export type CoreEvent =
    * be in use when the message came, which is when it pushes a phone nothing: the phone shows
    * it itself then, and leaves it to the push otherwise.
    */
-  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string; inUse: boolean };
+  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string; inUse: boolean }
+  /** Where linking the Telegram account stands changed. */
+  | { type: "telegram"; serverId: string; link: TelegramLink };

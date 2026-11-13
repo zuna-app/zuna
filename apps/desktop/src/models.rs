@@ -571,6 +571,8 @@ pub struct SearchResult {
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ServerEntry {
+    /// "server", or "telegram" for the Telegram account linked on this device.
+    pub kind: String,
     pub id: String,
     pub url: String,
     pub address: String,
@@ -580,6 +582,35 @@ pub struct ServerEntry {
     pub user_id: String,
     pub role: String,
     pub signed_out: Option<String>,
+}
+
+impl ServerEntry {
+    pub fn is_telegram(&self) -> bool {
+        self.kind == "telegram"
+    }
+}
+
+/// Where linking a Telegram account stands (`TelegramLink` in types.ts).
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TelegramLink {
+    /// "starting", "qr", "phone", "code", "email", "password", "signup", "ready", "failed" or "unlinked".
+    pub step: String,
+    /// For "qr": the `tg://login` address the code holds.
+    pub link: String,
+    /// For "code": the number it went to, how many digits, where it went, and whether another can be asked for.
+    pub phone: String,
+    pub length: u32,
+    pub via: String,
+    pub can_resend: bool,
+    /// For "email": the address it went to, partly hidden.
+    pub pattern: String,
+    /// For "password": the hint the account set.
+    pub hint: String,
+    /// For "failed": why.
+    pub reason: String,
+    /// For "unlinked": whether Telegram was told.
+    pub signed_out: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

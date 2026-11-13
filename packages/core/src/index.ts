@@ -1,5 +1,7 @@
 export { ZunaClient, type ZunaClientOptions } from "./client";
 export { ServerSession } from "./session";
+export { TelegramSession } from "./telegram/session";
+export type { TelegramAdapter } from "./telegram/engine";
 export { parseInviteLink, inviteLink, type AccountState, type BotSetup } from "./account";
 export { ApiError, normalizeServerUrl } from "./api";
 export { migrate, type DbProvider, type LocalDb, type SqlValue } from "./db";

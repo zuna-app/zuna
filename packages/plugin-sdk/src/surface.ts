@@ -11,7 +11,7 @@
 // themselves, the disk. A method that fetches a URL through the core is "never" too, as it
 // would reach the internet around `network` and its hosts.
 
-import type { CoreEvent, ServerSession, ZunaClient } from "@zuna/core";
+import type { CoreEvent, ServerSession, TelegramSession, ZunaClient } from "@zuna/core";
 import { PERMISSIONS, type Permission } from "./manifest.ts";
 
 type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknown ? K : never }[keyof T] & string;
@@ -39,6 +39,9 @@ export const CLIENT: Record<MethodName<ZunaClient>, Rule> = {
   setActive: "never",
   stop: "never",
   suspend: "never",
+  telegramAvailable: "never",
+  linkTelegram: "never",
+  unlinkTelegram: "never",
 };
 
 export const SESSION: Record<MethodName<ServerSession>, Rule> = {
@@ -225,6 +228,25 @@ export const EVENTS: Record<CoreEvent["type"], Rule> = {
   security: "never",
   new_devices: "never",
   button: "never",
+  telegram: "never",
+};
+
+/**
+ * A linked Telegram account's session, every method of which is "never", with any permission: a
+ * plugin that held back read marks would be the hiding Telegram's terms forbid, and one that
+ * read messages and reached the internet would carry Telegram's off the device
+ * (docs/TELEGRAM_PLAN.md). The broker also refuses any call for it, and tells no plugin of its
+ * events, by its server ID.
+ */
+export const TELEGRAM: Record<MethodName<TelegramSession>, "never"> = {
+  start: "never", stop: "never", unlink: "never", suspend: "never", resume: "never", nudge: "never", flushOutbox: "never", getConnectionState: "never",
+  setActive: "never", isActiveElsewhere: "never", getLink: "never", linkWithQr: "never", linkWithPhone: "never", enterCode: "never", resendCode: "never",
+  enterPassword: "never", getInfo: "never", getSelf: "never", serverUrl: "never", getUsers: "never", getConversations: "never", getPreferences: "never",
+  getChannels: "never", getVoiceMembers: "never", getCalls: "never", getSounds: "never", getEmotes: "never", emotesIn: "never", getNewDevices: "never",
+  loadMessages: "never", loadAround: "never", loadNewer: "never", messageById: "never", loadPins: "never", search: "never", sendMessage: "never",
+  editMessage: "never", deleteMessage: "never", deleteMessages: "never", toggleReaction: "never", setPinned: "never", sendTyping: "never", markRead: "never",
+  markChatRead: "never", unreadMentions: "never", markMentionSeen: "never", setMarkedUnread: "never", mute: "never", unmute: "never", setPinnedChats: "never",
+  pressButton: "never",
 };
 
 /** The table as the broker reads it. */

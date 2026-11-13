@@ -9,6 +9,7 @@ import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
 import { nativeFiles } from "./files";
+import { nativeTelegram } from "./telegram";
 import { nativeWeb } from "./web";
 import { decodeWire, encodeWire } from "./wire";
 
@@ -110,6 +111,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     deviceName,
     files: nativeFiles,
     web: nativeWeb,
+    telegram: nativeTelegram,
     onEvent: emit,
     channels: true,
     calls: true,

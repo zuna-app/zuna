@@ -100,6 +100,16 @@ pub fn plugin_message(server_id: &str, message: &Value) -> Value {
     })
 }
 
+/// The list of servers as plugins are given it: without the linked Telegram account.
+pub fn without_telegram(_: &str, value: Value) -> Value {
+    match value {
+        Value::Array(entries) => {
+            sanitize(&Value::Array(entries.into_iter().filter(|entry| entry.get("kind").and_then(Value::as_str) != Some("telegram") && entry.get("id").and_then(Value::as_str) != Some(crate::telegram::SERVER_ID)).collect()))
+        }
+        other => sanitize(&other),
+    }
+}
+
 /// A core event as plugins are told of it.
 pub fn for_plugins(event: &Value) -> Value {
     let server = event.get("serverId").and_then(Value::as_str).unwrap_or_default();
@@ -511,8 +521,10 @@ impl Plugins {
     }
 
     /// Whether a server is one this device is on.
+    /// Whether a plugin may name this server: one the device is on, and never the linked
+    /// Telegram account, which no plugin reaches with any permission (docs/TELEGRAM_PLAN.md).
     fn server_known(&self, server: &str, cx: &gpui::App) -> bool {
-        crate::state::try_store(cx).is_some_and(|state| state.read(cx).servers.contains_key(server))
+        server != crate::telegram::SERVER_ID && crate::state::try_store(cx).is_some_and(|state| state.read(cx).servers.contains_key(server))
     }
 
     /// Calls the core for a plugin and answers it later, with what comes back made fit for it.
@@ -571,7 +583,9 @@ impl Plugins {
             "editMessage" => call_args.truncate(5),
             _ => {}
         }
-        self.ask_core(uid, n, server, &method, call_args, |_, value| sanitize(&value), cx);
+        // The list of servers never names the linked Telegram account.
+        let shape: fn(&str, Value) -> Value = if method == "listServers" { without_telegram } else { |_, value| sanitize(&value) };
+        self.ask_core(uid, n, server, &method, call_args, shape, cx);
         None
     }
 

@@ -846,6 +846,9 @@ public struct MediaCounts: Codable, Sendable, Equatable {
 }
 
 public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
+    /// "server", or "telegram" for a Telegram account linked on the device, which only the
+    /// desktop app has so far, so the iPhone's core never lists one.
+    public var kind: String?
     public var id: String
     public var url: String
     /// What to enter to sign in on another device: the url, with the pin of a server that makes its own certificate.

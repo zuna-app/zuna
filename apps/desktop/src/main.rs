@@ -15,6 +15,7 @@ mod platform;
 mod plugins;
 mod settings;
 mod state;
+mod telegram;
 #[cfg(all(feature = "test-control", unix))]
 mod test_control;
 #[cfg(test)]

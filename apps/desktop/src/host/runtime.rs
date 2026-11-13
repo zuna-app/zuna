@@ -42,6 +42,8 @@ pub enum Task {
     Password { password: String, related: Vec<String>, done: futures::channel::oneshot::Sender<String> },
     /// The proxy changed (net.rs): everything open ends, and goes the new way when it's made again.
     Network,
+    /// What a linked Telegram account's engine said, through the broker (src/telegram).
+    Telegram(String),
 }
 
 enum SocketCommand {
@@ -64,6 +66,11 @@ struct Host {
     sockets: HashMap<u32, (UnboundedSender<SocketCommand>, AbortHandle)>,
     files: PathBuf,
     post: Arc<dyn Fn(u32, String) + Send + Sync>,
+    data_dir: PathBuf,
+    /// This device's key, from when the core boots, which the Telegram engine's database key is sealed with.
+    device_key: Option<Vec<u8>>,
+    /// A linked Telegram account's engine, once the core first starts it.
+    telegram: Option<crate::telegram::Engine>,
 }
 
 pub struct Options {
@@ -106,6 +113,9 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         sockets: HashMap::new(),
         files,
         post: options.post.clone(),
+        data_dir: options.data_dir.clone(),
+        device_key: None,
+        telegram: None,
     }));
 
     let loaded = context.with(|ctx| -> Result<()> {
@@ -194,6 +204,7 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
     match task {
         Task::Receive { channel, json } => call(ctx, "__zunaReceive", vec![number(ctx, channel as f64), string(ctx, &json)?]),
         Task::Boot { key, name, done } => {
+            host.borrow_mut().device_key = Some(key.clone());
             let done = RefCell::new(Some(done));
             let callback = Function::new(ctx.clone(), move |Rest(args): Rest<Value<'js>>| {
                 let error = args.first().and_then(|value| value.as_string()).and_then(|text| text.to_string().ok());
@@ -252,6 +263,10 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
         Task::Network => {
             let (requests, sockets) = {
                 let mut host = host.borrow_mut();
+                // Telegram's connections too: TDLib makes them again, the new way.
+                if let Some(engine) = &host.telegram {
+                    engine.network_changed();
+                }
                 (host.http, host.sealed_http, host.web) = clients();
                 (host.requests.drain().collect::<Vec<_>>(), host.sockets.drain().collect::<Vec<_>>())
             };
@@ -266,6 +281,7 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
             }
             Ok(())
         }
+        Task::Telegram(json) => call(ctx, "__zunaTelegram", vec![string(ctx, &json)?]),
         Task::Eval { source, done } => {
             let result = match ctx.eval::<Value, _>(source.as_bytes()) {
                 Ok(value) => ctx.json_stringify(value).ok().flatten().and_then(|text| text.to_string().ok()).unwrap_or_else(|| "undefined".into()),
@@ -624,7 +640,60 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         }
     });
 
+    install_telegram(ctx, &object, &host)?;
     ctx.globals().set("__zunaHost", object)?;
+    Ok(())
+}
+
+/// A linked Telegram account's engine (docs/TELEGRAM_PLAN.md): started, asked and stopped by the
+/// core's adapter, through the broker, which answers back through `__zunaTelegram`.
+fn install_telegram<'js>(ctx: &Ctx<'js>, object: &Object<'js>, host: &Rc<RefCell<Host>>) -> Result<()> {
+    object.set("telegramAvailable", crate::telegram::available())?;
+
+    host_fn!(object, ctx, host, "telegramStart", |c, h, _a| {
+        let engine = {
+            let mut host = h.borrow_mut();
+            if host.telegram.is_none() {
+                let Some(device_key) = host.device_key.clone() else { return string(&c, "The core hasn't started.") };
+                let tasks = host.tasks.clone();
+                let deliver: crate::telegram::Deliver = Arc::new(move |json| {
+                    tasks.send(Task::Telegram(json)).ok();
+                });
+                host.telegram = Some(crate::telegram::Engine::new(host.data_dir.clone(), device_key, deliver));
+            }
+            host.telegram.clone().expect("just made")
+        };
+        match engine.start() {
+            Ok(()) => string(&c, ""),
+            Err(why) => string(&c, &why),
+        }
+    });
+
+    host_fn!(object, ctx, host, "telegramSend", |c, h, a| {
+        let engine = h.borrow().telegram.clone();
+        if let Some(engine) = engine {
+            engine.send(&string_arg(&a, 0));
+        }
+        Ok(Value::new_undefined(c))
+    });
+
+    host_fn!(object, ctx, host, "telegramStop", |c, h, a| {
+        let sign_out = bool_arg(&a, 0);
+        let engine = h.borrow().telegram.clone();
+        match engine {
+            Some(engine) => engine.stop(sign_out),
+            None if sign_out => {
+                // Nothing running, so nothing at Telegram can be ended from here: what's on this
+                // device goes all the same.
+                let host = h.borrow();
+                crate::telegram::erase(&host.data_dir);
+                let stopped = serde_json::json!({ "@type": "zunaStopped", "erased": true, "signedOut": false });
+                host.tasks.send(Task::Telegram(stopped.to_string())).ok();
+            }
+            None => {}
+        }
+        Ok(Value::new_undefined(c))
+    });
     Ok(())
 }
 

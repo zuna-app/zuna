@@ -1086,6 +1086,10 @@ impl Plugins {
     /// Hands a core event to each plugin whose permissions cover its kind and that listens for it.
     pub fn core_event(&mut self, event: &Value) {
         let Some(kind) = event.get("type").and_then(Value::as_str) else { return };
+        // Nothing of the linked Telegram account's, whatever a plugin was granted.
+        if event.get("serverId").and_then(Value::as_str) == Some(crate::telegram::SERVER_ID) {
+            return;
+        }
         let rule = surface::surface().event(kind);
         let surface::Rule::Needs(permission) = rule else { return };
         let listeners: Vec<String> = self.running.iter().filter(|(uid, running)| running.ready && running.subscriptions.contains(kind) && self.granted(uid, permission)).map(|(uid, _)| uid.clone()).collect();
