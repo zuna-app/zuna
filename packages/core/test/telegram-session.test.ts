@@ -438,14 +438,15 @@ describe("what changes in a message", () => {
     const { engine, events, session } = await ready();
     const failed = { ...textMessage(GRACE, serverId(30), SELF, "lost"), sending_state: { "@type": "messageSendingStateFailed" } };
     engine.emit({ "@type": "updateMessageSendFailed", message: failed, old_message_id: 77, error: { code: 400, message: "x" } });
-    expect(of(events, "message_removed")).toEqual([{ type: "message_removed", serverId: TELEGRAM_ID, groupId: String(GRACE), id: "77" }]);
-    expect(of(events, "message").at(-1)).toMatchObject({ message: { id: String(serverId(30)), status: "failed" }, isNew: false });
-    // Failed under its own number: nothing to take away.
+    // In one event, which says whose place it takes, so the chat swaps the row where it is.
+    expect(of(events, "message").at(-1)).toMatchObject({ message: { id: String(serverId(30)), status: "failed" }, isNew: false, replaces: "77" });
+    // Failed under its own number: nothing to take the place of.
     engine.emit({ "@type": "updateMessageSendFailed", message: failed, old_message_id: serverId(30) });
+    expect(of(events, "message").at(-1)).not.toHaveProperty("replaces");
     engine.emit({ "@type": "updateMessageSendFailed", message: null, old_message_id: 1 });
     engine.emit({ "@type": "updateMessageSendSucceeded", message: { ...failed, chat_id: 0 }, old_message_id: 1 });
     engine.emit({ "@type": "updateMessageSendSucceeded", message: failed });
-    expect(of(events, "message_removed")).toHaveLength(1);
+    expect(of(events, "message_removed")).toEqual([]);
     expect(await session.messageById(String(GRACE), String(serverId(30)))).toMatchObject({ status: "failed" });
   });
 
