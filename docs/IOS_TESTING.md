@@ -1,6 +1,6 @@
 # iOS app: testing plan
 
-Companion to [IOS_PLAN.md](IOS_PLAN.md). The goal is a test setup complete enough that the app can be built feature by feature **without a human in the loop**: every item in the parity matrix gets an automated check that runs headlessly on one Mac, against a real server and a real desktop client, and reports results in a form that can be read and acted on.
+How the iPhone and iPad app is tested. [IOS.md](IOS.md) is its design. The setup is complete enough that a feature can be built **without a human in the loop**: each gets an automated check that runs headlessly on one Mac, against a real server and real desktop clients, and reports results in a form that can be read and acted on.
 
 ## Principles
 
@@ -71,7 +71,6 @@ Implemented so far as host commands (`{"kind": "host", "command": …}`):
 
 The control server starts before the core, so a test can also drive the app while it's locked. Messages for the core wait until it's running. Launching with `-ZunaBootSession <name>` simulates a restart of the phone.
 
-The rest follow in F1.
 
 ## Test layers
 
@@ -179,11 +178,11 @@ XCTest metrics with stored baselines, failing on regressions:
 - signing in and syncing 10,000 messages (time and peak memory);
 - Argon2id time.
 
-The simulator runs on Mac hardware, so these catch regressions only, not absolute device performance. JavaScriptCore on iOS runs without a JIT. F0 found that a plain `JSContext` on macOS also runs at interpreter speed, with or without `JSC_useJIT=0`: about 85 ms for a loop V8 runs in 15 ms. So `zuna-host` on macOS is a fair stand-in for a device's core performance with no extra setup. `npm run test:ios:perf` measures it.
+The simulator runs on Mac hardware, so these catch regressions only, not absolute device performance. JavaScriptCore on iOS runs without a JIT. A plain `JSContext` on macOS also runs at interpreter speed, with or without `JSC_useJIT=0`: about 85 ms for a loop V8 runs in 15 ms. So `zuna-host` on macOS is a fair stand-in for a device's core performance with no extra setup. `npm run test:ios:perf` measures it.
 
 ### L7. Manual, at milestones only
 
-On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minutes with a checklist:
+On a real iPhone, from a TestFlight build. Each round is about 15 minutes with a checklist:
 
 - real performance without a JIT;
 - Keychain after a reboot, before the first unlock;
@@ -211,20 +210,20 @@ The app's control channel listens on the phone's loopback only, so it's reached 
 
 ## Commands and results
 
-| Command | Runs | Status |
-|---|---|---|
-| `npm run build:ios` | builds the Rust XCFramework, SQLite and the core bundle | since F0 |
-| `npm run test:ios` | L3: cross-client scenarios against `zuna-host` | since F0 |
-| `npm run test:ios:sim` | L4: the same scenarios with the real app in the E2E simulator | since F0 |
-| `npm run test:ios:perf` | L6 for the core: sign-in and sync of 10,000 messages | since F0 |
-| `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
-| `npm run test:ios:ui -- [--only LaunchAndUnlockTests[/testName][,OtherTests]]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
-| `ZUNA_E2E_SIMULATOR="Zuna E2E iPad" npm run test:ios:ui -- --only PadTests` | L5 on an iPad simulator, made on first use | since F8 |
-| `npm run build -w @zuna/web && npm run test:ios:voice [-- screenshot-dir]` | a voice channel between the phone in the simulator and the web app in Chromium, through a real LiveKit | since voice channels |
-| `npm run build -w @zuna/web && npm run test:ios:notify [-- screenshot-dir]` | which of someone's devices is notified, and when: the web app in Chromium, the phone in the simulator and a second phone | since Telegram's notification timings |
-| `npm run test:ios:release` | the Release guard | since F1 |
-| `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
-| `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |
+| Command | Runs |
+|---|---|
+| `npm run build:ios` | builds the Rust XCFramework, SQLite and the core bundle |
+| `npm run test:ios` | L3: cross-client scenarios against `zuna-host` |
+| `npm run test:ios:sim` | L4: the same scenarios with the real app in the E2E simulator |
+| `npm run test:ios:perf` | L6 for the core: sign-in and sync of 10,000 messages |
+| `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests |
+| `npm run test:ios:ui -- [--only LaunchAndUnlockTests[/testName][,OtherTests]]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` |
+| `ZUNA_E2E_SIMULATOR="Zuna E2E iPad" npm run test:ios:ui -- --only PadTests` | L5 on an iPad simulator, made on first use |
+| `npm run build -w @zuna/web && npm run test:ios:voice [-- screenshot-dir]` | a voice channel between the phone in the simulator and the web app in Chromium, through a real LiveKit |
+| `npm run build -w @zuna/web && npm run test:ios:notify [-- screenshot-dir]` | which of someone's devices is notified, and when: the web app in Chromium, the phone in the simulator and a second phone |
+| `npm run test:ios:release` | the Release guard |
+| `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors |
+| `npm run test:ios:all` | everything, plus the desktop's `npm test` |
 
 On each release (a `v*` tag), the `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
 
@@ -237,27 +236,17 @@ Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 
 `xcresulttool` output is converted to the summary, so a failure can be understood without opening Xcode. Long runs go in the background with a hard timeout, so a hung simulator can't stall the work.
 
-## How I work with this
+## Adding a feature
 
-For each item in the parity matrix:
+For each feature:
 
 1. Write the scenario first: L3 when the feature touches the core or the host, L5 for the UI, both directions with a desktop peer.
 2. Implement until `ios:check` and the area's tests pass.
 3. Look at the screen tour for that area and fix what looks wrong.
 4. Run the full regression (`ios:all`, including the desktop's `npm test`).
-5. Commit directly to `main` with an English message, one commit per finished feature, and push it as CLAUDE.md says.
+5. Commit and push it as CLAUDE.md says.
 
 A feature counts as done when its scenario passes against the desktop peer in both directions, its screenshots are reviewed, and nothing else regressed.
-
-## Built in phase F1, before any features
-
-The infrastructure comes first, so everything after it can be verified on its own:
-
-1. The control channel in `ZunaHost`, and `zuna-host`.
-2. `tests/e2e` with `NodeActor` and `HostActor`.
-3. The orchestrator, simulator setup and fake 7TV.
-4. The result summaries.
-5. The golden corpus and the crypto vectors.
 
 ## Limits of autonomy
 
@@ -265,4 +254,4 @@ The infrastructure comes first, so everything after it can be verified on its ow
 - **Real pushes:** a push from APNs, which would run the notification extension on the simulator too, needs the app's APNs key and the deployed relay.
 - **Signing:** distribution needs your Apple Developer team. Simulator builds need no signing.
 - **The out-of-process photo picker** is tested by one UI test; the rest go through the Debug injection path.
-- **App Store questions** (account deletion, reporting and blocking users, licensing) are decisions, not tests.
+- **Licensing on the App Store** is a decision, not a test.

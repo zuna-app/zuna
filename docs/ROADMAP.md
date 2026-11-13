@@ -6,7 +6,7 @@ Zuna 1.0 is chat, with text channels everywhere, voice channels on the desktop, 
 
 **iPhone and iPad: built, not yet released**
 
-The app is native: SwiftUI, with the unchanged client core (`packages/core`) running in JavaScriptCore and the Rust crypto through UniFFI. It does everything the desktop does, and stays compatible with it. Notifications show the message, decrypted on the phone, and go where you are, as in Telegram. [IOS_PLAN.md](IOS_PLAN.md) has the design and the decisions behind it, and [IOS_TESTING.md](IOS_TESTING.md) how it's tested.
+The app is native: SwiftUI, with the unchanged client core (`packages/core`) running in JavaScriptCore and the Rust crypto through UniFFI. It does everything the desktop does, and stays compatible with it. Notifications show the message, decrypted on the phone, and go where you are, as in Telegram. [IOS.md](IOS.md) has the design and the decisions behind it, and [IOS_TESTING.md](IOS_TESTING.md) how it's tested.
 
 Before it reaches people:
 

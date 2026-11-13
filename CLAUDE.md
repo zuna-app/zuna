@@ -213,7 +213,7 @@ Rules the core depends on:
 - **The Desktop column is the removed Electron app's record.** It says what that app did, gets nothing new and no Known gaps. What the desktop should have, the native app should, in "The native desktop app" and its Known gaps.
 - **What a platform can't have, or what would make no sense on it, isn't a gap.** Mark it `n/a` in its row and list it under "Not possible or pointless there", never in Known gaps.
 - **Only write what you've checked.** If you couldn't build or run a platform, as with Swift without a Mac, say so in that row's notes.
-- **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS_PLAN.md` records iOS's design and test reports, but its parity tables aren't kept current.
+- **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS.md` records iOS's design.
 
 ## Quick reference
 
