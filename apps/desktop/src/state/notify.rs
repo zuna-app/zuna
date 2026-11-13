@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 impl AppState {
     /// Chats an earlier run notified about, which the system still shows, to be taken back as
     /// this run's are once they're read.
@@ -209,6 +212,8 @@ impl AppState {
             if let (Some(picture), Some(image)) = (payload.picture.as_mut(), image) {
                 picture.image = Some(image);
             }
+            #[cfg(test)]
+            tests::SHOWN.with(|shown| shown.borrow_mut().push(payload.clone()));
             if let Some(center) = crate::ui::notifications::center(cx) {
                 center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
             }
