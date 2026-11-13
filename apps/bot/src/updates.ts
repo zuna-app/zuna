@@ -3,6 +3,7 @@
 // until they're taken, as Telegram's are, so the code can restart without missing any.
 
 import { ApiFailure, type Params, integer, strings, text } from "./params";
+import { directAgent } from "./host";
 import type { BotStore } from "./store";
 
 /** The kinds of update zuna-bot makes. */
@@ -160,12 +161,14 @@ export class Updates {
         const [update] = this.store.updates(0, 1);
         if (!webhook || !update || this.stopped) return;
         try {
+          // Directly, as it's the bot's own code, whatever proxy the bot reaches its server through.
           const response = await fetch(webhook.url, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(webhook.secret ? { "X-Telegram-Bot-Api-Secret-Token": webhook.secret } : {}) },
             body: JSON.stringify(update),
             signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-          });
+            dispatcher: directAgent,
+          } as RequestInit);
           if (!response.ok) throw new Error(`Wrong response from the webhook: ${response.status} ${response.statusText}`);
           this.store.confirm((update.update_id as number) + 1);
           this.retryDelay = FIRST_RETRY_MS;

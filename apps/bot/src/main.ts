@@ -9,7 +9,9 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Bot } from "./bot";
+import { useProxy } from "./host";
 import { serve } from "./server";
+import { shown } from "./socks";
 
 const USAGE = `zuna-bot runs a Zuna bot, and gives its code an API shaped like Telegram's.
 
@@ -24,9 +26,15 @@ const USAGE = `zuna-bot runs a Zuna bot, and gives its code an API shaped like T
   zuna-bot token [--data <folder>]
       Prints the token the bot's code calls the API with.
 
+  --proxy socks5://[user:password@]host:port, with init or run, sends everything the bot
+      sends its server through that SOCKS5 proxy, which resolves the server's name, so the
+      server sees the proxy's address. While the proxy can't be reached, nothing connects.
+      Its webhook, which is its own code's, is reached directly.
+
 The data folder is ./zuna-bot-data unless --data or ZUNA_BOT_DATA says otherwise. Whoever
 can read it is the bot, so keep it to the user that runs this.
-ZUNA_BOT_PORT, ZUNA_BOT_HOST and ZUNA_BOT_LINK stand in for --port, --host and --link.`;
+ZUNA_BOT_PORT, ZUNA_BOT_HOST, ZUNA_BOT_LINK and ZUNA_BOT_PROXY stand in for --port, --host,
+--link and --proxy.`;
 
 function options(args: string[]): { command: string; rest: string[]; flags: Map<string, string> } {
   const flags = new Map<string, string>();
@@ -50,6 +58,9 @@ async function setUp(dataDir: string, link: string): Promise<void> {
 async function main(): Promise<void> {
   const { command, rest, flags } = options(process.argv.slice(2));
   const dataDir = resolve(flags.get("data") ?? process.env.ZUNA_BOT_DATA ?? "zuna-bot-data");
+  // Before anything connects.
+  const proxy = flags.get("proxy") ?? process.env.ZUNA_BOT_PROXY;
+  if (proxy && (command === "init" || command === "run")) console.log(`Connecting through the SOCKS5 proxy at ${shown(useProxy(proxy))}.`);
   switch (command) {
     case "init": {
       const link = rest[0] ?? flags.get("link") ?? process.env.ZUNA_BOT_LINK;

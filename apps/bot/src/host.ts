@@ -4,6 +4,10 @@
 //
 // There's no keychain on a server, so the device key is a file only its user can read.
 // Whoever copies the folder is the bot.
+//
+// With --proxy, everything it sends its server goes through that SOCKS5 proxy (socks.ts):
+// its requests, the sealed ones on connections of their own, and its socket, which Node opens
+// through the same dispatcher. Only its webhook, which is its own code's, is reached directly.
 
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,6 +18,7 @@ import type { TLSSocket } from "node:tls";
 import { Agent, buildConnector, setGlobalDispatcher } from "undici";
 import { initCryptoSync, randomBytes } from "@zuna/crypto";
 import type { DbProvider, LocalDb, SqlValue } from "@zuna/core";
+import { parseProxy, socksConnector, type Proxy } from "./socks";
 
 const nodeRequire = createRequire(import.meta.url);
 const { DatabaseSync } = nodeRequire("node:sqlite") as typeof import("node:sqlite");
@@ -146,21 +151,41 @@ export function deviceKey(dir: string): Uint8Array {
 /** The pin of each server that makes its own certificate, by host and port. */
 const pins = new Map<string, string>();
 
+/** The proxy everything goes through, once `useProxy` has set it. */
+let proxy: Proxy | null = null;
+
+/** Sends everything to the bot's server through a SOCKS5 proxy from now on, and says which. */
+export function useProxy(url: string): Proxy {
+  proxy = parseProxy(url);
+  setGlobalDispatcher(pinnedAgent());
+  return proxy;
+}
+
+/** The bot's own code, which a webhook is, reached directly whatever the proxy. */
+export const directAgent = new Agent();
+
 /**
  * Trusts a server that makes its own certificate by its key matching the pin its links
  * carry, and by nothing else, for everything this program sends it, as the apps do.
  */
 export async function pinServer(url: string, pin: string): Promise<void> {
   const { hostname, port } = new URL(url);
-  if (pins.size === 0) setGlobalDispatcher(pinnedAgent());
+  if (pins.size === 0 && !proxy) setGlobalDispatcher(pinnedAgent());
   pins.set(`${hostname}:${port || 443}`, pin);
 }
 
-/** Connections that trust a server with a pin by its key alone, and any other as usual. */
+/**
+ * Connections that trust a server with a pin by its key alone, and any other as usual,
+ * through the proxy once there's one.
+ */
 function pinnedAgent(): Agent {
-  const usual = buildConnector({});
+  const through = (options: Parameters<typeof buildConnector>[0]): buildConnector.connector => {
+    const tls = buildConnector(options);
+    return (connectOptions, callback) => (proxy ? socksConnector(proxy, tls)(connectOptions, callback) : tls(connectOptions, callback));
+  };
+  const usual = through({});
   // A resumed session shows no certificate to check, so each connection starts afresh.
-  const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
+  const own = through({ rejectUnauthorized: false, maxCachedSessions: 0 });
   return new Agent({
     connect(options, callback) {
       const wanted = pins.get(`${options.hostname}:${options.port || 443}`);

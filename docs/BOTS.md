@@ -67,6 +67,16 @@ One bot has one data folder and one process. The folder is `./zuna-bot-data` unl
 
 The API listens on `127.0.0.1:8081`, for programs on the same machine. `--port` and `--host`, or `ZUNA_BOT_PORT` and `ZUNA_BOT_HOST`, change that; anyone who can reach it with the token is the bot, so think before opening it up. A server without a domain is trusted by the pin in the setup link, as the installed apps trust it.
 
+### Through a proxy
+
+`--proxy socks5://host:port`, or `socks5://user:password@host:port`, with `init` or `run`, or `ZUNA_BOT_PROXY`, sends everything the bot sends its server through that SOCKS5 proxy: its requests, the ones it makes without saying who it is, and its socket. The proxy resolves the server's name, so this machine never looks it up, and the server sees the proxy's address rather than this machine's. While the proxy can't be reached, or refuses the password, the bot connects to nothing, and never goes around it. Only a webhook, which is the bot's own code, is reached directly. A bot joins no call, so there's nothing else for it to carry.
+
+```sh
+node zuna-bot.mjs run --proxy "socks5://me:secret@127.0.0.1:9050"
+```
+
+SOCKS5 isn't encrypted, so between this machine and the proxy its password and the server's name go as they are: a proxy on the same machine, such as Tor or `ssh -D`, has no such stretch. Everything the bot says to its server is still under TLS and end-to-end encryption.
+
 ### In a container
 
 `apps/bot/Dockerfile` makes an image of the two files:
