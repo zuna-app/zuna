@@ -2,7 +2,7 @@ import Network
 import XCTest
 @testable import ZunaHost
 
-/// The proxy set in Privacy (docs/SOCKS5_PLAN.md): its address, what the system would reach
+/// The proxy set in Privacy (docs/SOCKS5.md): its address, what the system would reach
 /// around it, the app's own SOCKS5 against a small proxy here, and the rewriting of LiveKit's
 /// signalling, which is the core's, run in a context of its own.
 final class ProxyTests: XCTestCase {

@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// A SOCKS5 proxy everything this device sends goes through (docs/SOCKS5_PLAN.md). The app sets it
+/// A SOCKS5 proxy everything this device sends goes through (docs/SOCKS5.md). The app sets it
 /// from its setting before its core starts, and the extensions from the same setting before theirs,
 /// so nothing connects around it. Names are left to the proxy, and nothing falls back to going
 /// direct when it can't be reached.
@@ -84,7 +84,7 @@ public struct NetworkProxy: Equatable, Sendable, CustomStringConvertible {
     /// Whether the system would reach `host` around a proxy, as it does for this device itself:
     /// `localhost`, the loopback, link-local and unique local addresses, and the addresses this
     /// device has on its networks, which Network sends straight there with `allowFailover` off
-    /// (tried on macOS 27, docs/SOCKS5_PLAN.md). Under a proxy, those are refused. Every other name,
+    /// (tried on macOS 27, docs/SOCKS5.md). Under a proxy, those are refused. Every other name,
     /// `*.localhost` among them, and every other address, private ones among them, went to the proxy.
     public static func goesAround(_ host: String) -> Bool {
         var name = PinnedServers.bare(host).lowercased()

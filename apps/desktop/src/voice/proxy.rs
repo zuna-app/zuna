@@ -1,4 +1,4 @@
-//! Calls through the SOCKS5 proxy (host/net.rs, docs/SOCKS5_PLAN.md, "Calls"). LiveKit's SDK
+//! Calls through the SOCKS5 proxy (host/net.rs, docs/SOCKS5.md, "Calls"). LiveKit's SDK
 //! and libwebrtc make connections of their own, and neither can be told to use a proxy, so
 //! the SDK is only ever told addresses on this device:
 //!

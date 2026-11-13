@@ -3,7 +3,7 @@ import Security
 import ZunaHost
 
 /// The SOCKS5 proxy set in Privacy, which everything this device sends goes through
-/// (docs/SOCKS5_PLAN.md). It belongs to the device, not an account, as it's needed before there
+/// (docs/SOCKS5.md). It belongs to the device, not an account, as it's needed before there
 /// is one: the address, port and username in the App Group, the password in the keychain group
 /// the extensions share, so that the notification and share extensions use the same proxy. The
 /// password is readable after the first unlock since the phone started, as the extension needs it

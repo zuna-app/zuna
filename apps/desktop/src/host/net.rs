@@ -1,5 +1,5 @@
 //! How this app reaches anything outside it: directly, or, with a proxy set in Settings,
-//! through that SOCKS5 proxy and no other way (docs/SOCKS5_PLAN.md). Every HTTP client starts
+//! through that SOCKS5 proxy and no other way (docs/SOCKS5.md). Every HTTP client starts
 //! from `client`, and every other connection comes from `tcp`, so one made anywhere else
 //! stands out. While the proxy can't be reached nothing connects: there's no going around it.
 //!

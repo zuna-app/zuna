@@ -112,7 +112,7 @@ The engine has no network of its own. A small relay inside its process, ours and
 
 - **Only to Telegram.** The door connects to an address only if it's in the ranges Telegram publishes ([cidr.txt](https://core.telegram.org/resources/cidr.txt), nine IPv4 and five IPv6 ranges on 2026-11-13), which the app carries, on the ports Telegram uses. A name is refused: Telegram's data centers are reached by address.
 - **TDLib's ways around a block are refused with the rest.** When it can't reach Telegram it asks Google's and other companies' servers where Telegram went. Those aren't Telegram's addresses, so the door refuses them. Someone whose network blocks Telegram sets a proxy for the device.
-- **With a proxy set on the device** ([SOCKS5_PLAN.md](SOCKS5_PLAN.md)), the door goes through it like every other connection, and with the proxy gone it connects to nothing.
+- **With a proxy set on the device** ([SOCKS5.md](SOCKS5.md)), the door goes through it like every other connection, and with the proxy gone it connects to nothing.
 - **If a system's box can't allow even its own loopback,** the app opens each connection and hands the engine the connected socket instead, which takes a small patch to TDLib and needs no right to connect at all.
 
 ### The broker
@@ -343,7 +343,7 @@ What was considered and left:
 | The door and the broker | Unit tests: an address off the list, a name, a function off the list, a frame too large, a flood |
 | The box | `zuna-telegram --probe`, in test builds only, tries to read the app's data folder, open a socket, and start a program. Each must fail, on each system |
 | Desktop | `apps/desktop/test/telegram-check.mjs`: two copies of the app and two test accounts. Linking by code and by QR, a message each way, an edit, a reaction, a photo, a voice message, a notification and its taking back, unlinking, and a session ended from the other side |
-| Nothing leaks | A recorder, as [SOCKS5_PLAN.md](SOCKS5_PLAN.md) plans: every address the engine's connections went to is in Telegram's ranges, and the test Zuna server got no request it wouldn't have got without Telegram |
+| Nothing leaks | A recorder, as [SOCKS5.md](SOCKS5.md) plans: every address the engine's connections went to is in Telegram's ranges, and the test Zuna server got no request it wouldn't have got without Telegram |
 | Other systems | As the app itself: built and run where there's a machine, and the commit says which weren't |
 | iPhone | `npm run test:ios` with the fake engine behind the core. `test:ios:ui`: linking and a chat against the fake. The helper against Telegram's test servers in the simulator, if it runs there. The probe, built into the helper for tests. Pushes on a real iPhone by hand, as a simulator gets none from Telegram |
 
@@ -483,6 +483,6 @@ Where the build departs from the above:
 - **Forwarding inside Telegram, groups' members, leaving and hiding chats** aren't offered yet, and the Telegram account's chats are left out of a server's forward picker.
 
 
-What was read, on 2026-11-13: Telegram's pages named under "What Telegram asks" and its published ranges. TDLib's getting-started page, and in its schema (`td_api.tl`) the functions this plan leans on: its SOCKS5 proxy, its database key, QR linking, its notification groups, files written a part at a time, that signing out erases what's local, and the push tokens, where only Android's and the one for calls can ask for encryption. Apple's pages on extension points and enhanced security helper extensions. In this repository `packages/core/src/client.ts`, `rpc.ts` and `types.ts`, `apps/desktop/src/ui/rail.rs`, `state/mod.rs`, `plugins/process.rs`, `scripts/ffmpeg.mjs`, `apps/ios/project.yml`, the iPhone app's entitlements and `ZunaNotifications/NotificationService.swift`, [PLUGINS_PLAN.md](PLUGINS_PLAN.md) and [SOCKS5_PLAN.md](SOCKS5_PLAN.md).
+What was read, on 2026-11-13: Telegram's pages named under "What Telegram asks" and its published ranges. TDLib's getting-started page, and in its schema (`td_api.tl`) the functions this plan leans on: its SOCKS5 proxy, its database key, QR linking, its notification groups, files written a part at a time, that signing out erases what's local, and the push tokens, where only Android's and the one for calls can ask for encryption. Apple's pages on extension points and enhanced security helper extensions. In this repository `packages/core/src/client.ts`, `rpc.ts` and `types.ts`, `apps/desktop/src/ui/rail.rs`, `state/mod.rs`, `plugins/process.rs`, `scripts/ffmpeg.mjs`, `apps/ios/project.yml`, the iPhone app's entitlements and `ZunaNotifications/NotificationService.swift`, [PLUGINS_PLAN.md](PLUGINS_PLAN.md) and [SOCKS5.md](SOCKS5.md).
 
 From memory, and checked in step 1: TDLib's fallbacks when Telegram is blocked, what it needs to build and its license, each desktop system's calls for the box, that Telegram's own iPhone app asks for encrypted pushes, that a `tg://login` address opens Telegram on the same phone, what iOS gives a notification extension, and that iOS makes each push for a call ring.

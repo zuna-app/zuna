@@ -3,7 +3,7 @@ import Foundation
 import Network
 import os
 
-/// A call through the proxy (docs/SOCKS5_PLAN.md, "Calls"): LiveKit's SDK is only ever told
+/// A call through the proxy (docs/SOCKS5.md, "Calls"): LiveKit's SDK is only ever told
 /// addresses on this device. Its socket comes to an endpoint here, on loopback, at an address
 /// with a secret made for this call, which opens the real one through the proxy and rewrites what
 /// passes (`VoiceRelay`). Each of LiveKit's candidates becomes a relay here, which carries the

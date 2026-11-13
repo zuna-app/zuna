@@ -1,6 +1,6 @@
 // What passes between LiveKit and its SDK in an app while a SOCKS5 proxy is set, rewritten
 // so that no real address reaches the SDK and no address of the device reaches LiveKit
-// (docs/SOCKS5_PLAN.md, "Calls"). Every host calls these on every signalling message, each
+// (docs/SOCKS5.md, "Calls"). Every host calls these on every signalling message, each
 // way, and on the address the SDK joins by:
 //
 // - From LiveKit, the STUN and TURN servers are emptied, so the SDK asks nobody for its

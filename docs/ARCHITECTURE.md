@@ -23,7 +23,7 @@ flowchart LR
 |---|---|---|---|
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
-| Desktop app | `apps/desktop/` | Rust, GPUI, the core in QuickJS, LiveKit's Rust SDK | Drawn on the GPU on Windows, Linux and macOS, with the system's own capture and codecs, and a fraction of a browser's memory (`docs/WINDOWS_APP.md`) |
+| Desktop app | `apps/desktop/` | Rust, GPUI, the core in QuickJS, LiveKit's Rust SDK | Drawn on the GPU on Windows, Linux and macOS, with the system's own capture and codecs, and a fraction of a browser's memory (`docs/DESKTOP_APP.md`) |
 | Web interface | `packages/ui/` | React, Motion | The web app's screens, which follow the same design. The web app gives it a `Platform` for what's outside the page |
 | Web app | `apps/web/`, `server/cmd/zuna-web` | The web interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite, or PostgreSQL for a large server | A single static binary for every platform, with no dependencies to install |

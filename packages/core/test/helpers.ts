@@ -233,7 +233,7 @@ export class TestServer {
       reached = this.door.port;
     }
     // With ZUNA_TEST_SOCKS, by a name only the proxy knows, so that nothing reaches it but through the proxy:
-    // the iPhone's system would take 127.0.0.1 and localhost straight there (docs/SOCKS5_PLAN.md).
+    // the iPhone's system would take 127.0.0.1 and localhost straight there (docs/SOCKS5.md).
     let host = this.options.byName ? "localhost" : "127.0.0.1";
     if (testSocks && !this.options.ownCertificate && !this.options.byName) {
       host = `zuna-${reached}.localhost`;

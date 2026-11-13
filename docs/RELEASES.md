@@ -232,7 +232,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 
 ## Later, each its own piece of work
 
-- **macOS's updater,** as `docs/MACOS_APP_PLAN.md` describes, from a zip on each release, checked against the same manifest.
+- **macOS's updater,** as on Windows: at start, every hour and on Check now, the newest release on its channel, the zip unpacked with `ditto`, kept only if `SecStaticCodeCheckValidity` finds it signed by the same team as the app running, and put in place of the bundle as the app quits, checked against the same manifest. A build that isn't signed that way wouldn't update itself.
 - **An update button on Linux** isn't planned: updates there come with the system's packages or a new AppImage. A package repository would be the way.
 - **An Authenticode certificate,** for the first download's warning.
 - **The changelog as TestFlight's What to Test,** set through App Store Connect's API once a build is processed.

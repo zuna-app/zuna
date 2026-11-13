@@ -6,7 +6,7 @@
 //   with a retransmission stream, which LiveKit's SDK leaves out (apps/desktop/patches/webrtc-sys.patch
 //   says how);
 // - livekit-signaling: tells the media server neither the system nor the device's model, which it
-//   writes to its log (docs/VOICE_LOGS_PLAN.md).
+//   writes to its log ("Voice channels" in docs/SECURITY_DETAILS.md).
 //
 // Update a crate's version, its hash and its patch together, when LiveKit's crates move.
 //

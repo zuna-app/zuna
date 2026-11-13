@@ -1,6 +1,6 @@
 // The SOCKS5 proxy tests run through (socks-proxy.ts), and what an app does through one: it
 // signs in, gives the proxy names rather than addresses, reaches the server by no other way,
-// and connects to nothing while the proxy is gone (docs/SOCKS5_PLAN.md).
+// and connects to nothing while the proxy is gone (docs/SOCKS5.md).
 
 import { createSocket } from "node:dgram";
 import type { AddressInfo } from "node:net";

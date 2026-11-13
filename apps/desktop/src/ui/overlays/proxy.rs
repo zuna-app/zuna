@@ -1,4 +1,4 @@
-//! The proxy everything this device sends goes through (host/net.rs, docs/SOCKS5_PLAN.md):
+//! The proxy everything this device sends goes through (host/net.rs, docs/SOCKS5.md):
 //! from Settings, Privacy, and from the first screen, before any server is joined, so that even
 //! signing up goes through it.
 

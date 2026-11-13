@@ -88,7 +88,7 @@ targets:
         # Plain HTTP only reaches servers on this device or the local network,
         # which the client core already limits to loopback addresses, localhost
         # and *.localhost (api.ts). Under a proxy such a name goes to the proxy
-        # as a name, which a check's servers are reached by (docs/SOCKS5_PLAN.md).
+        # as a name, which a check's servers are reached by (docs/SOCKS5.md).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           NSExceptionDomains:

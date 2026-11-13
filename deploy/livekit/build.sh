@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds LiveKit's server, the media server for voice channels and calls, from the commit in
 # ./version with Zuna's patch (./zuna.patch), which keeps what it learns about the people who
-# join out of its log and gives apps no outside STUN servers (docs/VOICE_LOGS_PLAN.md).
+# join out of its log and gives apps no outside STUN servers ("Voice channels" in docs/SECURITY_DETAILS.md).
 #
 #   deploy/livekit/build.sh [--test] <output>
 #

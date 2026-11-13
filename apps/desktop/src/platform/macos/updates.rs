@@ -1,5 +1,5 @@
 //! The app doesn't update itself on macOS yet. A release is signed with the Developer ID
-//! (`npm run dist:macos`), which an update would be checked against (docs/MACOS_APP_PLAN.md).
+//! (`npm run dist:macos`), which an update would be checked against ("Later" in docs/RELEASES.md).
 
 use std::path::Path;
 

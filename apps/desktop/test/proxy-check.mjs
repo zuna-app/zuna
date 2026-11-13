@@ -1,4 +1,4 @@
-// The native app through a SOCKS5 proxy (docs/SOCKS5_PLAN.md), on macOS: two copies of it,
+// The native app through a SOCKS5 proxy (docs/SOCKS5.md), on macOS: two copies of it,
 // each set to go through the test proxy with a password (packages/core/test/socks-proxy.ts),
 // to a test server reached by name and behind a door that writes down where each connection
 // came from. Both sign up, start again with the proxy from their settings, write to each

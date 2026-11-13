@@ -12,7 +12,7 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
     private lazy var session = makeSession()
     /// What adds to a conversation without saying who's sending goes on connections of its
     /// own, with TLS sessions of its own: an ephemeral session shares neither with another.
-    /// Under a proxy both leave it from the same address, as docs/SOCKS5_PLAN.md says.
+    /// Under a proxy both leave it from the same address, as docs/SOCKS5.md says.
     private lazy var sealedSession = makeSession()
 
     private func makeSession() -> ProxiedSession {

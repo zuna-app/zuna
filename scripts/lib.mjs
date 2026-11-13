@@ -108,7 +108,7 @@ rtc:
 
 /**
  * Where LiveKit is built from: the commit `deploy/livekit/version` names, with Zuna's patch, which
- * keeps what LiveKit learns about the people who join out of its log (docs/VOICE_LOGS_PLAN.md).
+ * keeps what LiveKit learns about the people who join out of its log ("Voice channels" in docs/SECURITY_DETAILS.md).
  */
 const liveKitDir = join(root, "deploy", "livekit");
 
