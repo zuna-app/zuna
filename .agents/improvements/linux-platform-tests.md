@@ -8,19 +8,6 @@ Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire),
 
 Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
 
-### The menu's desktop entry
-- Where: apps/desktop/src/platform/linux/desktop_entry.rs (20%)
-- Category: tests
-- Severity: low ; Effort: M ; Confidence: high
-- What's wrong: only `exec_argument` is tested. `write()` decides when to write, leave or remove `~/.local/share/applications/<APP_ID>.desktop`, and none of that runs under test.
-- Suggested change: test `escaped`, `name`, `data_home` and `system_data_dirs` (with `XDG_DATA_HOME` and `XDG_DATA_DIRS` empty, relative, or naming the home's own). `write()` reads the environment and `current_exe()`, and setting variables in tests that run side by side races (and is `unsafe` in the 2024 edition). So move its body into `write_in(data_home, system_dirs, program)`, which `write()` calls with what it reads now, and test that in temporary folders:
-  - a package's entry in a system folder removes our own;
-  - someone else's entry of the same name, without `MARK`, is left alone;
-  - a path with a control character writes nothing;
-  - the same text already there isn't written again;
-  - otherwise the file holds `Exec=… %U`, `TryExec`, `Icon` and `MARK`, with mode 0644.
-- Check after: `cargo test --bin zuna -- platform::linux::desktop_entry`, and `node apps/desktop/test/linux-check.mjs`, as for any change under `platform/linux`
-
 ### What a notification sends the server
 - Where: apps/desktop/src/platform/linux/notifications.rs (3.9%)
 - Category: tests
