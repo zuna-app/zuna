@@ -116,6 +116,32 @@ describe("an admin's channels", () => {
   });
 });
 
+describe("replies and search", () => {
+  it("leaves a reply to what someone can't see without its sender, and asks for it only once", async () => {
+    const group = await alice.session.createGroup("Quiet", [bob.userId], false);
+    await waitFor(() => bob.session.getConversations().some((chat) => chat.groupId === group), "bob to be in it");
+    const first = alice.session.sendMessage(`group:${group}`, { text: "before carol" });
+    await waitFor(() => bob.texts(`group:${group}`).includes("before carol"), "bob to read it");
+    await alice.session.addMembers(group, [carol.userId]);
+    await waitFor(() => carol.session.getConversations().some((chat) => chat.groupId === group && chat.ready), "carol to be in it");
+    alice.session.sendMessage(`group:${group}`, { text: "replying", replyTo: first.id });
+    await waitFor(() => carol.texts(`group:${group}`).includes("replying"), "carol to read the reply");
+    const reply = async () => (await carol.session.loadMessages(group)).messages.find((message) => message.text === "replying")!.reply;
+    expect(await reply()).toMatchObject({ id: first.id, senderId: "" });
+    // Asked for again, it's known not to be there.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await reply()).toMatchObject({ id: first.id, senderId: "" });
+    expect((carol.session as any).unreachableReplies.has(`${group}/${first.id}`)).toBe(true);
+  });
+
+  it("finds nothing for nothing, and says how much of the history it has to search", () => {
+    expect(alice.session.search("   ")).toEqual([]);
+    const coverage = alice.session.searchCoverage();
+    expect(coverage.total).toBeGreaterThan(0);
+    expect(coverage.done).toBeLessThanOrEqual(coverage.total);
+  });
+});
+
 describe("verifying someone", () => {
   it("has nothing to compare for someone unknown, and takes no comparison of another kind", async () => {
     expect(alice.session.safetyCheck("nobody")).toBeNull();
