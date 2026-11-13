@@ -8,14 +8,6 @@ Most of what's left talks to the system (D-Bus, the portals, Wayland, PipeWire),
 
 Set up as CLAUDE.md says: `sh scripts/linux-build-deps.sh`, `npm install`, `npm run build:crypto`, `node apps/desktop/core-bundle/build.mjs`, `node scripts/webrtc-sys.mjs` and `node scripts/ffmpeg.mjs`, then `cargo test` in `apps/desktop`, or `cargo test --bin zuna -- platform::` for these alone. Measure `src/platform` before and after with the command above and `--lcov --output-path`, and say both in the last commit's body. Commits are `desktop: …`, and say "Built and tested on Linux only; Windows and macOS weren't built."
 
-### The window's edges
-- Where: apps/desktop/src/platform/linux/frame.rs (16%)
-- Category: tests
-- Severity: low ; Effort: S ; Confidence: high
-- What's wrong: `resize_edge` and `cursor_for` are pure and untested.
-- Suggested change: each edge and corner of the margin, the middle (none), and each side a compositor tiled (`Tiling`'s `top`, `left` and the rest true) giving no edge there. `cursor_for` for each `ResizeEdge`.
-- Check after: `cargo test --bin zuna -- platform::linux::frame`
-
 ### Animations off in KDE and GNOME
 - Where: apps/desktop/src/platform/linux/settings.rs (6%)
 - Category: tests

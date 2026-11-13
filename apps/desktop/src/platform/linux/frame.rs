@@ -166,3 +166,90 @@ fn close(cx: &mut App) {
         cx.dispatch_action(&crate::Quit);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, size};
+
+    fn edge(x: f32, y: f32, tiling: Tiling) -> Option<ResizeEdge> {
+        resize_edge(point(px(x), px(y)), size(px(800.), px(600.)), tiling)
+    }
+
+    #[test]
+    fn resizes_from_each_edge_and_corner_of_the_margin() {
+        let free = Tiling::default();
+        for (x, y, expected) in [
+            (3., 3., ResizeEdge::TopLeft),
+            (797., 3., ResizeEdge::TopRight),
+            (3., 597., ResizeEdge::BottomLeft),
+            (797., 597., ResizeEdge::BottomRight),
+            // A corner reaches along both its edges.
+            (20., 2., ResizeEdge::TopLeft),
+            (2., 20., ResizeEdge::TopLeft),
+            (780., 598., ResizeEdge::BottomRight),
+            (400., 2., ResizeEdge::Top),
+            (400., 598., ResizeEdge::Bottom),
+            (2., 300., ResizeEdge::Left),
+            (798., 300., ResizeEdge::Right),
+            (23., 2., ResizeEdge::Top),
+            (2., 23., ResizeEdge::Left),
+        ] {
+            assert_eq!(edge(x, y, free), Some(expected), "at {x}, {y}");
+        }
+    }
+
+    #[test]
+    fn leaves_the_inside_alone() {
+        let free = Tiling::default();
+        for (x, y) in [(400., 300.), (6., 6.), (793., 593.), (6., 300.), (400., 6.)] {
+            assert_eq!(edge(x, y, free), None, "at {x}, {y}");
+        }
+    }
+
+    #[test]
+    fn resizes_no_side_the_compositor_tiled() {
+        let top = Tiling { top: true, ..Default::default() };
+        assert_eq!(edge(400., 2., top), None);
+        assert_eq!(edge(3., 3., top), Some(ResizeEdge::Left));
+        assert_eq!(edge(400., 598., top), Some(ResizeEdge::Bottom));
+
+        let left = Tiling { left: true, ..Default::default() };
+        assert_eq!(edge(2., 300., left), None);
+        assert_eq!(edge(3., 3., left), Some(ResizeEdge::Top));
+        assert_eq!(edge(3., 597., left), Some(ResizeEdge::Bottom));
+
+        let right = Tiling { right: true, ..Default::default() };
+        assert_eq!(edge(798., 300., right), None);
+        assert_eq!(edge(797., 3., right), Some(ResizeEdge::Top));
+
+        let bottom = Tiling { bottom: true, ..Default::default() };
+        assert_eq!(edge(400., 598., bottom), None);
+        assert_eq!(edge(797., 597., bottom), Some(ResizeEdge::Right));
+
+        // Two sides tiled leave the corner between the other two.
+        let top_left = Tiling { top: true, left: true, ..Default::default() };
+        assert_eq!(edge(3., 3., top_left), None);
+        assert_eq!(edge(797., 597., top_left), Some(ResizeEdge::BottomRight));
+
+        for (x, y) in [(3., 3.), (400., 2.), (2., 300.), (798., 300.), (400., 598.), (797., 597.)] {
+            assert_eq!(edge(x, y, Tiling::tiled()), None, "at {x}, {y}");
+        }
+    }
+
+    #[test]
+    fn points_the_cursor_along_the_edge() {
+        for (edge, cursor) in [
+            (ResizeEdge::Top, CursorStyle::ResizeUpDown),
+            (ResizeEdge::Bottom, CursorStyle::ResizeUpDown),
+            (ResizeEdge::Left, CursorStyle::ResizeLeftRight),
+            (ResizeEdge::Right, CursorStyle::ResizeLeftRight),
+            (ResizeEdge::TopLeft, CursorStyle::ResizeUpLeftDownRight),
+            (ResizeEdge::BottomRight, CursorStyle::ResizeUpLeftDownRight),
+            (ResizeEdge::TopRight, CursorStyle::ResizeUpRightDownLeft),
+            (ResizeEdge::BottomLeft, CursorStyle::ResizeUpRightDownLeft),
+        ] {
+            assert_eq!(cursor_for(edge), cursor, "{edge:?}");
+        }
+    }
+}
