@@ -23,7 +23,7 @@ export function parseProxy(text: string): Proxy {
   if (url.protocol !== "socks5:" && url.protocol !== "socks5h:") throw new Error("zuna-bot goes through a SOCKS5 proxy alone: socks5://host:port.");
   const username = url.username ? decodeURIComponent(url.username) : undefined;
   const password = url.password ? decodeURIComponent(url.password) : undefined;
-  if ((username?.length ?? 0) > 255 || (password?.length ?? 0) > 255) throw new Error("SOCKS5 carries a username and a password of at most 255 bytes each.");
+  if ((username?.length ?? 0) > 255 || (password?.length ?? 0) > 255) throw new Error("SOCKS5 usernames and passwords can be at most 255 bytes each.");
   return { host: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port || 1080), username, password };
 }
 
