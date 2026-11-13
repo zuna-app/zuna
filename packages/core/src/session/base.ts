@@ -69,6 +69,10 @@ export abstract class SessionBase {
   protected awaitingKeys = new Set<string>();
   /** Devices something here named that this device is asking the server about (`learnDevice`). */
   protected learning = new Set<string>();
+  /** Reactions nobody can open that this device, a group's admin's, has asked the server to drop (`clearJunkReactions`). */
+  protected clearedReactions = new Set<string>();
+  /** Messages being fetched whole, as a copy held couldn't take a change on its own (`refetchMessage`). */
+  protected refetching = new Set<string>();
   protected syncing = new Map<string, { again: boolean; done: Promise<void> }>();
   protected socket: Socket;
   protected connection: ConnectionState = "connecting";

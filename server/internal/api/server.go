@@ -462,6 +462,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups/{id}/messages/{mid}", s.member(s.handleMessage))
 	// A group admin deleting someone else's message, which is theirs to check.
 	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}", s.member(s.provenMember(s.handleDeleteMessage)))
+	// A group admin dropping a reaction that opens for nobody, which their app asks for by itself.
+	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/reactions/{rid}", s.member(s.provenMember(s.handleClearReaction)))
 	mux.HandleFunc("GET /api/groups/{id}/pins", s.member(s.handlePins))
 
 	// What a member adds to a conversation, sealed: nothing says who sent it (sealed.go)

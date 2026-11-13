@@ -244,7 +244,7 @@ describe("who may write", () => {
     await ann.session.toggleReaction(groupId, id, "👍");
     await waitFor(async () => (await bob.session.messageById(groupId, id))?.reactions.length === 1, "the reaction");
     // Bob keeps what ann's device signed, as every member is sent it.
-    const taken = (await apiOf(bob).message(groupId, id)).reactions[0]!;
+    const taken = (await apiOf(bob).message(groupId, id)).reactions![0]!;
     await ann.session.toggleReaction(groupId, id, "👍");
     await waitFor(async () => (await bob.session.messageById(groupId, id))?.reactions.length === 0, "it to be taken back");
     // He sends the same bytes under the same ID, with an item key of his own and then with hers, which he was shown.
@@ -326,7 +326,7 @@ describe("item keys", () => {
     const own = session.itemSecret("message", groupId, id);
     await expect(apiOf(bob).sealedEdit(groupId, id, await session.seal(groupId, epoch, envelope.length, own), envelope)).rejects.toMatchObject({ code: "forbidden" });
     await expect(apiOf(bob).sealedDelete(groupId, id, await session.seal(groupId, epoch, 0, own), wasm.randomBytes(64))).rejects.toMatchObject({ code: "forbidden" });
-    const reaction = (await apiOf(ann).message(groupId, id)).reactions[0]!;
+    const reaction = (await apiOf(ann).message(groupId, id)).reactions![0]!;
     await expect(apiOf(ann).sealedUnreact(groupId, id, reaction.id, await sessionOf(ann).seal(groupId, epoch, 0, sessionOf(ann).itemSecret("reaction", groupId, reaction.id)))).rejects.toMatchObject({ code: "forbidden" });
     // Ann's other device, after her account's keys were replaced, edits with the key that made it.
     const phone = await new TestApp("ann-phone").open();
@@ -397,7 +397,7 @@ describe("a reaction under an epoch not reached yet", () => {
     await waitFor(async () => (await ann.session.messageById(groupId, id))?.reactions.length === 1, "the reaction");
     const update = await apiOf(ann).message(groupId, id);
     const session = sessionOf(ann);
-    const epoch = update.reactions[0]!.epoch;
+    const epoch = update.reactions![0]!.epoch;
     expect(epoch).toBeGreaterThan(update.epoch);
     // As if the reaction came live before the commit that made its epoch was applied here.
     session.db.run("DELETE FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);

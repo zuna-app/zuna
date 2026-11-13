@@ -454,8 +454,9 @@ const (
 	// The longest a disappearing message may last, in seconds: a year.
 	maxExpiresIn = 366 * 24 * 60 * 60
 	// A reaction, pin or deletion is a short envelope its device signed, with a hybrid
-	// signature of 2,485 bytes inside (docs/POST_QUANTUM.md).
-	maxReactionBytes = 5 << 10
+	// signature of 2,485 bytes inside (docs/POST_QUANTUM.md). A reaction comes to under
+	// 3 KiB, which every member carries, so it's held closer than the rest.
+	maxReactionBytes = 4 << 10
 	maxProofBytes    = 5 << 10
 	maxProofBody     = 16 << 10
 	// A read position, the same, framed with its epoch.
@@ -502,15 +503,71 @@ func (s *Server) visibleMessage(w http.ResponseWriter, r *http.Request, member *
 	return message
 }
 
-// broadcastMessage tells all of the group's devices about a message's new state.
-// The sender's own device is included: the socket is each client's complete,
-// ordered feed, and clients ignore what they have already applied.
-func (s *Server) broadcastMessage(r *http.Request, groupID string, message *store.Message) {
-	members, err := s.db.GroupMemberIDs(r.Context(), groupID)
+// liveMessage is a message as it goes out live, and as sealed requests are answered:
+// without its reactions, which go one at a time (broadcastReaction), so that changing a
+// message with many costs nobody all of them again. Apps keep the ones they hold. Only
+// fetching it, as a device that's behind does, gives the full set.
+type liveMessage struct {
+	*store.Message
+	Reactions []store.Reaction `json:"reactions,omitempty"`
+}
+
+func live(message *store.Message) liveMessage {
+	return liveMessage{Message: message}
+}
+
+// broadcastMessage tells the group's devices about a message's new state, all but those
+// of anyone added after it without the group's history, who can't fetch it either. The
+// sender's own device is included: the socket is each client's complete, ordered feed,
+// and clients ignore what they have already applied.
+func (s *Server) broadcastMessage(r *http.Request, groupID string, message *store.Message) []string {
+	members, err := s.db.MessageAudience(r.Context(), groupID, message.Seq)
+	if err != nil {
+		return nil
+	}
+	s.hub.ToUsers(members, Event{Type: "message", Data: live(message)})
+	return members
+}
+
+// broadcastReaction tells the same devices about one reaction added or taken back.
+func (s *Server) broadcastReaction(r *http.Request, change *store.ReactionChange) {
+	members, err := s.db.MessageAudience(r.Context(), change.GroupID, change.Seq)
 	if err != nil {
 		return
 	}
-	s.hub.ToUsers(members, Event{Type: "message", Data: message})
+	s.hub.ToUsers(members, Event{Type: "reaction", Data: change})
+}
+
+// handleClearReaction is a group's admin dropping a reaction that opens for nobody, which
+// their app finds and asks for by itself, as it's for the server to check their role. A
+// member can only take back their own, sealed, by its item key.
+func (s *Server) handleClearReaction(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
+	if s.visibleMessage(w, r, member) == nil {
+		return
+	}
+	reactionID := r.PathValue("rid")
+	if !store.ValidID(reactionID) {
+		writeError(w, http.StatusNotFound, "not_found", "That reaction doesn't exist.")
+		return
+	}
+	kind, err := s.db.GroupKind(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if kind == "dm" || member.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can remove someone else's reactions.")
+		return
+	}
+	change, dropped, err := s.db.ClearReaction(r.Context(), r.PathValue("id"), r.PathValue("mid"), reactionID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if dropped {
+		s.broadcastReaction(r, change)
+	}
+	writeJSON(w, http.StatusOK, change)
 }
 
 // handleDeleteMessage is a group's admin deleting someone else's message, which is named,

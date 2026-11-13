@@ -15,6 +15,11 @@ const (
 	commitBytesPerDevice = 8 << 10
 
 	maxReactionsOnMessage = 1024
+	// What a message's reactions come to in all, which a full copy of it carries: room for
+	// a few hundred real ones, each under 3 KiB with its signature.
+	maxReactionBytesOnMessage = 1 << 20
+	// Past this many reactions on a message, each takes a large token.
+	reactionsOnSmallTokens = 100
 	maxGroupsCreated      = 10_000
 	maxActiveDevices      = 128
 	maxDevicesEver        = 4096

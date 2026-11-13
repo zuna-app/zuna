@@ -155,10 +155,10 @@ func TestReactionsAreLimited(t *testing.T) {
 		return status
 	}
 	first := store.NewID()
-	if status := react(first, 1, 5<<10); status != http.StatusOK {
+	if status := react(first, 1, 4<<10); status != http.StatusOK {
 		t.Fatalf("a reaction gave %d", status)
 	}
-	if status := react(store.NewID(), 1, 5<<10+1); status != http.StatusBadRequest {
+	if status := react(store.NewID(), 1, 4<<10+1); status != http.StatusBadRequest {
 		t.Fatalf("a large reaction gave %d", status)
 	}
 	if status, resp := owner.commit(group, 1, nil); status != http.StatusOK {

@@ -449,20 +449,25 @@ func TestMessageLifecycle(t *testing.T) {
 	}
 
 	reactionID := store.NewID()
-	var reacted store.Message
+	var reacted store.ReactionChange
 	h.sealedMust("POST", path+"/"+id+"/reactions", bob.sealedAs(group.ID, 1, nil), map[string]any{"id": reactionID, "data": []byte("r"), "item_key": itemKeyFor(reactionID)}, &reacted)
-	if len(reacted.Reactions) != 1 || reacted.Reactions[0].ID != reactionID {
-		t.Fatalf("reaction: %+v", reacted.Reactions)
+	if reacted.Reaction == nil || reacted.Reaction.ID != reactionID {
+		t.Fatalf("reaction: %+v", reacted)
 	}
 	if status, _ := h.sealedDo("DELETE", path+"/"+id+"/reactions/"+reactionID, owner.sealedAs(group.ID, 1, itemSecretFor(id)), nil, nil); status != http.StatusForbidden {
 		t.Fatalf("taking back someone else's reaction gave %d", status)
 	}
 	h.sealedMust("DELETE", path+"/"+id+"/reactions/"+reactionID, bob.sealedAs(group.ID, 1, itemSecretFor(reactionID)), nil, &reacted)
-	if len(reacted.Reactions) != 0 {
+	if reacted.Removed != reactionID {
+		t.Fatalf("taking a reaction back: %+v", reacted)
+	}
+	var message store.Message
+	h.mustDo("GET", "/api/groups/"+group.ID+"/messages/"+id, owner.token, nil, &message)
+	if len(message.Reactions) != 0 {
 		t.Fatal("reaction should be gone")
 	}
 
-	var pinned store.Message
+	var pinned store.PinChange
 	h.sealedMust("PUT", path+"/"+id+"/pin", bob.sealedAs(group.ID, 1, nil), map[string]any{"pin": []byte("signed")}, &pinned)
 	if pinned.PinnedAt == nil || string(pinned.Pin) != "signed" {
 		t.Fatalf("pin: %+v", pinned)

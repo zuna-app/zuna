@@ -48,6 +48,29 @@ type Reaction struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// ReactionChange is one reaction added to a message, or taken back, on its own. Members
+// are told this rather than the message with all its reactions, which one person could
+// otherwise make everyone fetch again for each one they add.
+type ReactionChange struct {
+	GroupID   string `json:"group_id"`
+	MessageID string `json:"message_id"`
+	// Seq is the message's place, UpdatedSeq its new place in the change feed.
+	Seq        int64     `json:"seq"`
+	UpdatedSeq int64     `json:"updated_seq"`
+	Reaction   *Reaction `json:"reaction,omitempty"`
+	Removed    string    `json:"removed,omitempty"`
+}
+
+// PinChange is a message pinned or unpinned, on its own.
+type PinChange struct {
+	GroupID    string `json:"group_id"`
+	MessageID  string `json:"message_id"`
+	Seq        int64  `json:"seq"`
+	UpdatedSeq int64  `json:"updated_seq"`
+	PinnedAt   *int64 `json:"pinned_at"`
+	Pin        []byte `json:"pin,omitempty"`
+}
+
 // FileShare is a file a message carries, with the secret its uploader made it with,
 // which shows whoever sends the message holds it.
 type FileShare struct {
@@ -361,8 +384,10 @@ func (d *DB) ItemKey(ctx context.Context, groupID, messageID, reactionID string)
 // with the same item key is a retry that changes nothing and costs nothing. One that
 // was taken back stays taken back: what it carried is signed by whoever added it, and
 // every member saw it, so any of them could otherwise put it back as theirs. How many
-// one person puts on a message is for apps to hold.
-func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (message *Message, added bool, err error) {
+// one person puts on a message is for apps to hold. A message's reactions are held to a
+// count and a total size, and past the first reactionsOnSmallTokens each takes a large
+// token, as each makes everyone in the conversation carry it.
+func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (change *ReactionChange, added bool, err error) {
 	err = d.tx(ctx, func(tx handle) error {
 		added = false
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
@@ -380,17 +405,25 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		var all int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM reactions WHERE group_id = ? AND message_id = ? AND removed_at IS NULL`, groupID, messageID).Scan(&all); err != nil {
+		var all, bytes int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM reactions WHERE group_id = ? AND message_id = ? AND removed_at IS NULL`,
+			groupID, messageID).Scan(&all, &bytes); err != nil {
 			return err
 		}
-		if all >= maxReactionsOnMessage {
+		if all >= maxReactionsOnMessage || bytes+int64(len(r.Data)) > maxReactionBytesOnMessage {
 			return ErrLimit
 		}
 		if err := atEpoch(ctx, tx, groupID, r.Epoch); err != nil {
 			return err
 		}
-		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+		size := SmallToken
+		if all >= reactionsOnSmallTokens {
+			size = LargeToken
+			if token != nil && token.Size != LargeToken {
+				return ErrLargeToken
+			}
+		}
+		if err := spendToken(ctx, tx, token, size); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO reactions(group_id, message_id, id, epoch, data, item_key, created_at)
@@ -403,17 +436,38 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 	if err != nil {
 		return nil, false, err
 	}
-	message, err = d.Message(ctx, groupID, messageID)
-	return message, added, err
+	change, err = d.reactionChange(ctx, groupID, messageID)
+	if err != nil {
+		return nil, false, err
+	}
+	stored, err := d.reaction(ctx, groupID, messageID, r.ID)
+	change.Reaction = stored
+	return change, added, err
 }
 
-// RemoveReaction takes a reaction back, which spends a token. Who may is for the
-// caller to have checked, by the reaction's item key. What it carried goes, and its
-// ID stays, so that nobody adds it again (AddReaction).
-func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token) (*Message, error) {
+// RemoveReaction takes a reaction back, which spends a token, and says whether there was
+// one to take back. Who may is for the caller to have checked, by the reaction's item key.
+func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token) (*ReactionChange, bool, error) {
+	return d.dropReaction(ctx, groupID, messageID, reactionID, token, true)
+}
+
+// ClearReaction drops a reaction for a group's admin, which their app asks for of one
+// that opens for nobody, as it would delete someone else's message. It's named, so it
+// takes no token: who may is for the caller to have checked.
+func (d *DB) ClearReaction(ctx context.Context, groupID, messageID, reactionID string) (*ReactionChange, bool, error) {
+	return d.dropReaction(ctx, groupID, messageID, reactionID, nil, false)
+}
+
+// dropReaction takes a reaction off a message, spending token when paid. What it carried
+// goes, and its ID stays, so that nobody adds it again (AddReaction).
+func (d *DB) dropReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token, paid bool) (*ReactionChange, bool, error) {
+	var dropped bool
 	err := d.tx(ctx, func(tx handle) error {
-		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
-			return err
+		dropped = false
+		if paid {
+			if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+				return err
+			}
 		}
 		res, err := tx.ExecContext(ctx, `UPDATE reactions SET removed_at = ?, data = ? WHERE group_id = ? AND message_id = ? AND id = ? AND removed_at IS NULL`,
 			Now(), []byte{}, groupID, messageID, reactionID)
@@ -423,12 +477,57 @@ func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID 
 		if n, _ := res.RowsAffected(); n == 0 {
 			return nil
 		}
+		dropped = true
 		return touch(ctx, tx, groupID, messageID)
 	})
 	if err != nil {
+		return nil, false, err
+	}
+	change, err := d.reactionChange(ctx, groupID, messageID)
+	if err != nil {
+		return nil, false, err
+	}
+	change.Removed = reactionID
+	return change, dropped, nil
+}
+
+// reactionChange is where a message is now, for a change to its reactions.
+func (d *DB) reactionChange(ctx context.Context, groupID, messageID string) (*ReactionChange, error) {
+	change := &ReactionChange{GroupID: groupID, MessageID: messageID}
+	err := d.sql.QueryRowContext(ctx, `SELECT seq, updated_seq FROM messages WHERE group_id = ? AND id = ?`, groupID, messageID).Scan(&change.Seq, &change.UpdatedSeq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return change, err
+}
+
+func (d *DB) reaction(ctx context.Context, groupID, messageID, id string) (*Reaction, error) {
+	r := &Reaction{ID: id}
+	err := d.sql.QueryRowContext(ctx, `SELECT epoch, data, item_key, created_at FROM reactions WHERE group_id = ? AND message_id = ? AND id = ?`,
+		groupID, messageID, id).Scan(&r.Epoch, &r.Data, &r.ItemKey, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return r, err
+}
+
+// MessageAudience is who in a group may be told about a message at seq: everyone but
+// those added after it without the group's history, who can't fetch it either.
+func (d *DB) MessageAudience(ctx context.Context, groupID string, seq int64) ([]string, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT user_id FROM group_members WHERE group_id = ? AND visible_from_seq < ?`, groupID, seq)
+	if err != nil {
 		return nil, err
 	}
-	return d.Message(ctx, groupID, messageID)
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // Pin is what a device signed to pin or unpin a message, under the epoch it names.

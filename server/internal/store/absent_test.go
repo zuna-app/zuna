@@ -66,7 +66,7 @@ func TestWhatIsntThere(t *testing.T) {
 	notFound("editing a message", err)
 	_, _, _, err = db.DeleteMessage(ctx, nobody, nobody, Deletion{Proof: []byte("d"), Epoch: 1}, nil)
 	notFound("deleting a message", err)
-	_, err = db.RemoveReaction(ctx, nobody, nobody, nobody, nil)
+	_, _, err = db.RemoveReaction(ctx, nobody, nobody, nobody, nil)
 	refused("a reaction", err)
 	_, _, err = db.AddReaction(ctx, nobody, nobody, Reaction{ID: NewID(), Data: []byte("r")}, nil)
 	notFound("reacting", err)

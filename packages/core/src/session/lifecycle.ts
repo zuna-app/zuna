@@ -1,11 +1,11 @@
 // ServerSession, in part (see base.ts): starting, syncing and stopping, and the frames the server sends over the socket.
 
-import { ApiError, type ApiEvent, type ApiGroup, type ApiMessage, type ApiUser } from "../api";
+import { ApiError, type ApiEvent, type ApiGroup, type ApiMessage, type ApiReactionChange, type ApiUser } from "../api";
 import { checkEnvelope, readSigned } from "../crypto";
 import { fromBase64, toBase64 } from "../encoding";
 import { decodeFrameData, type SocketFrame } from "../socket";
 import type { ConnectionState, ServerInfo } from "../types";
-import { SYNC_CONCURRENCY, TYPING_FRESH_MS, SIGNED_OUT_RETRY_MS, eachLimited } from "./shared";
+import { SYNC_CONCURRENCY, TYPING_FRESH_MS, SIGNED_OUT_RETRY_MS, eachLimited, validReactionChange } from "./shared";
 import { SessionServer } from "./server";
 
 export abstract class SessionLifecycle extends SessionServer {
@@ -260,6 +260,9 @@ export abstract class SessionLifecycle extends SessionServer {
       case "message":
         this.onLiveMessage(data as ApiMessage);
         break;
+      case "reaction":
+        this.onLiveReaction(data as ApiReactionChange);
+        break;
       case "event":
         void this.onLiveEvent(data as ApiEvent).catch((error) => console.warn("[zuna] event", error));
         break;
@@ -409,6 +412,22 @@ export abstract class SessionLifecycle extends SessionServer {
       this.backgroundSync(message.group_id);
     }
     this.emitConversations();
+  }
+
+  /** A reaction added or taken back, which moves its message on in the change feed as any change to it does. */
+  protected onLiveReaction(change: ApiReactionChange): void {
+    if (!validReactionChange(change)) return;
+    if (!this.groups.has(change.group_id)) {
+      this.discoverGroup(change.group_id);
+      return;
+    }
+    this.applyReactionChange(change);
+    const synced = this.syncedSeq(change.group_id);
+    if (change.updated_seq === synced + 1) {
+      this.setSyncedSeq(change.group_id, change.updated_seq);
+    } else if (change.updated_seq > synced) {
+      this.backgroundSync(change.group_id);
+    }
   }
 
   protected async onLiveEvent(event: ApiEvent): Promise<void> {

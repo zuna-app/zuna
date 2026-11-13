@@ -37,6 +37,9 @@ var (
 	ErrTokenInvalid = errors.New("token invalid")
 	// ErrTokenSpent is for a token that was redeemed already.
 	ErrTokenSpent = errors.New("token spent")
+	// ErrLargeToken is for a small token where only a large one will do, which the app
+	// can't always tell beforehand, as for a reaction to a message that has many.
+	ErrLargeToken = errors.New("large token needed")
 )
 
 // CurrentTokenPeriod is the period tokens are issued for now.

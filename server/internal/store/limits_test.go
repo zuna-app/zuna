@@ -151,3 +151,58 @@ func TestOnlyOldCommitsFarBehindArePruned(t *testing.T) {
 		t.Fatalf("left behind: %v", left)
 	}
 }
+
+// A message's reactions are held to a total size as well as a count, and past the first
+// hundred each takes a large token: everyone in the conversation carries each one.
+func TestReactionsAreHeldToATotalAndCostMoreWhenMany(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	user := testUser(t, db, "bob")
+	group, err := db.CreateGroup(ctx, user, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.CreateMessage(ctx, Message{GroupID: group.ID, ID: "m", Envelope: []byte("x")}, nil, paid(t, db), 0); err != nil {
+		t.Fatal(err)
+	}
+	large := func() *Token { return ParseToken(issue(t, db, CurrentTokenPeriod(), LargeToken)) }
+	react := func(token *Token) (*ReactionChange, error) {
+		change, _, err := db.AddReaction(ctx, group.ID, "m", Reaction{ID: NewID(), Data: make([]byte, 4<<10), ItemKey: make([]byte, 32)}, token)
+		return change, err
+	}
+	for i := range reactionsOnSmallTokens {
+		if _, err := react(paid(t, db)); err != nil {
+			t.Fatalf("reaction %d: %v", i, err)
+		}
+	}
+	if _, err := react(paid(t, db)); !errors.Is(err, ErrLargeToken) {
+		t.Fatalf("a small token past the first hundred: %v", err)
+	}
+	change, err := react(large())
+	if err != nil || change.Reaction == nil || change.MessageID != "m" || change.UpdatedSeq == 0 {
+		t.Fatalf("a large token past the first hundred: %+v %v", change, err)
+	}
+	added := reactionsOnSmallTokens + 1
+	for ; added < maxReactionBytesOnMessage/(4<<10); added++ {
+		if _, err := react(large()); err != nil {
+			t.Fatalf("reaction %d: %v", added, err)
+		}
+	}
+	if _, err := react(large()); !errors.Is(err, ErrLimit) {
+		t.Fatalf("a reaction past the total: %v", err)
+	}
+	// Taking one back takes a token, unless a group's admin clears it by name.
+	if _, _, err := db.RemoveReaction(ctx, group.ID, "m", change.Reaction.ID, nil); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("taking a reaction back without a token: %v", err)
+	}
+	cleared, dropped, err := db.ClearReaction(ctx, group.ID, "m", change.Reaction.ID)
+	if err != nil || !dropped || cleared.Removed != change.Reaction.ID || cleared.UpdatedSeq <= change.UpdatedSeq {
+		t.Fatalf("clearing a reaction: %+v %v %v", cleared, dropped, err)
+	}
+	if _, dropped, err := db.ClearReaction(ctx, group.ID, "m", change.Reaction.ID); err != nil || dropped {
+		t.Fatalf("clearing it again: %v %v", dropped, err)
+	}
+	if _, err := react(large()); err != nil {
+		t.Fatalf("a reaction once there was room again: %v", err)
+	}
+}

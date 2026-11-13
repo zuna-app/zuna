@@ -225,7 +225,7 @@ func (s *Server) handleSealedEdit(w http.ResponseWriter, r *http.Request, q *sea
 		return
 	}
 	s.broadcastMessage(r, q.GroupID, message)
-	writeJSON(w, http.StatusOK, message)
+	writeJSON(w, http.StatusOK, live(message))
 }
 
 // handleSealedDelete is an author deleting their own message. A group's admin deleting
@@ -263,12 +263,11 @@ func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request, groupID s
 	// One deleted already cost nothing and changed nothing, so it's told to nobody again.
 	if deleted {
 		// One list of members, for the devices connected and the phones to wake.
-		if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
-			s.hub.ToUsers(members, Event{Type: "message", Data: message})
+		if members := s.broadcastMessage(r, groupID, message); len(members) > 0 {
 			s.pushDeletion(members, groupID, messageID)
 		}
 	}
-	writeJSON(w, http.StatusOK, message)
+	writeJSON(w, http.StatusOK, live(message))
 }
 
 func (s *Server) handleSealedReact(w http.ResponseWriter, r *http.Request, q *sealedRequest) {
@@ -284,7 +283,7 @@ func (s *Server) handleSealedReact(w http.ResponseWriter, r *http.Request, q *se
 		writeError(w, http.StatusBadRequest, "bad_request", "The reaction isn't valid.")
 		return
 	}
-	message, added, err := s.db.AddReaction(r.Context(), q.GroupID, r.PathValue("mid"), store.Reaction{
+	change, added, err := s.db.AddReaction(r.Context(), q.GroupID, r.PathValue("mid"), store.Reaction{
 		ID:      body.ID,
 		Epoch:   q.Epoch,
 		Data:    body.Data,
@@ -296,9 +295,11 @@ func (s *Server) handleSealedReact(w http.ResponseWriter, r *http.Request, q *se
 	}
 	// One added again cost nothing and changed nothing, so it's told to nobody, as a message sent again.
 	if added {
-		s.broadcastMessage(r, q.GroupID, message)
+		s.broadcastReaction(r, change)
 	}
-	writeJSON(w, http.StatusOK, message)
+	// What changed, never the message: this can't tell who's asking, and someone added to the
+	// group after it without its history mustn't be handed it.
+	writeJSON(w, http.StatusOK, change)
 }
 
 func (s *Server) handleSealedUnreact(w http.ResponseWriter, r *http.Request, q *sealedRequest) {
@@ -310,13 +311,15 @@ func (s *Server) handleSealedUnreact(w http.ResponseWriter, r *http.Request, q *
 	if !s.itemSigned(w, r, q, reactionID) {
 		return
 	}
-	message, err := s.db.RemoveReaction(r.Context(), q.GroupID, r.PathValue("mid"), reactionID, q.Token)
+	change, dropped, err := s.db.RemoveReaction(r.Context(), q.GroupID, r.PathValue("mid"), reactionID, q.Token)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	s.broadcastMessage(r, q.GroupID, message)
-	writeJSON(w, http.StatusOK, message)
+	if dropped {
+		s.broadcastReaction(r, change)
+	}
+	writeJSON(w, http.StatusOK, change)
 }
 
 func (s *Server) handleSealedPin(pinned bool) sealedHandler {
@@ -338,7 +341,15 @@ func (s *Server) handleSealedPin(pinned bool) sealedHandler {
 			return
 		}
 		s.broadcastMessage(r, q.GroupID, message)
-		writeJSON(w, http.StatusOK, message)
+		// What changed, never the message, as for a reaction.
+		writeJSON(w, http.StatusOK, store.PinChange{
+			GroupID:    message.GroupID,
+			MessageID:  message.ID,
+			Seq:        message.Seq,
+			UpdatedSeq: message.UpdatedSeq,
+			PinnedAt:   message.PinnedAt,
+			Pin:        message.Pin,
+		})
 	}
 }
 

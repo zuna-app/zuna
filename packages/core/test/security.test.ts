@@ -5,7 +5,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { Api, ApiError, decode } from "../src/api";
-import { CONTENT_LABEL, createCertificate, derivePasswordKeys, parseCertificate, sealEnvelope, sealSignal, verifyCertificate } from "../src/crypto";
+import { CONTENT_LABEL, createCertificate, derivePasswordKeys, parseCertificate, randomId, sealEnvelope, sealSignal, verifyCertificate } from "../src/crypto";
 import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
@@ -598,6 +598,13 @@ describe("a server that calls a group or a direct message a channel (Z-64)", () 
     expect(sessionOf(tablet).hasMlsGroup(groupId)).toBe(false);
     expect(sessionOf(tablet).hasMlsGroup(dmId)).toBe(false);
     expect(await read(mal, groupId)).not.toContain("the alarm code is 4471");
+
+    // The server goes back to telling the truth, for whoever comes after on it.
+    withServerDatabase((db) => {
+      db.prepare("DELETE FROM channels WHERE id IN (?, ?)").run(groupId, dmId);
+      db.prepare("UPDATE groups SET kind = 'group' WHERE id = ?").run(groupId);
+      db.prepare("UPDATE groups SET kind = 'dm' WHERE id = ?").run(dmId);
+    });
   });
 
   it("only hands on a channel's keys while everything this device has says it's one", async () => {
@@ -610,5 +617,76 @@ describe("a server that calls a group or a direct message a channel (Z-64)", () 
     expect(session.knownChannel(channelId)).toBe(false);
     expect(alice.session.getChannels().some((item) => item.id === channelId)).toBe(false);
     session.vaultKinds().set(channelId, "channel");
+  });
+});
+
+describe("a member making a message weigh megabytes for everyone with reactions nobody can open (Z-65)", () => {
+  /** A reaction nobody's app can open, of `size` bytes, added with what any member's session holds. */
+  async function junkReaction(app: TestApp, groupId: string, messageId: string, size: number, large = false): Promise<unknown> {
+    const session = sessionOf(app);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const data = wasm.randomBytes(size);
+        const seal = await session.seal(groupId, session.mlsEpoch(groupId), large ? (32 << 10) + 1 : data.length);
+        return await apiOf(app).sealedReact(groupId, messageId, seal, { id: randomId(), data, item_key: wasm.randomBytes(32) });
+      } catch (error) {
+        // The limit by address, which every app in this run shares: wait, as an attacker would.
+        if (error instanceof ApiError && error.code === "rate_limited" && attempt < 40) {
+          await sleep(400);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  it("costs everyone only each reaction, past a hundred takes large tokens, and an admin's app clears them", async () => {
+    const channelId = await alice.session.createChannel({ type: "text", name: "announcements" });
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const joined = (app: TestApp) => !!app.session.getChannels().find((item) => item.id === channelId)?.conversation?.ready;
+    for (const app of [bob, mal]) await waitFor(() => joined(app), "them to come into the channel");
+    const sent = alice.session.sendMessage(`group:${channelId}`, { text: "the announcement" });
+    const reads = async (app: TestApp) => (await app.session.loadMessages(channelId)).messages.some((item) => item.id === sent.id && item.status === "sent");
+    for (const app of [bob, mal]) await waitFor(() => reads(app), "delivery");
+
+    // Everything bob's app is sent or fetches about that one message, counted as it comes.
+    const session = sessionOf(bob);
+    let bytes = 0;
+    const onFrame = session.onFrame.bind(session);
+    session.onFrame = (frame: { d: { id?: string; message_id?: string } }) => {
+      if (frame.d?.id === sent.id || frame.d?.message_id === sent.id) bytes += JSON.stringify(frame).length;
+      return onFrame(frame);
+    };
+    const ingest = session.ingest.bind(session);
+    session.ingest = (message: { id: string }, live: boolean) => {
+      if (message.id === sent.id && !live) bytes += JSON.stringify(message).length;
+      return ingest(message, live);
+    };
+    // Alice's app, an admin's, would clear them as they come: it's held back until the end.
+    const clear = sessionOf(alice).clearJunkReactions;
+    sessionOf(alice).clearJunkReactions = () => undefined;
+
+    // A hundred of the largest the server takes, and the hundred and first needs a large token.
+    for (let n = 0; n < 100; n++) await junkReaction(mal, channelId, sent.id, 4 << 10);
+    await expect(junkReaction(mal, channelId, sent.id, 4 << 10)).rejects.toMatchObject({ code: "large_token" });
+    await junkReaction(mal, channelId, sent.id, 4 << 10, true);
+    // Nor are reactions bigger than a real one taken.
+    await expect(junkReaction(mal, channelId, sent.id, (4 << 10) + 1, true)).rejects.toMatchObject({ status: 400 });
+    await sleep(2000);
+    // About each reaction once, where it was each time the whole message with all of them: tens of megabytes.
+    expect(bytes).toBeLessThan(2 << 20);
+    expect((await bob.session.messageById(channelId, sent.id))?.reactions).toEqual([]);
+
+    // Bob's own reaction still goes, past the first hundred, with a large token his app takes by itself.
+    await bob.session.toggleReaction(channelId, sent.id, "👍");
+    await waitFor(async () => (await alice.session.messageById(channelId, sent.id))?.reactions.length === 1, "bob's reaction");
+
+    // Alice's app clears what opens for nobody, once it reads the message again.
+    sessionOf(alice).clearJunkReactions = clear;
+    sessionOf(alice).ingest(await apiOf(alice).message(channelId, sent.id), false);
+    await waitFor(async () => (await apiOf(bob).message(channelId, sent.id)).reactions!.length === 1, "the junk to be cleared", 30_000);
+    expect((await bob.session.messageById(channelId, sent.id))?.reactions).toMatchObject([{ key: "👍", userIds: [bob.userId] }]);
+    expect(securityEvents(bob)).toEqual([]);
   });
 });

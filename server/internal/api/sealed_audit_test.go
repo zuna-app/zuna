@@ -112,9 +112,10 @@ func TestAReactionTakenBackStaysTakenBack(t *testing.T) {
 	}
 	// Another reaction, with an ID of its own, goes as before.
 	other := store.NewID()
-	h.sealedMust("POST", reactions, bob.sealedAs(group, 1, nil), map[string]any{"id": other, "data": signed, "item_key": itemKeyFor(other)}, &message)
-	if len(message.Reactions) != 1 || message.Reactions[0].ID != other {
-		t.Fatalf("a new reaction after one was taken back: %+v", message.Reactions)
+	var change store.ReactionChange
+	h.sealedMust("POST", reactions, bob.sealedAs(group, 1, nil), map[string]any{"id": other, "data": signed, "item_key": itemKeyFor(other)}, &change)
+	if change.Reaction == nil || change.Reaction.ID != other || change.MessageID != id {
+		t.Fatalf("a new reaction after one was taken back: %+v", change)
 	}
 }
 
@@ -154,7 +155,7 @@ func TestWhatChangesNothingCostsNothingAndIsToldToNobody(t *testing.T) {
 	reaction := store.NewID()
 	body := map[string]any{"id": reaction, "data": []byte("signed"), "item_key": itemKeyFor(reaction)}
 	h.sealedMust("POST", messages+"/"+id+"/reactions", owner.sealedAs(group, 1, nil), body, nil)
-	listening.waitFor("message")
+	listening.waitFor("reaction")
 	if status, resp := h.sealedDo("POST", messages+"/"+id+"/reactions", free, body, nil); status != http.StatusOK {
 		t.Fatalf("a reaction added again gave %d %v", status, resp)
 	}
@@ -181,4 +182,80 @@ func TestWhatChangesNothingCostsNothingAndIsToldToNobody(t *testing.T) {
 	quiet("after a deleted message was deleted again")
 	next := store.NewID()
 	h.sealedMust("POST", messages, sealed{secret: sendSecretFor(group, 1), epoch: 1, token: again.token}, map[string]any{"id": next, "envelope": []byte("x"), "item_key": itemKeyFor(next)}, nil)
+}
+
+// A reaction goes to members on its own, never with the message and all its others, and a
+// sealed reaction or pin is answered with what changed, never the message, as the route
+// can't tell who's asking. Nobody added after a message without the group's history is
+// told anything about it. A group's admin can clear a reaction by name; nobody else can.
+func TestAReactionGoesOnItsOwnToThoseWhoSeeTheMessage(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	cat := h.register("cat", owner.newInvite())
+	group := newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding bob gave %d %v", status, resp)
+	}
+	id := store.NewID()
+	owner.send(group, 1, id)
+	if status, resp := owner.commit(group, 1, map[string]any{"add_users": []string{cat.userID}}); status != http.StatusOK {
+		t.Fatalf("adding cat gave %d %v", status, resp)
+	}
+	bobs := bob.connect()
+	cats := cat.connect()
+	// Nothing about the message came since the last thing waited for.
+	quiet := func(s *socket, after string) {
+		t.Helper()
+		s.write(map[string]any{"t": "ping"})
+		for got := s.next(); got != "pong"; got = s.next() {
+			if got == "message" || got == "reaction" {
+				t.Fatalf("%s, cat was sent a %q", after, got)
+			}
+		}
+	}
+	reactions := "/api/sealed/groups/" + group + "/messages/" + id + "/reactions"
+
+	// Cat, added after it without its history, reacts to it: the answer holds nothing of the message.
+	reaction := store.NewID()
+	var answer map[string]any
+	h.sealedMust("POST", reactions, cat.sealedAs(group, 2, nil), map[string]any{"id": reaction, "data": []byte("signed"), "item_key": itemKeyFor(reaction)}, &answer)
+	if answer["envelope"] != nil || answer["reactions"] != nil || answer["message_id"] != id || answer["reaction"] == nil {
+		t.Fatalf("a sealed reaction was answered with %v", answer)
+	}
+	got := bobs.waitFor("reaction")
+	if got["message_id"] != id || got["envelope"] != nil || got["reaction"].(map[string]any)["id"] != reaction {
+		t.Fatalf("bob was told %v", got)
+	}
+	quiet(cats, "after a reaction to a message from before cat came")
+
+	// A pin, the same.
+	var pinned map[string]any
+	h.sealedMust("PUT", "/api/sealed/groups/"+group+"/messages/"+id+"/pin", owner.sealedAs(group, 2, nil), map[string]any{"pin": []byte("signed pin")}, &pinned)
+	if pinned["envelope"] != nil || pinned["reactions"] != nil || pinned["pinned_at"] == nil {
+		t.Fatalf("a sealed pin was answered with %v", pinned)
+	}
+	if message := bobs.waitFor("message"); message["id"] != id || message["envelope"] == nil || message["reactions"] != nil {
+		t.Fatalf("bob was told of the pin with %v", message)
+	}
+	quiet(cats, "after a pin of a message from before cat came")
+
+	// Only a group's admin clears someone else's reaction, by name.
+	clear := "/api/groups/" + group + "/messages/" + id + "/reactions/" + reaction
+	if status, _ := h.do("DELETE", clear, bob.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a member clearing a reaction gave %d", status)
+	}
+	var cleared store.ReactionChange
+	h.mustDo("DELETE", clear, owner.token, nil, &cleared)
+	if cleared.Removed != reaction {
+		t.Fatalf("clearing a reaction gave %+v", cleared)
+	}
+	if got := bobs.waitFor("reaction"); got["removed"] != reaction {
+		t.Fatalf("bob was told %v of a reaction cleared", got)
+	}
+	var message store.Message
+	h.mustDo("GET", "/api/groups/"+group+"/messages/"+id, bob.token, nil, &message)
+	if len(message.Reactions) != 0 {
+		t.Fatalf("the message still shows %d reactions", len(message.Reactions))
+	}
 }

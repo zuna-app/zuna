@@ -374,7 +374,31 @@ export interface ApiMessage {
   deletion?: string;
   /** What the device that last pinned or unpinned it signed. */
   pin?: string;
-  reactions: ApiReaction[];
+  /**
+   * Left out where it's sent live, or answers a change: reactions then come one at a time
+   * (ApiReactionChange), and apps keep the ones they hold. Only a fetch carries them all.
+   */
+  reactions?: ApiReaction[];
+}
+
+/** One reaction added to a message, or taken back, on its own, at the message's new place in the change feed. */
+export interface ApiReactionChange {
+  group_id: string;
+  message_id: string;
+  seq: number;
+  updated_seq: number;
+  reaction?: ApiReaction;
+  removed?: string;
+}
+
+/** A message pinned or unpinned, on its own: a sealed request is never answered with the message, as it can't tell who's asking. */
+export interface ApiPinChange {
+  group_id: string;
+  message_id: string;
+  seq: number;
+  updated_seq: number;
+  pinned_at: number | null;
+  pin?: string;
 }
 
 export interface ApiEvent {
@@ -813,6 +837,9 @@ export class Api {
   /** A group admin deleting someone else's message, which is named: it's the server's to check their role. */
   moderateMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
     this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`, { epoch, deletion });
+  /** A group admin's app dropping a reaction that opens for nobody, by name, as it's the server's to check their role. */
+  clearReaction = (groupId: string, messageId: string, id: string) =>
+    this.request<ApiReactionChange>("DELETE", at`/api/groups/${groupId}/messages/${messageId}/reactions/${id}`);
 
   // What a member adds to a conversation, sealed: none of these says who's sending
   /** `silent` is for a message apps show nowhere, which no phone is woken for. */
@@ -824,11 +851,11 @@ export class Api {
   sealedDelete = (groupId: string, id: string, seal: Seal, deletion: Uint8Array) =>
     this.sealedRequest<ApiMessage>("DELETE", at`/api/sealed/groups/${groupId}/messages/${id}`, { deletion }, seal);
   sealedReact = (groupId: string, messageId: string, seal: Seal, body: { id: string; data: Uint8Array; item_key: Uint8Array }) =>
-    this.sealedRequest<ApiMessage>("POST", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions`, body, seal);
+    this.sealedRequest<ApiReactionChange>("POST", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions`, body, seal);
   sealedUnreact = (groupId: string, messageId: string, id: string, seal: Seal) =>
-    this.sealedRequest<ApiMessage>("DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions/${id}`, undefined, seal);
+    this.sealedRequest<ApiReactionChange>("DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/reactions/${id}`, undefined, seal);
   sealedPin = (groupId: string, messageId: string, pinned: boolean, seal: Seal, pin: Uint8Array) =>
-    this.sealedRequest<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/pin`, { pin }, seal);
+    this.sealedRequest<ApiPinChange>(pinned ? "PUT" : "DELETE", at`/api/sealed/groups/${groupId}/messages/${messageId}/pin`, { pin }, seal);
   /** Passed on to the group without being kept, or paid for. */
   sealedTyping = (groupId: string, seal: Seal, data: Uint8Array) => this.sealedRequest("POST", at`/api/sealed/groups/${groupId}/typing`, { data }, seal);
   pins = async (groupId: string) =>

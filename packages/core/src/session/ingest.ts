@@ -1,6 +1,6 @@
 // ServerSession, in part (see base.ts): taking in messages, letting them disappear, and indexing them for search.
 
-import { ApiError, decode, type ApiMessage, type ApiReaction } from "../api";
+import { ApiError, decode, type ApiMessage, type ApiPinChange, type ApiReaction, type ApiReactionChange } from "../api";
 import { checkEnvelope, namesItsSender, randomId, readSigned, type CheckedEnvelope, type Signer } from "../crypto";
 import { equalBytes, toBase64 } from "../encoding";
 import { mediaIn } from "../media";
@@ -24,7 +24,9 @@ import {
   type CachedGroup,
   type MessageRow,
   type StoredBody,
+  type SeenReaction,
   validApiMessage,
+  validReactionChange,
   readStoredBody,
   expiryOf,
 } from "./shared";
@@ -44,53 +46,177 @@ export abstract class SessionIngest extends SessionChanges {
   }
 
   /**
-   * What a reaction is, and whose, if it's what it says: the signature inside says whose it is,
-   * and the authenticated data which message it's on. The server isn't told whose it is.
+   * Reactions as they came, opened where they can be: the signature inside says whose each is, and
+   * the authenticated data which message it's on. The server isn't told whose. `waiting` are those
+   * this device can't open yet: under an epoch it holds no key for, as when one comes in live before
+   * the commit that made its epoch, or signed by a device it doesn't know yet (`unknown`). `junk` are
+   * those that open for nobody, under a key MLS gave, which a group's admin has the server drop.
    */
-  protected openReaction(groupId: string, messageId: string, reaction: ApiReaction): (NonNullable<ReturnType<typeof parseReaction>> & { userId: string }) | null {
-    const key = this.epochKey(groupId, reaction.epoch);
-    const signed = key && readSigned(decode(reaction.data));
-    if (!key || !signed || signed.epoch !== reaction.epoch) return null;
-    const checked = checkEnvelope<{ id?: unknown }>(key, "reaction", groupId, messageId, reaction.epoch, signed.envelope, (signer) => this.deviceKey(signer));
-    if (checked.state !== "signed" || checked.value?.id !== reaction.id) return null;
-    const parsed = parseReaction(checked.value);
-    return parsed && { ...parsed, userId: checked.signer.userId };
+  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { seen: SeenReaction[]; waiting: ApiReaction[]; junk: string[]; unknown: Signer[] } {
+    const seen: SeenReaction[] = [];
+    const waiting: ApiReaction[] = [];
+    const junk: string[] = [];
+    const unknown: Signer[] = [];
+    for (const reaction of raw) {
+      const key = this.epochKey(groupId, reaction.epoch);
+      if (!key) {
+        waiting.push(reaction);
+        continue;
+      }
+      const signed = readSigned(decode(reaction.data));
+      const checked = signed && signed.epoch === reaction.epoch ? checkEnvelope<{ id?: unknown }>(key, "reaction", groupId, messageId, reaction.epoch, signed.envelope, (signer) => this.deviceKey(signer)) : null;
+      if (checked?.state === "unknown") {
+        waiting.push(reaction);
+        unknown.push(checked.signer);
+        continue;
+      }
+      // A copy of someone's real one under an ID of its own opens too, and is nobody's.
+      const parsed = checked?.state === "signed" && checked.value?.id === reaction.id ? parseReaction(checked.value) : null;
+      if (checked?.state === "signed" && parsed) {
+        const own = checked.signer.userId === this.account.userId && reaction.item_key;
+        seen.push({ id: reaction.id, user: checked.signer.userId, key: parsed.key, ...(parsed.emote ? { emote: parsed.emote } : {}), ...(own ? { item: reaction.item_key } : {}) });
+      } else if (!this.keyUnproven(groupId, reaction.epoch)) {
+        junk.push(reaction.id);
+      }
+    }
+    return { seen, waiting, junk, unknown };
   }
 
   /**
-   * The reactions on a message, by what they are, and this account's own with their item keys.
-   * Beyond the most one person may add, the server can't refuse someone's, as it can't tell
-   * whose they are, so a changed app's extra ones are left out here, in the order they came.
+   * What's shown of a message's reactions, by what they are, and this account's own with their item keys.
+   * Beyond the most one person may add, the server can't refuse someone's, as it can't tell whose they
+   * are, so a changed app's extra ones are left out here, in the order they came.
    */
-  protected openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
-    return this.readReactions(groupId, messageId, raw).views;
-  }
-
-  /**
-   * `waiting` says some were sealed under an epoch this device holds no key for yet, as when one comes in live
-   * before the commit that made its epoch is applied: those are left out until it does.
-   */
-  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { views: ReactionView[]; mine: NonNullable<StoredBody["mine"]>; waiting: boolean } {
+  protected viewsOf(seen: SeenReaction[]): { reactions: ReactionView[]; mine: NonNullable<StoredBody["mine"]> } {
     const grouped = new Map<string, ReactionView>();
     const counts = new Map<string, number>();
     const mine: NonNullable<StoredBody["mine"]> = [];
-    let waiting = false;
-    for (const reaction of raw) {
-      if (!this.epochKey(groupId, reaction.epoch)) {
-        waiting = true;
-        continue;
-      }
-      const opened = this.openReaction(groupId, messageId, reaction);
-      if (!opened) continue;
-      const count = (counts.get(opened.userId) ?? 0) + 1;
-      counts.set(opened.userId, count);
+    for (const reaction of seen) {
+      const count = (counts.get(reaction.user) ?? 0) + 1;
+      counts.set(reaction.user, count);
       if (count > MAX_REACTIONS_BY_PERSON) continue;
-      if (opened.userId === this.account.userId && reaction.item_key) mine.push({ id: reaction.id, key: opened.key, item: reaction.item_key });
-      const entry = grouped.get(opened.key) ?? { key: opened.key, emote: opened.emote, userIds: [] };
-      if (!entry.userIds.includes(opened.userId)) entry.userIds.push(opened.userId);
-      grouped.set(opened.key, entry);
+      if (reaction.user === this.account.userId && reaction.item) mine.push({ id: reaction.id, key: reaction.key, item: reaction.item });
+      const entry = grouped.get(reaction.key) ?? { key: reaction.key, emote: reaction.emote, userIds: [] };
+      if (!entry.userIds.includes(reaction.user)) entry.userIds.push(reaction.user);
+      grouped.set(reaction.key, entry);
     }
-    return { views: [...grouped.values()], mine, waiting };
+    return { reactions: [...grouped.values()], mine };
+  }
+
+  /** What's shown of reactions as they came, opening each. */
+  protected openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
+    return this.viewsOf(this.readReactions(groupId, messageId, raw).seen).reactions;
+  }
+
+  /** Whatever reading reactions turned up besides what's shown: junk for an admin to clear, and devices to learn. */
+  protected afterReadingReactions(groupId: string, messageId: string, read: { junk: string[]; unknown: Signer[] }): void {
+    this.clearJunkReactions(groupId, messageId, read.junk);
+    for (const signer of read.unknown) this.learnDevice(groupId, signer);
+  }
+
+  /**
+   * A group's admin's app has the server drop reactions that open for nobody, as it would delete
+   * someone else's message: nobody can take them back but whoever added them, whom nothing names,
+   * and enough of them would close a message to anyone else's. It asks once for each.
+   */
+  protected clearJunkReactions(groupId: string, messageId: string, ids: string[]): void {
+    const group = this.groups.get(groupId);
+    if (ids.length === 0 || !group || group.kind === "dm" || group.removedAt || !this.isGroupAdmin(group, this.account.userId)) return;
+    for (const id of ids) {
+      const ref = `${groupId}/${messageId}/${id}`;
+      if (this.clearedReactions.has(ref)) continue;
+      this.clearedReactions.add(ref);
+      void this.api
+        .clearReaction(groupId, messageId, id)
+        .then((change) => this.applyReactionChange(change))
+        .catch((error) => console.warn("[zuna] clearing a reaction nobody can open", error));
+    }
+  }
+
+  /**
+   * One reaction added to a message, or taken back, as the server sends them: on its own, never
+   * with the message and all its others. Only a change from after what's held changes anything,
+   * so a copy that comes late, as the answer to this device's own request may, undoes nothing.
+   */
+  protected applyReactionChange(change: ApiReactionChange): void {
+    if (!validReactionChange(change)) return;
+    const row = this.messageRow(change.group_id, change.message_id);
+    if (!row) return;
+    const ref = `${change.group_id}/${change.message_id}`;
+    const waiting = this.rawReactionsOf(row);
+    if (!row.body || row.status !== "sent") {
+      // Kept as they come, to be read once the message opens.
+      if (!row.raw) return;
+      const next = change.removed ? waiting.filter((item) => item.id !== change.removed) : waiting.some((item) => item.id === change.reaction!.id) ? waiting : [...waiting, change.reaction!];
+      if (next !== waiting) this.db.run("UPDATE messages SET raw_reactions = ? WHERE row_id = ?", [next.length ? this.sealJson("message_reactions", ref, next) : null, row.row_id]);
+      return;
+    }
+    const stored = this.storedBody(row);
+    if (!stored || change.updated_seq <= (stored.reactionsAt ?? row.updated_seq)) return;
+    if (!stored.seen && (stored.reactions?.length || waiting.length)) {
+      // Kept before reactions came one at a time, with nothing to say whose each was: read whole once.
+      this.refetchMessage(change.group_id, change.message_id);
+      return;
+    }
+    let seen = stored.seen ?? [];
+    let pending = waiting;
+    if (change.removed) {
+      seen = seen.filter((item) => item.id !== change.removed);
+      pending = waiting.filter((item) => item.id !== change.removed);
+    } else if (!seen.some((item) => item.id === change.reaction!.id) && !waiting.some((item) => item.id === change.reaction!.id)) {
+      const read = this.readReactions(change.group_id, change.message_id, [change.reaction!]);
+      seen = [...seen, ...read.seen];
+      pending = [...waiting, ...read.waiting];
+      this.afterReadingReactions(change.group_id, change.message_id, read);
+    }
+    this.storeReactions(row, stored, seen, pending, change.updated_seq);
+  }
+
+  /** Keeps what a message's reactions now are, and shows it. */
+  protected storeReactions(row: MessageRow, stored: StoredBody, seen: SeenReaction[], waiting: ApiReaction[], at: number): void {
+    const ref = `${row.group_id}/${row.id}`;
+    const value: StoredBody = { ...stored, ...this.viewsOf(seen), seen, reactionsAt: at };
+    if (!value.mine?.length) delete value.mine;
+    this.db.run("UPDATE messages SET body = ?, raw_reactions = ? WHERE row_id = ?", [this.sealJson("message", ref, value), waiting.length ? this.sealJson("message_reactions", ref, waiting) : null, row.row_id]);
+    const updated = this.messageRow(row.group_id, row.id)!;
+    this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(updated, readStoredBody(updated, value)), isNew: false });
+  }
+
+  /** Reads again the reactions a group's messages kept for later, once keys or devices they wait on may be here. */
+  protected retryWaitingReactions(groupId: string): void {
+    const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND body IS NOT NULL AND raw_reactions IS NOT NULL AND status = 'sent'", [groupId]);
+    for (const row of rows) {
+      const stored = this.storedBody(row);
+      if (!stored) continue;
+      // One kept before reactions came one at a time kept all of them as they came, so all are read.
+      const read = this.readReactions(groupId, row.id, this.rawReactionsOf(row));
+      if (read.waiting.length === this.rawReactionsOf(row).length && read.junk.length === 0) continue;
+      const held = (stored.seen ?? []).filter((item) => !read.seen.some((other) => other.id === item.id));
+      this.storeReactions(row, stored, [...held, ...read.seen], read.waiting, stored.reactionsAt ?? row.updated_seq);
+      this.clearJunkReactions(groupId, row.id, read.junk);
+    }
+  }
+
+  /** A message fetched whole, as when a copy held can't take a change on its own. Once at a time for each. */
+  protected refetchMessage(groupId: string, id: string): void {
+    const ref = `${groupId}/${id}`;
+    if (this.refetching.has(ref) || this.stopped) return;
+    this.refetching.add(ref);
+    void this.api
+      .message(groupId, id)
+      .then((message) => this.ingest(message, false))
+      .catch(() => undefined)
+      .finally(() => this.refetching.delete(ref));
+  }
+
+  /** A message pinned or unpinned, on its own, as a sealed request is answered: its signed pin decides, as when it comes whole. */
+  protected applyPinChange(change: ApiPinChange): void {
+    const row = this.messageRow(change.group_id, change.message_id);
+    if (!row || row.deleted_at !== null) return;
+    const pin = this.pinState({ group_id: change.group_id, id: change.message_id, deleted_at: null, pin: change.pin } as ApiMessage, row);
+    if (pin.at === row.pinned_at && pin.by === row.pinned_by && pin.revision === row.pin_revision) return;
+    this.db.run("UPDATE messages SET pinned_at = ?, pinned_by = ?, pin_revision = ? WHERE row_id = ?", [pin.at, pin.by, pin.revision, row.row_id]);
+    this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(row.group_id, row.id)!), isNew: false });
   }
 
   /**
@@ -226,13 +352,22 @@ export abstract class SessionIngest extends SessionChanges {
       }
     }
     // What's sealed, kept as it is too, so the event needn't open it again.
-    const reactions = body ? this.readReactions(message.group_id, message.id, message.reactions) : null;
-    const storedValue: StoredBody | null = body && reactions ? { ...body, reactions: reactions.views, mine: reactions.mine.length ? reactions.mine : undefined } : null;
-    const stored = storedValue ? this.sealJson("message", `${message.group_id}/${message.id}`, storedValue) : (kept?.body ?? heldAfterLeaving);
-    // A message that didn't open keeps its reactions as they came, to be read once it does, and so does one with
-    // reactions under an epoch whose key isn't here yet: the next copy of it is read again rather than passed over.
-    const keepReactions = body ? !!reactions?.waiting : !kept && !!raw;
-    const rawReactions = keepReactions ? this.sealJson("message_reactions", `${message.group_id}/${message.id}`, message.reactions) : body ? null : (kept?.raw_reactions ?? null);
+    const ref = `${message.group_id}/${message.id}`;
+    const reactions = body ? this.reactionsFor(message, existing) : null;
+    const storedValue: StoredBody | null = body && reactions ? { ...body, ...reactions.value } : null;
+    if (storedValue && !storedValue.mine?.length) delete storedValue.mine;
+    const stored = storedValue ? this.sealJson("message", ref, storedValue) : (kept?.body ?? heldAfterLeaving);
+    // A message that didn't open keeps its reactions as they came, to be read once it does, and one that did keeps those
+    // it can't open yet, under an epoch whose key isn't here or from a device not known yet, to be read once they are.
+    const rawReactions = reactions
+      ? reactions.waiting.length
+        ? this.sealJson("message_reactions", ref, reactions.waiting)
+        : null
+      : !kept && raw
+        ? message.reactions
+          ? this.sealJson("message_reactions", ref, message.reactions)
+          : (existing?.raw_reactions ?? null)
+        : (kept?.raw_reactions ?? null);
     const pin = this.pinState(message, existing);
     // When it was first seen to go is when it goes: an edit can't make it last longer.
     const expiresAt = existing?.expires_at ?? (body ? expiryOf(message.created_at, body) : null);
@@ -311,7 +446,6 @@ export abstract class SessionIngest extends SessionChanges {
     if ((isNew || authorLearned) && message.deleted_at === null && fromOther) this.madeAction(authorId, message.created_at);
     if (expiresAt !== null && expiresAt < this.nextExpiry) this.expireMessages();
     // The first message in a new chat often beats its welcome, and only opens once that's in.
-    const ref = `${message.group_id}/${message.id}`;
     if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
     if (fresh && status === "sent" && fromOther) this.maybeNotify(view);
@@ -319,6 +453,26 @@ export abstract class SessionIngest extends SessionChanges {
     if (body?.tokenKeys && fromOther) this.compareTokenKeys(body.tokenKeys, authorId);
     // Their head of the log of keys, inside the encryption and under their signature, where the server can't touch it.
     if (body?.log && fromOther) void this.compareHead(body.log, authorId).catch((error) => console.warn("[zuna] comparing a head of the log of keys", error));
+  }
+
+  /**
+   * What a message that opens has for reactions. A copy sent live comes without them, and so, as
+   * far as they go, does one from before a change to them this device already took on (`reactionsAt`):
+   * those held stay. One that didn't open before kept all of its as they came, which are read now.
+   */
+  protected reactionsFor(message: ApiMessage, existing: MessageRow | undefined): { value: Pick<StoredBody, "reactions" | "mine" | "seen" | "reactionsAt">; waiting: ApiReaction[] } {
+    const read = (raw: ApiReaction[], at: number) => {
+      const result = this.readReactions(message.group_id, message.id, raw);
+      this.afterReadingReactions(message.group_id, message.id, result);
+      return { value: { ...this.viewsOf(result.seen), seen: result.seen, reactionsAt: at }, waiting: result.waiting };
+    };
+    const held = existing?.body ? this.storedBody(existing) : null;
+    if (message.reactions && (!held || message.updated_seq >= (held.reactionsAt ?? existing!.updated_seq))) return read(message.reactions, message.updated_seq);
+    if (held) return { value: { reactions: held.reactions, mine: held.mine, seen: held.seen, reactionsAt: held.reactionsAt }, waiting: this.rawReactionsOf(existing!) };
+    if (existing?.raw_reactions) return read(this.rawReactionsOf(existing), existing.updated_seq);
+    // Sent live, and never held here. One changed since it was sent may have some, which come when it's fetched.
+    if (message.updated_seq > message.seq) this.refetchMessage(message.group_id, message.id);
+    return { value: { reactions: [], seen: [], reactionsAt: message.updated_seq > message.seq ? 0 : message.updated_seq }, waiting: [] };
   }
 
   /**
@@ -355,7 +509,14 @@ export abstract class SessionIngest extends SessionChanges {
     if (this.learning.has(ref)) return;
     this.learning.add(ref);
     void this.ensureUser(signer.userId, true)
-      .then(() => (this.deviceKey(signer) ? this.withLock(groupId, async () => this.retryWithheld(groupId)) : undefined))
+      .then(() =>
+        this.deviceKey(signer)
+          ? this.withLock(groupId, async () => {
+              this.retryWithheld(groupId);
+              this.retryWaitingReactions(groupId);
+            })
+          : undefined,
+      )
       .catch((error) => console.warn("[zuna] asking after a device", error))
       .finally(() => this.learning.delete(ref));
   }
@@ -635,6 +796,7 @@ export abstract class SessionIngest extends SessionChanges {
       );
     }
     this.retryWithheld(groupId);
+    this.retryWaitingReactions(groupId);
     const group = this.groups.get(groupId);
     if (group) {
       this.refreshGroupSecrets(group);

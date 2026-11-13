@@ -1,7 +1,7 @@
 // ServerSession, in part (see base.ts): sending messages, and the files they carry.
 
 import * as wasm from "@zuna/crypto";
-import { ApiError, decode, type ApiMessage, type FileShare, type Seal, type TokenSize } from "../api";
+import { ApiError, decode, type ApiMessage, type ApiReactionChange, type FileShare, type Seal, type TokenSize } from "../api";
 import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
 import { concat, equalBytes, fromBase64, toBase64, toHex, u64Bytes, utf8 } from "../encoding";
 import { linkInText } from "../links";
@@ -19,6 +19,8 @@ import {
   type OutboxEntry,
   MAX_SLOW_MODE,
   MAX_REACTIONS_BY_PERSON,
+  MAX_REACTION_BYTES,
+  REACTIONS_ON_SMALL_TOKENS,
   slowModeOf,
   TOKEN_BATCH,
   TOKEN_LOW,
@@ -560,7 +562,7 @@ export abstract class SessionSending extends SessionConversations {
         // After the pin this device holds, whatever its clock says, as with edits.
         const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
         const pin = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
-        this.ingest(await this.api.sealedPin(groupId, id, pinned, await this.seal(groupId, epoch, pin.length), pin), false);
+        this.applyPinChange(await this.api.sealedPin(groupId, id, pinned, await this.seal(groupId, epoch, pin.length), pin));
       }),
     );
   }
@@ -578,7 +580,7 @@ export abstract class SessionSending extends SessionConversations {
           const item = this.heldItemSecret("reaction", groupId, mine.id, mine.item);
           if (!item) continue;
           await this.sealAndRetry(groupId, async (epoch) => {
-            this.ingest(await this.api.sealedUnreact(groupId, messageId, mine.id, await this.seal(groupId, epoch, 0, item)), false);
+            this.applyReactionChange(await this.api.sealedUnreact(groupId, messageId, mine.id, await this.seal(groupId, epoch, 0, item)));
           });
         }
         return;
@@ -587,11 +589,31 @@ export abstract class SessionSending extends SessionConversations {
       if (current.filter((item) => item.userIds.includes(userId)).length >= MAX_REACTIONS_BY_PERSON) throw new Error("You've reached the limit of reactions on this message.");
       const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const data = frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
+        const sealed = (value: { id: string; key: string; emote?: EmoteRef }) => frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, value, this.signer));
+        let data = sealed({ id, key, emote });
+        // An emote's owner is only shown beside it, so one with a very long name goes without it rather than not at all.
+        if (data.length > MAX_REACTION_BYTES && emote?.owner) data = sealed({ id, key, emote: { ...emote, owner: undefined } });
+        if (data.length > MAX_REACTION_BYTES) throw new Error("That reaction is too long.");
         const item_key = wasm.signingPublic(this.itemSecret("reaction", groupId, id));
-        this.ingest(await this.api.sealedReact(groupId, messageId, await this.seal(groupId, epoch, data.length), { id, data, item_key }), false);
+        // Past the first hundred on a message, the server takes a large token for each, which it says if this device was behind.
+        const react = async (large: boolean) => this.api.sealedReact(groupId, messageId, await this.seal(groupId, epoch, large ? TOKEN_SMALL_BYTES + 1 : data.length), { id, data, item_key });
+        let change: ApiReactionChange;
+        try {
+          change = await react(this.reactionCount(groupId, messageId) >= REACTIONS_ON_SMALL_TOKENS);
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.code !== "large_token") throw error;
+          change = await react(true);
+        }
+        this.applyReactionChange(change);
       });
     });
+  }
+
+  /** How many reactions this device holds on a message, those it can't open yet too, as the server counts them. */
+  protected reactionCount(groupId: string, messageId: string): number {
+    const row = this.messageRow(groupId, messageId);
+    const stored = row ? this.storedBody(row) : null;
+    return (stored?.seen?.length ?? stored?.reactions?.reduce((sum, item) => sum + item.userIds.length, 0) ?? 0) + (row ? this.rawReactionsOf(row).length : 0);
   }
 
   sendTyping(groupId: string): void {

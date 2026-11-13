@@ -1,13 +1,13 @@
 // What every part of ServerSession shares: its timings and limits, the shapes of what it
 // keeps, and helpers that need nothing of it.
 
-import { decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiSound, type TokenSize } from "../api";
+import { decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiReactionChange, type ApiSound, type TokenSize } from "../api";
 import { coreToJson } from "../crypto";
 import { planToJson, type SignedLink } from "../generations";
 import { utf8 } from "../encoding";
 import { manifestParts, type TrustManifest } from "../manifest";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseReaction, parseSystemEvent, type ChannelDetails, type GroupDetails, type SoundDetails } from "../validate";
-import type { BotInfo, GroupMemberView, MessageBody, MessageStatus, Profile, ReactionView, Role, SystemEvent, TrustState } from "../types";
+import type { BotInfo, EmoteRef, GroupMemberView, MessageBody, MessageStatus, Profile, ReactionView, Role, SystemEvent, TrustState } from "../types";
 
 export const CHUNK_SIZE = 1 << 20;
 /** How often a claim of someone's key packages is tried while the server says to slow down, and how far apart: it allows one every 2 seconds then. */
@@ -305,7 +305,24 @@ export interface StoredBody extends MessageBody {
   reactions?: ReactionView[];
   /** This account's own reactions, with the item keys the server holds for them, which taking one back takes. */
   mine?: { id: string; key: string; item: string }[];
+  /**
+   * Every reaction this device has opened on it, in the order they came, with whose each is: one
+   * added or taken back on its own (`applyReactionChange`) changes this, and what's shown is worked
+   * out from it again, with nothing opened twice. A copy kept before reactions came one at a time has none.
+   */
+  seen?: SeenReaction[];
+  /** The place in the change feed its reactions are as of, so a copy fetched before a change that came since doesn't undo it. */
+  reactionsAt?: number;
   system?: SystemEvent;
+}
+
+export interface SeenReaction {
+  id: string;
+  user: string;
+  key: string;
+  emote?: EmoteRef;
+  /** This account's own carry the item key the server holds for them. */
+  item?: string;
 }
 
 export type OutboxEntry =
@@ -324,6 +341,10 @@ export const MESSAGE_ID = /^[0-9a-f]{32}$/;
 export const MAX_SLOW_MODE = 6 * 3600;
 /** How many reactions one person puts on a message, which apps hold as the server can't tell whose they are. */
 export const MAX_REACTIONS_BY_PERSON = 32;
+/** The most a reaction may come to as it's sent, which the server holds them to: a real one is under 3 KiB with its signature. */
+export const MAX_REACTION_BYTES = 4 << 10;
+/** Past this many reactions on a message, the server takes a large token for each. */
+export const REACTIONS_ON_SMALL_TOKENS = 100;
 /** How much sooner after its author's last a message in a channel with slow mode may come, for the network, before it's hidden. */
 export const SLOW_MODE_MARGIN_MS = 2000;
 
@@ -334,13 +355,22 @@ export const slowModeOf = (api: ApiChannel | undefined): number => {
 };
 
 /** What the server says about a message, which has to at least have the right shape. */
+/** A change to one reaction as the server sends it: about a message, with one reaction added or one taken back. */
+export const validReactionChange = (change: ApiReactionChange): boolean =>
+  MESSAGE_ID.test(change?.message_id ?? "") &&
+  typeof change.group_id === "string" &&
+  Number.isSafeInteger(change.updated_seq) &&
+  (typeof change.removed === "string"
+    ? change.reaction === undefined
+    : !!change.reaction && typeof change.reaction.id === "string" && Number.isSafeInteger(change.reaction.epoch) && typeof change.reaction.data === "string");
+
 export const validApiMessage = (message: ApiMessage): boolean =>
   MESSAGE_ID.test(message?.id ?? "") &&
   Number.isSafeInteger(message.seq) &&
   Number.isSafeInteger(message.updated_seq) &&
   Number.isSafeInteger(message.epoch) &&
   Number.isSafeInteger(message.created_at) &&
-  Array.isArray(message.reactions);
+  (message.reactions === undefined || Array.isArray(message.reactions));
 
 
 /** A message as this device stored it: what can be shown, or null if that's nothing. */
@@ -361,6 +391,14 @@ export function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody):
   if (Array.isArray(stored.mine)) {
     body.mine = stored.mine.filter((item) => typeof item?.id === "string" && typeof item.key === "string" && typeof item.item === "string");
   }
+  if (Array.isArray(stored.seen)) {
+    body.seen = stored.seen.flatMap((item) => {
+      const reaction = parseReaction(item);
+      if (!reaction || typeof item.id !== "string" || typeof item.user !== "string" || (item.item !== undefined && typeof item.item !== "string")) return [];
+      return [{ ...reaction, id: item.id, user: item.user, ...(item.item ? { item: item.item } : {}) }];
+    });
+  }
+  if (Number.isSafeInteger(stored.reactionsAt)) body.reactionsAt = stored.reactionsAt;
   return body;
 }
 

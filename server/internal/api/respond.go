@@ -100,6 +100,8 @@ func writeFailure(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "token_invalid", "That token isn't one this server issued for this, or it's too old.")
 	case errors.Is(err, store.ErrTokenSpent):
 		writeError(w, http.StatusConflict, "token_spent", "That token was used already.")
+	case errors.Is(err, store.ErrLargeToken):
+		writeError(w, http.StatusPaymentRequired, "large_token", "That takes a large token.")
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusRequestEntityTooLarge, "limit_reached", "That's more than this server allows.")
 	default:

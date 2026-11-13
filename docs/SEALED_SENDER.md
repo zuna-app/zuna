@@ -9,7 +9,7 @@ Nothing a member adds to a conversation tells the server who sent it, and nothin
 - **The server isn't told who sent something in a conversation.** A request that adds to one carries no session, no user, no device and no signature a known key checks: messages, edits, an author's own deletions, reactions and taking them back, pins and unpins, and typing. Bots send the same way. No named route for any of these stands beside the sealed one.
 - **The server keeps nothing that says it.** Messages and reactions have no column for who sent, pinned or deleted them, a file a message carries has no owner, and no total rises by a message's size.
 - **Members still know.** Every app learns who wrote what from a signature inside the encryption, and checks it as before.
-- **Nothing got weaker.** A member can't use being unnamed to flood a conversation, write as someone else, or change or delete someone else's messages.
+- **Nothing got weaker.** A member can't use being unnamed to write as someone else, or change or delete someone else's messages. Tokens bound how much they can add, and what each thing added makes everyone else carry is bound too: a reaction goes to members on its own, never with the message and all its others, a message's reactions are held to a total size, past the first hundred each costs a large token, and a group's admin's app has the server drop any that open for nobody.
 
 What it doesn't do:
 
