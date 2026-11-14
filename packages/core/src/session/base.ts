@@ -301,6 +301,7 @@ export abstract class SessionBase {
   protected abstract emitNewDevices(): void;
   protected abstract applyGroup(api: ApiGroup): CachedGroup;
   protected abstract isGroupAdmin(group: CachedGroup, userId: string): boolean;
+  protected abstract rosterOf(group: CachedGroup): SignedRoster | null;
   protected abstract emitConversations(): void;
   protected abstract backgroundSync(groupId: string): void;
   protected abstract pullChanges(groupId: string): Promise<void>;

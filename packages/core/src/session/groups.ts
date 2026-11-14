@@ -16,7 +16,7 @@ import {
   subkey,
 } from "../crypto";
 import { equalBytes, fromBase64, toBase64, u64Bytes, utf8 } from "../encoding";
-import { foundingSigner, readFounding, readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type Founding, type Roster, type RosterContext, type SignedRoster } from "../roster";
+import { foundingSigner, readFounding, heldRoster, readmitsNobody, readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type HeldRoster, type Founding, type Roster, type RosterContext, type SignedRoster } from "../roster";
 import { sealedRows } from "../sendable";
 import { parseGroupDetails, parseReadState } from "../validate";
 import {
@@ -37,6 +37,13 @@ import {
 import { SessionRotation } from "./rotation";
 
 const KIND_NAMES = { group: "a group", dm: "a direct message", channel: "a channel" } as const;
+
+/**
+ * Why a group's roster can't be taken yet: this account has the group's keys, and none of its
+ * devices has said who's in it. Nothing is wrong, nobody is warned, and it's asked again once
+ * one of them has (`applyManifest`).
+ */
+export const ROSTER_UNSAID = "none of this account's devices has said who's in it yet";
 
 export abstract class SessionGroups extends SessionRotation {
   // --- Epoch keys ---
@@ -430,9 +437,11 @@ export abstract class SessionGroups extends SessionRotation {
     group.roster = toBase64(bytes);
     this.showRosterRoles(group);
     this.persistGroup(group);
+    // This account's other devices, and any it signs in on later, hold the group to this.
+    this.sayRostersSoon();
   }
 
-  protected rosterContext(group: CachedGroup, prev: SignedRoster, next: SignedRoster): RosterContext {
+  protected rosterContext(group: CachedGroup, prev: HeldRoster, next: SignedRoster): RosterContext {
     const listed = new Set(group.members.map((member) => member.userId));
     return { adminPresent: prev.roster.admins.some((id) => listed.has(id)), signerServerAdmin: !!group.serverAdmins?.includes(next.roster.by.userId) };
   }
@@ -466,11 +475,32 @@ export abstract class SessionGroups extends SessionRotation {
     const device = this.users.get(userId)?.devices.get(deviceId);
     if (!device || device.revoked || !next.signedBy(device.signatureKey)) return "its roster isn't signed by a device of whoever it names";
     if (committer && (committer.userId !== userId || committer.deviceId !== deviceId)) return "its roster was signed by someone other than whoever made the change";
-    if (!held) return null;
-    // A change this device took on may have been undone since, as one nobody else could apply.
-    if (!committer && group.rosterBefore && equalBytes(bytes, fromBase64(group.rosterBefore))) return null;
-    const context = this.rosterContext(group, held, next);
-    return committer ? rosterStep(held, next, context) : rosterJump(held, next, context);
+    if (!held) return this.firstRosterRefusal(group, next);
+    // A change this device took on may have been undone since, as one nobody else could apply. Going back
+    // never lets anyone in again, or makes anyone an admin again: whoever holds an older roster with
+    // their name in it could otherwise hand it to a device that's joining again.
+    if (!committer && group.rosterBefore && equalBytes(bytes, fromBase64(group.rosterBefore)) && readmitsNobody(next.roster, held.roster)) return null;
+    const before = heldRoster(held);
+    const context = this.rosterContext(group, before, next);
+    return committer ? rosterStep(before, next, context) : rosterJump(before, next, context);
+  }
+
+  /**
+   * Why a device that holds no roster for a group can't take on `next`, as a new device can't for
+   * any of its account's groups. What it's held to is the account's own word, from the manifest,
+   * which the server can't write: the same roster, or one that follows from it. A group the account
+   * has keys for, with nothing in the manifest yet, waits for another of its devices to say who's
+   * in it (`ROSTER_UNSAID`). Only a group that's new to the whole account is taken as it comes.
+   */
+  protected firstRosterRefusal(group: CachedGroup, next: SignedRoster): string | null {
+    const said = this.manifest?.rosters?.[group.id];
+    // Out of the group as the account last knew it, so being let in again is as new as the first time.
+    if (said && !said.m.includes(this.account.userId)) return null;
+    if (said) {
+      const held: HeldRoster = { roster: { group: group.id, version: said.v, admins: said.a, members: said.m }, hash: said.h };
+      return rosterJump(held, next, this.rosterContext(group, held, next));
+    }
+    return this.vaultKinds().has(group.id) ? ROSTER_UNSAID : null;
   }
 
   /**

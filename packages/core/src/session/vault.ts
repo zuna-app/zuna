@@ -3,7 +3,8 @@
 import { ApiError, decode } from "../api";
 import { openHistoryGrant, openVaultItem, sealVaultItem } from "../crypto";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
-import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestPart, type TrustManifest } from "../manifest";
+import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestPart, type ManifestRoster, type TrustManifest } from "../manifest";
+import { rosterHash } from "../roster";
 import { parsePreferences } from "../validate";
 import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PARTS, KEY_NOT_UPLOADED, KEY_UPLOADED, KIND_WARNING, type CachedGroup, type CachedUser } from "./shared";
 import { SessionLocal } from "./local";
@@ -261,6 +262,11 @@ export abstract class SessionVault extends SessionLocal {
     if (manifest.log) this.takeManifestHead(manifest.log);
     this.manifest = manifest;
     this.setKv("manifest", manifest);
+    // A group that waited for this account's word on who's in it can be joined now.
+    for (const id of Object.keys(manifest.rosters ?? {})) {
+      const group = this.groups.get(id);
+      if (group?.kind === "group" && !group.removedAt && !group.roster) this.backgroundSync(id);
+    }
     if (manifest.prefs && !this.unsavedTrust().prefs) {
       this.prefs = { ...this.prefs, ...parsePreferences(manifest.prefs) };
       this.setKv("prefs", this.prefs);
@@ -279,7 +285,42 @@ export abstract class SessionVault extends SessionLocal {
     if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
     if (this.allVerified().some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
     if (this.manifestHeadBehind(manifest.log)) return true;
+    if (this.rostersUnsaid().length > 0) return true;
     return !!this.db.get("SELECT 1 FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT 1");
+  }
+
+  /**
+   * Each group's roster for the manifest: as this device holds it where that's newer than what
+   * the manifest says, and otherwise as the manifest has it, as where another of the account's
+   * devices is ahead or this one isn't in the group. Two devices that hold different rosters of
+   * one version don't write over each other. The one time an older one is said is when this
+   * device went back to it from the very one the manifest has, a change that was undone.
+   * One is never taken out: a group this account left stays as it was last held, which says so.
+   */
+  protected rostersForManifest(): Record<string, ManifestRoster> {
+    const rosters: Record<string, ManifestRoster> = { ...this.manifest?.rosters };
+    for (const group of this.groups.values()) {
+      const held = group.kind === "group" ? this.rosterOf(group) : null;
+      if (!held) continue;
+      const said = rosters[group.id];
+      const left = group.rosterBefore ? rosterHash(fromBase64(group.rosterBefore)) : null;
+      if (said && said.v >= held.roster.version && said.h !== left) continue;
+      rosters[group.id] = { v: held.roster.version, h: rosterHash(held.bytes), a: held.roster.admins, m: held.roster.members };
+    }
+    return rosters;
+  }
+
+  /** The groups whose roster, as this device holds it, the manifest doesn't say yet. */
+  protected rostersUnsaid(): string[] {
+    const said = this.manifest?.rosters ?? {};
+    return Object.entries(this.rostersForManifest())
+      .filter(([id, held]) => said[id]?.v !== held.v || said[id]?.h !== held.h)
+      .map(([id]) => id);
+  }
+
+  /** Says who's in this device's groups, for the account's other devices, without anything waiting on it. */
+  protected sayRostersSoon(): void {
+    void this.saveTrust().catch((error) => console.warn("[zuna] saying who's in a group", error));
   }
 
   /** What this device holds, as the manifest after the one it has. */
@@ -296,6 +337,7 @@ export abstract class SessionVault extends SessionLocal {
       if (generation > 0) trust[user_id] = generation;
     }
     const log = this.headForManifest() ?? this.manifest?.log;
+    const rosters = this.rostersForManifest();
     return {
       v: (this.manifest?.v ?? 0) + 1,
       pins: entries(this.allPins()),
@@ -304,6 +346,7 @@ export abstract class SessionVault extends SessionLocal {
       trust,
       prefs: this.prefs,
       ...(log ? { log } : {}),
+      ...(Object.keys(rosters).length > 0 ? { rosters } : {}),
     };
   }
 
@@ -399,6 +442,9 @@ export abstract class SessionVault extends SessionLocal {
     const entry = { again: false, done: Promise.resolve() };
     entry.done = (async () => {
       try {
+        // Who's in a group goes into the manifest before its keys go into the vault, so that a
+        // device that finds the keys there finds that too, and never takes the server's word for it.
+        if (this.rostersUnsaid().length > 0) await this.writeManifest();
         do {
           entry.again = false;
           while ((await this.uploadKeyBatch()) && !this.stopped) {
@@ -421,9 +467,11 @@ export abstract class SessionVault extends SessionLocal {
   /** One batch of keys into the vault. True when it was full, so there may be more. */
   protected async uploadKeyBatch(): Promise<boolean> {
     // Only for conversations this device knows, as each key goes with what its conversation is. The rest wait.
+    // Nor for a group whose roster the manifest doesn't say yet: its keys wait for that.
+    const waiting = this.rostersUnsaid();
     const rows = this.db.all<{ group_id: string; epoch: number; key: Uint8Array }>(
-      "SELECT e.group_id, e.epoch, e.key FROM epoch_keys e JOIN groups g ON g.id = e.group_id WHERE e.uploaded = ? LIMIT ?",
-      [KEY_NOT_UPLOADED, VAULT_BATCH],
+      `SELECT e.group_id, e.epoch, e.key FROM epoch_keys e JOIN groups g ON g.id = e.group_id WHERE e.uploaded = ?${waiting.length > 0 ? ` AND e.group_id NOT IN (${waiting.map(() => "?").join(", ")})` : ""} LIMIT ?`,
+      [KEY_NOT_UPLOADED, ...waiting, VAULT_BATCH],
     );
     if (rows.length === 0) return false;
     const items: { id: string; data: Uint8Array }[] = [];

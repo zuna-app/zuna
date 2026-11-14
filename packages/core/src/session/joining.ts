@@ -5,6 +5,7 @@ import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
 import { equalBytes, u64Bytes, utf8 } from "../encoding";
 import { sealCharter, sealRoster, type Roster } from "../roster";
+import { ROSTER_UNSAID } from "./groups";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
 import { SessionGroups } from "./groups";
 
@@ -113,7 +114,8 @@ export abstract class SessionJoining extends SessionGroups {
     if (signer) await this.ensureUser(signer, true);
     const refusal = this.rosterRefusal(groupId, bytes, null);
     if (refusal) {
-      this.warnOnce(`roster/${groupId}/${this.mlsEpoch(groupId)}`, `An invitation to one of your conversations couldn't be trusted: ${refusal}. It wasn't used.`);
+      // One that only waits for this account's own word is left for the join that follows it.
+      if (refusal !== ROSTER_UNSAID) this.warnOnce(`roster/${groupId}/${this.mlsEpoch(groupId)}`, `An invitation to one of your conversations couldn't be trusted: ${refusal}. It wasn't used.`);
       this.forgetMlsState(groupId);
       return false;
     }
@@ -304,6 +306,8 @@ export abstract class SessionJoining extends SessionGroups {
         const refusal = this.rosterRefusal(groupId, roster, null);
         if (refusal) {
           this.mls.rollback();
+          // Nothing is wrong: it's joined once another of this account's devices has said who's in it.
+          if (refusal === ROSTER_UNSAID) return false;
           const signer = this.unknownRosterSigner(groupId, roster);
           if (signer && !learned) {
             learned = true;

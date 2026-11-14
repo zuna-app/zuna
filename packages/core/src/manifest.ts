@@ -26,6 +26,19 @@ export interface TrustManifest {
    * held, so that a new device of this account starts from what its others checked.
    */
   log?: { key: string; era: number; size: number; root: string };
+  /**
+   * Each group's roster as this account's devices hold it: its version, hash, admins and
+   * members. A device that holds none for a group, as a new one does, holds the one it's
+   * given to this, so who's in a group is never the server's to say the first time either.
+   */
+  rosters?: Record<string, ManifestRoster>;
+}
+
+export interface ManifestRoster {
+  v: number;
+  h: string;
+  a: string[];
+  m: string[];
 }
 
 /** The most of a manifest one vault item holds: with its header and once sealed, well under the server's 256 KiB for an item. */
@@ -62,6 +75,14 @@ export function parseManifest(value: unknown): TrustManifest | null {
   const log = manifest.log;
   if (log && typeof log === "object" && key(log.key) && generation(log.era) && log.era > 0 && generation(log.size) && key(log.root)) {
     parsed.log = { key: log.key, era: log.era, size: log.size, root: log.root };
+  }
+  const ids = (item: unknown): item is string[] => Array.isArray(item) && item.every(key);
+  const roster = (item: unknown): item is ManifestRoster => {
+    const held = item as Partial<ManifestRoster> | null;
+    return !!held && typeof held === "object" && generation(held.v) && key(held.h) && ids(held.a) && ids(held.m);
+  };
+  if (record(manifest.rosters, roster)) {
+    parsed.rosters = Object.fromEntries(Object.entries(manifest.rosters).map(([id, held]) => [id, { v: held.v, h: held.h, a: held.a, m: held.m }]));
   }
   return parsed;
 }

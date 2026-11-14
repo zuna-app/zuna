@@ -11,7 +11,7 @@
 // from its own state, which the server can't write, and never from the server's word.
 
 import * as wasm from "@zuna/crypto";
-import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
+import { concat, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import type { Signer } from "./crypto";
 
 export interface Roster {
@@ -45,6 +45,25 @@ const MAX_PEOPLE = 10_000;
 const signatureInput = (group: string, text: string) => concat(utf8(`${LABEL}|${group}|`), wasm.sha256(utf8(text)));
 
 export const rosterHash = (bytes: Uint8Array): string => toBase64(wasm.sha256(bytes));
+
+/**
+ * A roster as a device holds one to compare the next with: what it says, and its hash. A device
+ * holds the signed bytes themselves, and an account's manifest keeps this much of each group's
+ * for its other devices, which is all that judging the next one takes.
+ */
+export interface HeldRoster {
+  roster: Pick<Roster, "group" | "version" | "admins" | "members">;
+  hash: string;
+}
+
+export const heldRoster = (signed: SignedRoster): HeldRoster => ({ roster: signed.roster, hash: rosterHash(signed.bytes) });
+
+/**
+ * Whether going from `held` back to `older` would let nobody in again, and make nobody an
+ * admin again: everyone the older one names, the held one names too.
+ */
+export const readmitsNobody = (older: Pick<Roster, "admins" | "members">, held: Pick<Roster, "admins" | "members">): boolean =>
+  older.members.every((id) => held.members.includes(id)) && older.admins.every((id) => held.admins.includes(id));
 
 /** Signs a roster as the device given, for a group's context. */
 export function sealRoster(roster: Roster, deviceSecret: Uint8Array): Uint8Array {
@@ -91,11 +110,11 @@ const sameList = (a: string[], b: string[]) => a.length === b.length && a.every(
  * group, whoever the server made its admin may take over, and change nothing else.
  * The signature is the caller's to check.
  */
-export function rosterStep(prev: SignedRoster, next: SignedRoster, context: RosterContext): string | null {
+export function rosterStep(prev: HeldRoster, next: SignedRoster, context: RosterContext): string | null {
   const before = prev.roster;
   const after = next.roster;
   const signer = after.by.userId;
-  if (after.group !== before.group || after.version !== before.version + 1 || after.prev !== rosterHash(prev.bytes)) {
+  if (after.group !== before.group || after.version !== before.version + 1 || after.prev !== prev.hash) {
     return "it doesn't follow from the version before";
   }
   if (before.admins.includes(signer)) return null;
@@ -110,8 +129,8 @@ export function rosterStep(prev: SignedRoster, next: SignedRoster, context: Rost
  * joining again: the same version, the one right after it, or a later one an admin
  * of the held version signed. Never an older one.
  */
-export function rosterJump(held: SignedRoster, next: SignedRoster, context: RosterContext): string | null {
-  if (next.roster.version === held.roster.version) return equalBytes(next.bytes, held.bytes) ? null : "it's another version of the one held";
+export function rosterJump(held: HeldRoster, next: SignedRoster, context: RosterContext): string | null {
+  if (next.roster.version === held.roster.version) return rosterHash(next.bytes) === held.hash ? null : "it's another version of the one held";
   if (next.roster.version < held.roster.version) return "it's older than the one held";
   if (next.roster.version === held.roster.version + 1) return rosterStep(held, next, context);
   return held.roster.admins.includes(next.roster.by.userId) ? null : "whoever made it wasn't an admin when this device last knew";

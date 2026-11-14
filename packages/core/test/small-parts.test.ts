@@ -3,7 +3,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { manifestParts, parseManifest, readManifestPart, joinManifestParts, manifestPartId, isManifestPart, MANIFEST_MOST_PARTS } from "../src/manifest";
-import { readRoster, rosterHash, rosterJump } from "../src/roster";
+import { heldRoster, readmitsNobody, readRoster, rosterHash, rosterJump } from "../src/roster";
 import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
 import { fromRecoveryText, toRecoveryText, utf8 } from "../src/encoding";
@@ -116,12 +116,17 @@ describe("a group's roster", () => {
   });
 
   it("takes the one held again, the next, or a later one an admin made, and nothing older", () => {
-    const held = signed(2, ["a"], ["a", "b"], "a");
-    expect(rosterJump(held, held, context)).toBeNull();
+    const kept = signed(2, ["a"], ["a", "b"], "a");
+    const held = heldRoster(kept);
+    expect(rosterJump(held, kept, context)).toBeNull();
+    // Going back to an older one is only ever for one that lets nobody in again, and makes nobody an admin again.
+    expect(readmitsNobody({ admins: ["a"], members: ["a"] }, kept.roster)).toBe(true);
+    expect(readmitsNobody({ admins: ["a"], members: ["a", "c"] }, kept.roster)).toBe(false);
+    expect(readmitsNobody({ admins: ["a", "b"], members: ["a", "b"] }, kept.roster)).toBe(false);
     expect(rosterJump(held, signed(2, ["b"], ["a", "b"], "b"), context)).toMatch(/another version/);
     expect(rosterJump(held, signed(1, ["a"], ["a"], "a"), context)).toMatch(/older/);
     expect(rosterJump(held, signed(3, ["a"], ["a"], "a", "wrong"), context)).toMatch(/doesn't follow/);
-    expect(rosterJump(held, signed(3, ["a"], ["a"], "a", rosterHash(held.bytes)), context)).toBeNull();
+    expect(rosterJump(held, signed(3, ["a"], ["a"], "a", rosterHash(kept.bytes)), context)).toBeNull();
     expect(rosterJump(held, signed(5, ["a"], ["a"], "a"), context)).toBeNull();
     expect(rosterJump(held, signed(5, ["b"], ["a", "b"], "b"), context)).toMatch(/wasn't an admin/);
   });
