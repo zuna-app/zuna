@@ -3,7 +3,7 @@ import UserNotifications
 
 /// A push Telegram sends the linked account's phone through Apple (docs/TELEGRAM_PLAN.md,
 /// Notifications), told from a server's by its shape: Telegram's, with a kind in `loc-key` and
-/// what it names in `custom`, where a server's push is sealed under `zuna`. Nothing in it can pass
+/// what it names beside it, where a server's push is sealed under `zuna`. Nothing in it can pass
 /// for a server's, which is sealed with a key Telegram doesn't have.
 ///
 /// The notification extension words it as the app does for Telegram, under "Telegram", and the
@@ -48,10 +48,13 @@ struct TelegramPush {
         let rawArgs = alert?["loc-args"] as? [Any] ?? userInfo["loc_args"] as? [Any] ?? data["loc_args"] as? [Any] ?? []
         args = rawArgs.prefix(8).map { String(describing: $0).prefix(1024) }.map(String.init)
         let custom = userInfo["custom"] as? [AnyHashable: Any] ?? data["custom"] as? [AnyHashable: Any] ?? [:]
+        // What the push names: in `custom`, as Telegram's page on pushes shows it, or beside `aps`,
+        // where a push through Apple carries it, as Telegram's own app reads it.
+        func value(_ name: String) -> Any? { custom[name] ?? data[name] ?? userInfo[name] }
 
         func number(_ name: String) -> Int64? {
-            if let value = custom[name] as? NSNumber { return value.int64Value }
-            if let value = custom[name] as? String { return Int64(value) }
+            if let value = value(name) as? NSNumber { return value.int64Value }
+            if let value = value(name) as? String { return Int64(value.trimmingCharacters(in: .whitespaces)) }
             return nil
         }
         // TDLib's chat IDs: a person's is theirs, a basic group's its negative, a supergroup's
@@ -69,14 +72,14 @@ struct TelegramPush {
         let ids: [Int64]
         switch key {
         case "MESSAGE_DELETED":
-            ids = (custom["messages"] as? String ?? "").split(separator: ",").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+            ids = (value("messages") as? String ?? "").split(separator: ",").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
         case "READ_HISTORY":
             ids = number("max_id").map { [$0] } ?? []
         default:
             ids = number("msg_id").map { [$0] } ?? []
         }
         messageIds = ids.filter { $0 > 0 && $0 < (1 << 42) }.map { String($0 << 20) }
-        silent = custom["silent"] as? Bool ?? (custom["silent"] as? NSNumber)?.boolValue ?? false
+        silent = value("silent") as? Bool ?? (value("silent") as? NSNumber)?.boolValue ?? (value("silent") as? String == "1")
         switch key {
         case "READ_HISTORY": kind = .read
         case "MESSAGE_DELETED": kind = .deleted

@@ -30,6 +30,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Telegram's own, for an account linked on this phone (docs/TELEGRAM_PLAN.md): worded here
         // from the push alone, as nothing on the phone can fetch the message.
         if let telegram = TelegramPush(request.content.userInfo) {
+            if telegram.groupId == nil, telegram.kind != .quiet {
+                // Then a tap can't open its chat: the names of what it carries, never what they hold.
+                let names = request.content.userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
+                logger.warning("A Telegram push names no chat; it carries \(names, privacy: .public)")
+            }
             finish(Self.telegram(telegram, mutable, settings: settings))
             return
         }

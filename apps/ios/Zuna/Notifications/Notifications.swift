@@ -286,7 +286,8 @@ final class Notifications {
             model.selectServer(target.serverId)
             if let key = await conversationKey(target) {
                 model.openChat(key)
-            } else {
+            } else if target.serverId != ServerEntry.telegram {
+                // A Telegram chat it can't find leaves Telegram's tab on show, which selecting it opened.
                 model.tab = .chats
             }
         }
