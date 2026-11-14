@@ -834,15 +834,29 @@ export class TelegramSession {
     return views;
   }
 
+  /**
+   * The chats in Telegram's own order, as its apps list them: pinned first, then the one with the
+   * newest message or draft, which TDLib keeps as each chat's place in its list. The archive's
+   * chats, which the app hides, come after.
+   */
   getConversations(): ConversationView[] {
     const now = Date.now();
-    const views: ConversationView[] = [];
+    const placed: { view: ConversationView; archived: boolean; order: bigint }[] = [];
     for (const [id, chat] of this.chats) {
       const last = isObject(chat.last_message) ? this.view(chat.last_message) : null;
       const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last, members: this.members.get(id) ?? [] });
-      if (view) views.push(view);
+      if (!view) continue;
+      const main = positionIn(chat, "chatListMain");
+      placed.push({ view, archived: !main, order: (main ?? positionIn(chat, "chatListArchive"))?.order ?? 0n });
     }
-    return views;
+    placed.sort(
+      (a, b) =>
+        Number(a.archived) - Number(b.archived) ||
+        Number(b.view.pinned) - Number(a.view.pinned) ||
+        (a.order < b.order ? 1 : a.order > b.order ? -1 : 0) ||
+        b.view.lastActivityAt - a.view.lastActivityAt,
+    );
+    return placed.map((entry) => entry.view);
   }
 
   getPreferences(): Preferences {

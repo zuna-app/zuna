@@ -321,6 +321,23 @@ describe("what the session says of itself", () => {
 });
 
 describe("what changes in a chat", () => {
+  it("lists the chats in Telegram's order, and a chat a message comes to moves up", async () => {
+    const { engine, session } = await ready();
+    const keys = () => session.getConversations().map((chat) => chat.key);
+    // Pinned first, then by each chat's place in Telegram's list, whatever order they came in.
+    expect(keys()).toEqual([`group:${GROUP}`, `user:${GRACE}`, `user:${BOT}`]);
+    const main = (order: string) => [{ "@type": "chatPosition", list: { "@type": "chatListMain" }, order, is_pinned: false }];
+    engine.emit({ "@type": "updateChatLastMessage", chat_id: BOT, last_message: textMessage(BOT, serverId(9), BOT, "Sunny"), positions: main("9900") });
+    expect(keys()).toEqual([`group:${GROUP}`, `user:${BOT}`, `user:${GRACE}`]);
+    engine.emit({ "@type": "updateChatDraftMessage", chat_id: GRACE, draft_message: { date: 1_700_000_000, input_message_text: {} }, positions: main("9950") });
+    expect(keys()).toEqual([`group:${GROUP}`, `user:${GRACE}`, `user:${BOT}`]);
+    // An archived chat, which the app hides, comes after the rest, however new.
+    engine.emit({ "@type": "updateChatPosition", chat_id: GRACE, position: { "@type": "chatPosition", list: { "@type": "chatListMain" }, order: "0", is_pinned: false } });
+    engine.emit({ "@type": "updateChatPosition", chat_id: GRACE, position: { "@type": "chatPosition", list: { "@type": "chatListArchive" }, order: "99999", is_pinned: false } });
+    expect(keys()).toEqual([`group:${GROUP}`, `user:${BOT}`, `user:${GRACE}`]);
+    expect(session.getConversations().at(-1)).toMatchObject({ hidden: true });
+  });
+
   it("takes each of a chat's fields as its update says, and lists it again", async () => {
     const { engine, session } = await ready();
     const grace = () => session.getConversations().find((chat) => chat.key === `user:${GRACE}`)!;
