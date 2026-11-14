@@ -13,7 +13,7 @@ The desktop app on Windows, Linux and macOS, and the iPhone and iPad app from iO
 
 From the plus at the foot of the rail, Connect Telegram, or Settings, Connections. On an iPhone or iPad, the plus in the list of servers, or Settings, Connections; once it's linked, a phone has a Telegram tab in the bar at the bottom.
 
-1. **Scan the QR code** with Telegram on your phone: Settings, Devices, Link Desktop Device. No phone number or code is typed into Zuna. On an iPhone with Telegram on it, Confirm in Telegram asks Telegram there instead, as a phone can't scan its own screen.
+1. **Scan the QR code** with Telegram on your phone: Settings, Devices, Link Desktop Device. No phone number or code is typed into Zuna. On an iPhone or iPad, which can't scan its own screen, a phone number comes first, and the QR code is the other way, with Confirm in Telegram, which asks Telegram on the same phone instead.
 2. **Or use a phone number.** The code arrives in Telegram on another of your devices, or by email, and an account with two-step verification asks for its password.
 
 Zuna makes no account: a number Telegram doesn't know is sent to sign up in Telegram's app first. Telegram shows "New login" on your other devices and lists Zuna under Devices, where you can end it.

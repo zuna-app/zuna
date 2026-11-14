@@ -75,6 +75,7 @@ enum A11y {
         static let qr = "telegram.qr"
         static let confirm = "telegram.confirm"
         static let byPhone = "telegram.byPhone"
+        static let byQr = "telegram.byQr"
         static let phone = "telegram.phone"
         static let code = "telegram.code"
         static let password = "telegram.password"

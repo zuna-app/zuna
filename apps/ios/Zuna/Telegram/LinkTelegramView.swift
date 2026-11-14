@@ -2,16 +2,16 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import ZunaModels
 
-/// Linking a Telegram account (docs/TELEGRAM_PLAN.md, Linking an account), as the desktop's dialog
-/// does it: first what it is and what Telegram learns, before anything is sent to Telegram, then a
-/// QR code, which Telegram on another device scans, or a button that asks Telegram on this phone,
-/// with a phone number and its code as the fallback, and the account's password if it has one.
-/// No account is made here.
+/// Linking a Telegram account (docs/TELEGRAM_PLAN.md, Linking an account): first what it is and
+/// what Telegram learns, before anything is sent to Telegram, then, on a phone that can't scan its
+/// own screen, a phone number, whose code Telegram sends to its app on this phone or another
+/// device, and the account's password if it has one. A QR code is the other way, which Telegram
+/// on another device scans, or a button that asks Telegram on this phone. No account is made here.
 struct LinkTelegramView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
-    /// The person chose a phone number over the QR code.
-    @State private var byPhone = false
+    /// A phone number rather than the QR code, which is how it starts here.
+    @State private var byPhone = true
     /// The QR code was asked for once already.
     @State private var askedQr = false
     @State private var phone = ""
@@ -151,7 +151,7 @@ struct LinkTelegramView: View {
 
     private var phoneStep: some View {
         VStack(spacing: 18) {
-            StepHeader("Your phone number", message: Text("Telegram will send the code to your other devices, or by email. It doesn't send codes by text message to apps like Zuna."), systemImage: "phone")
+            StepHeader("Your phone number", message: Text("Telegram will send a code to its app on this phone or your other devices, or by email. It doesn't send codes by text message to apps like Zuna."), systemImage: "phone")
             FormField(label: "Phone number", hint: "Include the country code.") {
                 TextField("+1 555 010 0000", text: $phone)
                     .keyboardType(.phonePad)
@@ -163,6 +163,13 @@ struct LinkTelegramView: View {
                 ask { try await model.core.session(ServerEntry.telegram).linkWithPhone(number) }
             }
             .disabled(phone.filter(\.isNumber).count < 5)
+            // From another device's Telegram, by its camera, or Telegram on this phone confirming it.
+            SecondaryButton(title: "Link with a QR code instead") {
+                byPhone = false
+                askedQr = true
+                ask { try await model.core.session(ServerEntry.telegram).linkWithQr() }
+            }
+            .accessibilityIdentifier(A11y.Telegram.byQr)
         }
     }
 

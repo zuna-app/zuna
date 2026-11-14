@@ -153,7 +153,7 @@ On an iPhone the screen adds how notifications arrive: from Telegram through App
 
 **Then a QR code.** The person scans it with Telegram on their phone (Settings, Devices, Link Desktop Device). No phone number and no code is typed into Zuna, and it's one of the ways Telegram lists for third-party apps, where a code by SMS isn't. An account with two-step verification is asked for its password next: the engine proves it knows it without sending it (SRP).
 
-**On an iPhone the same code is also a button,** "Confirm in Telegram", since a phone can't scan its own screen. It opens the code's own `tg://login` address, which Telegram on that phone answers by asking whether to let the new device in. The QR stays beside it, for a Telegram on another device.
+**On an iPhone a phone number comes first,** as asked on 2026-11-14, since a phone can't scan its own screen: its code comes in Telegram's app on the same phone or another device. The QR code is the other way there, and **the same code is also a button,** "Confirm in Telegram". It opens the code's own `tg://login` address, which Telegram on that phone answers by asking whether to let the new device in. The QR stays beside it, for a Telegram on another device.
 
 **A phone number and a code are the fallback,** under "Use a phone number instead". The code arrives in Telegram on another device, or by email.
 
