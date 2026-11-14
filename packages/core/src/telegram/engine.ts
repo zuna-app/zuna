@@ -15,9 +15,10 @@ export interface TelegramAdapter {
   stop(signOut: boolean): void;
   /**
    * A file the engine wrote in its own folder, by the path TDLib gives, as the host's files are
-   * handed to the interface. The host checks it's inside that folder before anything reads it.
+   * handed to the interface. The host checks it's inside that folder before anything reads it,
+   * and a host whose interface can't read that folder, as the iPhone's, copies it out first.
    */
-  file(path: string, mime: string): Blob;
+  file(path: string, mime: string): Blob | Promise<Blob>;
 }
 
 /** A TDLib object: its kind in `@type`, and its fields. */

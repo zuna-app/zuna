@@ -908,7 +908,7 @@ export class TelegramSession {
     const local = file.local as TdObject | undefined;
     const path = str(local?.path, 4096);
     if (local?.is_downloading_completed !== true || !path) throw new Error("Telegram didn't send that file.");
-    return this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
+    return await this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
   }
 
   /** Sends files, each as the kind of message Telegram has for it, with the text on the first. */

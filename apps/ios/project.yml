@@ -2,6 +2,12 @@
 # (npm run ios:project) and isn't committed.
 
 name: Zuna
+# The Telegram helper, in a build given Telegram's api_id, as the scripts that build the app set
+# ZUNA_TELEGRAM (docs/TELEGRAM_PLAN.md). Without it the app has no Telegram, and needs no TDLib.
+include:
+  - path: telegram.yml
+    enable: ${ZUNA_TELEGRAM}
+
 options:
   bundleIdPrefix: chat.zuna
   deploymentTarget:
@@ -105,6 +111,12 @@ targets:
         # need a declaration to ANSSI. Offering it there means YES and the code Apple gives.
         ITSAppUsesNonExemptEncryption: false
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
+        # The app's api_id and api_hash from Telegram (docs/TELEGRAM_PLAN.md, The api_id), never in
+        # the repository: TELEGRAM_API_ID and TELEGRAM_API_HASH in the build's environment, which
+        # scripts/tdlib.mjs (iosTelegram) gives from the release's secrets, or for development from
+        # ~/.zuna/telegram.json. Empty without them, and the app has no Telegram.
+        ZunaTelegramApiId: $(TELEGRAM_API_ID)
+        ZunaTelegramApiHash: $(TELEGRAM_API_HASH)
         NSUserActivityTypes:
           - INSendMessageIntent
         # Silent pushes that clear notifications read or deleted elsewhere, a voice

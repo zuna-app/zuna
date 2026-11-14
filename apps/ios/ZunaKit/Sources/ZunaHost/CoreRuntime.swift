@@ -2,8 +2,14 @@ import Foundation
 import JavaScriptCore
 import os
 
-public struct CoreError: Error, CustomStringConvertible {
+public struct CoreError: Error, CustomStringConvertible, LocalizedError {
     public let description: String
+
+    public init(description: String) {
+        self.description = description
+    }
+
+    public var errorDescription: String? { description }
 }
 
 /// A sign-in, password change or sign-out, reported by the core bundle so the
@@ -42,6 +48,9 @@ public final class CoreRuntime: @unchecked Sendable {
         public var onAccountEvent: (@Sendable (AccountEvent) -> Void)?
         /// The app lists a server's bots itself, so the core gives it a chat with a bot nobody has written to yet.
         public var listsBots = false
+        /// A linked Telegram account's engine, in a helper of the app's own (docs/TELEGRAM_PLAN.md),
+        /// where the app has one: from iOS 26, in a build given Telegram's api_id. Without it, no Telegram.
+        public var telegram: TelegramBridge.Configuration?
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -59,6 +68,7 @@ public final class CoreRuntime: @unchecked Sendable {
     private let database: DatabaseBridge
     private var network: NetworkBridge!
     private var web: WebBridge!
+    private var telegram: TelegramBridge?
     private var timers: [Int: DispatchSourceTimer] = [:]
     private var channels: [Int: Channel] = [:]
     private var nextChannel = 1
@@ -302,6 +312,7 @@ public final class CoreRuntime: @unchecked Sendable {
         define("post", post)
 
         installFiles(into: host)
+        installTelegram(into: host)
         network.install(into: host)
         web.install(into: host)
         if options.listsBots {
@@ -354,6 +365,67 @@ public final class CoreRuntime: @unchecked Sendable {
         host.setObject(fileAssemble, forKeyedSubscript: "fileAssemble" as NSString)
     }
 
+    /// A linked Telegram account's engine: started, asked and stopped by the core's adapter,
+    /// through the broker, which answers back through `__zunaTelegram`.
+    private func installTelegram(into host: JSValue) {
+        guard let configuration = options.telegram else { return }
+        host.setObject(true, forKeyedSubscript: "telegramAvailable" as NSString)
+
+        let bridge: () -> TelegramBridge = { [unowned self] in
+            if let telegram { return telegram }
+            let made = TelegramBridge(configuration: configuration, dataDirectory: options.dataDirectory, cacheDirectory: options.cacheDirectory, deviceKey: options.deviceKey) { [weak self] json in
+                guard let self else { return }
+                queue.async { self.call("__zunaTelegram", [json]) }
+            }
+            telegram = made
+            return made
+        }
+
+        let start: @convention(block) () -> String = {
+            bridge().start() ?? ""
+        }
+        host.setObject(start, forKeyedSubscript: "telegramStart" as NSString)
+
+        let send: @convention(block) (String) -> Void = { [unowned self] json in
+            telegram?.send(json)
+        }
+        host.setObject(send, forKeyedSubscript: "telegramSend" as NSString)
+
+        let stop: @convention(block) (Bool) -> Void = { signOut in
+            // With nothing running, nothing at Telegram can be ended from here: what's on this
+            // device goes all the same, which the broker does by starting the helper to erase it.
+            bridge().stop(signOut: signOut)
+        }
+        host.setObject(stop, forKeyedSubscript: "telegramStop" as NSString)
+
+        let file: @convention(block) (Double, String) -> Void = { [unowned self] id, path in
+            guard let telegram else {
+                call("__zunaTelegramFile", [id, "Telegram isn't running.", NSNull()])
+                return
+            }
+            telegram.file(path: path) { [weak self] result in
+                guard let self else { return }
+                queue.async {
+                    switch result {
+                    case .success(let copied): self.call("__zunaTelegramFile", [id, NSNull(), copied])
+                    case .failure(let error): self.call("__zunaTelegramFile", [id, error.localizedDescription, NSNull()])
+                    }
+                }
+            }
+        }
+        host.setObject(file, forKeyedSubscript: "telegramFile" as NSString)
+    }
+
+    #if DEBUG
+    /// What the Telegram helper's box lets it do, tried from inside it, for the checks.
+    public func probeTelegram(done: @escaping @Sendable ([String: String]) -> Void) {
+        queue.async { [self] in
+            guard let telegram else { return done(["error": "Telegram isn't running."]) }
+            telegram.probe(appDirectory: options.dataDirectory.path, done: done)
+        }
+    }
+    #endif
+
     // MARK: Calling into JavaScript
 
     /// Calls a global function. Data becomes Uint8Array, NSNull becomes null.
@@ -381,7 +453,10 @@ public final class CoreRuntime: @unchecked Sendable {
     /// Closes every request and socket after the proxy changed (`NetworkProxy.use`), so that the
     /// core opens them again the new way. A runtime that hasn't loaded has nothing open.
     public func networkChanged() {
-        queue.async { [self] in network?.cancelAll() }
+        queue.async { [self] in
+            network?.cancelAll()
+            telegram?.networkChanged()
+        }
     }
 
     // MARK: Test hooks, in Debug builds only

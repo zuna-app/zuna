@@ -3,6 +3,7 @@
 // shows, and the password meter's word lists, apart too as the core also runs in the
 // notification extension, which has little memory.
 
+import { copyFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleCore } from "./bundle.mjs";
@@ -13,4 +14,9 @@ const resources = join(dirname(fileURLToPath(import.meta.url)), "..", "ZunaKit",
 const written = await bundleCore({ target: "safari18", outDir: resources });
 // The page a video watched together plays in, in a WKWebView of the app's.
 written.push(await buildWatchPage(resources, "safari18"));
+// What the core may ask of a linked Telegram account's engine, which the broker in ZunaHost is
+// built from (TelegramBridge.swift), as the desktop's is (docs/TELEGRAM_PLAN.md, The broker).
+const functions = join(resources, "telegram-functions.json");
+copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "packages", "core", "src", "telegram", "functions.json"), functions);
+written.push(functions);
 console.log(`> wrote ${written.join(", ")}`);

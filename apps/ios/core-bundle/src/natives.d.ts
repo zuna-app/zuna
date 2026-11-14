@@ -35,13 +35,19 @@ declare const __zunaHost: {
   imageShrink(bytes: Uint8Array, maxSize: number): { data: string; width: number; height: number } | null;
   /**
    * A linked Telegram account's engine, behind the host's broker (docs/TELEGRAM_PLAN.md), which
-   * only the native desktop app gives so far. What it says comes back through __zunaTelegram.
+   * the native desktop app and the iPhone give. What it says comes back through __zunaTelegram.
    */
   telegramAvailable?: boolean;
   /** Starts the engine, and says why it can't, or "". */
   telegramStart?(): string;
   telegramSend?(json: string): void;
   telegramStop?(signOut: boolean): void;
+  /**
+   * A file the engine downloaded, copied where the interface can read it, for a host whose
+   * engine keeps its folder where the app can't, as the iPhone's helper does. The copy's path,
+   * or why there's none, comes back through __zunaTelegramFile with the same id.
+   */
+  telegramFile?(id: number, path: string): void;
 };
 
 declare const __zunaCrypto: {

@@ -95,5 +95,9 @@
 	<string>Dark</string>
 	<key>ZunaPushRelay</key>
 	<string>$(ZUNA_PUSH_RELAY)</string>
+	<key>ZunaTelegramApiHash</key>
+	<string>$(TELEGRAM_API_HASH)</string>
+	<key>ZunaTelegramApiId</key>
+	<string>$(TELEGRAM_API_ID)</string>
 </dict>
 </plist>

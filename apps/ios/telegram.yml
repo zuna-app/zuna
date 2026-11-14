@@ -1,0 +1,60 @@
+# The Telegram helper, which project.yml takes in when ZUNA_TELEGRAM is set, as the scripts that
+# build the app set it for a build given Telegram's api_id (TELEGRAM_API_ID, TELEGRAM_API_HASH).
+# Without it the app has no Telegram and needs no TDLib, as the desktop builds without its engine.
+
+targets:
+  Zuna:
+    dependencies:
+      - target: ZunaTelegram
+    settings:
+      base:
+        # The extension point the Telegram helper binds to, written from its definition in
+        # Zuna/Telegram/TelegramHelper.swift into the bundle's Extensions folder.
+        EX_ENABLE_EXTENSION_POINT_GENERATION: YES
+
+  # A linked Telegram account's TDLib, in a process of its own that iOS keeps in its enhanced
+  # security sandbox, apart from the app, its app group and its keychain (docs/TELEGRAM_PLAN.md,
+  # "On the iPhone and iPad"); see TelegramHelper. From iOS 26, the first with such extensions.
+  # TDLib is linked from what `node scripts/tdlib.mjs --ios` builds into apps/ios/.deps.
+  ZunaTelegram:
+    type: extensionkit-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ZunaTelegram
+      - path: Zuna/Shared/TelegramWire.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.telegram
+        PRODUCT_NAME: ZunaTelegram
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        # Pointer authentication (an arm64e slice), typed allocation and the rest of Xcode's
+        # hardening, as TDLib itself is built.
+        ENABLE_ENHANCED_SECURITY: YES
+        SWIFT_OBJC_BRIDGING_HEADER: ZunaTelegram/TDLib.h
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/.deps/tdlib/$(PLATFORM_NAME)/lib
+        OTHER_LDFLAGS: -ltdjson_static -ltdjson_private -ltdclient -ltdcore -ltdmtproto -ltdapi -ltde2e -ltddb -ltdsqlite -ltdnet -ltdactor -ltdutils -lssl -lcrypto -lz -lc++
+    info:
+      path: ZunaTelegram/Info.plist
+      properties:
+        CFBundleDisplayName: Zuna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundlePackageType: XPC!
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: chat.zuna.mobile.telegram
+    # Xcode's for an enhanced security extension: the hardened process, its heap and its checked
+    # allocations, and the stricter platform's restrictions. Nothing of Zuna's: no app group, no
+    # keychain group.
+    entitlements:
+      path: ZunaTelegram/ZunaTelegram.entitlements
+      properties:
+        com.apple.security.hardened-process: true
+        com.apple.security.hardened-process.dyld-ro: true
+        com.apple.security.hardened-process.enhanced-security-version-string: "1"
+        com.apple.security.hardened-process.hardened-heap: true
+        com.apple.security.hardened-process.checked-allocations: true
+        com.apple.security.hardened-process.checked-allocations.soft-mode: true
+        com.apple.security.hardened-process.platform-restrictions-string: "2"

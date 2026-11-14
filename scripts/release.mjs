@@ -92,6 +92,9 @@ export const IOS_PATHS = [
   "package-lock.json",
   "scripts/build-crypto-apple.mjs",
   "scripts/fetch-sqlite.mjs",
+  // TDLib for the Telegram helper, in a build given Telegram's api_id.
+  "scripts/tdlib.mjs",
+  "scripts/check-ios.mjs",
   "scripts/lib.mjs",
   "scripts/check-ios-release.mjs",
   "scripts/ios-dist.mjs",

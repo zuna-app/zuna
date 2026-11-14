@@ -5,6 +5,7 @@
 
 import { join } from "node:path";
 import { root, run } from "./lib.mjs";
+import { iosTelegram } from "./tdlib.mjs";
 
 const iosDir = join(root, "apps", "ios");
 const started = Date.now();
@@ -15,7 +16,10 @@ run("npm", ["run", "typecheck"]);
 
 step("L0: the app, with warnings as errors");
 run(process.execPath, [join(iosDir, "core-bundle", "build.mjs")]);
-run("xcodegen", ["generate", "--spec", "project.yml", "--quiet"], { cwd: iosDir });
+// With the Telegram helper where this machine has Telegram's api_id (scripts/tdlib.mjs).
+const telegram = await iosTelegram();
+const environment = { ...process.env, ...telegram };
+run("xcodegen", ["generate", "--spec", "project.yml", "--quiet"], { cwd: iosDir, env: environment });
 run(
   "xcodebuild",
   [
@@ -28,7 +32,7 @@ run(
     "-quiet",
     "build-for-testing",
   ],
-  { cwd: iosDir },
+  { cwd: iosDir, env: environment },
 );
 
 step("L1: the Rust tests, natively");

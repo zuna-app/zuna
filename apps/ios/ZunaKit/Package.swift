@@ -44,7 +44,7 @@ let package = Package(
             name: "ZunaHost",
             dependencies: ["ZunaCrypto", "CSQLite"],
             // Built by apps/ios/core-bundle/build.mjs.
-            resources: [.copy("Resources/zuna-core.js"), .copy("Resources/zuna-highlight.js"), .copy("Resources/zuna-password.js"), .copy("Resources/zuna-relay.js"), .copy("Resources/watch.html")]
+            resources: [.copy("Resources/zuna-core.js"), .copy("Resources/zuna-highlight.js"), .copy("Resources/zuna-password.js"), .copy("Resources/zuna-relay.js"), .copy("Resources/watch.html"), .copy("Resources/telegram-functions.json")]
         ),
         // The core's types in Swift, and the RPC client the UI uses.
         .target(name: "ZunaModels", dependencies: ["ZunaHost"]),

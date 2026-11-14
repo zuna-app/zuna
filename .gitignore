@@ -33,11 +33,14 @@ apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-highlight.js
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-password.js
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/zuna-relay.js
 apps/ios/ZunaKit/Sources/ZunaHost/Resources/watch.html
+apps/ios/ZunaKit/Sources/ZunaHost/Resources/telegram-functions.json
 apps/ios/ZunaKit/.build/
 apps/ios/ZunaKit/.swiftpm/
 apps/ios/*.xcodeproj/
 apps/ios/build/
 apps/ios/.e2e/
+# TDLib for the Telegram helper, built by scripts/tdlib.mjs --ios
+apps/ios/.deps/
 
 # Local data
 .dev-data/

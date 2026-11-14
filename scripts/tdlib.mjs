@@ -13,6 +13,14 @@
 //                              looks (apps/desktop/telegram/build.rs), as the app's scripts do first.
 //                              The first build takes a while, and TDLib's largest files take a
 //                              couple of gigabytes of memory each to compile.
+//   node scripts/tdlib.mjs --ios
+//                              on a Mac, builds it for the iPhone's helper extension instead
+//                              (apps/ios/ZunaTelegram), into apps/ios/.deps/tdlib: `iphoneos`, for
+//                              arm64 and arm64e, and `iphonesimulator`, for arm64, each with
+//                              `include` and `lib`. Compiled as Xcode compiles an enhanced
+//                              security extension (`ENABLE_ENHANCED_SECURITY`): typed allocation,
+//                              stack variables set to zero and libc++'s checks, and pointer
+//                              authentication in the arm64e slice. zlib is the system's.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -62,8 +70,17 @@ const windowsTools = {
 /** Changed by hand when how it's built changes, so that a build made the old way is made again. */
 const RECIPE = 1;
 
+/** Changed by hand when how the iPhone's is built changes. */
+const IOS_RECIPE = 1;
+
 /** Where zuna-telegram's build finds TDLib: `include` and `lib`, with OpenSSL's and zlib's. */
 export const tdlibDir = join(nativeAppDeps, "tdlib");
+
+/** Where the iPhone's helper extension finds TDLib (apps/ios/project.yml): one folder for each SDK. */
+export const iosDeps = resolve(import.meta.dirname, "..", "apps", "ios", ".deps");
+
+/** The first iOS that has the helper extension, which is what Telegram on an iPhone needs. */
+export const IOS_TELEGRAM_MINIMUM = "26.0";
 
 /**
  * The app's `api_id` and `api_hash` from Telegram (docs/TELEGRAM_PLAN.md, The api_id), which are
@@ -201,6 +218,17 @@ const GPERF_CONFIG = `#define PACKAGE_BUGREPORT "bug-gperf@gnu.org"
 #define PACKAGE_VERSION "3.1"
 `;
 
+/** Builds gperf for this machine, for TDLib's build alone, and says where it is. */
+function buildGperf(archive, unpacked, built, cmake, generator, parallel) {
+  const source = unpack(archive, join(unpacked, "gperf"));
+  writeFileSync(join(source, "CMakeLists.txt"), GPERF_CMAKE);
+  mkdirSync(join(built, "gperf"), { recursive: true });
+  writeFileSync(join(built, "gperf", "config.h"), GPERF_CONFIG);
+  cmake(join(built, "gperf"), [...cmakeCommon(generator), source]);
+  cmake(join(built, "gperf"), ["--build", ".", "--parallel", parallel]);
+  return join(built, "gperf", process.platform === "win32" ? "gperf.exe" : "gperf");
+}
+
 /** What a CMake project is configured with here: a release, static, with the static C runtime on Windows. */
 function cmakeCommon(generator) {
   return [
@@ -246,13 +274,7 @@ export async function ensureTdlib(depsDir = nativeAppDeps) {
   rmSync(built, { recursive: true, force: true });
 
   // gperf, for TDLib's build alone.
-  const gperfSource = unpack(archives.gperf, join(unpacked, "gperf"));
-  writeFileSync(join(gperfSource, "CMakeLists.txt"), GPERF_CMAKE);
-  mkdirSync(join(built, "gperf"), { recursive: true });
-  writeFileSync(join(built, "gperf", "config.h"), GPERF_CONFIG);
-  cmake(join(built, "gperf"), [...cmakeCommon(generator), gperfSource]);
-  cmake(join(built, "gperf"), ["--build", ".", "--parallel", parallel]);
-  const gperf = join(built, "gperf", windows ? "gperf.exe" : "gperf");
+  const gperf = buildGperf(archives.gperf, unpacked, built, cmake, generator, parallel);
 
   // zlib, static.
   const zlibSource = unpack(archives.zlib, join(unpacked, "zlib"));
@@ -325,9 +347,165 @@ export async function ensureTdlib(depsDir = nativeAppDeps) {
   return prefix;
 }
 
+/**
+ * What a build of the iPhone app needs for Telegram, where it's given the app's api_id
+ * (`telegramCredentials`): TDLib built for it, and an environment for XcodeGen and Xcode with
+ * `ZUNA_TELEGRAM`, which takes in apps/ios/telegram.yml and its helper, and the api_id, which
+ * Xcode reads as build settings into the app's Info.plist, off any command line a log would show.
+ * Without one, or with `ZUNA_TELEGRAM=0`, none of it: that build has no Telegram and needs no
+ * TDLib, as the desktop's builds without its engine.
+ */
+export async function iosTelegram() {
+  const credentials = process.env.ZUNA_TELEGRAM === "0" ? null : telegramCredentials();
+  if (!credentials) return { ZUNA_TELEGRAM: "" };
+  await ensureTdlibIos();
+  return { ZUNA_TELEGRAM: "YES", ...credentials };
+}
+
+/**
+ * The flags Xcode 27 compiles an enhanced security extension's own code with (read from its build
+ * log), and two more of the hardening Apple lists beside them: stack variables set to zero, and
+ * libc++'s cheap checks of bounds. Pointer authentication is the arm64e slice itself.
+ */
+const HARDENING_C = ["-ftyped-memory-operations", "-ftrivial-auto-var-init=zero"];
+const HARDENING_CXX = [...HARDENING_C, "-ftyped-cxx-new-delete", "-ftyped-cxx-delete", "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST"];
+
+/** The slices the helper is built in, as Xcode builds it: arm64e and arm64 for phones, arm64 for the simulator. */
+const IOS_SLICES = [
+  { sdk: "iphoneos", arch: "arm64e" },
+  { sdk: "iphoneos", arch: "arm64" },
+  { sdk: "iphonesimulator", arch: "arm64" },
+];
+
+const minimumFlag = (sdk) => `-m${sdk === "iphonesimulator" ? "ios-simulator" : "ios"}-version-min=${IOS_TELEGRAM_MINIMUM}`;
+
+// OpenSSL's own iOS targets each name one architecture and an old iOS: this one takes both, and
+// the hardening, from the environment of each build. Configure reads every file in its
+// Configurations folder, after 15-ios.conf, which has `ios-common`.
+const OPENSSL_IOS_CONFIG = `my %targets = (
+    "zuna-ios" => {
+        inherit_from => [ "ios-common" ],
+        CC => "xcrun -sdk $ENV{ZUNA_SDK} cc",
+        cflags => add("-arch $ENV{ZUNA_ARCH} $ENV{ZUNA_MINIMUM} -fno-common $ENV{ZUNA_HARDENING}"),
+        bn_ops => "SIXTY_FOUR_BIT_LONG RC4_CHAR",
+    },
+);
+`;
+
+/**
+ * Makes sure TDLib is built for the iPhone's helper extension in `<depsDir>/tdlib`, and says where
+ * that is: `iphoneos` and `iphonesimulator`, each with `include` and `lib`, every library holding
+ * the SDK's slices. OpenSSL goes without its assembly, which isn't written for arm64e's signed
+ * pointers. TDLib's sources are written once by a build for this Mac, as a cross build needs.
+ */
+export async function ensureTdlibIos(depsDir = iosDeps) {
+  if (process.platform !== "darwin") throw new Error("TDLib for the iPhone builds on a Mac.");
+  const pins = { tdlib: sources.tdlib, openssl: sources.openssl, gperf: sources.gperf };
+  const stamp = createHash("sha256")
+    .update(JSON.stringify({ IOS_RECIPE, minimum: IOS_TELEGRAM_MINIMUM, slices: IOS_SLICES, pins: Object.values(pins).map((pin) => pin.sha256) }))
+    .digest("hex");
+  const prefix = join(depsDir, "tdlib");
+  const stampFile = join(prefix, ".stamp");
+  if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === stamp) return prefix;
+
+  const work = join(depsDir, "tdlib-build");
+  const archives = {};
+  for (const [name, pin] of Object.entries(pins)) archives[name] = await fetchPinned(work, pin);
+
+  const started = Date.now();
+  console.log("Building TDLib for the iPhone, which only happens once...");
+  const environment = { ...process.env };
+  const parallel = String(jobs());
+  const cmake = (cwd, args) => runIn(cwd, environment, "cmake", args);
+  const sdkPath = (sdk) => spawnSync("xcrun", ["--sdk", sdk, "--show-sdk-path"], { encoding: "utf8" }).stdout.trim();
+
+  rmSync(prefix, { recursive: true, force: true });
+  const staging = `${prefix}.building`;
+  rmSync(staging, { recursive: true, force: true });
+  const unpacked = join(work, "src");
+  const built = join(work, "build");
+  rmSync(built, { recursive: true, force: true });
+
+  const gperf = buildGperf(archives.gperf, unpacked, built, cmake, null, parallel);
+
+  // TDLib's generated sources, written into its source by a build for this Mac.
+  const tdlibSource = unpack(archives.tdlib, join(unpacked, "tdlib"));
+  mkdirSync(join(built, "tdlib-generate"), { recursive: true });
+  cmake(join(built, "tdlib-generate"), [...cmakeCommon(null), "-DTD_GENERATE_SOURCE_FILES=ON", `-DGPERF_EXECUTABLE=${gperf}`, tdlibSource]);
+  cmake(join(built, "tdlib-generate"), ["--build", ".", "--parallel", parallel]);
+
+  const opensslSource = unpack(archives.openssl, join(unpacked, "openssl"));
+  writeFileSync(join(opensslSource, "Configurations", "60-zuna-ios.conf"), OPENSSL_IOS_CONFIG);
+
+  const installs = [];
+  for (const slice of IOS_SLICES) {
+    const name = `${slice.sdk}-${slice.arch}`;
+    const install = join(built, `install-${name}`);
+    installs.push({ ...slice, install });
+
+    // OpenSSL, static, without its assembly, programs, tests or loadable modules, built out of its source.
+    const openssl = join(built, `openssl-${name}`);
+    mkdirSync(openssl, { recursive: true });
+    const opensslEnvironment = { ...environment, ZUNA_SDK: slice.sdk, ZUNA_ARCH: slice.arch, ZUNA_MINIMUM: minimumFlag(slice.sdk), ZUNA_HARDENING: HARDENING_C.join(" ") };
+    runIn(openssl, opensslEnvironment, "perl", [join(opensslSource, "Configure"), "zuna-ios", "no-asm", "no-shared", "no-apps", "no-tests", "no-docs", "no-module", `--prefix=${install}`, `--openssldir=${join(install, "ssl")}`, "--libdir=lib"]);
+    runIn(openssl, opensslEnvironment, "make", [`-j${parallel}`, "build_sw"]);
+    runIn(openssl, opensslEnvironment, "make", ["install_sw"]);
+
+    // TDLib, against it and the SDK's zlib.
+    const tdlib = join(built, `tdlib-${name}`);
+    mkdirSync(tdlib, { recursive: true });
+    const sdk = sdkPath(slice.sdk);
+    cmake(tdlib, [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_SYSTEM_NAME=iOS",
+      `-DCMAKE_OSX_SYSROOT=${slice.sdk}`,
+      `-DCMAKE_OSX_ARCHITECTURES=${slice.arch}`,
+      `-DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_TELEGRAM_MINIMUM}`,
+      `-DCMAKE_C_FLAGS=${HARDENING_C.join(" ")}`,
+      `-DCMAKE_CXX_FLAGS=${HARDENING_CXX.join(" ")}`,
+      "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+      `-DCMAKE_INSTALL_PREFIX=${install}`,
+      "-DTD_INSTALL_SHARED_LIBRARIES=OFF",
+      "-DTD_INSTALL_STATIC_LIBRARIES=ON",
+      "-DTD_ENABLE_JNI=OFF",
+      "-DBUILD_TESTING=OFF",
+      "-DOPENSSL_FOUND=1",
+      `-DOPENSSL_INCLUDE_DIR=${join(install, "include")}`,
+      `-DOPENSSL_CRYPTO_LIBRARY=${join(install, "lib", "libcrypto.a")}`,
+      `-DOPENSSL_SSL_LIBRARY=${join(install, "lib", "libssl.a")}`,
+      `-DOPENSSL_LIBRARIES=${join(install, "lib", "libcrypto.a")};${join(install, "lib", "libssl.a")}`,
+      `-DZLIB_INCLUDE_DIR=${join(sdk, "usr", "include")}`,
+      `-DZLIB_LIBRARY=${join(sdk, "usr", "lib", "libz.tbd")}`,
+      tdlibSource,
+    ]);
+    cmake(tdlib, ["--build", ".", "--target", "tdjson_static", "--parallel", parallel]);
+    cmake(tdlib, ["--install", "."]);
+  }
+
+  // One folder for each SDK, every library holding that SDK's slices.
+  for (const sdk of new Set(IOS_SLICES.map((slice) => slice.sdk))) {
+    const slices = installs.filter((slice) => slice.sdk === sdk);
+    const out = join(staging, sdk);
+    mkdirSync(join(out, "lib"), { recursive: true });
+    runIn(built, environment, "cp", ["-R", join(slices[0].install, "include"), join(out, "include")]);
+    for (const library of readdirSync(join(slices[0].install, "lib")).filter((file) => file.endsWith(".a"))) {
+      runIn(built, environment, "lipo", ["-create", ...slices.map((slice) => join(slice.install, "lib", library)), "-output", join(out, "lib", library)]);
+    }
+  }
+
+  writeFileSync(join(staging, "VERSION"), `TDLib ${TDLIB_COMMIT}, for iOS ${IOS_TELEGRAM_MINIMUM}\n`);
+  writeFileSync(join(staging, ".stamp"), stamp);
+  renameSync(staging, prefix);
+  rmSync(built, { recursive: true, force: true });
+  rmSync(unpacked, { recursive: true, force: true });
+  console.log(`TDLib for the iPhone built in ${Math.round((Date.now() - started) / 60000)} minutes.`);
+  return prefix;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    console.log(`TDLib is in ${await ensureTdlib(nativeAppDeps)}`);
+    if (process.argv.includes("--ios")) console.log(`TDLib for the iPhone is in ${await ensureTdlibIos(iosDeps)}`);
+    else console.log(`TDLib is in ${await ensureTdlib(nativeAppDeps)}`);
   } catch (error) {
     console.error(error.message);
     process.exit(1);
