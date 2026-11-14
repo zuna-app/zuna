@@ -55,8 +55,11 @@ impl Minimized {
         Minimized { minimized: AtomicBool::new(false), away: AtomicBool::new(false) }
     }
 
-    fn minimized(&self) {
-        self.away.store(false, Ordering::Relaxed);
+    /// Minimized by the app, active or not as it went. GPUI only says when activation changes, so
+    /// one that wasn't active, as when it's closed from the taskbar with another window in front,
+    /// hears nothing until it's brought back: it's away already.
+    fn minimized(&self, active: bool) {
+        self.away.store(!active, Ordering::Relaxed);
         self.minimized.store(true, Ordering::Relaxed);
     }
 
@@ -154,13 +157,16 @@ async fn run(command: Command, cx: &mut AsyncApp) {
                 cx.update(|cx| cx.dispatch_action(&crate::Quit));
                 return;
             }
-            let minimized = handle.update(cx, |_, window, _| window.minimize_window()).is_ok();
-            if !minimized {
+            let Ok(active) = handle.update(cx, |_, window, _| {
+                let active = window.is_window_active();
+                window.minimize_window();
+                active
+            }) else {
                 return;
-            }
+            };
             // Visible again once it's been away and then active, which main_activation hears from
             // the window's activation, rather than asking it four times a second.
-            MINIMIZED.minimized();
+            MINIMIZED.minimized(active);
         }
     }
 }
@@ -242,7 +248,7 @@ pub(crate) mod tests {
         window.activation(true);
         assert!(window.visible());
 
-        window.minimized();
+        window.minimized(true);
         assert!(!window.visible());
         // Still active as it goes down, which isn't coming back.
         window.activation(true);
@@ -253,10 +259,21 @@ pub(crate) mod tests {
         assert!(window.visible());
 
         // Minimized again, it has to be away again first.
-        window.minimized();
+        window.minimized(true);
         window.activation(true);
         assert!(!window.visible());
         window.shown();
+        assert!(window.visible());
+    }
+
+    #[test]
+    fn is_visible_again_once_active_when_it_went_down_inactive() {
+        // Closed while another window was in front, as from the taskbar, it hears no deactivation,
+        // and being active is it brought back. It once stayed hidden for good, so nothing was read.
+        let window = Minimized::new();
+        window.minimized(false);
+        assert!(!window.visible());
+        window.activation(true);
         assert!(window.visible());
     }
 
