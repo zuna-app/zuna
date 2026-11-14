@@ -283,6 +283,16 @@ final class AppModel {
     /// Tells the core the proxy changed, so it closes everything and opens it again the new way.
     @ObservationIgnored var onNetworkChanged: (() -> Void)?
 
+    /// This app can link a Telegram account (docs/TELEGRAM_PLAN.md): from iOS 26, in a build given Telegram's api_id.
+    var telegramAvailable = false
+    /// Where linking the Telegram account stands, as the core last said, while the linking screens show it.
+    var telegramLink: TelegramLink?
+    /// The linking screens are up.
+    var linkingTelegram = false
+    /// Called for a new message on the linked Telegram account: its title, its text, the chat's key, its group and the message.
+    /// Telegram decides what notifies, as for its own apps, and the core says it whole, as nothing pushes it.
+    @ObservationIgnored var onTelegramNotify: ((String, String, String, String, String) -> Void)?
+
     init(core: CoreConnection, voice: VoiceModel) {
         self.core = core
         self.voice = voice
@@ -316,6 +326,7 @@ final class AppModel {
     /// same server, so servers that are gone are dropped.
     func load() async {
         do {
+            telegramAvailable = (try? await core.telegramAvailable()) ?? false
             let entries = try await core.listServers()
             // All at once, not one after another, so each server joined adds nothing to the wait.
             let loaded = await withTaskGroup(of: (String, ServerState?).self) { group in
@@ -547,6 +558,11 @@ final class AppModel {
     // MARK: Events
 
     func handle(_ event: CoreEvent) {
+        // Linking comes before the account is a server here.
+        if case let .telegram(_, link) = event {
+            telegramChanged(link)
+            return
+        }
         if servers[event.serverId] == nil, !event.isSignedOut {
             // A server signed in to elsewhere, such as the onboarding screens or a test.
             reloadSoon()
@@ -585,8 +601,9 @@ final class AppModel {
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)
-        case let .message(serverId, message, isNew):
-            upsert(serverId, message)
+        case let .message(serverId, message, isNew, replaces):
+            // A message sent to Telegram, under the number Telegram gave it: where it was.
+            if let replaces { replace(serverId, replaces, with: message) } else { upsert(serverId, message) }
             if message.deletedAt != nil { onMessageGone?(serverId, message.groupId, message.id) }
             // A message from someone ends their typing, instead of leaving it up for seconds.
             if isNew { liveState(serverId).endTyping(message.senderId, in: message.groupId) }
@@ -634,10 +651,16 @@ final class AppModel {
             toast(message, .security)
         case let .newDevices(serverId, devices):
             servers[serverId]?.newDevices = devices
-        case let .notify(serverId, _, _, _, groupId, messageId, inUse):
-            onNotify?(serverId, groupId, messageId, inUse)
+        case let .notify(serverId, title, body, conversationKey, groupId, messageId, inUse):
+            if servers[serverId]?.entry.isTelegram == true {
+                onTelegramNotify?(title, body, conversationKey, groupId, messageId)
+            } else {
+                onNotify?(serverId, groupId, messageId, inUse)
+            }
         case .activity:
             // The core already holds notifications back while the person is on another device.
+            break
+        case .telegram:
             break
         }
     }
@@ -654,7 +677,7 @@ final class AppModel {
         }
     }
 
-    private func removeServer(_ serverId: String) {
+    func removeServer(_ serverId: String) {
         defer { onServersChanged?() }
         voice.serverGone(serverId)
         servers[serverId] = nil

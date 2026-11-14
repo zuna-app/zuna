@@ -361,6 +361,42 @@ final class Notifications {
         }
     }
 
+    /// A new message on the linked Telegram account, while the app runs: Telegram decided it
+    /// notifies, as for its own apps, and the core said its title and text. Under "Telegram", so it's
+    /// never taken for one of Zuna's (docs/TELEGRAM_PLAN.md, Notifications).
+    @discardableResult
+    func showTelegram(title: String, body: String, conversationKey: String, groupId: String, messageId: String) async -> Bool {
+        guard settings.enabled, allowed else { return false }
+        let content = UNMutableNotificationContent()
+        // As the setting has it for a server's: the sender and the message, who it's from, or only that something came.
+        switch settings.preview {
+        case .full:
+            content.title = title
+            content.body = body
+        case .sender:
+            content.title = title
+            content.body = "New message"
+        case .none:
+            content.title = "Zuna"
+            content.body = "New message"
+        }
+        content.subtitle = "Telegram"
+        content.sound = settings.sound ? .default : nil
+        content.categoryIdentifier = Self.messageCategory
+        content.threadIdentifier = "telegram/\(groupId)"
+        content.userInfo["serverId"] = ServerEntry.telegram
+        content.userInfo["conversationKey"] = conversationKey
+        content.userInfo["groupId"] = groupId
+        content.userInfo["messageId"] = messageId
+        do {
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "telegram/\(groupId)/\(messageId)", content: content, trigger: nil))
+            return true
+        } catch {
+            logger.warning("A Telegram message's notification couldn't be shown: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
     /// A chat read, or a message deleted, on another device: its notifications
     /// go here too. From a silent push, which needs nothing but the push, or
     /// from what the app hears itself once it runs.

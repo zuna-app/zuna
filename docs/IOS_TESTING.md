@@ -67,6 +67,7 @@ Implemented so far as host commands (`{"kind": "host", "command": …}`):
 - `offline`, `exit`;
 - `evaluate`, which runs a script in the core's context and is compiled only into Debug builds;
 - for the app: `state` (`booting`, `locked`, `ready`, `failed`), `unlock` (with a password) and `lockedAccounts`;
+- for a linked Telegram account, in a build given its api_id: `telegramProbe`, which asks the Telegram helper what its box lets it do (`ZunaTelegram/Probe.swift`) and answers with what each try came to, as JSON. Only a phone's answers count: the simulator runs the helper in no box at all;
 - for driving a real iPhone by hand: `keepAwake` (with `on`), which keeps the phone unlocked while the app is in front, as launching with `-ZunaKeepAwake YES` does from the start; `openChat` (a server's address as `path`, a conversation's key as `channel`); and `roundStart` and `roundStop`, which record a video message in the open chat as holding its button and letting go do.
 
 The control server starts before the core, so a test can also drive the app while it's locked. Messages for the core wait until it's running. Launching with `-ZunaBootSession <name>` simulates a restart of the phone.
@@ -189,6 +190,8 @@ On a real iPhone, from a TestFlight build. Each round is about 15 minutes with a
 - the OS killing the app in the background;
 - camera photos and videos, and video messages from the front camera, held upright and after a call;
 - install from TestFlight.
+
+Telegram (`docs/TELEGRAM_PLAN.md`) needs a build given its api_id: `scripts/check-ios.mjs` and `scripts/ios-dist.mjs` take it from `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, or `~/.zuna/telegram.json`, as `iosTelegram` in `scripts/tdlib.mjs` does, which builds TDLib for iOS the first time (about a quarter of an hour), and a Debug build uses Telegram's test servers, unless launched with `-ZunaTelegramTestDC NO`. Linking needs someone to scan the QR code from Telegram's phone app on an account of those servers, and the account stays linked in that simulator or phone until it's unlinked or its data is reset. On a phone, `telegramProbe` should find everything but the helper's own folder, its loopback and the system's random numbers refused.
 
 The app's control channel listens on the phone's loopback only, so it's reached over USB with `iproxy <port>:<port> -u <udid>`. Launch with `xcrun devicectl device process launch --device <udid> --terminate-existing chat.zuna.mobile -- -ZunaControlPort <port> -ZunaKeepAwake YES`, so the phone never locks between steps. A test server for the phone has to be on the LAN, which the core only reaches over plain HTTP with a local change to `normalizeServerUrl` in `packages/core/src/api.ts`, built into that phone's app and never committed. The camera and audio session only behave as they do for people on a device: the simulator has no camera, so `-ZunaFakeCamera` draws bars and skips capture altogether.
 

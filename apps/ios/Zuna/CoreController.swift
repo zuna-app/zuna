@@ -158,6 +158,8 @@ final class CoreController {
         }
         // The chat list has a tab for bots, where one nobody has written to yet is found.
         options.listsBots = true
+        // A Telegram account linked on this device, in a helper of the app's own (docs/TELEGRAM_PLAN.md).
+        options.telegram = TelegramHelper.configuration()
         #if DEBUG
         options.logToStandardError = true
         #endif
@@ -202,6 +204,9 @@ final class CoreController {
         model.onActiveServerChanged = { [weak self] in self?.reportActivity() }
         model.onNotify = { serverId, groupId, messageId, inUse in
             Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId, inUse: inUse) }
+        }
+        model.onTelegramNotify = { title, body, conversationKey, groupId, messageId in
+            Task { await notifications.showTelegram(title: title, body: body, conversationKey: conversationKey, groupId: groupId, messageId: messageId) }
         }
         // What a silent push would clear, when the app hears of it itself.
         model.onCaughtUp = { serverId in
@@ -524,6 +529,12 @@ final class CoreController {
             model.selectServer(server.entry.id)
             model.openChat(channel)
             return "opened"
+        case "telegramProbe":
+            // What the Telegram helper's box lets it do, tried from inside it (ZunaTelegram/Probe.swift), as JSON.
+            guard let runtime else { return "{}" }
+            let results = await withCheckedContinuation { continuation in runtime.probeTelegram { continuation.resume(returning: $0) } }
+            let data = (try? JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])) ?? Data("{}".utf8)
+            return String(decoding: data, as: UTF8.self)
         case "keepAwake":
             // A phone being tested by hand stays unlocked while the app is in front, whatever its Auto-Lock says.
             ScreenAwake.hold(.testing, on ?? true)

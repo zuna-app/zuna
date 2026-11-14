@@ -848,8 +848,7 @@ public struct MediaCounts: Codable, Sendable, Equatable {
 }
 
 public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
-    /// "server", or "telegram" for a Telegram account linked on the device, which only the
-    /// desktop app has so far, so the iPhone's core never lists one.
+    /// "server", or "telegram" for the Telegram account linked on this device (docs/TELEGRAM_PLAN.md).
     public var kind: String?
     public var id: String
     public var url: String
@@ -862,6 +861,77 @@ public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
     public var role: Role
     /// The server ended this device's session, and why. What's on this device stays until you decide.
     public var signedOut: String?
+}
+
+extension ServerEntry {
+    /// The Telegram account linked on this device, which goes by `ServerEntry.telegram` and isn't end-to-end encrypted.
+    public var isTelegram: Bool { kind == "telegram" }
+    /// The server ID a linked Telegram account goes by, everywhere a server's does (`TELEGRAM_ID` in types.ts).
+    public static let telegram = "telegram"
+}
+
+/// Where linking a Telegram account stands, as the linking screens show it (`TelegramLink` in types.ts):
+/// a QR code to scan, a phone number, its code, a password, or why it stopped.
+public enum TelegramLink: Sendable, Equatable {
+    case starting
+    case qr(link: String)
+    case phone
+    /// `via` is where the code went: "telegram", "sms", "call", "fragment" or "other".
+    case code(phone: String, length: Int, via: String, canResend: Bool)
+    case email(pattern: String, length: Int)
+    case password(hint: String)
+    /// The number isn't on Telegram, and nobody signs up from Zuna.
+    case signup
+    case ready
+    case failed(reason: String)
+    /// Unlinked, here or by a session ended from another device, and whether Telegram was told.
+    case unlinked(signedOut: Bool)
+}
+
+extension TelegramLink: Codable {
+    private enum Keys: String, CodingKey {
+        case step, link, phone, length, via, canResend, pattern, hint, reason, signedOut
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        switch try c.decode(String.self, forKey: .step) {
+        case "starting": self = .starting
+        case "qr": self = .qr(link: try c.decode(String.self, forKey: .link))
+        case "phone": self = .phone
+        case "code":
+            self = .code(phone: try c.decode(String.self, forKey: .phone), length: try c.decode(Int.self, forKey: .length), via: try c.decode(String.self, forKey: .via), canResend: try c.decode(Bool.self, forKey: .canResend))
+        case "email": self = .email(pattern: try c.decode(String.self, forKey: .pattern), length: try c.decode(Int.self, forKey: .length))
+        case "password": self = .password(hint: try c.decode(String.self, forKey: .hint))
+        case "signup": self = .signup
+        case "ready": self = .ready
+        case "failed": self = .failed(reason: try c.decode(String.self, forKey: .reason))
+        case "unlinked": self = .unlinked(signedOut: try c.decode(Bool.self, forKey: .signedOut))
+        case let other: throw DecodingError.dataCorruptedError(forKey: .step, in: c, debugDescription: "Unknown Telegram step \(other)")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .starting: try c.encode("starting", forKey: .step)
+        case let .qr(link): try c.encode("qr", forKey: .step); try c.encode(link, forKey: .link)
+        case .phone: try c.encode("phone", forKey: .step)
+        case let .code(phone, length, via, canResend):
+            try c.encode("code", forKey: .step); try c.encode(phone, forKey: .phone); try c.encode(length, forKey: .length); try c.encode(via, forKey: .via); try c.encode(canResend, forKey: .canResend)
+        case let .email(pattern, length): try c.encode("email", forKey: .step); try c.encode(pattern, forKey: .pattern); try c.encode(length, forKey: .length)
+        case let .password(hint): try c.encode("password", forKey: .step); try c.encode(hint, forKey: .hint)
+        case .signup: try c.encode("signup", forKey: .step)
+        case .ready: try c.encode("ready", forKey: .step)
+        case let .failed(reason): try c.encode("failed", forKey: .step); try c.encode(reason, forKey: .reason)
+        case let .unlinked(signedOut): try c.encode("unlinked", forKey: .step); try c.encode(signedOut, forKey: .signedOut)
+        }
+    }
+}
+
+/// What unlinking the Telegram account came to: whether Telegram was told, or the session is to be ended from another device.
+public struct TelegramUnlinked: Codable, Sendable, Equatable {
+    public var signedOut: Bool
 }
 
 public struct SafetyCheck: Codable, Sendable, Equatable {
@@ -928,7 +998,9 @@ public enum CoreEvent: Sendable, Equatable {
     case call(serverId: String, groupId: String, call: CallView?)
     /// The calls going on were caught up on, so ask again for them and who's in them.
     case calls(serverId: String)
-    case message(serverId: String, message: MessageView, isNew: Bool)
+    /// `replaces` is the message this one takes the place of, where it was: one sent to the linked
+    /// Telegram account, under the number Telegram gave it. Never set for a server's.
+    case message(serverId: String, message: MessageView, isNew: Bool, replaces: String? = nil)
     case messageRemoved(serverId: String, groupId: String, id: String)
     case messageMoved(serverId: String, fromGroupId: String, message: MessageView)
     case users(serverId: String)
@@ -955,6 +1027,8 @@ public enum CoreEvent: Sendable, Equatable {
     case notify(serverId: String, title: String, body: String, conversationKey: String, groupId: String, messageId: String, inUse: Bool)
     /// Whether the person is using another of their devices, where notifications go instead.
     case activity(serverId: String, elsewhere: Bool)
+    /// Where linking the Telegram account stands changed.
+    case telegram(serverId: String, link: TelegramLink)
 }
 
 extension CoreEvent {
@@ -962,12 +1036,12 @@ extension CoreEvent {
     public var serverId: String {
         switch self {
         case let .connection(serverId, _), let .conversations(serverId), let .channels(serverId), let .voice(serverId, _, _, _, _),
-             let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .call(serverId, _, _), let .calls(serverId), let .message(serverId, _, _),
+             let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .call(serverId, _, _), let .calls(serverId), let .message(serverId, _, _, _),
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .watch(serverId, _, _), let .preferences(serverId),
              let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .newDevices(serverId, _), let .notify(serverId, _, _, _, _, _, _),
-             let .activity(serverId, _):
+             let .activity(serverId, _), let .telegram(serverId, _):
             serverId
         }
     }
@@ -980,7 +1054,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId, inUse
-        case channelId, deviceId, member, call, soundId, devices, watch
+        case channelId, deviceId, member, call, soundId, devices, watch, link, replaces
     }
 
     public init(from decoder: Decoder) throws {
@@ -1003,7 +1077,8 @@ extension CoreEvent: Codable {
         case "screen_ended": self = .screenEnded(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), reason: try c.decode(String.self, forKey: .reason))
         case "call": self = .call(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), call: try c.decodeIfPresent(CallView.self, forKey: .call))
         case "calls": self = .calls(serverId: serverId)
-        case "message": self = .message(serverId: serverId, message: try c.decode(MessageView.self, forKey: .message), isNew: try c.decode(Bool.self, forKey: .isNew))
+        case "message":
+            self = .message(serverId: serverId, message: try c.decode(MessageView.self, forKey: .message), isNew: try c.decode(Bool.self, forKey: .isNew), replaces: try c.decodeIfPresent(String.self, forKey: .replaces))
         case "message_removed": self = .messageRemoved(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), id: try c.decode(String.self, forKey: .id))
         case "message_moved": self = .messageMoved(serverId: serverId, fromGroupId: try c.decode(String.self, forKey: .fromGroupId), message: try c.decode(MessageView.self, forKey: .message))
         case "users": self = .users(serverId: serverId)
@@ -1037,6 +1112,7 @@ extension CoreEvent: Codable {
                 inUse: try c.decode(Bool.self, forKey: .inUse)
             )
         case "activity": self = .activity(serverId: serverId, elsewhere: try c.decode(Bool.self, forKey: .elsewhere))
+        case "telegram": self = .telegram(serverId: serverId, link: try c.decode(TelegramLink.self, forKey: .link))
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown core event \(other)")
         }
     }
@@ -1063,8 +1139,9 @@ extension CoreEvent: Codable {
             try c.encode("call", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(groupId, forKey: .groupId); try c.encodeIfPresent(call, forKey: .call)
         case let .calls(serverId):
             try c.encode("calls", forKey: .type); try c.encode(serverId, forKey: .serverId)
-        case let .message(serverId, message, isNew):
+        case let .message(serverId, message, isNew, replaces):
             try c.encode("message", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(message, forKey: .message); try c.encode(isNew, forKey: .isNew)
+            try c.encodeIfPresent(replaces, forKey: .replaces)
         case let .messageRemoved(serverId, groupId, id):
             try c.encode("message_removed", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(groupId, forKey: .groupId); try c.encode(id, forKey: .id)
         case let .messageMoved(serverId, fromGroupId, message):
@@ -1103,6 +1180,8 @@ extension CoreEvent: Codable {
             try c.encode(groupId, forKey: .groupId); try c.encode(messageId, forKey: .messageId); try c.encode(inUse, forKey: .inUse)
         case let .activity(serverId, elsewhere):
             try c.encode("activity", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(elsewhere, forKey: .elsewhere)
+        case let .telegram(serverId, link):
+            try c.encode("telegram", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(link, forKey: .link)
         }
     }
 }

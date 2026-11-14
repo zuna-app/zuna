@@ -40,17 +40,24 @@ struct MainView: View {
             Text("You're in \(voice.place(of: move)) on another device. Joining here disconnects that device.")
         }
         .task { await notifications.askOnce() }
+        // Linking a Telegram account, from the list of servers or from Settings.
+        .sheet(isPresented: Binding(get: { model.linkingTelegram }, set: { if !$0 { model.cancelLinkingTelegram() } })) {
+            LinkTelegramView()
+        }
     }
 
     private var compact: some View {
         @Bindable var model = model
         return TabView(selection: $model.tab) {
-            Tab("Channels", systemImage: "number", value: AppModel.Tab.channels) {
-                ChannelsTab()
+            // Telegram's channels stay in Telegram's own app.
+            if !model.showsTelegram {
+                Tab("Channels", systemImage: "number", value: AppModel.Tab.channels) {
+                    ChannelsTab()
+                }
+                // The open server's alone, as the server button carries the others'.
+                .badge(model.activeServer?.channelMentions ?? 0)
+                .accessibilityIdentifier(A11y.Shell.channelsTab)
             }
-            // The open server's alone, as the server button carries the others'.
-            .badge(model.activeServer?.channelMentions ?? 0)
-            .accessibilityIdentifier(A11y.Shell.channelsTab)
 
             Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
                 ChatsTab()
@@ -66,6 +73,9 @@ struct MainView: View {
         .background(Theme.bg0)
         .sheet(isPresented: $model.joining) {
             JoinFlow(embedded: true)
+        }
+        .onChange(of: model.showsTelegram) { _, telegram in
+            if telegram, model.tab == .channels { model.tab = .chats }
         }
     }
 }
@@ -135,7 +145,7 @@ private struct WideLayout: View {
             }
             .id(first)
         } else {
-            ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text("Messages are end-to-end encrypted."))
+            ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text(model.showsTelegram ? "Telegram's chats aren't end-to-end encrypted." : "Messages are end-to-end encrypted."))
                 .foregroundStyle(Theme.text2)
                 .background(Theme.bg0)
         }

@@ -58,6 +58,17 @@ final class EventCodingTests: XCTestCase {
             .newDevices(serverId: "s", devices: [NewDevice(id: "d2", name: "iPad", createdAt: 3, secret: nil)]),
             .notify(serverId: "s", title: "Someone", body: "hi", conversationKey: "user:u", groupId: "g", messageId: "m1", inUse: false),
             .activity(serverId: "s", elsewhere: true),
+            .message(serverId: "s", message: try message("m3"), isNew: true, replaces: "m-pending"),
+            .telegram(serverId: "s", link: .starting),
+            .telegram(serverId: "s", link: .qr(link: "tg://login?token=abc")),
+            .telegram(serverId: "s", link: .phone),
+            .telegram(serverId: "s", link: .code(phone: "+1 555", length: 5, via: "telegram", canResend: true)),
+            .telegram(serverId: "s", link: .email(pattern: "a***@b.c", length: 6)),
+            .telegram(serverId: "s", link: .password(hint: "the usual")),
+            .telegram(serverId: "s", link: .signup),
+            .telegram(serverId: "s", link: .ready),
+            .telegram(serverId: "s", link: .failed(reason: "No network.")),
+            .telegram(serverId: "s", link: .unlinked(signedOut: false)),
         ]
         for event in events {
             let data = try encoder.encode(event)

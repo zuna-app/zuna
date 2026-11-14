@@ -27,7 +27,7 @@ struct ServerButton: View {
         } label: {
             Group {
                 if let server = model.activeServer {
-                    AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 36, rounded: true)
+                    ServerIcon(entry: server.entry, size: 36)
                 } else {
                     Image(systemName: "square.stack")
                 }
@@ -88,6 +88,7 @@ struct ServerListView: View {
     var onJoin: (() -> Void)?
     @State private var inviting: String?
     @State private var signingOut: String?
+    @State private var unlinkingTelegram = false
 
     var body: some View {
         List {
@@ -108,13 +109,27 @@ struct ServerListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { EditButton() }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if let onJoin { onJoin() } else { model.joining = true }
-                } label: {
-                    Image(systemName: "plus")
+                if model.canLinkTelegram {
+                    // Joining a server, or linking the one Telegram account this device may have.
+                    Menu {
+                        Button("Join a server", systemImage: "server.rack") { join() }
+                            .accessibilityIdentifier(A11y.Servers.join)
+                        Button("Connect Telegram", systemImage: "bubble.left.and.bubble.right") {
+                            onPick?()
+                            model.startLinkingTelegram()
+                        }
+                        .accessibilityIdentifier(A11y.Servers.linkTelegram)
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Join a server or connect Telegram")
+                } else {
+                    Button(action: join) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Join a server")
+                    .accessibilityIdentifier(A11y.Servers.join)
                 }
-                .accessibilityLabel("Join a server")
-                .accessibilityIdentifier(A11y.Servers.join)
             }
         }
         .sheet(item: Binding(get: { inviting.map(SheetServer.init) }, set: { inviting = $0?.id })) { InviteSheet(serverId: $0.id) }
@@ -128,7 +143,20 @@ struct ServerListView: View {
                 Task { await model.signOut(serverId) }
             }
         }
+        .confirmationDialog(
+            "This signs Zuna out of your Telegram account and erases what it kept of it on this device. Your chats stay on Telegram.",
+            isPresented: $unlinkingTelegram,
+            titleVisibility: .visible
+        ) {
+            Button("Unlink Telegram", role: .destructive) {
+                Task { await model.unlinkTelegram() }
+            }
+        }
         .accessibilityIdentifier(A11y.Servers.list)
+    }
+
+    private func join() {
+        if let onJoin { onJoin() } else { model.joining = true }
     }
 
     private struct SheetServer: Identifiable {
@@ -156,9 +184,15 @@ struct ServerListView: View {
         .alignmentGuide(.listRowSeparatorLeading) { _ in 78 }
         .accessibilityAddTraits(open ? .isSelected : [])
         .contextMenu {
-            Button("Invite people", systemImage: "link") { inviting = id }
-            Button("Sign out of \(server.entry.name)", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                signingOut = id
+            if server.entry.isTelegram {
+                Button("Unlink Telegram", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    unlinkingTelegram = true
+                }
+            } else {
+                Button("Invite people", systemImage: "link") { inviting = id }
+                Button("Sign out of \(server.entry.name)", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    signingOut = id
+                }
             }
         }
     }
@@ -173,7 +207,7 @@ private struct ServerRow: View {
     var body: some View {
         let latest = server.conversations.max { ($0.lastMessage?.createdAt ?? 0) < ($1.lastMessage?.createdAt ?? 0) }
         HStack(spacing: 12) {
-            AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 54, rounded: true)
+            ServerIcon(entry: server.entry, size: 54)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(server.entry.name)
@@ -230,6 +264,8 @@ private struct ServerRow: View {
                 let (author, body) = Format.preview(latest.lastMessage, users: server.users, selfId: server.me?.userId ?? "", kind: latest.kind)
                 let lead = author.map { "\(latest.title) · \($0)" } ?? latest.title
                 Text("\(Text(lead + ": ").foregroundStyle(Theme.text1))\(Text(body).foregroundStyle(Theme.text2))")
+            } else if server.entry.isTelegram {
+                Text("Not end-to-end encrypted").foregroundStyle(Theme.text3)
             } else {
                 Text(URL(string: server.entry.url)?.host() ?? server.entry.url).foregroundStyle(Theme.text3)
             }

@@ -26,7 +26,7 @@ final class ShareCore {
         self.runtime = runtime
         // Events come on the core's queue. Only the upload's progress matters here.
         connection = CoreConnection(runtime: runtime) { event in
-            guard case let .message(_, message, _) = event, let fraction = message.uploadProgress else { return }
+            guard case let .message(_, message, _, _) = event, let fraction = message.uploadProgress else { return }
             Task { @MainActor in progress.report?(fraction) }
         }
     }

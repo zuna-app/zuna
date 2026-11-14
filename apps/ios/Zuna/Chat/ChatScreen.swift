@@ -249,7 +249,7 @@ struct ChatScreen: View {
                         ChannelWelcome(channel: channel, edit: editChannel(server, channel))
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     } else if list.items.isEmpty {
-                        EmptyChat(conversation: conversation, isSaved: isSaved)
+                        EmptyChat(conversation: conversation, isSaved: isSaved, telegram: server.entry.isTelegram)
                     } else {
                         messages(server, conversation, list, listId: listId)
                     }
@@ -748,9 +748,16 @@ private struct ChatHeader: View {
             // Drawn again as the minutes pass, so a last seen stays true.
             TimelineView(.periodic(from: Format.lastSeenTurn(peer.flatMap { live.lastSeenAt($0) }), by: 60)) { _ in
                 HStack(spacing: 5) {
-                    Text(status)
+                    // Every Telegram chat says where it is, and that it isn't end-to-end encrypted.
+                    if server.entry.isTelegram {
+                        Image(systemName: "lock.open")
+                            .font(.system(size: 9, weight: .semibold))
+                            .accessibilityHidden(true)
+                    }
+                    Text(server.entry.isTelegram ? "Telegram · \(status)" : status)
                         .font(.caption)
                         .lineLimit(1)
+                        .accessibilityLabel(server.entry.isTelegram ? "Telegram, not end-to-end encrypted, \(status)" : status)
                         .accessibilityIdentifier(A11y.Chat.status)
                     if !typingNames.isEmpty {
                         TypingDots()
@@ -860,10 +867,12 @@ private struct JoiningChannel: View {
 private struct EmptyChat: View {
     let conversation: ConversationView
     let isSaved: Bool
+    /// On the linked Telegram account, whose chats aren't end-to-end encrypted.
+    var telegram = false
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "lock.fill").font(.title3).foregroundStyle(Theme.text2)
+            Image(systemName: telegram ? "lock.open" : "lock.fill").font(.title3).foregroundStyle(Theme.text2)
             Text(title).font(.headline).foregroundStyle(Theme.text1)
             Text(message).font(.subheadline).foregroundStyle(Theme.text2).multilineTextAlignment(.center)
         }
@@ -881,6 +890,7 @@ private struct EmptyChat: View {
     }
 
     private var message: String {
+        if telegram { return "This chat is on Telegram, which keeps its messages on its servers. It isn't end-to-end encrypted." }
         if isSaved { return "Keep notes, links and files here. They're encrypted and sync across your devices." }
         return conversation.kind == .group
             ? "Messages here are end-to-end encrypted. Only members can read them."

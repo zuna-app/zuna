@@ -49,6 +49,15 @@ extension CoreConnection {
     }
 
     public func session(_ serverId: String) -> SessionCalls { SessionCalls(connection: self, serverId: serverId) }
+
+    // MARK: Telegram
+
+    /// Whether this app can link a Telegram account: from iOS 26, in a build given Telegram's api_id.
+    public func telegramAvailable() async throws -> Bool { try await call("telegramAvailable") }
+    /// Starts linking a Telegram account on this device, whose steps come as `telegram` events.
+    public func linkTelegram() async throws { try await call("linkTelegram") }
+    /// Signs the Telegram account out, and erases everything of it on this device either way.
+    public func unlinkTelegram() async throws -> TelegramUnlinked { try await call("unlinkTelegram") }
 }
 
 /// Calls on one server's session.
@@ -80,6 +89,19 @@ public struct SessionCalls: Sendable {
     public func getEmotes() async throws -> EmoteSet { try await call("getEmotes") }
     public func getDevices() async throws -> [DeviceView] { try await call("getDevices") }
     public func getNewDevices() async throws -> [NewDevice] { try await call("getNewDevices") }
+
+    // MARK: Linking the Telegram account, on its session alone (`TelegramSession`)
+
+    /// Links by a QR code, which Telegram on another device scans: the link to show comes as the `qr` step.
+    public func linkWithQr() async throws { try await run("linkWithQr") }
+    /// Links by a phone number, whose code comes in Telegram on another device, or by email.
+    public func linkWithPhone(_ phone: String) async throws { try await run("linkWithPhone", [phone]) }
+    public func enterCode(_ code: String) async throws { try await run("enterCode", [code]) }
+    public func resendCode() async throws { try await run("resendCode") }
+    /// The account's two-step verification password, which TDLib proves it knows without sending it.
+    public func enterPassword(_ password: String) async throws { try await run("enterPassword", [password]) }
+    /// Joins a Telegram group by its invite link, and gives the chat's key.
+    public func joinByLink(_ link: String) async throws -> String { try await call("joinByLink", [link]) }
     /// Whether a device that signed in after this one was the person. One that wasn't is removed.
     public func answerNewDevice(_ deviceId: String, mine: Bool) async throws { try await run("answerNewDevice", [deviceId, mine]) }
 

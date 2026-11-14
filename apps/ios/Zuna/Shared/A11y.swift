@@ -61,7 +61,25 @@ enum A11y {
     enum Servers {
         static let list = "servers.list"
         static let join = "servers.join"
+        static let linkTelegram = "servers.linkTelegram"
         static func row(_ id: String) -> String { "servers.row.\(id)" }
+    }
+
+    /// Linking a Telegram account, and its place in Settings.
+    enum Telegram {
+        static let screen = "telegram.screen"
+        static let cancel = "telegram.cancel"
+        static let begin = "telegram.begin"
+        static let waiting = "telegram.waiting"
+        static let qr = "telegram.qr"
+        static let confirm = "telegram.confirm"
+        static let byPhone = "telegram.byPhone"
+        static let phone = "telegram.phone"
+        static let code = "telegram.code"
+        static let password = "telegram.password"
+        static let problem = "telegram.problem"
+        static let connections = "telegram.connections"
+        static let unlink = "telegram.unlink"
     }
 
     enum ChatList {

@@ -322,6 +322,8 @@ struct Composer: View {
         // As Telegram says it, while the countdown is where the send button was. Admins aren't held back.
         if conversation.slowMode > 0, !exemptFromSlowMode { return "Slow mode: \(Format.timer(conversation.slowMode))" }
         if conversation.kind == .channel { return "Message #\(conversation.title)" }
+        // Never taken for one of Zuna's encrypted chats (docs/TELEGRAM_PLAN.md).
+        if server.entry.isTelegram { return "Message on Telegram" }
         return conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
     }
 

@@ -9,6 +9,7 @@ import ZunaModels
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingSignOut = false
+    @State private var confirmingUnlink = false
     /// Closes it, where it's a sheet, as on an iPad, which has no tab bar to leave it by.
     var onDone: (() -> Void)?
 
@@ -27,7 +28,17 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.bg2)
                 }
-                if let server = model.activeServer {
+                if let server = model.activeServer, server.entry.isTelegram {
+                    // The account's own settings are Telegram's app's (docs/TELEGRAM_PLAN.md).
+                    Section {
+                        header(server)
+                    } footer: {
+                        Text("Your Telegram account's name, privacy and devices are set in Telegram's own app.")
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
+                    }
+                    .listRowBackground(Color.clear)
+                } else if let server = model.activeServer {
                     Section {
                         NavigationLink {
                             ProfileView(serverId: server.entry.id)
@@ -72,9 +83,34 @@ struct SettingsView: View {
                         SettingsLabel("App lock", systemImage: "faceid", color: Color(hex: 0xD9962A))
                     }
                     .accessibilityIdentifier(A11y.Settings.appLock)
+                    if model.telegramAvailable || model.telegram != nil {
+                        NavigationLink { TelegramConnectionsView() } label: {
+                            SettingsLabel("Connections", systemImage: "bubble.left.and.bubble.right.fill", color: Color(hex: 0x3D8FD9))
+                        }
+                        .accessibilityIdentifier(A11y.Telegram.connections)
+                    }
                 }
                 .listRowBackground(Theme.bg2)
-                if let server = model.activeServer {
+                if let server = model.activeServer, server.entry.isTelegram {
+                    Section {
+                        Button(role: .destructive) {
+                            confirmingUnlink = true
+                        } label: {
+                            SettingsLabel("Unlink Telegram", systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
+                        }
+                        .accessibilityIdentifier(A11y.Telegram.unlink)
+                    }
+                    .listRowBackground(Theme.bg2)
+                    .confirmationDialog(
+                        "This signs Zuna out of your Telegram account and erases what it kept of it on this device. Your chats stay on Telegram.",
+                        isPresented: $confirmingUnlink,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Unlink Telegram", role: .destructive) {
+                            Task { await model.unlinkTelegram() }
+                        }
+                    }
+                } else if let server = model.activeServer {
                     Section {
                         if server.me?.role != .member {
                             NavigationLink { ServerSettingsView(serverId: server.entry.id) } label: {
@@ -115,8 +151,13 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier(A11y.Settings.about)
                 } footer: {
-                    Label("Messages and files are end-to-end encrypted.", systemImage: "lock.fill")
-                        .font(.footnote)
+                    if model.showsTelegram {
+                        Label("Telegram's chats aren't end-to-end encrypted. Zuna's are.", systemImage: "lock.open")
+                            .font(.footnote)
+                    } else {
+                        Label("Messages and files are end-to-end encrypted.", systemImage: "lock.fill")
+                            .font(.footnote)
+                    }
                 }
                 .listRowBackground(Theme.bg2)
             }
@@ -147,7 +188,7 @@ struct SettingsView: View {
                 Text(me.displayName)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(Theme.text1)
-                Text("@\(me.username) · \(server.entry.name)")
+                Text(me.username.isEmpty ? server.entry.name : "@\(me.username) · \(server.entry.name)")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text2)
             }

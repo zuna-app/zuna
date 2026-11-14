@@ -268,6 +268,17 @@ extension AppModel {
         lists[key] = list
     }
 
+    /// A message that takes another's place, as one sent to Telegram takes the number Telegram
+    /// gives it: swapped where it is, so the chat doesn't lay itself out again and jump.
+    func replace(_ serverId: String, _ old: String, with message: MessageView) {
+        let key = Self.listKey(serverId, message.groupId)
+        guard var list = lists[key], let index = list.items.firstIndex(where: { $0.id == old }) else { return upsert(serverId, message) }
+        list.items[index] = message
+        // Once, though the message came under its own number too.
+        list.items = Self.sorted(list.items.enumerated().filter { $0.offset == index || $0.element.id != message.id }.map(\.element))
+        lists[key] = list
+    }
+
     func remove(_ serverId: String, groupId: String, id: String) {
         lists[Self.listKey(serverId, groupId)]?.items.removeAll { $0.id == id }
     }
