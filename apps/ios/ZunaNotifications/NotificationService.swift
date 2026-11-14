@@ -35,7 +35,10 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                 let names = request.content.userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
                 logger.warning("A Telegram push names no chat; it carries \(names, privacy: .public)")
             }
-            finish(Self.telegram(telegram, mutable, settings: settings))
+            nonisolated(unsafe) let content = mutable
+            Task {
+                finish(await Self.telegram(telegram, content, settings: settings))
+            }
             return
         }
         let opened = PushStore.open(request.content.userInfo)
@@ -97,10 +100,10 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         return counted
     }
 
-    /// Telegram's push as the app words Telegram's notifications, counted in the app's own badge
-    /// rather than Telegram's. What shows nothing in Telegram's app is quiet here too, as far as iOS
-    /// lets a push be without the filtering entitlement.
-    private static func telegram(_ push: TelegramPush, _ content: UNMutableNotificationContent, settings: NotificationSettings) -> UNNotificationContent {
+    /// Telegram's push as the app words Telegram's notifications, with the chat's picture, counted
+    /// in the app's own badge rather than Telegram's. What shows nothing in Telegram's app is quiet
+    /// here too, as far as iOS lets a push be without the filtering entitlement.
+    private static func telegram(_ push: TelegramPush, _ content: UNMutableNotificationContent, settings: NotificationSettings) async -> UNNotificationContent {
         guard push.kind == .message else {
             content.sound = nil
             content.badge = nil
@@ -109,7 +112,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         PushStore.badge += 1
         let worded = push.content(base: content, settings: settings)
         worded.badge = NSNumber(value: PushStore.badge)
-        return worded
+        guard let chatId = push.groupId, let name = push.name else { return worded }
+        return await MessageNotification.telegram(worded, chatId: chatId, name: name, conversationKey: push.conversationKey, settings: settings)
     }
 
     override func serviceExtensionTimeWillExpire() {

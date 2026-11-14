@@ -217,6 +217,9 @@ final class CoreController {
         model.onTelegramNotify = { title, body, conversationKey, groupId, messageId in
             Task { await notifications.showTelegram(title: title, body: body, conversationKey: conversationKey, groupId: groupId, messageId: messageId) }
         }
+        let telegramPictures = TelegramPictureKeeper(core: connection)
+        model.onTelegramChats = { telegramPictures.listChanged($0) }
+        notifications.keepTelegramPicture = { await telegramPictures.ensure($0) }
         // What a silent push would clear, when the app hears of it itself.
         model.onCaughtUp = { serverId in
             Task { await notifications.clearRead(serverId: serverId) }

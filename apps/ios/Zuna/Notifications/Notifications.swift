@@ -41,6 +41,8 @@ final class Notifications {
 
     /// Fetches and decrypts a message as the extension does, with pictures; set by the core controller.
     @ObservationIgnored var preview: ((String, String, String) async throws -> PushPreview)?
+    /// Makes sure a Telegram chat's picture is kept for its notifications, by its chat ID; set by the core controller.
+    @ObservationIgnored var keepTelegramPicture: ((String) async -> Void)?
 
     private let model: AppModel
     private let logger = Logger(subsystem: "chat.zuna", category: "notifications")
@@ -372,8 +374,9 @@ final class Notifications {
     }
 
     /// A new message on the linked Telegram account, while the app runs: Telegram decided it
-    /// notifies, as for its own apps, and the core said its title and text. Under "Telegram", so it's
-    /// never taken for one of Zuna's (docs/TELEGRAM_PLAN.md, Notifications).
+    /// notifies, as for its own apps, and the core said its title and text. With "(Telegram)" after
+    /// the chat's name, so it's never taken for one of Zuna's (docs/TELEGRAM_PLAN.md, Notifications),
+    /// and the chat's picture, as a push of Telegram's has it.
     @discardableResult
     func showTelegram(title: String, body: String, conversationKey: String, groupId: String, messageId: String) async -> Bool {
         guard settings.enabled, allowed else { return false }
@@ -381,16 +384,16 @@ final class Notifications {
         // As the setting has it for a server's: the sender and the message, who it's from, or only that something came.
         switch settings.preview {
         case .full:
-            content.title = title
+            content.title = TelegramPush.titled(title)
             content.body = body
         case .sender:
-            content.title = title
+            content.title = TelegramPush.titled(title)
             content.body = "New message"
         case .none:
             content.title = "Zuna"
+            content.subtitle = "Telegram"
             content.body = "New message"
         }
-        content.subtitle = "Telegram"
         content.sound = settings.sound ? .default : nil
         content.categoryIdentifier = Self.messageCategory
         content.threadIdentifier = "telegram/\(groupId)"
@@ -398,8 +401,13 @@ final class Notifications {
         content.userInfo["conversationKey"] = conversationKey
         content.userInfo["groupId"] = groupId
         content.userInfo["messageId"] = messageId
+        // A picture not kept yet is fetched first, waited for a second at most, as the desktop waits for one.
+        if settings.preview != .none, let keep = keepTelegramPicture {
+            _ = await result(of: Task { await keep(groupId) }, within: 1)
+        }
+        let shown = await MessageNotification.telegram(content, chatId: groupId, name: title, conversationKey: conversationKey, settings: settings)
         do {
-            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "telegram/\(groupId)/\(messageId)", content: content, trigger: nil))
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "telegram/\(groupId)/\(messageId)", content: shown, trigger: nil))
             return true
         } catch {
             logger.warning("A Telegram message's notification couldn't be shown: \(String(describing: error), privacy: .public)")

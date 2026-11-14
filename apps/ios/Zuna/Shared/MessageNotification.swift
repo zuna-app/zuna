@@ -74,6 +74,46 @@ enum MessageNotification {
         return (try? base.updating(from: intent)) ?? base
     }
 
+    /// A message on the linked Telegram account, from the push or from the engine while the app
+    /// runs, laid out as a server's are: the chat as the one it's from, with its picture as the app
+    /// keeps it (`TelegramPictures`), or its initials, and "(Telegram)" after its name, so it's never
+    /// taken for a Zuna chat's. A group's says who wrote in its text, as the desktop's does.
+    static func telegram(_ content: UNMutableNotificationContent, chatId: String, name: String, conversationKey: String?, settings: NotificationSettings) async -> UNNotificationContent {
+        guard settings.preview != .none else { return content }
+        let id = "telegram/\(chatId)"
+        let chat = INPerson(
+            personHandle: INPersonHandle(value: id, type: .unknown),
+            nameComponents: nil,
+            displayName: TelegramPush.titled(name),
+            image: INImage(imageData: TelegramPictures.picture(chatId) ?? placeholder(name: name, seed: chatId)),
+            contactIdentifier: nil,
+            customIdentifier: id
+        )
+        let me = INPerson(
+            personHandle: INPersonHandle(value: "me", type: .unknown),
+            nameComponents: nil,
+            displayName: nil,
+            image: nil,
+            contactIdentifier: nil,
+            customIdentifier: nil,
+            isMe: true
+        )
+        let intent = INSendMessageIntent(
+            recipients: [me],
+            outgoingMessageType: .outgoingMessageText,
+            content: content.body,
+            speakableGroupName: nil,
+            conversationIdentifier: conversationKey.map { "\(TelegramPush.serverId)/\($0)" } ?? id,
+            serviceName: nil,
+            sender: chat,
+            attachments: nil
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        try? await interaction.donate()
+        return (try? content.updating(from: intent)) ?? content
+    }
+
     /// The size pictures are drawn at, as the system shows them at most.
     private static let side = 256
 
@@ -81,14 +121,18 @@ enum MessageNotification {
     /// whatever the file was, as iOS shows its app icon in place of a WebP, which
     /// the web app makes.
     private static func picture(_ base64: String?) -> Data? {
-        guard let data = base64.flatMap({ Data(base64Encoded: $0) }),
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
+        base64.flatMap { Data(base64Encoded: $0) }.flatMap { small($0) }
+    }
+
+    /// The same, from the file's bytes; or a JPEG, a tenth of the size, for a photo kept a while.
+    static func small(_ data: Data, jpeg: Bool = false) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: side,
               ] as CFDictionary) else { return nil }
-        return UIImage(cgImage: image).pngData()
+        return jpeg ? UIImage(cgImage: image).jpegData(compressionQuality: 0.85) : UIImage(cgImage: image).pngData()
     }
 
     /// Initials on the color the chat list gives them (`AvatarView`).

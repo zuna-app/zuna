@@ -323,6 +323,9 @@ final class AppModel {
     /// Called for a new message on the linked Telegram account: its title, its text, the chat's key, its group and the message.
     /// Telegram decides what notifies, as for its own apps, and the core says it whole, as nothing pushes it.
     @ObservationIgnored var onTelegramNotify: ((String, String, String, String, String) -> Void)?
+    /// Called with the Telegram account's chats each time they're listed, and with none once it's
+    /// unlinked, for the pictures its notifications show (`TelegramPictureKeeper`).
+    @ObservationIgnored var onTelegramChats: (([ConversationView]) -> Void)?
 
     init(core: CoreConnection, voice: VoiceModel) {
         self.core = core
@@ -742,6 +745,7 @@ final class AppModel {
         if serverId == ServerEntry.telegram {
             telegramPath = []
             if tab == .telegram { tab = .chats }
+            onTelegramChats?([])
         }
         if activeServerId == serverId {
             closeChats()
@@ -782,6 +786,7 @@ final class AppModel {
                     let (listed, joined) = try await (conversations, channels)
                     servers[serverId]?.conversations = listed
                     servers[serverId]?.channels = joined
+                    if serverId == ServerEntry.telegram, servers[serverId] != nil { onTelegramChats?(listed) }
                 case "voice":
                     let members = try await session.getVoiceMembers()
                     servers[serverId]?.voice = Dictionary(members.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })

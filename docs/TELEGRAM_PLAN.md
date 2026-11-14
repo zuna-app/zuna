@@ -230,7 +230,7 @@ Making a group, adding and removing people, its name and picture, leaving, and j
 - **Nothing is forwarded across.** The forward picker on the Telegram rail lists Telegram's chats, and a server's lists that server's. `forwardMessages` refuses when either end is Telegram. Copying text is the person's own act.
 - **No plugin reaches it.** Every `TelegramSession` method is `"never"` in `packages/plugin-sdk/src/surface.ts`. The broker for plugins gives them no event from this rail (`for_plugins`), and no filter or decoration runs there. A plugin that held back read marks would be the "ghost mode" Telegram forbids, and one that reads messages and reaches the internet would carry Telegram's off the device.
 - **No bot of Zuna's and no server's emotes** exist there. An emote's name typed on this rail is text.
-- **A notification says "Telegram"** where a server's says its name.
+- **A notification says "(Telegram)"** after the person's or the group's name, so it's never taken for a Zuna chat's. With no names shown it says only "Zuna", as a server's does.
 
 ## Notifications, read marks and being online
 
@@ -293,12 +293,12 @@ What one looks like:
 
 | | Title | Under it |
 |---|---|---|
-| A direct message | Anna Kowalska | See you at 8? |
-| A group | Weekend trip | Anna: See you at 8? |
+| A direct message | Anna Kowalska (Telegram) | See you at 8? |
+| A group | Weekend trip (Telegram) | Anna: See you at 8? |
 | A photo, a voice message and the like | As above | Telegram's own sentence for it, such as "Anna sent you a photo" |
 
-- **Each says "Telegram"** in the line iOS has under a title, and wears Zuna's icon and name, as iOS shows every notification under the app it was sent to.
-- **No picture of the sender** in the first version. The extension shares nothing with the engine, which is where the pictures are.
+- **Each says "(Telegram)" after the chat's name,** as on the desktop, and wears Zuna's icon and name, as iOS shows every notification under the app it was sent to. With no names shown it says "Zuna", with "Telegram" in the line under it.
+- **The chat's picture,** the person's or the group's, as the list shows it, or its initials. The extension shares nothing with the engine, where the pictures are, so the app keeps those of the top 100 chats, small, as it lists them, in the App Group, each sealed with a key made from the device key under a name that doesn't say whose (`Zuna/Shared/TelegramPictures.swift`, `Zuna/Telegram/TelegramPictureKeeper.swift`), and unlinking erases them. A chat the app hasn't listed, or a push before the phone's first unlock with the Zuna password, has its initials.
 - **Tapping one opens Zuna,** on the Telegram account, at that message. What the engine's database already held shows at once, and the rest as it catches up.
 - **Replying from the notification** comes later, as it needs the app woken to start the engine.
 - **Someone with Telegram's own app on the same phone gets each message twice,** once from each app, as each is a device of the account's and Telegram pushes to both. iOS's settings turn one app's notifications off, and the linking screen says so.

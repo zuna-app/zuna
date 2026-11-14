@@ -6,8 +6,9 @@ import UserNotifications
 /// what it names beside it, where a server's push is sealed under `zuna`. Nothing in it can pass
 /// for a server's, which is sealed with a key Telegram doesn't have.
 ///
-/// The notification extension words it as the app does for Telegram, under "Telegram", and the
-/// app opens its chat from it; where the extension doesn't run, iOS words it by itself, from the
+/// The notification extension words it as the app does for Telegram, with "(Telegram)" after the
+/// chat's name and its picture as the app keeps it (`TelegramPictures`), and the app opens its chat
+/// from it; where the extension doesn't run, iOS words it by itself, from the
 /// sentence the app carries for each kind (`en.lproj/Localizable.strings`, written by
 /// `apps/ios/scripts/telegram-push-texts.mjs` from the list Telegram publishes).
 struct TelegramPush {
@@ -101,8 +102,20 @@ struct TelegramPush {
         return String(format: template, arguments: words)
     }
 
+    /// The person's or the group's name: a group's is the second word of its sentences, a
+    /// channel's and a person's the first.
+    var name: String? {
+        let name = inGroup && key.hasPrefix("CHAT_") && args.count >= 2 ? args[1] : args.first
+        return name?.isEmpty == false ? name : nil
+    }
+
+    /// A chat's name as a notification's title has it, so it's never taken for a Zuna chat's.
+    static func titled(_ name: String) -> String { "\(name) (Telegram)" }
+
     /// A notification as the app words Telegram's, as `Notifications.showTelegram` does while the
-    /// app runs: the person or group as its title, the message under it, and "Telegram" between.
+    /// app runs: the person or group as its title, with "(Telegram)" after it, and the message under
+    /// it; with no names, "Zuna" and "Telegram" under it. `MessageNotification.telegram` then adds
+    /// the chat's picture.
     func content(base: UNMutableNotificationContent, settings: NotificationSettings) -> UNMutableNotificationContent {
         let content = base
         let isText = key.hasSuffix("MESSAGE_TEXT")
@@ -112,8 +125,7 @@ struct TelegramPush {
             if isText, key == "CHANNEL_MESSAGE_TEXT", args.count >= 2 { return args[1] }
             return sentence ?? "New message"
         }()
-        // A group's name is the second word of its sentences, a channel's and a person's the first.
-        let title = inGroup && key.hasPrefix("CHAT_") && args.count >= 2 ? args[1] : args.first ?? "Telegram"
+        let title = name.map(Self.titled) ?? "Telegram"
         switch settings.preview {
         case .full:
             content.title = title
@@ -123,9 +135,9 @@ struct TelegramPush {
             content.body = "New message"
         case .none:
             content.title = "Zuna"
+            content.subtitle = "Telegram"
             content.body = "New message"
         }
-        content.subtitle = "Telegram"
         content.sound = silent || !settings.sound ? nil : .default
         content.categoryIdentifier = ""
         if let groupId {
