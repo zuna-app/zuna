@@ -35,7 +35,7 @@ export function Privacy() {
             the web app through its host.
           </li>
           <li>
-            Telegram, from the Windows and Linux apps, only on a device where you link your own Telegram account, which it uses through Telegram's API. Those chats
+            Telegram, from the Windows, Linux and macOS apps, only on a device where you link your own Telegram account, which it uses through Telegram's API. Those chats
             aren't end-to-end encrypted: Telegram keeps them under <a href="https://telegram.org/privacy">its privacy policy</a>, and sees your IP address and
             when you're online. The project's servers and yours never see them.
           </li>

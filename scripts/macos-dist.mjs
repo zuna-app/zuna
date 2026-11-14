@@ -32,6 +32,9 @@ export const RIGHTS = {
   "com.apple.security.personal-information.location": true,
 };
 
+/** Programs of the app's own beside it in Contents/MacOS, each signed before the bundle that seals them. */
+export const HELPERS = ["zuna-telegram"];
+
 /** The DMG's name: the label its release carries, as the Windows installer's and the Linux packages' are. */
 export const dmgName = (label) => `Zuna-${label}-arm64.dmg`;
 
@@ -57,6 +60,10 @@ export function signApp(app, signer, { distribution }) {
     // The media library and FFmpeg's libraries, which name each other through @rpath.
     const frameworks = join(app, "Contents", "Frameworks");
     if (existsSync(frameworks)) for (const name of readdirSync(frameworks).filter((name) => name.endsWith(".dylib")).sort()) sign(join(frameworks, name), false);
+    // The programs beside the app's: the Telegram engine, with no entitlement in any build, so
+    // that nothing may attach to it even in development, and its box is all it has
+    // (apps/desktop/telegram/src/seatbelt.rs).
+    for (const helper of HELPERS) if (existsSync(join(app, "Contents", "MacOS", helper))) sign(join(app, "Contents", "MacOS", helper), false);
     sign(app, true);
   } finally {
     rmSync(work, { recursive: true, force: true });

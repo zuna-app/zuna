@@ -19,6 +19,12 @@
 //                                   stapled, with a DMG and a zip of it beside it
 //   node scripts/macos-app.mjs bundle [--release] [--test-control]
 //                                   a development build's bundle, not started, for the checks
+//   node scripts/macos-app.mjs probe
+//                                   the Telegram engine's box tried from inside (platform/sandbox.rs),
+//                                   with TDLib built first
+//
+// With the app's api_id for Telegram (scripts/tdlib.mjs), TDLib is built, and the engine,
+// zuna-telegram, beside the program in the bundle, which signs it as code of its own.
 //
 // A development build is "Zuna Dev", chat.zuna.desktop.dev, apart from a release's
 // permissions, and keeps its data in .dev-data/native-app, so that `npm run dev:clean` starts
@@ -31,16 +37,17 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
 import { BACKGROUNDS, packageApp, signApp } from "./macos-dist.mjs";
 import { labelOf } from "./release.mjs";
 import { plist } from "./signing.mjs";
+import { ensureTdlib, telegramCredentials } from "./tdlib.mjs";
 import { ensureWebrtcSys } from "./webrtc-sys.mjs";
 import { appStamp, appVersion as version, bundleCore, devNativeAppData, env, parseAppArgs, root, run } from "./lib.mjs";
 
-const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "release", "dist", "bundle"]);
+const { command, flags, appArgs } = parseAppArgs("darwin", ["run", "build", "release", "dist", "bundle", "probe"]);
 const release = command === "build" || command === "release" || command === "dist" || flags.includes("--release");
 const testControl = flags.includes("--test-control");
 
@@ -119,6 +126,12 @@ function bundle(program, media, out, { name, id, signer, stamped = false }) {
   mkdirSync(resources, { recursive: true });
   copyFileSync(program, join(macos, "zuna"));
   chmodSync(join(macos, "zuna"), 0o755);
+  // The Telegram engine, which the app finds beside itself, and which only a device that links
+  // an account ever starts.
+  if (telegram) {
+    copyFileSync(join(dirname(program), "zuna-telegram"), join(macos, "zuna-telegram"));
+    chmodSync(join(macos, "zuna-telegram"), 0o755);
+  }
   // The media library and FFmpeg's libraries, which name each other through @rpath.
   const frameworks = join(app, "Contents", "Frameworks");
   mkdirSync(frameworks, { recursive: true });
@@ -177,10 +190,24 @@ checkMetal();
 const ffmpeg = await ensureFfmpeg(nativeAppDeps);
 // LiveKit's webrtc-sys with Zuna's patch, which [patch.crates-io] in apps/desktop/Cargo.toml takes.
 await ensureWebrtcSys(nativeAppDeps);
+// Telegram, with the app's api_id where it's given (scripts/tdlib.mjs): TDLib built, the engine
+// built beside the app, and both values built into the app. Without them there's no Telegram.
+const telegram = command === "probe" ? null : telegramCredentials();
+if (telegram || command === "probe") await ensureTdlib(nativeAppDeps);
 bundleCore();
 
+if (command === "probe") {
+  // The engine built with --probe, which tries from inside what its box must refuse, started in
+  // its box by the app's own test of it. In a folder of its own, as cargo puts both builds at one path.
+  const probes = join(target, "probe");
+  run("cargo", ["build", "-p", "zuna-telegram", "--features", "probe"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: probes } });
+  run("cargo", ["test", "-p", "zuna-windows", "--bin", "zuna", "--", "platform::sandbox", "--nocapture"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_TELEGRAM_PROBE: join(probes, "debug", "zuna-telegram") } });
+  process.exit(0);
+}
+
+if (telegram) run("cargo", ["build", ...(release ? ["--release"] : []), "-p", "zuna-telegram"], { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target } });
 const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];
-run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : stamp) } });
+run("cargo", cargo, { cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ...(command === "run" ? { ZUNA_VERSION: version } : stamp), ...(telegram ?? {}) } });
 const program = join(target, release ? "release" : "debug", "zuna");
 // The app's media through FFmpeg, as a library of its own (apps/desktop/media-ffmpeg).
 run("cargo", ["build", ...(release ? ["--release"] : [])], { cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });

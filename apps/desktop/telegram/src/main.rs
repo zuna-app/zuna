@@ -13,6 +13,8 @@ mod frame;
 mod lockdown;
 #[cfg(feature = "probe")]
 mod probe;
+#[cfg(target_os = "macos")]
+mod seatbelt;
 mod td;
 
 use std::io::{BufReader, BufWriter};
@@ -58,11 +60,15 @@ const REFUSED: &[&str] = &["addProxy", "editProxy", "enableProxy", "disableProxy
 
 fn main() {
     // The door's port first, then the box closed behind it, on the one thread there is, before
-    // anything is read or TDLib does a thing (`lockdown.rs`).
+    // anything is read or TDLib does a thing (`lockdown.rs`, `seatbelt.rs`).
     let listener = Door::bind().unwrap_or_else(|error| fail(&format!("the door couldn't open: {error}")));
     let port = listener.local_addr().map(|address| address.port()).unwrap_or_else(|error| fail(&format!("the door has no port: {error}")));
     #[cfg(target_os = "linux")]
     if let Err(error) = lockdown::lock(port) {
+        fail(&format!("the box couldn't be closed: {error}"));
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(error) = seatbelt::lock(port) {
         fail(&format!("the box couldn't be closed: {error}"));
     }
     #[cfg(feature = "probe")]

@@ -16,8 +16,17 @@
 //! three pipes, and an end when the app's comes, as Windows' job object gives it. The engine's, before it runs a line of TDLib's (`telegram/src/lockdown.rs`):
 //! seccomp, and Landlock again for TCP, which holds it to the door's port where a distribution
 //! keeps namespaces from programs. Its program is linked whole, so it needs no file of the
-//! system's. macOS has no box yet, so the app offers no Telegram there (`telegram::available`),
-//! and `plain` is only for building and the broker's tests.
+//! system's.
+//!
+//! On macOS it's Seatbelt, the kernel's sandbox, with a profile of the engine's own, which it
+//! closes behind itself before it runs a line of TDLib's (`telegram/src/seatbelt.rs`): its folder,
+//! its own loopback at the door's port, and nothing else. The app's half (`macos_box`) starts it
+//! with its three pipes alone, as Windows' handle list and Linux's `close_range` do, and nothing
+//! of its environment, then asks the system from outside whether the box holds before it lets the
+//! broker send a thing: that the engine is boxed, may not read the app's data folder, and may not
+//! make a process. The engine's own half ends it with the app.
+//!
+//! `plain` is only for the broker's tests, and building elsewhere.
 
 use std::fs::File;
 use std::path::Path;
@@ -33,11 +42,13 @@ pub struct Spawned {
 #[cfg(windows)]
 pub use windows_box::{Process, forget, spawn};
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub use plain::Process;
 #[cfg(target_os = "linux")]
 pub use linux_box::{spawn, supported};
-#[cfg(all(unix, not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
+pub use macos_box::{Process, spawn, supported};
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 pub use plain::spawn;
 
 /// Whether this system can box the engine at all.
@@ -45,7 +56,7 @@ pub use plain::spawn;
 pub fn supported() -> bool {
     true
 }
-#[cfg(all(unix, not(target_os = "linux")))]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 pub fn supported() -> bool {
     false
 }
@@ -55,12 +66,16 @@ pub fn supported() -> bool {
 pub fn forget(_folder: &Path) {}
 
 /// Starts the engine without a box, as the broker's tests do with a stand-in for it.
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 pub fn spawn_unboxed(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
     plain::spawned(plain::command(program, args, folder).spawn()?)
 }
+#[cfg(all(test, target_os = "macos"))]
+pub fn spawn_unboxed(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
+    macos_box::start(program, args, folder, false)
+}
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod plain {
     use super::*;
     use std::os::fd::OwnedFd;
@@ -95,7 +110,7 @@ mod plain {
     }
 
     /// Not boxed on this system.
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> std::io::Result<Spawned> {
         spawned(command(program, args, folder).spawn()?)
     }
@@ -254,6 +269,217 @@ mod linux_box {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos_box {
+    use super::*;
+    use std::ffi::{CString, c_char, c_int, c_void};
+    use std::io::{Error, Result};
+    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::{Duration, Instant};
+
+    /// How long the engine has to close its box behind it, which takes it a few milliseconds,
+    /// and longer the first time macOS sees a new build of it.
+    const BOXING: Duration = Duration::from_secs(15);
+
+    /// libsystem_sandbox's, which says whether a process may do something, or is boxed at all.
+    /// Looked up as the app runs, so that a macOS without it has no Telegram rather than no app.
+    type SandboxCheck = unsafe extern "C" fn(libc::pid_t, *const c_char, c_int, ...) -> c_int;
+    const SANDBOX_FILTER_NONE: c_int = 0;
+    const SANDBOX_FILTER_PATH: c_int = 1;
+
+    unsafe extern "C" {
+        // macOS 10.15's, which the libc crate doesn't have.
+        fn posix_spawn_file_actions_addchdir_np(actions: *mut libc::posix_spawn_file_actions_t, path: *const c_char) -> c_int;
+    }
+
+    fn symbol(name: &std::ffi::CStr) -> *mut c_void {
+        unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) }
+    }
+
+    fn sandbox_check() -> Option<SandboxCheck> {
+        let found = symbol(c"sandbox_check");
+        (!found.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, SandboxCheck>(found) })
+    }
+
+    /// Whether this macOS has Seatbelt as the engine and the app use it.
+    pub fn supported() -> bool {
+        sandbox_check().is_some() && !symbol(c"sandbox_init_with_parameters").is_null()
+    }
+
+    pub struct Process {
+        pid: libc::pid_t,
+        /// How it ended, once it's been waited for, after which its ID may be another's.
+        ended: Option<i32>,
+    }
+
+    fn code(status: c_int) -> i32 {
+        if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { -1 }
+    }
+
+    impl Process {
+        pub fn try_wait(&mut self) -> Result<Option<i32>> {
+            if self.ended.is_none() {
+                let mut status = 0;
+                match unsafe { libc::waitpid(self.pid, &mut status, libc::WNOHANG) } {
+                    0 => {}
+                    -1 => return Err(Error::last_os_error()),
+                    _ => self.ended = Some(code(status)),
+                }
+            }
+            Ok(self.ended)
+        }
+
+        pub fn kill(&mut self) {
+            if self.ended.is_none() {
+                unsafe { libc::kill(self.pid, libc::SIGKILL) };
+            }
+        }
+
+        pub fn wait(&mut self) {
+            while self.ended.is_none() {
+                let mut status = 0;
+                match unsafe { libc::waitpid(self.pid, &mut status, 0) } {
+                    -1 if Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {}
+                    -1 => self.ended = Some(-1),
+                    _ => self.ended = Some(code(status)),
+                }
+            }
+        }
+    }
+
+    /// A pipe, both ends closed on exec, so that no other program the app starts takes either:
+    /// (read, write).
+    fn pipe() -> Result<(OwnedFd, OwnedFd)> {
+        let mut ends: [RawFd; 2] = [0; 2];
+        if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
+            return Err(Error::last_os_error());
+        }
+        let ends = unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+        for end in [&ends.0, &ends.1] {
+            if unsafe { libc::fcntl(std::os::fd::AsRawFd::as_raw_fd(end), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+                return Err(Error::last_os_error());
+            }
+        }
+        Ok(ends)
+    }
+
+    fn c_path(path: &Path) -> Result<CString> {
+        CString::new(path.as_os_str().as_bytes()).map_err(Error::other)
+    }
+
+    /// Starts `program` in its box, able to read and write `folder` and nothing else of the person's.
+    pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> Result<Spawned> {
+        start(program, args, folder, true)
+    }
+
+    /// Starts `program` in `folder` with its three pipes alone and an empty environment, and with
+    /// `boxed` waits until the system says its box holds.
+    pub fn start(program: &Path, args: &[&str], folder: &Path, boxed: bool) -> Result<Spawned> {
+        use std::os::fd::AsRawFd;
+        let (stdin, child_stdin) = {
+            let (read, write) = pipe()?;
+            (write, read)
+        };
+        let (stdout, child_stdout) = pipe()?;
+        let (stderr, child_stderr) = pipe()?;
+
+        let program_c = c_path(program)?;
+        let folder_c = c_path(folder)?;
+        let owned: Vec<CString> = std::iter::once(Ok(program_c.clone())).chain(args.iter().map(|arg| CString::new(*arg).map_err(Error::other))).collect::<Result<_>>()?;
+        let argv: Vec<*mut c_char> = owned.iter().map(|arg| arg.as_ptr() as *mut c_char).chain(std::iter::once(std::ptr::null_mut())).collect();
+        let envp: [*mut c_char; 1] = [std::ptr::null_mut()];
+
+        let mut pid: libc::pid_t = 0;
+        let spawned = unsafe {
+            let mut actions: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
+            let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
+            let mut result = libc::posix_spawn_file_actions_init(&mut actions);
+            if result == 0 {
+                result = libc::posix_spawnattr_init(&mut attributes);
+            }
+            if result == 0 {
+                for (from, to) in [(&child_stdin, 0), (&child_stdout, 1), (&child_stderr, 2)] {
+                    if result == 0 {
+                        result = libc::posix_spawn_file_actions_adddup2(&mut actions, from.as_raw_fd(), to);
+                    }
+                }
+            }
+            if result == 0 {
+                result = posix_spawn_file_actions_addchdir_np(&mut actions, folder_c.as_ptr());
+            }
+            if result == 0 {
+                // Every descriptor of the app's but the three closed, its signals as a new
+                // program's, and none held back.
+                let flags = libc::POSIX_SPAWN_CLOEXEC_DEFAULT | libc::POSIX_SPAWN_SETSIGDEF | libc::POSIX_SPAWN_SETSIGMASK;
+                result = libc::posix_spawnattr_setflags(&mut attributes, flags as libc::c_short);
+            }
+            if result == 0 {
+                let mut every: libc::sigset_t = std::mem::zeroed();
+                libc::sigfillset(&mut every);
+                result = libc::posix_spawnattr_setsigdefault(&mut attributes, &every);
+            }
+            if result == 0 {
+                let mut none: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut none);
+                result = libc::posix_spawnattr_setsigmask(&mut attributes, &none);
+            }
+            if result == 0 {
+                result = libc::posix_spawn(&mut pid, program_c.as_ptr(), &actions, &attributes, argv.as_ptr(), envp.as_ptr());
+            }
+            if !actions.is_null() {
+                libc::posix_spawn_file_actions_destroy(&mut actions);
+            }
+            if !attributes.is_null() {
+                libc::posix_spawnattr_destroy(&mut attributes);
+            }
+            result
+        };
+        if spawned != 0 {
+            return Err(Error::from_raw_os_error(spawned));
+        }
+        // The engine's ends are its own now.
+        drop((child_stdin, child_stdout, child_stderr));
+        let mut process = Process { pid, ended: None };
+        if boxed {
+            if let Err(error) = holds(&mut process, folder) {
+                process.kill();
+                process.wait();
+                return Err(error);
+            }
+        }
+        Ok(Spawned { stdin: File::from(stdin), stdout: File::from(stdout), stderr: File::from(stderr), process })
+    }
+
+    /// Waits for the engine to close its box behind it, and asks the system whether it holds:
+    /// that it's boxed, may not read the folder beside its own, where the app keeps its sealed
+    /// keys, and may not make a process. Until then nothing is sent to it.
+    fn holds(process: &mut Process, folder: &Path) -> Result<()> {
+        let check = sandbox_check().ok_or_else(|| Error::other("this macOS can't say whether a program is boxed"))?;
+        let beside = folder.canonicalize()?.parent().map(Path::to_path_buf).ok_or_else(|| Error::other("the engine's folder has none around it"))?;
+        let beside = c_path(&beside)?;
+        let deadline = Instant::now() + BOXING;
+        loop {
+            if unsafe { check(process.pid, std::ptr::null(), SANDBOX_FILTER_NONE) } == 1 {
+                // 1 is refused, and anything else, an error included, isn't.
+                let refused_data = unsafe { check(process.pid, c"file-read-data".as_ptr(), SANDBOX_FILTER_PATH, beside.as_ptr()) } == 1;
+                let refused_fork = unsafe { check(process.pid, c"process-fork".as_ptr(), SANDBOX_FILTER_NONE) } == 1;
+                if !refused_data || !refused_fork {
+                    return Err(Error::other("the engine's box doesn't hold: it may read the app's data or make a process"));
+                }
+                return Ok(());
+            }
+            if let Some(code) = process.try_wait()? {
+                return Err(Error::other(format!("it ended before it was boxed, with {code}")));
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::other("it didn't close its box in time"));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }
 
@@ -534,7 +760,7 @@ mod windows_box {
     }
 }
 
-#[cfg(all(test, any(windows, target_os = "linux")))]
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 
@@ -547,17 +773,21 @@ mod tests {
             return;
         };
         let base = std::env::temp_dir().join(format!("zuna-box-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        // By the name the system gives it, as the broker names it (`telegram::Engine::launch`).
+        #[cfg(target_os = "macos")]
+        let base = base.canonicalize().unwrap();
         let own = base.join("telegram");
         std::fs::create_dir_all(&own).unwrap();
         let secret = base.join("device-key.sealed");
         std::fs::write(&secret, b"secret").unwrap();
         let elsewhere = dirs::home_dir().unwrap();
         // A program's local socket outside the box, as the session's bus is.
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         let socket = base.join("bus");
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap(), socket.to_str().unwrap()];
         #[cfg(windows)]
         let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap()];
@@ -590,6 +820,10 @@ mod tests {
                 assert!(said("bindOther").starts_with("denied"), "bindOther is {}", said("bindOther"));
             }
             assert_eq!(found["dumpable"], 0, "it can't be dumped or attached to");
+        }
+        #[cfg(target_os = "macos")]
+        for key in ["bindOther", "udp", "localSocket", "signal", "ptrace", "fork", "services"] {
+            assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
         }
     }
 }

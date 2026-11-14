@@ -84,8 +84,8 @@ pub fn credentials() -> Option<Credentials> {
 static TEST_ENGINE: Mutex<Option<(PathBuf, Credentials)>> = Mutex::new(None);
 
 /// Whether this build can link a Telegram account at all.
-/// Only where the engine has its box (platform/sandbox.rs), which is Windows and Linux so far:
-/// elsewhere it would run unconfined, so there's no Telegram there yet.
+/// Only where the engine has its box (platform/sandbox.rs), which is Windows, Linux and macOS:
+/// elsewhere it would run unconfined, so there's no Telegram there.
 pub fn available() -> bool {
     credentials().is_some() && engine_path().is_some_and(|path| path.is_file()) && crate::platform::sandbox::supported()
 }
@@ -204,6 +204,10 @@ impl Engine {
         };
         let directory = folder(&self.data_dir);
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        // By the name the system gives it: Seatbelt holds the engine to its folder by that, and
+        // lets it follow no link on the way there, as /var's to /private/var is.
+        #[cfg(target_os = "macos")]
+        let directory = directory.canonicalize().map_err(|error| error.to_string())?;
 
         // In its box (platform/sandbox.rs): its folder, its pipes and nothing else of the person's.
         // The tests' stand-in for it is a program of the system's, which no box would let start.

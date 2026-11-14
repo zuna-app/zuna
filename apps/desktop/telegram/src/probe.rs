@@ -2,7 +2,7 @@
 //! the engine must refuse, and the one thing it must allow, and says how each went as one line of
 //! JSON on standard output. The app's test of the box starts it boxed and reads that
 //! (`src/platform/sandbox.rs`). It runs where the engine would, after its door's port is bound
-//! and, on Linux, its own half of the box closed (`main.rs`).
+//! and its own half of the box closed on Linux, and all of it on macOS (`main.rs`).
 //!
 //!   zuna-telegram --probe <its own folder> <a file it mustn't read> <a folder it mustn't list> [<a local socket it mustn't reach>]
 
@@ -83,7 +83,7 @@ pub fn run(args: &[String], door: TcpListener) {
             .status()
             .map(|status| format!("exited {status}")),
     );
-    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    #[cfg_attr(windows, allow(unused_mut))]
     let mut found = json!({
         "ownFolder": own_folder,
         "moveFile": move_file,
@@ -98,7 +98,68 @@ pub fn run(args: &[String], door: TcpListener) {
     });
     #[cfg(target_os = "linux")]
     linux(&mut found, args.get(3).cloned());
+    #[cfg(target_os = "macos")]
+    macos(&mut found, args.get(3).cloned());
     println!("{found}");
+}
+
+/// What only macOS's box has to refuse, as Windows' holds these by other means.
+#[cfg(target_os = "macos")]
+fn macos(found: &mut serde_json::Value, socket: Option<String>) {
+    use serde_json::Value;
+    use std::ffi::CString;
+    use std::net::{Ipv4Addr, UdpSocket};
+    unsafe extern "C" {
+        static bootstrap_port: u32;
+        fn bootstrap_look_up(bootstrap: u32, name: *const std::ffi::c_char, service: *mut u32) -> i32;
+    }
+    let errno = |result: libc::c_int, what: &str| -> std::io::Result<String> { if result < 0 { Err(std::io::Error::last_os_error()) } else { Ok(what.to_string()) } };
+    let parent = unsafe { libc::getppid() };
+    // The system's services, each reached by name through launchd: the keychain, the clipboard,
+    // the screen, the permissions, the names of the network, and who the person is. Denied.
+    let services = [
+        "com.apple.SecurityServer",
+        "com.apple.securityd.xpc",
+        "com.apple.pasteboard.1",
+        "com.apple.windowserver.active",
+        "com.apple.tccd",
+        "com.apple.dnssd.service",
+        "com.apple.system.opendirectoryd.libinfo",
+        "com.apple.coreservices.launchservicesd",
+    ];
+    let reached: Vec<&str> = services
+        .iter()
+        .copied()
+        .filter(|name| {
+            let name = CString::new(*name).unwrap();
+            let mut service = 0u32;
+            unsafe { bootstrap_look_up(bootstrap_port, name.as_ptr(), &mut service) == 0 }
+        })
+        .collect();
+    let more = json!({
+        // A port of its own besides the door, which would be a way in from the rest of the computer.
+        "bindOther": outcome(TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map(|listener| format!("{:?}", listener.local_addr()))),
+        "udp": outcome(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).and_then(|socket| socket.send_to(b"probe", (Ipv4Addr::new(1, 1, 1, 1), 53))).map(|_| "sent".to_string())),
+        // Another program's local socket: denied.
+        "localSocket": outcome(match &socket {
+            Some(path) => std::os::unix::net::UnixStream::connect(path).map(|_| format!("{path} connected")),
+            None => Err(std::io::Error::other("no socket was named")),
+        }),
+        // The app that started it, by a signal and by ptrace: denied.
+        "signal": outcome(errno(unsafe { libc::kill(parent, 0) }, "signalled the app")),
+        "ptrace": outcome(errno(unsafe { libc::ptrace(libc::PT_ATTACHEXC, parent, std::ptr::null_mut(), 0) }, "attached to the app")),
+        "fork": outcome({
+            let forked = unsafe { libc::fork() };
+            if forked == 0 {
+                unsafe { libc::_exit(0) };
+            }
+            errno(forked, "forked")
+        }),
+        "services": if reached.is_empty() { format!("denied: none of {}", services.len()) } else { format!("allowed: {}", reached.join(", ")) },
+    });
+    if let (Value::Object(found), Value::Object(more)) = (found, more) {
+        found.extend(more);
+    }
 }
 
 /// What only Linux's box has to refuse, as Windows' holds these by other means.
