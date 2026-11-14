@@ -65,7 +65,14 @@ impl AppState {
         }
         let preview = self.settings.notification_preview.clone();
         let conversation = self.servers.get(&server_id).and_then(|server| server.find_conversation(&key)).cloned();
-        let title = if preview == "none" { "Zuna".to_string() } else { text("title") };
+        let title = if preview == "none" {
+            "Zuna".to_string()
+        } else if server_id == crate::telegram::SERVER_ID {
+            // Never taken for a Zuna chat's: the person's or group's name says where it is.
+            format!("{} (Telegram)", text("title"))
+        } else {
+            text("title")
+        };
         let body = if preview == "full" { text("body") } else { "New message".to_string() };
         // The same picture as beside the chat in the list.
         let picture = if preview == "none" {

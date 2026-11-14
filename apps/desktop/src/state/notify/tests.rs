@@ -100,6 +100,22 @@ fn a_notification_says_as_much_as_the_preview_setting_lets_it(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn a_telegram_notification_says_it_is_telegrams(cx: &mut TestAppContext) {
+    let app = open(cx, &world("notify-telegram"));
+    let telegram = crate::telegram::SERVER_ID;
+    // The person's or the group's name says where it is, and the picture has the name's own initials.
+    app.event(cx, json!({ "type": "notify", "serverId": telegram, "conversationKey": "user:42", "title": "Grace Hopper", "body": "Are you there?", "messageId": "m-1" }));
+    app.event(cx, json!({ "type": "notify", "serverId": telegram, "conversationKey": "group:-7", "title": "Weekend trip", "body": "Grace Hopper: look", "messageId": "m-2" }));
+    let full = shown();
+    assert_eq!(said(&full), vec![("Grace Hopper (Telegram)".into(), "Are you there?".into()), ("Weekend trip (Telegram)".into(), "Grace Hopper: look".into())]);
+    assert_eq!(full[0].picture.as_ref().unwrap().initials, "GH");
+    // With no names shown, nothing says whose, nor where.
+    app.update(cx, |state, _| state.settings.notification_preview = "none".into());
+    app.event(cx, json!({ "type": "notify", "serverId": telegram, "conversationKey": "user:42", "title": "Grace Hopper", "body": "Again?", "messageId": "m-3" }));
+    assert_eq!(said(&shown()), vec![("Zuna".into(), "New message".into())]);
+}
+
+#[gpui::test]
 fn a_notification_waits_a_moment_for_its_chats_photo(cx: &mut TestAppContext) {
     let app = open(cx, &world("notify-photos"));
     let bob = format!("user:{BOB}");
