@@ -199,8 +199,26 @@ fn device_menu(voice: &Entity<Voice>, state: &Entity<AppState>, input: bool, pos
 
 /// A 16:9 tile as large as fits a cell.
 fn fit(cell_width: f32, cell_height: f32) -> (f32, f32) {
-    let width = cell_width.min(cell_height * 16. / 9.).max(1.);
-    (width, width * 9. / 16.)
+    fit_shape(cell_width, cell_height, 16. / 9.)
+}
+
+/// A tile of this shape, its width over its height, as large as fits a cell.
+fn fit_shape(cell_width: f32, cell_height: f32, shape: f32) -> (f32, f32) {
+    let width = cell_width.min(cell_height * shape).max(1.);
+    (width, width / shape)
+}
+
+/// The narrowest a shared screen's tile is drawn, where its cell has the room, which leaves its
+/// name and its buttons room beside each other.
+const SCREEN_MIN_WIDTH: f32 = 200.;
+
+/// A shared screen's tile, in the shape of its picture, as large as fits a cell: a phone's screen
+/// held upright is tall, where a 16:9 tile would leave it a strip down the middle. 16:9 until its
+/// first picture comes.
+fn fit_screen(tile: &VideoTile, cell_width: f32, cell_height: f32) -> (f32, f32) {
+    let shape = tile.feed.lock().as_ref().filter(|frame| frame.width > 0 && frame.height > 0).map(|frame| frame.width as f32 / frame.height as f32).unwrap_or(16. / 9.).clamp(0.25, 4.);
+    let (width, height) = fit_shape(cell_width, cell_height, shape);
+    (width.max(SCREEN_MIN_WIDTH.min(cell_width)), height)
 }
 
 impl Render for VoiceStage {
@@ -293,7 +311,9 @@ impl Render for VoiceStage {
                 tiles.push(self.watch_thumb(watch, tile_size, cx));
             }
             for tile in screens.iter().filter(|tile| Some(&tile.key) != focused.as_ref().map(|focused| &focused.key)) {
-                tiles.push(self.screen_tile(tile, false, tile_size, false, cx));
+                // In the strip as everyone else is, and in the grid in its own shape.
+                let size = if strip { tile_size } else { fit_screen(tile, cell.0, cell.1) };
+                tiles.push(self.screen_tile(tile, false, size, false, cx));
             }
             if let Some(share) = &native_self_share {
                 tiles.push(
@@ -351,7 +371,7 @@ impl Render for VoiceStage {
             } else if let Some(focused) = &focused {
                 let focus_size = (area_width, (area_height - STRIP_HEIGHT - GAP).max(80.));
                 let content = if focused.source == VideoSource::Screen {
-                    self.screen_tile(focused, true, fit(focus_size.0, focus_size.1), false, cx)
+                    self.screen_tile(focused, true, fit_screen(focused, focus_size.0, focus_size.1), false, cx)
                 } else {
                     let voice = self.voice.clone();
                     let video = self.video(focused, true);

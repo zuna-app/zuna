@@ -140,10 +140,16 @@ fn tile(key: &str, user: &str, source: crate::voice::room::VideoSource, sound: b
     crate::voice::room::VideoTile { key: key.into(), user_id: user.into(), identity: user.into(), source, local, sound, feed: feed(width, height) }
 }
 
-fn right_click(app: &App, cx: &mut TestAppContext, id: &str) -> Vec<String> {
+/// Where something is drawn.
+fn bounds(app: &App, cx: &mut TestAppContext, id: &str) -> gpui::Bounds<gpui::Pixels> {
     let selector: &'static str = Box::leak(id.to_string().into_boxed_str());
     let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
-    let at = window.debug_bounds(selector).unwrap_or_else(|| panic!("{id} is drawn")).center();
+    window.debug_bounds(selector).unwrap_or_else(|| panic!("{id} is drawn"))
+}
+
+fn right_click(app: &App, cx: &mut TestAppContext, id: &str) -> Vec<String> {
+    let at = bounds(app, cx, id).center();
+    let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
     window.simulate_event(gpui::MouseDownEvent { position: at, modifiers: gpui::Modifiers::none(), button: gpui::MouseButton::Right, click_count: 1, first_mouse: false });
     app.run(cx);
     cx.read(|cx| crate::ui::menu::open_labels(cx))
@@ -222,5 +228,15 @@ fn the_stages_videos_their_menus_focus_and_full_screen(cx: &mut TestAppContext) 
     // Someone's screen, from a right click on it.
     let labels = right_click(&app, cx, "screen-tile-bob-screen");
     assert!(labels.contains(&"Mute for me".to_string()));
+    // A share is drawn in the shape of its picture: a phone's held upright is tall, where a 16:9
+    // tile left it a strip down the middle, and fills the stage as tall as it has room for.
+    let shape = |bounds: gpui::Bounds<gpui::Pixels>| f32::from(bounds.size.width) / f32::from(bounds.size.height);
+    assert!((shape(bounds(&app, cx, "screen-tile-bob-screen")) - 16. / 9.).abs() < 0.02);
+    let among = bounds(&app, cx, "screen-tile-my-screen");
+    assert!(shape(among) < 1., "a tall share's tile is tall among the others: {among:?}");
+    set(&app, cx, |voice| voice.focus = Some("my-screen".into()));
+    let filling = bounds(&app, cx, "screen-tile-my-screen");
+    assert!((shape(filling) - 400. / 600.).abs() < 0.02 && filling.size.height > among.size.height, "and filling the stage: {filling:?}");
+    set(&app, cx, |voice| voice.focus = None);
     set(&app, cx, |voice| voice.videos.clear());
 }
