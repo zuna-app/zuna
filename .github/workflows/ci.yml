@@ -88,8 +88,9 @@ jobs:
   ios:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'ios') }}
     runs-on: xcode-27
-    # TDLib for the Telegram helper takes a while more the first time on a runner.
-    timeout-minutes: 150
+    # Building TDLib for the Telegram helper, when its cache misses, took 92 of the
+    # job's 151 minutes on 2026-11-14; from the cache the job takes about an hour.
+    timeout-minutes: 210
     # With the app's api_id, the app's builds here have the Telegram helper (apps/ios/telegram.yml).
     env:
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
