@@ -207,13 +207,36 @@ struct ConversationDetails: View {
                 .accessibilityIdentifier(A11y.Details.report)
             }
 
+            if conversation.kind == .group, serverId == ServerEntry.telegram {
+                // A link that lets people join a Telegram group, as its own apps make one.
+                Section {
+                    Button {
+                        let groupId = conversation.groupId ?? ""
+                        Task {
+                            do {
+                                let link = try await model.core.session(ServerEntry.telegram).groupInviteLink(groupId)
+                                UIPasteboard.general.string = link
+                                model.toast("Copied a link to join \(conversation.title).")
+                            } catch {
+                                model.toast(ErrorText.describe(error), .error)
+                            }
+                        }
+                    } label: {
+                        Label("Copy a link to join", systemImage: "link")
+                    }
+                    .accessibilityIdentifier(A11y.Telegram.inviteLink)
+                }
+                .listRowBackground(Theme.bg2)
+            }
+
             if conversation.kind == .group {
                 Section {
                     Button(role: .destructive) { confirming = .leave } label: {
                         Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right")
                     }
                     .accessibilityIdentifier(A11y.Details.leave)
-                    if isAdmin {
+                    // Telegram's groups are deleted in Telegram's own app.
+                    if isAdmin, serverId != ServerEntry.telegram {
                         Button(role: .destructive) { confirming = .delete } label: {
                             Label("Delete group for everyone", systemImage: "trash")
                         }

@@ -486,6 +486,7 @@ struct RoundVideoCard: View {
         Task {
             do {
                 try await player.play(file, id: attachment.fileId, from: 0, video: true)
+                if serverId == ServerEntry.telegram { model.markTelegramListened(messageId) }
             } catch {
                 model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)
             }

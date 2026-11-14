@@ -158,7 +158,10 @@ struct ForwardSheet: View {
 
     private var sections: [(server: AppModel.ServerState, chats: [ConversationView])] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return ([serverId] + model.order.filter { $0 != serverId })
+        // Nothing crosses between Telegram and Zuna's servers: from Telegram, its own chats alone.
+        let telegram = ServerEntry.telegram
+        let places = serverId == telegram ? [telegram] : [serverId] + model.order.filter { $0 != serverId && $0 != telegram }
+        return places
             .compactMap { model.servers[$0] }
             .map { server in
                 (server, server.allConversations.filter { chat in

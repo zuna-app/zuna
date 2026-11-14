@@ -71,6 +71,9 @@ struct ChatListView: View {
     /// From a key press until the message hits are in, so "Nothing matches" waits for them.
     @State private var searchingMessages = false
     @State private var sheet: ListSheet?
+    /// A link to a Telegram group being typed, to join it.
+    @State private var joiningTelegram = false
+    @State private var telegramLink = ""
     /// A chat whose mute is being chosen, from its swipe action.
     @State private var muting: MutingTarget?
     @State private var deletingChannel: ChannelView?
@@ -130,14 +133,49 @@ struct ChatListView: View {
             }
             ToolbarItem(placement: .principal) { serverMenu }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    sheet = .newGroup
-                } label: {
-                    Image(systemName: "square.and.pencil")
+                if model.showsTelegram {
+                    // A Telegram group is made here, or joined by the link its people give out.
+                    Menu {
+                        Button("New group", systemImage: "person.3") { sheet = .newGroup }
+                            .accessibilityIdentifier(A11y.Shell.newGroup)
+                        Button("Join a group by link", systemImage: "link") {
+                            telegramLink = ""
+                            joiningTelegram = true
+                        }
+                        .accessibilityIdentifier(A11y.Telegram.joinByLink)
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .accessibilityLabel("New group or join one")
+                } else {
+                    Button {
+                        sheet = .newGroup
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .accessibilityLabel("New group")
+                    .accessibilityIdentifier(A11y.Shell.newGroup)
                 }
-                .accessibilityLabel("New group")
-                .accessibilityIdentifier(A11y.Shell.newGroup)
             }
+        }
+        .alert("Join a Telegram group", isPresented: $joiningTelegram) {
+            TextField("t.me/+…", text: $telegramLink)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Join") {
+                let link = telegramLink
+                Task {
+                    do {
+                        let key = try await model.core.session(ServerEntry.telegram).joinByLink(link)
+                        model.openChat(key)
+                    } catch {
+                        model.toast(ErrorText.describe(error), .error)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Paste a link to a Telegram group. Channels are only in Telegram's own app.")
         }
         .sheet(item: $sheet) { sheet in
             if let serverId = model.activeServerId {

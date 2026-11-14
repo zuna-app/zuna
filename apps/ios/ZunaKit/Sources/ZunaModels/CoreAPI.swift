@@ -102,6 +102,24 @@ public struct SessionCalls: Sendable {
     public func enterPassword(_ password: String) async throws { try await run("enterPassword", [password]) }
     /// Joins a Telegram group by its invite link, and gives the chat's key.
     public func joinByLink(_ link: String) async throws -> String { try await call("joinByLink", [link]) }
+    /// A link to a Telegram group that lets people join it.
+    public func groupInviteLink(_ groupId: String) async throws -> String { try await call("createInvite", [groupId]) }
+    /// The account's own sticker sets, each with a picture of its first sticker.
+    public func getStickerSets() async throws -> [TelegramStickerSet] { try await call("getStickerSets") }
+    public func getStickers(_ setId: String) async throws -> [TelegramSticker] { try await call("getStickers", [setId]) }
+    public func sendSticker(_ conversationKey: String, _ sticker: TelegramSticker) async throws {
+        try await run("sendSticker", [conversationKey, sticker.file, sticker.emoji, sticker.width, sticker.height])
+    }
+    /// The draft Telegram keeps for a chat, which the account's other devices see too.
+    public func getDraft(_ conversationKey: String) async throws -> String { try await call("getDraft", [conversationKey]) }
+    public func saveDraft(_ conversationKey: String, _ text: String) async throws { try await run("saveDraft", [conversationKey, text]) }
+    /// How Telegram lets a message go: for everyone, for this account alone, or neither.
+    public func deleteChoices(_ groupId: String, id: String) async throws -> TelegramDeleteChoices { try await call("deleteChoices", [groupId, id]) }
+    public func deleteMessages(_ groupId: String, ids: [String], forEveryone: Bool) async throws { try await run("deleteMessages", [groupId, ids, forEveryone]) }
+    /// Forwards messages between the Telegram account's own chats, as nothing crosses to a server's.
+    public func forwardWithin(_ groupId: String, ids: [String], to conversationKey: String) async throws { try await run("forwardMessages", [groupId, ids, conversationKey]) }
+    /// A voice or video message played, which Telegram marks as listened to.
+    public func markListened(_ groupId: String, id: String) async throws { try await run("markListened", [groupId, id]) }
     /// Whether a device that signed in after this one was the person. One that wasn't is removed.
     public func answerNewDevice(_ deviceId: String, mine: Bool) async throws { try await run("answerNewDevice", [deviceId, mine]) }
 

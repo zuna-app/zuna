@@ -21,6 +21,8 @@ struct ChatScreen: View {
     @State private var confirmingDelete = false
     /// One message to delete for everyone, from its menu, which can't be undone, so it's asked first.
     @State private var deletingOne: MessageView?
+    /// How Telegram lets the message being deleted go, once asked.
+    @State private var deleteChoices: TelegramDeleteChoices?
     /// How wide the chat is, for whether a channel's member list fits beside it.
     @State private var width: CGFloat = 0
     @AppStorage(AppSettings.memberListHiddenKey) private var memberListHidden = false
@@ -145,8 +147,16 @@ struct ChatScreen: View {
             }
         }
         .task(id: listId) {
-            if let groupId = conversation.groupId { model.catchUpFirst(serverId: serverId, groupId: groupId) }
+            if server.entry.isTelegram {
+                // The draft Telegram keeps for it, written on another of the account's devices.
+                await model.loadTelegramDraft(conversation.key)
+            } else if let groupId = conversation.groupId {
+                model.catchUpFirst(serverId: serverId, groupId: groupId)
+            }
             await model.loadList(serverId, listId, groupId: conversation.groupId)
+        }
+        .onDisappear {
+            if server.entry.isTelegram { model.saveTelegramDraft(conversation.key) }
         }
         // Files dragged onto the chat go into the composer, as on the desktop.
         .dropDestination(for: DroppedFile.self) { files, _ in
@@ -170,12 +180,13 @@ struct ChatScreen: View {
             case let .editChannel(id):
                 ChannelEditor(serverId: serverId, target: .edit(channelId: id))
             case let .react(messageId):
-                EmojiPicker(server: server) { pick in
+                EmojiPicker(server: server, reacting: true) { pick in
                     self.sheet = nil
                     guard let groupId = conversation.groupId else { return }
                     let (key, emote): (String, EmoteRef?) = switch pick {
                     case let .emoji(value): (value, nil)
                     case let .emote(emote): (emote.name, EmoteRef(id: emote.id, animated: emote.animated, zeroWidth: emote.zeroWidth, owner: emote.owner))
+                    case let .sticker(sticker): (sticker.emoji, nil)
                     }
                     run { try await model.core.session(serverId).toggleReaction(groupId, messageId: messageId, key: key, emote: emote) }
                 }
@@ -183,20 +194,39 @@ struct ChatScreen: View {
             }
         }
         .confirmationDialog(
-            "Delete this message for everyone?",
-            isPresented: Binding(get: { deletingOne != nil }, set: { if !$0 { deletingOne = nil } }),
+            server.entry.isTelegram ? "Delete this message?" : "Delete this message for everyone?",
+            isPresented: Binding(get: { deletingOne != nil && (!server.entry.isTelegram || deleteChoices != nil) }, set: { if !$0 { deletingOne = nil; deleteChoices = nil } }),
             titleVisibility: .visible,
             presenting: deletingOne
         ) { message in
-            Button("Delete for everyone", role: .destructive) {
-                run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) }
+            if server.entry.isTelegram {
+                // As Telegram allows it: for everyone, or for this account alone, saying which.
+                if deleteChoices?.forEveryone == true {
+                    Button("Delete for everyone", role: .destructive) {
+                        run { try await model.core.session(serverId).deleteMessages(message.groupId, ids: [message.id], forEveryone: true) }
+                    }
+                }
+                if deleteChoices?.forSelf == true || deleteChoices?.forEveryone == false {
+                    Button("Delete for me", role: .destructive) {
+                        run { try await model.core.session(serverId).deleteMessages(message.groupId, ids: [message.id], forEveryone: false) }
+                    }
+                }
+            } else {
+                Button("Delete for everyone", role: .destructive) {
+                    run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) }
+                }
             }
+        }
+        .task(id: deletingOne?.id) {
+            guard server.entry.isTelegram, let message = deletingOne else { return }
+            deleteChoices = (try? await model.core.session(serverId).deleteChoices(message.groupId, id: message.id)) ?? TelegramDeleteChoices(forEveryone: false, forSelf: true)
         }
         .onChange(of: conversation.ownRead) {
             markRead(serverId, conversation)
         }
         .onChange(of: scenePhase) {
             markRead(serverId, conversation)
+            if scenePhase != .active, server.entry.isTelegram { model.saveTelegramDraft(conversation.key) }
         }
     }
 
@@ -410,6 +440,7 @@ struct ChatScreen: View {
             },
             openChat: { model.openChat($0) },
             isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin,
+            deletesAny: server.entry.isTelegram,
             editChannel: server.channel(conversation.key).flatMap { editChannel(server, $0) }
         )
         return MessageListView(
@@ -457,7 +488,8 @@ struct ChatScreen: View {
         let picked = list.items.filter { ids.contains($0.id) && $0.deletedAt == nil }
         let selfId = server.me?.userId
         let isAdmin = conversation.members.first { $0.userId == selfId }?.role == .admin
-        let canDelete = !picked.isEmpty && picked.allSatisfy { $0.senderId == selfId || (conversation.kind != .dm && isAdmin) }
+        // Telegram lets anything go for this account alone, and decides what goes for everyone.
+        let canDelete = !picked.isEmpty && (server.entry.isTelegram || picked.allSatisfy { $0.senderId == selfId || (conversation.kind != .dm && isAdmin) })
         return HStack(spacing: 4) {
             Button("Cancel") { selection = nil }
                 .padding(.horizontal, 8)
@@ -501,12 +533,26 @@ struct ChatScreen: View {
         .onChange(of: picked.isEmpty) { _, empty in
             if empty { selection = nil }
         }
-        .confirmationDialog("Delete \(picked.count == 1 ? "this message" : "\(picked.count) messages") for everyone?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete for everyone", role: .destructive) {
-                guard let groupId = conversation.groupId else { return }
-                let serverId = server.entry.id
-                selection = nil
-                run { try await model.core.session(serverId).deleteMessages(groupId, ids: picked.map(\.id)) }
+        .confirmationDialog("Delete \(picked.count == 1 ? "this message" : "\(picked.count) messages")\(server.entry.isTelegram ? "" : " for everyone")?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            if server.entry.isTelegram {
+                // What Telegram lets go for everyone does; the rest goes for this account alone.
+                Button("Delete for everyone", role: .destructive) {
+                    guard let groupId = conversation.groupId else { return }
+                    selection = nil
+                    run { try await model.core.session(ServerEntry.telegram).deleteMessages(groupId, ids: picked.map(\.id), forEveryone: true) }
+                }
+                Button("Delete for me", role: .destructive) {
+                    guard let groupId = conversation.groupId else { return }
+                    selection = nil
+                    run { try await model.core.session(ServerEntry.telegram).deleteMessages(groupId, ids: picked.map(\.id), forEveryone: false) }
+                }
+            } else {
+                Button("Delete for everyone", role: .destructive) {
+                    guard let groupId = conversation.groupId else { return }
+                    let serverId = server.entry.id
+                    selection = nil
+                    run { try await model.core.session(serverId).deleteMessages(groupId, ids: picked.map(\.id)) }
+                }
             }
         }
     }

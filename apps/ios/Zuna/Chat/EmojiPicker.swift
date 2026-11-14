@@ -16,10 +16,11 @@ struct EmojiCategory: Decodable, Identifiable {
     }()
 }
 
-/// What was picked: an emoji, or one of the server's emotes.
+/// What was picked: an emoji, one of the server's emotes, or one of a Telegram account's stickers.
 enum EmojiPick {
     case emoji(String)
     case emote(Emote)
+    case sticker(TelegramSticker)
 }
 
 /// The server's emotes and the emoji, with search, as on the desktop. Opens as a sheet.
@@ -27,16 +28,21 @@ struct EmojiPicker: View {
     let server: AppModel.ServerState
     let onPick: (EmojiPick) -> Void
 
-    enum Tab: Hashable { case emotes, emoji }
+    enum Tab: Hashable { case emotes, emoji, stickers }
 
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab
     @State private var query = ""
 
-    init(server: AppModel.ServerState, onPick: @escaping (EmojiPick) -> Void) {
+    /// Picking a reaction, which a sticker can't be.
+    private let reacting: Bool
+
+    init(server: AppModel.ServerState, reacting: Bool = false, onPick: @escaping (EmojiPick) -> Void) {
         self.server = server
+        self.reacting = reacting
         self.onPick = onPick
-        _tab = State(initialValue: server.emotes.emotes.isEmpty ? .emoji : .emotes)
+        let stickers = server.entry.isTelegram && !reacting
+        _tab = State(initialValue: stickers ? .stickers : server.emotes.emotes.isEmpty ? .emoji : .emotes)
     }
 
     var body: some View {
@@ -44,16 +50,21 @@ struct EmojiPicker: View {
         NavigationStack {
             VStack(spacing: 10) {
                 Picker("Show", selection: $tab) {
-                    Text(server.emotes.setName.isEmpty ? "Server emotes" : server.emotes.setName).tag(Tab.emotes)
+                    // A Telegram account has its own sticker sets, and no server's emotes.
+                    if server.entry.isTelegram {
+                        if !reacting { Text("Stickers").tag(Tab.stickers) }
+                    } else {
+                        Text(server.emotes.setName.isEmpty ? "Server emotes" : server.emotes.setName).tag(Tab.emotes)
+                    }
                     Text("Emoji").tag(Tab.emoji)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 ScrollView {
-                    if tab == .emotes {
-                        emotes(needle)
-                    } else {
-                        emoji(needle)
+                    switch tab {
+                    case .emotes: emotes(needle)
+                    case .emoji: emoji(needle)
+                    case .stickers: TelegramStickers(onPick: { onPick(.sticker($0)) })
                     }
                 }
             }

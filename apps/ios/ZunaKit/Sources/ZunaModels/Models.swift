@@ -929,6 +929,33 @@ extension TelegramLink: Codable {
     }
 }
 
+/// One of the Telegram account's own sticker sets. `cover` is a file to download, as `tg:<n>`.
+public struct TelegramStickerSet: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var title: String
+    public var cover: String?
+}
+
+/// A sticker of a set: the file sending it takes, the picture shown of it, as `tg:<n>`, and its emoji.
+public struct TelegramSticker: Codable, Sendable, Equatable, Hashable {
+    public var file: Int
+    public var picture: String
+    public var emoji: String
+    public var width: Int
+    public var height: Int
+}
+
+/// How Telegram lets a message be deleted.
+public struct TelegramDeleteChoices: Codable, Sendable, Equatable {
+    public var forEveryone: Bool
+    public var forSelf: Bool
+
+    public init(forEveryone: Bool, forSelf: Bool) {
+        self.forEveryone = forEveryone
+        self.forSelf = forSelf
+    }
+}
+
 /// What unlinking the Telegram account came to: whether Telegram was told, or the session is to be ended from another device.
 public struct TelegramUnlinked: Codable, Sendable, Equatable {
     public var signedOut: Bool

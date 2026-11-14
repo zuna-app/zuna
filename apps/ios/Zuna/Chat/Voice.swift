@@ -431,6 +431,7 @@ struct VoiceCard: View {
                     loading = false
                 }
                 try await player.play(file!, id: attachment.fileId, from: time)
+                if serverId == ServerEntry.telegram { model.markTelegramListened(messageId) }
             } catch {
                 loading = false
                 model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)

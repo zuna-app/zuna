@@ -81,6 +81,8 @@ enum A11y {
         static let problem = "telegram.problem"
         static let connections = "telegram.connections"
         static let unlink = "telegram.unlink"
+        static let joinByLink = "telegram.joinByLink"
+        static let inviteLink = "telegram.inviteLink"
     }
 
     enum ChatList {

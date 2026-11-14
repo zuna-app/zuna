@@ -77,6 +77,32 @@ extension AppModel {
         }
     }
 
+    /// The draft Telegram keeps for a chat, put in its box when nothing's being written there.
+    func loadTelegramDraft(_ key: String) async {
+        let telegram = ServerEntry.telegram
+        guard composer(telegram, key).text.isEmpty, let draft = try? await core.session(telegram).getDraft(key), !draft.isEmpty else { return }
+        updateComposer(telegram, key) { state in
+            if state.text.isEmpty, state.editing == nil { state.text = draft }
+        }
+    }
+
+    /// What's in a chat's box, kept on Telegram as its draft, so the account's other devices have it.
+    func saveTelegramDraft(_ key: String) {
+        let telegram = ServerEntry.telegram
+        let state = composer(telegram, key)
+        guard state.editing == nil, servers[telegram] != nil else { return }
+        let text = state.text
+        Task { try? await core.session(telegram).saveDraft(key, text) }
+    }
+
+    /// A voice or video message played, which Telegram marks as listened to, as its own apps do.
+    func markTelegramListened(_ messageId: String) {
+        let telegram = ServerEntry.telegram
+        let prefix = "\(telegram)/"
+        guard let groupId = lists.first(where: { $0.key.hasPrefix(prefix) && $0.value.items.contains { $0.id == messageId } })?.value.items.first(where: { $0.id == messageId })?.groupId else { return }
+        Task { try? await core.session(telegram).markListened(groupId, id: messageId) }
+    }
+
     /// Signs the Telegram account out, which ends its session at Telegram if it can, and erases everything of it here.
     func unlinkTelegram() async {
         do {

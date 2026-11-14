@@ -249,7 +249,12 @@ extension AppModel {
     func forward(_ messages: [MessageView], from serverId: String, to targetServerId: String, _ conversation: ConversationView) async {
         guard let groupId = messages.first?.groupId else { return }
         do {
-            try await core.forwardMessages(from: serverId, groupId: groupId, ids: messages.map(\.id), to: targetServerId, conversationKey: conversation.key)
+            if serverId == ServerEntry.telegram {
+                // Between Telegram's own chats, as Telegram forwards.
+                try await core.session(serverId).forwardWithin(groupId, ids: messages.map(\.id), to: conversation.key)
+            } else {
+                try await core.forwardMessages(from: serverId, groupId: groupId, ids: messages.map(\.id), to: targetServerId, conversationKey: conversation.key)
+            }
             toast("Forwarded to \(conversation.title)")
         } catch {
             toast(ErrorText.describe(error), .error)

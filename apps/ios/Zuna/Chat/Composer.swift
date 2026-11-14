@@ -227,6 +227,15 @@ struct Composer: View {
         }
         .sheet(isPresented: $picking) {
             EmojiPicker(server: server) { pick in
+                if case let .sticker(sticker) = pick {
+                    // Sent at once, as Telegram's apps send a sticker.
+                    picking = false
+                    let key = conversation.key
+                    Task {
+                        do { try await model.core.session(serverId).sendSticker(key, sticker) } catch { model.toast(ErrorText.describe(error), .error) }
+                    }
+                    return
+                }
                 insert(pick)
                 if case .emote = pick { picking = false }
             }
@@ -707,6 +716,8 @@ struct Composer: View {
         case let .emote(emote):
             addition = "\(emote.name) "
             if !before.isEmpty, before.last?.isWhitespace == false { addition = " " + addition }
+        case .sticker:
+            return
         }
         let next = before + addition + after
         model.updateComposer(serverId, conversation.key) { $0.text = next }

@@ -63,6 +63,8 @@ struct ChatActions {
     var openChat: (_ conversationKey: String) -> Void = { _ in }
     /// You can delete others' messages here: you're an admin of this group, or of the server in a channel.
     var isGroupAdmin = false
+    /// Any message can go, for this account at least, as on a linked Telegram account.
+    var deletesAny = false
     /// Edits the channel, for a server admin, from its welcome.
     var editChannel: (() -> Void)?
 }
@@ -764,9 +766,10 @@ struct MessageMenu: View {
             Button("Try again", systemImage: "arrow.clockwise") { actions.retry(message.id) }
             Button("Discard", systemImage: "trash", role: .destructive) { actions.discard(message.id) }
         }
-        if canAct && (own || (context.isGroup && actions.isGroupAdmin)) {
+        if canAct && (own || (context.isGroup && actions.isGroupAdmin) || actions.deletesAny) {
             Divider()
-            Button("Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
+            // On Telegram, the chat asks how it may go: for everyone, or for this account alone.
+            Button(actions.deletesAny ? "Delete" : "Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
         }
     }
 }
