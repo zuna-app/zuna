@@ -5,9 +5,11 @@ import ZunaModels
 /// Telegram's terms keep its logo for its own apps, and as the desktop's rail draws it.
 struct TelegramIcon: View {
     var size: CGFloat
+    /// The symbol it's drawn with, which its tab wears too: not Chats' bubbles, nor Telegram's plane.
+    static let symbol = "ellipsis.bubble.fill"
 
     var body: some View {
-        Image(systemName: "bubble.left.and.bubble.right.fill")
+        Image(systemName: Self.symbol)
             .font(.system(size: size * 0.42, weight: .medium))
             .foregroundStyle(Theme.text1)
             .frame(width: size, height: size)

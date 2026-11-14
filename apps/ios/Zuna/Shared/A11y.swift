@@ -54,6 +54,7 @@ enum A11y {
         static let channelsTab = "shell.tab.channels"
         static let servers = "shell.servers"
         static let settingsTab = "shell.tab.settings"
+        static let telegramTab = "shell.tab.telegram"
         static let newGroup = "shell.newGroup"
         static let title = "shell.title"
     }

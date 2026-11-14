@@ -49,21 +49,29 @@ struct MainView: View {
     private var compact: some View {
         @Bindable var model = model
         return TabView(selection: $model.tab) {
-            // Telegram's channels stay in Telegram's own app.
-            if !model.showsTelegram {
+            if model.hasServers {
                 Tab("Channels", systemImage: "number", value: AppModel.Tab.channels) {
                     ChannelsTab()
                 }
                 // The open server's alone, as the server button carries the others'.
-                .badge(model.activeServer?.channelMentions ?? 0)
+                .badge(model.chatsServer?.channelMentions ?? 0)
                 .accessibilityIdentifier(A11y.Shell.channelsTab)
+
+                Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
+                    ChatsTab()
+                }
+                .badge(model.chatsServer?.chatsUnread ?? 0)
+                .accessibilityIdentifier(A11y.Shell.chatsTab)
             }
 
-            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
-                ChatsTab()
+            // The Telegram account linked here, a tap away (docs/TELEGRAM_PLAN.md).
+            if let telegram = model.telegram {
+                Tab("Telegram", systemImage: TelegramIcon.symbol, value: AppModel.Tab.telegram) {
+                    TelegramTab()
+                }
+                .badge(telegram.chatsUnread)
+                .accessibilityIdentifier(A11y.Shell.telegramTab)
             }
-            .badge(model.activeServer?.chatsUnread ?? 0)
-            .accessibilityIdentifier(A11y.Shell.chatsTab)
 
             Tab("Settings", systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
                 SettingsView()
@@ -74,8 +82,22 @@ struct MainView: View {
         .sheet(isPresented: $model.joining) {
             JoinFlow(embedded: true)
         }
-        .onChange(of: model.showsTelegram) { _, telegram in
-            if telegram, model.tab == .channels { model.tab = .chats }
+        // With no server joined but Telegram, its tab is where the app opens.
+        .onAppear {
+            if !model.hasServers, model.telegram != nil, model.tab != .settings { model.tab = .telegram }
+        }
+    }
+}
+
+/// Telegram's tab on a phone: the linked account's chats, with a place of their own.
+private struct TelegramTab: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        NavigationStack(path: $model.telegramPath) {
+            ChatListView()
+                .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
         }
     }
 }

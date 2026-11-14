@@ -146,7 +146,9 @@ final class AppModel {
         let message: String
     }
 
-    enum Tab: Hashable { case chats, channels, settings }
+    /// The bottom bar's tabs on a phone. Telegram's is there while an account is linked, so its
+    /// chats are a tap away rather than in the list of servers.
+    enum Tab: Hashable { case chats, channels, telegram, settings }
 
     private(set) var servers: [String: ServerState] = [:]
     private(set) var order: [String] = []
@@ -161,7 +163,32 @@ final class AppModel {
     }
     /// The person is online on the server shown alone, as Telegram is only in the account shown.
     @ObservationIgnored var onActiveServerChanged: (() -> Void)?
-    var tab: Tab = .chats
+    var tab: Tab = .chats {
+        didSet {
+            guard tab != oldValue else { return }
+            let telegram = ServerEntry.telegram
+            if tab == .telegram, servers[telegram] != nil, activeServerId != telegram {
+                // The server shown before stays the one Chats and Channels come back to.
+                lastServer = activeServerId
+                activeServerId = telegram
+            } else if tab == .chats || tab == .channels, activeServerId == telegram {
+                activeServerId = lastServer.flatMap { servers[$0] == nil ? nil : $0 } ?? order.first { $0 != telegram }
+            }
+        }
+    }
+    /// The server Chats and Channels show while Telegram's tab is open.
+    @ObservationIgnored private var lastServer: String?
+    /// Telegram's chats and their details, opened from its tab.
+    var telegramPath: [ChatRoute] = []
+
+    /// The server Chats and Channels show: the one open, or the one before Telegram's tab was.
+    var chatsServer: ServerState? {
+        if activeServerId == ServerEntry.telegram { return lastServer.flatMap { servers[$0] } ?? order.first { $0 != ServerEntry.telegram }.flatMap { servers[$0] } }
+        return activeServer
+    }
+
+    /// Whether any server is joined, beside a Telegram account, for Chats and Channels to show.
+    var hasServers: Bool { order.contains { $0 != ServerEntry.telegram } }
     /// The welcome screens: until the first server is joined, and again if none are left.
     private(set) var onboarding = false
     /// While the join screens are signing up or in. They decide when they're
@@ -181,9 +208,13 @@ final class AppModel {
 
     /// The screens opened from the tab on show: chats or channels, and their details.
     var chatPath: [ChatRoute] {
-        get { tab == .channels ? channelsPath : chatsPath }
+        get { tab == .channels ? channelsPath : tab == .telegram ? telegramPath : chatsPath }
         set {
-            if tab == .channels { channelsPath = newValue } else { chatsPath = newValue }
+            switch tab {
+            case .channels: channelsPath = newValue
+            case .telegram: telegramPath = newValue
+            default: chatsPath = newValue
+            }
         }
     }
 
@@ -191,7 +222,7 @@ final class AppModel {
     /// A channel opens on the Channels tab, anything else on Chats; `channel` says
     /// which where the model may not know yet, as for a channel just made.
     func openChat(_ conversationKey: String, channel: Bool? = nil) {
-        tab = (channel ?? (activeServer?.channel(conversationKey) != nil)) ? .channels : .chats
+        tab = activeServerId == ServerEntry.telegram ? .telegram : (channel ?? (activeServer?.channel(conversationKey) != nil)) ? .channels : .chats
         chatPath = [.chat(conversationKey)]
         // Opening a chat marked as unread takes the mark off, as in Telegram.
         if let serverId = activeServerId, servers[serverId]?.conversation(conversationKey)?.markedUnread == true {
@@ -309,13 +340,14 @@ final class AppModel {
     }
 
     /// What's unread on the servers that aren't open, for the server button, as the desktop's rail counts them.
+    /// Telegram's counts on its own tab.
     var otherServersUnread: Int {
-        servers.values.reduce(0) { $0 + ($1.entry.id == activeServerId ? 0 : $1.unread) }
+        servers.values.reduce(0) { $0 + ($1.entry.id == activeServerId || $1.entry.isTelegram ? 0 : $1.unread) }
     }
 
     /// Something new on a server that isn't open, though nothing that counts, for the server button's dot.
     var otherServersHaveNew: Bool {
-        servers.values.contains { $0.entry.id != activeServerId && $0.hasNew }
+        servers.values.contains { $0.entry.id != activeServerId && !$0.entry.isTelegram && $0.hasNew }
     }
 
 
@@ -351,6 +383,8 @@ final class AppModel {
             if activeServerId.map({ servers[$0] == nil }) ?? true {
                 activeServerId = AppSettings.lastServer.flatMap { servers[$0] == nil ? nil : $0 } ?? order.first
             }
+            // Telegram's chats show on its own tab, which is where the app opens when they were shown last.
+            if activeServerId == ServerEntry.telegram, tab == .chats || tab == .channels { tab = .telegram }
             if order.isEmpty {
                 onboarding = true
             } else if !accountFlowActive {
@@ -497,8 +531,17 @@ final class AppModel {
 
     /// Makes a server the active one, for its chats and its settings.
     func selectServer(_ serverId: String) {
-        if serverId != activeServerId { closeChats() }
+        let telegram = ServerEntry.telegram
+        if serverId == telegram {
+            // Telegram's tab, which keeps its own place.
+            if activeServerId != telegram { lastServer = activeServerId }
+            activeServerId = telegram
+            tab = .telegram
+            return
+        }
+        if serverId != (activeServerId == telegram ? lastServer : activeServerId) { closeChats() }
         activeServerId = serverId
+        if tab == .telegram { tab = .chats }
     }
 
     /// Back to the lists on both tabs, as when the server changes.
@@ -696,6 +739,10 @@ final class AppModel {
         readsWanted = readsWanted.filter { !$0.key.hasPrefix(prefix) }
         order.removeAll { $0 == serverId }
         signedIn.removeAll { $0 == serverId }
+        if serverId == ServerEntry.telegram {
+            telegramPath = []
+            if tab == .telegram { tab = .chats }
+        }
         if activeServerId == serverId {
             closeChats()
             activeServerId = order.first
