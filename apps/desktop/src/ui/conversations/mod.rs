@@ -296,6 +296,11 @@ impl Render for ConversationList {
         let is_admin = server.is_admin();
         // The Telegram account linked here has no invites, settings or new groups yet: its menu unlinks it.
         let telegram = server.entry.is_telegram();
+        let name_width = {
+            let font = gpui::Font { weight: FontWeight::SEMIBOLD, ..gpui::font(crate::theme::FONT_UI) };
+            let run = gpui::TextRun { len: server.entry.name.len(), font, color: theme.text1, background_color: None, underline: None, strikethrough: None };
+            f32::from(window.text_system().shape_line(server.entry.name.clone().into(), px(15.), &[run], None).width)
+        };
         let header = div()
             .flex()
             .flex_none()
@@ -357,7 +362,11 @@ impl Render for ConversationList {
                         let at = title_bounds.get();
                         super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
                     })
-                    .child(div().min_w_0().one_line().child(server.entry.name.clone()))
+                    // As wide as the name, rounded up and a pixel over: laid out as wide as its own
+                    // text, the box can come out a fraction of a pixel narrower once rounded to
+                    // pixels, where it is, which wrapped it and cut "Telegram" to "Telegr…" with
+                    // all the room beside it. It still shrinks, to an ellipsis, where there isn't.
+                    .child(div().flex_basis(px(name_width.ceil() + 1.)).min_w_0().one_line().child(server.entry.name.clone()))
                     // Turns over while the server's menu is open, as the menu drops down.
                     .child(super::motion::transition(
                         icon("chevron-down", 15., theme.text3),
