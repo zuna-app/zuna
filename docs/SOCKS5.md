@@ -6,7 +6,7 @@ It's built in the native desktop app, the iPhone and iPad app and `zuna-bot`. Th
 
 ## Why
 
-- **The server sees every device's address,** on its socket, on each signed-in request and on each sealed one. `SECURITY.md` lists it under Network, and `docs/SEALED_SENDER.md` under what a determined server can still tell.
+- **The server sees every device's address,** on its socket, on each signed-in request and on each sealed one. The table in `docs/SECURITY_DETAILS.md` lists it under Network, and `docs/SEALED_SENDER.md` under what a determined server can still tell.
 - **LiveKit sees it too,** for as long as someone is in a call, with the addresses of the device's local network, which every app offers as candidates ("Voice channels" in `docs/SECURITY_DETAILS.md`).
 - **So does every other place an app contacts:** a site whose link is previewed, YouTube once Watch is pressed, GitHub when the desktop app looks for an update.
 - **Nothing in the apps could change that** before this. A VPN for the whole system did, and was all there was.

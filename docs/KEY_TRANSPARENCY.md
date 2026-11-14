@@ -48,9 +48,9 @@ As the code stood at commit `9b4d8fed`, before the log. Short paths are in `pack
 | 1 | **The first key for someone is whatever the server shows.** A device pins it, and only comparing emoji shows it was false | `applyUser`, `session/local.ts:293` |
 | 2 | **Each person is told about devices separately.** Nothing makes what Alice is shown of Bob's devices agree with what Bob is shown. Bob's "a new device just signed in" alert comes from the same list, so it's the server's to send or not | `GET /api/users`, the `user` frame, `session/local.ts:336` |
 | 3 | **A rotation or a removal can be kept from a contact.** A contact follows a chain when the server says the generation went up, or when a leaf in a shared tree names a newer one. With neither, they go on counting a removed device | `followChain`, `session/chains.ts:136`, and section 9.2 of the rotation's design |
-| 4 | **With an old identity key and the server, a contact can be shown a false link,** if they haven't seen the real one | "Limits" in `SECURITY.md` |
+| 4 | **With an old identity key and the server, a contact can be shown a false link,** if they haven't seen the real one | "Limits" in `SECURITY_DETAILS.md` |
 | 5 | **With the current identity key and the server, a device can be added that contacts accept,** and kept from the owner's list | Section 10 of the rotation's design, first row |
-| 6 | **A brand-new device can be served an old generation,** or with a holder's help, keys of the holder's choosing | "Limits" in `SECURITY.md` |
+| 6 | **A brand-new device can be served an old generation,** or with a holder's help, keys of the holder's choosing | "Limits" in `SECURITY_DETAILS.md` |
 | 7 | **An old seal key can be offered again** to a device that never saw the newer one | `sealKeyOf`, `session/chains.ts:288`, and question 15 of the rotation's design |
 | 8 | **An account can be made under a name that's taken,** and shown to one person in place of the real one. Usernames are unique only because the server says so | `usernameTaken`, `store/bots.go` |
 
@@ -124,7 +124,7 @@ A device checks tags in both directions:
 - **A record it's given no body for** is tested against every other ID the device knows, and against the usernames it knows. A match means the server is keeping back something about someone who's there for this device. It asks again, and says so if that goes on.
 - **When an account becomes visible later,** as a private bot does to someone added to a chat with it, the device tests the records it holds against the new ID and asks for those bodies (`GET /api/log/bodies`).
 
-What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY.md`'s row for bots will say so.
+What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY_DETAILS.md`'s row for bots will say so.
 
 ### 5.4 Heads
 

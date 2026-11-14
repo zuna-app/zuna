@@ -81,7 +81,7 @@ The plan's section 10, built as it recommended, the owner having asked for its d
 1. **Start again.** Accounts and groups from before can't be used after it: a group keeps the suite it was made with, and an account's keys were the old kind. Test servers start from `npm run dev:clean`. Nothing carries over, so stage 5 wasn't needed first.
 2. **Stage 1 first, then 2 and 3 together:** all three were built in one session, so the two cut-overs became one release.
 3. **Stage 3 before 1.0.0,** as the numbers below are bearable for a channel of a few hundred devices: a few megabytes a commit, not tens.
-4. **Send keys and item keys stay Ed25519,** as `SECURITY.md`'s Limits says.
+4. **Send keys and item keys stay Ed25519,** as the Limits in `SECURITY_DETAILS.md` say.
 5. **Update keys are ML-DSA-65.** Their offline copies went where the Ed25519 keys' are.
 6. **No app refuses a server whose TLS isn't hybrid.**
 7. **1.0.0 doesn't wait for the draft to become an RFC.**

@@ -24,7 +24,7 @@ Three limits, stated plainly because they decide whether this is worth building:
 
 - **Someone who still knows the password or recovery key isn't evicted until that secret changes.** To the system, whoever holds the secret is the owner. Removing a device without changing the password evicts a stolen device, not a password thief.
 - **A contact can't prove a rotation is genuine if the old identity key is stolen and the server helps.** The design narrows this a lot (section 9), and the emoji check stays the final word.
-- **Past history stays exposed.** Whatever someone could already open, they keep. That's the documented cost of history on new devices ("Message content" in `SECURITY_DETAILS.md`, and "Limits" in `SECURITY.md`).
+- **Past history stays exposed.** Whatever someone could already open, they keep. That's the documented cost of history on new devices ("Message content" in `SECURITY_DETAILS.md`, and "Limits" in `SECURITY_DETAILS.md`).
 
 There's no separate MLS change for eviction. A removed device's leaves already go through reconciliation. Rotation closes what MLS doesn't cover: the vault, and who may issue a certificate.
 
@@ -120,7 +120,7 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | **Device signing keys** | No | These are the continuity contacts can check, and the MLS leaf's key. |
 | **Sign-in keys** | Only when the password or recovery key changes | As today. |
 | **Sessions** | Those with no device end, as on a password change today | `store/users.go:436`. Sessions of removed devices end when they're removed, as today. |
-| **Community key** | No | It's shared by the whole server. An evicted person keeps being able to read profiles if they get the server's data: a limit in `SECURITY.md`, unchanged. |
+| **Community key** | No | It's shared by the whole server. An evicted person keeps being able to read profiles if they get the server's data: a limit in `SECURITY_DETAILS.md`, unchanged. |
 | **Epoch keys and file keys already given out** | No | Can't be taken back. |
 | **Local database key, push key** | No | Per device. A removed device's push registration is already deleted. |
 
@@ -174,7 +174,7 @@ sealed_key    = HPKE(seal public, AK_g)                            changes every
 - **Someone signing in** gets `sealed_secret` and `sealed_key` from the server after proving the sign-in key, as they get the wrapper today. They derive the slot key, open the secret, and open the account key.
 - **That key could have been sealed by anyone,** the server included, so it only counts if it's the account's. `sealed_secret` names the root, and only that secret can write it, so whoever signs in requires a core that has the root and can sign with its secret. Without this, a server could seal a key of its own and put a core of its own under it, and a new device would believe everything from there on. A slot that names no root is refused.
 - **Changing the secret** replaces the slot, which needs a new generation so that the slot's new public key is announced through a link.
-- **Guessing passwords offline costs the same as today.** A server can test a guess against `sealed_secret`, at one Argon2id per guess, as it can test one against `wrapped_key_password` now. The limit in `SECURITY.md` doesn't change.
+- **Guessing passwords offline costs the same as today.** A server can test a guess against `sealed_secret`, at one Argon2id per guess, as it can test one against `wrapped_key_password` now. The limit in `SECURITY_DETAILS.md` doesn't change.
 - **The slot key has its own HKDF label** and is bound to the server and username, like the sign-in key (`crypto.ts:74`), rather than reusing `zuna/wrap/v1`.
 - **No new crypto functions.** Random key pairs sealed under the slot key need only what exists on both platforms, whereas deriving the pairs from the secret would need a new binding in Rust, wasm and Swift.
 

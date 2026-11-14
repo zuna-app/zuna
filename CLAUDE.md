@@ -113,7 +113,7 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 ## Architecture
 
-The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and `docs/POST_QUANTUM.md`, which says why every key is hybrid and what that costs, and add an end-to-end test in `packages/core/test` for the behavior.
+The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model in plain words in `SECURITY.md`, and how each protection works, what the server sees and the full list of limits in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and `docs/POST_QUANTUM.md`, which says why every key is hybrid and what that costs, and add an end-to-end test in `packages/core/test` for the behavior.
 
 **One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app (`packages/ui/src/core/serve.ts`, started by `apps/web/src/worker.ts`), in Node in `zuna-bot` (`apps/bot/src/host.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
@@ -181,7 +181,7 @@ Rules the core depends on:
 | Anything on the server that adds, removes or changes an account's keys or devices | An entry in the same transaction (`appendLog` in `server/internal/store/log.go`), its kind and rule in `packages/core/src/session/directory.ts` (`applyLogEntry`), `rewriteLog` for a new era, and section 5.2 of `docs/KEY_TRANSPARENCY.md` |
 | The log of keys' formats: records, tags, heads, bodies | `server/internal/merkle`, `server/internal/store/log.go`, `packages/core/src/transparency.ts`, and the shared vectors, `UPDATE_LOG_VECTORS=1 go test ./internal/merkle` |
 | Who an account is there for (`canSee`) | Who gets its log entries' bodies, `hiddenFrom` in `store/log.go` |
-| Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
+| Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says briefly, in plain words, what the details say in full, so a change to one usually needs the other. Keep it short: anything more goes in the details |
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
 | The YouTube player's controller (`packages/watch`) or how the apps talk to it | Its tests in `packages/watch/test`, its fake in `packages/watch/fake/player.html`, which the checks put in YouTube's place, and each app that embeds it: the web's `features/voice/Watch.tsx`, and `watch.html` (built by `packages/watch/build.mjs`), which `apps/ios/core-bundle/build.mjs` writes into ZunaHost's resources for `Voice/Watch.swift`, and `apps/desktop/core-bundle/build.mjs` into `apps/desktop/assets/core` for `ui/voice_stage/watch.rs` |
 | Which platforms watch YouTube together, or what they send YouTube | The privacy page in `apps/site` and "Watching together" in `docs/SECURITY_DETAILS.md`, which say which apps contact YouTube and when |
