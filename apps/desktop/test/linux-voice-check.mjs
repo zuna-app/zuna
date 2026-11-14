@@ -193,7 +193,11 @@ try {
 
   // --- LiveKit, behind TLS as a real server's media server is ---
   const liveKitPort = 17880 + Math.floor(Math.random() * 1000);
-  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], process.env, "livekit");
+  // Its media on ports of its own too, under the `rtc` LIVEKIT_CONFIG ends with: LiveKit's own,
+  // 7881 and 7882, are taken while `npm run dev:server` runs, whose LiveKit binds UDP on every
+  // address, and then this one exits at once.
+  const liveKitConfig = `${LIVEKIT_CONFIG}  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n`;
+  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", liveKitConfig], process.env, "livekit");
   const certificates = mkdtempSync(join(work, "tls-"));
   const run = (...args) => execFileSync("openssl", args, { cwd: certificates, stdio: "ignore" });
   const key = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"];
