@@ -63,8 +63,13 @@ fn main() {
     // anything is read or TDLib does a thing (`lockdown.rs`, `seatbelt.rs`).
     let listener = Door::bind().unwrap_or_else(|error| fail(&format!("the door couldn't open: {error}")));
     let port = listener.local_addr().map(|address| address.port()).unwrap_or_else(|error| fail(&format!("the door has no port: {error}")));
+    // The probe stands in for an older kernel with `--landlock <version>`, which nothing else takes.
+    #[cfg(all(target_os = "linux", feature = "probe"))]
+    let newest = std::env::args().skip_while(|arg| arg != "--landlock").nth(1).and_then(|version| version.parse().ok()).unwrap_or(u32::MAX);
+    #[cfg(all(target_os = "linux", not(feature = "probe")))]
+    let newest = u32::MAX;
     #[cfg(target_os = "linux")]
-    if let Err(error) = lockdown::lock(port) {
+    if let Err(error) = lockdown::lock(port, newest) {
         fail(&format!("the box couldn't be closed: {error}"));
     }
     #[cfg(target_os = "macos")]

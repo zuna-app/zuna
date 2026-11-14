@@ -44,7 +44,9 @@ pub use windows_box::{Process, forget, spawn};
 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use plain::Process;
+// The broker's tests start a stand-in unboxed (`spawn_unboxed`), so a test build has no use for `spawn`.
 #[cfg(target_os = "linux")]
+#[cfg_attr(test, allow(unused_imports))]
 pub use linux_box::{spawn, supported};
 #[cfg(target_os = "macos")]
 pub use macos_box::{Process, spawn, supported};
@@ -158,7 +160,7 @@ mod linux_box {
 
     /// Whether a program may have namespaces of its own here, as most distributions let it and
     /// some don't, tried once in a child that does nothing else.
-    fn namespaces_work() -> bool {
+    pub(super) fn namespaces_work() -> bool {
         static WORKS: OnceLock<bool> = OnceLock::new();
         *WORKS.get_or_init(|| unsafe {
             match libc::fork() {
@@ -181,11 +183,15 @@ mod linux_box {
 
     /// Starts `program` in its box, able to read and write `folder` and nothing else of the person's.
     pub fn spawn(program: &Path, args: &[&str], folder: &Path) -> Result<Spawned> {
-        let abi = confine::abi();
+        spawn_as(program, args, folder, confine::abi(), namespaces_work())
+    }
+
+    /// The box made as on a system with this version of Landlock, and namespaces or none, which
+    /// the box's test tries each of that this one can stand in for.
+    pub(super) fn spawn_as(program: &Path, args: &[&str], folder: &Path, abi: u32, namespaces: bool) -> Result<Spawned> {
         if abi == 0 {
             return Err(Error::other("this system has no Landlock, which the engine's box is made of"));
         }
-        let namespaces = namespaces_work();
         if !namespaces && abi < 4 {
             return Err(Error::other("this system lets a program have no network of its own, and is too old to hold one to a port"));
         }
@@ -766,13 +772,75 @@ mod tests {
 
     /// What the box allows and refuses, as `zuna-telegram --probe` finds it from inside: run with
     /// `ZUNA_TELEGRAM_PROBE` naming an engine built with `--features probe`, and skipped without.
+    /// On Linux, also as each system this one can stand in for makes it.
     #[test]
     fn the_box_holds() {
         let Some(engine) = std::env::var_os("ZUNA_TELEGRAM_PROBE") else {
             eprintln!("ZUNA_TELEGRAM_PROBE isn't set, so the box isn't tried");
             return;
         };
-        let base = std::env::temp_dir().join(format!("zuna-box-{}", std::process::id()));
+        #[cfg(target_os = "linux")]
+        {
+            let (abi, namespaces) = (confine::abi(), linux_box::namespaces_work());
+            let mut ways = vec![("as this system makes it", abi, namespaces)];
+            // Ubuntu from 24.04, whose AppArmor keeps namespaces from programs: Landlock alone
+            // holds it in, as kernel 6.8 has it.
+            if abi >= 4 {
+                ways.push(("as Ubuntu 24.04 makes it", 4, false));
+            }
+            // Debian 12's kernel 6.1: a network of its own, and Landlock with nothing for TCP.
+            if abi >= 2 && namespaces {
+                ways.push(("as Debian 12 makes it", 2, true));
+            }
+            for (way, abi, namespaces) in ways {
+                eprintln!("the box {way}: Landlock {abi}, {}", if namespaces { "namespaces" } else { "no namespaces" });
+                let found = probe(&engine, |program, args, folder| {
+                    let version = abi.to_string();
+                    let args: Vec<&str> = args.iter().copied().chain(["--landlock", version.as_str()]).collect();
+                    linux_box::spawn_as(program, &args, folder, abi, namespaces)
+                });
+                holds(&found);
+                let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
+                for key in ["udp", "localSocket", "signal", "ptrace", "namespace", "fork"] {
+                    assert!(said(key).starts_with("denied"), "{way}, {key} is {}", said(key));
+                }
+                // Another port of its own is harmless in a network of its own, and refused by
+                // Landlock where it has none, from kernel 6.7.
+                if abi >= 4 {
+                    assert!(said("bindOther").starts_with("denied"), "{way}, bindOther is {}", said("bindOther"));
+                }
+                assert_eq!(found["dumpable"], 0, "{way}, it can't be dumped or attached to");
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let found = probe(&engine, spawn);
+            holds(&found);
+            #[cfg(target_os = "macos")]
+            {
+                let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
+                for key in ["bindOther", "udp", "localSocket", "signal", "ptrace", "fork", "services"] {
+                    assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
+                }
+            }
+        }
+    }
+
+    /// What every system's box allows and refuses.
+    fn holds(found: &serde_json::Value) {
+        let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
+        for key in ["ownFolder", "moveFile", "loopback", "random"] {
+            assert!(said(key).starts_with("allowed"), "{key} is {}", said(key));
+        }
+        for key in ["readSecret", "listElsewhere", "connectOut", "telegramDirect", "resolve", "startProgram"] {
+            assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
+        }
+    }
+
+    /// Starts the probe with `spawn`, in a folder of its own beside a secret it mustn't read, and
+    /// says what it found.
+    fn probe(engine: &std::ffi::OsStr, spawn: impl FnOnce(&Path, &[&str], &Path) -> std::io::Result<Spawned>) -> serde_json::Value {
+        let base = std::env::temp_dir().join(format!("zuna-box-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir_all(&base).unwrap();
         // By the name the system gives it, as the broker names it (`telegram::Engine::launch`).
         #[cfg(target_os = "macos")]
@@ -791,7 +859,7 @@ mod tests {
         let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap(), socket.to_str().unwrap()];
         #[cfg(windows)]
         let args = ["--probe", own.to_str().unwrap(), secret.to_str().unwrap(), elsewhere.to_str().unwrap()];
-        let mut spawned = spawn(Path::new(&engine), &args, &own).expect("the engine starts in its box");
+        let mut spawned = spawn(Path::new(engine), &args, &own).expect("the engine starts in its box");
         drop(spawned.stdin);
         let mut out = String::new();
         std::io::Read::read_to_string(&mut spawned.stdout, &mut out).unwrap();
@@ -801,29 +869,6 @@ mod tests {
         let code = spawned.process.try_wait().ok().flatten();
         std::fs::remove_dir_all(&base).ok();
         eprintln!("the probe said: {}", out.trim());
-        let found: serde_json::Value = serde_json::from_str(out.trim()).unwrap_or_else(|_| panic!("the probe said {out:?}, exited {code:?}, and wrote {errors:?}"));
-        let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
-        for key in ["ownFolder", "moveFile", "loopback", "random"] {
-            assert!(said(key).starts_with("allowed"), "{key} is {}", said(key));
-        }
-        for key in ["readSecret", "listElsewhere", "connectOut", "telegramDirect", "resolve", "startProgram"] {
-            assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
-        }
-        #[cfg(target_os = "linux")]
-        {
-            for key in ["udp", "localSocket", "signal", "ptrace", "namespace", "fork"] {
-                assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
-            }
-            // Another port of its own is harmless in a network of its own, and refused by
-            // Landlock where it has none, from kernel 6.7.
-            if confine::abi() >= 4 {
-                assert!(said("bindOther").starts_with("denied"), "bindOther is {}", said("bindOther"));
-            }
-            assert_eq!(found["dumpable"], 0, "it can't be dumped or attached to");
-        }
-        #[cfg(target_os = "macos")]
-        for key in ["bindOther", "udp", "localSocket", "signal", "ptrace", "fork", "services"] {
-            assert!(said(key).starts_with("denied"), "{key} is {}", said(key));
-        }
+        serde_json::from_str(out.trim()).unwrap_or_else(|_| panic!("the probe said {out:?}, exited {code:?}, and wrote {errors:?}"))
     }
 }

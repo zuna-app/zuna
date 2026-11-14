@@ -20,7 +20,8 @@ use std::io::{Error, Result};
 #[path = "confine.rs"]
 mod confine;
 
-pub fn lock(door_port: u16) -> Result<()> {
+/// `newest` holds Landlock to an older version, as the box's test stands in for an older kernel.
+pub fn lock(door_port: u16, newest: u32) -> Result<()> {
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
         return Err(Error::last_os_error());
     }
@@ -29,7 +30,7 @@ pub fn lock(door_port: u16) -> Result<()> {
     if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
         return Err(Error::last_os_error());
     }
-    let abi = confine::abi();
+    let abi = confine::abi().min(newest);
     if abi >= 4 {
         let ruleset = confine::Ruleset::new(confine::REFER, confine::network(abi), 0)?;
         // The engine's folder, which the app starts it in.
