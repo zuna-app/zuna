@@ -205,12 +205,18 @@ function nativePerl() {
 }
 
 /**
- * How many compilers run at once: TDLib's largest files take about two gigabytes each, so no more
- * than memory allows, and at least one.
+ * How many compilers run at once: no more than memory allows for each at TDLib's largest file, and
+ * at least one. That's about two gigabytes in MSVC, and in Apple's clang 1.6, for `Requests.cpp`
+ * for iOS on 2026-11-14, with every file but four under one. macOS counts what it would hand back
+ * at once as taken, and compresses and swaps before it ends a process, so there it's what the Mac
+ * has but two gigabytes: by what was free, GitHub's runners for macOS ran one compiler at a time.
  */
 function jobs() {
-  const memory = Math.max(freemem(), totalmem() / 2);
-  return Math.max(1, Math.min(availableParallelism(), Math.floor(memory / (2.5 * 1024 ** 3))));
+  const gigabyte = 1024 ** 3;
+  const [memory, each] = process.platform === "darwin"
+    ? [totalmem() - 2 * gigabyte, 1.6 * gigabyte]
+    : [Math.max(freemem(), totalmem() / 2), 2.5 * gigabyte];
+  return Math.max(1, Math.min(availableParallelism(), Math.floor(memory / each)));
 }
 
 // gperf 3.1's own build is autotools. This builds the same program from its sources anywhere CMake
