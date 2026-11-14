@@ -287,11 +287,12 @@ try {
   await sleep(500);
 
   // --- A video, over the whole screen in the same viewer, and back in its message ---
-  // Its thumbnail one color and its pictures another, so each is found wherever it's drawn.
+  // Its thumbnail one color and its pictures another, so each is found wherever it's drawn,
+  // and a tone, heard on the check's own speakers.
   const magenta = [200, 50, 180];
   const teal = [40, 170, 200];
   const clip = join(work, "clip.mp4");
-  const made = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x28AAC8:s=640x360:r=30:d=30", "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p", "-an", "-y", clip], { encoding: "utf8" });
+  const made = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x28AAC8:s=640x360:r=30:d=30", "-f", "lavfi", "-i", "sine=frequency=440:duration=30", "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "-y", clip], { encoding: "utf8" });
   check("a video to send is made", made.status === 0, made.stderr);
   const thumb = `data:image/png;base64,${png(64, 36, Buffer.alloc(64 * 36 * 4).fill(Buffer.from([...magenta, 255]))).toString("base64")}`;
   peer.stdin.write(`${JSON.stringify({ sendFile: { path: clip, name: "clip.mp4", mime: "video/mp4", width: 640, height: 360, duration: 30, thumb } })}\n`);
@@ -302,6 +303,8 @@ try {
   if (videoTile) {
     // Its corner's button, as the full screen button of a picture's viewer, opens it over the whole screen, playing.
     const corner = { x: videoTile.x + videoTile.width - 20, y: videoTile.y + 20 };
+    const hearing = loudestOn(speakers, 8);
+    await sleep(300);
     await drive({ do: "move", ...corner });
     await sleep(300);
     await drive({ do: "click", ...corner });
@@ -313,6 +316,8 @@ try {
       return box && box.width > 1000 ? box : null;
     }, "its pictures over the whole screen", 15_000).catch(() => null);
     check("it plays fitted to the screen, keeping its shape, above the viewer's tools", !!playingFull && Math.abs(playingFull.width - 1320) <= 4 && Math.abs(playingFull.height - 742) <= 4 && Math.abs(playingFull.middle.x - 700) <= 3 && Math.abs(playingFull.middle.y - 422) <= 3, JSON.stringify(playingFull));
+    const heardVideo = await hearing;
+    check("with its sound from the first time it plays, decoded after its pictures started", heardVideo > 0.05, `peak ${heardVideo.toFixed(3)}`);
     await drive({ do: "key", key: "space" });
     await sleep(600);
     const paused = readPng(await shot("10l-video-paused"));

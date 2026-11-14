@@ -88,8 +88,12 @@ impl VideoPlayer {
         player
     }
 
-    /// Its sound, once decoded, which it plays with when it's heard.
+    /// Its sound, once decoded, which it plays with when it's heard. Decoded after its
+    /// pictures started, as it is the first time it's played, it joins in where they are.
     pub fn set_clip(&mut self, clip: Clip, cx: &mut Context<Self>) {
+        if self.playing && self.heard && !self.hold && self.seeking.is_none() && player::position(&self.key).is_none() {
+            player::play(&self.key, &clip, self.clock(), 1.);
+        }
         self.clip = Some(clip);
         cx.notify();
     }
