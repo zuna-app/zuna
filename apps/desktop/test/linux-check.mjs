@@ -24,7 +24,7 @@ try {
 
   // Without Wayland it says so and leaves, rather than running with no window.
   const noWayland = spawnSync(appBinary, [], { env: { ...base, ZUNA_DATA_DIR: join(work, "no-wayland") }, encoding: "utf8", timeout: 20_000 });
-  check("without Wayland it says so and exits", noWayland.status === 1 && noWayland.stderr.includes("needs a Wayland session"), `status ${noWayland.status}`);
+  check("without Wayland it says so and exits", noWayland.status === 1 && noWayland.stderr.includes("needs Wayland"), `status ${noWayland.status}`);
 
   // The core without a window, as a development build checks it.
   const coreData = join(work, "core-only");
