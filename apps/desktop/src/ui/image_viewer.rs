@@ -1,7 +1,8 @@
-//! A picture from a chat, in a window of its own over the whole screen, as Telegram's media
-//! viewer opens: what's behind dimmed through it, and the picture fitted to the screen. It
-//! zooms as `ImageViewer` in packages/ui/src/features/overlays/Overlays.tsx does, and goes
-//! between the chat's pictures as that does.
+//! A picture or a video from a chat, in a window of its own over the whole screen, as
+//! Telegram's media viewer opens: what's behind dimmed through it, and the picture fitted to
+//! the screen. A picture zooms as `ImageViewer` in packages/ui/src/features/overlays/Overlays.tsx
+//! does, a video plays with a bar to move through it, and it goes between the chat's pictures
+//! and videos.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,24 +16,29 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use crate::models::{Attachment, AvatarRef, MessageView};
 use crate::platform;
-use crate::state::{AppState, Picture, Store};
+use crate::state::{AppState, MediaFile, Picture, Store};
+use crate::ui::media_views::VideoPlayer;
 use crate::theme::{self, RADIUS_L, RADIUS_M};
 
-/// A picture the viewer can go to: what it's decrypted from, its name, and whether it's small
-/// enough to be fetched before it's shown, as the ones either side of the one on show are.
+/// A picture or a video the viewer can go to: what it's decrypted from, its name, whether
+/// it's a picture small enough to be fetched before it's shown, as the ones either side of the
+/// one on show are, and a video's attachment, which it plays from.
 #[derive(Clone)]
 pub struct Item {
     reference: AvatarRef,
     name: String,
     small: bool,
+    video: Option<Attachment>,
 }
 
 impl Item {
     pub fn of(attachment: &Attachment) -> Self {
+        let video = is_video(attachment);
         Item {
             reference: AvatarRef { file_id: attachment.file_id.clone(), key: attachment.key.clone(), prefix: attachment.prefix.clone(), chunks: attachment.chunks, mime: attachment.mime.clone() },
             name: attachment.name.clone(),
-            small: super::shared_media::loads_by_itself(attachment),
+            small: !video && super::shared_media::loads_by_itself(attachment),
+            video: video.then(|| attachment.clone()),
         }
     }
 
@@ -46,39 +52,47 @@ pub fn is_picture(attachment: &Attachment) -> bool {
     attachment.mime.starts_with("image/") && attachment.width.is_some() && !attachment.file_id.is_empty()
 }
 
-/// The pictures the viewer goes between, oldest first, as Telegram's does, and the one it
-/// opens on, already decrypted.
+/// Whether an attachment is a video the viewer plays: not a video message, which plays in its circle.
+pub fn is_video(attachment: &Attachment) -> bool {
+    attachment.mime.starts_with("video/") && attachment.round != Some(true) && !attachment.file_id.is_empty()
+}
+
+/// The pictures and videos the viewer goes between, oldest first, as Telegram's does, the
+/// one it opens on, a picture already decrypted, and the chat they're in.
 pub struct Gallery {
     server_id: String,
+    list_id: String,
     items: Vec<Item>,
     index: usize,
-    image: Arc<Image>,
+    image: Option<Arc<Image>>,
 }
 
 impl Gallery {
-    pub fn new(server_id: &str, items: Vec<Item>, index: usize, image: Arc<Image>) -> Self {
+    pub fn new(server_id: &str, items: Vec<Item>, index: usize, image: Option<Arc<Image>>) -> Self {
         let index = index.min(items.len().saturating_sub(1));
-        Gallery { server_id: server_id.to_string(), items, index, image }
+        Gallery { server_id: server_id.to_string(), list_id: String::new(), items, index, image }
     }
 
-    /// The pictures among `messages`, in their order, opening on `attachment`'s, which is
-    /// `image`. Someone blocked's are left out, as their messages are hidden.
-    pub fn among(server_id: &str, messages: &[MessageView], attachment: &Attachment, image: Arc<Image>, blocked: &[String]) -> Self {
+    /// The pictures and videos among `messages`, the chat `list_id`'s, in their order, opening
+    /// on `attachment`, a picture's `image` or a video. Someone blocked's are left out, as
+    /// their messages are hidden.
+    pub fn among(server_id: &str, list_id: &str, messages: &[MessageView], attachment: &Attachment, image: Option<Arc<Image>>, blocked: &[String]) -> Self {
         let mut items = Vec::new();
         let mut index = None;
         for message in messages.iter().filter(|message| message.deleted_at.is_none() && !blocked.contains(&message.sender_id)) {
-            for picture in message.attachments.iter().filter(|picture| is_picture(picture)) {
-                if picture.file_id == attachment.file_id {
+            for shown in message.attachments.iter().filter(|shown| is_picture(shown) || is_video(shown)) {
+                if shown.file_id == attachment.file_id {
                     index = Some(items.len());
                 }
-                items.push(Item::of(picture));
+                items.push(Item::of(shown));
             }
         }
-        match index {
+        let gallery = match index {
             Some(index) => Gallery::new(server_id, items, index, image),
             // One that isn't among them opens alone.
             None => Gallery::new(server_id, vec![Item::of(attachment)], 0, image),
-        }
+        };
+        Gallery { list_id: list_id.to_string(), ..gallery }
     }
 }
 
@@ -164,15 +178,20 @@ const FITTED: View = View { scale: 1., x: 0., y: 0. };
 
 /// A picture, fitted to the screen, as the web's ImageViewer shows it in its window. It
 /// zooms with the mouse wheel, a pinch, a double click, the keys or the buttons, towards
-/// where the pointer is, and once it's bigger than the screen it can be dragged around. The
-/// arrows and the arrow keys go to the pictures either side. A click outside it or Escape
-/// closes it, and it can be saved.
+/// where the pointer is, and once it's bigger than the screen it can be dragged around. A
+/// video is fitted to the screen and plays, which a click or Space pauses. The arrows and the
+/// arrow keys go to the pictures and videos either side. A click outside it or Escape closes
+/// it, and it can be saved.
 pub struct ImageViewer {
     /// The picture on show, once it's decrypted.
     image: Option<Arc<Image>>,
+    /// The video on show, once its file is here: its player, which its message gives up while
+    /// it's here.
+    video: Option<gpui::Entity<VideoPlayer>>,
     /// It couldn't be decrypted.
     failed: bool,
     server_id: String,
+    list_id: String,
     items: Vec<Item>,
     index: usize,
     focus: gpui::FocusHandle,
@@ -186,18 +205,26 @@ pub struct ImageViewer {
     natural: Option<(u64, f32, f32)>,
     viewport: gpui::Size<Pixels>,
     _watch: Option<gpui::Subscription>,
+    _release: gpui::Subscription,
 }
+
+/// The room a video leaves under itself for the viewer's tools, so they never cover its bar.
+const VIDEO_TOOLS_ROOM: f32 = 56.;
 
 impl ImageViewer {
     fn new(gallery: Gallery, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        // A picture gone to that's still being decrypted shows once it is.
+        // A picture gone to that's still being decrypted shows once it is, and a video once its file is here.
         let watch = cx.try_global::<Store>().map(|store| store.0.clone()).map(|state| cx.observe(&state, |viewer, state, cx| viewer.picture_came(&state, cx)));
+        // However the window goes, a video in it goes back to its message, playing on if it was.
+        let release = cx.on_release(|viewer, cx| viewer.give_back(false, cx));
         let mut viewer = ImageViewer {
             image: None,
+            video: None,
             failed: false,
             server_id: String::new(),
+            list_id: String::new(),
             items: Vec::new(),
             index: 0,
             focus,
@@ -207,6 +234,7 @@ impl ImageViewer {
             natural: None,
             viewport: window.viewport_size(),
             _watch: watch,
+            _release: release,
         };
         viewer.show_gallery(gallery, cx);
         viewer
@@ -214,13 +242,73 @@ impl ImageViewer {
 
     /// Another gallery in its place, fitted again.
     fn show_gallery(&mut self, gallery: Gallery, cx: &mut Context<Self>) {
+        self.give_back(true, cx);
         self.server_id = gallery.server_id;
+        self.list_id = gallery.list_id;
         self.items = gallery.items;
         self.index = gallery.index;
         self.reset();
-        self.image = Some(gallery.image);
+        self.image = gallery.image;
+        if self.current_video().is_some() {
+            self.take_video(cx);
+        } else if self.image.is_none() {
+            self.image = self.fetch(self.index, cx);
+        }
         self.fetch_near(cx);
         cx.notify();
+    }
+
+    /// The attachment of the video on show, if it's a video.
+    fn current_video(&self) -> Option<&Attachment> {
+        self.items.get(self.index).and_then(|item| item.video.as_ref())
+    }
+
+    /// The video on show's player, from its message if it has one, or started once its file is
+    /// here, shown here rather than there.
+    fn take_video(&mut self, cx: &mut Context<Self>) {
+        if self.video.is_some() || self.failed {
+            return;
+        }
+        let (Some(attachment), Some(state)) = (self.current_video().cloned(), cx.try_global::<Store>().map(|store| store.0.clone())) else { return };
+        let (server_id, list_id, key) = (self.server_id.clone(), self.list_id.clone(), attachment.cache_id());
+        let player = state.update(cx, |state, cx| {
+            state.open_video(&server_id, &list_id, &attachment, false, cx);
+            state.touch_media(&key);
+            state.videos.get(&key).cloned()
+        });
+        match player {
+            Some(player) => {
+                player.update(cx, |player, cx| player.set_full(true, cx));
+                self.video = Some(player);
+            }
+            None if matches!(state.read(cx).media_files.get(&key), Some(MediaFile::Failed)) => self.failed = true,
+            // Its file is still on its way.
+            None => return,
+        }
+        cx.notify();
+    }
+
+    /// Gives the video on show back to its message, paused if `pause` says so, as it is when
+    /// the viewer goes to something else.
+    fn give_back(&mut self, pause: bool, cx: &mut App) {
+        let state = cx.try_global::<Store>().map(|store| store.0.clone());
+        let Some(player) = self.video.take() else {
+            // One whose file is still on its way isn't started in its message once it comes.
+            if let (Some(key), Some(state)) = (self.current_video().map(Attachment::cache_id), state) {
+                state.update(cx, |state, _| state.unwant_video(&key));
+            }
+            return;
+        };
+        player.update(cx, |player, cx| {
+            if pause {
+                player.pause(cx);
+            }
+            player.set_full(false, cx);
+        });
+        // The chat draws it again where it was.
+        if let Some(state) = state {
+            state.update(cx, |_, cx| cx.notify());
+        }
     }
 
     fn reset(&mut self) {
@@ -238,12 +326,17 @@ impl ImageViewer {
         if next == self.index {
             return;
         }
+        self.give_back(true, cx);
         self.index = next;
         self.reset();
-        self.image = self.fetch(next, cx);
-        if self.image.is_none() {
-            if let Some(state) = cx.try_global::<Store>().map(|store| store.0.clone()) {
-                self.picture_came(&state, cx);
+        if self.current_video().is_some() {
+            self.take_video(cx);
+        } else {
+            self.image = self.fetch(next, cx);
+            if self.image.is_none() {
+                if let Some(state) = cx.try_global::<Store>().map(|store| store.0.clone()) {
+                    self.picture_came(&state, cx);
+                }
             }
         }
         self.fetch_near(cx);
@@ -253,7 +346,8 @@ impl ImageViewer {
     /// A picture from the app's, decrypting it if it isn't there yet.
     fn fetch(&self, index: usize, cx: &mut Context<Self>) -> Option<Arc<Image>> {
         let state = cx.try_global::<Store>()?.0.clone();
-        let (server_id, reference) = (self.server_id.clone(), self.items.get(index)?.reference.clone());
+        let item = self.items.get(index).filter(|item| item.video.is_none())?;
+        let (server_id, reference) = (self.server_id.clone(), item.reference.clone());
         state.update(cx, |state, cx| state.decrypted_picture(&server_id, &reference, cx))
     }
 
@@ -267,6 +361,11 @@ impl ImageViewer {
     }
 
     fn picture_came(&mut self, state: &gpui::Entity<AppState>, cx: &mut Context<Self>) {
+        if self.current_video().is_some() {
+            // A video's file came, or didn't.
+            self.take_video(cx);
+            return;
+        }
         if self.image.is_some() || self.failed {
             return;
         }
@@ -283,11 +382,14 @@ impl ImageViewer {
         window.remove_window();
     }
 
-    /// Its size fitted to the screen less 40 px around, never larger than its own.
+    /// Its size fitted to the screen less 40 px around, a picture never larger than its own,
+    /// and a video as large as the screen takes it, less the room for the tools under it.
     fn fitted(&self) -> (f32, f32) {
         let Some((_, width, height)) = self.natural else { return (0., 0.) };
-        let (room_width, room_height) = (f32::from(self.viewport.width) - 80., f32::from(self.viewport.height) - 80.);
-        let fit = (room_width / width).min(room_height / height).min(1.).max(0.);
+        let video = self.current_video().is_some();
+        let (room_width, room_height) = (f32::from(self.viewport.width) - 80., f32::from(self.viewport.height) - 80. - if video { VIDEO_TOOLS_ROOM } else { 0. });
+        let fit = (room_width / width).min(room_height / height);
+        let fit = if video { fit } else { fit.min(1.) }.max(0.);
         (width * fit, height * fit)
     }
 
@@ -338,19 +440,37 @@ impl ImageViewer {
     }
 
     fn save(&self, cx: &mut App) {
-        let (Some(image), Some(item)) = (&self.image, self.items.get(self.index)) else { return };
+        let Some(item) = self.items.get(self.index) else { return };
+        // A video's decrypted file is copied, a picture written from its bytes.
+        enum Saved {
+            Bytes(Vec<u8>),
+            File(std::path::PathBuf),
+        }
+        let saved = match (&item.video, &self.image) {
+            (Some(attachment), _) => match cx.try_global::<Store>().and_then(|store| store.0.read(cx).media_files.get(&attachment.cache_id()).cloned()) {
+                Some(MediaFile::Ready(path)) => Saved::File(path),
+                _ => return,
+            },
+            (None, Some(image)) => Saved::Bytes(image.bytes().to_vec()),
+            (None, None) => return,
+        };
         let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
         let chosen = cx.prompt_for_new_path(&downloads, Some(&item.name));
-        let bytes = image.bytes().to_vec();
         cx.spawn(async move |_| {
             if let Ok(Ok(Some(path))) = chosen.await {
-                std::fs::write(path, bytes).ok();
+                match saved {
+                    Saved::Bytes(bytes) => std::fs::write(path, bytes).ok(),
+                    Saved::File(file) => std::fs::copy(file, path).ok().map(|_| ()),
+                };
             }
         })
         .detach();
     }
 
     fn on_wheel(&mut self, event: &gpui::ScrollEvent, cx: &mut Context<Self>) {
+        if self.current_video().is_some() {
+            return;
+        }
         // Windows gives lines: a mouse wheel's notch is a whole number of them, a touchpad's
         // scrolling a fraction, which pans instead. A line is about 33 px, as Chromium counts.
         let (delta, lines) = match event.delta {
@@ -377,6 +497,17 @@ impl Render for ImageViewer {
         if let Some(image) = image.as_ref().filter(|image| self.natural.map(|(id, _, _)| id) != Some(image.id())) {
             let size = image::ImageReader::new(std::io::Cursor::new(image.bytes())).with_guessed_format().ok().and_then(|reader| reader.into_dimensions().ok());
             self.natural = size.map(|(width, height)| (image.id(), width.max(1) as f32, height.max(1) as f32));
+        }
+        // A video's shape from its pictures once one is decoded, and from its message until then.
+        let video = self.video.clone();
+        let is_video = self.current_video().is_some();
+        if let Some(attachment) = self.current_video().cloned() {
+            let decoded = video.as_ref().and_then(|player| player.read(cx).natural_size());
+            let given = attachment.width.zip(attachment.height).map(|(width, height)| (width as f32, height as f32));
+            self.natural = decoded.or(given).or(Some((16., 9.))).map(|(width, height)| (0, width.max(1.), height.max(1.)));
+            if let Some(state) = cx.try_global::<Store>() {
+                state.0.read(cx).touch_media(&attachment.cache_id());
+            }
         }
         let (index, count) = (self.index, self.items.len());
         // The pictures either side, as the web's arrows.
@@ -423,7 +554,8 @@ impl Render for ImageViewer {
         };
         let (width, height) = (fitted_width * view.scale, fitted_height * view.scale);
         let left = (f32::from(viewport.width) - width) / 2. + view.x;
-        let top = (f32::from(viewport.height) - height) / 2. + view.y;
+        // A video sits higher, over the room its tools take under it.
+        let top = (f32::from(viewport.height) - if is_video { VIDEO_TOOLS_ROOM } else { 0. } - height) / 2. + view.y;
         let can_zoom_in = image.is_some() && self.view.scale < MAX_ZOOM;
         let tool = |id: &'static str, name: &'static str, enabled: bool, cx: &mut Context<Self>| {
             icon_button(id, name, 17., false, false, cx).when(!enabled, |el| el.opacity(0.4).cursor_default())
@@ -435,7 +567,13 @@ impl Render for ImageViewer {
             .relative()
             .overflow_hidden()
             .bg(theme::color(theme::black_a(0.92)))
-            .on_click(cx.listener(|viewer, _, window, _| viewer.close(window)))
+            .on_click(cx.listener(|viewer, event: &gpui::ClickEvent, window, _| {
+                // GPUI makes Space and Enter clicks on what has focus, as this has: Space plays and
+                // pauses a video, and neither closes it, as on the web, where only Escape does.
+                if !event.is_keyboard() {
+                    viewer.close(window);
+                }
+            }))
             .on_scroll(cx.listener(|viewer, event: &gpui::ScrollEvent, _, cx| viewer.on_wheel(event, cx)))
             .on_mouse_move(cx.listener(|viewer, event: &gpui::MouseMoveEvent, _, cx| {
                 if let Some((from, start)) = viewer.drag {
@@ -458,6 +596,15 @@ impl Render for ImageViewer {
                 let key = event.keystroke.key.as_str();
                 let typed = event.keystroke.key_char.as_deref();
                 let scale = viewer.view.scale;
+                if let Some(player) = viewer.video.clone() {
+                    if key == "space" {
+                        player.update(cx, |player, cx| player.toggle_pause(cx));
+                        return;
+                    }
+                }
+                if viewer.current_video().is_some() && matches!(key, "=" | "+" | "-" | "0") {
+                    return;
+                }
                 match key {
                     "escape" => viewer.close(window),
                     "left" => viewer.go(-1, cx),
@@ -496,10 +643,14 @@ impl Render for ImageViewer {
                         .child(gpui::img(image).size_full().when(!zoomed, |el| el.rounded(crate::theme::RADIUS_S))),
                 )
             })
-            .when(self.image.is_none(), |el| {
+            // The player draws the video and its bar in the box fitted to it.
+            .when_some(video.filter(|_| fitted_width > 0.), |el, player| {
+                el.child(named_div("video-viewer-player").absolute().left(px(left)).top(px(top)).w(px(width)).h(px(height)).child(player))
+            })
+            .when(if is_video { self.video.is_none() } else { self.image.is_none() }, |el| {
                 let state = div().absolute().inset_0().flex().items_center().justify_center().gap(px(8.)).text_size(px(14.)).text_color(theme.text2);
                 el.child(if self.failed {
-                    state.child(icon("triangle-alert", 18., theme.text2)).child("This picture couldn't be loaded.")
+                    state.child(icon("triangle-alert", 18., theme.text2)).child(if is_video { "This video couldn't be loaded." } else { "This picture couldn't be loaded." })
                 } else {
                     state.child(spinner(18., theme.text2))
                 })
@@ -521,7 +672,8 @@ impl Render for ImageViewer {
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .when(count > 1, |el| el.child(div().px(px(8.)).text_size(px(12.5)).text_color(theme.text2).child(format!("{} of {count}", index + 1))))
-                    .child(tool("zoom-out", "zoom-out", zoomed, cx).on_click(cx.listener(|viewer, _, _, cx| {
+                    // A video doesn't zoom.
+                    .when(!is_video, |el| el.child(tool("zoom-out", "zoom-out", zoomed, cx).on_click(cx.listener(|viewer, _, _, cx| {
                         if viewer.view.scale > 1. {
                             let scale = viewer.view.scale;
                             viewer.zoom_to(scale / 1.5, None, true, cx);
@@ -549,7 +701,7 @@ impl Render for ImageViewer {
                     .child(tool("zoom-in", "zoom-in", can_zoom_in, cx).on_click(cx.listener(|viewer, _, _, cx| {
                         let scale = viewer.view.scale;
                         viewer.zoom_to(scale * 1.5, None, true, cx);
-                    })))
+                    }))))
                     .child(button("save-image", ButtonKind::Default, ButtonSize::Normal, false, cx).ml(px(4.)).child("Save").on_click(cx.listener(|viewer, _, _, cx| viewer.save(cx)))),
             )
             .child(
@@ -598,16 +750,26 @@ mod tests {
         MessageView { sender_id: sender.into(), attachments, ..Default::default() }
     }
 
+    fn video(file_id: &str) -> Attachment {
+        Attachment { file_id: file_id.into(), key: "a2V5".into(), name: format!("{file_id}.mp4"), mime: "video/mp4".into(), width: Some(320.), height: Some(180.), duration: Some(12.), ..Default::default() }
+    }
+
     #[test]
-    fn a_gallery_goes_between_the_pictures_in_order_leaving_out_files_and_someone_blocked() {
+    fn a_gallery_goes_between_the_pictures_and_videos_in_order_leaving_out_files_video_messages_and_someone_blocked() {
         let document = Attachment { mime: "application/pdf".into(), width: None, ..picture("document") };
-        let messages = [message("ann", vec![picture("a"), document]), message("bob", vec![picture("b")]), message("ann", vec![picture("c")])];
+        let round = Attachment { round: Some(true), ..video("round") };
+        let messages = [message("ann", vec![picture("a"), document]), message("bob", vec![picture("b")]), message("ann", vec![video("v"), round]), message("ann", vec![picture("c")])];
         let image = Arc::new(Image::from_bytes(gpui::ImageFormat::Png, Vec::new()));
-        let gallery = Gallery::among("server", &messages, &picture("c"), image.clone(), &["bob".to_string()]);
-        assert_eq!(gallery.items.iter().map(Item::file_id).collect::<Vec<_>>(), ["a", "c"]);
-        assert_eq!(gallery.index, 1);
+        let gallery = Gallery::among("server", "group", &messages, &picture("c"), Some(image.clone()), &["bob".to_string()]);
+        assert_eq!(gallery.items.iter().map(Item::file_id).collect::<Vec<_>>(), ["a", "v", "c"]);
+        assert_eq!(gallery.index, 2);
+        assert_eq!(gallery.list_id, "group");
+        assert!(gallery.items[1].video.is_some() && !gallery.items[1].small, "a video plays from its attachment, and isn't fetched as a picture");
+        // Opening on the video.
+        let on_video = Gallery::among("server", "group", &messages, &video("v"), None, &[]);
+        assert_eq!((on_video.index, on_video.items.len()), (2, 4));
         // A picture not among them still opens, alone.
-        let alone = Gallery::among("server", &messages, &picture("d"), image, &[]);
+        let alone = Gallery::among("server", "group", &messages, &picture("d"), Some(image), &[]);
         assert_eq!(alone.items.iter().map(Item::file_id).collect::<Vec<_>>(), ["d"]);
         assert_eq!(alone.index, 0);
     }
@@ -651,7 +813,7 @@ mod tests {
             _ => Err(refused("It's no longer on the server.")),
         });
         let first = png(800, 600);
-        let gallery = || Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("a")), Item::of(&picture("b")), Item::of(&picture("c"))], 0, Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(800, 600))));
+        let gallery = || Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("a")), Item::of(&picture("b")), Item::of(&picture("c"))], 0, Some(Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(800, 600)))));
         app.window.update(cx, |_, window, cx| open(gallery(), window, cx)).unwrap();
         app.run(cx);
         let handle = cx.update(|cx| cx.global::<Open>().0);
@@ -747,7 +909,7 @@ mod tests {
         assert_eq!(viewer(handle, cx, |viewer| viewer.index), 0);
 
         // Another picture opens in the same window.
-        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("z"))], 5, Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(10, 10)))), window, cx)).unwrap();
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("z"))], 5, Some(Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png(10, 10))))), window, cx)).unwrap();
         app.run(cx);
         assert_eq!(cx.update(|cx| cx.global::<Open>().0), handle);
         assert_eq!(viewer(handle, cx, |viewer| (viewer.index, viewer.items.len())), (0, 1), "a gallery's index is kept inside it");
@@ -764,5 +926,197 @@ mod tests {
         let handle = cx.update(|cx| cx.global::<Open>().0);
         click(handle, cx, "close-image");
         assert!(handle.update(cx, |_, _, _| ()).is_err());
+    }
+
+    /// A video's file as the app keeps it decrypted on disk. Nothing decodes it, so the tests play no sound.
+    fn video_file(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("zuna-video-viewer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, format!("{name}'s bytes")).unwrap();
+        file
+    }
+
+    /// A video played in its message, as its player is there.
+    fn played(app: &Running, cx: &mut TestAppContext, attachment: &Attachment) -> gpui::Entity<VideoPlayer> {
+        let file = video_file(&format!("{}.mp4", attachment.file_id));
+        app.state.update(cx, |state, cx| {
+            state.media_files.insert(attachment.cache_id(), MediaFile::Ready(file));
+            state.open_video(crate::testing::fixtures::SERVER, "group", attachment, false, cx);
+        });
+        app.run(cx);
+        app.read(cx, |state| state.videos.get(&attachment.cache_id()).cloned()).expect("its player")
+    }
+
+    fn shown_full(cx: &mut TestAppContext) -> Option<gpui::EntityId> {
+        cx.read(|cx| cx.try_global::<crate::ui::media_views::ShownFull>().and_then(|shown| shown.0))
+    }
+
+    #[gpui::test]
+    fn a_video_plays_over_the_whole_screen_among_the_pictures_and_goes_back_to_its_message(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("video-viewer"));
+        app.answer("downloadFile", |_| Err(refused("It's no longer on the server.")));
+        let clip = video("v");
+        let player = played(&app, cx, &clip);
+        let gallery = Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("a")), Item::of(&clip), Item::of(&picture("c"))], 1, None);
+        app.window.update(cx, |_, window, cx| open(gallery, window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        let showing = |cx: &mut TestAppContext| viewer(handle, cx, |viewer| viewer.video.as_ref().map(|player| player.entity_id()));
+        assert_eq!(showing(cx), Some(player.entity_id()), "its message's player, shown here");
+        assert!(cx.read(|cx| player.read(cx).is_full()));
+        assert_eq!(shown_full(cx), Some(player.entity_id()), "which the chat leaves out meanwhile");
+
+        // Fitted to the screen, keeping its shape and larger than its own, with room for the tools under it.
+        let drawn = bounds_of(handle, cx, "video-viewer-player");
+        let viewport = viewer(handle, cx, |viewer| viewer.viewport);
+        assert!((f32::from(drawn.size.width) / f32::from(drawn.size.height) - 16. / 9.).abs() < 0.01);
+        assert!(f32::from(drawn.size.width) > 320.);
+        assert!(f32::from(drawn.bottom()) <= f32::from(viewport.height) - VIDEO_TOOLS_ROOM - 40. + 0.5);
+        assert!(VisualTestContext::from_window(handle.into(), cx).debug_bounds("zoom-in").is_none(), "a video doesn't zoom");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("=");
+        assert_eq!(viewer(handle, cx, |viewer| viewer.view.scale), 1.);
+
+        // Space, its button and a click on it pause and play it.
+        let playing = |cx: &mut TestAppContext| cx.read(|cx| player.read(cx).is_playing());
+        let before = playing(cx);
+        // Pressed and let go, which GPUI would make a click on the viewer too.
+        let space = gpui::Keystroke::parse("space").unwrap();
+        event(handle, cx, gpui::KeyDownEvent { keystroke: space.clone(), is_held: false, prefer_character_input: false });
+        event(handle, cx, gpui::KeyUpEvent { keystroke: space });
+        assert_eq!(playing(cx), !before);
+        assert!(handle.update(cx, |_, _, _| ()).is_ok(), "Space doesn't close the viewer");
+        let enter = gpui::Keystroke::parse("enter").unwrap();
+        event(handle, cx, gpui::KeyDownEvent { keystroke: enter.clone(), is_held: false, prefer_character_input: false });
+        event(handle, cx, gpui::KeyUpEvent { keystroke: enter });
+        assert!(handle.update(cx, |_, _, _| ()).is_ok(), "nor Enter");
+        click(handle, cx, "video-play-pause");
+        assert_eq!(playing(cx), before);
+        click(handle, cx, "video-viewer-player");
+        assert_eq!(playing(cx), !before);
+        assert!(handle.update(cx, |_, _, _| ()).is_ok(), "a click on the video doesn't close the viewer");
+
+        // The bar moves it: halfway along is halfway through, paused there.
+        if playing(cx) {
+            click(handle, cx, "video-play-pause");
+        }
+        click(handle, cx, "video-seek-bar");
+        assert!((cx.read(|cx| player.read(cx).position()) - 6.).abs() < 0.2, "at once on the bar");
+        app.run(cx);
+        assert!((cx.read(|cx| player.read(cx).position()) - 6.).abs() < 0.5);
+        assert!(!playing(cx), "paused as it was");
+
+        // Saved where the person says: a copy of its file.
+        let target = std::env::temp_dir().join(format!("zuna-video-viewer-{}", std::process::id())).join("saved-here.mp4");
+        click(handle, cx, "save-image");
+        cx.simulate_new_path_selection(|_| Some(target.clone()));
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&target).unwrap(), b"v.mp4's bytes");
+
+        // The arrows go to the pictures either side, pausing it and giving it back to its message.
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("space");
+        assert!(playing(cx));
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("right");
+        assert_eq!((viewer(handle, cx, |viewer| viewer.index), showing(cx)), (2, None));
+        assert!(!cx.read(|cx| player.read(cx).is_full()) && !playing(cx));
+        assert_eq!(shown_full(cx), None);
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("left");
+        assert_eq!(showing(cx), Some(player.entity_id()));
+        assert!(cx.read(|cx| player.read(cx).is_full()));
+
+        // Escape leaves full screen: back in its message, playing on as it was.
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("space");
+        assert!(playing(cx));
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        assert!(!cx.read(|cx| player.read(cx).is_full()) && playing(cx));
+        assert_eq!(shown_full(cx), None);
+
+        // So does its bar's button.
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&clip)], 0, None), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert!(cx.read(|cx| player.read(cx).is_full()));
+        click(handle, cx, "video-exit-full");
+        cx.run_until_parked();
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        assert!(!cx.read(|cx| player.read(cx).is_full()));
+
+        // One whose file can't be had says so.
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&video("gone"))], 0, None), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert_eq!(viewer(handle, cx, |viewer| (viewer.failed, viewer.video.is_none())), (true, true), "This video couldn't be loaded.");
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        // Left before it had a player, it isn't started in its message if its file comes after all.
+        assert!(!app.read(cx, |state| state.wants_video(&video("gone").cache_id())));
+    }
+
+    #[gpui::test]
+    fn a_video_playing_in_its_message_goes_full_screen_from_its_button_or_two_clicks(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("video-full-screen"));
+        let clip = video("w");
+        let player = played(&app, cx, &clip);
+        let button: &'static str = Box::leak(format!("video-full-{}", clip.cache_id()).into_boxed_str());
+        // The player alone in a window, as the chat draws it in its message.
+        let chat = cx.update(|cx| cx.open_window(gpui::WindowOptions::default(), |_, _| player.clone())).unwrap();
+        let mut in_chat = VisualTestContext::from_window(chat.into(), cx);
+        in_chat.run_until_parked();
+        let at = in_chat.debug_bounds(button).expect("its full screen button").center();
+        in_chat.simulate_click(at, Modifiers::none());
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert_eq!(viewer(handle, cx, |viewer| viewer.video.as_ref().map(|player| player.entity_id())), Some(player.entity_id()));
+        assert!(cx.read(|cx| player.read(cx).is_full()));
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+        assert!(!cx.read(|cx| player.read(cx).is_full()));
+
+        // Two clicks on it go full screen, playing or paused as it was before them.
+        app.run(cx);
+        let before = cx.read(|cx| player.read(cx).is_playing());
+        let mut in_chat = VisualTestContext::from_window(chat.into(), cx);
+        let middle = in_chat.debug_bounds(button).expect("drawn in its message again").center() - gpui::point(px(100.), px(60.));
+        for count in 1..=2 {
+            in_chat.simulate_event(MouseDownEvent { position: middle, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: count, first_mouse: false });
+            in_chat.simulate_event(MouseUpEvent { position: middle, modifiers: Modifiers::none(), button: MouseButton::Left, click_count: count });
+        }
+        cx.run_until_parked();
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert!(handle.update(cx, |_, _, _| ()).is_ok() && cx.read(|cx| player.read(cx).is_full()));
+        assert_eq!(cx.read(|cx| player.read(cx).is_playing()), before);
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+    }
+
+    #[gpui::test]
+    fn a_video_is_fitted_by_the_shape_of_its_own_pictures(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("video-shape"));
+        // A real one, with no sound to play: 64 by 48, where its message says 16 by 9.
+        let clip = Attachment { mime: "video/webm".into(), name: "real.webm".into(), ..video("real") };
+        let file = video_file("real.webm");
+        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/fixtures/metadata/video.webm"), &file).unwrap();
+        app.state.update(cx, |state, cx| {
+            state.media_files.insert(clip.cache_id(), MediaFile::Ready(file));
+        });
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&clip)], 0, None), window, cx)).unwrap();
+        cx.run_until_parked();
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        let player = viewer(handle, cx, |viewer| viewer.video.clone()).expect("started here, its file being here");
+        for _ in 0..200 {
+            if cx.read(|cx| player.read(cx).natural_size()).is_some() {
+                break;
+            }
+            cx.executor().advance_clock(std::time::Duration::from_millis(20));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            cx.run_until_parked();
+        }
+        assert_eq!(cx.read(|cx| player.read(cx).natural_size()), Some((64., 48.)));
+        VisualTestContext::from_window(handle.into(), cx).run_until_parked();
+        let drawn = bounds_of(handle, cx, "video-viewer-player");
+        assert!((f32::from(drawn.size.width) / f32::from(drawn.size.height) - 4. / 3.).abs() < 0.01);
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
     }
 }

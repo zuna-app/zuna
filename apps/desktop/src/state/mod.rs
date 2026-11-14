@@ -300,7 +300,7 @@ pub struct AppState {
     pub clips: HashMap<String, ClipState>,
     pub videos: HashMap<String, Entity<crate::ui::media_views::VideoPlayer>>,
     /// Players to make once their files are here: whether each is a video message, and its length.
-    videos_wanted: HashMap<String, (bool, f64)>,
+    videos_wanted: HashMap<String, (bool, f64, crate::ui::media_views::VideoSource)>,
     pub paused_at: HashMap<String, f64>,
     pub play_when_ready: Option<(String, f64, f64)>,
     media_tick: Option<Task<()>>,

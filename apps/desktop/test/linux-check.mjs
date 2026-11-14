@@ -286,6 +286,56 @@ try {
   } else check("it opens again", false);
   await sleep(500);
 
+  // --- A video, over the whole screen in the same viewer, and back in its message ---
+  // Its thumbnail one color and its pictures another, so each is found wherever it's drawn.
+  const magenta = [200, 50, 180];
+  const teal = [40, 170, 200];
+  const clip = join(work, "clip.mp4");
+  const made = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x28AAC8:s=640x360:r=30:d=30", "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p", "-an", "-y", clip], { encoding: "utf8" });
+  check("a video to send is made", made.status === 0, made.stderr);
+  const thumb = `data:image/png;base64,${png(64, 36, Buffer.alloc(64 * 36 * 4).fill(Buffer.from([...magenta, 255]))).toString("base64")}`;
+  peer.stdin.write(`${JSON.stringify({ sendFile: { path: clip, name: "clip.mp4", mime: "video/mp4", width: 640, height: 360, duration: 30, thumb } })}\n`);
+  await until(() => heard.some((line) => line.sentFile === "clip.mp4"), "the video to go", 20_000);
+  await sleep(3000);
+  const videoTile = readPng(await shot("10j-video-arrived")).box((color) => near(color, magenta, 8));
+  check("a video from the other person shows in the chat with its picture", !!videoTile && videoTile.width > 200, JSON.stringify(videoTile));
+  if (videoTile) {
+    // Its corner's button, as the full screen button of a picture's viewer, opens it over the whole screen, playing.
+    const corner = { x: videoTile.x + videoTile.width - 20, y: videoTile.y + 20 };
+    await drive({ do: "move", ...corner });
+    await sleep(300);
+    await drive({ do: "click", ...corner });
+    const videoViewer = await until(async () => (await viewers())[0], "the viewer's window", 10_000).catch(() => null);
+    check("its full screen button opens it in the viewer's window, over the whole screen, in front", videoViewer?.x === 0 && videoViewer.y === 0 && videoViewer.width === 1400 && videoViewer.height === 900 && videoViewer.active, JSON.stringify(videoViewer));
+    // Fitted to the screen less 40 px around and the tools' 56 px under it, 1320 by 742, its pictures playing.
+    const playingFull = await until(async () => {
+      const box = readPng(await shot("10k-video-full")).box((color) => near(color, teal, 16));
+      return box && box.width > 1000 ? box : null;
+    }, "its pictures over the whole screen", 15_000).catch(() => null);
+    check("it plays fitted to the screen, keeping its shape, above the viewer's tools", !!playingFull && Math.abs(playingFull.width - 1320) <= 4 && Math.abs(playingFull.height - 742) <= 4 && Math.abs(playingFull.middle.x - 700) <= 3 && Math.abs(playingFull.middle.y - 422) <= 3, JSON.stringify(playingFull));
+    await drive({ do: "key", key: "space" });
+    await sleep(600);
+    const paused = readPng(await shot("10l-video-paused"));
+    check("Space pauses it, with the play button over it", !near(paused.at(700, 422), teal, 16) && near(paused.at(700, 300), teal, 16), JSON.stringify([paused.at(700, 422), paused.at(700, 300)]));
+    await drive({ do: "key", key: "escape" });
+    check("Escape leaves full screen", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
+    await sleep(800);
+    const back = readPng(await shot("10m-video-back"));
+    // Its corners, as the play button is over its middle while it's paused.
+    const corners = [back.at(videoTile.x + 30, videoTile.y + 30), back.at(videoTile.x + videoTile.width - 30, videoTile.y + 50), back.at(videoTile.x + 30, videoTile.y + videoTile.height - 50)];
+    check("back in its message, where its picture is drawn again, paused", corners.every((color) => near(color, teal, 16)) && !near(back.at(videoTile.middle.x, videoTile.middle.y), teal, 16), JSON.stringify(corners));
+    // Two clicks on it in its message go full screen again, as a browser's video does.
+    await drive({ do: "move", ...videoTile.middle });
+    await sleep(300);
+    await drive({ do: "click", ...videoTile.middle, count: 2 });
+    check("two clicks on it go full screen", !!(await until(async () => (await viewers())[0], "the viewer's window", 10_000).catch(() => null)));
+    await sleep(500);
+    await shot("10n-video-full-again");
+    await drive({ do: "key", key: "escape" });
+    check("and Escape leaves it again", !!(await until(async () => ((await viewers()).length === 0 ? true : null), "the viewer to close", 5_000).catch(() => null)));
+    await sleep(500);
+  }
+
   // --- Notifications and the badge, with another chat open ---
   await drive({ do: "click", x: 237, y: 311 });
   await sleep(800);

@@ -179,13 +179,13 @@ impl AppState {
         if matches!(self.clips.get(id), Some(ClipState::Loading)) {
             self.decode_clip(id.to_string(), path.clone(), cx);
         }
-        if let Some((round, duration)) = self.videos_wanted.remove(id) {
+        if let Some((round, duration, source)) = self.videos_wanted.remove(id) {
             let clip = match self.clips.get(id) {
                 Some(ClipState::Ready(clip)) => Some(clip.clone()),
                 _ => None,
             };
             let key = id.to_string();
-            let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, duration, clip, cx));
+            let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, duration, clip, source, cx));
             self.touch_media(id);
             self.videos.insert(id.to_string(), player);
             self.trim_media();
@@ -195,16 +195,28 @@ impl AppState {
         }
     }
 
-    /// Starts a video where it's shown, once its file is here.
-    pub fn open_video(&mut self, server_id: &str, attachment: &crate::models::Attachment, round: bool, cx: &mut Context<Self>) {
+    /// Starts a video where it's shown, once its file is here. It remembers the chat it's in
+    /// (`list_id`), so it can open in the viewer among that chat's pictures and videos.
+    pub fn open_video(&mut self, server_id: &str, list_id: &str, attachment: &crate::models::Attachment, round: bool, cx: &mut Context<Self>) {
         let id = attachment.cache_id();
         if self.videos.contains_key(&id) {
             return;
         }
-        self.videos_wanted.insert(id.clone(), (round, attachment.duration.unwrap_or(0.)));
+        let source = crate::ui::media_views::VideoSource { server_id: server_id.to_string(), list_id: list_id.to_string(), attachment: attachment.clone() };
+        self.videos_wanted.insert(id.clone(), (round, attachment.duration.unwrap_or(0.), source));
         if let MediaFile::Ready(_) = self.media_file(server_id, attachment, cx) {
             self.media_arrived(&id, cx);
         }
+    }
+
+    /// No longer starts a video once its file is here, as when the viewer went on from it first.
+    pub fn unwant_video(&mut self, key: &str) {
+        self.videos_wanted.remove(key);
+    }
+
+    #[cfg(test)]
+    pub fn wants_video(&self, key: &str) -> bool {
+        self.videos_wanted.contains_key(key)
     }
 
     /// Draws the chat again while something plays, so its time and waveform move. It ticks

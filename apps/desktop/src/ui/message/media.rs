@@ -113,7 +113,7 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
                         let state = state.read(cx);
                         let messages = state.lists.get(&group_id).map(|list| list.items.as_slice()).unwrap_or_default();
                         let blocked = state.servers.get(&server_id).map(|server| server.prefs.blocked().to_vec()).unwrap_or_default();
-                        crate::ui::image_viewer::Gallery::among(&server_id, messages, &opened, full.clone(), &blocked)
+                        crate::ui::image_viewer::Gallery::among(&server_id, &group_id, messages, &opened, Some(full.clone()), &blocked)
                     };
                     crate::ui::image_viewer::open(gallery, window, cx);
                 });

@@ -3,7 +3,7 @@
 
 mod video_player;
 
-pub use video_player::VideoPlayer;
+pub use video_player::{ShownFull, VideoPlayer, VideoSource};
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -97,9 +97,11 @@ impl Element for VideoLayer {
 
     fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Self::PrepaintState {
         let slots: Vec<(Entity<VideoPlayer>, Bounds<Pixels>, ContentMask<Pixels>)> = self.slots.0.borrow().iter().map(|slot| (slot.player.clone(), slot.bounds, slot.mask.clone())).collect();
+        // One shown over the whole screen is drawn there instead.
+        let full = cx.try_global::<ShownFull>().and_then(|shown| shown.0);
         let mut drawn = Vec::new();
         for (player, bounds, mask) in slots {
-            if bounds.intersect(&mask.bounds).is_empty() {
+            if bounds.intersect(&mask.bounds).is_empty() || full == Some(player.entity_id()) {
                 continue;
             }
             let mut element = AnyView::from(player).into_any_element();
@@ -356,7 +358,8 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
         .into_any_element()
 }
 
-/// A video: its picture until it's pressed, then playing where it is.
+/// A video: its picture until it's pressed, then playing where it is. Its corner's button
+/// opens it over the whole screen, among the chat's pictures and videos, as a picture opens.
 pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let key = attachment.cache_id();
@@ -400,10 +403,40 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     if let Some(duration) = attachment.duration.filter(|duration| *duration > 0.) {
         frame = frame.child(div().absolute().left(px(7.)).top(px(7.)).h(px(18.)).px(px(6.)).rounded(px(9.)).bg(theme::color(theme::black_a(0.55))).text_size(px(11.)).line_height(px(18.)).text_color(gpui::white()).child(format_duration(duration)));
     }
+    if !uploading && !matches!(file, Some(MediaFile::Failed)) {
+        let (state, server_id, list_id, a) = (context.state.clone(), context.server_id.clone(), context.list_id.clone(), attachment.clone());
+        frame = frame.child(
+            named_div(SharedString::from(format!("video-open-full-{key}")))
+                .absolute()
+                .right(px(7.))
+                .top(px(7.))
+                .size(px(26.))
+                .rounded(px(13.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme::color(theme::black_a(0.55)))
+                .hover(|style| style.bg(theme::color(theme::black_a(0.75))))
+                .tip("Full screen", Side::Top)
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    let gallery = {
+                        let state = state.read(cx);
+                        let messages = state.lists.get(&list_id).map(|list| list.items.as_slice()).unwrap_or_default();
+                        let blocked = state.servers.get(&server_id).map(|server| server.prefs.blocked().to_vec()).unwrap_or_default();
+                        crate::ui::image_viewer::Gallery::among(&server_id, &list_id, messages, &a, None, &blocked)
+                    };
+                    crate::ui::image_viewer::open(gallery, window, cx);
+                })
+                .child(icon("expand", 13., gpui::white())),
+        );
+    }
     if !uploading {
+        let list_id = context.list_id.clone();
         frame = frame.cursor_pointer().on_click(move |_, _, cx| {
             state.update(cx, |state, cx| {
-                state.open_video(&server_id, &a, false, cx);
+                state.open_video(&server_id, &list_id, &a, false, cx);
                 cx.notify();
             })
         });
@@ -420,7 +453,7 @@ pub fn round(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     // Small, and seen as soon as it's on screen, so it's fetched as a picture is.
     if !uploading && !context.state.read(cx).videos.contains_key(&key) {
         let (server_id, a) = (context.server_id.clone(), attachment.clone());
-        context.state.update(cx, |state, cx| state.open_video(&server_id, &a, true, cx));
+        context.state.update(cx, |state, cx| state.open_video(&server_id, &context.list_id, &a, true, cx));
     }
     context.state.read(cx).touch_media(&key);
     let player = context.state.read(cx).videos.get(&key).cloned();

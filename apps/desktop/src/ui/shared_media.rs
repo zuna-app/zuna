@@ -222,7 +222,7 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
         .on_click(move |_, window, cx| match &full {
             Some(full) => {
                 let index = pictures.iter().position(|item| item.file_id() == file_id).unwrap_or(0);
-                image_viewer::open(image_viewer::Gallery::new(&server_id, pictures.to_vec(), index, full.clone()), window, cx);
+                image_viewer::open(image_viewer::Gallery::new(&server_id, pictures.to_vec(), index, Some(full.clone())), window, cx);
             }
             _ => click_state.update(cx, |state, cx| {
                 if video {

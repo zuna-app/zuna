@@ -1,6 +1,27 @@
-//! A video playing where it's shown, with its sound when it's heard.
+//! A video playing where it's shown, with its sound when it's heard: in its message, or over
+//! the whole screen in the viewer (`ui/image_viewer.rs`), as a picture opens there.
 
 use super::*;
+
+/// Where a video was sent, so it can open in the viewer among its chat's pictures and videos.
+#[derive(Clone)]
+pub struct VideoSource {
+    pub server_id: String,
+    pub list_id: String,
+    pub attachment: Attachment,
+}
+
+/// How long the bar has to stay still before the video is decoded from where it was moved to,
+/// so dragging it doesn't open a decoder for every step.
+const SEEK_SETTLE: Duration = Duration::from_millis(120);
+
+/// The player shown in the viewer, over the whole screen, which the chat leaves out while it's
+/// there. A global, not the player's own, so the chat behind doesn't draw again with each of
+/// the video's frames to learn it.
+#[derive(Default)]
+pub struct ShownFull(pub Option<gpui::EntityId>);
+
+impl gpui::Global for ShownFull {}
 
 /// Plays a video's pictures where it's shown, with its sound when it's heard.
 pub struct VideoPlayer {
@@ -25,12 +46,44 @@ pub struct VideoPlayer {
     drawn: Instant,
     /// Stopped for being off screen, so a video message starts its loop again when it's back.
     offscreen: bool,
+    /// Where it was sent, which opens it over the whole screen.
+    source: Option<VideoSource>,
+    /// Shown in the viewer, with the viewer's controls, rather than in its message.
+    full: bool,
+    /// Where the bar was moved to, while it waits to stay still.
+    seeking: Option<f64>,
+    /// Moved while paused: the first picture from there shows, and it stays paused.
+    hold: bool,
+    _seek: Option<Task<()>>,
     _tick: Option<Task<()>>,
 }
 
 impl VideoPlayer {
-    pub fn new(key: String, path: PathBuf, round: bool, duration: f64, clip: Option<Clip>, cx: &mut Context<Self>) -> Self {
-        let mut player = VideoPlayer { key, path, round, duration, heard: !round, playing: false, clip, frame: None, retired: Vec::new(), next: None, frames: None, origin: Instant::now(), from: 0., position: 0., drawn: Instant::now(), offscreen: false, _tick: None };
+    pub fn new(key: String, path: PathBuf, round: bool, duration: f64, clip: Option<Clip>, source: VideoSource, cx: &mut Context<Self>) -> Self {
+        let mut player = VideoPlayer {
+            key,
+            path,
+            round,
+            duration,
+            heard: !round,
+            playing: false,
+            clip,
+            frame: None,
+            retired: Vec::new(),
+            next: None,
+            frames: None,
+            origin: Instant::now(),
+            from: 0.,
+            position: 0.,
+            drawn: Instant::now(),
+            offscreen: false,
+            source: Some(source),
+            full: false,
+            seeking: None,
+            hold: false,
+            _seek: None,
+            _tick: None,
+        };
         player.start(0., cx);
         player
     }
@@ -87,8 +140,11 @@ impl VideoPlayer {
         self.next = None;
         self.origin = Instant::now();
         self.from = from;
+        self.position = from;
         self.playing = true;
-        if self.heard {
+        // Back where it's shown, it isn't stopped for having been away while it waited.
+        self.drawn = Instant::now();
+        if self.heard && !self.hold {
             if let Some(clip) = &self.clip {
                 player::play(&self.key, clip, from, 1.);
             }
@@ -108,7 +164,7 @@ impl VideoPlayer {
     }
 
     pub(super) fn clock(&self) -> f64 {
-        if self.heard && self.clip.is_some() {
+        if self.heard && self.clip.is_some() && !self.hold {
             if let Some((at, _)) = player::position(&self.key) {
                 return at;
             }
@@ -164,6 +220,14 @@ impl VideoPlayer {
                 _ => break,
             }
         }
+        if self.hold && (changed || ended) {
+            // Moved while paused: the picture from there is showing, and it stays paused.
+            self.hold = false;
+            self.playing = false;
+            self.from = self.position;
+            cx.notify();
+            return None;
+        }
         if ended && self.next.is_none() {
             if self.round && !self.heard {
                 // Over and over, without sound.
@@ -215,23 +279,192 @@ impl VideoPlayer {
         cx.notify();
     }
 
-    pub(super) fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_pause(&mut self, cx: &mut Context<Self>) {
         if self.playing {
             self.playing = false;
             self.from = self.position;
             player::pause(&self.key);
         } else {
-            let from = if self.frames.is_none() || self.position <= 0. { 0. } else { self.position };
+            // A move of the bar still waiting starts from where it is now anyway.
+            self.seeking = None;
+            self._seek = None;
+            self.hold = false;
+            let from = if self.frames.is_none() || self.position <= 0. || self.at_end() { 0. } else { self.position };
             self.start(from, cx);
         }
         cx.notify();
+    }
+
+    /// Paused, if it's playing.
+    pub fn pause(&mut self, cx: &mut Context<Self>) {
+        if self.playing {
+            self.toggle_pause(cx);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn is_playing(&self) -> bool {
+        self.playing
+    }
+
+    /// Played to its end, so playing it again starts over.
+    fn at_end(&self) -> bool {
+        let duration = self.length();
+        duration > 0. && self.position >= duration - 0.05
+    }
+
+    /// Its length: its sound's once decoded, as the message gives it until then.
+    pub fn length(&self) -> f64 {
+        self.clip.as_ref().map(|clip| clip.duration()).filter(|duration| *duration > 0.).unwrap_or(self.duration)
+    }
+
+    #[cfg(test)]
+    pub fn position(&self) -> f64 {
+        self.position
+    }
+
+    /// Moves it to a moment, from the bar: shown at once on the bar, and decoded from there
+    /// once the bar stays still, playing on if it was.
+    pub fn seek(&mut self, at: f64, cx: &mut Context<Self>) {
+        let length = self.length();
+        let at = if length > 0. { at.clamp(0., length) } else { at.max(0.) };
+        self.position = at;
+        self.from = at;
+        self.seeking = Some(at);
+        // Nothing plays while the bar moves.
+        self._tick = None;
+        player::stop(&self.key);
+        self._seek = Some(cx.spawn(async move |player, cx| {
+            cx.background_executor().timer(SEEK_SETTLE).await;
+            player.update(cx, |player, cx| player.settle(cx)).ok();
+        }));
+        cx.notify();
+    }
+
+    fn settle(&mut self, cx: &mut Context<Self>) {
+        let Some(at) = self.seeking.take() else { return };
+        self.hold = !self.playing;
+        self.start(at, cx);
+        cx.notify();
+    }
+
+    /// The picture's own size, once a frame of it is decoded.
+    pub fn natural_size(&self) -> Option<(f32, f32)> {
+        let frame = self.frame.as_ref()?;
+        let size = frame.size(0);
+        (size.width.0 > 0 && size.height.0 > 0).then(|| (size.width.0 as f32, size.height.0 as f32))
+    }
+
+    /// Shown in the viewer, over the whole screen, or back in its message.
+    pub fn set_full(&mut self, full: bool, cx: &mut Context<Self>) {
+        self.full = full;
+        let id = cx.entity_id();
+        if full {
+            cx.set_global(ShownFull(Some(id)));
+        } else if cx.try_global::<ShownFull>().is_some_and(|shown| shown.0 == Some(id)) {
+            cx.set_global(ShownFull(None));
+        }
+        cx.notify();
+    }
+
+    #[cfg(test)]
+    pub fn is_full(&self) -> bool {
+        self.full
+    }
+
+    /// Opens it in the viewer, over the whole screen, among its chat's pictures and videos, as
+    /// a picture opens.
+    fn open_full(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(source), Some(state)) = (self.source.clone(), cx.try_global::<crate::state::Store>().map(|store| store.0.clone())) else { return };
+        let gallery = {
+            let state = state.read(cx);
+            let messages = state.lists.get(&source.list_id).map(|list| list.items.as_slice()).unwrap_or_default();
+            let blocked = state.servers.get(&source.server_id).map(|server| server.prefs.blocked().to_vec()).unwrap_or_default();
+            crate::ui::image_viewer::Gallery::among(&source.server_id, &source.list_id, messages, &source.attachment, None, &blocked)
+        };
+        crate::ui::image_viewer::open(gallery, window, cx);
+    }
+
+    /// Over the whole screen: the picture fitted to the box the viewer gives it, and a bar
+    /// along its bottom to play, pause, move through it and leave full screen.
+    fn render_full(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let playing = self.playing;
+        let length = self.length();
+        let fraction = if length > 0. { (self.position / length).clamp(0., 1.) as f32 } else { 0. };
+        let control = |id: &'static str, name: &'static str| {
+            named_div(id)
+                .size(px(30.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(RADIUS_M)
+                .cursor_pointer()
+                .hover(|style| style.bg(theme::color(theme::white_a(0.12))))
+                .child(icon(name, 18., gpui::white()))
+        };
+        let seek = cx.entity().downgrade();
+        div()
+            .id(SharedString::from(format!("video-full-stage-{}", self.key)))
+            .size_full()
+            .relative()
+            .cursor_pointer()
+            .when_some(self.frame.clone(), |el, frame| el.child(img(frame).size_full().object_fit(gpui::ObjectFit::Contain).rounded(crate::theme::RADIUS_S)))
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|player, _, _, cx| {
+                cx.stop_propagation();
+                player.toggle_pause(cx);
+            }))
+            .when(!playing, |el| {
+                el.child(div().absolute().inset_0().flex().items_center().justify_center().child(div().size(px(64.)).rounded_full().flex().items_center().justify_center().bg(theme::color(theme::black_a(0.55))).child(icon("play", 30., gpui::white()))))
+            })
+            .child(
+                div()
+                    .id("video-full-bar")
+                    .absolute()
+                    .left(px(12.))
+                    .right(px(12.))
+                    .bottom(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(8.))
+                    .py(px(5.))
+                    .rounded(px(8.))
+                    .bg(theme::color(theme::black_a(0.6)))
+                    .text_size(px(12.5))
+                    .text_color(gpui::white())
+                    .cursor_default()
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(control("video-play-pause", if playing { "pause" } else { "play" }).tip(if playing { "Pause" } else { "Play" }, Side::Top).on_click(cx.listener(|player, _, _, cx| {
+                        cx.stop_propagation();
+                        player.toggle_pause(cx);
+                    })))
+                    .child(div().flex_none().child(format_duration(self.position)))
+                    .child(named_div("video-seek-bar").flex_1().min_w_0().child(slider("video-seek", fraction, move |fraction, _, cx| {
+                        seek.update(cx, |player, cx| {
+                            let at = fraction as f64 * player.length();
+                            player.seek(at, cx);
+                        })
+                        .ok();
+                    }, cx)))
+                    .child(div().flex_none().child(format_duration(length)))
+                    .child(control("video-exit-full", "shrink").tip("Exit full screen", Side::Top).on_click(|_, window, cx| {
+                        cx.stop_propagation();
+                        // The viewer's window, whose going gives the video back to its message.
+                        window.remove_window();
+                    })),
+            )
+            .into_any_element()
     }
 }
 
 impl Render for VideoPlayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Let go in every window: one drawn in the chat and then the viewer painted frames in both.
         for old in self.retired.drain(..) {
-            window.drop_image(old).ok();
+            cx.drop_image(old, Some(window));
         }
         self.drawn = Instant::now();
         if self.offscreen {
@@ -240,6 +473,9 @@ impl Render for VideoPlayer {
             if self.round {
                 self.start(0., cx);
             }
+        }
+        if self.full {
+            return self.render_full(cx);
         }
         let mut stage = div().size_full().relative();
         if self.round {
@@ -252,14 +488,22 @@ impl Render for VideoPlayer {
         if let Some(frame) = self.frame.clone() {
             stage = stage.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover).rounded(RADIUS_M));
         }
-        // A video's own controls: play or pause, how far it's got, and the time.
-        let duration = self.clip.as_ref().map(|clip| clip.duration()).unwrap_or(0.);
+        // A video's own controls: play or pause, how far it's got, the time, and full screen.
+        let duration = self.length();
         let playing = self.playing;
+        let can_open = self.source.is_some();
         stage
             .id(SharedString::from(format!("video-stage-{}", self.key)))
             .group("video-stage")
             .cursor_pointer()
-            .on_click(cx.listener(|player, _, _, cx| player.toggle_pause(cx)))
+            .on_click(cx.listener(|player, event: &gpui::ClickEvent, window, cx| {
+                player.toggle_pause(cx);
+                // Two clicks go full screen, as a browser's video does, playing or paused as
+                // it was before them.
+                if event.click_count() == 2 {
+                    player.open_full(window, cx);
+                }
+            }))
             .when(!playing, |el| {
                 el.child(div().absolute().inset_0().flex().items_center().justify_center().child(div().size(px(48.)).rounded_full().flex().items_center().justify_center().bg(theme::color(theme::black_a(0.55))).child(icon("play", 22., gpui::white()))))
             })
@@ -280,7 +524,25 @@ impl Render for VideoPlayer {
                     .text_color(gpui::white())
                     .child(icon(if playing { "pause" } else { "play" }, 13., gpui::white()))
                     .child(div().flex_1().h(px(3.)).rounded(px(2.)).bg(theme::color(theme::white_a(0.3))).child(div().h_full().w(gpui::relative(if duration > 0. { (self.position / duration).clamp(0., 1.) as f32 } else { 0. })).rounded(px(2.)).bg(gpui::white())))
-                    .child(format!("{} / {}", format_duration(self.position), format_duration(duration))),
+                    .child(format!("{} / {}", format_duration(self.position), format_duration(duration)))
+                    .when(can_open, |el| {
+                        el.child(
+                            named_div(SharedString::from(format!("video-full-{}", self.key)))
+                                .size(px(18.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.))
+                                .hover(|style| style.bg(theme::color(theme::white_a(0.15))))
+                                .tip("Full screen", Side::Top)
+                                .on_click(cx.listener(|player, _, window, cx| {
+                                    cx.stop_propagation();
+                                    player.open_full(window, cx);
+                                }))
+                                .child(icon("expand", 13., gpui::white())),
+                        )
+                    }),
             )
             .into_any_element()
     }
