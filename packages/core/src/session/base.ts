@@ -63,6 +63,7 @@ export abstract class SessionBase {
    * user ID>", or "disputed" when its keys were kept under more than one (vault.ts). Loaded once.
    */
   protected vaultKindsHeld: Map<string, string> | null = null;
+  protected vaultRostersSaidHeld: Set<string> | null = null;
   protected locks = new Map<string, Mutex>();
   protected epochKeys = new Map<string, Uint8Array>();
   /** Messages that arrived live before their keys did, notified once they open. */

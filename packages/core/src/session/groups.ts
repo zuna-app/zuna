@@ -39,11 +39,18 @@ import { SessionRotation } from "./rotation";
 const KIND_NAMES = { group: "a group", dm: "a direct message", channel: "a channel" } as const;
 
 /**
- * Why a group's roster can't be taken yet: this account has the group's keys, and none of its
- * devices has said who's in it. Nothing is wrong, nobody is warned, and it's asked again once
- * one of them has (`applyManifest`).
+ * Why a group's roster can't be taken yet: this account's keys for the group say its manifest
+ * names who's in it, and the manifest this device has doesn't. Nothing is wrong, nobody is
+ * warned, and it's asked again once the manifest does (`applyManifest`).
  */
 export const ROSTER_UNSAID = "none of this account's devices has said who's in it yet";
+
+/**
+ * Why a Welcome's roster can't be taken: it's older than the one this account's manifest names,
+ * as when another of its devices saw the group change while this one was away. Nothing is wrong
+ * and nobody is warned: the join that follows takes the group as it is now, and is checked again.
+ */
+export const ROSTER_BEHIND = "it's older than the one this account holds";
 
 export abstract class SessionGroups extends SessionRotation {
   // --- Epoch keys ---
@@ -488,9 +495,12 @@ export abstract class SessionGroups extends SessionRotation {
   /**
    * Why a device that holds no roster for a group can't take on `next`, as a new device can't for
    * any of its account's groups. What it's held to is the account's own word, from the manifest,
-   * which the server can't write: the same roster, or one that follows from it. A group the account
-   * has keys for, with nothing in the manifest yet, waits for another of its devices to say who's
-   * in it (`ROSTER_UNSAID`). Only a group that's new to the whole account is taken as it comes.
+   * which the server can't write: the same roster, or one that follows from it. A group whose keys
+   * in the vault say the manifest names who's in it, with nothing in the manifest this device has,
+   * waits for that (`ROSTER_UNSAID`). A group that's new to the whole account is taken as it comes,
+   * as is one whose keys were all put in the vault before devices said who's in their groups: no
+   * device of the account may be left that ever will, as after a recovery, or one may be on an app
+   * from before then, and waiting for it left the group without a name, and nothing could be sent.
    */
   protected firstRosterRefusal(group: CachedGroup, next: SignedRoster): string | null {
     const said = this.manifest?.rosters?.[group.id];
@@ -498,9 +508,10 @@ export abstract class SessionGroups extends SessionRotation {
     if (said && !said.m.includes(this.account.userId)) return null;
     if (said) {
       const held: HeldRoster = { roster: { group: group.id, version: said.v, admins: said.a, members: said.m }, hash: said.h };
+      if (next.roster.version < said.v) return ROSTER_BEHIND;
       return rosterJump(held, next, this.rosterContext(group, held, next));
     }
-    return this.vaultKinds().has(group.id) ? ROSTER_UNSAID : null;
+    return this.vaultRostersSaid().has(group.id) ? ROSTER_UNSAID : null;
   }
 
   /**

@@ -8,7 +8,7 @@ import { SEND_LABEL } from "../src/crypto";
 import { fromBase64, u64Bytes, utf8 } from "../src/encoding";
 import { sealRoster } from "../src/roster";
 import { TestApp, sleep, waitFor } from "./helpers";
-import { apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
+import { apiOf, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
 
@@ -100,6 +100,52 @@ describe("who's in a group, on a device that held nothing of it", () => {
     expect(sessionOf(phone).vaultKinds().has(groupId)).toBe(true);
     expect(sessionOf(phone).hasMlsGroup(groupId)).toBe(false);
     expect(rosterHeld(phone, groupId)).toBeUndefined();
+  });
+
+  it("is taken as it comes when the account's keys for it were kept before any device said who's in it", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    // Bob's device is an app from before devices said who's in their groups: it never does.
+    sessionOf(bob).rostersForManifest = () => ({});
+    const groupId = await groupWith(ann, [bob], false, "Family");
+    await sentAndSeen(ann, [bob], groupId, "dinner at 7");
+    await sessionOf(bob).uploadEpochKeys();
+    expect(sessionOf(bob).manifest.rosters?.[groupId]).toBeUndefined();
+    const username = bob.session.getSelf().username;
+    // Gone, as a lost phone is after a recovery: nobody of Bob's will ever say who's in it.
+    bob.client.stop();
+
+    const phone = await new TestApp("bob's new phone").open();
+    open.push(phone);
+    await phone.login(server.url, username);
+    await waitFor(() => sessionOf(phone).hasMlsGroup(groupId), "the new device to join the group");
+    expect(sessionOf(phone).vaultKinds().has(groupId)).toBe(true);
+    await waitFor(() => phone.session.getConversations().find((item) => item.groupId === groupId)?.title === "Family", "the group's name");
+    await sentAndSeen(phone, [ann], groupId, "on my way");
+    expect(securityEvents(phone).filter((event) => (event as { message: string }).message.includes("conversations"))).toEqual([]);
+  });
+
+  it("takes the group as it is now, without a warning, when its invitation is older than what the account holds", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const carol = await person("carol");
+    const phone = await new TestApp("bob's phone").open();
+    open.push(phone);
+    await phone.login(server.url, bob.session.getSelf().username);
+    await waitFor(() => sessionOf(ann).users.get(bob.userId)?.devices.size === 2, "ann's app to know bob's phone");
+    // Away as the group starts, and while it changes.
+    phone.client.stop();
+    const groupId = await groupWith(ann, [bob], false, "Trip");
+    await ann.session.addMembers(groupId, [carol.userId]);
+    await waitFor(() => rosterHeld(bob, groupId)?.version === 2, "bob's computer to see carol added");
+    await sessionOf(bob).uploadEpochKeys();
+    expect(sessionOf(bob).manifest.rosters[groupId].v).toBe(2);
+
+    await phone.open();
+    await phone.online();
+    await waitFor(() => sessionOf(phone).hasMlsGroup(groupId) && rosterHeld(phone, groupId)?.version === 2, "the phone to join the group as it is now");
+    await sentAndSeen(phone, [ann, carol], groupId, "count me in");
+    expect(warned(phone, "couldn't be trusted")).toBe(false);
   });
 
   it("is never one that lets someone back in, on a device that joins again (Z-71)", async () => {

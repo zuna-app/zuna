@@ -10,16 +10,26 @@ import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PAR
 import { SessionLocal } from "./local";
 
 /**
+ * What a group's key in the vault ends with once the account's manifest says who's in the group,
+ * as a device says before it puts the keys there. A device that finds one waits for that word
+ * rather than take the server's (`firstRosterRefusal`). Keys put there before devices said who's
+ * in their groups have no such ending, and say nothing either way.
+ */
+const ROSTER_SAID = ";roster";
+
+/**
  * An epoch key as the vault keeps it: the key, then what its conversation is (`kindTag`), sealed
  * together, so the server can't serve one without the other, or pass a key off as another kind's.
  */
-const keptKey = (key: Uint8Array, tag: string): Uint8Array => concat(key, utf8(tag));
+const keptKey = (key: Uint8Array, tag: string, rosterSaid: boolean): Uint8Array => concat(key, utf8(rosterSaid ? `${tag}${ROSTER_SAID}` : tag));
 
-const readKeptKey = (data: Uint8Array): { key: Uint8Array; kind: string } | null => {
+const readKeptKey = (data: Uint8Array): { key: Uint8Array; kind: string; rosterSaid: boolean } | null => {
   if (data.length <= 32) return null;
-  const kind = fromUtf8(data.subarray(32));
+  const text = fromUtf8(data.subarray(32));
+  const rosterSaid = text.endsWith(ROSTER_SAID);
+  const kind = rosterSaid ? text.slice(0, -ROSTER_SAID.length) : text;
   const fine = kind === "group" || kind === "channel" || (kind.startsWith("dm:") && kind.length > 3);
-  return fine ? { key: data.slice(0, 32), kind } : null;
+  return fine ? { key: data.slice(0, 32), kind, rosterSaid: rosterSaid && kind === "group" } : null;
 };
 
 export abstract class SessionVault extends SessionLocal {
@@ -54,6 +64,7 @@ export abstract class SessionVault extends SessionLocal {
           const kept = readKeptKey(data);
           if (groupId && Number.isSafeInteger(Number(epoch)) && kept && this.takeVaultKind(groupId, kept.kind)) {
             this.saveEpochKey(groupId, Number(epoch), kept.key, "vault");
+            if (kept.rosterSaid) this.vaultRostersSaid().add(groupId);
             touchedGroups.add(groupId);
           }
         } else if (isManifestPart(item.id)) {
@@ -91,6 +102,16 @@ export abstract class SessionVault extends SessionLocal {
 
   protected saveVaultKinds(): void {
     if (this.vaultKindsHeld) this.setKv("vault_kinds", Object.fromEntries(this.vaultKindsHeld));
+    if (this.vaultRostersSaidHeld) this.setKv("vault_rosters_said", [...this.vaultRostersSaidHeld]);
+  }
+
+  /**
+   * The groups whose keys in the vault say this account's manifest names who's in them
+   * (`ROSTER_SAID`), so that a device holding no roster for one waits for the manifest's.
+   */
+  protected vaultRostersSaid(): Set<string> {
+    this.vaultRostersSaidHeld ??= new Set(this.getKv<string[]>("vault_rosters_said") ?? []);
+    return this.vaultRostersSaidHeld;
   }
 
   /** What the vault says a conversation is, or "disputed" if its keys were kept under more than one kind, or null if it says nothing. */
@@ -481,7 +502,9 @@ export abstract class SessionVault extends SessionLocal {
       const tag = group && this.kindTag(group);
       const vaulted = this.vaultKinds().get(row.group_id);
       if (!tag || (vaulted && vaulted !== tag)) continue;
-      items.push({ id: `ek:${row.group_id}:${row.epoch}`, data: keptKey(this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key), tag) });
+      // The manifest says who's in it by now, as a group still unsaid waits above.
+      const rosterSaid = group.kind === "group" && !!this.manifest?.rosters?.[row.group_id];
+      items.push({ id: `ek:${row.group_id}:${row.epoch}`, data: keptKey(this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key), tag, rosterSaid) });
     }
     if (items.length > 0 && !(await this.putItems(items))) return false;
     this.db.transaction(() => {
