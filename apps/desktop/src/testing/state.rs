@@ -217,6 +217,19 @@ fn messages_arrive_change_move_and_go(cx: &mut TestAppContext) {
     app.event(cx, json!({ "type": "something_new", "serverId": SERVER }));
 }
 
+#[gpui::test]
+fn shows_who_was_in_a_voice_channel_before_the_session_connected(cx: &mut TestAppContext) {
+    // Started again, the app reads who's in voice before the session has connected, and hears
+    // of them as the channels come (`syncChannels`), with no voice event for each.
+    let app = open_on_server(cx, &World::new("voice-on-connect"));
+    app.event(cx, json!({ "type": "voice", "serverId": SERVER, "deviceId": "d-bob", "member": null }));
+    assert!(app.read(cx, |state| state.servers[SERVER].voice.is_empty()));
+    app.answer("getVoiceMembers", |_| Ok(json!([{ "channelId": LOUNGE, "userId": CAROL, "deviceId": "d-carol", "muted": false, "camera": false, "screen": false, "since": NOW }])));
+    app.event(cx, json!({ "type": "channels", "serverId": SERVER }));
+    let voice = app.read(cx, |state| state.servers[SERVER].voice.keys().cloned().collect::<Vec<_>>());
+    assert_eq!(voice, vec!["d-carol".to_string()]);
+}
+
 /// A picture the core can decrypt, as `downloadFile` gives it.
 fn png() -> Value {
     let mut out = std::io::Cursor::new(Vec::new());

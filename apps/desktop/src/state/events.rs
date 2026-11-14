@@ -92,6 +92,13 @@ impl AppState {
         });
     }
 
+    /// Who's in the voice channels and the calls, all of it, as the core has it now.
+    fn refresh_voice(&mut self, server_id: &str, cx: &mut Context<Self>) {
+        self.refresh_field(server_id, "getVoiceMembers", cx, |server, value| {
+            server.voice = from_value::<Vec<VoiceMember>>(value).into_iter().map(|member| (member.device_id.clone(), member)).collect();
+        });
+    }
+
     pub(super) fn upsert_message(&mut self, message: MessageView) {
         let Some(list) = self.lists.get_mut(&message.group_id) else { return };
         if let Some(index) = list.items.iter().position(|item| item.id == message.id) {
@@ -154,7 +161,13 @@ impl AppState {
             }
             "conversations" => self.refresh_conversations(&server_id, cx),
             "read" => self.read_moved(&server_id, &event, cx),
-            "channels" => self.refresh_conversations(&server_id, cx),
+            // Who's in the voice channels comes with them, as the session connects (`syncChannels`),
+            // which is after the app read it at start, and each voice event only says what changed
+            // since: someone already in one wasn't shown until they left and came back.
+            "channels" => {
+                self.refresh_conversations(&server_id, cx);
+                self.refresh_voice(&server_id, cx);
+            }
             "users" => {
                 self.refresh_users(&server_id, cx);
                 self.refresh_conversations(&server_id, cx);
@@ -246,13 +259,10 @@ impl AppState {
             "emotes" => self.refresh_field(&server_id, "getEmotes", cx, |server, value| server.emotes = from_value(value)),
             "sounds" => self.refresh_field(&server_id, "getSounds", cx, |server, value| server.sounds = from_value(value)),
             "calls" => {
-                let server = server_id.clone();
                 self.refresh_field(&server_id, "getCalls", cx, |state_server, value| {
                     state_server.calls = from_value::<Vec<CallView>>(value).into_iter().map(|call| (call.group_id.clone(), call)).collect();
                 });
-                self.refresh_field(&server, "getVoiceMembers", cx, |state_server, value| {
-                    state_server.voice = from_value::<Vec<VoiceMember>>(value).into_iter().map(|member| (member.device_id.clone(), member)).collect();
-                });
+                self.refresh_voice(&server_id, cx);
             }
             "preferences" => self.refresh_field(&server_id, "getPreferences", cx, |server, value| server.prefs = from_value(value)),
             "voice" => {
