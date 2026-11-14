@@ -88,7 +88,12 @@ jobs:
   ios:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'ios') }}
     runs-on: xcode-27
-    timeout-minutes: 60
+    # TDLib for the Telegram helper takes a while more the first time on a runner.
+    timeout-minutes: 150
+    # With the app's api_id, the app's builds here have the Telegram helper (apps/ios/telegram.yml).
+    env:
+      TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
@@ -109,7 +114,22 @@ jobs:
       - uses: ./.github/actions/wasm-bindgen
       - name: Install XcodeGen
         run: brew install xcodegen
+      # TDLib for the Telegram helper, built from its pinned source where there's an api_id and saved
+      # on main for release.yml's ios job, as the desktop job saves Windows'.
+      - id: tdlib
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/ios/.deps/tdlib
+          key: tdlib-ios-${{ hashFiles('scripts/tdlib.mjs') }}
+      - run: command -v cmake || brew install cmake
       - run: npm ci
+      - if: ${{ env.TELEGRAM_API_ID != '' }}
+        run: node scripts/tdlib.mjs --ios
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && hashFiles('apps/ios/.deps/tdlib/.stamp') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/ios/.deps/tdlib
+          key: tdlib-ios-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run build:crypto
       - run: npm run build:ios
       - run: node scripts/ios-dist.mjs archive

@@ -264,6 +264,14 @@ function distribute(path, upload) {
   const app = join(archived, "Products", "Applications", "Zuna.app");
   if (!existsSync(app)) fail(`${archived} isn't an archive of Zuna: it has no Products/Applications/Zuna.app.`);
   const build = field(join(app, "Info.plist"), "CFBundleVersion");
+  // An archive with the Telegram helper goes up without it until the helper has its App Store
+  // profile in the environment (IOS_PROFILE_TELEGRAM), rather than not at all: the app then has no
+  // Telegram, as without the api_id (Zuna/Telegram/TelegramHelper.swift).
+  const helper = join(app, "Extensions", "ZunaTelegram.appex");
+  if (upload && existsSync(helper) && !process.env[TELEGRAM_PROFILE["chat.zuna.mobile.telegram"]]) {
+    console.log("The Telegram helper has no App Store profile in the environment yet (IOS_PROFILE_TELEGRAM), so this build goes to TestFlight without Telegram.");
+    rmSync(helper, { recursive: true, force: true });
+  }
   const teamId = team();
   const work = mkdtempSync(join(tmpdir(), "zuna-ios-"));
   let signing = null;
