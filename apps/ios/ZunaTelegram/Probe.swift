@@ -6,7 +6,8 @@ import Security
 /// What the box must refuse, tried from inside it, as `zuna-telegram --probe` does on the desktop:
 /// Debug builds alone, asked by the app with `{"zuna":"probe"}`. Each answer says what happened,
 /// and the app's check holds each to what it should be. The simulator keeps nothing in a box, so
-/// only a phone's answers count.
+/// only a phone's answers count: there, on iOS 27.0.1, its own container, its loopback, the network
+/// and the system's random numbers were allowed, and the rest refused (docs/TELEGRAM_PLAN.md).
 enum Probe {
     static func run(app: String, door: Door?) -> [String: String] {
         var results: [String: String] = [:]
@@ -23,6 +24,25 @@ enum Probe {
             results["own folder"] = "allowed"
         } catch {
             results["own folder"] = "refused: \(error.localizedDescription)"
+        }
+
+        // Writing anywhere but there: the app's data, the rest of its own container, and outside it.
+        let manager = FileManager.default
+        var places = [
+            ("write Caches", manager.urls(for: .cachesDirectory, in: .userDomainMask)[0].path),
+            ("write temporary", NSTemporaryDirectory()),
+            ("write outside its container", "/private/var/tmp"),
+        ]
+        if !app.isEmpty { places.append(("write app's data", app)) }
+        for (name, folder) in places {
+            let file = URL(fileURLWithPath: folder).appendingPathComponent("zuna-probe-\(getpid())")
+            do {
+                try Data("probe".utf8).write(to: file)
+                try manager.removeItem(at: file)
+                results[name] = "allowed (\(folder))"
+            } catch {
+                results[name] = "refused (\(folder))"
+            }
         }
 
         // The app's data, and the rest of the disk.

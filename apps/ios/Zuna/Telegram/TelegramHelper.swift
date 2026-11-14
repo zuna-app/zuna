@@ -5,15 +5,20 @@ import UIKit
 @preconcurrency import XPC
 import ZunaHost
 
-/// Where the Telegram helper binds (`ZunaTelegram`), which iOS runs in its enhanced security
-/// sandbox, apart from the app (docs/TELEGRAM_PLAN.md, "On the iPhone and iPad"). Only an
-/// extension inside Zuna's own bundle binds to it, which is the default.
+/// Where the Telegram helper binds (`ZunaTelegram`), which iOS runs as a process of its own in an
+/// extension's sandbox, apart from the app (docs/TELEGRAM_PLAN.md, "On the iPhone and iPad"). Only
+/// an extension inside Zuna's own bundle binds to it, which is the default.
+///
+/// Not `EnhancedSecurity()`: on a phone that sandbox lets the helper write no file anywhere, its
+/// own container included, nor connect or bind a socket, its own loopback included, nor make a
+/// socket pair or a kqueue, so TDLib can't keep its session or run at all, and descriptors the
+/// app sends over XPC don't reach it. Measured on
+/// iOS 27.0.1 on 2026-11-14 with `telegramProbe`.
 @available(iOS 26.0, *)
 extension AppExtensionPoint {
     @Definition
     static var telegram: AppExtensionPoint {
         Name("telegram")
-        EnhancedSecurity()
     }
 }
 

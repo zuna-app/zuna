@@ -12,9 +12,10 @@ targets:
         # Zuna/Telegram/TelegramHelper.swift into the bundle's Extensions folder.
         EX_ENABLE_EXTENSION_POINT_GENERATION: YES
 
-  # A linked Telegram account's TDLib, in a process of its own that iOS keeps in its enhanced
-  # security sandbox, apart from the app, its app group and its keychain (docs/TELEGRAM_PLAN.md,
-  # "On the iPhone and iPad"); see TelegramHelper. From iOS 26, the first with such extensions.
+  # A linked Telegram account's TDLib, in a process of its own that iOS keeps in an extension's
+  # sandbox, apart from the app, its app group and its keychain (docs/TELEGRAM_PLAN.md, "On the
+  # iPhone and iPad"); see TelegramHelper, which says why not the enhanced security sandbox. From
+  # iOS 26, the first with extension points of an app's own.
   # TDLib is linked from what `node scripts/tdlib.mjs --ios` builds into apps/ios/.deps.
   ZunaTelegram:
     type: extensionkit-extension
@@ -45,9 +46,10 @@ targets:
         CFBundlePackageType: XPC!
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: chat.zuna.mobile.telegram
-    # Xcode's for an enhanced security extension: the hardened process, its heap and its checked
-    # allocations, and the stricter platform's restrictions. Nothing of Zuna's: no app group, no
-    # keychain group.
+    # Xcode's for an enhanced security extension, which the App ID's Enhanced Security capability
+    # allows: the hardened process, its heap and its checked allocations, and the stricter
+    # platform's restrictions. They're in the helper's own signature, apart from the sandbox, which
+    # the app's extension point asks for. Nothing of Zuna's: no app group, no keychain group.
     entitlements:
       path: ZunaTelegram/ZunaTelegram.entitlements
       properties:

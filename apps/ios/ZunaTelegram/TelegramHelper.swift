@@ -7,10 +7,11 @@ import os
 // ZunaTelegram: TDLib in a process of its own, for a Telegram account linked to Zuna on this
 // iPhone or iPad (docs/TELEGRAM_PLAN.md, "On the iPhone and iPad"). The app starts it, through the
 // extension point it defines (`Zuna/Telegram/TelegramHelper.swift`), and is the only thing it talks
-// to, over one XPC session (`TelegramWire`). iOS runs it as an enhanced security extension: a
-// sandbox of its own that keeps it from most of the system's services, apart from the app's
-// container, its app group and its keychain, and compiled with pointer authentication and typed
-// allocation, against the faults a C++ parser of strangers' data has.
+// to, over one XPC session (`TelegramWire`). iOS runs it in an extension's sandbox, with a
+// container of its own and none of the app's: not its data, its app group or its keychain. It's
+// compiled with pointer authentication and typed allocation, and runs as a hardened process,
+// against the faults a C++ parser of strangers' data has. Not in the enhanced security sandbox,
+// where TDLib can't run (`Zuna/Telegram/TelegramHelper.swift`).
 //
 // It holds no key of Zuna's, and keeps nothing but TDLib's own folder, in its own container, whose
 // database key the app sends each time it starts. The app's broker decides what may be asked of
