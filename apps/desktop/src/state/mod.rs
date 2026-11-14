@@ -585,7 +585,9 @@ impl AppState {
             .ok();
             this.update(cx, |state, cx| {
                 state.order = entries.iter().map(|entry| entry.id.clone()).collect();
-                state.active_server = entries.first().map(|entry| entry.id.clone());
+                // Where the person was when the app last ran, if it's still here.
+                let last = state.settings.last_server.clone().filter(|id| state.order.contains(id));
+                state.active_server = last.or_else(|| entries.first().map(|entry| entry.id.clone()));
                 state.phase = Phase::Ready;
                 state.watch_activity(cx);
                 state.update_badge(cx);
@@ -609,6 +611,7 @@ impl AppState {
                 state.servers.insert(server_id.clone(), loaded);
                 state.order = entries.iter().map(|entry| entry.id.clone()).collect();
                 state.active_server = Some(server_id.clone());
+                state.remember_server();
                 state.overlay = None;
                 state.refresh_conversations(&server_id, cx);
                 state.refresh_users(&server_id, cx);
@@ -637,6 +640,7 @@ impl AppState {
         self.order.retain(|id| id != server_id);
         if self.active_server.as_deref() == Some(server_id) {
             self.active_server = self.order.first().cloned();
+            self.remember_server();
         }
         self.panel = None;
         self.overlay = None;
@@ -647,6 +651,7 @@ impl AppState {
     pub fn select_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
         let leaving = self.active_server.clone().filter(|id| id != server_id).and_then(|id| Some((id.clone(), self.servers.get(&id)?.active_key.clone()?)));
         self.active_server = Some(server_id.to_string());
+        self.remember_server();
         self.panel = None;
         self.plugin_page = None;
         if let Some((id, key)) = leaving {
@@ -655,6 +660,14 @@ impl AppState {
         // Online on the server now shown, and no longer on the one left.
         self.report_activity(cx);
         cx.notify();
+    }
+
+    /// Keeps the server shown, for the app to open on when it's started again.
+    fn remember_server(&mut self) {
+        if self.settings.last_server != self.active_server {
+            self.settings.last_server = self.active_server.clone();
+            self.settings.save();
+        }
     }
 
     /// Cuts a chat back to its newest messages once it isn't shown, so a long run doesn't keep

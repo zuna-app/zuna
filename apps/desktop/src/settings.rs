@@ -36,6 +36,9 @@ pub struct Settings {
     /// The SOCKS5 proxy everything this device sends goes through, for every server on it
     /// (host/net.rs). Its password is sealed apart, as the device key is (`PROXY_PASSWORD`).
     pub proxy: ProxySetting,
+    /// The server shown last, or the linked Telegram account, which the app opens on when it's
+    /// started again, as iOS does (`AppSettings.lastServer`). The first is shown where it's gone.
+    pub last_server: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -99,6 +102,7 @@ impl Default for Settings {
             update_channel: None,
             theme: None,
             proxy: ProxySetting::default(),
+            last_server: None,
         }
     }
 }

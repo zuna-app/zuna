@@ -29,6 +29,28 @@ fn boots_with_its_servers(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn opens_on_the_server_shown_when_it_last_ran(cx: &mut TestAppContext) {
+    let app = open(cx, "last-server");
+    app.update(cx, |state, cx| state.select_server(OTHER, cx));
+    assert_eq!(app.read(cx, |state| state.settings.last_server.clone()).as_deref(), Some(OTHER));
+    // Started again, as after quitting from the tray, it's back where it was, not on the first.
+    app.update(cx, |state, cx| {
+        state.active_server = None;
+        state.boot(async { Ok(()) }, false, cx);
+    });
+    app.settle(cx, |state| state.active_server.is_some());
+    assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(OTHER));
+    // One that's gone since opens the first.
+    app.update(cx, |state, cx| {
+        state.settings.last_server = Some("server-left".into());
+        state.active_server = None;
+        state.boot(async { Ok(()) }, false, cx);
+    });
+    app.settle(cx, |state| state.active_server.is_some());
+    assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER));
+}
+
+#[gpui::test]
 fn draws_each_chat_with_every_kind_of_message(cx: &mut TestAppContext) {
     let app = open(cx, "chats");
     app.update(cx, |state, cx| state.select_server(SERVER, cx));
