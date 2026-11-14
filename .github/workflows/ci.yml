@@ -252,9 +252,26 @@ jobs:
           restore-keys: macos-cargo-
       - name: Get Xcode's Metal Toolchain
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      # TDLib, built from its pinned source and saved on main for release.yml's macos job, as the
+      # desktop job saves Windows'.
+      - id: tdlib
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-macos-${{ hashFiles('scripts/tdlib.mjs') }}
+      - run: command -v cmake || brew install cmake
       - run: npm ci
+      - run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/tdlib
+          key: tdlib-macos-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: node scripts/macos-app.mjs release
-      - run: codesign --verify --strict --deep --verbose=2 dist/macos/Zuna.app && ls -l dist/macos
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      - run: codesign --verify --strict --deep --verbose=2 dist/macos/Zuna.app && ls -l dist/macos dist/macos/Zuna.app/Contents/MacOS
 
   # The same app's Linux packages, built as a release builds them (the linux job
   # in release.yml, which this follows). Only by hand: gh workflow run ci.yml -f jobs=linux
