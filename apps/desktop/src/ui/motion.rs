@@ -240,7 +240,6 @@ struct Transition {
     to: f32,
     started: Instant,
     length: Duration,
-    generation: u64,
     /// When its key was last drawn.
     used: Instant,
 }
@@ -271,37 +270,80 @@ fn value_at(transition: &Transition, now: Instant, easing: &dyn Fn(f32) -> f32) 
 /// A CSS transition on a number: drawn at `target`, except for `ms` after it changes, when
 /// it moves there from where it was. The first time a key is seen it's simply there, as a
 /// transition doesn't run when its element appears.
+///
+/// It adds no id around what it moves, as an animation element would: an id is one more step
+/// in the path of everything inside, so what GPUI keeps for them would be lost as a transition
+/// starts or ends, and a server pressed in the rail as its fade began didn't open.
 pub fn transition<E: IntoElement + 'static>(element: E, key: impl Into<String>, target: f32, ms: u64, easing: impl Fn(f32) -> f32 + Clone + 'static, apply: impl Fn(E, f32) -> E + 'static) -> AnyElement {
     let key = key.into();
     let now = Instant::now();
     let ms = if reduced() { 0 } else { ms };
-    let running = TRANSITIONS.with(|transitions| {
+    let (value, moving) = TRANSITIONS.with(|transitions| {
         let mut transitions = transitions.borrow_mut();
         forget_unused_transitions(&mut transitions, now);
         match transitions.get_mut(&key) {
             None => {
-                transitions.insert(key.clone(), Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0, used: now });
-                None
+                transitions.insert(key.clone(), Transition { from: target, to: target, started: now, length: Duration::ZERO, used: now });
+                (target, false)
             }
             Some(transition) => {
                 transition.used = now;
                 if transition.to != target {
                     let from = value_at(transition, now, &easing);
-                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1, used: now };
+                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), used: now };
                 }
-                (now - transition.started < transition.length).then(|| (transition.from, transition.to, transition.generation, transition.length))
+                if now - transition.started < transition.length {
+                    // Its first frame is drawn a frame in, as an entrance's is (`ahead`).
+                    let t = ((now - transition.started).as_secs_f32() / transition.length.as_secs_f32() + ahead(transition.length.as_millis() as u64)).min(1.);
+                    (transition.from + (transition.to - transition.from) * easing(t), true)
+                } else {
+                    (transition.to, false)
+                }
             }
         }
     });
-    match running {
-        None => apply(element, target).into_any_element(),
-        // Keyed by which change it is, so it runs from the start of each.
-        Some((from, to, generation, length)) => {
-            let head = ahead(length.as_millis() as u64);
-            element
-                .with_animation(ElementId::Name(format!("{key}#{generation}").into()), Animation::new(length), move |element, t| apply(element, from + (to - from) * easing((t + head).min(1.))))
-                .into_any_element()
-        }
+    let element = apply(element, value).into_any_element();
+    if moving { NextFrame { child: Some(element) }.into_any_element() } else { element }
+}
+
+/// What a transition wraps while it moves: it has its view drawn again on the next frame, and
+/// has no id of its own, so what's inside keeps its place in the window's tree.
+struct NextFrame {
+    child: Option<AnyElement>,
+}
+
+impl IntoElement for NextFrame {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for NextFrame {
+    type RequestLayoutState = AnyElement;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, AnyElement) {
+        let mut child = self.child.take().expect("laid out once");
+        (child.request_layout(window, cx), child)
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, child: &mut AnyElement, window: &mut Window, cx: &mut App) {
+        window.request_animation_frame();
+        child.prepaint(window, cx);
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, child: &mut AnyElement, _: &mut (), window: &mut Window, cx: &mut App) {
+        child.paint(window, cx);
     }
 }
 
@@ -318,14 +360,14 @@ pub fn tween(key: impl Into<String>, target: f32, ms: u64, easing: impl Fn(f32) 
         forget_unused_transitions(&mut transitions, now);
         match transitions.get_mut(&key) {
             None => {
-                transitions.insert(key, Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0, used: now });
+                transitions.insert(key, Transition { from: target, to: target, started: now, length: Duration::ZERO, used: now });
                 (target, false)
             }
             Some(transition) => {
                 transition.used = now;
                 if transition.to != target {
                     let from = value_at(transition, now, &easing);
-                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1, used: now };
+                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), used: now };
                 }
                 if now - transition.started < transition.length { (value_at(transition, now, &easing), true) } else { (transition.to, false) }
             }

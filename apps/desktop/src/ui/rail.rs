@@ -163,8 +163,7 @@ impl Root {
                         |el, height| el.top(px(21. - height / 2.)).h(px(height)),
                     ))
                     .child(
-                        div()
-                            .id(gpui::ElementId::Name(format!("rail-button-{id}").into()))
+                        named_div(gpui::SharedString::from(format!("rail-button-{id}")))
                             .rounded(RADIUS_L)
                             .cursor_pointer()
                             .tip(if server.telegram { "Telegram: not end-to-end encrypted".to_string() } else { server.name.clone() }, Side::Right)

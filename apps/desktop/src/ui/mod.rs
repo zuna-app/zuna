@@ -630,4 +630,28 @@ mod tests {
         app.run(cx);
         assert_eq!(app.read(cx, |state| state.settings.list_width), 460., "let go of outside the window, it keeps the widest");
     }
+
+    /// A server in the rail pressed as the pointer comes onto it opens, though its button's fade
+    /// up to full began with the press and ended before the release, as it does when the pointer
+    /// goes quickly from one server to the next.
+    #[gpui::test]
+    fn a_server_pressed_as_its_button_fades_up_opens(cx: &mut TestAppContext) {
+        let mut world = World::new("rail-press");
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| state.select_server(SERVER, cx));
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        let button = window.debug_bounds("rail-button-server-2").expect("drawn").center();
+        // Onto it, which starts its 100 ms fade, and pressed at once.
+        window.simulate_mouse_move(button, None, Modifiers::none());
+        window.simulate_mouse_down(button, MouseButton::Left, Modifiers::none());
+        // Let go of once the fade is over and the window has been drawn without it.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        app.window.update(cx, |_, window, _| window.refresh()).unwrap();
+        app.run(cx);
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_mouse_up(button, MouseButton::Left, Modifiers::none());
+        app.run(cx);
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(OTHER));
+    }
 }
