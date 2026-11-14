@@ -7,7 +7,7 @@ Only the native app is released: its Windows installer, its Linux packages and i
 ## What happens
 
 - **Claude picks the version.** Every change is read and counted as minor, patch or build.
-- **A nightly after every session that pushed.** Built and published as a prerelease, with a changelog of its commits. It's tested on the machine the session ran on, not on CI.
+- **A nightly when someone asks for one.** Built and published as a prerelease, with a changelog of every commit since the last release, whichever session pushed it. Claude asks once its work is pushed, and never cuts one unasked. It's tested on the machine the session ran on, not on CI.
 - **The iPhone app on TestFlight with each nightly that changes it.** Signed and uploaded by CI, for the team's own testers.
 - **A stable release on "release a new stable version".** Published only after CI has run its tests.
 - **The app updates itself on Windows.** A channel switch in Settings, stable or nightly. When a newer build is out, an Update button shows beside the window's buttons. Pressing it closes the app, installs the update and starts the app again.
@@ -205,9 +205,9 @@ That's the one exception to "no backward compatibility until the first stable re
 
 ## The rules Claude follows, and the hook
 
-CLAUDE.md has the rules: cut a nightly when a session's work is pushed, what "release a new stable version" means, that Claude picks version numbers, and the levels, under "Releases".
+CLAUDE.md has the rules: ask whether to cut a nightly once a session's work is pushed, and cut one only on a yes, what "release a new stable version" means, that Claude picks version numbers, and the levels, under "Releases".
 
-A rule can be forgotten at the end of a long session, so `.claude/settings.json`, checked in, has a Stop hook that runs `node scripts/release.mjs owed --hook`. It keeps Claude from ending its turn while this checkout has pushed app commits with no nightly, once: a turn that's already going on because of the hook ends. It fires at the end of a turn, not of a session, so a long session can cut more than one nightly. The workflow cancels the one overtaken.
+A question can be forgotten at the end of a long session, so `.claude/settings.json`, checked in, has a Stop hook that runs `node scripts/release.mjs owed --hook`. When this checkout has pushed app commits with no nightly, it keeps Claude from ending its turn once, to ask: a turn that's already going on because of the hook ends. It holds a turn only for commits it hasn't held one for before, which it writes down in `.git/zuna-nightly-asked`, so commits waiting for someone's word don't hold every turn after. It fires at the end of a turn, not of a session, so a long session can ask more than once, and cut more than one nightly. The workflow cancels the one overtaken.
 
 ## What was set up once
 

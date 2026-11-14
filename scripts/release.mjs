@@ -540,9 +540,13 @@ function cut(channel, args) {
   console.log(`Pushed ${tag}. The Release workflow builds and publishes it: gh run watch, or https://github.com/${REPOSITORY}/actions`);
 }
 
-/** For the Stop hook: fails, saying what to do, while pushed commits that reach the app have no nightly. */
+/**
+ * For the Stop hook: fails, saying what to do, while pushed commits that reach the app have no nightly. A nightly is cut
+ * only when the person asks for one, so as the hook it holds a turn once for each commit, for Claude to ask them.
+ */
 function owed(args) {
-  if (args.includes("--hook")) {
+  const hook = args.includes("--hook");
+  if (hook) {
     // A turn that's already going on because of this hook ends, so it can't hold one forever.
     try {
       if (JSON.parse(readFileSync(0, "utf8")).stop_hook_active) return;
@@ -554,10 +558,18 @@ function owed(args) {
   const { last, commits } = pendingFor("nightly", "origin/main");
   const waiting = commits.filter((commit) => !isVersionCommit(commit.subject) && (reachesApp(commit.files) || reachesIos(commit.files)));
   if (waiting.length === 0) return;
+  if (hook) {
+    // The commits a turn was held for already, kept in this checkout's git folder, so that what waits for the person's
+    // word holds no turn after the one that asked.
+    const asked = resolve(root, git("rev-parse", "--git-path", "zuna-nightly-asked"));
+    const before = existsSync(asked) ? readFileSync(asked, "utf8").split(/\r?\n/) : [];
+    if (waiting.every((commit) => before.includes(commit.hash))) return;
+    writeFileSync(asked, `${waiting.map((commit) => commit.hash).join("\n")}\n`);
+  }
   console.error(
     `${waiting.length} pushed ${waiting.length === 1 ? "commit changes" : "commits change"} the native app or the iPhone app since ${last ? last.tag : "releases began"}, with no nightly:\n` +
       waiting.map((commit) => `  ${commit.hash.slice(0, 7)} ${commit.subject}`).join("\n") +
-      "\nOnce the work is done and its checks pass, cut one: npm run release:pending, then npm run release:nightly -- <notes file> (CLAUDE.md, \"Releases\").",
+      "\nA nightly is cut only when the person asks for one. Once the work is done and its checks pass, ask them, unless this turn did already, and only on their yes run npm run release:pending, then npm run release:nightly -- <notes file>, naming every commit it lists, other sessions' too (CLAUDE.md, \"Releases\").",
   );
   process.exit(2);
 }
