@@ -518,6 +518,49 @@ describe("devices and recovery", () => {
     await waitFor(() => bob.texts(key).includes("after a change"), "bob to catch up on the rest");
   });
 
+  it("fetches a live message it can't read as it came, rather than passing over it", async () => {
+    const key = `user:${alice.userId}`;
+    const groupId = bob.session.getConversations().find((item) => item.key === key)!.groupId!;
+    const session = bob.session as any;
+    const live = session.onLiveMessage;
+    // Each comes in a shape this app doesn't read, as live messages without their reactions came to apps from before.
+    session.onLiveMessage = (message: any) => live.call(session, { ...message, created_at: "later" });
+    try {
+      const sent = alice.session.sendMessage(`user:${bob.userId}`, { text: "came in a strange shape" });
+      await waitFor(() => (alice.session as any).messageRow(groupId, sent.id)?.seq != null, "alice's send");
+      await waitFor(() => bob.texts(key).includes("came in a strange shape"), "bob to fetch it");
+      expect(session.syncedSeq(groupId)).toBeGreaterThanOrEqual((alice.session as any).messageRow(groupId, sent.id).seq);
+    } finally {
+      delete session.onLiveMessage;
+    }
+  });
+
+  it("fetches again, once, the messages an app from before passed over", async () => {
+    const key = `user:${alice.userId}`;
+    const groupId = bob.session.getConversations().find((item) => item.key === key)!.groupId!;
+    const session = bob.session as any;
+    // As apps from before did with what they couldn't read as it came: dropped, and the feed moved on past it.
+    session.onLiveMessage = (message: { group_id: string; updated_seq: number }) => {
+      if (message.updated_seq === session.syncedSeq(message.group_id) + 1) session.setSyncedSeq(message.group_id, message.updated_seq);
+    };
+    const sent = alice.session.sendMessage(`user:${bob.userId}`, { text: "passed over" });
+    await waitFor(() => (alice.session as any).messageRow(groupId, sent.id)?.seq != null, "alice's send");
+    const seq = (alice.session as any).messageRow(groupId, sent.id).seq as number;
+    await waitFor(() => session.syncedSeq(groupId) >= seq, "bob to move on past it");
+    delete session.onLiveMessage;
+
+    // Updating alone doesn't bring it back, as the feed had moved on. A device that has fetched again doesn't again.
+    await bob.restart();
+    await sleep(300);
+    expect(bob.texts(key)).not.toContain("passed over");
+
+    (bob.session as any).db.run("DELETE FROM kv WHERE k = ?", ["refetched_passed_over"]);
+    await bob.restart();
+    await waitFor(() => bob.texts(key).includes("passed over"), "bob to fetch it again");
+    expect(bob.texts(key).filter((text) => text === "passed over")).toHaveLength(1);
+    await waitFor(() => !!(bob.session as any).getKv("refetched_passed_over"), "the fetch to be done");
+  });
+
   it("repairs itself when a device's group state is lost", async () => {
     const session = bob.session as any;
     const groupId = bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;

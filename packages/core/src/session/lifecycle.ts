@@ -5,11 +5,21 @@ import { checkEnvelope, readSigned } from "../crypto";
 import { fromBase64, toBase64 } from "../encoding";
 import { decodeFrameData, type SocketFrame } from "../socket";
 import type { ConnectionState, ServerInfo } from "../types";
-import { SYNC_CONCURRENCY, TYPING_FRESH_MS, SIGNED_OUT_RETRY_MS, eachLimited, validReactionChange } from "./shared";
+import { SYNC_CONCURRENCY, TYPING_FRESH_MS, SIGNED_OUT_RETRY_MS, eachLimited, validApiMessage, validReactionChange } from "./shared";
+
+/** When servers began sending live messages without their reactions, which apps from before took for something else. */
+const LIVE_WITHOUT_REACTIONS = Date.UTC(2026, 10, 13, 22);
+/** How many messages a page of the one-time fetch of what was passed over asks for. */
+const REFETCH_PAGE = 200;
+/** Whether this device has fetched again what its app passed over (`refetchPassedOver`). */
+const REFETCHED = "refetched_passed_over";
 import { SessionServer } from "./server";
 
 export abstract class SessionLifecycle extends SessionServer {
   // --- Lifecycle ---
+
+  /** Whether the one-time fetch of what was passed over is running (`refetchPassedOver`). */
+  protected refetchingPassedOver = false;
 
   start(): void {
     this.markStaleSendsFailed();
@@ -77,6 +87,8 @@ export abstract class SessionLifecycle extends SessionServer {
 
   /** Called on first run after sign-up or sign-in, before going online. */
   async prepareNewDevice(): Promise<void> {
+    // Everything it has, it fetched whole: none was passed over.
+    this.setKv(REFETCHED, true);
     await this.topUpKeyPackages();
     await this.saveDeviceName();
   }
@@ -250,6 +262,37 @@ export abstract class SessionLifecycle extends SessionServer {
     this.retryHeld.clear();
     this.retryDelay.clear();
     void this.flushOutbox();
+    void this.refetchPassedOver().catch((error) => console.warn("[zuna] fetching messages passed over", error));
+  }
+
+  /**
+   * Fetches again, once, every message since servers began sending live messages without their
+   * reactions. An app from before took each such message for something that isn't one, and still
+   * moved its place in the feed past it, so it never asked for it again, even once updated. Each
+   * is held to what's here, as a page of history is, so only what's missing or changed is taken in.
+   * It runs where the last message from before then is, or from the start where there's none.
+   */
+  protected async refetchPassedOver(): Promise<void> {
+    if (this.refetchingPassedOver || this.getKv<boolean>(REFETCHED)) return;
+    this.refetchingPassedOver = true;
+    try {
+      for (const [groupId, group] of [...this.groups]) {
+        if (this.stopped) return;
+        if (group.removedAt || group.doubtful || !this.hasMlsGroup(groupId)) continue;
+        let after = this.db.get<{ seq: number | null }>("SELECT MAX(seq) AS seq FROM messages WHERE group_id = ? AND created_at < ?", [groupId, LIVE_WITHOUT_REACTIONS])?.seq ?? 0;
+        for (;;) {
+          const page = await this.api.messages(groupId, { after, limit: REFETCH_PAGE });
+          if (this.stopped) return;
+          if (page.length > 0) this.db.transaction(() => page.forEach((message) => this.ingest(message, false)));
+          if (page.length < REFETCH_PAGE) break;
+          after = Math.max(after, ...page.map((message) => message.seq));
+        }
+      }
+      this.setKv(REFETCHED, true);
+      this.emitConversations();
+    } finally {
+      this.refetchingPassedOver = false;
+    }
   }
 
   // --- Realtime frames ---
@@ -402,6 +445,12 @@ export abstract class SessionLifecycle extends SessionServer {
   protected onLiveMessage(message: ApiMessage): void {
     if (!this.groups.has(message.group_id)) {
       this.discoverGroup(message.group_id);
+      return;
+    }
+    // One this app can't read as it came is fetched instead, and the feed doesn't move on past it:
+    // a message passed over here is never asked for again, not even by an app updated to read it.
+    if (!validApiMessage(message)) {
+      this.backgroundSync(message.group_id);
       return;
     }
     this.ingest(message, true);

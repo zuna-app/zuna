@@ -108,7 +108,7 @@ Each group has one sequence counter. Everything that changes a group takes the n
 
 Sync is state-based. `GET /api/groups/{id}/changes?after=N` returns the current state of every message changed after N, plus commits and roster events, in order. Many edits to a message arrive as one final state, and a client offline for a month catches up as quickly as one offline for a minute.
 
-The socket carries the same rows live. A client applies an item if it's the next number; otherwise it fetches the feed to fill the gap. Message rows are applied either way, because that's safe. Commits only apply in order.
+The socket carries the same rows live, a message without its reactions, which come one at a time. A client applies an item if it's the next number; otherwise it fetches the feed to fill the gap. Message rows are applied either way, because that's safe. One it can't read as it came is fetched instead, and the client's place in the feed doesn't move past it: a row passed over is never asked for again. Commits only apply in order.
 
 An app coming back from the background catches up on the account's keys, its vault, the log of keys and who everyone is, in that order, before any group, since the list of people is judged by the log, which on a phone's network takes most of a second. So while it does, an iPhone fetches the feed of a chat it opens, or of the one on screen, first, and applies it at once only if it holds nothing but messages it can open and check with what it has, as if they'd come live. Anything else waits for its turn.
 
