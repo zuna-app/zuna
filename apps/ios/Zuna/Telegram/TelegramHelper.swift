@@ -36,13 +36,18 @@ enum TelegramHelper {
         #endif
         guard let credentials = TelegramBridge.Credentials(apiId: info["ZunaTelegramApiId"] as? String ?? "", apiHash: info["ZunaTelegramApiHash"] as? String ?? "", testDc: testDc) else { return nil }
         let pad = UIDevice.current.userInterfaceIdiom == .pad
-        return TelegramBridge.Configuration(
+        var configuration = TelegramBridge.Configuration(
             credentials: credentials,
             launcher: XPCLauncher(),
             version: info["CFBundleShortVersionString"] as? String ?? "0",
             system: pad ? "iPadOS" : "iOS",
             device: pad ? "iPad" : "iPhone"
         )
+        // A development build's push token is for Apple's sandbox, as its entitlement says; TestFlight's and the App Store's aren't.
+        #if DEBUG
+        configuration.pushSandbox = true
+        #endif
+        return configuration
     }
 }
 

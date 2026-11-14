@@ -151,6 +151,8 @@ targets:
       - path: Zuna/Shared/ProxyStore.swift
       - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/SharedStorage.swift
+      # Telegram's pushes, for an account linked on the phone, worded from the app's sentences.
+      - path: Zuna/Shared/TelegramPush.swift
     dependencies:
       - package: ZunaKit
         product: ZunaHost

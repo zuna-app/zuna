@@ -27,6 +27,12 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             finish(request.content)
             return
         }
+        // Telegram's own, for an account linked on this phone (docs/TELEGRAM_PLAN.md): worded here
+        // from the push alone, as nothing on the phone can fetch the message.
+        if let telegram = TelegramPush(request.content.userInfo) {
+            finish(Self.telegram(telegram, mutable, settings: settings))
+            return
+        }
         let opened = PushStore.open(request.content.userInfo)
         if opened == nil, !PushStore.registrations().isEmpty {
             // Not sealed for a server this device is on, such as one it left, which can push until its handle
@@ -84,6 +90,21 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
               let counted = content.mutableCopy() as? UNMutableNotificationContent else { return content }
         counted.badge = NSNumber(value: PushStore.badge)
         return counted
+    }
+
+    /// Telegram's push as the app words Telegram's notifications, counted in the app's own badge
+    /// rather than Telegram's. What shows nothing in Telegram's app is quiet here too, as far as iOS
+    /// lets a push be without the filtering entitlement.
+    private static func telegram(_ push: TelegramPush, _ content: UNMutableNotificationContent, settings: NotificationSettings) -> UNNotificationContent {
+        guard push.kind == .message else {
+            content.sound = nil
+            content.badge = nil
+            return content
+        }
+        PushStore.badge += 1
+        let worded = push.content(base: content, settings: settings)
+        worded.badge = NSNumber(value: PushStore.badge)
+        return worded
     }
 
     override func serviceExtensionTimeWillExpire() {

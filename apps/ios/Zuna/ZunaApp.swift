@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import UserNotifications
 
@@ -52,11 +53,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Logger(subsystem: "chat.zuna", category: "notifications").info("Apple gave a push token")
         core.pushToken = deviceToken.map { String(format: "%02x", $0) }.joined()
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // The simulator, or a build without the push entitlement: notifications wait for a token.
+        Logger(subsystem: "chat.zuna", category: "notifications").notice("Apple gave no push token: \(error.localizedDescription, privacy: .public)")
     }
 
     /// Silent pushes: what was read or deleted on another device is cleared here, and a call that stopped ringing.
@@ -65,6 +68,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        // Telegram's quiet ones: a chat read or messages deleted elsewhere take their notifications with them.
+        if let telegram = TelegramPush(userInfo), let groupId = telegram.groupId, telegram.kind == .read || telegram.kind == .deleted {
+            Task {
+                if telegram.kind == .read {
+                    await Notifications.clear(PushStore.Message(kind: .read, serverId: TelegramPush.serverId, groupId: groupId, messageId: nil))
+                } else {
+                    for id in telegram.messageIds {
+                        await Notifications.clear(PushStore.Message(kind: .delete, serverId: TelegramPush.serverId, groupId: groupId, messageId: id))
+                    }
+                }
+                completionHandler(.newData)
+            }
+            return
+        }
         guard let push = PushStore.open(userInfo), push.kind != .message else {
             completionHandler(.noData)
             return

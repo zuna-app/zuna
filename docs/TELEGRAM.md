@@ -21,7 +21,7 @@ Zuna makes no account: a number Telegram doesn't know is sent to sign up in Tele
 ## What's there
 
 - **People and groups,** with Telegram's pins, mutes, unread marks and its archive, which is the app's hidden chats: what you hide in Zuna is archived in Telegram, and back.
-- **Messages:** text with formatting, replies, edits, reactions, pins, deleting, read marks, typing, forwarding between Telegram's chats, a bot's buttons, and notifications when Telegram's own apps would give one, while the app is open. On an iPhone, nothing notifies with Zuna closed yet: Telegram's own app does.
+- **Messages:** text with formatting, replies, edits, reactions, pins, deleting, read marks, typing, forwarding between Telegram's chats, a bot's buttons, and notifications when Telegram's own apps would give one, while the app is open. On an iPhone they come with Zuna closed too, from Telegram through Apple, with names and text Apple can read, as Telegram doesn't encrypt them for apps like Zuna; with Telegram's own app on the same phone, each comes twice, until one is turned off in iOS Settings.
 - **Pictures, videos, GIFs, files, audio, voice and video messages,** both ways, and albums of up to ten pictures and videos. The Privacy switch that removes metadata from files does so on Telegram too.
 - **Stickers:** still ones show as they are, and animated ones as their still picture or their emoji. The picker's Stickers tab has your own sets.
 - **Drafts** are kept on Telegram, so what you start writing in Zuna is there on your phone, and back.

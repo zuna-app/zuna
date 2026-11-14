@@ -75,6 +75,9 @@ public final class TelegramBridge: @unchecked Sendable {
         public var device: String
         /// How much TDLib logs, from 0 to 5.
         public var verbosity = 1
+        /// Whether the app's push token is for Apple's sandbox, as a development build's is, which
+        /// Telegram has to know to push to it.
+        public var pushSandbox = false
 
         public init(credentials: Credentials, launcher: any TelegramHelperLauncher, version: String, system: String, device: String) {
             self.credentials = credentials
@@ -117,6 +120,8 @@ public final class TelegramBridge: @unchecked Sendable {
         let ended = DispatchSemaphore(value: 0)
         /// TDLib said it closed, as after signing out.
         let closed = DispatchSemaphore(value: 0)
+        /// The account is signed in, so its push token can be given.
+        var ready = false
         init(generation: Int) { self.generation = generation }
     }
 
@@ -133,6 +138,8 @@ public final class TelegramBridge: @unchecked Sendable {
     private var looked = Date()
     /// Files copied out of the helper's folder, by TDLib's path.
     private var copies: [String: URL] = [:]
+    /// The app's push token from Apple, as hex, which Telegram pushes the account's messages to.
+    private var pushToken: String?
     #if DEBUG
     /// What a probe of the box found, for the checks.
     private var probed: (@Sendable ([String: String]) -> Void)?
@@ -282,6 +289,27 @@ public final class TelegramBridge: @unchecked Sendable {
         }
     }
 
+    /// The app's push token from Apple, given to Telegram once the account is signed in and again
+    /// each time the helper starts, as Telegram asks, so that its messages are pushed to this phone
+    /// while the app is closed (docs/TELEGRAM_PLAN.md, Notifications). Signing out takes it back.
+    public func setPushToken(_ token: String?) {
+        queue.async { [self] in
+            guard token != pushToken else { return }
+            pushToken = token
+            if let run, run.ready { register(run) }
+        }
+    }
+
+    private func register(_ run: Run) {
+        guard let token = pushToken, !token.isEmpty, let link = run.link else { return }
+        link.send(json: Self.encode([
+            "@type": "registerDevice",
+            "device_token": ["@type": "deviceTokenApplePush", "device_token": token, "is_app_sandbox": configuration.pushSandbox],
+            "other_user_ids": [Int](),
+            "@extra": "zuna:push",
+        ]))
+    }
+
     #if DEBUG
     /// Asks the helper what its box lets it do (`Probe.swift`), for the checks.
     public func probe(appDirectory: String, done: @escaping @Sendable ([String: String]) -> Void) {
@@ -384,13 +412,24 @@ public final class TelegramBridge: @unchecked Sendable {
             }
             return
         }
-        let closing = value["@type"] as? String == "updateAuthorizationState"
-            && (value["authorization_state"] as? [String: Any])?["@type"] as? String == "authorizationStateClosed"
+        let state = value["@type"] as? String == "updateAuthorizationState" ? (value["authorization_state"] as? [String: Any])?["@type"] as? String : nil
+        let closing = state == "authorizationStateClosed"
         if closing { run.closed.signal() }
         guard self.run === run else { return }
+        if state == "authorizationStateReady", !run.ready {
+            run.ready = true
+            register(run)
+        }
         switch value["@extra"] as? String {
         case "zuna:watchdog":
             asked = nil
+            return
+        case "zuna:push":
+            if value["@type"] as? String == "error" {
+                logger.warning("Telegram didn't take the push token: \(value["message"] as? String ?? "", privacy: .public)")
+            } else {
+                logger.info("Telegram took the push token")
+            }
             return
         // The broker's own requests, whose answers are nobody else's.
         case let extra? where extra.hasPrefix("zuna:"):

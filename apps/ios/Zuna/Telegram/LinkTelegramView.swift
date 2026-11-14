@@ -96,7 +96,7 @@ struct LinkTelegramView: View {
                 point("These chats aren't end-to-end encrypted.", "Telegram keeps them on its servers, as it does for its own apps. Zuna's servers never see them.")
                 point("Telegram will see", "that you use Zuna, this device's IP address and operating system, and when you're online.")
                 point("Telegram monitors accounts that use other apps,", "and sometimes restricts them by mistake. It's safest to link an account you've had for a while.")
-                point("Notifications come while Zuna is open.", "With Zuna closed, Telegram's own app tells you of new messages.")
+                point("Notifications come from Telegram through Apple,", "with names and text Apple can read, as Telegram doesn't encrypt them for apps like Zuna. With Telegram's own app on this phone too, each comes twice: turn one off in iOS Settings.")
                 point("Channels, calls and secret chats", "are only in Telegram's own app.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

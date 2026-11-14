@@ -37,7 +37,10 @@ final class CoreController {
     private(set) var notifications: Notifications?
     /// The APNs token, which may arrive before the core is running.
     var pushToken: String? {
-        didSet { notifications?.token = pushToken }
+        didSet {
+            notifications?.token = pushToken
+            runtime?.setTelegramPushToken(pushToken)
+        }
     }
     /// A link opened before the app was ready, such as while it waits to be unlocked.
     private var pendingLink: String?
@@ -176,6 +179,12 @@ final class CoreController {
         }
         awake = true
         self.runtime = runtime
+        #if DEBUG
+        // Tests give a made-up token, as the relay's stand-in does, where the simulator gets none from Apple.
+        runtime.setTelegramPushToken(pushToken ?? UserDefaults.standard.string(forKey: "ZunaPushToken"))
+        #else
+        runtime.setTelegramPushToken(pushToken)
+        #endif
         // Events arrive on the core's queue and are applied on the main actor in the order they were sent.
         let inbox = EventInbox()
         let connection = CoreConnection(runtime: runtime) { inbox.add($0) }

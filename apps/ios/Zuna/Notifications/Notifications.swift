@@ -219,6 +219,10 @@ final class Notifications {
     /// Where a notification leads: the server and the chat, as the extension
     /// filled them in, or from the push itself.
     private func target(of userInfo: [AnyHashable: Any]) -> (serverId: String, groupId: String?, key: String?)? {
+        // Telegram's push, as iOS showed it by itself where the extension didn't word it.
+        if userInfo["serverId"] == nil, let telegram = TelegramPush(userInfo), let key = telegram.conversationKey {
+            return (TelegramPush.serverId, telegram.groupId, key)
+        }
         let opened = PushStore.open(userInfo)
         guard let serverId = userInfo["serverId"] as? String ?? opened?.serverId else { return nil }
         let groupId = opened?.groupId
@@ -229,6 +233,11 @@ final class Notifications {
 
     /// While the app is open, notifications show as banners, except for the chat on screen.
     func presentation(for notification: UNNotification) -> UNNotificationPresentationOptions {
+        // Telegram pushed it, and the app, connected to Telegram while open, shows its own (`showTelegram`).
+        let info = notification.request.content.userInfo
+        if info["telegramPush"] as? Bool == true || (info["serverId"] == nil && TelegramPush(info) != nil), model.telegram != nil {
+            return []
+        }
         if let target = target(of: notification.request.content.userInfo), let key = target.key,
            model.activeServerId == target.serverId, model.tab != .settings, model.chatPath.last == .chat(key) {
             return []
@@ -406,10 +415,13 @@ final class Notifications {
         let stale = delivered.filter { notification in
             let info = notification.request.content.userInfo
             let opened = PushStore.open(info)
-            guard (info["groupId"] as? String ?? opened?.groupId) == push.groupId else { return false }
+            // Telegram's as iOS showed it by itself carries only Telegram's own fields.
+            let telegram = info["groupId"] == nil ? TelegramPush(info) : nil
+            let server = info["serverId"] as? String ?? opened?.serverId ?? telegram.map { _ in TelegramPush.serverId }
+            guard (info["groupId"] as? String ?? opened?.groupId ?? telegram?.groupId) == push.groupId, server == nil || server == push.serverId else { return false }
             // A call that stopped ringing takes its notification away, and nothing else.
             if push.kind == .callEnd { return notification.request.content.categoryIdentifier == callCategory }
-            guard push.kind == .read else { return (info["messageId"] as? String ?? opened?.messageId) == push.messageId }
+            guard push.kind == .read else { return (info["messageId"] as? String ?? opened?.messageId ?? telegram?.messageIds.first) == push.messageId }
             // iOS may hand a silent push over late: a message that came after the chat was read keeps its notification.
             if let readAt = push.readAt, let sentAt = info["sentAt"] as? Int, sentAt > readAt { return false }
             return true

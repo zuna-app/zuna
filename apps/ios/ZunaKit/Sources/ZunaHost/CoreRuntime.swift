@@ -69,6 +69,8 @@ public final class CoreRuntime: @unchecked Sendable {
     private var network: NetworkBridge!
     private var web: WebBridge!
     private var telegram: TelegramBridge?
+    /// The app's push token, for Telegram's pushes, kept until the bridge is made.
+    private var telegramPushToken: String?
     private var timers: [Int: DispatchSourceTimer] = [:]
     private var channels: [Int: Channel] = [:]
     private var nextChannel = 1
@@ -377,6 +379,7 @@ public final class CoreRuntime: @unchecked Sendable {
                 guard let self else { return }
                 queue.async { self.call("__zunaTelegram", [json]) }
             }
+            made.setPushToken(telegramPushToken)
             telegram = made
             return made
         }
@@ -414,6 +417,14 @@ public final class CoreRuntime: @unchecked Sendable {
             }
         }
         host.setObject(file, forKeyedSubscript: "telegramFile" as NSString)
+    }
+
+    /// The app's push token from Apple, as hex, which a linked Telegram account is pushed to.
+    public func setTelegramPushToken(_ token: String?) {
+        queue.async { [self] in
+            telegramPushToken = token
+            telegram?.setPushToken(token)
+        }
     }
 
     #if DEBUG
