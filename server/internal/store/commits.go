@@ -307,6 +307,19 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			}
 			groupInfo, sendKey = held, heldKey
 		}
+		// A key the server forgot stays forgotten: the newest commit gave one, and it's gone since,
+		// as someone left or lost a device. They still make the key of every epoch they were in, so
+		// undoing a commit puts none of those back. The next commit, which takes them out, gives one.
+		var live, given []byte
+		if err := tx.QueryRowContext(ctx, `SELECT send_key FROM group_infos WHERE group_id = ?`, groupID).Scan(&live); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT send_key FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ?`, groupID, from).Scan(&given); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if len(live) == 0 && len(given) > 0 {
+			sendKey = nil
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {
 			return err
 		}

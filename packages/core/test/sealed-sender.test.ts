@@ -3,8 +3,8 @@
 
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
-import { decode } from "../src/api";
-import { openEnvelope, randomId, sealEnvelope } from "../src/crypto";
+import { ApiError, decode } from "../src/api";
+import { CONTENT_LABEL, openEnvelope, randomId, sealEnvelope } from "../src/crypto";
 import { concat, equalBytes, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { TestApp, atOneEpoch, sleep, waitFor } from "./helpers";
 import { alice, apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
@@ -234,6 +234,53 @@ describe("who may write", () => {
     await waitFor(async () => (await ann.session.messageById(groupId, first))?.reactions.length === 1, "the reaction");
     expect(ann.texts(`group:${groupId}`)).not.toContain("after going");
     expect(bob.texts(`group:${groupId}`)).not.toContain("after going");
+  });
+
+  it("isn't someone who left after a commit of theirs that's then undone: the key the server forgot stays forgotten (Z-76)", async () => {
+    /** A commit that reads as one from outside, for this group and epoch, but that nobody can apply. */
+    const brokenFrames = (groupId: string, epoch: number) => {
+      const id = utf8(groupId);
+      const vector = (data: Uint8Array) => new Uint8Array([data.length, ...data]);
+      const commit = new Uint8Array([0, 1, 0, 2, ...vector(id), ...u64Bytes(epoch), 3, ...vector(new Uint8Array(0)), ...vector(new Uint8Array(8).fill(9)), ...vector(new Uint8Array(32).fill(9))]);
+      const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 0x52, ...vector(id), ...u64Bytes(epoch + 1), ...new Uint8Array(40).fill(7)]);
+      return { commit, info };
+    };
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const groupId = await groupWith(alice, [bob, mal]);
+    await sentAndSeen(alice, [bob, mal], groupId, "before");
+    const session = sessionOf(mal);
+    const send = session.sendKey(groupId) as { epoch: number; secret: Uint8Array };
+    const epochKey = session.mls.exportSecret(utf8(groupId), CONTENT_LABEL, u64Bytes(send.epoch), 32) as Uint8Array;
+    const token = (await session.takeToken(100)) as Uint8Array;
+    const id = randomId();
+    const envelope = sealEnvelope(epochKey, session.account.deviceSecret, "message", groupId, id, send.epoch, session.signedBody({ text: "written after leaving" }, groupId), session.signer);
+    const api = apiOf(mal);
+    const { commit, info } = brokenFrames(groupId, send.epoch);
+    mal.client.stop();
+    await api.commit(groupId, { expected_epoch: send.epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
+    await api.leaveGroup(groupId);
+
+    // The commit is undone, the group is back at the epoch mal's key is for, and the key isn't.
+    const refusals = new Set<string>();
+    const until = Date.now() + 6_000;
+    while (Date.now() < until) {
+      const landed = await api.sealedSend(groupId, { epoch: send.epoch, secret: send.secret, token }, { id, envelope, item_key: wasm.signingPublic(wasm.randomBytes(32)) }).then(
+        () => true,
+        (error: unknown) => {
+          refusals.add(error instanceof ApiError ? error.code : String(error));
+          return false;
+        },
+      );
+      expect(landed).toBe(false);
+      await sleep(40);
+    }
+    expect([...refusals].every((code) => ["not_sealed", "stale_epoch", "rate_limited"].includes(code))).toBe(true);
+    for (const app of [alice, bob]) expect(app.texts(`group:${groupId}`)).not.toContain("written after leaving");
+    // And the group goes on, with a key the next commit gave, which took mal's leaf out.
+    await sentAndSeen(alice, [bob], groupId, "after");
+    await sentAndSeen(bob, [alice], groupId, "and from bob");
+    expect((await apiOf(alice).changes(groupId, 0, 100)).events.some((event) => event.kind === "commit_voided")).toBe(true);
   });
 
   it("can't put back a reaction someone took back, as theirs", async () => {
