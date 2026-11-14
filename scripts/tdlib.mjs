@@ -23,11 +23,9 @@
 //                              authentication in the arm64e slice. zlib is the system's.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, freemem, homedir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 import { nativeAppDeps } from "./ffmpeg.mjs";
 
@@ -107,14 +105,18 @@ export function telegramCredentials() {
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
-// Tried a few times, waiting longer each time, as scripts/ffmpeg.mjs does.
+// Tried a few times, waiting longer each time, as scripts/ffmpeg.mjs does. Read whole before it's
+// written: streamed to a runner's slow disk, Node's fetch pauses, and a server that closes the
+// connection as it ends, as nasm.us does, then fails an assertion in it that ends the process
+// outside this try, as it did twice on 2026-11-14 on Windows. The largest, Strawberry Perl's
+// 300 MB, fetched only where no Perl is installed, fits in memory.
 async function download(url, file) {
   const partial = `${file}.partial`;
   for (let attempt = 1; ; attempt++) {
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(partial));
+      writeFileSync(partial, Buffer.from(await response.arrayBuffer()));
       renameSync(partial, file);
       return;
     } catch (error) {
