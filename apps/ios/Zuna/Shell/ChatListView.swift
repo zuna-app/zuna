@@ -471,9 +471,10 @@ struct ChatListView: View {
         sidebar && server.showsChannels
     }
 
-    /// Bots have a tab of their own once there's one to show.
+    /// Bots have a tab of their own once there's one to show, except on Telegram's tab, where
+    /// they're in All, as in Telegram's own app, and its bar keeps the tabs the Chats tab's has.
     private func showsBots(_ server: AppModel.ServerState) -> Bool {
-        server.conversations.contains { $0.bot == true }
+        !server.entry.isTelegram && server.conversations.contains { $0.bot == true }
     }
 
     private func channelActions(_ server: AppModel.ServerState) -> ChannelListActions {
