@@ -598,8 +598,11 @@ impl AppState {
         .detach();
     }
 
-    /// A server joined or signed in to, which takes the place of any earlier account on it.
-    pub fn add_server(&mut self, server_id: String, cx: &mut Context<Self>) {
+    /// A server joined or signed in to, which takes the place of any earlier account on it, and is
+    /// shown where `joined` says the person just did that. One that only comes in as the app
+    /// starts, as the linked Telegram account does once its engine is ready, is shown only where
+    /// it's the one shown when the app last ran and no chat is open yet.
+    pub fn add_server(&mut self, server_id: String, joined: bool, cx: &mut Context<Self>) {
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let Ok(value) = core.call(None, "listServers", vec![]).await else { return };
@@ -610,9 +613,14 @@ impl AppState {
                 state.servers.retain(|id, _| entries.iter().any(|entry| &entry.id == id));
                 state.servers.insert(server_id.clone(), loaded);
                 state.order = entries.iter().map(|entry| entry.id.clone()).collect();
-                state.active_server = Some(server_id.clone());
-                state.remember_server();
-                state.overlay = None;
+                let remembered = state.settings.last_server.as_deref() == Some(server_id.as_str()) && state.active().is_none_or(|server| server.active_key.is_none());
+                if joined || remembered || state.active().is_none() {
+                    state.active_server = Some(server_id.clone());
+                    state.remember_server();
+                }
+                if joined {
+                    state.overlay = None;
+                }
                 state.refresh_conversations(&server_id, cx);
                 state.refresh_users(&server_id, cx);
                 state.report_activity(cx);

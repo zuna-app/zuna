@@ -345,7 +345,7 @@ impl Onboarding {
     }
 
     fn finish(&mut self, server_id: String, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| state.add_server(server_id, cx));
+        self.state.update(cx, |state, cx| state.add_server(server_id, true, cx));
     }
 
 }

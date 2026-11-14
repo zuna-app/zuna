@@ -159,7 +159,10 @@ impl AppState {
             "ready" => {
                 self.telegram_link = None;
                 if !self.servers.contains_key(SERVER_ID) {
-                    self.add_server(SERVER_ID.into(), cx);
+                    // Linked just now, in its dialog, which closing before then cancels, or only
+                    // ready again as the app starts, which mustn't take the person there.
+                    let linked_now = matches!(self.overlay, Some(Overlay::Telegram));
+                    self.add_server(SERVER_ID.into(), linked_now, cx);
                 }
             }
             "unlinked" => {
@@ -249,11 +252,13 @@ mod tests {
         app.update(cx, |state, cx| state.restart_telegram_link(cx));
         assert_eq!(linking(&app, cx).as_deref(), Some("failed"));
 
-        // Ready: it joins the rail, as a server does.
+        // Ready, in its dialog: it joins the rail and is shown, as a server joined is.
         let mut servers = World::new("telegram-linking").client["listServers"].clone();
         servers.as_array_mut().unwrap().push(entry());
         app.answer("listServers", move |_| Ok(servers.clone()));
+        app.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Telegram), cx));
         step(&app, cx, json!({ "step": "ready" }));
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
         assert_eq!(linking(&app, cx), None);
         assert!(app.read(cx, |state| state.servers.contains_key(SERVER_ID) && state.active_server.as_deref() == Some(SERVER_ID)));
         assert!(!app.read(cx, |state| state.can_link_telegram()), "one account at a time");
@@ -266,6 +271,38 @@ mod tests {
         step(&app, cx, json!({ "step": "unlinked" }));
         assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)));
         assert!(app.toasts(cx).contains(&"Your Telegram session was ended, so Telegram was unlinked from this device.".to_string()));
+    }
+
+    /// The app as it starts with an account linked before: its engine says it's ready a moment
+    /// after the servers are shown.
+    fn started_before_telegram(cx: &mut TestAppContext, name: &str) -> App {
+        let app = App::open(cx, &world(name, false));
+        let mut servers = World::new(name).client["listServers"].clone();
+        servers.as_array_mut().unwrap().push(entry());
+        app.answer("listServers", move |_| Ok(servers.clone()));
+        app
+    }
+
+    #[gpui::test]
+    fn ready_as_the_app_starts_leaves_the_person_where_they_are(cx: &mut TestAppContext) {
+        // It once took them to Telegram each time the app started, and kept that as where they'd been.
+        let app = started_before_telegram(cx, "telegram-starting");
+        let shown = app.read(cx, |state| state.active_server.clone());
+        assert!(shown.is_some());
+        step(&app, cx, json!({ "step": "starting" }));
+        step(&app, cx, json!({ "step": "ready" }));
+        assert!(app.read(cx, |state| state.servers.contains_key(SERVER_ID)), "it's in the rail");
+        assert_eq!(app.read(cx, |state| state.active_server.clone()), shown);
+        assert_eq!(app.read(cx, |state| state.settings.last_server.clone()), None);
+    }
+
+    #[gpui::test]
+    fn ready_as_the_app_starts_opens_it_where_it_was_shown_last(cx: &mut TestAppContext) {
+        let app = started_before_telegram(cx, "telegram-shown-last");
+        app.update(cx, |state, _| state.settings.last_server = Some(SERVER_ID.into()));
+        step(&app, cx, json!({ "step": "starting" }));
+        step(&app, cx, json!({ "step": "ready" }));
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER_ID));
     }
 
     #[gpui::test]
