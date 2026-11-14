@@ -201,21 +201,26 @@ impl Root {
                             .map(|button| motion::transition(button, format!("rail-button-{id}"), if active || hovered { 1. } else { 0.72 }, 100, motion::ease(), |el, opacity| el.opacity(opacity))),
                     )
                     .when(!active && unread > 0, |el| {
+                        // `.rail-badge`: 16 px with a 2 px ring around it. A border is inside an
+                        // element's size here, where the web's ring is a shadow outside it, so the
+                        // box is 20 px and the ring's 2 px are taken off each side, which leaves
+                        // the text its 16 px line.
                         el.child(
                             div()
                                 .absolute()
-                                .right(px(8.))
-                                .bottom(px(-3.))
-                                .min_w(px(16.))
-                                .h(px(16.))
+                                .right(px(6.))
+                                .bottom(px(-5.))
+                                .min_w(px(20.))
+                                .h(px(20.))
                                 .px(px(4.))
-                                .rounded(px(8.))
+                                .rounded(px(10.))
                                 .bg(theme.accent)
                                 .text_color(theme.on_accent)
                                 .text_size(px(10.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .line_height(px(16.))
                                 .flex()
+                                .items_center()
                                 .justify_center()
                                 .border_2()
                                 .border_color(theme.bg0)
