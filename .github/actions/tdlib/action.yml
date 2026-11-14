@@ -1,0 +1,48 @@
+name: TDLib
+description: >-
+  Restores TDLib as tdlib.yml built it on main for this system, found by the stamp
+  scripts/tdlib.mjs gives a build here, so that a change to the script that changes nothing
+  built keeps it. Needs Node, and on Linux what scripts/linux-build-deps.sh installs, as the
+  cache is found by how it was compressed too. What isn't there yet is built by the step that
+  needs it.
+inputs:
+  system:
+    description: windows, linux or macos for the native app's, in apps/desktop/.deps/tdlib, or ios for the Telegram helper's, in apps/ios/.deps/tdlib
+    required: true
+  lookup-only:
+    description: Only says whether it's saved, fetching nothing
+    default: "false"
+outputs:
+  key:
+    description: The key it's saved under
+    value: ${{ steps.stamp.outputs.key }}
+  path:
+    description: Where it goes
+    value: ${{ steps.stamp.outputs.path }}
+  cache-hit:
+    description: Whether it was saved
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: stamp
+      shell: bash
+      env:
+        SYSTEM: ${{ inputs.system }}
+      run: |
+        case "$SYSTEM" in
+          ios) stamp=$(node scripts/tdlib.mjs --ios --stamp) path=apps/ios/.deps/tdlib ;;
+          windows | linux | macos) stamp=$(node scripts/tdlib.mjs --stamp) path=apps/desktop/.deps/tdlib ;;
+          *)
+            echo "There's no TDLib for \"$SYSTEM\"." >&2
+            exit 1
+            ;;
+        esac
+        echo "key=tdlib-$SYSTEM-$stamp" >> "$GITHUB_OUTPUT"
+        echo "path=$path" >> "$GITHUB_OUTPUT"
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.stamp.outputs.path }}
+        key: ${{ steps.stamp.outputs.key }}
+        lookup-only: ${{ inputs.lookup-only }}

@@ -1,0 +1,131 @@
+name: TDLib
+
+# Builds TDLib from its pinned source (scripts/tdlib.mjs) on each system the apps are built on,
+# as release.yml's jobs build it, and saves it on main, where those jobs and ci.yml's find it by
+# its stamp (.github/actions/tdlib): a tag's run reads main's caches, never another tag's, so a
+# release can't save one for the next. Without it each release builds TDLib again, which took
+# the iPhone's job 75 of its 106 minutes on 2026-11-14. Runs when the script changes, and by
+# hand: gh workflow run tdlib.yml. A build already saved under its stamp isn't made again, so a
+# change to the script that changes nothing built costs a lookup. A run that started finishes,
+# and of the pushes that came meanwhile only the newest runs after it.
+# It checks nothing: CI is still ci.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/tdlib.mjs
+      - .github/actions/tdlib/**
+      - .github/workflows/tdlib.yml
+  workflow_dispatch:
+
+concurrency:
+  group: tdlib-${{ github.ref }}
+  cancel-in-progress: false
+
+# Third-party actions are pinned to full commits, since a tag can be moved.
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - id: tdlib
+        uses: ./.github/actions/tdlib
+        with:
+          system: windows
+          lookup-only: true
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.tdlib.outputs.path }}
+          key: ${{ steps.tdlib.outputs.key }}
+
+  # In Debian 12 with clang 21, as release.yml's linux job builds it, and with the zstd its
+  # cache is compressed with there.
+  linux:
+    runs-on: ubuntu-latest
+    container: debian:12
+    timeout-minutes: 90
+    env:
+      CC: clang-21
+      CXX: clang++-21
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: sh scripts/linux-build-deps.sh
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - id: tdlib
+        uses: ./.github/actions/tdlib
+        with:
+          system: linux
+          lookup-only: true
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.tdlib.outputs.path }}
+          key: ${{ steps.tdlib.outputs.key }}
+
+  # With Xcode 27, as release.yml's macos and ios jobs build theirs.
+  macos:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - id: tdlib
+        uses: ./.github/actions/tdlib
+        with:
+          system: macos
+          lookup-only: true
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: command -v cmake || brew install cmake
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: node scripts/tdlib.mjs
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.tdlib.outputs.path }}
+          key: ${{ steps.tdlib.outputs.key }}
+
+  # For phones and the simulator both: a release's archive takes the first, ci.yml's ios job both.
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - id: tdlib
+        uses: ./.github/actions/tdlib
+        with:
+          system: ios
+          lookup-only: true
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: command -v cmake || brew install cmake
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        run: node scripts/tdlib.mjs --ios
+      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.tdlib.outputs.path }}
+          key: ${{ steps.tdlib.outputs.key }}

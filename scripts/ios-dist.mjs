@@ -145,8 +145,9 @@ async function archive() {
   const build = process.env.ZUNA_BUILD || read("git", ["rev-list", "--count", "HEAD"]).trim();
   if (!/^\d+$/.test(build)) fail(`"${build}" isn't a build number.`);
 
-  // With Telegram where the build is given its api_id, which the release's archive isn't yet.
-  const telegram = await iosTelegram();
+  // With Telegram where the build is given its api_id, as the release's archive is, and TDLib
+  // built for phones alone, which is all an archive links.
+  const telegram = await iosTelegram({ sdks: ["iphoneos"] });
   const environment = { ...env, ...telegram };
   run("xcodegen", ["generate", "--spec", "project.yml", "--quiet"], { cwd: iosDir, env: environment });
   rmSync(ARCHIVE, { recursive: true, force: true });

@@ -115,22 +115,15 @@ jobs:
       - uses: ./.github/actions/wasm-bindgen
       - name: Install XcodeGen
         run: brew install xcodegen
-      # TDLib for the Telegram helper, built from its pinned source where there's an api_id and saved
-      # on main for release.yml's ios job, as the desktop job saves Windows'.
-      - id: tdlib
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib for the Telegram helper as tdlib.yml saved it on main, or built here from its pinned
+      # source where there's an api_id.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/ios/.deps/tdlib
-          key: tdlib-ios-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: ios
       - run: command -v cmake || brew install cmake
       - run: npm ci
       - if: ${{ env.TELEGRAM_API_ID != '' }}
         run: node scripts/tdlib.mjs --ios
-      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && hashFiles('apps/ios/.deps/tdlib/.stamp') != '' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: apps/ios/.deps/tdlib
-          key: tdlib-ios-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run build:crypto
       - run: npm run build:ios
       - run: node scripts/ios-dist.mjs archive
@@ -221,21 +214,13 @@ jobs:
             ~/.cargo/registry
           key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-cargo-
-      # TDLib, which the Telegram engine links, built from its pinned source in about 40 minutes
-      # on a runner (scripts/tdlib.mjs). What's saved here on main is what release.yml's windows
-      # job takes. It's saved as soon as it's built, so a later step that fails doesn't lose it.
-      - id: tdlib
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib, which the Telegram engine links, as tdlib.yml saved it on main, or built here from
+      # its pinned source in about 40 minutes (scripts/tdlib.mjs).
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: windows
       - run: npm ci
       - run: node scripts/tdlib.mjs
-      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run dist:windows
       # The app's tests and the screen share's, in a debug build: the interface's tests click by the
       # ids GPUI keeps only with debug assertions, which a release build leaves out.
@@ -273,21 +258,13 @@ jobs:
           restore-keys: macos-cargo-
       - name: Get Xcode's Metal Toolchain
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
-      # TDLib, built from its pinned source and saved on main for release.yml's macos job, as the
-      # desktop job saves Windows'.
-      - id: tdlib
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib as tdlib.yml saved it on main, or built here from its pinned source.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-macos-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: macos
       - run: command -v cmake || brew install cmake
       - run: npm ci
       - run: node scripts/tdlib.mjs
-      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-macos-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: node scripts/macos-app.mjs release
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -319,20 +296,12 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      # TDLib, built from its pinned source and saved on main for release.yml's linux job, as the
-      # desktop job saves Windows'.
-      - id: tdlib
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib as tdlib.yml saved it on main, or built here from its pinned source.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: linux
       - run: npm ci
       - run: node scripts/tdlib.mjs
-      - if: ${{ steps.tdlib.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run dist:linux
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}

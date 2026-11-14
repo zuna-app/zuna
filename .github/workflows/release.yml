@@ -98,11 +98,10 @@ jobs:
             ~/.cargo/registry
           key: desktop-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-cargo-
-      # TDLib as ci.yml's desktop job built it on main, or built here from source if it's not there.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib as tdlib.yml saved it on main, or built here from source if it's not there.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: windows
       - run: npm ci
       # With the app's api_id for Telegram the engine is built and goes in the installer, and the
       # app links accounts; without it there's no Telegram. They're the one secret a build job
@@ -126,7 +125,7 @@ jobs:
     if: ${{ needs.plan.outputs.desktop == 'true' }}
     runs-on: ubuntu-latest
     container: debian:12
-    # TDLib takes a while more when ci.yml's linux job hasn't saved it.
+    # TDLib takes a while more when tdlib.yml hasn't saved it.
     timeout-minutes: 90
     env:
       ZUNA_BUILD: ${{ needs.plan.outputs.build }}
@@ -148,11 +147,10 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      # TDLib as ci.yml's linux job built it on main, or built here from source if it's not there.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib as tdlib.yml saved it on main, or built here from source if it's not there.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-linux-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: linux
       - run: npm ci
       # With the app's api_id the Telegram engine is built and goes in every package, as the
       # windows job's comment says.
@@ -202,12 +200,10 @@ jobs:
       # GPUI compiles its Metal shaders as it builds, which Xcode 26 and later only can once the toolchain is there.
       - name: Get Xcode's Metal Toolchain
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
-      # TDLib as ci.yml's macos job built it on main, or built here from source if it's not there,
-      # with CMake.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib as tdlib.yml saved it on main, or built here from source if it's not there, with CMake.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/desktop/.deps/tdlib
-          key: tdlib-macos-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: macos
       - run: command -v cmake || brew install cmake
       - run: npm ci
       # With the app's api_id the Telegram engine is built and goes in the bundle, as the
@@ -338,7 +334,7 @@ jobs:
     needs: [plan]
     if: ${{ needs.plan.outputs.ios == 'true' }}
     runs-on: xcode-27
-    # TDLib for the Telegram helper takes a while more when ci.yml's ios job hasn't saved it.
+    # TDLib for the Telegram helper takes a while more when tdlib.yml hasn't saved it.
     timeout-minutes: 150
     env:
       ZUNA_BUILD: ${{ needs.plan.outputs.build }}
@@ -356,12 +352,11 @@ jobs:
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Install XcodeGen
         run: brew install xcodegen
-      # TDLib for the Telegram helper, as ci.yml's ios job built it on main, or built here from
-      # source if it's not there, with CMake.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      # TDLib for the Telegram helper as tdlib.yml saved it on main, or built here from source for
+      # phones alone if it's not there, with CMake.
+      - uses: ./.github/actions/tdlib
         with:
-          path: apps/ios/.deps/tdlib
-          key: tdlib-ios-${{ hashFiles('scripts/tdlib.mjs') }}
+          system: ios
       - run: command -v cmake || brew install cmake
       - run: npm ci
       - run: npm run build:ios
