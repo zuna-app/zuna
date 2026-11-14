@@ -71,10 +71,87 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertEqual(TelegramBridge.fileExtension(of: "/x/files/a.m4a/../evil.toolongext"), "")
     }
 
+    func testAHelperThatCantStartTDLibIsStartedAgainThenGivenUpOnUntilAskedAgain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("zuna-telegram-failed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let launcher = FailingHelper()
+        let heard = Heard()
+        let bridge = TelegramBridge(configuration: TelegramBridge.Configuration(credentials: TelegramBridge.Credentials(apiId: "1", apiHash: String(repeating: "0", count: 32), testDc: true)!, launcher: launcher, version: "0", system: "iOS", device: "iPhone"),
+                                    dataDirectory: directory, cacheDirectory: directory, deviceKey: Data(repeating: 7, count: 32)) { heard.add($0) }
+        let gaveUp = expectation(description: "given up on")
+        heard.onFailed(gaveUp)
+        XCTAssertNil(bridge.start())
+        wait(for: [gaveUp], timeout: 10)
+        XCTAssertEqual(launcher.launches, TelegramBridge.mostRestarts + 1)
+        XCTAssertEqual(heard.count("zunaRestarted"), TelegramBridge.mostRestarts)
+        XCTAssertEqual(heard.count("zunaFailed"), 1)
+        XCTAssertTrue(heard.last?.contains("couldn't open its door") == true, "the helper's reason is the one given")
+        // The core asks again, as when the app comes back on screen: its restarts are counted afresh.
+        let again = expectation(description: "given up on again")
+        heard.onFailed(again)
+        XCTAssertNil(bridge.start())
+        wait(for: [again], timeout: 10)
+        XCTAssertEqual(launcher.launches, 2 * (TelegramBridge.mostRestarts + 1))
+    }
+
     /// A launcher for tests that reach no helper.
     private struct NoHelper: TelegramHelperLauncher {
         func launch(_ handlers: TelegramHelperHandlers) async throws -> any TelegramHelperLink {
             throw CoreError(description: "No helper in tests.")
         }
+    }
+
+    /// A helper that starts, and then says it couldn't start TDLib, as when its door can't open.
+    private final class FailingHelper: TelegramHelperLauncher, @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var launches: Int { lock.withLock { count } }
+
+        func launch(_ handlers: TelegramHelperHandlers) async throws -> any TelegramHelperLink {
+            lock.withLock { count += 1 }
+            return FailingLink(handlers)
+        }
+    }
+
+    private final class FailingLink: TelegramHelperLink, @unchecked Sendable {
+        private let handlers: TelegramHelperHandlers
+        init(_ handlers: TelegramHelperHandlers) { self.handlers = handlers }
+
+        func send(json: String) {
+            if json.contains(#""zuna":"start""#) {
+                handlers.json(#"{"zuna":"failed","reason":"Telegram's engine couldn't open its door: bind"}"#)
+            }
+        }
+
+        func send(stream: UInt32, bytes: Data, taken: @escaping @Sendable (Bool) -> Void) { taken(false) }
+
+        func open(path: String, done: @escaping @Sendable (Result<FileHandle, Error>) -> Void) {
+            done(.failure(CoreError(description: "No files in tests.")))
+        }
+
+        func close() { handlers.ended("stopped") }
+    }
+
+    /// What the broker told the core, and an expectation met by the next `zunaFailed`.
+    private final class Heard: @unchecked Sendable {
+        private let lock = NSLock()
+        private var messages: [String] = []
+        private var waiting: XCTestExpectation?
+
+        func onFailed(_ expectation: XCTestExpectation) { lock.withLock { waiting = expectation } }
+
+        func add(_ json: String) {
+            let met: XCTestExpectation? = lock.withLock {
+                messages.append(json)
+                guard json.contains("zunaFailed") else { return nil }
+                defer { waiting = nil }
+                return waiting
+            }
+            met?.fulfill()
+        }
+
+        func count(_ kind: String) -> Int { lock.withLock { messages.filter { $0.contains(kind) }.count } }
+        var last: String? { lock.withLock { messages.last } }
     }
 }

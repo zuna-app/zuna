@@ -260,6 +260,7 @@ Apple's page offers a stricter sandbox for such a process, which "restricts acce
 - **The broker is `ZunaHost/TelegramBridge.swift`,** the desktop's again in Swift, with the same list from the same file, and the same limits and deadlines.
 - **Telegram on an iPhone needs iOS 26.** The app still runs from iOS 18, where Connections says what's needed and offers nothing.
 - **iOS suspends the helper with the app.** In the background nothing is connected, and notifications are pushed.
+- **What gave up on the way back starts again.** iOS can end the helper while the app sleeps, and the three restarts after it can all fail while it holds the app in the background, or lists no helper yet as the app starts or wakes. An engine the broker gave up on is started again when the app comes back on screen or its network does, from the `nudge` the app gives the core then (`TelegramSession.nudge`), rather than staying off, its chats saying "Waiting for network…", until the app is started again. The launcher asks iOS for the helper again with each of its tries; a helper iOS interrupted is let go with its session, so that it turns no new session away as in use; a helper that couldn't start TDLib ends and counts as one that stopped; and the watchdog takes a look that comes more than 5 seconds late for the app having slept, as the helper did, which needs a moment to answer.
 
 ### The door
 

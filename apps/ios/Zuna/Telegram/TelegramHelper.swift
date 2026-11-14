@@ -61,14 +61,16 @@ private struct XPCLauncher: TelegramHelperLauncher {
     private static let log = Logger(subsystem: "chat.zuna", category: "telegram")
 
     func launch(_ handlers: TelegramHelperHandlers) async throws -> any TelegramHelperLink {
-        let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: .telegram)
-        guard let identity = monitor.identities.first(where: { $0.bundleIdentifier == TelegramHelper.bundle }) else {
-            throw CoreError(description: "Telegram's engine isn't in this build of Zuna.")
-        }
         // A helper still closing from the run before turns a new session away, until it's gone.
+        // And iOS may not list the helper yet, as the app starts or wakes: this build has it
+        // (`TelegramHelper.configuration`), so that's asked again too, rather than failing at once.
         var lastError: Error = CoreError(description: "Telegram's engine didn't start.")
         for _ in 0..<20 {
             do {
+                let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: .telegram)
+                guard let identity = monitor.identities.first(where: { $0.bundleIdentifier == TelegramHelper.bundle }) else {
+                    throw CoreError(description: "iOS didn't list Telegram's engine.")
+                }
                 return try await XPCLink.connect(identity, handlers)
             } catch {
                 lastError = error
@@ -99,7 +101,8 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
     static func connect(_ identity: AppExtensionIdentity, _ handlers: TelegramHelperHandlers) async throws -> XPCLink {
         let interrupted = Interrupted()
         let process = try await AppExtensionProcess(configuration: .init(appExtensionIdentity: identity, onInterruption: {
-            interrupted.link?.end("Telegram's engine stopped.")
+            // Off the system's own callback, as ending invalidates the process it's about.
+            DispatchQueue.global().async { interrupted.link?.end("Telegram's engine stopped.") }
         }))
         let session: XPCSession
         do {
@@ -146,13 +149,18 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
         return nil
     }
 
-    /// The helper went, or this ended it: said once.
+    /// The helper went, or this ended it: its session and process are let go, and that's said once.
+    /// Let go when iOS interrupts it too, or a helper still running would keep the old session,
+    /// and turn every new one away as in use, until the app was started again.
     fileprivate func end(_ why: String) {
         let first = lock.withLock { () -> Bool in
             defer { over = true }
             return !over
         }
-        if first { handlers.ended(why) }
+        guard first else { return }
+        session.cancel(reason: why)
+        process.invalidate()
+        handlers.ended(why)
     }
 
     func send(json: String) {
@@ -183,8 +191,6 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
     }
 
     func close() {
-        session.cancel(reason: "the app stopped Telegram")
-        process.invalidate()
         end("stopped")
     }
 }

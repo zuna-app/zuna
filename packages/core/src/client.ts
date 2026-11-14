@@ -592,6 +592,7 @@ export class ZunaClient {
 
   nudge(): void {
     for (const session of this.sessions.values()) session.nudge();
+    this.telegram?.nudge();
   }
 
   /**

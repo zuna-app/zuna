@@ -95,6 +95,8 @@ public final class TelegramBridge: @unchecked Sendable {
     /// How often the helper is asked whether it's still there, and how long it has to answer.
     static let watchdogEvery: TimeInterval = 30
     static let watchdogWait: TimeInterval = 20
+    /// How late a look may come before the app is taken to have been suspended since the last.
+    static let watchdogLate: TimeInterval = 5
     /// How many times the helper is started again after failing, in a row, before it stays off.
     static let mostRestarts = 3
     /// How long it must run before a failure counts as a new one rather than one more in a row.
@@ -122,6 +124,8 @@ public final class TelegramBridge: @unchecked Sendable {
         let closed = DispatchSemaphore(value: 0)
         /// The account is signed in, so its push token can be given.
         var ready = false
+        /// Why the helper said it couldn't start TDLib, which is why the run ended.
+        var failure: String?
         init(generation: Int) { self.generation = generation }
     }
 
@@ -400,7 +404,12 @@ public final class TelegramBridge: @unchecked Sendable {
             case ("closed", let id?):
                 run.door?.closed(stream: id)
             case ("failed", _):
-                if self.run === run { deliver(Self.encode(["@type": "zunaFailed", "reason": value["reason"] as? String ?? "Telegram's engine failed."])) }
+                // The helper couldn't start TDLib: it's ended, and started again as one that
+                // stopped is, rather than left running with nothing in it.
+                if self.run === run, run.failure == nil {
+                    run.failure = value["reason"] as? String ?? "Telegram's engine failed."
+                    run.link?.close()
+                }
             #if DEBUG
             case ("probed", _):
                 let results = (value["results"] as? [String: String]) ?? [:]
@@ -448,6 +457,7 @@ public final class TelegramBridge: @unchecked Sendable {
 
     /// The helper went. If nobody stopped it, it's started again, up to a few times in a row.
     private func ended(_ run: Run, _ why: String) {
+        let why = run.failure ?? why
         run.door?.closeAll(tell: false)
         guard self.run === run else { return }
         self.run = nil
@@ -469,13 +479,14 @@ public final class TelegramBridge: @unchecked Sendable {
     }
 
     /// Asks the helper now and then whether it's still there, and ends one that doesn't answer.
-    /// A wait that spans the app's being suspended, when nothing runs, counts for nothing.
+    /// A wait that spans the app's being suspended, when nothing runs, counts for nothing: a look
+    /// that comes late came after the app was, as the helper too, which may not have answered yet.
     private func watch(_ run: Run) {
         looked = Date()
         queue.asyncAfter(deadline: .now() + Self.watchdogEvery) { [weak self] in
             guard let self, self.run === run, let link = run.link else { return }
             let now = Date()
-            let slept = now.timeIntervalSince(looked) > Self.watchdogEvery * 2
+            let slept = now.timeIntervalSince(looked) > Self.watchdogEvery + Self.watchdogLate
             looked = now
             if slept { asked = nil }
             if let asked, now.timeIntervalSince(asked) > Self.watchdogWait {

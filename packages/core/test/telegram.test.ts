@@ -106,6 +106,28 @@ describe("linking a Telegram account", () => {
     expect(engine.requests("registerUser")).toEqual([]);
   });
 
+  it("starts an engine the broker gave up on again when the app comes back, and only then", async () => {
+    const { engine, events, client, link } = await linkedClient({ authorized: true });
+    client.linkTelegram();
+    await until(() => link()?.step === "ready", "being linked");
+    const connection = () => [...events].reverse().find((event): event is Extract<CoreEvent, { type: "connection" }> => event.type === "connection" && event.serverId === TELEGRAM_ID)?.state;
+    // Back on screen with the engine running: nothing starts again.
+    client.nudge();
+    expect(engine.started).toBe(1);
+    // The helper kept failing to start, as while iOS held the app in the background.
+    engine.emit({ "@type": "zunaFailed", reason: "Telegram's engine couldn't start." });
+    await until(() => link()?.step === "failed", "the failure");
+    expect(connection()).toBe("offline");
+    client.nudge();
+    expect(engine.started).toBe(2);
+    expect(connection()).toBe("connecting");
+    await until(() => link()?.step === "ready", "being back");
+    await until(() => connection() === "online", "being online");
+    client.nudge();
+    expect(engine.started).toBe(2);
+    expect(engine.stops).toEqual([]);
+  });
+
   it("starts again with the app, without linking again", async () => {
     const { engine, client, db } = await linkedClient({ authorized: true });
     client.linkTelegram();

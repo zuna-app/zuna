@@ -195,6 +195,8 @@ export class TelegramSession {
   private unlinking: ((signedOut: boolean) => void) | null = null;
   private signingOut = false;
   private ended = false;
+  /** The broker gave up on the engine, which stays off until `nudge` starts it again. */
+  private stalled = false;
   private linking: boolean;
   /**
    * Files being sent, by the name each was given to TDLib: it never reads them itself, but asks
@@ -221,8 +223,12 @@ export class TelegramSession {
 
   start(): void {
     this.ended = false;
+    this.stalled = false;
     const why = this.engine.start();
-    if (why) this.setLink({ step: "failed", reason: why });
+    if (why) {
+      this.stalled = true;
+      this.setLink({ step: "failed", reason: why });
+    }
   }
 
   stop(): void {
@@ -241,7 +247,17 @@ export class TelegramSession {
 
   suspend(): void {}
   resume(): void {}
-  nudge(): void {}
+
+  /**
+   * The app is back on screen, or its network is: an engine the broker gave up on is started
+   * again, as one that couldn't start while iOS held the app and its helper in the background.
+   */
+  nudge(): void {
+    if (!this.stalled || this.ended || this.signingOut) return;
+    this.connection = "connecting";
+    this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: "connecting" });
+    this.start();
+  }
   async flushOutbox(): Promise<void> {}
 
   getConnectionState(): ConnectionState {
@@ -592,6 +608,7 @@ export class TelegramSession {
       }
       case "zunaFailed":
         this.engine.failAll(new TelegramError("Telegram stopped.", 503));
+        this.stalled = true;
         this.connection = "offline";
         this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: "offline" });
         return this.setLink({ step: "failed", reason: `Telegram stopped working here: ${str(update.reason, 200)}` });
