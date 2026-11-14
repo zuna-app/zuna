@@ -315,7 +315,7 @@ A read position sealed under the account key stays until it's next written, so c
 A device learns from an `account_rotated` frame, from the `user` frame, or from its first sync, which checks the generation before reading the vault, ahead of the existing order (`session.ts:442`). It then:
 
 1. Fetches the links it's missing, and takes them in order. A device that was offline through several generations needs only the newest bundle, since the core holds the older keys.
-2. Checks each link: its generation is the next one, its previous hash is right, the previous and new identity keys signed it, and the signer is a device this device accepts (section 7.4).
+2. Checks each link: its generation is the next one, its previous hash is right, the previous and new identity keys signed it, it lists each device once, the log of keys names it for that generation, and the signer is a device this device accepts (section 7.4). A link the log doesn't name yet waits until it does. One under this device's own ID is its own only with its own key beside it.
 3. Checks that it's carried. **If it isn't,** it has been removed: this is the existing signed-out state (`session.ts:401`), and it erases nothing.
 4. Opens the bundle with its seal secret, and checks the result against the link's key commitment.
 5. Opens the core with that key, and checks that the generation, identity key, HPKE key and slot hash all match the link.

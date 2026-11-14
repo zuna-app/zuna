@@ -120,7 +120,8 @@ record = nonce (16) | user tag (16) | name tag (16) | body hash (32)
 A device checks tags in both directions:
 
 - **A body it's given** must hash to the record, name an ID the user tag fits, and for an `account`, a username the name tag fits. So a server can't file an entry about Bob under a tag Bob wouldn't recognize.
-- **A record it's given no body for** is tested against every ID the device knows, its own first, and against the usernames it knows. A match means the server is keeping back something about someone who's there for this device. It asks again, and says so if that goes on.
+- **A record about the device's own account always comes with its body.** A page that has one without is refused whole, as at sign-in: read bare and asked for afterwards, it would be taken as old news, a new device in it too.
+- **A record it's given no body for** is tested against every other ID the device knows, and against the usernames it knows. A match means the server is keeping back something about someone who's there for this device. It asks again, and says so if that goes on.
 - **When an account becomes visible later,** as a private bot does to someone added to a chat with it, the device tests the records it holds against the new ID and asks for those bodies (`GET /api/log/bodies`).
 
 What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY.md`'s row for bots will say so.
@@ -171,7 +172,7 @@ The entries tagged for this account get the checks a device already makes of wha
 
 - **Its `account` entry** has the root its slot named and its own username.
 - **Each `device` entry** is this device, or passes `ownDeviceAccepted`: carried by the head link, or enrolled through a slot. One that fails is the fake device of the rotation's design, handled as it is today.
-- **A device of the account after this one's own entry** is a question: it's kept until the person answers whether it was them, which each app asks over everything, with nothing but an answer to close it (`getNewDevices`, `answerNewDevice`, the `new_devices` event). No removes it and asks them to change the secret its enrollment proof names (`enrolledWith`). The answer isn't passed to the account's other devices, as whoever signed in could give it: each asks, and stops when a `revoked` entry for that device comes. The question is asked from the log's entry, so the server can't skip it, and there's no alert from the list of people beside it.
+- **A device of the account after this one's own entry** is a question: it's kept until the person answers whether it was them, which each app asks over everything, with nothing but an answer to close it (`getNewDevices`, `answerNewDevice`, the `new_devices` event). No removes it and asks them to change the secret its enrollment proof names (`enrolledWith`). The answer isn't passed to the account's other devices, as whoever signed in could give it: each asks, and stops when a `revoked` entry for that device comes. The question is asked from the log's entry, so the server can't skip it, and there's no alert from the list of people beside it. A log written again in a new era is quiet about the devices the old one named, and asks about any other of the account's it has, wherever it stands in it (`ownBefore`).
 - **Each `link` entry** is one this account's devices made. Anything else is the existing "different history of your account's keys" warning.
 - **A name tag that fits its username** on another account's entry gets a warning that someone was signed up under its name.
 
