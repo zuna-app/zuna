@@ -7,7 +7,10 @@
 //   node scripts/windows-app.mjs build                            a release build in dist/windows
 //   node scripts/windows-app.mjs dist                             and its installer beside it
 //   node scripts/windows-app.mjs install                          and installs it, or updates the installed app
-//   node scripts/windows-app.mjs test [--release] [-- cargo args] its tests, and the screen share's
+//   node scripts/windows-app.mjs test [--release] [-- cargo args] its tests, and the screen share's; the
+//                                                               interface's pass only without --release, as
+//                                                               GPUI keeps the ids they click by only with
+//                                                               debug assertions
 //   node scripts/windows-app.mjs dist --update-check              an installer for apps/desktop/test/windows-update-check.mjs,
 //                                                                 in dist/windows-update-check: its updater takes keys and
 //                                                                 an address from the environment, which no other build does

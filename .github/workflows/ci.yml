@@ -216,7 +216,9 @@ jobs:
           path: apps/desktop/.deps/tdlib
           key: tdlib-windows-${{ hashFiles('scripts/tdlib.mjs') }}
       - run: npm run dist:windows
-      - run: node scripts/windows-app.mjs test --release
+      # The app's tests and the screen share's, in a debug build: the interface's tests click by the
+      # ids GPUI keeps only with debug assertions, which a release build leaves out.
+      - run: node scripts/windows-app.mjs test
       # The engine's own tests, which the app's leave out as it isn't one of the workspace's default members.
       - run: node scripts/windows-app.mjs test --release -- -p zuna-telegram
       # The app updating itself, from releases served on the runner (docs/RELEASES.md).
