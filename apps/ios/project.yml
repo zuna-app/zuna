@@ -74,6 +74,11 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        # On a Mac with Apple silicon, from macOS 26.5: the Telegram helper's arm64e slice
+        # (ENABLE_ENHANCED_SECURITY in telegram.yml) keeps the whole app from starting on an
+        # earlier one, and App Store Connect warns of it (ITMS-91305) unless this says so. iOS
+        # ignores it. Set in every build, not only those with the helper, so this file stays the same.
+        LSMinimumSystemVersion: "26.5"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
