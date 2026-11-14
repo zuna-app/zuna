@@ -1094,10 +1094,12 @@ mod tests {
     fn a_video_is_fitted_by_the_shape_of_its_own_pictures(cx: &mut TestAppContext) {
         crate::ui::motion::set_reduced(true);
         let app = Running::open(cx, &World::new("video-shape"));
-        // A real one, with no sound to play: 64 by 48, where its message says 16 by 9.
-        let clip = Attachment { mime: "video/webm".into(), name: "real.webm".into(), ..video("real") };
-        let file = video_file("real.webm");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/fixtures/metadata/video.webm"), &file).unwrap();
+        // A real one, with no sound to play: 64 by 48, where its message says 16 by 9. H.264 in
+        // 4:2:0, which every system's decoder reads: Windows' takes neither the WebM beside it,
+        // which is VP9 in 4:4:4, nor the other fixtures' H.264, which is 4:4:4 too.
+        let clip = Attachment { mime: "video/quicktime".into(), name: "real.mov".into(), ..video("real") };
+        let file = video_file("real.mov");
+        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/fixtures/metadata/timed.mov"), &file).unwrap();
         app.state.update(cx, |state, cx| {
             state.media_files.insert(clip.cache_id(), MediaFile::Ready(file));
         });
