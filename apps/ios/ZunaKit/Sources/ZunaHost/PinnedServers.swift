@@ -18,13 +18,14 @@ public final class PinnedServers: NSObject, URLSessionDelegate, @unchecked Senda
     private lazy var proxied = ProxiedSession(configuration: .default, delegate: self)
 
     /// Only an address over HTTPS can have a pin (`checkPinnable` in the core), never a
-    /// name, so nothing can have the app trust another key for one.
+    /// name, so nothing can have the app trust another key for one. An address has one pin: a
+    /// new one takes the old one's place, never a place beside it.
     @discardableResult
     public func add(url: String, pin: String) -> Bool {
         guard let components = URLComponents(string: url), components.scheme == "https",
               let host = components.host.map(Self.bare), IPv4Address(host) != nil || IPv6Address(host) != nil,
               pin.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else { return false }
-        lock.withLock { _ = pins[host, default: []].insert(pin) }
+        lock.withLock { pins[host] = [pin] }
         return true
     }
 

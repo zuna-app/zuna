@@ -29,7 +29,9 @@ fn bare(host: &str) -> &str {
 }
 
 /// Only an address over HTTPS can have a pin (`checkPinnable` in the core), never a
-/// name, so nothing can have the app trust another key for one.
+/// name, so nothing can have the app trust another key for one. An address has one pin: a
+/// new one takes the old one's place, never a place beside it, and the core gives none for
+/// an address this device is on a server at (`ZunaClient.pin`).
 pub fn add_pin(address: &str, pin: &str) -> bool {
     let Ok(url) = url::Url::parse(address) else { return false };
     if url.scheme() != "https" {
@@ -43,7 +45,7 @@ pub fn add_pin(address: &str, pin: &str) -> bool {
     if pin.len() != 43 || !pin.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return false;
     }
-    PINS.write().entry(host.to_string()).or_default().insert(pin.to_string());
+    PINS.write().insert(host.to_string(), HashSet::from([pin.to_string()]));
     true
 }
 
@@ -155,6 +157,16 @@ pub fn client_config(alpn: &[&[u8]]) -> ClientConfig {
 mod tests {
     use super::*;
     use rustls::NamedGroup;
+
+    #[test]
+    fn an_address_has_one_pin_and_a_new_one_takes_its_place() {
+        let (first, second) = ("A".repeat(43), "B".repeat(43));
+        assert!(add_pin("https://198.51.100.7", &first));
+        // Another port and a path are the same address to a certificate's check, which is given neither.
+        assert!(add_pin("https://198.51.100.7:8443/x", &second));
+        assert_eq!(PINS.read().get("198.51.100.7"), Some(&HashSet::from([second])));
+        assert!(!add_pin("https://chat.example", &first));
+    }
 
     #[test]
     fn keys_are_agreed_with_ml_kem_first_and_x25519_after() {

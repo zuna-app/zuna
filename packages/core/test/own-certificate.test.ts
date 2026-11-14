@@ -75,6 +75,14 @@ describe("a server with its own certificate", () => {
     const forged = `${(await alice.session.createInvite(0, 0)).replace(/&pin=.*$/, "")}&pin=${"B".repeat(43)}`;
     await expect(alice.client.previewInvite(forged)).rejects.toThrow(/another certificate/);
     await expect(alice.client.login(`${server.url}#pin=${"B".repeat(43)}`, "alice", "correct horse battery")).rejects.toThrow(/another certificate/);
+    // Nor by a link that names another port of its address, or a path in front of its invite: the
+    // hosts trust a pin for an address, so that one would be trusted for this server too (Z-75).
+    const { hostname, port } = new URL(server.url);
+    const elsewhere = [`https://${hostname}:${Number(port) + 1}/invite/abc`, `${server.url}/x/invite/abc`];
+    for (const link of elsewhere) {
+      await expect(alice.client.previewInvite(`${link}#k=AAAA&pin=${"B".repeat(43)}`)).rejects.toThrow(/another certificate/);
+      await expect(alice.client.previewInvite(`zuna://join?link=${encodeURIComponent(`${link}#k=AAAA&pin=${"B".repeat(43)}`)}`)).rejects.toThrow(/another certificate/);
+    }
     expect(alice.pinned.some(([, given]) => given !== pin)).toBe(false);
     const bob = apps.find((made) => made.name === "bob")!;
     alice.session.sendMessage(`user:${bob.userId}`, { text: "still here" });

@@ -193,7 +193,8 @@ export class ZunaClient {
       try {
         const json = fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account")));
         const account = decodeAccount(json);
-        if (account.pin) await this.pin(account.serverUrl, account.pin);
+        // The pin this device kept for it, which no link gave just now.
+        if (account.pin) await this.options.pinServer?.(account.serverUrl, account.pin);
         const session = await this.createSession(row.id, account);
         session.start();
       } catch (error) {
@@ -327,8 +328,11 @@ export class ZunaClient {
     if (!this.options.pinServer) {
       throw new Error("This server uses its own certificate, which browsers can't verify. Use the Zuna app on a computer or phone to connect to it.");
     }
-    const known = this.listServers().find((server) => server.url === url);
-    if (known && known.address !== serverAddress(url, pin)) {
+    // By its address alone, whatever port or path the link adds: the hosts trust a pin for an
+    // address, so another one for it would be trusted for the server this device is on there.
+    const host = new URL(url).hostname;
+    const known = this.listServers().find((server) => server.url && new URL(server.url).hostname === host && (server.address.split("#pin=")[1] ?? null) !== pin);
+    if (known) {
       throw new Error(`This link names another certificate than the one this device trusts for ${known.name}. Ask for a new link, or sign out of the server first.`);
     }
     await this.options.pinServer(url, pin);
