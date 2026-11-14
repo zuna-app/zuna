@@ -31,7 +31,7 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
 /** The fake engine, which can also be made to refuse a kind of request, or answer it otherwise. */
 class Telegram extends FakeTdlib {
   private refusals = new Map<string, { code: number; message: string }>();
-  private answers = new Map<string, Td>();
+  private answers = new Map<string, Td | ((request: Td) => Td)>();
   private throwing = new Map<string, unknown>();
 
   refuse(kind: string, message: string, code = 400): void {
@@ -39,7 +39,8 @@ class Telegram extends FakeTdlib {
     this.refusals.set(kind, { code, message });
   }
 
-  answer(kind: string, value: Td): void {
+  /** Answers a kind of request with this, or with what this makes of each. */
+  answer(kind: string, value: Td | ((request: Td) => Td)): void {
     this.refusals.delete(kind);
     this.answers.set(kind, value);
   }
@@ -57,7 +58,7 @@ class Telegram extends FakeTdlib {
     const answer = this.answers.get(kind);
     if (!refusal && !answer) return super.send(json);
     this.asked.push(request);
-    const value = refusal ? { "@type": "error", ...refusal } : answer!;
+    const value = refusal ? { "@type": "error", ...refusal } : typeof answer === "function" ? answer(request) : answer!;
     setTimeout(() => this.emit({ ...value, "@extra": request["@extra"] }), 0);
   }
 }
@@ -565,14 +566,44 @@ describe("history, media and search", () => {
     expect((await session.mediaCounts(String(GRACE))).photo).toBe(0);
 
     const photo = (n: number) => ({ ...textMessage(GRACE, serverId(n), GRACE, ""), content: { "@type": "messagePhoto", caption: { text: "", entities: [] }, photo: { sizes: [{ photo: { id: n }, width: 10, height: 10 }] } } });
-    engine.answer("searchChatMessages", { "@type": "foundChatMessages", messages: [photo(5), photo(4), photo(3)] });
-    const first = await session.loadMedia(String(GRACE), "photo", undefined, 2);
-    expect(first.messages.map((message) => message.attachments[0]!.fileId)).toEqual(["tg:5", "tg:4", "tg:3"]);
+    // Seven photos, as TDLib gives them: three at most whatever is asked for, older than where
+    // it's asked from, or that one too when `inclusive`, and nowhere to go on from after the last.
+    let inclusive = false;
+    engine.answer("searchChatMessages", (request) => {
+      const from = request.from_message_id || Infinity;
+      const older = [7, 6, 5, 4, 3, 2, 1].filter((n) => (inclusive ? serverId(n) <= from : serverId(n) < from));
+      const page = older.slice(0, Math.min(3, request.limit));
+      return { "@type": "foundChatMessages", total_count: 7, messages: page.map(photo), next_from_message_id: older.length > page.length ? serverId(page.at(-1)!) : 0 };
+    });
+    const ids = (page: { messages: { id: string }[] }) => page.messages.map((message) => Number(message.id) / serverId(1));
+
+    // The apps ask for the first page with null, which is the newest, as on a server.
+    const first = await session.loadMedia(String(GRACE), "photo", null, 5);
+    expect(ids(first)).toEqual([7, 6, 5, 4, 3]);
+    expect(first.messages[0]!.attachments[0]!.fileId).toBe("tg:7");
     expect(first.hasMore).toBe(true);
-    expect(engine.requests("searchChatMessages").at(-1)).toMatchObject({ limit: 2, from_message_id: 0, filter: { "@type": "searchMessagesFilterPhoto" } });
-    const older = await session.loadMedia(String(GRACE), "photo", serverId(4), 500);
-    expect(older.messages.map((message) => message.id)).toEqual([String(serverId(3))]);
-    expect(engine.requests("searchChatMessages").at(-1)).toMatchObject({ limit: 100, from_message_id: serverId(4) });
+    expect(engine.requests("searchChatMessages").slice(-2)).toMatchObject([
+      { limit: 5, from_message_id: 0, filter: { "@type": "searchMessagesFilterPhoto" } },
+      { limit: 3, from_message_id: serverId(5) },
+    ]);
+    expect(ids(await session.loadMedia(String(GRACE), "photo", undefined, 2))).toEqual([7, 6]);
+    const rest = await session.loadMedia(String(GRACE), "photo", serverId(3));
+    expect(ids(rest)).toEqual([2, 1]);
+    expect(rest.hasMore).toBe(false);
+
+    // Where TDLib gives the message it went on from again, it's there once.
+    inclusive = true;
+    expect(ids(await session.loadMedia(String(GRACE), "photo", serverId(5), 4))).toEqual([4, 3, 2, 1]);
+    // Asked for more than a page holds, it asks again, up to 500.
+    inclusive = false;
+    await session.loadMedia(String(GRACE), "photo", null, 900);
+    expect(engine.requests("searchChatMessages").at(-3)).toMatchObject({ limit: 100, from_message_id: 0 });
+
+    // An engine that sends it back to where it was doesn't keep it asking.
+    engine.answer("searchChatMessages", { "@type": "foundChatMessages", messages: [photo(5), photo(4)], next_from_message_id: serverId(4) });
+    const asked = engine.requests("searchChatMessages").length;
+    expect(await session.loadMedia(String(GRACE), "photo", null, 50)).toMatchObject({ hasMore: false, messages: [{ id: String(serverId(5)) }, { id: String(serverId(4)) }] });
+    expect(engine.requests("searchChatMessages").length - asked).toBe(2);
     expect(await session.loadMedia(String(GRACE), "stickers")).toEqual({ messages: [], hasMore: false });
     engine.refuse("searchChatMessages", "INTERNAL", 500);
     expect(await session.loadMedia(String(GRACE), "photo")).toEqual({ messages: [], hasMore: false });

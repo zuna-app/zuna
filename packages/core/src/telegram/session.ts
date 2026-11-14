@@ -81,6 +81,11 @@ const MOST_UPLOAD = 2000 * 1024 * 1024;
 export { TELEGRAM_ID };
 
 const PAGE_SIZE = 50;
+
+/** The most of one kind of a chat's media given at once, as an app asks for again all it has shown. */
+const MEDIA_PAGE_MOST = 500;
+/** How many times TDLib is asked for one page of media, which it may give a little at a time. */
+const MEDIA_ASKS = 10;
 /** How many messages of each chat are kept in memory, newest first, beyond those a chat shows. */
 const KEPT_PER_CHAT = 400;
 /** How long typing shows for, as Telegram's apps show it, unless it's cancelled. */
@@ -1021,18 +1026,48 @@ export class TelegramSession {
     return counts;
   }
 
-  /** One kind of what a chat holds, newest first, a page at a time. */
-  async loadMedia(groupId: string, kind: string, before?: number, limit = PAGE_SIZE): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+  /**
+   * One kind of what a chat holds, newest first, a page at a time: those older than `before`, or
+   * the newest when it's left out, as the apps ask for the first page with null. TDLib may give
+   * fewer than asked for, so it's asked again until there are enough, or none left.
+   */
+  async loadMedia(groupId: string, kind: string, before?: number | null, limit = PAGE_SIZE): Promise<{ messages: MessageView[]; hasMore: boolean }> {
     const chatId = this.chatOf(groupId);
     const filter = MEDIA_FILTERS[kind];
     if (!filter) return { messages: [], hasMore: false };
-    const count = Math.max(1, Math.min(limit, 100));
-    const found = await this.engine
-      .request({ "@type": "searchChatMessages", chat_id: chatId, topic_id: null, query: "", sender_id: null, from_message_id: before ?? 0, offset: 0, limit: count, filter: { "@type": filter } })
-      .catch(() => null);
-    const messages = list(found?.messages, 100).filter(isObject).filter((message) => before === undefined || (idOf(message.id) ?? 0) < before);
-    for (const message of messages) this.remember(message);
-    return { messages: this.views(messages), hasMore: messages.length >= count };
+    const wanted = Math.min(int(limit, 1, Number.MAX_SAFE_INTEGER, PAGE_SIZE), MEDIA_PAGE_MOST);
+    const found: TdObject[] = [];
+    // Each message is older than the last, which leaves out `before` itself and any repeated.
+    let oldest = typeof before === "number" && before > 0 ? before : Infinity;
+    let from = Number.isFinite(oldest) ? oldest : 0;
+    let more = true;
+    for (let asked = 0; more && found.length < wanted && asked < MEDIA_ASKS; asked++) {
+      // One more from where it goes on, in case that one comes again.
+      const limit = Math.min(wanted - found.length + (from > 0 ? 1 : 0), 100);
+      const page = await this.engine
+        .request({ "@type": "searchChatMessages", chat_id: chatId, topic_id: null, query: "", sender_id: null, from_message_id: from, offset: 0, limit, filter: { "@type": filter } })
+        .catch(() => null);
+      if (!page) {
+        more = false;
+        break;
+      }
+      for (const message of list(page.messages, 100).filter(isObject)) {
+        const id = idOf(message.id) ?? 0;
+        if (id <= 0 || id >= oldest) continue;
+        found.push(message);
+        oldest = id;
+      }
+      // None left once Telegram says so, or when it gives the same place to go on from.
+      const next = idOf(page.next_from_message_id) ?? 0;
+      more = next > 0 && (from === 0 || next < from);
+      from = next;
+    }
+    if (found.length > wanted) {
+      found.length = wanted;
+      more = true;
+    }
+    for (const message of found) this.remember(message);
+    return { messages: this.views(found), hasMore: more };
   }
 
   // --- Messages ---
