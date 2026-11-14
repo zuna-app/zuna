@@ -13,7 +13,7 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
     a: (
       <>
         Who you talk to and when: who's in each conversation, when a message was sent to which, and roughly how big it was. It isn't told who in a conversation
-        sent each message, though one set on finding out can often tell from addresses and timing. Also usernames, IP addresses and online status. The <a href={doc("SECURITY.md")}>security model</a> lists all of it.
+        sent each message, though one set on finding out can often tell from addresses and timing. Also usernames, IP addresses and online status. The <a href={doc("docs/SECURITY_DETAILS.md#what-the-server-can-and-cant-see")}>security model</a> lists all of it.
       </>
     ),
   },

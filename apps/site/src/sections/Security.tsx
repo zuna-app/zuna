@@ -6,7 +6,7 @@ import { doc } from "../pages";
 // Sixteen of the identity check's 64, from packages/core/src/safety-emoji.ts.
 const EMOJI = ["🐶", "🦁", "🦄", "🐼", "🐧", "🐙", "🦋", "🌵", "🍄", "🌙", "🔥", "🍌", "🌳", "🐢", "☁️", "🍎"];
 
-/** Condensed from the table in SECURITY.md. */
+/** Condensed from the table in docs/SECURITY_DETAILS.md. */
 const SEES = ["Your username and when you signed up", "Who is in each conversation", "When a message was sent there, and roughly how big", "Your IP address and online status"];
 const NEVER = ["What you write, reply or react with", "Who in a chat sent each message", "Photos, files and their names", "Group names, pictures and descriptions", "Links, their previews, and what you search for"];
 
