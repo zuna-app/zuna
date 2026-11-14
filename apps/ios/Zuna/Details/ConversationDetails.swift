@@ -55,7 +55,6 @@ struct ConversationDetails: View {
         }
         .background(Theme.bg0)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
     }
 
     private func content(_ server: AppModel.ServerState, _ conversation: ConversationView) -> some View {

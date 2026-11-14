@@ -11,6 +11,7 @@ struct ChannelsTab: View {
         NavigationStack(path: $model.channelsPath) {
             ChannelsScreen()
                 .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+                .tabBarWhileListed(model.channelsPath.isEmpty)
         }
     }
 }

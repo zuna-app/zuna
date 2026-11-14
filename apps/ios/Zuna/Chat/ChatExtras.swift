@@ -124,7 +124,6 @@ struct PinnedMessagesView: View {
         .navigationTitle("Pinned messages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg0, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.pinsScreen)
     }

@@ -36,7 +36,6 @@ struct ChannelDetails: View {
         }
         .background(Theme.bg0)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
     }
 
     private func content(_ server: AppModel.ServerState, _ channel: ChannelView) -> some View {

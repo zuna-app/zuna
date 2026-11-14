@@ -98,7 +98,18 @@ private struct TelegramTab: View {
         NavigationStack(path: $model.telegramPath) {
             ChatListView()
                 .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+                .tabBarWhileListed(model.telegramPath.isEmpty)
         }
+    }
+}
+
+extension View {
+    /// The bar at the bottom shows on a tab's list alone, with whatever is pushed over the list
+    /// hiding it. Set from the tab's path at its root, rather than by each screen pushed, as a
+    /// screen's own setting only lets go once it's gone, so the bar came back only after the
+    /// screen going back had slid away; from the path, it comes as soon as back is pressed.
+    func tabBarWhileListed(_ listed: Bool) -> some View {
+        toolbar(listed ? .visible : .hidden, for: .tabBar)
     }
 }
 
@@ -112,6 +123,7 @@ private struct ChatsTab: View {
         NavigationStack(path: $model.chatsPath) {
             ChatListView()
                 .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+                .tabBarWhileListed(model.chatsPath.isEmpty)
         }
     }
 }

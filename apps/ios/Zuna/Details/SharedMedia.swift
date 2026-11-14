@@ -109,7 +109,6 @@ struct SharedMediaView: View {
         .background(Theme.bg0)
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Shared.screen)
     }

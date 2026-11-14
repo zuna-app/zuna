@@ -56,7 +56,6 @@ struct ChatScreen: View {
             }
         }
         .background(Theme.bg0)
-        .toolbar(.hidden, for: .tabBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg0, for: .navigationBar)
         // A container, so the screen's identifier doesn't replace its elements' own.
