@@ -23,6 +23,23 @@ const WIDTH: f32 = 352.;
 const HEIGHT: f32 = 420.;
 /// How tall a row of emotes is, as `.emote-grid`'s cells.
 const EMOTE_ROW: f32 = 53.;
+/// How tall a row of emoji is, and a category's name above them.
+const EMOJI_ROW: f32 = 36.;
+const EMOJI_LABEL: f32 = 30.;
+/// How far past what's seen a grid is built, as `EmotePicker`'s emotes wait until they're this
+/// close to being seen.
+const NEAR: f32 = 300.;
+
+/// The place of rows not built, which keeps the rest where they'd be.
+fn space(height: f32) -> AnyElement {
+    div().flex_none().h(px(height)).into_any_element()
+}
+
+/// Back to the grid's top, for another tab or search: the rows built follow where it's scrolled
+/// to, which content of another height may not reach.
+fn to_top() {
+    scroll_handle("picker-body").set_offset(gpui::point(px(0.), px(0.)));
+}
 
 #[derive(Clone)]
 pub enum Pick {
@@ -155,6 +172,10 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
         let subscriptions = vec![cx.subscribe_in(&search, window, |layer: &mut PickerLayer, _, event, _, cx| match event {
             InputEvent::Escape => {
                 layer.close();
+                cx.notify();
+            }
+            InputEvent::Changed => {
+                to_top();
                 cx.notify();
             }
             _ => cx.notify(),
@@ -336,24 +357,56 @@ impl PickerLayer {
         on_pick(pick, window, cx);
     }
 
-    fn emoji_grid(&self, needle: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The emoji in rows of nine under their categories' names, built only within `near` of the
+    /// grid's top, as everything in the picker is drawn again with every frame an emote moves.
+    fn emoji_grid(&self, needle: &str, near: std::ops::Range<Pixels>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let mut parts = Vec::new();
         // repeat(auto-fill, minmax(34px, 1fr)) with a 1px gap, in the 336px inside the panel.
         let columns = 9;
+        let (mut top, mut skipped) = (0., 0.);
+        let mut place = |height: f32, parts: &mut Vec<AnyElement>| {
+            let shown = px(top + height) > near.start && px(top) < near.end;
+            top += height;
+            if !shown {
+                skipped += height;
+            } else if skipped > 0. {
+                parts.push(space(skipped));
+                skipped = 0.;
+            }
+            shown
+        };
         for category in EMOJI_CATEGORIES {
             let emoji: Vec<&(&str, &str)> = category.emoji.iter().filter(|(_, name)| needle.is_empty() || name.contains(needle)).collect();
             if emoji.is_empty() {
                 continue;
             }
-            parts.push(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(4.)).pt(px(8.)).pb(px(4.)).child(category.label).into_any_element());
+            if place(EMOJI_LABEL, &mut parts) {
+                parts.push(
+                    div()
+                        .flex_none()
+                        .h(px(EMOJI_LABEL))
+                        .text_size(px(12.))
+                        .line_height(px(EMOJI_LABEL - 12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme.text3)
+                        .px(px(4.))
+                        .pt(px(8.))
+                        .pb(px(4.))
+                        .child(category.label)
+                        .into_any_element(),
+                );
+            }
             for row in emoji.chunks(columns) {
-                let mut line = div().flex().gap(px(1.));
+                if !place(EMOJI_ROW, &mut parts) {
+                    continue;
+                }
+                let mut line = div().flex().flex_none().gap(px(1.));
                 for (value, name) in row.iter().copied().copied() {
                     line = line.child(
                         named_div(SharedString::from(format!("emoji-{value}")))
                             .flex_1()
-                            .h(px(36.))
+                            .h(px(EMOJI_ROW))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -380,16 +433,31 @@ impl PickerLayer {
                 parts.push(line.into_any_element());
             }
         }
+        if skipped > 0. {
+            parts.push(space(skipped));
+        }
         parts
     }
 
-    /// The set's emotes in rows of six. Only the rows in `near` have their pictures, which every
-    /// cell keeps the place of: a set's hundreds of emotes, each decoded with every frame, came to
-    /// more than a gigabyte the moment the picker opened.
-    fn emote_grid(&self, emotes: &[Emote], server_url: &str, needle: &str, near: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The set's emotes in rows of six. Only the rows within `near` of the grid's top are built,
+    /// with their pictures, and the rest keep their place empty: a set's hundreds of emotes, each
+    /// decoded with every frame, came to more than a gigabyte the moment the picker opened, and
+    /// building every cell again for each frame an emote moved took more than half of a core.
+    fn emote_grid(&self, server_url: &str, needle: &str, near: std::ops::Range<Pixels>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
-        let filtered: Vec<&Emote> = emotes.iter().filter(|emote| needle.is_empty() || emote.name.to_lowercase().contains(needle)).collect();
-        if filtered.is_empty() {
+        // repeat(auto-fill, minmax(46px, 1fr)) with a 2px gap, beside the web's 8px scrollbar: six square cells.
+        let columns = 6;
+        // Only the emotes built are copied out of the set, which is drawn again with every frame one moves.
+        let (all_rows, first, rows) = {
+            let state = store(cx).read(cx);
+            let matching: Vec<&Emote> = state.active().map(|server| server.emotes.emotes.iter().filter(|emote| needle.is_empty() || emote.name.to_lowercase().contains(needle)).collect()).unwrap_or_default();
+            let all_rows = matching.len().div_ceil(columns);
+            let first = ((near.start / px(EMOTE_ROW)).floor().max(0.) as usize).min(all_rows);
+            let last = ((near.end / px(EMOTE_ROW)).ceil().max(0.) as usize).clamp(first, all_rows);
+            let rows: Vec<Vec<Emote>> = matching.chunks(columns).skip(first).take(last - first).map(|row| row.iter().map(|emote| (*emote).clone()).collect()).collect();
+            (all_rows, first, rows)
+        };
+        if all_rows == 0 {
             return vec![div()
                 .flex()
                 .flex_col()
@@ -402,15 +470,17 @@ impl PickerLayer {
                 .into_any_element()];
         }
         let state = store(cx);
-        // repeat(auto-fill, minmax(46px, 1fr)) with a 2px gap, beside the web's 8px scrollbar: six square cells.
-        let columns = 6;
         let mut parts = Vec::new();
-        for (index, row) in filtered.chunks(columns).enumerate() {
-            let mut line = div().flex().gap(px(2.));
+        if first > 0 {
+            parts.push(space(EMOTE_ROW * first as f32));
+        }
+        let built = rows.len();
+        for row in rows {
+            let mut line = div().flex().flex_none().gap(px(2.));
+            let cells = row.len();
             for emote in row {
                 let url = crate::models::emote_url(&server_url, &emote.id);
-                let image = if near.contains(&index) { state.update(cx, |state, cx| state.remote_picture(&url, cx)) } else { None };
-                let emote = (*emote).clone();
+                let image = state.update(cx, |state, cx| state.remote_picture(&url, cx));
                 let hovered = emote.clone();
                 line = line.child(
                     named_div(SharedString::from(format!("emote-{}", emote.id)))
@@ -434,10 +504,13 @@ impl PickerLayer {
                         .when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain).id("picture"))),
                 );
             }
-            for _ in row.len()..columns {
+            for _ in cells..columns {
                 line = line.child(div().flex_1());
             }
             parts.push(line.into_any_element());
+        }
+        if first + built < all_rows {
+            parts.push(space(EMOTE_ROW * (all_rows - first - built) as f32));
         }
         parts
     }
@@ -466,11 +539,7 @@ impl Render for PickerLayer {
         let open = &open;
         let theme = theme(cx);
         let state = store(cx);
-        let (set_name, emotes, server_url) = state
-            .read(cx)
-            .active()
-            .map(|server| (server.emotes.set_name.clone(), server.emotes.emotes.clone(), server.entry.url.clone()))
-            .unwrap_or_default();
+        let (set_name, server_url) = state.read(cx).active().map(|server| (server.emotes.set_name.clone(), server.entry.url.clone())).unwrap_or_default();
         let needle = self.search.read(cx).text().trim().to_lowercase();
         let emotes_tab = self.emotes_tab;
         let viewport = window.viewport_size();
@@ -490,21 +559,28 @@ impl Render for PickerLayer {
                 .when(!active, |el| el.hover(move |style| style.text_color(theme.text2)))
                 .on_click(cx.listener(move |layer, _, _, cx| {
                     layer.emotes_tab = id == "tab-emotes";
+                    to_top();
                     cx.notify();
                 }))
                 .child(label)
                 .when(active, |el| el.child(div().absolute().left_0().right_0().bottom_0().h(px(2.)).bg(theme.text1)))
         };
-        // As `EmotePicker`'s, each emote waits until it's 300 px from being seen, in rows of 53 px.
+        // What's within 300 px of being seen, from the grid's top, as `EmotePicker`'s emotes wait
+        // until they're that close. A scroll draws the picker again, which builds what it brings near.
         let near = {
             let handle = scroll_handle("picker-body");
             let seen = handle.bounds().size.height;
-            let from = (-handle.offset().y - px(300.)).max(px(0.));
-            let to = -handle.offset().y + if seen > px(0.) { seen } else { px(HEIGHT) } + px(300.);
-            (from / px(EMOTE_ROW)).floor() as usize..(to / px(EMOTE_ROW)).ceil() as usize
+            let scrolled = -handle.offset().y;
+            (scrolled - px(NEAR)).max(px(0.))..scrolled + if seen > px(0.) { seen } else { px(HEIGHT) } + px(NEAR)
         };
         let telegram = self.stickers.is_some();
-        let body = if emotes_tab && telegram { self.sticker_grid(cx) } else if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
+        let body = if emotes_tab && telegram {
+            self.sticker_grid(cx)
+        } else if emotes_tab {
+            self.emote_grid(&server_url, &needle, near, cx)
+        } else {
+            self.emoji_grid(&needle, near, cx)
+        };
         let footer = self.footer.clone();
         let panel = div()
             .id("picker")
@@ -615,6 +691,37 @@ mod tests {
         cx.global::<PickerGlobal>().0.clone()
     }
 
+    /// Scrolls the grid this far down, as the wheel does, which draws the picker again.
+    fn scroll_to(app: &Running, cx: &mut TestAppContext, down: f32) {
+        scroll_handle("picker-body").set_offset(point(px(0.), px(-down)));
+        cx.update(|cx| layer_of(cx).update(cx, |_, cx| cx.notify()));
+        app.run(cx);
+    }
+
+    #[gpui::test]
+    fn a_large_set_is_built_only_near_what_is_seen(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let mut world = World::new("picker-large-set");
+        let emotes: Vec<_> = (0..300).map(|n| json!({ "id": format!("E{n:03}"), "name": format!("emote{n}"), "animated": true, "width": 28, "height": 28 })).collect();
+        world.server["getEmotes"] = json!({ "set_id": "big", "set_name": "Big set", "emotes": emotes });
+        let app = Running::open(cx, &world);
+        app.update(cx, |state, cx| state.select_server(SERVER, cx));
+        let picked = Rc::new(RefCell::new(Vec::new()));
+        open(&app, cx, true, &picked);
+        assert!(app.drawn(cx, "emote-E000") && !app.drawn(cx, "emote-E299"));
+        // Its 50 rows keep their place, so it scrolls as far as if every one were there.
+        assert!(scroll_handle("picker-body").max_offset().y > px(50. * EMOTE_ROW - HEIGHT));
+        scroll_to(&app, cx, 50. * EMOTE_ROW);
+        assert!(app.drawn(cx, "emote-E299") && !app.drawn(cx, "emote-E000"));
+        app.click(cx, "emote-E299");
+        assert_eq!(*picked.borrow(), vec!["emote:emote299".to_string()]);
+        // A search starts again from the top, where what it finds is.
+        open(&app, cx, true, &picked);
+        scroll_to(&app, cx, 50. * EMOTE_ROW);
+        search(&app, cx, "emote1");
+        assert!(app.drawn(cx, "emote-E001"));
+    }
+
     #[gpui::test]
     fn emoji_and_emotes_are_found_and_picked(cx: &mut TestAppContext) {
         crate::ui::motion::set_reduced(true);
@@ -632,10 +739,13 @@ mod tests {
         assert_eq!(*picked.borrow(), vec!["emote:Kappa".to_string()]);
         assert!(!cx.read(is_open));
 
-        // Emoji from the message box leave it open to pick more.
+        // Emoji from the message box leave it open to pick more. Only those near being seen are
+        // built, and scrolling to the others builds them.
         open(&app, cx, true, &picked);
         app.click(cx, "tab-emoji");
-        assert!(app.drawn(cx, "emoji-😀") && app.drawn(cx, "emoji-🐶"));
+        assert!(app.drawn(cx, "emoji-😀") && !app.drawn(cx, "emoji-🐶"));
+        scroll_to(&app, cx, 700.);
+        assert!(app.drawn(cx, "emoji-🐶") && !app.drawn(cx, "emoji-😀"));
         search(&app, cx, "grin");
         assert!(app.drawn(cx, "emoji-😀") && !app.drawn(cx, "emoji-🐶"), "the search narrows them by name");
         // What's under the pointer is named below.
