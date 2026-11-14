@@ -213,6 +213,32 @@ describe("watching your own account", () => {
     expect(dave.session.getNewDevices()).toEqual([]);
   });
 
+  it("takes no page of the log that keeps back what it says of this account, a new device in it too (Z-74)", async () => {
+    const bob = await person("bob");
+    const session = sessionOf(bob);
+    const api = apiOf(bob);
+    const from = session.logState().frontier.size as number;
+    const original = api.log.bind(api);
+    // The server's answer to bob's own device: what's new in the log comes as records alone.
+    api.log = async (era: number, after: number, limit: number) => {
+      const page = await original(era, after, limit);
+      for (const record of page.records) if (record.idx >= from) delete (record as { body?: string | null }).body;
+      return page;
+    };
+    const other = await new TestApp("someone with bob's password").open();
+    open.push(other);
+    await other.login(server.url, bob.session.getSelf().username);
+    await waitFor(() => warned(bob, "record of who holds which keys is inconsistent"), "bob's device to refuse the page");
+    // Nothing of it was read, so it can't have been read as old news.
+    expect(session.logState().frontier.size).toBe(from);
+    expect(session.loggedAccount(bob.userId)?.devices[other.session.getSelf().deviceId]).toBeUndefined();
+
+    // Handed over whole, it's asked about.
+    api.log = original;
+    await session.syncLog();
+    await waitFor(() => bob.session.getNewDevices().length === 1, "bob's device to ask about the new one");
+  });
+
   it("removes a new device that wasn't the person, which the account's others stop asking about", async () => {
     const dave = await person("dave");
     await caughtUp(dave);
@@ -663,6 +689,22 @@ describe("eras and seal keys", () => {
     startNewEra(dataDir());
     await sessionOf(dave).syncLog();
     await waitFor(() => dave.session.safetyCheck(erin.userId)!.trust === "changed", "erin to show as changed");
+  });
+
+  it("asks about a device of the account that a log written again names, and the one before it didn't (Z-74)", async () => {
+    const dave = await person("dave");
+    await caughtUp(dave);
+    const username = dave.session.getSelf().username;
+    // Someone signs in while dave's device is off, and the log is written again before it's back.
+    dave.client.stop();
+    const other = await new TestApp("someone with dave's password").open();
+    open.push(other);
+    await other.login(server.url, username);
+    startNewEra(dataDir());
+    await dave.open();
+    await dave.online();
+    // A log written again is quiet about what the old one said, which this device wasn't in.
+    await waitFor(() => dave.session.getNewDevices().some((device) => device.id === other.session.getSelf().deviceId), "dave's device to ask about it");
   });
 
   it("does nothing with someone's head from an era before", async () => {

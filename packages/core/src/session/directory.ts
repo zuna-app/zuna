@@ -56,6 +56,8 @@ interface LogState {
   own: number | null;
   /** No alert for an entry below this, as for a log written again in a new era. */
   quietBelow: number;
+  /** This account's devices as the log named them before it was last written again: any other in it since is asked about. */
+  ownBefore?: string[];
   /** A head the log has to hold, from the invite link or the manifest, until it's been read that far. */
   floor: { era: number; size: number; root: string; from: "link" | "manifest" } | null;
   /** Two signed heads that can't both be true, once there are. */
@@ -236,6 +238,8 @@ export abstract class SessionDirectory extends SessionChains {
   protected startLogEra(era: number, size: number): void {
     const state = this.logState();
     const first = state.era === 0;
+    // A log written again is quiet about what it said before, but not about a device of this account it never named.
+    const ownBefore = first ? undefined : [...new Set([...(state.ownBefore ?? []), ...Object.keys(this.loggedAccount(this.account.userId)?.devices ?? {})])];
     this.db.transaction(() => {
       this.db.run("DELETE FROM log_records");
       this.db.run("DELETE FROM log_accounts");
@@ -252,6 +256,7 @@ export abstract class SessionDirectory extends SessionChains {
       own: null,
       // What a log written again says of this account's devices isn't news.
       quietBelow: first ? 0 : size,
+      ownBefore,
       floor: state.floor && state.floor.era === era ? state.floor : null,
     };
     this.saveLogState();
@@ -276,6 +281,10 @@ export abstract class SessionDirectory extends SessionChains {
         const bytes = decode(wire.body);
         body = parseBody(bytes);
         if (!body || !bodyFits(parts, bytes, body)) return this.refuseLog();
+      } else if (equalBytes(userTag(this.account.userId, parts.nonce), parts.userTag)) {
+        // Every entry of this account's own has to come with its body, as when signing in: one that
+        // came bare and was asked for afterwards would be read as old news, a new device among them.
+        return this.refuseLog();
       }
       frontier.append(leafHash(record));
       // A head this log has to hold is checked on the way past it.
@@ -424,7 +433,7 @@ export abstract class SessionDirectory extends SessionChains {
         if (body.device === this.account.deviceId) {
           state.own = idx;
           if (!equalBytes(body.key, this.account.devicePublic)) this.warnOnce("log/own-device", WARNINGS.ownHistory, self);
-        } else if (state.own !== null && idx > state.own && idx >= state.quietBelow) {
+        } else if (state.ownBefore && idx < state.quietBelow ? !state.ownBefore.includes(body.device) : state.own !== null && idx > state.own && idx >= state.quietBelow) {
           // From the entry, so the server can't leave a new device of this account unsaid.
           this.noteNewDevice(body.device);
         }
