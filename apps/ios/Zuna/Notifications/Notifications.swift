@@ -481,8 +481,10 @@ final class Notifications {
         let stale = await center.deliveredNotifications().filter { notification in
             let info = notification.request.content.userInfo
             let opened = PushStore.open(info)
-            guard (info["serverId"] as? String ?? opened?.serverId) == serverId,
-                  let groupId = info["groupId"] as? String ?? opened?.groupId else { return false }
+            // Telegram's as iOS showed it by itself carries only Telegram's own fields.
+            let telegram = info["serverId"] == nil && opened == nil ? TelegramPush(info) : nil
+            guard (info["serverId"] as? String ?? opened?.serverId ?? telegram.map { _ in TelegramPush.serverId }) == serverId,
+                  let groupId = info["groupId"] as? String ?? opened?.groupId ?? telegram?.groupId else { return false }
             return read.contains(groupId)
         }.map(\.request.identifier)
         if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }

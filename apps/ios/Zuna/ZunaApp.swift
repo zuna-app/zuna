@@ -69,15 +69,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         // Telegram's quiet ones: a chat read or messages deleted elsewhere take their notifications with them.
-        if let telegram = TelegramPush(userInfo), let groupId = telegram.groupId, telegram.kind == .read || telegram.kind == .deleted {
+        if let telegram = TelegramPush(userInfo), telegram.kind == .read || telegram.kind == .deleted {
             Task {
-                if telegram.kind == .read {
-                    await Notifications.clear(PushStore.Message(kind: .read, serverId: TelegramPush.serverId, groupId: groupId, messageId: nil))
-                } else {
-                    for id in telegram.messageIds {
-                        await Notifications.clear(PushStore.Message(kind: .delete, serverId: TelegramPush.serverId, groupId: groupId, messageId: id))
-                    }
-                }
+                if await TelegramPush.clear(telegram) > 0 { try? await UNUserNotificationCenter.current().setBadgeCount(PushStore.badge) }
                 completionHandler(.newData)
             }
             return

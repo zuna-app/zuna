@@ -285,7 +285,7 @@ Nothing on the phone can fetch a message for a notification. The engine can't ru
 - **Showing.** A push names a kind of message and its words (`loc_key`, `loc_args`). The app carries the sentence for each kind, from the list Telegram publishes, so iOS can show a push by itself where the extension doesn't run, as before the phone's first unlock. Where it runs, the extension shows it as "Telegram", under the chat's name, and keeps the app's badge the app's own count.
 - **Telling them apart.** The extension knows a push of Telegram's from a server's by its shape. None can stand in for a server's, which is sealed with a key Telegram doesn't have.
 - **What's pushed is Telegram's to decide,** as for its own app: a muted chat isn't, and a silent message makes no sound.
-- **Taking back.** Telegram's quiet pushes, that a chat was read or a message deleted elsewhere, remove the notification.
+- **Taking back.** Telegram's quiet pushes, that a chat was read or a message deleted elsewhere, remove the notifications: a read chat's up to the message it was read to, and the deleted messages' (`TelegramPush.clear`). Telegram's page doesn't say how it sends them to an iPhone, so both ways are taken: with an alert, the extension clears them, and silently, the app does, which iOS only wakes while its person hasn't closed it. Whichever comes, what's left goes once the app opens and the engine catches up. Until Apple grants the filtering entitlement, one sent with an alert can't be kept from showing too.
 - **Opening one** opens that chat on the Telegram account in Zuna.
 - **Calls aren't registered for,** so a Telegram call rings in Telegram's own app alone.
 

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UserNotifications
 
 /// A push Telegram sends the linked account's phone through Apple (docs/TELEGRAM_PLAN.md,
@@ -149,6 +150,45 @@ struct TelegramPush {
         if let conversationKey { content.userInfo["conversationKey"] = conversationKey }
         if let messageId = messageIds.first { content.userInfo["messageId"] = messageId }
         return content
+    }
+
+    /// Takes away what a chat read, or messages deleted, on another device leave behind
+    /// (`READ_HISTORY`, `MESSAGE_DELETED`): a read chat's notifications up to the message it was
+    /// read to, as one that came after it is still unread, and the deleted messages'. Each was
+    /// counted in the badge, which goes down with them. The extension does it for a push it's
+    /// handed, and the app for one iOS hands it silently, whichever way Telegram sends it; the
+    /// other then finds nothing left. Returns how many went.
+    static func clear(_ push: TelegramPush) async -> Int {
+        guard push.kind == .read || push.kind == .deleted, let groupId = push.groupId else { return 0 }
+        let ids = Set(push.messageIds.compactMap { Int64($0) })
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let stale = delivered.filter { notification in
+            let info = notification.request.content.userInfo
+            let messageId: String?
+            if info["serverId"] as? String == serverId {
+                // Worded by the extension, or shown by the app while it ran.
+                guard info["groupId"] as? String == groupId else { return false }
+                messageId = info["messageId"] as? String
+            } else if info["serverId"] == nil, let shown = TelegramPush(info), shown.kind == .message {
+                // Shown by iOS itself, where the extension didn't run, with only Telegram's fields.
+                guard shown.groupId == groupId else { return false }
+                messageId = shown.messageIds.first
+            } else {
+                return false
+            }
+            let id = messageId.flatMap { Int64($0) }
+            if push.kind == .deleted { return id.map(ids.contains) ?? false }
+            guard let readTo = ids.max(), let id else { return true }
+            return id <= readTo
+        }.map(\.request.identifier)
+        let by = Bundle.main.bundleURL.pathExtension == "appex" ? "extension" : "app"
+        Logger(subsystem: "chat.zuna", category: "notifications")
+            .notice("Telegram said a chat was \(push.kind == .read ? "read" : "deleted from", privacy: .public) elsewhere, to the \(by, privacy: .public): clearing \(stale.count) of \(delivered.count) notifications")
+        guard !stale.isEmpty else { return 0 }
+        center.removeDeliveredNotifications(withIdentifiers: stale)
+        PushStore.badge -= stale.count
+        return stale.count
     }
 
     /// The server ID a linked Telegram account goes by (`TELEGRAM_ID` in the core).

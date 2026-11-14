@@ -633,6 +633,11 @@ final class CoreController {
             // Asks the server at `path` which chats it still counts this device as showing, and clears the rest, as a silent push has the app do.
             guard let server = model?.servers.values.first(where: { $0.entry.url == path }) else { return "no-server" }
             return String(await clearRead(serverId: server.entry.id))
+        case "telegramPush":
+            // A push of Telegram's, its JSON in `path`, handed over as iOS hands a silent one; says how many notifications it cleared.
+            guard let path, let info = (try? JSONSerialization.jsonObject(with: Data(path.utf8))) as? [AnyHashable: Any],
+                  let push = TelegramPush(info) else { return "not-telegram" }
+            return String(await TelegramPush.clear(push))
         case "clearNotifications":
             // So a test sees only its own notifications.
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()

@@ -143,6 +143,13 @@ final class AppUnderTest {
         return try blocking { Int(try await control.host("deliveredNotifications") as? String ?? "") ?? -1 }
     }
 
+    /// Hands the app a push of Telegram's as iOS hands a silent one, and says how many notifications it cleared.
+    func telegramPush(_ payload: [String: Any]) throws -> Int {
+        let control = control!
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+        return try blocking { Int(try await control.host("telegramPush", ["path": json]) as? String ?? "") ?? -1 }
+    }
+
     /// Clears the notifications already delivered, so a test sees only its own.
     func clearNotifications() throws {
         let control = control!

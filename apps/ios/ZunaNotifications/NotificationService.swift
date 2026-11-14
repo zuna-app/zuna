@@ -102,12 +102,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
     /// Telegram's push as the app words Telegram's notifications, with the chat's picture, counted
     /// in the app's own badge rather than Telegram's. What shows nothing in Telegram's app is quiet
-    /// here too, as far as iOS lets a push be without the filtering entitlement.
+    /// here too, as far as iOS lets a push be without the filtering entitlement, and a chat read or
+    /// messages deleted elsewhere take their notifications with them.
     private static func telegram(_ push: TelegramPush, _ content: UNMutableNotificationContent, settings: NotificationSettings) async -> UNNotificationContent {
         guard push.kind == .message else {
             content.sound = nil
             content.badge = nil
-            return content
+            guard push.kind == .read || push.kind == .deleted else { return content }
+            if await TelegramPush.clear(push) > 0 { content.badge = NSNumber(value: PushStore.badge) }
+            guard PushStore.canFilter else { return content }
+            let hidden = UNMutableNotificationContent()
+            hidden.badge = content.badge
+            return hidden
         }
         PushStore.badge += 1
         let worded = push.content(base: content, settings: settings)

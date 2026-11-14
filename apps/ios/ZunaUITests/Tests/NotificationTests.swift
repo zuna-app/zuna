@@ -223,6 +223,32 @@ final class NotificationTests: XCTestCase {
         try waitFor("the notifications to go", timeout: 20) { try self.zuna.deliveredNotifications() == 0 }
     }
 
+    /// Telegram's pushes, for an account linked on the phone: a chat read on another device takes its notifications
+    /// up to the message it was read to, and a message deleted its own. `simctl push` skips the extension, so iOS
+    /// shows them by itself, from the sentences the app carries, and the clearing is handed over as a silent push is.
+    /// The app stays open, where they show too with no Telegram linked, so it answers throughout.
+    func testClearsWhatTelegramSaysWasReadOrDeleted() throws {
+        try start()
+        try zuna.clearNotifications()
+        func message(_ custom: [String: Any], _ args: [String]) throws {
+            try WorldControl.push(["aps": ["alert": ["loc-key": "MESSAGE_TEXT", "loc-args": args]], "custom": custom])
+        }
+        try message(["from_id": "4242", "msg_id": "7"], ["Anna", "See you at 8?"])
+        try message(["from_id": "4242", "msg_id": "8"], ["Anna", "Or 9"])
+        try message(["channel_id": "99", "msg_id": "3"], ["Weekend trip", "Tickets are out"])
+        try waitFor("the three notifications") { try self.zuna.deliveredNotifications() == 3 }
+
+        func service(_ key: String, _ custom: [String: Any]) throws -> Int {
+            try zuna.telegramPush(["aps": ["content-available": 1], "loc_key": key, "custom": custom])
+        }
+        // Read up to the first: the second came after it and stays, as does the other chat's.
+        XCTAssertEqual(try service("READ_HISTORY", ["from_id": "4242", "max_id": "7"]), 1)
+        XCTAssertEqual(try zuna.deliveredNotifications(), 2)
+        XCTAssertEqual(try service("MESSAGE_DELETED", ["channel_id": "99", "messages": "3"]), 1)
+        XCTAssertEqual(try service("READ_HISTORY", ["from_id": "4242", "max_id": "8"]), 1)
+        XCTAssertEqual(try zuna.deliveredNotifications(), 0)
+    }
+
     /// Where CallKit is left out, as in test builds, a call rings a phone that isn't open with a notification,
     /// declined from there, and which goes once the call is over.
     func testACallRingsAPhoneThatIsntOpen() throws {
