@@ -929,14 +929,14 @@ extension TelegramLink: Codable {
     }
 }
 
-/// One of the Telegram account's own sticker sets. `cover` is a file to download, as `tg:<n>`.
+/// One of the Telegram account's own sticker sets. `cover` is a file to download, as `tg:<n>:<id>` (`TELEGRAM_FILE` in the core).
 public struct TelegramStickerSet: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var title: String
     public var cover: String?
 }
 
-/// A sticker of a set: the file sending it takes, the picture shown of it, as `tg:<n>`, and its emoji.
+/// A sticker of a set: the file sending it takes, the picture shown of it, as `tg:<n>:<id>`, and its emoji.
 public struct TelegramSticker: Codable, Sendable, Equatable, Hashable {
     public var file: Int
     public var picture: String

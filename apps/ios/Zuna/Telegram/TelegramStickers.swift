@@ -82,7 +82,7 @@ private struct StickerPicture: View {
         }
     }
 
-    /// A sticker's picture as the attachment the image store loads, by its `tg:` number.
+    /// A sticker's picture as the attachment the image store loads, by its `tg:` reference.
     static func attachment(_ fileId: String) -> Attachment? {
         let json: [String: Any] = ["fileId": fileId, "key": "", "prefix": "", "chunks": 0, "name": "sticker.webp", "mime": "image/webp", "size": 0, "sticker": true]
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }

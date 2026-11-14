@@ -153,6 +153,16 @@ describe("Telegram's people as the app's users", () => {
     expect(avatarOf({ small: file(-1) })).toBeNull();
     expect(avatarOf(null)).toBeNull();
   });
+
+  it("names a file by Telegram's lasting ID beside its number, which the engine gives others once it starts again", () => {
+    const lasting = (unique: unknown) => file(60, 100, { remote: { "@type": "remoteFile", id: "", unique_id: unique } });
+    expect(avatarOf({ small: lasting("AQADBAADr6sxG-x_") })!.fileId).toBe("tg:60:AQADBAADr6sxG-x_");
+    expect(attachmentsOf({ "@type": "messageDocument", document: { file_name: "a.pdf", mime_type: "application/pdf", document: lasting("BQADAQAD") } })![0]!.fileId).toBe("tg:60:BQADAQAD");
+    // Before Telegram has one, as for a file being sent, or with one that isn't what Telegram gives: the number alone.
+    expect(avatarOf({ small: lasting("") })!.fileId).toBe("tg:60");
+    expect(avatarOf({ small: lasting("no:colons") })!.fileId).toBe("tg:60");
+    expect(avatarOf({ small: lasting(7) })!.fileId).toBe("tg:60");
+  });
 });
 
 describe("Telegram's chats as the app's conversations", () => {

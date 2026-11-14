@@ -76,13 +76,32 @@ export function formatted(value: unknown): { text: string; entities: TdEntity[] 
 
 // --- Files ---
 
-/** What stands for one of TDLib's files in an attachment or a picture: `tg:<its number>`. */
-export const TELEGRAM_FILE = /^tg:(\d{1,10})$/;
+/**
+ * What stands for one of TDLib's files in an attachment or a picture: `tg:<its number>:<Telegram's
+ * ID for it>`. The number only holds while the engine runs, and goes to other files once it starts
+ * again, as an iPhone's often does, so the lasting ID beside it keeps a file from standing for
+ * another, here and in the apps' caches. Only the number, while Telegram hasn't one yet.
+ */
+export const TELEGRAM_FILE = /^tg:(\d{1,10})(?::([A-Za-z0-9_-]{1,128}))?$/;
 
 /** TDLib's number for a file, checked. */
 export function fileNumber(file: unknown): number | null {
   const id = int(field(file, "id"), 1, 2 ** 31 - 1, 0);
   return id || null;
+}
+
+/** Telegram's ID for a file, the same for it everywhere and for good, or "" before it has one. */
+export function lastingFileId(file: unknown): string {
+  const unique = str(field(field(file, "remote"), "unique_id"), 128);
+  return /^[A-Za-z0-9_-]+$/.test(unique) ? unique : "";
+}
+
+/** How the app refers to one of TDLib's files (`TELEGRAM_FILE`). */
+function fileRef(file: unknown): string | null {
+  const id = fileNumber(file);
+  if (!id) return null;
+  const lasting = lastingFileId(file);
+  return lasting ? `tg:${id}:${lasting}` : `tg:${id}`;
 }
 
 function fileSize(file: unknown): number {
@@ -97,8 +116,8 @@ function minithumbnail(value: unknown): string | undefined {
 
 /** A profile picture, as the app's own pictures are referred to, by its small size. */
 export function avatarOf(photo: unknown): AvatarRef | null {
-  const id = fileNumber(field(photo, "small"));
-  return id ? { fileId: `tg:${id}`, key: "", prefix: "", chunks: 0, mime: "image/jpeg" } : null;
+  const fileId = fileRef(field(photo, "small"));
+  return fileId ? { fileId, key: "", prefix: "", chunks: 0, mime: "image/jpeg" } : null;
 }
 
 function bytesOf(base64: string): Uint8Array | null {
@@ -147,9 +166,9 @@ export function waveformToTelegram(bars: string | undefined): string {
 
 /** An attachment for one of TDLib's files, with what else is known of it. */
 function attachment(file: unknown, details: Omit<Attachment, "fileId" | "key" | "prefix" | "chunks" | "size">): Attachment | null {
-  const id = fileNumber(file);
-  if (!id) return null;
-  return { fileId: `tg:${id}`, key: "", prefix: "", chunks: 0, size: fileSize(file), ...details };
+  const fileId = fileRef(file);
+  if (!fileId) return null;
+  return { fileId, key: "", prefix: "", chunks: 0, size: fileSize(file), ...details };
 }
 
 /** The mime type TDLib gives, if it's one, or what it is by default. */

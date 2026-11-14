@@ -37,6 +37,7 @@ import {
   int,
   isObject,
   kindOf,
+  lastingFileId,
   list,
   messageView,
   muteFor,
@@ -914,8 +915,15 @@ export class TelegramSession {
    * folder, and the host hands that file to the interface, which reads it there.
    */
   async downloadFile(ref: { fileId: string; mime?: string }): Promise<Blob> {
-    const number = ref.fileId.match(TELEGRAM_FILE)?.[1];
-    if (!number) throw new Error("That isn't one of Telegram's files.");
+    const found = ref.fileId.match(TELEGRAM_FILE);
+    if (!found) throw new Error("That isn't one of Telegram's files.");
+    const [, number, lasting] = found;
+    // A number from before the engine last started may be another file's now, which is never
+    // given in its place: what showed it is listed again with the file's new number.
+    if (lasting) {
+      const known = await this.engine.request({ "@type": "getFile", file_id: Number(number) }).catch(() => null);
+      if (!known || lastingFileId(known) !== lasting) throw new TelegramError("That file isn't here any more.", 404);
+    }
     const file = await this.engine.request({ "@type": "downloadFile", file_id: Number(number), priority: 16, offset: 0, limit: 0, synchronous: true }).catch((error) => {
       throw explain(error);
     });

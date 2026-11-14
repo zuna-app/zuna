@@ -684,6 +684,13 @@ describe("sending, and what Telegram refuses", () => {
     await expect(session.downloadFile({ fileId: "tg:7" })).rejects.toThrow("Telegram didn't send that file.");
     engine.answer("downloadFile", { "@type": "file", id: 7, local: { path: "C:/x", is_downloading_completed: true } });
     expect((await session.downloadFile({ fileId: "tg:7" })).type).toBe("application/octet-stream");
+    // A number from before the engine started again, which is another file's now: never that file in its place.
+    engine.answer("getFile", { "@type": "file", id: 7, remote: { unique_id: "AQADother" } });
+    const downloads = engine.requests("downloadFile").length;
+    await expect(session.downloadFile({ fileId: "tg:7:AQADmine" })).rejects.toThrow("That file isn't here any more.");
+    expect(engine.requests("downloadFile")).toHaveLength(downloads);
+    engine.answer("getFile", { "@type": "file", id: 7, remote: { unique_id: "AQADmine" } });
+    expect((await session.downloadFile({ fileId: "tg:7:AQADmine" })).type).toBe("application/octet-stream");
     engine.answer("getMessageProperties", { "@type": "error" });
     engine.refuse("getMessageProperties", "Not Found", 404);
     expect(await session.deleteChoices(String(GRACE), "1")).toEqual({ forEveryone: false, forSelf: false });
