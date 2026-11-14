@@ -613,6 +613,14 @@ export abstract class SessionGroups extends SessionRotation {
     const group = this.groups.get(groupId);
     if (!group || Object.keys(group.meta).length === 0 || group.removedAt) return;
     if (!this.isGroupAdmin(group, this.account.userId) || !this.hasMlsGroup(groupId) || this.resealing.has(groupId)) return;
+    // Under the current key, so whoever shouldn't hold it goes first, as before anything else this device encrypts.
+    if (this.cleanEpochs.get(groupId) !== this.mlsEpoch(groupId)) {
+      void this.withLock(groupId, async () => {
+        await this.ensureTreeClean(groupId);
+        if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) this.resealMeta(groupId);
+      }).catch((error) => console.warn("[zuna] resealing group details", error));
+      return;
+    }
     const epoch = this.rememberCurrentEpochKey(groupId);
     const version = Math.max(group.metaVersion ?? 0, 1);
     group.metaVersion = version;
