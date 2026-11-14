@@ -81,14 +81,17 @@ impl Shared {
                 let task = crate::host::tokio().spawn(async move {
                     let mut serial = 0u64;
                     while let Some(frame) = stream.next().await {
+                        // A picture sent turned is turned upright below, on the CPU.
                         #[cfg(target_os = "macos")]
-                        if let Some((width, height, picture)) = crate::platform::screen_capture::decoded(frame.buffer.as_ref()) {
-                            if serial == 0 {
-                                log::debug!("video: decoded on the GPU at {width}×{height}, drawn from there");
+                        if frame.rotation == VideoRotation::VideoRotation0 {
+                            if let Some((width, height, picture)) = crate::platform::screen_capture::decoded(frame.buffer.as_ref()) {
+                                if serial == 0 {
+                                    log::debug!("video: decoded on the GPU at {width}×{height}, drawn from there");
+                                }
+                                serial += 1;
+                                show(&writing, Frame { width, height, image: None, serial, surface: Some(picture) });
+                                continue;
                             }
-                            serial += 1;
-                            show(&writing, Frame { width, height, image: None, serial, surface: Some(picture) });
-                            continue;
                         }
                         // What a decoder hands over is I420 already, read where it is: to_i420
                         // copies even that.
@@ -106,6 +109,8 @@ impl Shared {
                         let mut bgra = vec![0u8; (width * height * 4) as usize];
                         // libyuv's ARGB is BGRA in memory, which is what GPUI draws.
                         livekit::webrtc::native::yuv_helper::i420_to_argb(y, stride_y, u, stride_u, v, stride_v, &mut bgra, width * 4, width as i32, height as i32);
+                        // libwebrtc leaves turning it to whoever draws it.
+                        let (width, height, bgra) = upright(width, height, bgra, frame.rotation);
                         serial += 1;
                         show(&writing, Frame::of(width, height, bgra, serial));
                     }

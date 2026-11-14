@@ -127,6 +127,39 @@ impl Frame {
     }
 }
 
+/// A picture sent turned, as an iPhone sharing its screen from ReplayKit sends it while lying on
+/// its side, turned upright: by `rotation` clockwise, as libwebrtc's own renderers turn it. BGRA,
+/// top row first, as it is and with its size.
+fn upright(width: u32, height: u32, bgra: Vec<u8>, rotation: VideoRotation) -> (u32, u32, Vec<u8>) {
+    let (w, h) = (width as usize, height as usize);
+    if rotation == VideoRotation::VideoRotation0 || w == 0 || h == 0 || bgra.len() != w * h * 4 {
+        return (width, height, bgra);
+    }
+    let mut turned = vec![0u8; bgra.len()];
+    if rotation == VideoRotation::VideoRotation180 {
+        for (to, from) in turned.chunks_exact_mut(4).zip(bgra.chunks_exact(4).rev()) {
+            to.copy_from_slice(from);
+        }
+        return (width, height, turned);
+    }
+    let clockwise = rotation == VideoRotation::VideoRotation90;
+    // In blocks, so that the rows read and the columns written both stay in the cache. The
+    // turned picture is `h` wide.
+    const BLOCK: usize = 32;
+    for top in (0..h).step_by(BLOCK) {
+        for left in (0..w).step_by(BLOCK) {
+            for y in top..(top + BLOCK).min(h) {
+                for x in left..(left + BLOCK).min(w) {
+                    let (to_x, to_y) = if clockwise { (h - 1 - y, x) } else { (y, w - 1 - x) };
+                    let (from, to) = ((y * w + x) * 4, (to_y * h + to_x) * 4);
+                    turned[to..to + 4].copy_from_slice(&bgra[from..from + 4]);
+                }
+            }
+        }
+    }
+    (height, width, turned)
+}
+
 pub type Feed = Arc<Mutex<Option<Frame>>>;
 
 /// Rings each time any video has a new picture, so that a view showing one draws it then.

@@ -1,6 +1,6 @@
 //! What the app tells the media server about itself as it joins: nothing of the system it runs
 //! on or the device's model, which LiveKit's SDK sends unless patches/livekit-signaling.patch
-//! takes them out, and LiveKit writes to its log.
+//! takes them out, and LiveKit writes to its log. And pictures sent turned, put upright.
 
 use std::io::Read;
 use std::sync::Arc;
@@ -98,4 +98,27 @@ fn the_media_server_is_told_neither_the_system_nor_the_model() {
         assert!(matches!(value, None | Some("")), "v0 sent {name}={value:?}");
     }
     assert!(pairs.iter().any(|(key, value)| key == "sdk" && !value.is_empty()), "v0 sent {pairs:?}");
+}
+
+/// Pixels 0, 1, 2 over 3, 4, 5, each of the four bytes its number, and what's in each place once turned.
+#[test]
+fn a_picture_sent_turned_is_turned_upright() {
+    use livekit::webrtc::prelude::VideoRotation;
+    let picture: Vec<u8> = (0..6u8).flat_map(|pixel| [pixel; 4]).collect();
+    let numbers = |(width, height, bgra): (u32, u32, Vec<u8>)| (width, height, bgra.chunks_exact(4).map(|pixel| pixel[0]).collect::<Vec<_>>());
+    assert_eq!(numbers(super::upright(3, 2, picture.clone(), VideoRotation::VideoRotation0)), (3, 2, vec![0, 1, 2, 3, 4, 5]));
+    // Clockwise, as libwebrtc's renderers turn it: the left column becomes the top row.
+    assert_eq!(numbers(super::upright(3, 2, picture.clone(), VideoRotation::VideoRotation90)), (2, 3, vec![3, 0, 4, 1, 5, 2]));
+    assert_eq!(numbers(super::upright(3, 2, picture.clone(), VideoRotation::VideoRotation180)), (3, 2, vec![5, 4, 3, 2, 1, 0]));
+    assert_eq!(numbers(super::upright(3, 2, picture.clone(), VideoRotation::VideoRotation270)), (2, 3, vec![2, 5, 1, 4, 0, 3]));
+    // Larger than a block each way, and turned all the way round, it's as it was.
+    let (width, height) = (70u32, 45u32);
+    let large: Vec<u8> = (0..width * height).flat_map(|pixel| pixel.to_le_bytes()).collect();
+    let mut turned = (width, height, large.clone());
+    for _ in 0..4 {
+        turned = super::upright(turned.0, turned.1, turned.2, VideoRotation::VideoRotation90);
+    }
+    assert_eq!(turned, (width, height, large.clone()));
+    let back = super::upright(width, height, large.clone(), VideoRotation::VideoRotation90);
+    assert_eq!(super::upright(back.0, back.1, back.2, VideoRotation::VideoRotation270), (width, height, large));
 }
