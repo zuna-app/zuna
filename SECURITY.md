@@ -2,7 +2,7 @@
 
 **Zuna is a small, non-profit, open source project, with no company behind it.** Independent audits by security experts cost far more than we could ever pay, so nobody independent has reviewed Zuna's own code. The encryption library at its core, [OpenMLS](https://github.com/openmls/openmls), has been audited, but how Zuna uses it hasn't. Zuna doesn't compete with Signal or Matrix on security: if your safety depends on your messages staying private, choose a messenger that has been independently audited.
 
-What we do instead is run periodic security audits with Mythos 5.2, an AI model, and fix what they find. They catch a lot, but they're no substitute for experienced people reviewing the code.
+What we do instead is run periodic security audits with Claude Mythos 5.2 and fix what they find. They catch a lot, but they're no substitute for experienced people reviewing the code.
 
 ## Reporting a vulnerability
 
