@@ -62,6 +62,8 @@ describe("direct messages", () => {
     bob.session.sendMessage(`user:${alice.userId}`, { text: "hi alice" });
     await waitFor(() => alice.texts(key).includes("hi alice"), "alice to receive");
     expect(alice.texts(key)).toEqual(["hi bob", "hi alice"]);
+    // Alice can see it live before the server's answer gives it its place on bob's own device.
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("hi alice"), "bob's own send to be placed");
     expect(bob.texts(`user:${alice.userId}`)).toEqual(["hi bob", "hi alice"]);
   });
 
