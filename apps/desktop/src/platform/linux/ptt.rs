@@ -156,6 +156,10 @@ pub fn hear(keystroke: &gpui::Keystroke) -> bool {
 
 /// A connection to the portals that has named the app to them where it's installed.
 async fn connect() -> zbus::Result<zbus::Connection> {
+    // Kept off the person's own desktop in tests, as `bus::session` is.
+    if cfg!(test) {
+        return Err(zbus::Error::Failure("no session bus in tests".into()));
+    }
     let bus = zbus::Connection::session().await?;
     // Only allowed before anything else is asked on the connection, and refused where no
     // .desktop file by that name is installed.
