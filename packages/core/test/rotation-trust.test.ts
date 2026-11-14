@@ -153,6 +153,16 @@ describe("verified contacts", () => {
     const lieAboutChain = (app: TestApp, links: unknown[]) => {
       (apiOf(app) as any).identityLinks = async () => links;
     };
+    /**
+     * Runs `lie` once no read of someone's chain is going on, at once on finding none, so the
+     * next read is the first to hear it. A read still going, as the one that followed a rotation
+     * can be, would be joined instead, and the lie never told.
+     */
+    const onceRead = async (app: TestApp, userId: string, lie: () => void) => {
+      const following: Map<string, Promise<void>> = sessionOf(app).following;
+      while (following.has(userId)) await following.get(userId)!.catch(() => undefined);
+      lie();
+    };
     const lieAboutKey = (app: TestApp, key: Uint8Array) => {
       const real = apiOf(app).user;
       (apiOf(app) as any).user = async (id: string) => ({ ...(await real(id)), identity_key: toBase64(key) });
@@ -233,7 +243,9 @@ describe("verified contacts", () => {
     it("doesn't take a shorter chain for what's being compared", async () => {
       const { dave, erin, head } = await rotatedPair();
       let calls = 0;
-      (apiOf(erin) as any).identityLinks = async () => (++calls === 1 ? [garbageLink(2)] : []);
+      await onceRead(erin, dave.userId, () => {
+        (apiOf(erin) as any).identityLinks = async () => (++calls === 1 ? [garbageLink(2)] : []);
+      });
       await sessionOf(erin).followChain(dave.userId);
       expect(sessionOf(erin).identityState(dave.userId).forked).toBe(1);
       expect(covers(erin, dave)).toBe(`heads:${head}`);
