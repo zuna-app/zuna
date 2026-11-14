@@ -5,9 +5,9 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { Api, decode } from "../src/api";
-import { createCertificate, parseCertificate, randomId, sealVaultCore, derivePasswordKeys, type VaultCore } from "../src/crypto";
+import { createCertificate, newDeviceKey, newLastingKey, parseCertificate, randomId, sealVaultCore, derivePasswordKeys, type VaultCore } from "../src/crypto";
 import { fromBase64, toBase64, utf8 } from "../src/encoding";
-import { EMPTY_LINK_HASH, hash, keyCommitment, openSlot, parseLinkPayload, sealToSlot, signSealProof } from "../src/generations";
+import { EMPTY_LINK_HASH, buildLink, hash, keyCommitment, openSlot, parseLinkPayload, readHeldLink, rootHash, sealToSlot, signSealProof, slotsHash } from "../src/generations";
 import { TestApp, sleep, waitFor } from "./helpers";
 import {
   server,
@@ -69,6 +69,40 @@ describe("verified contacts", () => {
     const kinds = rows.map((row) => sessionOf(erin).toMessageView(sessionOf(erin).messageRow(dm, row.id)).system?.type);
     expect(kinds).toContain("identity_rotated");
     expect(kinds).not.toContain("identity_changed");
+  });
+
+  it("doesn't take a change the log doesn't name, nor carry the mark over by a known device's ID alone (Z-73)", async () => {
+    const { dave, erin } = await verifiedPair();
+    age(erin, dave.userId);
+    const user = dave.userId;
+    const es = sessionOf(erin);
+    // Someone holds dave's identity key, and none of his devices.
+    const core = sessionOf(dave).account.core as VaultCore;
+    const daveDevice = dave.session.getSelf().deviceId;
+    const daveKey = (sessionOf(dave).account.devicePublic as Uint8Array).slice();
+    dave.client.stop();
+    const identity = newLastingKey();
+    const theirs = newDeviceKey();
+    // Their link says dave's long-standing device made the change, with a key of theirs beside its ID.
+    const fields = { user, gen: 1, prev: rootHash(user, core.rootPublic), identity: identity.publicKey, hpke: (wasm.hpkeKeygen() as { publicKey: Uint8Array }).publicKey, keyCommit: wasm.randomBytes(32), slotsHash: slotsHash({}), removed: [], signer: daveDevice };
+    const link = buildLink({ ...fields, devices: [{ id: daveDevice, key: theirs.publicKey }] }, core.identitySecret, identity.secretKey, theirs.secretKey);
+    const db = serverDatabase();
+    db.prepare("INSERT INTO identity_links(user_id, generation, payload, by_prev, by_new, by_device, created_at) VALUES(?, 1, ?, ?, ?, ?, ?)").run(user, link.payload, link.byPrev, link.byNew, link.byDevice, Date.now());
+    db.prepare("UPDATE users SET key_generation = 1, identity_head = ? WHERE id = ?").run(identity.publicKey, user);
+    db.close();
+    // The server says its log is longer than it is, and hands over nothing more of it.
+    const state = es.logState();
+    es.noteLogStatus({ era: state.era, size: state.frontier.size + 1 });
+    await es.ensureUser(user, true);
+    await es.followChain(user);
+    await sleep(500);
+    // The log names no such link, however long the server says it is.
+    expect(es.headGeneration(user)).toBe(0);
+    expect(toBase64(es.headOf(user)?.identity ?? es.users.get(user).identityKey)).not.toBe(toBase64(identity.publicKey));
+    // And the device erin has known is known by its key: its ID beside another key is somebody else.
+    const forged = readHeldLink(link)!;
+    expect(es.hasContinuity(user, forged)).toBe(false);
+    expect(es.hasContinuity(user, { ...forged, devices: [{ id: daveDevice, key: daveKey }] })).toBe(true);
   });
 
   it("shows nothing to someone who never verified", async () => {

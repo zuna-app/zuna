@@ -197,13 +197,18 @@ export abstract class SessionChains extends SessionVault {
         // The log names each generation's link, and one it names otherwise is a second story.
         const logged = this.loggedLink(userId, link.gen);
         if (logged && !equalBytes(logged, link.hash)) return this.noteFork(userId);
-        if (!logged && this.logCurrent()) break;
+        // One the log doesn't name isn't taken, however far this device thinks it has read: the
+        // server says how long its log is, and the link is followed when the log gets to it. This
+        // account's own, up to the generation its core is of, are the ones signing in held to the
+        // log already, and lead to the key that core names (catchUp).
+        const own = userId === this.account.userId && link.gen <= this.account.core.generation;
+        if (!logged && !own) break;
         const state = this.identityState(userId);
         if (state.known_generation === link.gen && state.known_hash && !equalBytes(state.known_hash, link.hash)) return this.noteFork(userId);
         // What was verified was the key this replaces, so it only carries over from a
         // device that has been around too long to be someone's quick invention.
         if (this.verifiedIdentity(userId) && state.trust_generation === link.gen - 1) {
-          if (this.hasContinuity(userId, link.signer)) this.setVerifiedPosition(userId, link.gen);
+          if (this.hasContinuity(userId, link)) this.setVerifiedPosition(userId, link.gen);
           else lapsed = true;
         }
         this.acceptLink(userId, link);
@@ -241,7 +246,15 @@ export abstract class SessionChains extends SessionVault {
 
   protected chainRetries = new Map<string, ReturnType<typeof setTimeout>>();
 
-  protected hasContinuity(userId: string, deviceId: string): boolean {
+  /**
+   * Whether a link was signed by a device of theirs this one has known for long enough: by its ID
+   * and by the key it's known by, as an ID alone is anyone's to write beside a key of their own.
+   */
+  protected hasContinuity(userId: string, link: Link): boolean {
+    const deviceId = link.signer;
+    const known = this.users.get(userId)?.devices.get(deviceId)?.signatureKey;
+    const signed = link.devices.find((device) => device.id === deviceId)?.key;
+    if (!known || !signed || !equalBytes(known, signed)) return false;
     const row = this.db.get<{ at: Uint8Array }>("SELECT at FROM device_first_leaf WHERE user_id = ? AND device_id = ?", [userId, deviceId]);
     return !!row && Date.now() - this.openValue("first-leaf", `${userId}/${deviceId}`, row.at, Date.now()) >= CONTINUITY_MS;
   }

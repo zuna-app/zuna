@@ -5,9 +5,9 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { decode } from "../src/api";
-import { createCertificate, newLastingKey, sealVaultItem } from "../src/crypto";
+import { createCertificate, newDeviceKey, newLastingKey, sealVaultCore, sealVaultItem, type VaultCore } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
-import { keyCommitment, sealBundle, signSealProof } from "../src/generations";
+import { buildLink, hash, keyCommitment, rootHash, sealBundle, signSealProof, slotsHash, verifyLink } from "../src/generations";
 import { joinManifestParts, manifestParts, readManifestPart, type TrustManifest } from "../src/manifest";
 import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
 import { appendToLog, b64, entryOf, useLogDatabase } from "./log-setup";
@@ -218,6 +218,51 @@ describe("someone holding old keys, with the server's help", () => {
     await sleep(200);
     expect(generationOf(phone)).toBe(0);
     expect(toBase64(accountKeyOf(phone))).not.toBe(toBase64(chosen));
+  });
+
+  it("can't have a device of the account follow a link of their own, under that device's name (Z-72)", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    // What they took while they had the password: generation 0's keys.
+    const held = sessionOf(dave).account as { accountKey: Uint8Array; core: VaultCore };
+    const stolen = { accountKey: held.accountKey.slice(), core: { ...held.core } };
+    const user = dave.userId;
+    const phoneId = phone.session.getSelf().deviceId;
+    const phonePublic = (sessionOf(phone).account.devicePublic as Uint8Array).slice();
+    phone.client.stop();
+    await dave.session.rotate();
+    const realKey = toBase64(accountKeyOf(dave));
+    dave.client.stop();
+
+    const sealKey = decode((await apiOf(alice).user(user)).devices.find((device) => device.id === phoneId)!.seal_key!);
+    const identity = newLastingKey();
+    const hpke = wasm.hpkeKeygen() as { publicKey: Uint8Array; secretKey: Uint8Array };
+    const theirs = newDeviceKey();
+    const chosen = wasm.randomBytes(32);
+    const fields = { user, gen: 1, prev: rootHash(user, stolen.core.rootPublic), identity: identity.publicKey, hpke: hpke.publicKey, keyCommit: keyCommitment(chosen, user, 1), slotsHash: slotsHash({}), removed: [], signer: phoneId };
+    const expected = { user, gen: 1, prev: rootHash(user, stolen.core.rootPublic), prevIdentity: stolen.core.rootPublic };
+    const sign = (devices: { id: string; key: Uint8Array }[]) => buildLink({ ...fields, devices }, stolen.core.identitySecret, identity.secretKey, theirs.secretKey);
+    // The device's ID twice, with their key to sign by and its own to be found by: a link lists a device once.
+    expect(verifyLink(sign([{ id: phoneId, key: theirs.publicKey }, { id: phoneId, key: phonePublic }]), expected)).toBeNull();
+    expect(verifyLink(sign([{ id: phoneId, key: phonePublic }, { id: phoneId, key: theirs.publicKey }]), expected)).toBeNull();
+    // Once, with their key, it reads as a link, which the server hands the phone with a key of theirs sealed to it.
+    const link = sign([{ id: phoneId, key: theirs.publicKey }]);
+    expect(verifyLink(link, expected)).not.toBeNull();
+    const core: VaultCore = { ...stolen.core, identityPublic: identity.publicKey, identitySecret: identity.secretKey, hpkePublic: hpke.publicKey, hpkeSecret: hpke.secretKey, generation: 1, olderKeys: { 0: stolen.accountKey }, olderHpkeSecrets: [stolen.core.hpkeSecret], closedBelow: 0, slots: {} };
+    const db = serverDatabase();
+    db.prepare("UPDATE identity_links SET payload = ?, by_prev = ?, by_new = ?, by_device = ? WHERE user_id = ? AND generation = 1").run(link.payload, link.byPrev, link.byNew, link.byDevice, user);
+    db.prepare("UPDATE users SET vault_core = ? WHERE id = ?").run(sealVaultCore(chosen, core, user), user);
+    db.prepare("INSERT INTO account_bundles(device_id, user_id, generation, data) VALUES(?, ?, 1, ?) ON CONFLICT(device_id) DO UPDATE SET generation = 1, data = excluded.data").run(phoneId, user, sealBundle(sealKey, user, phoneId, 1, hash(link.payload), chosen));
+    db.close();
+
+    await phone.open();
+    await phone.online();
+    await waitFor(() => securityEvents(phone).some((event) => event.message.includes("different history of your account's keys")), "the phone to say what it was shown");
+    // It isn't the link the log names, and its signer isn't this device, whatever ID it carries.
+    expect(generationOf(phone)).toBe(0);
+    expect(toBase64(accountKeyOf(phone))).not.toBe(toBase64(chosen));
+    expect(toBase64(accountKeyOf(phone))).not.toBe(realKey);
+    expect(await sessionOf(phone).signerAccepted({ ...fields, devices: [{ id: phoneId, key: theirs.publicKey }] })).toBe(false);
   });
 
   it("can't get the new key for a device of their own, on an account with both slots", async () => {

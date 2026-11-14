@@ -463,6 +463,11 @@ export abstract class SessionRotation extends SessionDirectory {
         prevIdentity: before?.identity ?? core.rootPublic,
       });
       if (!link) return this.noteFork(userId);
+      // The log names each generation's link, as for anyone's: another than the one it names is a second
+      // story, and one it doesn't name yet waits until it does, which reads this account again (noteLoggedLink).
+      const logged = this.loggedLink(userId, link.gen);
+      if (logged && !equalBytes(logged, link.hash)) return this.noteFork(userId);
+      if (!logged) return;
       if (links.length === 0 && !(await this.signerAccepted(link))) return this.noteFork(userId);
       links.push(link);
     }
@@ -482,7 +487,13 @@ export abstract class SessionRotation extends SessionDirectory {
     } catch {
       return this.noteFork(userId);
     }
-    const fits = next.generation === head.gen && equalBytes(next.identityPublic, head.identity) && equalBytes(next.hpkePublic, head.hpke) && equalBytes(slotsHash(next.slots), head.slotsHash);
+    const fits =
+      next.generation === head.gen &&
+      equalBytes(next.identityPublic, head.identity) &&
+      equalBytes(next.hpkePublic, head.hpke) &&
+      equalBytes(slotsHash(next.slots), head.slotsHash) &&
+      // The account is still the one that began with the key this device holds.
+      equalBytes(next.rootPublic, core.rootPublic);
     if (!fits) return this.noteFork(userId);
     await this.install(accountKey, next, links);
     void this.syncVault().catch((error) => console.warn("[zuna] vault", error));
@@ -505,7 +516,8 @@ export abstract class SessionRotation extends SessionDirectory {
     const { userId, deviceId } = this.account;
     const signer = link.devices.find((device) => device.id === link.signer);
     if (!signer) return false;
-    if (signer.id === deviceId) return true;
+    // This device's own ID beside another key is someone else's signature under its name.
+    if (signer.id === deviceId) return equalBytes(signer.key, this.account.devicePublic);
     const head = this.headOf(userId);
     if (head && carries(head, signer)) return true;
     const proof = (await this.api.user(userId)).devices.find((device) => device.id === signer.id)?.enroll_proof;

@@ -229,6 +229,8 @@ export function verifyLink(signed: SignedLink, expected: { user: string; gen: nu
   const link = readHeldLink(signed);
   if (!link || link.user !== expected.user || link.gen !== expected.gen || !equalBytes(link.prev, expected.prev)) return null;
   if (!isLastingKey(link.identity) || link.hpke.length !== HPKE_PUBLIC_BYTES || !link.devices.every((device) => isDeviceKey(device.key))) return null;
+  // A device is listed once, with one key: listed twice, one entry could sign while the other was what's looked for.
+  if (new Set(link.devices.map((device) => device.id)).size !== link.devices.length) return null;
   const signer = link.devices.find((device) => device.id === link.signer);
   if (!signer) return null;
   const input = linkInput(signed.payload);
