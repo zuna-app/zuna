@@ -499,14 +499,15 @@ final class VoiceRoom {
         }
     }
 
-    /// The size to capture at: the screen's own, or held to `height` across its shorter side, which a phone held
-    /// upright has as a computer's screen has its height. Its shape is the screen's upright, as iOS draws it.
+    /// The size to capture at: the screen's own within `Voice.screenMaxPixels`, or held to `height` across its
+    /// shorter side, which a phone held upright has as a computer's screen has its height. Its shape is the
+    /// screen's upright, as iOS draws it. ScreenCaptureKit scales to it; a broadcast's frames come at the
+    /// screen's own size, which LiveKit doesn't scale.
     private static func screenDimensions(height: Int) -> Dimensions {
         let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
         let size = screen?.nativeBounds.size ?? CGSize(width: 1080, height: 1920)
-        let across = min(size.width, size.height), along = max(size.width, size.height)
-        let scale = height > 0 && CGFloat(height) < across ? CGFloat(height) / across : 1
-        return Dimensions(width: Int32((across * scale).rounded()), height: Int32((along * scale).rounded()))
+        let share = Voice.shareSize(screenWidth: Int(size.width), screenHeight: Int(size.height), limit: height)
+        return Dimensions(width: Int32(share.across), height: Int32(share.along))
     }
 
     // MARK: Stream stats

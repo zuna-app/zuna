@@ -129,7 +129,24 @@ Before iOS 27, only an extension can see past the app. It's a process of its own
 
 On iOS 27 the extension is still there for a broadcast started from Control Center, but the button uses ScreenCaptureKit. The `screen-capture` background mode keeps that capture going while another app is on screen, and `audio` keeps the call going.
 
-The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). It always goes at the screen's own size, unless the server's admins hold shares to less, where the limit holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. Its max bitrate is chosen in Voice and video's settings, from the desktop's choices, or left to the app, as on the desktop. Its frame rate is 60, or the server's limit: ScreenCaptureKit on iOS picks its own, so that only holds the encoder.
+The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). It goes at the screen's own size within about 1.7 million pixels (`Voice.shareSize`): an iPhone 17 Pro Max's 1320x2868 at 884x1922, still twice its size in points, and a 13-inch iPad's 2064x2752 at 1130x1506. The server's admins can hold shares to less, where the limit holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. ScreenCaptureKit scales to it. A broadcast from the extension doesn't: its frames cross as JPEGs at the screen's own size, which LiveKit encodes as they come, so a broadcast still goes at the screen's own size. Its max bitrate is chosen in Voice and video's settings, from the desktop's choices, or left to the app, as on the desktop. Its frame rate is 60, or the server's limit: ScreenCaptureKit on iOS picks its own, so that only holds the encoder.
+
+At the screen's own size it went out at a third of its frame rate. An iPhone 17 Pro Max's share watched on Windows decoded 17 fps, with 14 freezes in a minute, while the phone said it sent 54 at a moment its screen changed little, had sent 31 huge frames, and estimated its network at 5.4 Mbit/s, which held the encoder to 4. LiveKit encodes through libwebrtc's VideoToolbox encoder, which holds VideoToolbox to the bitrate over a second, not frame by frame, and VideoToolbox makes the first frames of a screen that moves after standing still dozens of times their share: up to 400 kB at 1320x2868, where 4 Mbit/s at 60 fps is 8 kB a frame. libwebrtc's frame dropper (`FrameDropper`) then drops the frames after them until the bitrate is made up, and each frame it keeps has moved further from the last, so it comes out big again. Nothing was lost on the way: whoever watched decoded what the phone encoded.
+
+Measured on an M1 Max's VideoToolbox with the same settings and a copy of the frame dropper in front of it, on a page of text that scrolls for 2 seconds and stands for 2, with frames coming as ScreenCaptureKit gives them, none while the screen stands still but LiveKit's repeat each second, frames a second while the page moved, of 60:
+
+| Size | 4 Mbit/s | 6 Mbit/s | 8 Mbit/s | 15 Mbit/s |
+|---|---|---|---|---|
+| 1320x2868, an iPhone 17 Pro Max's own | 16.4 | 16.6 | 52.9 | 60 |
+| 1080x2346 | 18.3 | | | |
+| 976x2120, 2.1 million pixels | 33.2 | | | |
+| 880x1912 | 37.9 | 43.9 | 57.7 | 60 |
+| 2064x2752, a 13-inch iPad's own | 9.3 | | | |
+| 1128x1504 | 28.9 | | | |
+
+- **Fewer frames a second make it worse:** at 30 fps the full size kept 2.8, as each frame moves twice as far.
+- **VideoToolbox's rate control for low latency doesn't save it,** which LiveKit's Swift SDK would allow through an encoder of the app's own (`LiveKitSDK.set(videoEncoderFactory:)`): 40.8 at 880x1912, and at 1320x2868 it fell behind in real time. Limits on the bytes in a short time (`DataRateLimits`) changed nothing.
+- **The simulator says little about it.** Its VideoToolbox took 22 ms a frame at 1320x2868 and has no rate control for low latency, and its bitrate swung far wider than the Mac's.
 
 Sound doesn't go with it. LiveKit's Swift SDK mixes a share's sound into the microphone's track, so it would go out whether the server allows a share's sound or not, at the person's own volume rather than a share's, and stop when they mute. So the app asks for a share without sound.
 

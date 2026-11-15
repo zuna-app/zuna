@@ -97,6 +97,24 @@ extension Voice {
     public static let screenDefaultFps = 60
     /// What a share's sound sends (`SCREEN_SOUND_KBPS`).
     public static let screenSoundKbps = 128
+    /// The most pixels a share from a phone or an iPad goes out with: an iPhone 17 Pro Max's screen at about
+    /// two thirds, 884×1922. At the few Mbit/s a phone's network is often estimated to take, a frame of its whole
+    /// screen at 1320×2868 that moved after standing still came to dozens of frames' worth, and libwebrtc
+    /// dropped the frames after it to make up: 16 fps went out of 60, where 38 do at this size, and 9 of an
+    /// iPad's at 2064×2752 (docs/SCREEN_SHARE.md, "From an iPhone or iPad").
+    public static let screenMaxPixels = 1_700_000
+
+    /// The size a share of a screen goes out at, upright: the screen's own within `screenMaxPixels`, and its
+    /// shorter side within `limit` when there is one, as the server's limit on a share's height holds a phone's
+    /// width. Even on both sides, as the encoder takes it.
+    public static func shareSize(screenWidth: Int, screenHeight: Int, limit: Int) -> (across: Int, along: Int) {
+        let across = Double(min(screenWidth, screenHeight)), along = Double(max(screenWidth, screenHeight))
+        guard across > 0 else { return (0, 0) }
+        var scale = min(1, (Double(screenMaxPixels) / (across * along)).squareRoot())
+        if limit > 0 { scale = min(scale, Double(limit) / across) }
+        let even = { (side: Double) in Int((side * scale / 2).rounded()) * 2 }
+        return (even(across), even(along))
+    }
 
     /// What a share uses: what someone chose, held to the server's limits unless it leaves admins
     /// out of them, with the bitrate left to the app within them. As `screenTerms` in packages/core/src/voice.ts.

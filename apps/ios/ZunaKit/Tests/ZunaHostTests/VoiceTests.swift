@@ -61,6 +61,27 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(Voice.screenTerms(own, rules: nil, role: .member).held, [])
     }
 
+    func testSharesABigScreenWithinTheMostPixels() {
+        // iPhone 17 Pro Max, held either way: two thirds, upright.
+        XCTAssertTrue(Voice.shareSize(screenWidth: 1320, screenHeight: 2868, limit: 0) == (884, 1922))
+        XCTAssertTrue(Voice.shareSize(screenWidth: 2868, screenHeight: 1320, limit: 0) == (884, 1922))
+        // An iPhone SE's whole screen fits, and a 13-inch iPad's goes at a little over half.
+        XCTAssertTrue(Voice.shareSize(screenWidth: 750, screenHeight: 1334, limit: 0) == (750, 1334))
+        XCTAssertTrue(Voice.shareSize(screenWidth: 2064, screenHeight: 2752, limit: 0) == (1130, 1506))
+        for (width, height) in [(1320, 2868), (1206, 2622), (1668, 2420), (2064, 2752)] {
+            let share = Voice.shareSize(screenWidth: width, screenHeight: height, limit: 0)
+            XCTAssertLessThanOrEqual(share.across * share.along, Voice.screenMaxPixels + 4000)
+            XCTAssertTrue(share.across.isMultiple(of: 2) && share.along.isMultiple(of: 2))
+        }
+    }
+
+    func testHoldsAShareToTheServersLimitAcrossItsShorterSide() {
+        XCTAssertTrue(Voice.shareSize(screenWidth: 1320, screenHeight: 2868, limit: 720) == (720, 1564))
+        // A limit above what fits changes nothing.
+        XCTAssertTrue(Voice.shareSize(screenWidth: 1320, screenHeight: 2868, limit: 1080) == (884, 1922))
+        XCTAssertTrue(Voice.shareSize(screenWidth: 750, screenHeight: 1334, limit: 1080) == (750, 1334))
+    }
+
     func testLeavesAdminsOutOfTheLimitsOnlyIfTheServerSaysSo() {
         let wanted = ScreenChoices(height: 0, fps: 144, kbps: 50_000)
         XCTAssertEqual(Voice.screenTerms(wanted, rules: limits, role: .admin).held.count, 3)
