@@ -17,6 +17,7 @@ import { MemberList } from "./MemberList";
 import { BotBadge } from "@/components/ui";
 import { MessageList } from "./MessageList";
 import { SidePanel } from "./SidePanel";
+import { t, tx } from "@/lib/i18n";
 
 const MEMBERS_KEY = "zuna-member-list";
 
@@ -29,8 +30,8 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   everTyped.current ||= typingUsers.length > 0;
   const statusClass = `chat-status${everTyped.current ? " is-changing" : ""}`;
   if (typingUsers.length > 0) {
-    const names = typingUsers.map((id) => server?.users[id]?.displayName.split(" ")[0] ?? "Someone");
-    const label = conversation.kind === "dm" ? "typing" : names.length === 1 ? `${names[0]} is typing` : `${names.length} people are typing`;
+    const names = typingUsers.map((id) => server?.users[id]?.displayName.split(" ")[0] ?? t("common.someone"));
+    const label = conversation.kind === "dm" ? t("chat.typing.dm") : names.length === 1 ? t("chat.typing.one", { name: names[0]! }) : t("chat.typing.many", { count: names.length });
     return (
       <span key="typing" className={`${statusClass} is-typing`}>
         {label}
@@ -43,17 +44,16 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
     const count = conversation.members.length;
     return (
       <span key="status" className={statusClass}>
-        {count} {count === 1 ? "member" : "members"}
-        {online > 0 ? `, ${online} online` : ""}
+        {online > 0 ? t("chat.header.membersOnline", { count, online }) : t("chat.header.members", { count })}
       </span>
     );
   }
-  if (conversation.peerId === server?.self?.userId) return <span key="status" className={statusClass}>Notes to yourself</span>;
-  if (peer?.deleted) return <span key="status" className={statusClass}>Deleted their account</span>;
-  if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
+  if (conversation.peerId === server?.self?.userId) return <span key="status" className={statusClass}>{t("chat.header.notesToSelf")}</span>;
+  if (peer?.deleted) return <span key="status" className={statusClass}>{t("chat.header.deleted")}</span>;
+  if (peer?.banned) return <span key="status" className={statusClass}>{t("chat.header.removed")}</span>;
   // Nobody is using a bot, so it's never online, and was never last seen.
-  if (peer?.bot) return <span key="status" className={statusClass}>bot</span>;
-  if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
+  if (peer?.bot) return <span key="status" className={statusClass}>{t("chat.header.bot")}</span>;
+  if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>{t("chat.header.online")}</span>;
   return (
     <span key="status" className={statusClass}>
       <LastSeen at={peer?.lastSeenAt ?? null} hidden={peer?.hidesLastSeen ?? false} />
@@ -76,22 +76,22 @@ function CallButtons({ conversation, going }: { conversation: ConversationView; 
   if (!serverId) return null;
   if (going && conversation.groupId) {
     return (
-      <Tooltip text="Join the call">
-        <button className="btn btn-small call-join" onClick={() => void join(serverId, conversation.groupId!)} aria-label="Join the call">
-          <Phone size={15} /> Join
+      <Tooltip text={t("voice.call.joinTitle")}>
+        <button className="btn btn-small call-join" onClick={() => void join(serverId, conversation.groupId!)} aria-label={t("voice.call.joinTitle")}>
+          <Phone size={15} /> {t("voice.call.join")}
         </button>
       </Tooltip>
     );
   }
   return (
     <>
-      <Tooltip text="Start a voice call">
-        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, false)} aria-label="Start a voice call">
+      <Tooltip text={t("voice.call.startVoice")}>
+        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, false)} aria-label={t("voice.call.startVoice")}>
           <Phone size={17} />
         </button>
       </Tooltip>
-      <Tooltip text="Start a video call">
-        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, true)} aria-label="Start a video call">
+      <Tooltip text={t("voice.call.startVideo")}>
+        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, true)} aria-label={t("voice.call.startVideo")}>
           <Video size={18} />
         </button>
       </Tooltip>
@@ -108,19 +108,25 @@ function CallBanner({ conversation, people }: { conversation: ConversationView; 
   const second = useActiveField((server) => server.users[people[1] ?? ""]?.displayName, undefined);
   const join = useVoice((state) => state.join);
   if (!serverId || !conversation.groupId || people.length === 0) return null;
-  const nameOf = (id: string | undefined, displayName: string | undefined) => (id === selfId ? "You" : (displayName?.split(" ")[0] ?? "Someone"));
-  const names = [nameOf(people[0], first), nameOf(people[1], second), ...people.slice(2)];
-  const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+  const nameOf = (id: string | undefined, displayName: string | undefined) => (id === selfId ? t("common.you") : (displayName?.split(" ")[0] ?? t("common.someone")));
+  const firstName = nameOf(people[0], first);
+  const secondName = nameOf(people[1], second);
+  const inCall =
+    people.length === 1
+      ? t("voice.call.bannerOne", { name: firstName })
+      : people.length === 2
+        ? t("voice.call.bannerTwo", { first: firstName, second: secondName })
+        : t("voice.call.bannerMany", { first: firstName, second: secondName, count: people.length - 2 });
   // Being in it on another device of yours is still being in it.
   const elsewhere = people.includes(selfId ?? "");
   return (
     <div className="call-banner">
       <Phone size={15} />
       <span className="grow truncate">
-        {elsewhere ? "You're in this call on another device" : `${who} ${people.length === 1 ? "is" : "are"} in a call`}
+        {elsewhere ? t("voice.call.elsewhere") : inCall}
       </span>
       <button className="btn btn-small btn-primary" onClick={() => void join(serverId, conversation.groupId!)}>
-        {elsewhere ? "Move here" : "Join"}
+        {elsewhere ? t("voice.call.moveHere") : t("voice.call.join")}
       </button>
     </div>
   );
@@ -137,7 +143,7 @@ function ChannelHeader({ conversation, voice, showMembers, onToggleMembers, onCl
   const [muteMenu, setMuteMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <header className="chat-head channel-head">
-      <button className="channel-head-name" onClick={() => togglePanel("info")} aria-label="Channel details">
+      <button className="channel-head-name" onClick={() => togglePanel("info")} aria-label={t("channels.header.details")}>
         {voice ? <Volume2 size={22} /> : <Hash size={22} />}
         <h1 className="chat-title truncate">{conversation.title}</h1>
       </button>
@@ -151,7 +157,7 @@ function ChannelHeader({ conversation, voice, showMembers, onToggleMembers, onCl
       )}
       <span className="grow" />
       <div className="chat-actions">
-        <Tooltip text={conversation.muted ? "Unmute channel" : "Notification settings"}>
+        <Tooltip text={conversation.muted ? t("channels.header.unmute") : t("channels.header.notifications")}>
           <button
             className={`icon-btn${muteMenu ? " is-active" : ""}`}
             onClick={(event) => {
@@ -162,31 +168,31 @@ function ChannelHeader({ conversation, voice, showMembers, onToggleMembers, onCl
               const rect = event.currentTarget.getBoundingClientRect();
               setMuteMenu({ x: rect.right, y: rect.bottom + 6 });
             }}
-            aria-label={conversation.muted ? "Unmute channel" : "Notification settings"}
+            aria-label={conversation.muted ? t("channels.header.unmute") : t("channels.header.notifications")}
           >
             {conversation.muted ? <BellOff size={20} /> : <Bell size={20} />}
           </button>
         </Tooltip>
         {muteMenu && <PopupMenu x={muteMenu.x} y={muteMenu.y} alignRight entries={muteEntries((until) => void session().mute(conversation.key, until))} onClose={() => setMuteMenu(null)} />}
-        <Tooltip text="Pinned messages">
-          <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label="Pinned messages">
+        <Tooltip text={t("chat.pinned")}>
+          <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label={t("chat.pinned")}>
             <Pin size={20} />
           </button>
         </Tooltip>
         {onToggleMembers && (
-          <Tooltip text={showMembers ? "Hide member list" : "Show member list"}>
-            <button className={`icon-btn${showMembers && !panel ? " is-active" : ""}`} onClick={onToggleMembers} aria-label={showMembers ? "Hide member list" : "Show member list"}>
+          <Tooltip text={showMembers ? t("channels.header.hideMembers") : t("channels.header.showMembers")}>
+            <button className={`icon-btn${showMembers && !panel ? " is-active" : ""}`} onClick={onToggleMembers} aria-label={showMembers ? t("channels.header.hideMembers") : t("channels.header.showMembers")}>
               <Users size={20} />
             </button>
           </Tooltip>
         )}
-        <button className={`channel-search${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this channel">
-          <span className="truncate">Search</span>
+        <button className={`channel-search${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label={t("channels.header.search")}>
+          <span className="truncate">{t("common.search")}</span>
           <Search size={15} />
         </button>
         {onClose && (
-          <Tooltip text="Hide chat">
-            <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
+          <Tooltip text={t("chat.hide")}>
+            <button className="icon-btn" onClick={onClose} aria-label={t("chat.hide")}>
               <X size={20} />
             </button>
           </Tooltip>
@@ -200,28 +206,20 @@ function ChannelHeader({ conversation, voice, showMembers, onToggleMembers, onCl
 function ChannelTyping({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
   const typing = Object.keys((conversation.groupId && server?.typing[conversation.groupId]) || {}).filter((id) => id !== server?.self?.userId);
-  const names = typing.map((id) => server?.users[id]?.displayName ?? "Someone");
+  const names = typing.map((id) => server?.users[id]?.displayName ?? t("common.someone"));
   return (
     <div className="channel-typing" aria-live="polite">
       {names.length > 0 && (
         <>
           <TypingDots />
           <span className="truncate">
-            {names.length === 1 ? (
-              <>
-                <b>{names[0]}</b> is typing…
-              </>
-            ) : names.length === 2 ? (
-              <>
-                <b>{names[0]}</b> and <b>{names[1]}</b> are typing…
-              </>
-            ) : names.length === 3 ? (
-              <>
-                <b>{names[0]}</b>, <b>{names[1]}</b> and <b>{names[2]}</b> are typing…
-              </>
-            ) : (
-              "Several people are typing…"
-            )}
+            {names.length === 1
+              ? tx("channels.typing.one", { name: <b>{names[0]}</b> })
+              : names.length === 2
+                ? tx("channels.typing.two", { first: <b>{names[0]}</b>, second: <b>{names[1]}</b> })
+                : names.length === 3
+                  ? tx("channels.typing.three", { first: <b>{names[0]}</b>, second: <b>{names[1]}</b>, third: <b>{names[2]}</b> })
+                  : t("channels.typing.several")}
           </span>
         </>
       )}
@@ -234,10 +232,10 @@ function ChannelTyping({ conversation }: { conversation: ConversationView }) {
 function SlowMode({ conversation }: { conversation: ConversationView }) {
   return (
     <span className="channel-slow">
-      <Tooltip text={`Each person can send one message every ${timerText(conversation.slowMode)}, except admins`} side="top">
+      <Tooltip text={t("channels.slowMode.tooltip", { time: timerText(conversation.slowMode) })} side="top">
         <span className="channel-slow-text">
           <Timer size={14} />
-          Slow mode is on
+          {t("channels.slowMode.on")}
         </span>
       </Tooltip>
     </span>
@@ -253,16 +251,17 @@ function ChannelWelcome({ conversation, voice }: { conversation: ConversationVie
   return (
     <div className="channel-welcome">
       <span className="channel-welcome-icon">{voice ? <Volume2 size={40} /> : <Hash size={44} />}</span>
-      <h2>Welcome to #{conversation.title}!</h2>
+      <h2>{t("channels.welcome.title", { name: conversation.title })}</h2>
       <p>
-        This is the start of the #{conversation.title} channel.{conversation.description ? ` ${conversation.description}` : ""}
+        {t("channels.welcome.start", { name: conversation.title })}
+        {conversation.description ? ` ${conversation.description}` : ""}
       </p>
       <p className="channel-welcome-lock">
-        <Lock size={13} /> End-to-end encrypted. {adminOnly ? "Only admins can read it, and the server itself can't." : "Everyone on this server can read it, but the server itself can't."}
+        <Lock size={13} /> {adminOnly ? t("channels.welcome.encryptedAdmins") : t("channels.welcome.encryptedEveryone")}
       </p>
       {isAdmin && conversation.groupId && (
         <button className="channel-welcome-edit" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>
-          <Pencil size={15} /> Edit channel
+          <Pencil size={15} /> {t("channels.edit")}
         </button>
       )}
     </div>
@@ -291,35 +290,35 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
 
   const copy = async () => {
     const users = activeServerNow()?.users ?? {};
-    const name = (id: string) => (id === selfId ? "You" : (users[id]?.displayName ?? "Unknown"));
+    const name = (id: string) => (id === selfId ? t("common.you") : (users[id]?.displayName ?? t("chat.unknown")));
     const text =
       picked.length === 1
         ? picked[0]!.text
         : picked.map((item) => `${name(item.senderId)}, [${formatFull(item.createdAt)}]\n${item.text || item.attachments.map((file) => file.name).join(", ")}`).join("\n\n");
     await copyText(text);
-    toast(picked.length === 1 ? "Copied" : `Copied ${picked.length} messages`);
+    toast(picked.length === 1 ? t("common.copied") : t("chat.selection.copied", { count: picked.length }));
     stop();
   };
 
   return (
     <div className="selection-bar">
-      <Tooltip text="Cancel" side="top">
-        <button className="icon-btn" onClick={stop} aria-label="Cancel selection">
+      <Tooltip text={t("common.cancel")} side="top">
+        <button className="icon-btn" onClick={stop} aria-label={t("chat.selection.cancel")}>
           <X size={18} />
         </button>
       </Tooltip>
       <span className="grow selection-count">
-        {picked.length} {picked.length === 1 ? "message" : "messages"} selected
+        {t("chat.selection.count", { count: picked.length })}
       </span>
       <button className="btn" disabled={!picked.length} onClick={() => void copy()}>
-        <Copy size={15} /> Copy
+        <Copy size={15} /> {t("common.copy")}
       </button>
       <button
         className="btn"
         disabled={!picked.length || !conversation.groupId}
         onClick={() => useApp.getState().setOverlay({ type: "forward", serverId: useApp.getState().activeServerId!, groupId: conversation.groupId!, ids: picked.map((item) => item.id) })}
       >
-        <Forward size={15} /> Forward
+        <Forward size={15} /> {t("message.action.forward")}
       </button>
       {canDelete && (
         <button
@@ -332,7 +331,7 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
             })
           }
         >
-          <Trash2 size={15} /> Delete for everyone
+          <Trash2 size={15} /> {t("message.action.deleteForEveryone")}
         </button>
       )}
     </div>
@@ -420,13 +419,13 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
                   {conversation.title}
                   {conversation.bot && <> <BotBadge /></>}
                   {peer?.trust === "verified" && !isSaved && (
-                    <Tooltip text="Security key verified">
+                    <Tooltip text={t("chat.header.verified")}>
                       <BadgeCheck size={14} className="conv-verified" />
                     </Tooltip>
                   )}
                   {conversation.disappearAfter > 0 && (
-                    <Tooltip text={`Messages disappear after ${timerText(conversation.disappearAfter)}`}>
-                      <Timer size={14} className="chat-timer" aria-label={`Messages disappear after ${timerText(conversation.disappearAfter)}`} />
+                    <Tooltip text={t("chat.header.disappearAfter", { time: timerText(conversation.disappearAfter) })}>
+                      <Timer size={14} className="chat-timer" aria-label={t("chat.header.disappearAfter", { time: timerText(conversation.disappearAfter) })} />
                     </Tooltip>
                   )}
                 </span>
@@ -435,25 +434,25 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
             </button>
             <div className="chat-actions">
               {onClose && (
-                <Tooltip text="Hide chat">
-                  <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
+                <Tooltip text={t("chat.hide")}>
+                  <button className="icon-btn" onClick={onClose} aria-label={t("chat.hide")}>
                     <X size={17} />
                   </button>
                 </Tooltip>
               )}
               {callsHere && !inCall && <CallButtons conversation={conversation} going={callPeople.length > 0} />}
-              <Tooltip text="Search this chat">
-                <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this chat" disabled={!conversation.groupId}>
+              <Tooltip text={t("chat.header.search")}>
+                <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label={t("chat.header.search")} disabled={!conversation.groupId}>
                   <Search size={17} />
                 </button>
               </Tooltip>
-              <Tooltip text="Pinned messages">
-                <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label="Pinned messages" disabled={!conversation.groupId}>
+              <Tooltip text={t("chat.pinned")}>
+                <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label={t("chat.pinned")} disabled={!conversation.groupId}>
                   <Pin size={17} />
                 </button>
               </Tooltip>
-              <Tooltip text="Details">
-                <button className={`icon-btn${panel?.type === "info" || panel?.type === "media" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label="Details">
+              <Tooltip text={t("chat.header.details")}>
+                <button className={`icon-btn${panel?.type === "info" || panel?.type === "media" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label={t("chat.header.details")}>
                   <PanelRight size={17} />
                 </button>
               </Tooltip>
@@ -466,10 +465,10 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
             <div className="security-banner-inner">
               <ShieldAlert size={16} />
               <span className="grow">
-                <b>{conversation.title}'s security key changed.</b> This can mean someone is intercepting this chat. Compare keys before sharing anything private.
+                <b>{t("chat.keyChanged.title", { name: conversation.title })}</b> {t("chat.keyChanged.text")}
               </span>
               <button className="btn btn-small" onClick={() => setOverlay({ type: "verify", userId: peer.id })}>
-                Verify
+                {t("chat.keyChanged.verify")}
               </button>
             </div>
           </div>
@@ -495,13 +494,13 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
           <RemovedFromChat conversation={conversation} />
         ) : (peer?.banned || peer?.deleted) && !isSaved ? (
           <div className="composer-disabled">
-            <X size={15} /> {peer.deleted ? "This account was deleted." : "This person was removed from the server."}
+            <X size={15} /> {peer.deleted ? t("composer.disabled.deleted") : t("composer.disabled.removed")}
           </div>
         ) : conversation.blocked && peer ? (
           <div className="composer-disabled">
-            <Ban size={15} /> You blocked {peer.displayName}.
+            <Ban size={15} /> {t("composer.disabled.blocked", { name: peer.displayName })}
             <button className="btn btn-small" onClick={() => void session().setBlocked(peer.id, false)}>
-              Unblock
+              {t("composer.disabled.unblock")}
             </button>
           </div>
         ) : (
@@ -523,8 +522,8 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         >
           <div className="drop-card">
             <Upload size={26} />
-            <b style={{ fontWeight: 500 }}>Drop to send</b>
-            <span>Files are encrypted before they leave this device</span>
+            <b style={{ fontWeight: 500 }}>{t("chat.drop.title")}</b>
+            <span>{t("chat.drop.hint")}</span>
           </div>
         </div>
       )}
@@ -538,7 +537,7 @@ function RemovedFromChat({ conversation }: { conversation: ConversationView }) {
   const selectConversation = useApp((state) => state.selectConversation);
   return (
     <div className="composer-disabled">
-      <X size={15} /> You're no longer in this conversation. Its messages stay on this device for 30 days.
+      <X size={15} /> {t("composer.disabled.left")}
       <button
         className="btn btn-small"
         onClick={() => {
@@ -546,7 +545,7 @@ function RemovedFromChat({ conversation }: { conversation: ConversationView }) {
           void session().forgetConversation(conversation.groupId!);
         }}
       >
-        Remove now
+        {t("composer.disabled.removeNow")}
       </button>
     </div>
   );
@@ -561,21 +560,21 @@ function EmptyChat({ conversation }: { conversation: ConversationView }) {
       <Lock size={20} />
       {isSaved ? (
         <>
-          <h3>Your saved messages</h3>
-          <p>Keep notes, links and files here. They're encrypted and sync across your devices.</p>
+          <h3>{t("chat.empty.savedTitle")}</h3>
+          <p>{t("chat.empty.savedText")}</p>
         </>
       ) : conversation.kind === "group" ? (
         <>
           <h3>{conversation.title}</h3>
-          <p>Messages here are end-to-end encrypted. Only members can read them.</p>
+          <p>{t("chat.empty.groupText")}</p>
         </>
       ) : (
         <>
-          <h3>Say hello to {conversation.title}</h3>
-          <p>Your messages are end-to-end encrypted. Not even this server can read them.</p>
+          <h3>{t("chat.empty.dmTitle", { name: conversation.title })}</h3>
+          <p>{t("chat.empty.dmText")}</p>
           {peer && peer.trust !== "verified" && (
             <button className="btn btn-small" onClick={() => setOverlay({ type: "verify", userId: peer.id })}>
-              Verify with emoji
+              {t("chat.empty.verify")}
             </button>
           )}
         </>

@@ -38,6 +38,7 @@ import { muteEntries, mutedUntilText } from "@/lib/mute";
 import { REPORT_REASON_LABELS } from "@/lib/report";
 import { useActiveServer, useApp } from "@/state/store";
 import { SharedMediaContent, SharedMediaRows, sharedTitle } from "./SharedMedia";
+import { t } from "@/lib/i18n";
 
 export function SidePanel({ conversation }: { conversation: ConversationView }) {
   const panel = useApp((state) => state.panel);
@@ -48,15 +49,27 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
         <header className="side-head">
           {panel?.type === "media" ? (
             <h3 className="row" style={{ gap: 4 }}>
-              <button className="icon-btn is-small" onClick={() => setPanel({ type: "info" })} aria-label="Back to details">
+              <button className="icon-btn is-small" onClick={() => setPanel({ type: "info" })} aria-label={t("details.back")}>
                 <ChevronLeft size={17} />
               </button>
               {sharedTitle(panel.kind)}
             </h3>
           ) : (
-            <h3>{panel?.type === "search" ? (conversation.kind === "channel" ? "Search this channel" : "Search this chat") : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : conversation.kind === "channel" ? "Channel details" : "Details"}</h3>
+            <h3>
+              {panel?.type === "search"
+                ? conversation.kind === "channel"
+                  ? t("channels.header.search")
+                  : t("chat.header.search")
+                : panel?.type === "pins"
+                  ? t("chat.pinned")
+                  : conversation.kind === "group"
+                    ? t("details.groupTitle")
+                    : conversation.kind === "channel"
+                      ? t("channels.header.details")
+                      : t("chat.header.details")}
+            </h3>
           )}
-          <button className="icon-btn is-small" onClick={() => setPanel(null)} aria-label="Close">
+          <button className="icon-btn is-small" onClick={() => setPanel(null)} aria-label={t("common.close")}>
             <X size={16} />
           </button>
         </header>
@@ -84,7 +97,7 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
       <div className="side-row">
         {conversation.muted ? <BellOff size={17} /> : <Bell size={17} />}
         <span className="grow">
-          Notifications
+          {t("details.notifications")}
           {conversation.mutedUntil && <span className="side-row-hint">{mutedUntilText(conversation.mutedUntil)}</span>}
         </span>
         <span
@@ -96,7 +109,7 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
             setMuteMenu({ x: rect.right, y: rect.bottom + 4 });
           }}
         >
-          <Switch on={!conversation.muted} onChange={() => void session().unmute(conversation.key)} label="Notifications" />
+          <Switch on={!conversation.muted} onChange={() => void session().unmute(conversation.key)} label={t("details.notifications")} />
         </span>
         {muteMenu && (
           <PopupMenu
@@ -112,19 +125,19 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
         <div className="side-row">
           <AtSign size={17} />
           <span className="grow">
-            Only mentions
-            <span className="side-row-hint">Notify only when someone mentions you or replies to you</span>
+            {t("details.mentionsOnly")}
+            <span className="side-row-hint">{t("details.mentionsOnlyHint")}</span>
           </span>
-          <Switch on={conversation.mentionsOnly} onChange={(on) => void session().setMentionsOnly(conversation.key, on)} label="Only mentions" />
+          <Switch on={conversation.mentionsOnly} onChange={(on) => void session().setMentionsOnly(conversation.key, on)} label={t("details.mentionsOnly")} />
         </div>
       )}
       <button className="side-row is-button" onClick={() => toggle("pinned")}>
         {conversation.pinned ? <PinOff size={17} /> : <Pin size={17} />}
-        <span className="grow">{conversation.pinned ? "Unpin from top" : "Pin to top"}</span>
+        <span className="grow">{conversation.pinned ? t("details.unpinFromTop") : t("details.pinToTop")}</span>
       </button>
       <button className="side-row is-button" onClick={() => toggle("hidden")}>
         {conversation.hidden ? <Eye size={17} /> : <EyeOff size={17} />}
-        <span className="grow">{conversation.hidden ? "Show in list" : "Hide from list"}</span>
+        <span className="grow">{conversation.hidden ? t("details.showInList") : t("details.hideFromList")}</span>
       </button>
     </div>
   );
@@ -143,11 +156,11 @@ function DisappearingRow({ conversation, canChange }: { conversation: Conversati
     <>
       <Timer size={17} />
       <span className="grow">
-        Disappearing messages
+        {t("details.disappearing.title")}
         <span className="side-hint">
           {conversation.disappearAfter > 0
-            ? `New messages disappear ${timerText(conversation.disappearAfter)} after they're sent.`
-            : "New messages stay until they're deleted."}
+            ? t("details.disappearing.on", { time: timerText(conversation.disappearAfter) })
+            : t("details.disappearing.off")}
         </span>
       </span>
       <span className="faint">{timerText(conversation.disappearAfter)}</span>
@@ -198,24 +211,24 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         {peer && !peer.deleted && <p className="muted">@{peer.username}</p>}
         {peer && !isSelf && (
           <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
-            {peer.deleted ? "Deleted their account" : peer.bot ? <BotBadge /> : peer.online ? "online" : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} full />}
+            {peer.deleted ? t("chat.header.deleted") : peer.bot ? <BotBadge /> : peer.online ? t("chat.header.online") : <LastSeen at={peer.lastSeenAt} hidden={peer.hidesLastSeen} full />}
           </p>
         )}
         {peer?.bot && !peer.deleted && (
           <p className="faint" style={{ fontSize: 12.5, textAlign: "center" }}>
-            {peer.bot.ownerId === server?.self?.userId ? "Your bot" : `${server?.users[peer.bot.ownerId]?.displayName ?? "Someone"}'s bot`}. It's run by a program, which can read everything said in the chats it's in.
+            {peer.bot.ownerId === server?.self?.userId ? t("details.bot.yours") : t("details.bot.theirs", { name: server?.users[peer.bot.ownerId]?.displayName ?? t("common.someone") })}
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}
       </div>
       {peer && !isSelf && !peer.deleted && (
         <div className="side-section">
-          <h4>Encryption</h4>
+          <h4>{t("details.encryption.title")}</h4>
           <button className={`trust-card trust-${peer.trust}`} onClick={() => setOverlay({ type: "verify", userId: peer.id })}>
             {peer.trust === "verified" ? <ShieldCheck size={20} /> : peer.trust === "changed" ? <ShieldAlert size={20} /> : <Shield size={20} />}
             <span className="grow">
-              <b>{peer.trust === "verified" ? "Verified" : peer.trust === "changed" ? "Security key changed" : "Not verified yet"}</b>
-              <span>{peer.trust === "verified" ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is intercepting your messages."}</span>
+              <b>{peer.trust === "verified" ? t("details.encryption.verified") : peer.trust === "changed" ? t("details.encryption.changed") : t("details.encryption.notVerified")}</b>
+              <span>{peer.trust === "verified" ? t("details.encryption.verifiedHint") : t("details.encryption.compareHint")}</span>
             </span>
           </button>
         </div>
@@ -247,7 +260,7 @@ function ReportRow({ userId, name }: { userId: string; name: string }) {
     return (
       <div className="side-row">
         <Flag size={17} />
-        <span className="grow faint">Reported to the server's admins</span>
+        <span className="grow faint">{t("details.report.done")}</span>
       </div>
     );
   }
@@ -262,8 +275,8 @@ function ReportRow({ userId, name }: { userId: string; name: string }) {
       >
         <Flag size={17} />
         <span className="grow">
-          Report {name}
-          <span className="side-row-hint">The server's admins will see who you reported and why, but not what was said or who reported them.</span>
+          {t("details.report.title", { name })}
+          <span className="side-row-hint">{t("details.report.hint")}</span>
         </span>
       </button>
       {menu && (
@@ -275,7 +288,7 @@ function ReportRow({ userId, name }: { userId: string; name: string }) {
             onSelect: () =>
               void run(async () => {
                 await session().reportUser(userId, reason as ReportReason);
-                toast("Reported to the server's admins");
+                toast(t("details.report.done"));
               }),
           }))}
           onClose={() => setMenu(null)}
@@ -294,8 +307,8 @@ function BlockRow({ userId, name }: { userId: string; name: string }) {
     <button className={`side-row is-button${blocked ? "" : " is-danger"}`} onClick={() => void run(() => session().setBlocked(userId, !blocked))}>
       <Ban size={17} />
       <span className="grow">
-        {blocked ? `Unblock ${name}` : `Block ${name}`}
-        {!blocked && <span className="side-row-hint">You won't see their messages or get notified about them. They won't be told.</span>}
+        {blocked ? t("details.block.unblock", { name }) : t("details.block.block", { name })}
+        {!blocked && <span className="side-row-hint">{t("details.block.hint")}</span>}
       </span>
     </button>
   );
@@ -317,7 +330,7 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
         {isAdmin && (
           <button className="side-row is-button" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>
             <Pencil size={17} />
-            <span className="grow">Edit channel</span>
+            <span className="grow">{t("channels.edit")}</span>
           </button>
         )}
         <button
@@ -333,8 +346,8 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
         >
           {conversation.muted ? <BellOff size={17} /> : <Bell size={17} />}
           <span className="grow">
-            {conversation.muted ? "Unmute" : "Mute"}
-            <span className="side-row-hint">{conversation.muted ? "You won't be notified about anything here." : "You're notified when someone mentions you or replies to you."}</span>
+            {conversation.muted ? t("details.channel.unmute") : t("details.channel.mute")}
+            <span className="side-row-hint">{conversation.muted ? t("details.channel.mutedHint") : t("details.channel.unmutedHint")}</span>
           </span>
         </button>
         {muteMenu && <PopupMenu x={muteMenu.x} y={muteMenu.y} alignRight entries={muteEntries((until) => void session().mute(conversation.key, until))} onClose={() => setMuteMenu(null)} />}
@@ -344,8 +357,8 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
         <div className="side-row">
           <Lock size={17} />
           <span className="grow">
-            End-to-end encrypted
-            <span className="side-row-hint">{adminOnly ? "Only admins can read it, and the server itself can't." : "Everyone on this server can read it, but the server itself can't."}</span>
+            {t("details.channel.encrypted")}
+            <span className="side-row-hint">{adminOnly ? t("details.channel.adminsRead") : t("details.channel.everyoneReads")}</span>
           </span>
         </div>
       </div>
@@ -385,7 +398,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           <Avatar name={conversation.title} seed={groupId} avatar={conversation.avatar} size={80} />
           {isAdmin && (
             <>
-              <button className="avatar-edit-button" onClick={() => avatarInput.current?.click()} aria-label="Change group picture">
+              <button className="avatar-edit-button" onClick={() => avatarInput.current?.click()} aria-label={t("details.group.changePicture")}>
                 <Camera size={18} />
               </button>
               <input
@@ -404,11 +417,11 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
         </div>
         {editing ? (
           <div className="col" style={{ width: "100%" }}>
-            <Field label="Name" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} autoFocus />
-            <Field label="Description" value={description} maxLength={300} onChange={(event) => setDescription(event.target.value)} />
+            <Field label={t("details.group.name")} value={name} maxLength={80} onChange={(event) => setName(event.target.value)} autoFocus />
+            <Field label={t("details.group.description")} value={description} maxLength={300} onChange={(event) => setDescription(event.target.value)} />
             <div className="row">
-              <button className="btn btn-small grow" onClick={() => setEditing(false)}>Cancel</button>
-              <button className="btn btn-small btn-primary grow" onClick={saveDetails}>Save</button>
+              <button className="btn btn-small grow" onClick={() => setEditing(false)}>{t("common.cancel")}</button>
+              <button className="btn btn-small btn-primary grow" onClick={saveDetails}>{t("common.save")}</button>
             </div>
           </div>
         ) : (
@@ -416,7 +429,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
             <h2 className="row" style={{ gap: 6 }}>
               {conversation.title}
               {isAdmin && (
-                <button className="icon-btn is-small" onClick={() => setEditing(true)} aria-label="Edit group details">
+                <button className="icon-btn is-small" onClick={() => setEditing(true)} aria-label={t("details.group.edit")}>
                   <Pencil size={14} />
                 </button>
               )}
@@ -428,17 +441,17 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
 
       <div className="notice">
         <Lock size={15} />
-        <span>The server can see who is in this group, but not its name, picture or messages.</span>
+        <span>{t("details.group.serverSees")}</span>
       </div>
 
       <SharedMediaRows conversation={conversation} />
 
       <div className="side-section">
         <h4 className="row" style={{ justifyContent: "space-between" }}>
-          {conversation.members.length} {conversation.members.length === 1 ? "member" : "members"}
+          {t("details.group.members", { count: conversation.members.length })}
           {isAdmin && (
-            <Tooltip text="Add people">
-              <button className="icon-btn is-small" onClick={() => setOverlay({ type: "add-members", groupId })} aria-label="Add people">
+            <Tooltip text={t("details.group.addPeople")}>
+              <button className="icon-btn is-small" onClick={() => setOverlay({ type: "add-members", groupId })} aria-label={t("details.group.addPeople")}>
                 <UserPlus size={15} />
               </button>
             </Tooltip>
@@ -446,7 +459,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
         </h4>
         {members.map((member) => {
           const user = server?.users[member.userId];
-          const name = user?.displayName ?? "Unknown";
+          const name = user?.displayName ?? t("chat.unknown");
           return (
             <button
               key={member.userId}
@@ -461,15 +474,15 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
                 <span className="truncate" style={{ display: "block", fontWeight: 550 }}>
                   {name}
                   {user?.bot && <> <BotBadge /></>}
-                  {member.userId === selfId && <span className="faint"> (you)</span>}
+                  {member.userId === selfId && <span className="faint"> {t("details.group.you")}</span>}
                 </span>
                 <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>
-                  {member.notOnRoster ? "Can read this chat, but isn't listed as a member" : member.noKeys ? "No device in this chat yet" : `@${user?.username}`}
+                  {member.notOnRoster ? t("details.group.notOnRoster") : member.noKeys ? t("details.group.noKeys") : `@${user?.username}`}
                 </span>
               </span>
-              {member.notOnRoster && <ShieldAlert size={14} className="conv-warning" aria-label="Not listed as a member" />}
-              {member.role === "admin" && <Crown size={13} className="faint" aria-label="Admin" />}
-              {user?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" aria-label="Verified" />}
+              {member.notOnRoster && <ShieldAlert size={14} className="conv-warning" aria-label={t("details.group.notListed")} />}
+              {member.role === "admin" && <Crown size={13} className="faint" aria-label={t("details.group.admin")} />}
+              {user?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" aria-label={t("details.encryption.verified")} />}
             </button>
           );
         })}
@@ -482,13 +495,13 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           <div className="side-row">
             <Eye size={17} />
             <span className="grow">
-              New members can read earlier messages
-              <span className="side-hint">Applies to people added after this is turned on.</span>
+              {t("details.group.history")}
+              <span className="side-hint">{t("details.group.historyHint")}</span>
             </span>
             <Switch
               on={conversation.historyVisible}
               onChange={(value) => void run(() => session().updateGroupMeta(groupId, {}, undefined, value))}
-              label="New members can read earlier messages"
+              label={t("details.group.history")}
             />
           </div>
         </div>
@@ -507,7 +520,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           }
         >
           <LogOut size={17} />
-          <span className="grow">Leave group</span>
+          <span className="grow">{t("details.group.leave")}</span>
         </button>
         {isAdmin && (
           <button
@@ -520,7 +533,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
             }
           >
             <Trash2 size={17} />
-            <span className="grow">Delete group for everyone</span>
+            <span className="grow">{t("details.group.delete")}</span>
           </button>
         )}
       </div>
@@ -531,19 +544,19 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           y={memberMenu.y}
           onClose={() => setMemberMenu(null)}
           entries={[
-            { label: "Message", icon: <Check size={15} />, onSelect: () => selectConversation(`user:${memberMenu.userId}`) },
-            { label: "Verify security key", icon: <Shield size={15} />, onSelect: () => setOverlay({ type: "verify", userId: memberMenu.userId }) },
+            { label: t("channels.members.message"), icon: <Check size={15} />, onSelect: () => selectConversation(`user:${memberMenu.userId}`) },
+            { label: t("details.member.verify"), icon: <Shield size={15} />, onSelect: () => setOverlay({ type: "verify", userId: memberMenu.userId }) },
             ...(memberMenu.userId !== selfId
               ? [
                   server?.prefs.blocked?.includes(memberMenu.userId)
-                    ? { label: "Unblock", icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, false)) }
-                    : { label: "Block", icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, true)) },
+                    ? { label: t("composer.disabled.unblock"), icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, false)) }
+                    : { label: t("details.member.block"), icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, true)) },
                 ]
               : []),
             ...(isAdmin
               ? [
                   {
-                    label: conversation.members.find((item) => item.userId === memberMenu.userId)?.role === "admin" ? "Remove admin" : "Make admin",
+                    label: conversation.members.find((item) => item.userId === memberMenu.userId)?.role === "admin" ? t("details.member.removeAdmin") : t("details.member.makeAdmin"),
                     icon: <Crown size={15} />,
                     onSelect: () => {
                       const role = conversation.members.find((item) => item.userId === memberMenu.userId)?.role === "admin" ? "member" : "admin";
@@ -552,7 +565,7 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
                   },
                   { separator: true },
                   {
-                    label: "Remove from group",
+                    label: t("details.member.remove"),
                     icon: <UserMinus size={15} />,
                     danger: true,
                     onSelect: () => void run(() => session().removeMember(groupId, memberMenu.userId)),
@@ -574,10 +587,10 @@ function ResultRow({ message, onOpen, action }: { message: MessageView; onOpen: 
       <Avatar name={sender?.displayName ?? "?"} seed={message.senderId} avatar={sender?.avatar} size={32} />
       <span className="grow">
         <span className="row" style={{ gap: 6 }}>
-          <span className="truncate" style={{ fontWeight: 600, fontSize: 13, color: nameColor(message.senderId) }}>{sender?.displayName ?? "Unknown"}</span>
+          <span className="truncate" style={{ fontWeight: 600, fontSize: 13, color: nameColor(message.senderId) }}>{sender?.displayName ?? t("chat.unknown")}</span>
           <span className="faint" style={{ fontSize: 11 }} title={formatFull(message.createdAt)}>{formatListTime(message.createdAt)}</span>
         </span>
-        <span className="result-text">{plainText(message.text) || message.attachments[0]?.name || "Attachment"}</span>
+        <span className="result-text">{plainText(message.text) || message.attachments[0]?.name || t("message.reply.attachment")}</span>
       </span>
       {action}
     </div>
@@ -626,13 +639,13 @@ function SearchContent({ conversation }: { conversation: ConversationView }) {
     <div className="side-body">
       <div className="input-wrap search-wrap">
         <Search size={15} className="faint" />
-        <input className="input" placeholder="Search messages" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label="Search messages" />
+        <input className="input" placeholder={t("details.search.placeholder")} value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label={t("details.search.placeholder")} />
       </div>
-      {partial && <p className="faint" style={{ fontSize: 12 }}>Still downloading your history. Older messages will appear in results soon.</p>}
-      {query.trim().length >= 2 && results.length === 0 && !searching && <p className="muted" style={{ textAlign: "center", padding: 18 }}>No messages found.</p>}
+      {partial && <p className="faint" style={{ fontSize: 12 }}>{t("details.search.partial")}</p>}
+      {query.trim().length >= 2 && results.length === 0 && !searching && <p className="muted" style={{ textAlign: "center", padding: 18 }}>{t("details.search.none")}</p>}
       {query.trim().length < 2 && (
         <p className="faint" style={{ fontSize: 12.5, textAlign: "center", padding: "18px 10px" }}>
-          Search happens on this device. The server never sees what you search for.
+          {t("details.search.private")}
         </p>
       )}
       {results.map((result) => (
@@ -660,7 +673,7 @@ function PinsContent({ conversation }: { conversation: ConversationView }) {
       {pins?.length === 0 && (
         <div className="empty-state">
           <Pin size={22} className="empty-icon" />
-          <p>Nothing is pinned yet. Right-click a message to pin it.</p>
+          <p>{t("details.pins.empty")}</p>
         </div>
       )}
       {pins?.map((message) => (
@@ -669,10 +682,10 @@ function PinsContent({ conversation }: { conversation: ConversationView }) {
           message={message}
           onOpen={() => void jump(message.groupId, message.id, message.seq)}
           action={
-            <Tooltip text="Unpin">
+            <Tooltip text={t("message.action.unpin")}>
               <button
                 className="icon-btn is-small"
-                aria-label="Unpin"
+                aria-label={t("message.action.unpin")}
                 onClick={(event) => {
                   event.stopPropagation();
                   void run(async () => {

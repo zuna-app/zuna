@@ -4,6 +4,7 @@
 
 import { opusTrack, writeMp4, type Sample, type Track } from "./mp4";
 import { opusFromWebm } from "./webm";
+import { t } from "@/lib/i18n";
 
 export interface RoundRecording {
   blob: Blob;
@@ -62,7 +63,7 @@ export class RoundRecorder {
         audio: { echoCancellation: true, noiseSuppression: true },
       });
     } catch {
-      throw new Error("There's no camera Zuna can use.");
+      throw new Error(t("voice.camera.none"));
     }
     // Past here the camera and the microphone are open, so whatever fails closes them again,
     // or the browser would go on showing them as recording.
@@ -93,7 +94,7 @@ export class RoundRecorder {
       return round;
     } catch {
       for (const track of camera.getTracks()) track.stop();
-      throw new Error("This browser couldn't start recording a video message.");
+      throw new Error(t("composer.round.cantRecord"));
     }
   }
 
@@ -128,7 +129,7 @@ export class RoundRecorder {
       return { blob: new Blob(this.chunks, { type: mime }), mime };
     }
     const picture = await this.frames.finish();
-    if (!picture) throw new Error("The video message couldn't be recorded.");
+    if (!picture) throw new Error(t("composer.round.failed"));
     // Without its sound if that can't be read, rather than not at all.
     const opus = opusFromWebm(new Uint8Array(await new Blob(this.chunks).arrayBuffer()));
     const sound = opus && opusTrack(opus.head, opus.packets);

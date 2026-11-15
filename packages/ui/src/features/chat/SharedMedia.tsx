@@ -5,25 +5,26 @@ import { plainText } from "@zuna/core/plain-text";
 import { AlertCircle, Download, File as FileIcon, Headphones, Image as ImageIcon, Link2, MessageSquare, Mic, Play, Users, Video, type LucideIcon } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Spinner } from "@/components/ui";
-import { avatarColor, formatDuration, formatFull, nameColor } from "@/lib/format";
+import { avatarColor, formatDuration, formatFull, formatMonth, nameColor } from "@/lib/format";
 import { loadsByItself, picturesAmong, useDecryptedUrl, useVideoFrame } from "@/lib/media";
 import { useActiveServer, useApp } from "@/state/store";
 import { AudioAttachment, FileAttachment, VoiceAttachment } from "./MessageAttachments";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
 /** What a chat's details list, in Telegram's order. GIFs aren't a kind of their own here. */
 export type SharedKind = MediaKind | "groups";
 
-const KINDS: { kind: SharedKind; icon: LucideIcon; one: string; many: string; title: string }[] = [
-  { kind: "photo", icon: ImageIcon, one: "photo", many: "photos", title: "Photos" },
-  { kind: "video", icon: Video, one: "video", many: "videos", title: "Videos" },
-  { kind: "file", icon: FileIcon, one: "file", many: "files", title: "Files" },
-  { kind: "audio", icon: Headphones, one: "audio file", many: "audio files", title: "Audio files" },
-  { kind: "link", icon: Link2, one: "shared link", many: "shared links", title: "Shared links" },
-  { kind: "voice", icon: Mic, one: "voice message", many: "voice messages", title: "Voice messages" },
-  { kind: "groups", icon: Users, one: "group in common", many: "groups in common", title: "Groups in common" },
+const KINDS: { kind: SharedKind; icon: LucideIcon; amount: MessageKey; title: MessageKey }[] = [
+  { kind: "photo", icon: ImageIcon, amount: mark("details.media.photoCount"), title: mark("details.media.photos") },
+  { kind: "video", icon: Video, amount: mark("details.media.videoCount"), title: mark("details.media.videos") },
+  { kind: "file", icon: FileIcon, amount: mark("details.media.fileCount"), title: mark("details.media.files") },
+  { kind: "audio", icon: Headphones, amount: mark("details.media.audioCount"), title: mark("details.media.audio") },
+  { kind: "link", icon: Link2, amount: mark("details.media.linkCount"), title: mark("details.media.links") },
+  { kind: "voice", icon: Mic, amount: mark("details.media.voiceCount"), title: mark("details.media.voice") },
+  { kind: "groups", icon: Users, amount: mark("details.media.groupCount"), title: mark("details.media.groups") },
 ];
 
-export const sharedTitle = (kind: SharedKind) => KINDS.find((item) => item.kind === kind)!.title;
+export const sharedTitle = (kind: SharedKind) => t(KINDS.find((item) => item.kind === kind)!.title);
 
 /** The groups this person and this account are both in. */
 function useGroupsInCommon(peerId: string | null): ConversationView[] {
@@ -77,12 +78,10 @@ export function SharedMediaRows({ conversation }: { conversation: ConversationVi
   if (rows.length === 0) return null;
   return (
     <div className="side-section">
-      {rows.map(({ kind, icon: Icon, one, many, count }) => (
+      {rows.map(({ kind, icon: Icon, amount, count }) => (
         <button key={kind} className="side-row is-button" onClick={() => setPanel({ type: "media", kind })}>
           <Icon size={17} />
-          <span className="grow">
-            {count} {count === 1 ? one : many}
-          </span>
+          <span className="grow">{t(amount, { count })}</span>
         </button>
       ))}
     </div>
@@ -105,7 +104,7 @@ export function SharedMediaContent({ conversation, kind }: { conversation: Conve
 function Nothing() {
   return (
     <div className="empty-state">
-      <p>Nothing here anymore.</p>
+      <p>{t("details.media.nothing")}</p>
     </div>
   );
 }
@@ -195,8 +194,7 @@ function SharedMessages({ conversation, groupId, kind }: { conversation: Convers
 
 const PAGE = 50;
 
-const monthFormat = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
-const monthOf = (at: number) => monthFormat.format(at);
+const monthOf = formatMonth;
 
 /** Asks for more once it's scrolled into view. */
 function LoadMore({ onVisible }: { onVisible: () => Promise<void> }) {
@@ -246,7 +244,7 @@ function useShowInChat(message: MessageView) {
       setMenu({ x: event.clientX, y: event.clientY });
     },
     menu: menu && (
-      <PopupMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} entries={[{ label: "Show in chat", icon: <MessageSquare size={15} />, onSelect: show }]} />
+      <PopupMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} entries={[{ label: t("details.media.showInChat"), icon: <MessageSquare size={15} />, onSelect: show }]} />
     ),
   };
 }
@@ -279,7 +277,7 @@ function MediaTile({ message, attachment, video, among }: { message: MessageView
         }}
         onContextMenu={onContextMenu}
         title={formatFull(message.createdAt)}
-        aria-label={video ? `Show ${attachment.name} in the chat` : wanted ? `Open ${attachment.name}` : `Load ${attachment.name}`}
+        aria-label={video ? t("details.shared.showFile", { name: attachment.name }) : wanted ? t("message.attachment.open", { name: attachment.name }) : t("details.media.load", { name: attachment.name })}
       >
         {attachment.thumb && <img className={`shared-tile-thumb${video ? " is-poster" : ""}`} src={attachment.thumb} alt="" draggable={false} />}
         {picture && <img className="shared-tile-full" src={picture} alt="" draggable={false} />}
@@ -313,7 +311,7 @@ function SentBy({ message }: { message: MessageView }) {
   const sender = server?.users[message.senderId];
   return (
     <span className="shared-meta truncate">
-      <span style={{ color: nameColor(message.senderId) }}>{message.senderId === server?.self?.userId ? "You" : (sender?.displayName ?? "Unknown")}</span>
+      <span style={{ color: nameColor(message.senderId) }}>{message.senderId === server?.self?.userId ? t("common.you") : (sender?.displayName ?? t("chat.unknown"))}</span>
       {" · "}
       {formatFull(message.createdAt)}
     </span>
@@ -399,7 +397,7 @@ function GroupsInCommon({ conversation }: { conversation: ConversationView }) {
             <span className="grow">
               <span className="truncate" style={{ display: "block", fontWeight: 550 }}>{group.title}</span>
               <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>
-                {group.members.length} {group.members.length === 1 ? "member" : "members"}
+                {t("details.group.members", { count: group.members.length })}
               </span>
             </span>
           </button>

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
+import { t } from "@/lib/i18n";
 import { keyName } from "@/voice/settings";
 import { conversationOfGroup, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
@@ -11,9 +12,9 @@ function QualityIcon() {
   const quality = useVoice((state) => state.quality);
   const rtt = useVoice((state) => state.rtt);
   const icon = quality === "poor" || quality === "lost" ? <SignalLow size={14} /> : quality === "good" ? <SignalMedium size={14} /> : <Signal size={14} />;
-  const words = quality === "lost" ? "Connection lost" : quality === "poor" ? "Weak connection" : quality === "good" ? "Good connection" : quality === "excellent" ? "Great connection" : "Connected";
+  const words = quality === "lost" ? t("voice.quality.lost") : quality === "poor" ? t("voice.quality.weak") : quality === "good" ? t("voice.quality.good") : quality === "excellent" ? t("voice.quality.great") : t("voice.quality.connected");
   return (
-    <Tooltip text={rtt !== null ? `${words}, ${rtt} ms` : words} side="top">
+    <Tooltip text={rtt !== null ? t("voice.quality.withPing", { quality: words, ms: rtt }) : words} side="top">
       <span className={`voice-quality is-${quality}`}>{icon}</span>
     </Tooltip>
   );
@@ -63,11 +64,11 @@ export function VoicePanel() {
   const conversation = isCall ? conversationOfGroup(server, channelId) : undefined;
   const self = server.self ? server.users[server.self.userId] : null;
   const micOff = muted || deafened || serverMuted || noMic;
-  const statusText = status === "connected" ? (isCall ? "Call connected" : "Voice connected") : status === "reconnecting" ? "Reconnecting" : "Connecting";
-  const where = isCall ? (conversation?.title ?? "Call") : (channel?.name ?? "Voice channel");
+  const statusText = status === "connected" ? (isCall ? t("voice.panel.callConnected") : t("voice.panel.voiceConnected")) : status === "reconnecting" ? t("voice.panel.reconnecting") : t("voice.panel.connecting");
+  const where = isCall ? (conversation?.title ?? t("voice.panel.call")) : (channel?.name ?? t("voice.panel.voiceChannel"));
 
   return (
-    <div className="voice-panel" role="region" aria-label={isCall ? "Call" : "Voice channel"}>
+    <div className="voice-panel" role="region" aria-label={isCall ? t("voice.panel.call") : t("voice.panel.voiceChannel")}>
       <div className="voice-panel-top">
         <button
           className="voice-panel-where"
@@ -79,7 +80,7 @@ export function VoicePanel() {
           <span className={`voice-panel-status is-${status}`}>
             {status === "connected" ? <QualityIcon /> : <Spinner size={12} />}
             {statusText}
-            <Tooltip text="End-to-end encrypted: the server can't listen in" side="top">
+            <Tooltip text={t("voice.panel.encrypted")} side="top">
               <Lock size={11} className="voice-panel-lock" />
             </Tooltip>
           </span>
@@ -87,43 +88,53 @@ export function VoicePanel() {
             {where} / {server.entry.name}
           </span>
         </button>
-        <Tooltip text="Disconnect" side="top">
-          <button className="icon-btn voice-leave" onClick={leave} aria-label={isCall ? "Leave the call" : "Disconnect from voice"}>
+        <Tooltip text={t("voice.controls.disconnect")} side="top">
+          <button className="icon-btn voice-leave" onClick={leave} aria-label={isCall ? t("voice.panel.leaveCall") : t("voice.bar.disconnect")}>
             <PhoneOff size={17} />
           </button>
         </Tooltip>
       </div>
       <div className="voice-panel-actions">
-        <Tooltip text={camera ? "Turn off camera" : "Turn on camera"} side="top">
-          <button className={`voice-action${camera ? " is-on" : ""}`} onClick={() => void toggleCamera()} aria-label={camera ? "Turn off camera" : "Turn on camera"} aria-pressed={camera}>
+        <Tooltip text={camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn")} side="top">
+          <button className={`voice-action${camera ? " is-on" : ""}`} onClick={() => void toggleCamera()} aria-label={camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn")} aria-pressed={camera}>
             {camera ? <Camera size={16} /> : <CameraOff size={16} />}
           </button>
         </Tooltip>
-        <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
-          <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+        <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ?? t("voice.controls.shareScreen"))} side="top">
+          <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen")} aria-pressed={!!screen}>
             {screen ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
           </button>
         </Tooltip>
       </div>
       <div className="voice-panel-self">
         <span className="grow voice-self-name">
-          <b className="truncate">{self?.displayName ?? "You"}</b>
+          <b className="truncate">{self?.displayName ?? t("common.you")}</b>
           <span className="truncate faint">
-            {serverMuted ? "Muted by an admin" : noMic ? "No microphone" : settings.inputMode === "ptt" ? (settings.pttKey ? `Hold ${keyName(settings.pttKey)}${keyHeld ? "…" : ""}` : "Set a push to talk key") : "Voice activity"}
+            {serverMuted
+              ? t("voice.panel.adminMuted")
+              : noMic
+                ? t("voice.controls.noMic")
+                : settings.inputMode === "ptt"
+                  ? settings.pttKey
+                    ? keyHeld
+                      ? t("voice.panel.holding", { key: keyName(settings.pttKey) })
+                      : t("voice.panel.hold", { key: keyName(settings.pttKey) })
+                    : t("voice.panel.setKey")
+                  : t("voice.settings.voiceActivity")}
           </span>
         </span>
-        <Tooltip text={serverMuted ? "An admin muted you" : micOff ? "Unmute" : "Mute"} side="top">
-          <button className={`icon-btn is-small${micOff ? " voice-off" : speaking ? " voice-heard" : ""}`} disabled={serverMuted || noMic} onClick={toggleMute} aria-label={micOff ? "Unmute" : "Mute"} aria-pressed={micOff}>
+        <Tooltip text={serverMuted ? t("voice.controls.adminMuted") : micOff ? t("voice.controls.unmute") : t("voice.controls.mute")} side="top">
+          <button className={`icon-btn is-small${micOff ? " voice-off" : speaking ? " voice-heard" : ""}`} disabled={serverMuted || noMic} onClick={toggleMute} aria-label={micOff ? t("voice.controls.unmute") : t("voice.controls.mute")} aria-pressed={micOff}>
             {micOff ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
         </Tooltip>
-        <Tooltip text={deafened ? "Undeafen" : "Deafen"} side="top">
-          <button className={`icon-btn is-small${deafened ? " voice-off" : ""}`} onClick={toggleDeafen} aria-label={deafened ? "Undeafen" : "Deafen"} aria-pressed={deafened}>
+        <Tooltip text={deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen")} side="top">
+          <button className={`icon-btn is-small${deafened ? " voice-off" : ""}`} onClick={toggleDeafen} aria-label={deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen")} aria-pressed={deafened}>
             {deafened ? <HeadphoneOff size={16} /> : <Headphones size={16} />}
           </button>
         </Tooltip>
-        <Tooltip text="Voice settings" side="top">
-          <button className="icon-btn is-small" onClick={() => setOverlay({ type: "settings", section: "voice" })} aria-label="Voice settings">
+        <Tooltip text={t("voice.controls.settings")} side="top">
+          <button className="icon-btn is-small" onClick={() => setOverlay({ type: "settings", section: "voice" })} aria-label={t("voice.controls.settings")}>
             <SettingsIcon size={16} />
           </button>
         </Tooltip>

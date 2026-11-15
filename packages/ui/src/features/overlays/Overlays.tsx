@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Modal, Spinner, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { formatUpcoming } from "@/lib/format";
+import { t, tx } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import { JoinFlow } from "@/features/onboarding/Onboarding";
 import { ChannelDialog } from "@/features/voice/ChannelDialog";
@@ -23,7 +24,7 @@ export function Overlays() {
       {overlay?.type === "add-server" && (
         <Modal key="add-server" onClose={close} width={420} bare>
           <div className="modal-flow">
-            <button className="icon-btn is-small modal-close" onClick={close} aria-label="Close">
+            <button className="icon-btn is-small modal-close" onClick={close} aria-label={t("common.close")}>
               <X size={17} />
             </button>
             <JoinFlow initialLink={overlay.link} initialSignInUrl={overlay.signInUrl} onDone={close} embedded />
@@ -44,18 +45,14 @@ export function Overlays() {
   );
 }
 
+// In days, or none for never.
 const EXPIRY_OPTIONS = [
-  { label: "1 day", seconds: 86_400 },
-  { label: "7 days", seconds: 604_800 },
-  { label: "30 days", seconds: 2_592_000 },
-  { label: "Never", seconds: 0 },
+  { days: 1, seconds: 86_400 },
+  { days: 7, seconds: 604_800 },
+  { days: 30, seconds: 2_592_000 },
+  { days: 0, seconds: 0 },
 ];
-const USE_OPTIONS = [
-  { label: "1 use", value: 1 },
-  { label: "5 uses", value: 5 },
-  { label: "25 uses", value: 25 },
-  { label: "No limit", value: 0 },
-];
+const USE_OPTIONS = [1, 5, 25, 0].map((value) => ({ value }));
 
 export function InvitePanel() {
   const server = useActiveServer();
@@ -76,14 +73,14 @@ export function InvitePanel() {
 
   const copy = async (value: string) => {
     await copyText(value);
-    toast("Invite link copied");
+    toast(t("invites.copied"));
   };
 
   if (!canManage) {
     return (
       <div className="notice">
         <LinkIcon size={15} />
-        <span>On this server, only admins can create invite links. Ask one of them for a link.</span>
+        <span>{t("invites.adminsOnly")}</span>
       </div>
     );
   }
@@ -92,15 +89,15 @@ export function InvitePanel() {
     <div className="col" style={{ gap: 14 }}>
       <div className="row" style={{ alignItems: "flex-start" }}>
         <div className="field grow">
-          <span className="field-label">Expires after</span>
+          <span className="field-label">{t("invites.expiresAfter")}</span>
           <select className="select" value={expiry} onChange={(event) => setExpiry(Number(event.target.value))}>
-            {EXPIRY_OPTIONS.map((option) => <option key={option.seconds} value={option.seconds}>{option.label}</option>)}
+            {EXPIRY_OPTIONS.map((option) => <option key={option.seconds} value={option.seconds}>{option.days ? t("invites.days", { count: option.days }) : t("common.never")}</option>)}
           </select>
         </div>
         <div className="field grow">
-          <span className="field-label">Can be used</span>
+          <span className="field-label">{t("invites.canBeUsed")}</span>
           <select className="select" value={uses} onChange={(event) => setUses(Number(event.target.value))}>
-            {USE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {USE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.value ? t("invites.uses", { count: option.value }) : t("common.noLimit")}</option>)}
           </select>
         </div>
       </div>
@@ -116,39 +113,39 @@ export function InvitePanel() {
           })
         }
       >
-        {busy ? <Spinner /> : <><LinkIcon size={15} /> Create invite link</>}
+        {busy ? <Spinner /> : <><LinkIcon size={15} /> {t("invites.create")}</>}
       </button>
       {link && (
         <div className="invite-link">
           <span className="mono truncate selectable">{link}</span>
-          <button className="icon-btn is-small" onClick={() => copy(link)} aria-label="Copy link">
+          <button className="icon-btn is-small" onClick={() => copy(link)} aria-label={t("invites.copyLink")}>
             <Copy size={14} />
           </button>
         </div>
       )}
       {invites && invites.length > 0 && (
         <div className="field">
-          <span className="field-label">Active links</span>
+          <span className="field-label">{t("invites.active")}</span>
           <div className="invite-list">
             {invites.map((invite) => (
               <div key={invite.code} className="invite-row">
                 <span className="grow">
                   <span className="mono" style={{ fontSize: 12.5 }}>{invite.code}</span>
                   <span className="faint" style={{ display: "block", fontSize: 11.5 }}>
-                    {invite.uses} used{invite.max_uses ? ` of ${invite.max_uses}` : ""}
-                    {invite.expires_at ? ` · expires ${formatUpcoming(invite.expires_at)}` : ""}
+                    {invite.max_uses ? t("invites.usedOf", { count: invite.uses, max: invite.max_uses }) : t("invites.used", { count: invite.uses })}
+                    {invite.expires_at ? ` · ${t("invites.expires", { when: formatUpcoming(invite.expires_at) })}` : ""}
                   </span>
                 </span>
                 <button
                   className="icon-btn is-small"
-                  aria-label="Copy link"
+                  aria-label={t("invites.copyLink")}
                   onClick={() => void session().linkForInvite(invite.code).then(copy)}
                 >
                   <Copy size={14} />
                 </button>
                 <button
                   className="icon-btn is-small"
-                  aria-label="Revoke link"
+                  aria-label={t("invites.revoke")}
                   onClick={() => run(async () => {
                     await session().revokeInvite(invite.code);
                     refresh();
@@ -167,10 +164,8 @@ export function InvitePanel() {
 
 function InvitePeople({ onClose }: { onClose: () => void }) {
   return (
-    <Modal title="Invite people" onClose={onClose}>
-      <p className="muted" style={{ fontSize: 13.5 }}>
-        Anyone with a link can create an account here. It also holds the key that protects member profiles, so only share it with people you trust.
-      </p>
+    <Modal title={t("invites.title")} onClose={onClose}>
+      <p className="muted" style={{ fontSize: 13.5 }}>{t("invites.warning")}</p>
       <InvitePanel />
     </Modal>
   );
@@ -193,25 +188,21 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
   const trust = check?.trust ?? user.trust;
 
   return (
-    <Modal title={isSelf ? "Your security key" : `Verify ${user.displayName} (@${user.username})`} onClose={onClose} width={460}>
+    <Modal title={isSelf ? t("verify.ownTitle") : t("verify.title", { name: user.displayName, username: user.username })} onClose={onClose} width={460}>
       {trust === "changed" && (
         <div className="notice is-danger">
           <ShieldAlert size={16} />
-          <span>
-            <b>{user.displayName}'s security key changed</b> in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.
-          </span>
+          <span>{tx("verify.changed", { headline: <b>{t("verify.changedHeadline", { name: user.displayName })}</b> })}</span>
         </div>
       )}
       {trust === "verified" && (
         <div className="notice">
           <ShieldCheck size={16} />
-          <span>You've verified {user.displayName}. Nobody can secretly intercept your messages.</span>
+          <span>{t("verify.verified", { name: user.displayName })}</span>
         </div>
       )}
       {trust === "unverified" && (
-        <p className="muted" style={{ fontSize: 13.5 }}>
-          Compare these emoji with {user.displayName} in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.
-        </p>
+        <p className="muted" style={{ fontSize: 13.5 }}>{t("verify.compare", { name: user.displayName })}</p>
       )}
       <div className="safety-grid">
         {check?.emoji.map((item, index) => (
@@ -225,18 +216,18 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
         <div className="row">
           {trust === "verified" ? (
             <button className="btn grow" onClick={() => run(async () => { await session().clearVerification(userId); })}>
-              Remove verification
+              {t("verify.remove")}
             </button>
           ) : (
             <>
               <button
                 className="btn grow"
                 onClick={() => {
-                  toast("Don't share anything private with them until you know why the emoji differ.", "security");
+                  toast(t("verify.mismatchToast"), "security");
                   onClose();
                 }}
               >
-                <AlertTriangle size={15} /> They don't match
+                <AlertTriangle size={15} /> {t("verify.noMatch")}
               </button>
               <button
                 className="btn btn-primary grow"
@@ -251,12 +242,12 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
                       void session().safetyCheck(userId).then(setCheck);
                       throw error;
                     }
-                    toast(`${user.displayName} is verified`);
+                    toast(t("verify.verifiedToast", { name: user.displayName }));
                     onClose();
                   })
                 }
               >
-                <BadgeCheck size={16} /> They match
+                <BadgeCheck size={16} /> {t("verify.match")}
               </button>
             </>
           )}

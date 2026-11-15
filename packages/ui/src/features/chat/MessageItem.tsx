@@ -35,6 +35,7 @@ import { SystemMessage, ForwardedFrom, ReactionChip, ReadTicks, openProfile, Cha
 import { Attachments, LinkCard, LocationCard } from "./MessageAttachments";
 import { MessageButtons } from "@/features/bots/MessageButtons";
 import { BotBadge } from "@/components/ui";
+import { t } from "@/lib/i18n";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
@@ -75,13 +76,13 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const serverId = useApp((state) => state.activeServerId) ?? "";
   // Whoever wrote one that hasn't opened isn't known yet: it's drawn as nobody's, with no profile to open.
   const known = message.senderId !== "";
-  const senderName = useServerField((server) => (known ? (server.users[message.senderId]?.displayName ?? "Unknown") : "Not known yet"), "Unknown");
+  const senderName = useServerField((server) => (known ? (server.users[message.senderId]?.displayName ?? t("chat.unknown")) : t("message.senderNotKnown")), t("chat.unknown"));
   const senderIsBot = useServerField((server) => !!server.users[message.senderId]?.bot, false);
   const senderAvatar = useServerField((server) => server.users[message.senderId]?.avatar ?? null, null);
   const replyName = useServerField((server) => {
     const id = message.reply?.senderId;
-    if (!id) return "Earlier message";
-    return id === server.self?.userId ? "You" : (server.users[id]?.displayName ?? "Unknown");
+    if (!id) return t("message.reply.earlier");
+    return id === server.self?.userId ? t("common.you") : (server.users[id]?.displayName ?? t("chat.unknown"));
   }, "");
   const baseContext = useMarkupContext();
   const menu = useContextMenu();
@@ -123,14 +124,14 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       className={`msg-meta${onlyImages ? " is-overlay" : ""}`}
       title={[
         formatFull(message.createdAt),
-        message.timeDiffers ? ". The sender's device reported a very different time for this message." : "",
-        message.expiresAt ? `. Disappears ${formatFull(message.expiresAt)}.` : "",
+        message.timeDiffers ? `. ${t("message.meta.timeDiffers")}` : "",
+        message.expiresAt ? `. ${t("message.meta.disappearsSentence", { time: formatFull(message.expiresAt) })}` : "",
       ].join("")}
     >
-      {message.timeDiffers && <ShieldAlert size={11} aria-label="This message's time may be wrong" />}
-      {message.expiresAt && <Timer size={10} className="msg-timer" aria-label="Disappears" />}
+      {message.timeDiffers && <ShieldAlert size={11} aria-label={t("message.meta.timeWrong")} />}
+      {message.expiresAt && <Timer size={10} className="msg-timer" aria-label={t("message.meta.disappearsLabel")} />}
       {message.pinnedAt && <Pin size={10} className="msg-pinned" />}
-      {message.editedAt && !isDeleted && <span>edited</span>}
+      {message.editedAt && !isDeleted && <span>{t("message.edited")}</span>}
       <span>{formatTime(message.createdAt)}</span>
       {own && !isDeleted && (
         <span className="msg-ticks">
@@ -145,17 +146,17 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     <>
       {message.editedAt && !isDeleted && (
         <span className="cmsg-edited" title={formatFull(message.editedAt)}>
-          (edited)
+          {t("message.editedChannel")}
         </span>
       )}
       {message.timeDiffers && (
-        <span className="cmsg-flag" title="The sender's device reported a very different time for this message.">
-          <ShieldAlert size={13} aria-label="This message's time may be wrong" />
+        <span className="cmsg-flag" title={t("message.meta.timeDiffers")}>
+          <ShieldAlert size={13} aria-label={t("message.meta.timeWrong")} />
         </span>
       )}
       {message.expiresAt && (
-        <span className="cmsg-flag" title={`Disappears ${formatFull(message.expiresAt)}`}>
-          <Timer size={12} className="msg-timer" aria-label="Disappears" />
+        <span className="cmsg-flag" title={t("message.meta.disappears", { time: formatFull(message.expiresAt) })}>
+          <Timer size={12} className="msg-timer" aria-label={t("message.meta.disappearsLabel")} />
         </span>
       )}
     </>
@@ -195,9 +196,9 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       <div className={`msg is-other is-blocked${channel ? " is-channel" : ""}${highlighted ? " is-highlighted" : ""}`}>
         {isGroup && !channel && <span className="msg-avatar" />}
         <span className="msg-blocked">
-          <Ban size={13} /> A message from someone you blocked
+          <Ban size={13} /> {t("message.blocked")}
           <button className="link-button" onClick={() => setRevealed(true)}>
-            Show
+            {t("message.showBlocked")}
           </button>
         </span>
       </div>
@@ -211,27 +212,27 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   // Worked out as the menu opens, as in Telegram, for your own messages in a group.
   const readers = menu.menu && own && isGroup && canAct ? readersOf(serverId, message) : [];
   const entries: MenuEntry[] = [
-    ...(canAct ? [{ label: "Reply", icon: <CornerUpLeft size={15} />, onSelect: () => setReply(listId, message) }] : []),
+    ...(canAct ? [{ label: t("message.action.reply"), icon: <CornerUpLeft size={15} />, onSelect: () => setReply(listId, message) }] : []),
     ...(canAct
       ? [
-          { label: "Forward", icon: <Forward size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] }) },
-          { label: "Select", icon: <CircleCheck size={15} />, onSelect: () => useApp.getState().toggleSelected(listId, message.id) },
+          { label: t("message.action.forward"), icon: <Forward size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] }) },
+          { label: t("message.action.select"), icon: <CircleCheck size={15} />, onSelect: () => useApp.getState().toggleSelected(listId, message.id) },
         ]
       : []),
     ...(message.text && !isDeleted
       ? [
           {
-            label: window.getSelection()?.toString() ? "Copy selection" : "Copy text",
+            label: window.getSelection()?.toString() ? t("message.action.copySelection") : t("message.action.copyText"),
             icon: <Copy size={15} />,
-            onSelect: () => void copyText(window.getSelection()?.toString() || message.text).then(() => toast("Copied")),
+            onSelect: () => void copyText(window.getSelection()?.toString() || message.text).then(() => toast(t("common.copied"))),
           },
         ]
       : []),
-    ...(canAct && own && message.text && !message.forwarded ? [{ label: "Edit", icon: <Pencil size={15} />, onSelect: () => setEditing(listId, message) }] : []),
+    ...(canAct && own && message.text && !message.forwarded ? [{ label: t("common.edit"), icon: <Pencil size={15} />, onSelect: () => setEditing(listId, message) }] : []),
     ...(canAct
       ? [
           {
-            label: message.pinnedAt ? "Unpin" : "Pin",
+            label: message.pinnedAt ? t("message.action.unpin") : t("message.action.pin"),
             icon: message.pinnedAt ? <PinOff size={15} /> : <Pin size={15} />,
             onSelect: () => void run(() => session().setPinned(message.groupId, message.id, !message.pinnedAt)),
           },
@@ -240,7 +241,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     ...(readers.length > 0
       ? [
           {
-            label: `Read by ${readers.length}`,
+            label: t("message.action.readBy", { count: readers.length }),
             icon: <CheckCheck size={15} />,
             submenu: readers.map((user) => ({
               label: user.displayName,
@@ -252,12 +253,12 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       : []),
     ...(message.status === "failed"
       ? [
-          { label: "Try again", icon: <RefreshCw size={15} />, onSelect: () => void run(() => session().retryMessage(message.groupId, message.id)) },
-          { label: "Discard", icon: <Trash2 size={15} />, danger: true, onSelect: () => void session().discardMessage(message.groupId, message.id) },
+          { label: t("message.action.retry"), icon: <RefreshCw size={15} />, onSelect: () => void run(() => session().retryMessage(message.groupId, message.id)) },
+          { label: t("message.action.discard"), icon: <Trash2 size={15} />, danger: true, onSelect: () => void session().discardMessage(message.groupId, message.id) },
         ]
       : []),
     ...(canAct && canDelete
-      ? [{ separator: true }, { label: "Delete for everyone", icon: <Trash2 size={15} />, danger: true, onSelect: () => void run(() => session().deleteMessage(message.groupId, message.id)) }]
+      ? [{ separator: true }, { label: t("message.action.deleteForEveryone"), icon: <Trash2 size={15} />, danger: true, onSelect: () => void run(() => session().deleteMessage(message.groupId, message.id)) }]
       : []),
   ];
 
@@ -270,7 +271,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             menu.close();
             toggleReaction(emoji);
           }}
-          aria-label={`React with ${emoji}`}
+          aria-label={t("message.action.reactWith", { emoji })}
         >
           {emoji}
         </button>
@@ -298,22 +299,22 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     canAct && !selecting && !(event.target as Element).closest("button, a, input, textarea, video, audio, [role='slider']");
   const totalReactors = message.reactions.reduce((sum, reaction) => sum + reaction.userIds.length, 0);
   const placeholder = isDeleted ? (
-    <span className="msg-placeholder">Message deleted</span>
+    <span className="msg-placeholder">{t("message.deleted")}</span>
   ) : message.status === "undecryptable" ? (
     <span className="msg-placeholder">
-      <Spinner size={12} /> Waiting for this message's keys
+      <Spinner size={12} /> {t("message.waitingForKeys")}
     </span>
   ) : message.status === "unverified" ? (
     <span className="msg-placeholder is-danger">
-      <ShieldAlert size={14} /> This message couldn't be verified, so it isn't shown.
+      <ShieldAlert size={14} /> {t("message.unverified")}
     </span>
   ) : message.status === "invalid" ? (
     <span className="msg-placeholder is-danger">
-      <ShieldAlert size={14} /> This message couldn't be displayed.
+      <ShieldAlert size={14} /> {t("message.invalid")}
     </span>
   ) : null;
   const check = selecting && (
-    <span className={`msg-check${selected ? " is-on" : ""}${canAct ? "" : " is-disabled"}`} role="checkbox" aria-checked={selected} aria-label="Select message">
+    <span className={`msg-check${selected ? " is-on" : ""}${canAct ? "" : " is-disabled"}`} role="checkbox" aria-checked={selected} aria-label={t("message.selectLabel")}>
       {selected && <Check size={13} strokeWidth={3} />}
     </span>
   );
@@ -379,7 +380,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             </time>
           ) : (
             <>
-              <button className="cmsg-avatar" onClick={() => known && openProfile(message.senderId)} aria-label={known ? `${senderName}'s profile` : senderName} tabIndex={-1} disabled={!known}>
+              <button className="cmsg-avatar" onClick={() => known && openProfile(message.senderId)} aria-label={known ? t("message.profileOf", { name: senderName }) : senderName} tabIndex={-1} disabled={!known}>
                 <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={40} />
               </button>
               <h3 className="cmsg-head">
@@ -417,8 +418,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   <ReactionChip key={reaction.key} reaction={reaction} selfId={selfId} serverUrl={context.serverUrl} showPeople={false} onToggle={() => toggleReaction(reaction.key, reaction.emote)} />
                 ))}
                 {canAct && (
-                  <Tooltip text="Add reaction" side="top">
-                    <button className="reaction reaction-add" onClick={pickReaction} aria-label="Add reaction">
+                  <Tooltip text={t("message.action.addReaction")} side="top">
+                    <button className="reaction reaction-add" onClick={pickReaction} aria-label={t("message.action.addReaction")}>
                       <SmilePlus size={16} />
                     </button>
                   </Tooltip>
@@ -427,7 +428,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             )}
             {message.status === "failed" && (
               <button className="msg-retry" onClick={() => void run(() => session().retryMessage(message.groupId, message.id))}>
-                <AlertCircle size={13} /> Not sent. Try again
+                <AlertCircle size={13} /> {t("message.notSent")}
               </button>
             )}
           </div>
@@ -435,37 +436,37 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
         {canAct && !selecting && !editingHere && (
           <div className="cmsg-toolbar">
             {QUICK_REACTIONS.slice(0, 3).map((emoji) => (
-              <button key={emoji} className="cmsg-tool is-emoji" onClick={() => toggleReaction(emoji)} aria-label={`React with ${emoji}`}>
+              <button key={emoji} className="cmsg-tool is-emoji" onClick={() => toggleReaction(emoji)} aria-label={t("message.action.reactWith", { emoji })}>
                 {emoji}
               </button>
             ))}
             <span className="cmsg-tool-divider" />
-            <Tooltip text="Add reaction" side="top">
-              <button className="cmsg-tool" onClick={pickReaction} aria-label="Add reaction">
+            <Tooltip text={t("message.action.addReaction")} side="top">
+              <button className="cmsg-tool" onClick={pickReaction} aria-label={t("message.action.addReaction")}>
                 <SmilePlus size={19} />
               </button>
             </Tooltip>
             {canEdit && (
-              <Tooltip text="Edit" side="top">
-                <button className="cmsg-tool" onClick={() => setEditing(listId, message)} aria-label="Edit">
+              <Tooltip text={t("common.edit")} side="top">
+                <button className="cmsg-tool" onClick={() => setEditing(listId, message)} aria-label={t("common.edit")}>
                   <Pencil size={17} />
                 </button>
               </Tooltip>
             )}
-            <Tooltip text="Reply" side="top">
-              <button className="cmsg-tool" onClick={() => setReply(listId, message)} aria-label="Reply">
+            <Tooltip text={t("message.action.reply")} side="top">
+              <button className="cmsg-tool" onClick={() => setReply(listId, message)} aria-label={t("message.action.reply")}>
                 <CornerUpLeft size={19} />
               </button>
             </Tooltip>
-            <Tooltip text="Forward" side="top">
-              <button className="cmsg-tool" onClick={() => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] })} aria-label="Forward">
+            <Tooltip text={t("message.action.forward")} side="top">
+              <button className="cmsg-tool" onClick={() => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] })} aria-label={t("message.action.forward")}>
                 <Forward size={19} />
               </button>
             </Tooltip>
-            <Tooltip text="More" side="top">
+            <Tooltip text={t("message.action.more")} side="top">
               <button
                 className="cmsg-tool"
-                aria-label="More"
+                aria-label={t("message.action.more")}
                 onClick={(event) => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   menu.open({ clientX: rect.right, clientY: rect.bottom + 2 });
@@ -519,7 +520,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   <span className="msg-reply-author" style={{ color: nameColor(message.reply.senderId || "x") }}>
                     {replyName}
                   </span>
-                  <span className="msg-reply-text truncate">{message.reply.deleted ? "Message deleted" : blockedReply ? "A message from someone you blocked" : plainText(message.reply.text) || (message.reply.hasAttachment ? "Attachment" : "Tap to view")}</span>
+                  <span className="msg-reply-text truncate">{message.reply.deleted ? t("message.deleted") : blockedReply ? t("message.blocked") : plainText(message.reply.text) || (message.reply.hasAttachment ? t("message.reply.attachment") : t("message.reply.tapToView"))}</span>
                 </button>
               )}
               {message.attachments.length > 0 && <Attachments message={message} serverId={serverId} flush={onlyImages} own={own} />}
@@ -546,26 +547,26 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
         {!placeholder && <MessageButtons message={message} />}
         {message.status === "failed" && (
           <button className="msg-retry" onClick={() => void run(() => session().retryMessage(message.groupId, message.id))}>
-            <AlertCircle size={13} /> Not sent. Try again
+            <AlertCircle size={13} /> {t("message.notSent")}
           </button>
         )}
       </div>
       {canAct && !selecting && (
         <div className="msg-actions">
-          <Tooltip text="React" side="top">
-            <button className="icon-btn is-small" aria-label="React" onClick={pickReaction}>
+          <Tooltip text={t("message.action.react")} side="top">
+            <button className="icon-btn is-small" aria-label={t("message.action.react")} onClick={pickReaction}>
               <SmilePlus size={15} />
             </button>
           </Tooltip>
-          <Tooltip text="Reply" side="top">
-            <button className="icon-btn is-small" onClick={() => setReply(listId, message)} aria-label="Reply">
+          <Tooltip text={t("message.action.reply")} side="top">
+            <button className="icon-btn is-small" onClick={() => setReply(listId, message)} aria-label={t("message.action.reply")}>
               <CornerUpLeft size={15} />
             </button>
           </Tooltip>
-          <Tooltip text="More" side="top">
+          <Tooltip text={t("message.action.more")} side="top">
             <button
               className="icon-btn is-small"
-              aria-label="More"
+              aria-label={t("message.action.more")}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 menu.open({ clientX: own ? rect.left : rect.right, clientY: rect.bottom + 2 });

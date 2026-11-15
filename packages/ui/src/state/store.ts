@@ -24,6 +24,7 @@ import { voiceHooks } from "@/voice/events";
 import { coreEvents } from "./events";
 import { listActions } from "./lists";
 import { loadSettings, type AppSettings } from "./settings";
+import { applyLanguage, t } from "@/lib/i18n";
 
 export interface ServerSelf {
   userId: string;
@@ -104,6 +105,8 @@ export interface AppState {
   deviceRemoved: { serverId: string; secret: NewDevice["secret"] } | null;
   setDeviceRemoved(removed: AppState["deviceRemoved"]): void;
   settings: AppSettings;
+  /** The language shown, by its tag, which the interface is drawn again in when it changes (lib/i18n.ts). */
+  language: string;
   windowFocused: boolean;
   /** Whether the person is here (activity.ts): the window has focus, with input in the last 30 s. Only then does a chat on screen count as read. */
   personHere: boolean;
@@ -293,6 +296,7 @@ export const useApp = create<AppState>((set, get) => {
       set({ deviceRemoved });
     },
     settings: loadSettings(),
+    language: "en",
     windowFocused: document.hasFocus(),
     personHere: false,
     jumpTarget: null,
@@ -303,8 +307,12 @@ export const useApp = create<AppState>((set, get) => {
 
     async boot() {
       try {
+        const { tag, catalog } = await applyLanguage(get().settings.language);
+        set({ language: tag });
         const { core } = await platform.bootCore(handleEvent);
         set({ core });
+        // The core words its errors and notifications, and the server's messages, in the same language.
+        await core.client.setLanguage(tag, catalog);
         const entries = await core.client.listServers();
         // All at once, and one that doesn't load leaves the others, saying so, rather than the whole app.
         const loaded = await Promise.allSettled(entries.map(async (entry) => fetchServerState(core.session(entry.id), entry)));
@@ -316,7 +324,7 @@ export const useApp = create<AppState>((set, get) => {
         });
         const order = entries.filter((entry) => servers[entry.id]).map((entry) => entry.id);
         set((state) => ({ servers: { ...state.servers, ...servers }, phase: "ready", order, activeServerId: order[0] ?? null }));
-        for (const entry of failed) get().toast(`${entry.name} couldn't be opened. Reload the page to try again.`, "error");
+        for (const entry of failed) get().toast(t("servers.couldntOpen", { name: entry.name }), "error");
         // What came in while the app was closed counts from the start, not from the next message.
         updateBadge();
       } catch (error) {
@@ -327,7 +335,7 @@ export const useApp = create<AppState>((set, get) => {
     session(serverId) {
       const { core, activeServerId } = get();
       const id = serverId ?? activeServerId;
-      if (!core || !id) throw new Error("No server is selected.");
+      if (!core || !id) throw new Error(t("servers.noneSelected"));
       return core.session(id);
     },
 
@@ -382,7 +390,7 @@ export const useApp = create<AppState>((set, get) => {
 
     saveServerOrder() {
       const { core, order, toast } = get();
-      core?.client.reorderServers(order).catch(() => toast("Couldn't save the order of your servers.", "error"));
+      core?.client.reorderServers(order).catch(() => toast(t("servers.orderNotSaved"), "error"));
     },
 
     selectServer(serverId) {
@@ -457,7 +465,14 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     updateSettings(changes) {
+      const language = changes.language !== undefined && changes.language !== get().settings.language ? changes.language : null;
       set((state) => ({ settings: { ...state.settings, ...changes } }));
+      if (language !== null) {
+        void applyLanguage(language).then(({ tag, catalog }) => {
+          set({ language: tag });
+          void get().core?.client.setLanguage(tag, catalog);
+        });
+      }
     },
 
     refreshConversations,

@@ -18,6 +18,7 @@ import { prepareFile, releaseFiles, type PreparedFile } from "@/lib/media";
 import { activeServerNow, useActiveField, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
 import { RoundPreview } from "./Round";
+import { t, tx } from "@/lib/i18n";
 
 export interface ComposerHandle {
   addFiles(files: File[]): void;
@@ -201,7 +202,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const emoteSuggestion = (emote: ServerEmote): Suggestion => ({
     key: emote.id,
     label: emote.name,
-    hint: emote.owner ? `by ${emote.owner}` : undefined,
+    hint: emote.owner ? t("message.emote.by", { name: emote.owner }) : undefined,
     insert: `${emote.name} `,
     render: <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="reaction" hoverCard={false} />,
   });
@@ -267,7 +268,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     const value = text.trim();
     if (!value && files.length === 0) return;
     if (value.length > MAX_TEXT_LENGTH) {
-      toast("That message is too long. Try sending it as a file.", "error");
+      toast(t("composer.tooLongFile"), "error");
       return;
     }
     if (editing) {
@@ -513,7 +514,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
 
   const context: MessageView | null = editing ?? replyTo;
   const contextName = useActiveField((server) => (context ? server.users[context.senderId]?.displayName : undefined), undefined);
-  const contextSender = context ? (context.senderId === selfId ? "yourself" : (contextName ?? "Unknown")) : "";
+  const contextSelf = !!context && context.senderId === selfId;
+  const contextSender = context && !contextSelf ? (contextName ?? t("chat.unknown")) : "";
   const canSend = !!text.trim() || files.length > 0;
   // Slow mode holds back a new message, and a voice or video message with it, while what's written waits.
   const waiting = slowWait > 0 && !editing;
@@ -550,18 +552,18 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               <span className="grow">
                 {isChannel ? (
                   <span className="composer-context-text">
-                    Replying to <b>{contextSender}</b>
+                    {contextSelf ? t("composer.replyingToYourself") : tx("composer.replyingTo", { name: <b>{contextSender}</b> })}
                   </span>
                 ) : (
                   <>
-                    <span className="composer-context-title">{editing ? "Editing message" : `Replying to ${contextSender}`}</span>
-                    <span className="composer-context-text truncate">{plainText(context.text) || context.attachments[0]?.name || "Attachment"}</span>
+                    <span className="composer-context-title">{editing ? t("composer.editing") : contextSelf ? t("composer.replyingToYourself") : t("composer.replyingTo", { name: contextSender })}</span>
+                    <span className="composer-context-text truncate">{plainText(context.text) || context.attachments[0]?.name || t("message.reply.attachment")}</span>
                   </>
                 )}
               </span>
               <button
                 className="icon-btn is-small"
-                aria-label="Cancel"
+                aria-label={t("common.cancel")}
                 onClick={() => {
                   if (editing) {
                     setEditing(listId, null);
@@ -582,11 +584,11 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
             <div className="composer-context-inner">
               <LinkIcon size={15} />
               <span className="grow">
-                <span className="composer-context-title truncate">{linkPreview.preview?.title ?? linkPreview.preview?.siteName ?? "Loading the link's preview…"}</span>
+                <span className="composer-context-title truncate">{linkPreview.preview?.title ?? linkPreview.preview?.siteName ?? t("composer.linkLoading")}</span>
                 <span className="composer-context-text truncate">{linkPreview.preview?.description ?? linkPreview.url}</span>
               </span>
               {linkPreview.preview?.image && <img className="link-draft-image" src={linkPreview.preview.image.data} alt="" />}
-              <button className="icon-btn is-small" aria-label="Remove the link's preview" onClick={() => setDismissedLink(linkPreview.url)}>
+              <button className="icon-btn is-small" aria-label={t("composer.linkRemove")} onClick={() => setDismissedLink(linkPreview.url)}>
                 <X size={15} />
               </button>
             </div>
@@ -610,7 +612,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 </span>
                 <button
                   className="file-chip-remove"
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t("composer.removeFile", { name: file.name })}
                   onClick={() => {
                     releaseFiles([file]);
                     setFiles((current) => current.filter((_, i) => i !== index));
@@ -626,22 +628,22 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         {round ? (
           <div className="composer-row recording-row">
             <RoundPreview stream={round.recorder.preview} progress={round.elapsed / MAX_ROUND_SECONDS} />
-            <Tooltip text="Delete recording" side="top">
-              <button className="icon-btn" onClick={cancelRound} aria-label="Delete recording">
+            <Tooltip text={t("composer.deleteRecording")} side="top">
+              <button className="icon-btn" onClick={cancelRound} aria-label={t("composer.deleteRecording")}>
                 <Trash2 size={18} />
               </button>
             </Tooltip>
             <span className="recording-dot" />
             <span className="recording-time">{formatDuration(round.elapsed)}</span>
-            <span className="recording-label grow">Recording a video message</span>
-            <button className="send-button is-ready" onClick={() => void sendRound()} aria-label="Send video message">
+            <span className="recording-label grow">{t("composer.recordingRound")}</span>
+            <button className="send-button is-ready" onClick={() => void sendRound()} aria-label={t("composer.sendRound")}>
               <SendHorizontal size={18} />
             </button>
           </div>
         ) : recording ? (
           <div className="composer-row recording-row">
-            <Tooltip text="Delete recording" side="top">
-              <button className="icon-btn" onClick={cancelRecording} aria-label="Delete recording">
+            <Tooltip text={t("composer.deleteRecording")} side="top">
+              <button className="icon-btn" onClick={cancelRecording} aria-label={t("composer.deleteRecording")}>
                 <Trash2 size={18} />
               </button>
             </Tooltip>
@@ -652,7 +654,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 <i key={index} style={{ height: `${Math.max(8, level * 100)}%` }} />
               ))}
             </span>
-            <button className="send-button is-ready" onClick={() => void sendRecording()} aria-label="Send voice message">
+            <button className="send-button is-ready" onClick={() => void sendRecording()} aria-label={t("composer.sendVoice")}>
               <SendHorizontal size={18} />
             </button>
           </div>
@@ -669,14 +671,14 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               }}
             />
             {!editing && (
-              <Tooltip text="Attach" side="top">
+              <Tooltip text={t("composer.attach")} side="top">
                 <button
                   className={`icon-btn${attachAt ? " is-active" : ""}`}
                   onClick={(event) => {
                     const rect = event.currentTarget.getBoundingClientRect();
                     setAttachAt(attachAt ? null : { x: rect.left, y: rect.top - 6 });
                   }}
-                  aria-label="Attach"
+                  aria-label={t("composer.attach")}
                 >
                   {isChannel ? <PlusCircle /> : <Paperclip size={18} />}
                 </button>
@@ -688,8 +690,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 y={attachAt.y}
                 onClose={() => setAttachAt(null)}
                 entries={[
-                  { label: "Photo or file", icon: <FileIcon size={15} />, onSelect: () => fileInput.current?.click() },
-                  { label: "Location", icon: <MapPin size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "share-location", conversationKey: conversation.key }) },
+                  { label: t("composer.attachFile"), icon: <FileIcon size={15} />, onSelect: () => fileInput.current?.click() },
+                  { label: t("location.title"), icon: <MapPin size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "share-location", conversationKey: conversation.key }) },
                 ]}
               />
             )}
@@ -697,20 +699,26 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               ref={input}
               className="composer-input"
               rows={1}
-              placeholder={conversation.peerId && conversation.peerId === selfId ? "Write a note to yourself" : `Message ${isChannel ? "#" : ""}${conversation.title}`}
+              placeholder={
+                conversation.peerId && conversation.peerId === selfId
+                  ? t("composer.placeholderSaved")
+                  : isChannel
+                    ? t("composer.placeholderChannel", { name: conversation.title })
+                    : t("composer.placeholder", { name: conversation.title })
+              }
               value={text}
               onChange={onInput}
               onKeyDown={onKeyDown}
               onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
               onClick={(event) => setCaret(event.currentTarget.selectionStart)}
               onPaste={onPaste}
-              aria-label="Message"
+              aria-label={t("composer.label")}
               spellCheck
             />
-            <Tooltip text="Emoji and emotes" side="top">
+            <Tooltip text={t("composer.emoji")} side="top">
               <button
                 className={`icon-btn${pickerAt ? " is-active" : ""}`}
-                aria-label="Emoji and emotes"
+                aria-label={t("composer.emoji")}
                 onClick={(event) => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   setPickerAt(pickerAt ? null : { x: rect.right - 330, y: rect.top });
@@ -720,24 +728,24 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               </button>
             </Tooltip>
             {!canSend && !editing && !waiting && (
-              <Tooltip text="Record a video message" side="top">
-                <button className="icon-btn" onClick={() => void startRound()} aria-label="Record a video message">
+              <Tooltip text={t("composer.recordRound")} side="top">
+                <button className="icon-btn" onClick={() => void startRound()} aria-label={t("composer.recordRound")}>
                   <Video size={18} />
                 </button>
               </Tooltip>
             )}
             {waiting ? (
-              <span className="send-button is-waiting" role="timer" aria-label={`Slow mode: you can send again in ${waitText(slowWait)}`}>
+              <span className="send-button is-waiting" role="timer" aria-label={t("composer.slowWait", { time: waitText(slowWait) })}>
                 {waitText(slowWait)}
               </span>
             ) : !canSend && !editing ? (
-              <Tooltip text="Record a voice message" side="top">
-                <button className="send-button is-ready" onClick={() => void startRecording()} aria-label="Record a voice message">
+              <Tooltip text={t("composer.recordVoice")} side="top">
+                <button className="send-button is-ready" onClick={() => void startRecording()} aria-label={t("composer.recordVoice")}>
                   <Mic size={18} />
                 </button>
               </Tooltip>
             ) : (
-              <button className={`send-button${canSend ? " is-ready" : ""}`} disabled={!canSend} onClick={send} aria-label={editing ? "Save edit" : "Send"}>
+              <button className={`send-button${canSend ? " is-ready" : ""}`} disabled={!canSend} onClick={send} aria-label={editing ? t("composer.saveEdit") : t("composer.send")}>
                 {editing ? <Check size={18} /> : <SendHorizontal size={18} />}
               </button>
             )}

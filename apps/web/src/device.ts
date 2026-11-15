@@ -1,6 +1,8 @@
 // This browser's device key. Browsers have no keychain a page can use, so it sits
 // in IndexedDB, and the Security screen says what that means.
 
+import { t } from "@/lib/i18n";
+
 const DATABASE = "zuna";
 const STORE = "device";
 const KEY = "key";
@@ -12,7 +14,7 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DATABASE, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("This browser's storage isn't available."));
+    request.onerror = () => reject(request.error ?? new Error(t("startup.storageUnavailable")));
   });
 }
 
@@ -38,8 +40,8 @@ export async function loadDeviceKey(): Promise<{ key: Uint8Array; created: boole
         }
       };
       transaction.oncomplete = () => resolve({ key, created });
-      transaction.onerror = () => reject(transaction.error ?? new Error("This browser's storage isn't available."));
-      transaction.onabort = () => reject(transaction.error ?? new Error("This browser's storage isn't available."));
+      transaction.onerror = () => reject(transaction.error ?? new Error(t("startup.storageUnavailable")));
+      transaction.onabort = () => reject(transaction.error ?? new Error(t("startup.storageUnavailable")));
     });
   } finally {
     db.close();

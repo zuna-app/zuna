@@ -3,6 +3,7 @@
 import type { AvatarRef, Attachment, MessageView } from "@zuna/core";
 import { useEffect, useState } from "react";
 import { useApp } from "@/state/store";
+import { t } from "@/lib/i18n";
 
 /**
  * What a decrypted file is kept by: its server, its ID and the key it was opened with. A message
@@ -105,7 +106,7 @@ function takeFrame(url: string): Promise<string> {
       video.removeAttribute("src");
       video.load();
       if (frame) resolve(frame);
-      else reject(new Error("That video couldn't be read."));
+      else reject(new Error(t("media.videoUnreadable")));
     };
     const timer = setTimeout(finish, 10_000);
     video.preload = "auto";
@@ -190,10 +191,10 @@ function fetchRemoteImage(address: string): Promise<string> {
     return cached;
   }
   const pending = fetch(address, { credentials: "omit", referrerPolicy: "no-referrer" }).then(async (response) => {
-    if (!response.ok) throw new Error("That picture isn't available.");
+    if (!response.ok) throw new Error(t("media.pictureUnavailable"));
     const blob = await response.blob();
     // Only pictures, whatever the address gives back.
-    if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") throw new Error("That isn't a picture.");
+    if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") throw new Error(t("media.notAPicture"));
     const url = URL.createObjectURL(blob);
     remoteReady.set(address, url);
     return url;
@@ -309,7 +310,7 @@ function loadImage(blob: Blob): Promise<HTMLImageElement> {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("That image couldn't be read."));
+      reject(new Error(t("media.imageUnreadable")));
     };
     image.src = url;
   });
@@ -345,7 +346,7 @@ export async function prepareAvatar(file: Blob, size = 256): Promise<Blob> {
     size,
   );
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("That image couldn't be processed."))), "image/webp", 0.9);
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error(t("media.imageUnprocessable")))), "image/webp", 0.9);
   });
 }
 

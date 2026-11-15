@@ -20,6 +20,7 @@ import { useEscape } from "@/lib/escape";
 import { refocusComposer } from "@/lib/focus";
 import { useDecryptedUrl, useRemoteImage } from "@/lib/media";
 import { useApp } from "@/state/store";
+import { t } from "@/lib/i18n";
 
 /** The motion used everywhere: quick, with no bounce. */
 export const quick = { duration: 0.12, ease: [0.2, 0, 0, 1] } as const;
@@ -112,7 +113,7 @@ export function PasswordField({ label, hint, error, ...input }: { label?: string
       error={error}
       type={visible ? "text" : "password"}
       suffix={
-        <button type="button" className="icon-btn is-small" tabIndex={-1} onClick={() => setVisible(!visible)} aria-label={visible ? "Hide password" : "Show password"}>
+        <button type="button" className="icon-btn is-small" tabIndex={-1} onClick={() => setVisible(!visible)} aria-label={visible ? t("common.hidePassword") : t("common.showPassword")}>
           {visible ? <EyeOff size={15} /> : <Eye size={15} />}
         </button>
       }
@@ -127,14 +128,14 @@ export function PasswordField({ label, hint, error, ...input }: { label?: string
  */
 export function ConfirmPasswordField({
   password,
-  label = "Confirm password",
+  label,
   ...input
 }: { password: string; value: string; label?: string } & InputHTMLAttributes<HTMLInputElement>) {
   return (
     <PasswordField
-      label={label}
+      label={label ?? t("common.confirmPassword")}
       autoComplete="new-password"
-      error={input.value && !password.startsWith(input.value) ? "The passwords don't match." : null}
+      error={input.value && !password.startsWith(input.value) ? t("common.passwordsDontMatch") : null}
       {...input}
     />
   );
@@ -142,7 +143,7 @@ export function ConfirmPasswordField({
 
 /** Marks a bot, wherever its name shows: an account a program runs, which reads the chats it's in. */
 export function BotBadge() {
-  return <span className="bot-badge">Bot</span>;
+  return <span className="bot-badge">{t("bots.badge")}</span>;
 }
 
 export function Switch({ on, onChange, label }: { on: boolean; onChange: (value: boolean) => void; label?: string }) {
@@ -206,7 +207,7 @@ export function Modal({
           <>
             <div className="modal-head">
               <h2>{title}</h2>
-              <button className="icon-btn is-small" onClick={onClose} aria-label="Close">
+              <button className="icon-btn is-small" onClick={onClose} aria-label={t("common.close")}>
                 <X size={16} />
               </button>
             </div>
@@ -247,7 +248,7 @@ export function Confirm({
       width={width}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
+          <button className="btn btn-ghost" onClick={onCancel} autoFocus>{t("common.cancel")}</button>
           <button className={`btn btn-${kind}`} onClick={onConfirm}>{action}</button>
         </>
       }
@@ -414,7 +415,13 @@ export function Tooltip({ text, children, side = "bottom" }: { text: string; chi
 export function ConnectionStatus() {
   const connection = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId]?.connection : undefined));
   const status =
-    connection === "connecting" ? "Connecting" : connection === "offline" ? "Waiting for network" : connection === "syncing" ? "Updating" : null;
+    connection === "connecting"
+      ? t("servers.connection.connecting")
+      : connection === "offline"
+        ? t("servers.connection.offline")
+        : connection === "syncing"
+          ? t("servers.connection.syncing")
+          : null;
   if (!status) return null;
   return (
     <span className="connection-status" role="status">

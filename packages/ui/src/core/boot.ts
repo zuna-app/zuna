@@ -4,6 +4,7 @@ import { allowLocalLinks } from "@zuna/core/links";
 import { connectCore } from "@zuna/core/rpc";
 import type { CoreEvent } from "@zuna/core";
 import type { BootResult } from "@/platform";
+import { t } from "@/lib/i18n";
 
 export interface DeviceInfo {
   key: Uint8Array;
@@ -16,7 +17,7 @@ export function connectWorker(worker: Worker, device: DeviceInfo, onEvent: (even
   return new Promise((resolve, reject) => {
     // The message box finds links here, and the core fetches them in the worker.
     allowLocalLinks(device.localLinks);
-    worker.onerror = (event) => reject(new Error(event.message || "The encryption engine failed to start."));
+    worker.onerror = (event) => reject(new Error(event.message || t("startup.engineFailed")));
     const core = connectCore(
       {
         postMessage: (message) => worker.postMessage(message),
@@ -26,7 +27,7 @@ export function connectWorker(worker: Worker, device: DeviceInfo, onEvent: (even
             if (data.kind === "booted") {
               resolve({ core });
             } else if (data.kind === "boot_failed") {
-              reject(new Error(data.message ?? "The encryption engine failed to start."));
+              reject(new Error(data.message ?? t("startup.engineFailed")));
             } else {
               handler?.(event);
             }

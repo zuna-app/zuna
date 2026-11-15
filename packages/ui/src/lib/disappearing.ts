@@ -3,33 +3,35 @@
 
 import { DISAPPEARING_TIMES } from "@zuna/core";
 import type { MenuEntry } from "@/components/ui";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
-const UNITS: [seconds: number, name: string][] = [
-  [30 * 86400, "month"],
-  [7 * 86400, "week"],
-  [86400, "day"],
-  [3600, "hour"],
-  [60, "minute"],
-  [1, "second"],
+const UNITS: [seconds: number, name: MessageKey][] = [
+  [30 * 86400, mark("date.duration.months")],
+  [7 * 86400, mark("date.duration.weeks")],
+  [86400, mark("date.duration.days")],
+  [3600, mark("date.duration.hours")],
+  [60, mark("date.duration.minutes")],
+  [1, mark("date.duration.seconds")],
 ];
 
 /** "1 day", "2 weeks", or "Off" for 0. */
 export function timerText(seconds: number): string {
-  if (seconds <= 0) return "Off";
+  if (seconds <= 0) return t("common.off");
   const [size, name] = UNITS.find(([size]) => seconds % size === 0)!;
   const count = seconds / size;
-  return `${count} ${name}${count === 1 ? "" : "s"}`;
+  return t(name, { count });
 }
 
-/** What a chat's line says when someone changes how long its messages last. */
-export function timerChangeText(who: string, seconds: number): string {
-  return seconds > 0 ? `${who} set messages to disappear after ${timerText(seconds)}` : `${who} turned off disappearing messages`;
+/** What a chat's line says when someone changes how long its messages last, or `self` did. */
+export function timerChangeText(who: string, seconds: number, self = false): string {
+  if (self) return seconds > 0 ? t("message.system.youSetTimer", { time: timerText(seconds) }) : t("message.system.youTurnedOffTimer");
+  return seconds > 0 ? t("message.system.timerSet", { name: who, time: timerText(seconds) }) : t("message.system.timerOff", { name: who });
 }
 
 /** The choices of how long messages last, the current one marked. */
 export function timerEntries(current: number, set: (seconds: number) => void): MenuEntry[] {
   return [0, ...DISAPPEARING_TIMES].map((seconds) => ({
-    label: `${seconds === current ? "✓ " : ""}${seconds === 0 ? "Off" : timerText(seconds)}`,
+    label: `${seconds === current ? "✓ " : ""}${timerText(seconds)}`,
     onSelect: () => set(seconds),
   }));
 }

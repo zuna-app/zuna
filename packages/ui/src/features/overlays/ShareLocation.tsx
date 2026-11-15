@@ -2,6 +2,7 @@ import type { SharedLocation } from "@zuna/core";
 import { MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Modal, Spinner, useAction } from "@/components/ui";
+import { t } from "@/lib/i18n";
 import { accuracyText, coordinatesText, locate } from "@/lib/location";
 import { useApp } from "@/state/store";
 
@@ -34,17 +35,17 @@ export function ShareLocation({ conversationKey, onClose }: { conversationKey: s
 
   return (
     <Modal
-      title="Share location"
+      title={t("location.share.title")}
       onClose={onClose}
       width={400}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t("common.cancel")}</button>
           {error ? (
-            <button className="btn btn-primary" onClick={() => setAttempt((count) => count + 1)}>Try again</button>
+            <button className="btn btn-primary" onClick={() => setAttempt((count) => count + 1)}>{t("common.tryAgain")}</button>
           ) : (
             <button className="btn btn-primary" disabled={!found || busy} onClick={() => void send()}>
-              {busy ? <Spinner /> : "Send location"}
+              {busy ? <Spinner /> : t("location.share.send")}
             </button>
           )}
         </>
@@ -56,7 +57,7 @@ export function ShareLocation({ conversationKey, onClose }: { conversationKey: s
         </span>
         {found ? (
           <span className="location-text">
-            <b>Your current location</b>
+            <b>{t("location.share.current")}</b>
             <span className="selectable">{coordinatesText(found)}</span>
             {found.accuracy !== undefined && <span className="faint">{accuracyText(found.accuracy)}</span>}
           </span>
@@ -65,14 +66,12 @@ export function ShareLocation({ conversationKey, onClose }: { conversationKey: s
         ) : (
           <span className="location-text">
             <span className="row" style={{ gap: 8 }}>
-              <Spinner size={14} /> Finding where you are…
+              <Spinner size={14} /> {t("location.share.finding")}
             </span>
           </span>
         )}
       </div>
-      <p className="faint" style={{ fontSize: 12.5 }}>
-        It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.
-      </p>
+      <p className="faint" style={{ fontSize: 12.5 }}>{t("location.share.note")}</p>
     </Modal>
   );
 }

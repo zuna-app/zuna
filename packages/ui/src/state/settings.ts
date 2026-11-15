@@ -18,6 +18,8 @@ export interface AppSettings {
   playYouTube: boolean;
   /** How fast voice messages play, the same for all of them, as in Telegram. */
   voiceSpeed: VoiceSpeed;
+  /** The language the app is shown in, by its tag, or "system" for the browser's (lib/i18n.ts). */
+  language: string;
 }
 
 export const VOICE_SPEEDS = [1, 1.5, 2] as const;
@@ -37,6 +39,7 @@ const DEFAULTS: AppSettings = {
   removeMetadata: true,
   playYouTube: false,
   voiceSpeed: 1,
+  language: "system",
 };
 
 export function loadSettings(): AppSettings {

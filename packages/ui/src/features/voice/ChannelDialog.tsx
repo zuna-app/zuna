@@ -3,20 +3,21 @@ import { Hash, Trash2, Volume2 } from "lucide-react";
 import { useState } from "react";
 import { Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
 import { timerText } from "@/lib/disappearing";
+import { mark, t, tx, type MessageKey } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 
-const AUDIO_QUALITIES = [
-  { kbps: 0, label: "Standard (64 kbit/s)" },
-  { kbps: 96, label: "Better (96 kbit/s)" },
-  { kbps: 128, label: "Great (128 kbit/s)" },
-  { kbps: 256, label: "Best (256 kbit/s)" },
+const AUDIO_QUALITIES: { kbps: number; label: MessageKey }[] = [
+  { kbps: 0, label: mark("channels.audio.standard") },
+  { kbps: 96, label: mark("channels.audio.better") },
+  { kbps: 128, label: mark("channels.audio.great") },
+  { kbps: 256, label: mark("channels.audio.best") },
 ];
 
-const SCREEN_LIMITS = [
-  { limit: 0, label: "Server default" },
-  { limit: -1, label: "Off" },
-  ...[1, 2, 3, 4, 5, 10].map((limit) => ({ limit, label: limit === 1 ? "1 at a time" : `Up to ${limit} at once` })),
-];
+const SCREEN_LIMITS = [0, -1, 1, 2, 3, 4, 5, 10];
+
+/** What a limit on screen shares is called: the server's, none at all, or how many at once. */
+const screenLimitName = (limit: number): string =>
+  limit === 0 ? t("channels.dialog.screenDefault") : limit === -1 ? t("common.off") : limit === 1 ? t("channels.dialog.screenOne") : t("channels.screen.upTo", { count: limit });
 
 /** Text channels go by lowercase names with dashes, as in Discord, which also keeps them easy to mention. */
 const textChannelName = (name: string): string => name.toLowerCase().replace(/\s+/g, "-").replace(/-{2,}/g, "-");
@@ -59,7 +60,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
 
   const remove = () =>
     run(async () => {
-      if (!channel || !window.confirm(`Delete ${channel.name}? Its messages will be deleted for everyone.`)) return;
+      if (!channel || !window.confirm(t("channels.deleteWarning", { name: channel.name }))) return;
       await session().deleteChannel(channel.id);
       if (server?.activeKey === channel.key) selectConversation(null);
       onClose();
@@ -67,60 +68,60 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
 
   return (
     <Modal
-      title={channel ? "Edit channel" : "New channel"}
+      title={channel ? t("channels.edit") : t("channels.new")}
       onClose={onClose}
       width={460}
       footer={
         <>
           {channel && (
             <button className="btn btn-danger" disabled={busy} onClick={() => void remove()} style={{ marginRight: "auto" }}>
-              <Trash2 size={14} /> Delete
+              <Trash2 size={14} /> {t("common.delete")}
             </button>
           )}
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button className="btn btn-primary" disabled={busy || !finalName} onClick={() => void save()}>
-            {busy ? <Spinner size={15} /> : channel ? "Save" : "Create channel"}
+            {busy ? <Spinner size={15} /> : channel ? t("common.save") : t("channels.form.create")}
           </button>
         </>
       }
     >
       {!channel && (
         <div className="field">
-          <span className="field-label">Type</span>
+          <span className="field-label">{t("channels.form.type")}</span>
           <div className="channel-types">
             <button className={type === "text" ? "is-active" : ""} onClick={() => setType("text")} aria-pressed={type === "text"}>
               <Hash size={18} />
               <span>
-                <b>Text</b>
-                <span>Messages, pictures and files</span>
+                <b>{t("channels.form.text")}</b>
+                <span>{t("channels.form.textHint")}</span>
               </span>
             </button>
             <button className={type === "voice" ? "is-active" : ""} onClick={() => setType("voice")} aria-pressed={type === "voice"}>
               <Volume2 size={18} />
               <span>
-                <b>Voice</b>
-                <span>Talk, and share your camera or screen</span>
+                <b>{t("channels.form.voice")}</b>
+                <span>{t("channels.form.voiceHint")}</span>
               </span>
             </button>
           </div>
         </div>
       )}
-      {type === "voice" && !voiceReady && <p className="channel-voice-note">This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).</p>}
+      {type === "voice" && !voiceReady && <p className="channel-voice-note">{t("channels.noMediaServer")}</p>}
       <Field
-        label="Name"
+        label={t("common.name")}
         autoFocus
         maxLength={100}
         value={type === "text" ? textChannelName(name) : name}
-        placeholder={type === "text" ? "new-channel" : "Lounge"}
+        placeholder={type === "text" ? t("channels.dialog.textPlaceholder") : t("channels.dialog.voicePlaceholder")}
         onChange={(event) => setName(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && finalName && !busy) void save();
         }}
       />
-      <Field label="Topic" maxLength={1024} value={topic} placeholder="What it's for" onChange={(event) => setTopic(event.target.value)} />
-      <Field label="Heading" list="channel-categories" maxLength={100} value={category} placeholder={type === "text" ? "Text channels" : "Voice channels"} onChange={(event) => setCategory(event.target.value)} />
+      <Field label={t("channels.form.topic")} maxLength={1024} value={topic} placeholder={t("channels.form.topicPlaceholder")} onChange={(event) => setTopic(event.target.value)} />
+      <Field label={t("channels.form.heading")} list="channel-categories" maxLength={100} value={category} placeholder={type === "text" ? t("channels.textChannels") : t("channels.voiceChannels")} onChange={(event) => setCategory(event.target.value)} />
       <datalist id="channel-categories">
         {categories.map((item) => (
           <option key={item} value={item} />
@@ -128,22 +129,22 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       </datalist>
       <div className="field channel-switch">
         <span className="grow">
-          <span className="field-label">Admins only</span>
-          <span className="setting-hint">{adminOnly && channel && !channel.adminOnly ? "Only admins will see it. Anyone else in it now is taken out." : "Only admins can see it and join it."}</span>
+          <span className="field-label">{t("channels.adminsOnly")}</span>
+          <span className="setting-hint">{adminOnly && channel && !channel.adminOnly ? t("channels.editor.adminOnlyNow") : t("channels.form.adminOnlyHint")}</span>
         </span>
-        <Switch on={adminOnly} onChange={setAdminOnly} label="Admins only" />
+        <Switch on={adminOnly} onChange={setAdminOnly} label={t("channels.adminsOnly")} />
       </div>
       <div className="field channel-switch">
         <span className="grow">
-          <span className="field-label">Slow mode</span>
-          <span className="setting-hint">Everyone except admins has to wait between messages.</span>
+          <span className="field-label">{t("channels.form.slowMode")}</span>
+          <span className="setting-hint">{t("channels.form.slowModeHint")}</span>
         </span>
-        <Switch on={slowOn} onChange={setSlowOn} label="Slow mode" />
+        <Switch on={slowOn} onChange={setSlowOn} label={t("channels.form.slowMode")} />
       </div>
       {slowOn && (
         <div className="field">
-          <span className="field-label">Time between messages</span>
-          <select className="select" value={slowMode} onChange={(event) => setSlowMode(Number(event.target.value))} aria-label="Time between messages">
+          <span className="field-label">{t("channels.form.slowModeTime")}</span>
+          <select className="select" value={slowMode} onChange={(event) => setSlowMode(Number(event.target.value))} aria-label={t("channels.form.slowModeTime")}>
             {[...SLOW_MODE_TIMES, ...(SLOW_MODE_TIMES.includes(slowMode) ? [] : [slowMode])].map((seconds) => (
               <option key={seconds} value={seconds}>
                 {timerText(seconds)}
@@ -155,49 +156,47 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       {type === "voice" && (
         <>
           <div className="field">
-            <span className="field-label">Audio quality</span>
+            <span className="field-label">{t("channels.form.audioQuality")}</span>
             <select className="select" value={bitrate} onChange={(event) => setBitrate(Number(event.target.value))}>
               {AUDIO_QUALITIES.map((quality) => (
                 <option key={quality.kbps} value={quality.kbps}>
-                  {quality.label}
+                  {t(quality.label)}
                 </option>
               ))}
             </select>
           </div>
           <label className="field">
-            <span className="field-label">
-              Max people: <b style={{ fontWeight: 500 }}>{userLimit === 0 ? "no limit" : userLimit}</b>
-            </span>
+            <span className="field-label">{tx("channels.dialog.maxPeople", { value: <b style={{ fontWeight: 500 }}>{userLimit === 0 ? t("channels.form.noLimit") : userLimit}</b> })}</span>
             <input className="voice-slider" type="range" min={0} max={99} value={userLimit} onChange={(event) => setUserLimit(Number(event.target.value))} />
           </label>
           <div className="field">
-            <span className="field-label">Screen sharing</span>
-            <select className="select" value={screenLimit} onChange={(event) => setScreenLimit(Number(event.target.value))} aria-label="Screen sharing in this channel">
-              {[...SCREEN_LIMITS, ...(SCREEN_LIMITS.some((item) => item.limit === screenLimit) ? [] : [{ limit: screenLimit, label: `Up to ${screenLimit} at once` }])].map((item) => (
-                <option key={item.limit} value={item.limit}>
-                  {item.label}
+            <span className="field-label">{t("channels.form.screenSharing")}</span>
+            <select className="select" value={screenLimit} onChange={(event) => setScreenLimit(Number(event.target.value))} aria-label={t("channels.dialog.screenSharingLabel")}>
+              {[...SCREEN_LIMITS, ...(SCREEN_LIMITS.includes(screenLimit) ? [] : [screenLimit])].map((limit) => (
+                <option key={limit} value={limit}>
+                  {screenLimitName(limit)}
                 </option>
               ))}
             </select>
           </div>
           <div className="field channel-switch">
             <span className="grow">
-              <span className="field-label">Soundboard</span>
-              <span className="setting-hint">Anyone in the channel can play the server's sounds to everyone there.</span>
+              <span className="field-label">{t("channels.form.soundboard")}</span>
+              <span className="setting-hint">{t("channels.form.soundboardHint")}</span>
             </span>
-            <Switch on={sounds} onChange={setSounds} label="Soundboard in this channel" />
+            <Switch on={sounds} onChange={setSounds} label={t("channels.dialog.soundboardLabel")} />
           </div>
           <div className="field channel-switch">
             <span className="grow">
-              <span className="field-label">Watch together</span>
-              <span className="setting-hint">Anyone in the channel can start a YouTube video for everyone. It only plays for people who press Watch.</span>
+              <span className="field-label">{t("channels.form.watch")}</span>
+              <span className="setting-hint">{t("channels.form.watchHint")}</span>
             </span>
-            <Switch on={watch} onChange={setWatch} label="Watching together in this channel" />
+            <Switch on={watch} onChange={setWatch} label={t("channels.dialog.watchLabel")} />
           </div>
         </>
       )}
       <p className="channel-note">
-        {adminOnly ? "Only the server's admins can see and join this channel." : "Everyone on this server can see and join channels."} The name and everything said are end-to-end encrypted, so the server can't read them.
+        {adminOnly ? t("channels.dialog.noteAdmins") : t("channels.dialog.noteEveryone")} {t("channels.dialog.noteEncrypted")}
       </p>
     </Modal>
   );

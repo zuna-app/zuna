@@ -13,6 +13,7 @@ import { RoundAttachment } from "./Round";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { VOICE_SPEEDS } from "@/state/settings";
 import { useApp } from "@/state/store";
+import { t } from "@/lib/i18n";
 
 function ImageAttachment({ attachment, message, serverId, single, uploadProgress }: { attachment: Attachment; message: MessageView; serverId: string; single: boolean; uploadProgress?: number }) {
   const uploading = !attachment.fileId;
@@ -35,7 +36,7 @@ function ImageAttachment({ attachment, message, serverId, single, uploadProgress
         const loaded = state.lists[message.groupId]?.items ?? [message];
         setOverlay({ type: "image", serverId, ...picturesAmong(loaded, attachment, state.servers[serverId]?.prefs.blocked) });
       }}
-      aria-label={wanted ? `Open ${attachment.name}` : `Load ${attachment.name}, ${formatBytes(attachment.size)}`}
+      aria-label={wanted ? t("message.attachment.open", { name: attachment.name }) : t("message.attachment.load", { name: attachment.name, size: formatBytes(attachment.size) })}
     >
       {attachment.thumb && <img className={`media-thumb${url ? " is-hidden" : ""}`} src={attachment.thumb} alt="" draggable={false} />}
       {url && <img className="media-full" src={url} alt={attachment.name} draggable={false} />}
@@ -59,7 +60,7 @@ function ImageAttachment({ attachment, message, serverId, single, uploadProgress
 function UploadRing({ progress }: { progress: number }) {
   const circumference = 2 * Math.PI * 14;
   return (
-    <svg width="36" height="36" viewBox="0 0 36 36" className="upload-ring" aria-label={`Uploading ${Math.round(progress * 100)}%`}>
+    <svg width="36" height="36" viewBox="0 0 36 36" className="upload-ring" aria-label={t("message.attachment.uploadingPercent", { percent: Math.round(progress * 100) })}>
       <circle cx="18" cy="18" r="14" fill="rgba(0,0,0,.45)" stroke="rgba(255,255,255,.2)" strokeWidth="2.5" />
       <circle
         className="upload-ring-done"
@@ -93,13 +94,13 @@ function fileProgress(message: MessageView, attachment: Attachment): number {
 /** A thin bar under a file's name while it goes up, as in Telegram. */
 function UploadBar({ progress }: { progress: number }) {
   return (
-    <span className="upload-bar" role="progressbar" aria-label="Uploading" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+    <span className="upload-bar" role="progressbar" aria-label={t("message.attachment.uploading")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
       <span style={{ transform: `scaleX(${progress})` }} />
     </span>
   );
 }
 
-const uploadedOf = (attachment: Attachment, progress: number) => `${formatBytes(attachment.size * progress)} of ${formatBytes(attachment.size)}`;
+const uploadedOf = (attachment: Attachment, progress: number) => t("message.attachment.uploadedOf", { done: formatBytes(attachment.size * progress), total: formatBytes(attachment.size) });
 
 /**
  * A video, with its picture straight away: the frame the sender's device took,
@@ -127,7 +128,7 @@ function VideoAttachment({ attachment, serverId, uploadProgress }: { attachment:
         ) : load ? (
           <Spinner delayed />
         ) : (
-          <button className="media-load" onClick={() => setLoad(true)} aria-label={`Load ${attachment.name}, ${formatBytes(attachment.size)}`}>
+          <button className="media-load" onClick={() => setLoad(true)} aria-label={t("message.attachment.load", { name: attachment.name, size: formatBytes(attachment.size) })}>
             <Download size={15} /> {formatBytes(attachment.size)}
           </button>
         )}
@@ -136,7 +137,7 @@ function VideoAttachment({ attachment, serverId, uploadProgress }: { attachment:
         {uploading
           ? uploadedOf(attachment, uploadProgress ?? 0)
           : failed
-            ? "Couldn't load"
+            ? t("message.attachment.couldntLoad")
             : attachment.duration
               ? formatDuration(attachment.duration)
               : ""}
@@ -158,7 +159,7 @@ export function AudioAttachment({ attachment, serverId, uploadProgress }: { atta
         <span className="file-name truncate">{attachment.name}</span>
         {uploading && <UploadBar progress={uploadProgress ?? 0} />}
         <span className="file-size">
-          {uploading ? uploadedOf(attachment, uploadProgress ?? 0) : failed ? "Couldn't load" : formatBytes(attachment.size)}
+          {uploading ? uploadedOf(attachment, uploadProgress ?? 0) : failed ? t("message.attachment.couldntLoad") : formatBytes(attachment.size)}
           {!uploading && attachment.duration ? ` · ${formatDuration(attachment.duration)}` : ""}
         </span>
       </span>
@@ -237,7 +238,7 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
   const progress = duration ? position / duration : 0;
   return (
     <div className={`voice${own ? " is-own" : ""}`}>
-      <button className="voice-play" onClick={toggle} disabled={uploading || failed} aria-label={playing ? "Pause" : "Play voice message"}>
+      <button className="voice-play" onClick={toggle} disabled={uploading || failed} aria-label={playing ? t("message.voice.pause") : t("message.voice.play")}>
         {uploading ? (
           <UploadRing progress={uploadProgress ?? 0} />
         ) : load && !url && !failed ? (
@@ -251,7 +252,7 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
         )}
       </button>
       <span className="voice-body">
-        <span className="voice-wave" onClick={seek} role="slider" aria-label="Position" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(position)}>
+        <span className="voice-wave" onClick={seek} role="slider" aria-label={t("message.voice.position")} aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(position)}>
           {bars.map((height, index) => (
             <i key={index} className={index / bars.length < progress ? "is-played" : ""} style={{ height: `${Math.max(12, height * 100)}%` }} />
           ))}
@@ -262,8 +263,8 @@ export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: {
             <button
               className="voice-speed"
               onClick={() => updateSettings({ voiceSpeed: VOICE_SPEEDS[(VOICE_SPEEDS.indexOf(speed) + 1) % VOICE_SPEEDS.length] })}
-              aria-label={`Playback speed, ${speed} times`}
-              title="Playback speed"
+              aria-label={t("message.voice.speedLabel", { speed })}
+              title={t("message.voice.speed")}
             >
               {speed}×
             </button>
@@ -343,12 +344,12 @@ export function LinkCard({ preview }: { preview: LinkPreview }) {
  */
 export function LocationCard({ location }: { location: SharedLocation }) {
   return (
-    <a className="location-card" href={mapLink(location)} target="_blank" rel="noreferrer noopener" title="Open on OpenStreetMap" draggable={false}>
+    <a className="location-card" href={mapLink(location)} target="_blank" rel="noreferrer noopener" title={t("location.openMap")} draggable={false}>
       <span className="location-pin">
         <MapPin size={20} />
       </span>
       <span className="location-text">
-        <b>Location</b>
+        <b>{t("location.title")}</b>
         <span>{coordinatesText(location)}</span>
         {location.accuracy !== undefined && <span className="location-accuracy">{accuracyText(location.accuracy)}</span>}
       </span>

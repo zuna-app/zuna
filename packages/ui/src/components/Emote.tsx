@@ -3,6 +3,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRemoteImage } from "@/lib/media";
 import { useApp } from "@/state/store";
+import { t } from "@/lib/i18n";
 
 interface EmoteProps {
   name: string;
@@ -45,7 +46,7 @@ function EmoteCard({ anchor, name, emote, serverUrl, note }: { anchor: DOMRect; 
       {url ? <img src={url} alt="" /> : <span className="emote-card-blank" />}
       <div>
         <b>{name}</b>
-        {owner && <span>by {owner}</span>}
+        {owner && <span>{t("message.emote.by", { name: owner })}</span>}
         {note && <em>{note}</em>}
       </div>
     </div>,

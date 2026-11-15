@@ -3,6 +3,7 @@
 // unless that window is open.
 
 import { Track, type LocalTrack, type RemoteTrack, type RemoteTrackPublication, type TrackPublication } from "livekit-client";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
 export interface StatRow {
   label: string;
@@ -116,7 +117,7 @@ const lossOf = (lost: number | null, received: number | null): number | null => 
   return gone + received > 0 ? gone / (gone + received) : null;
 };
 
-const hardware = (efficient: unknown) => (efficient === true ? "hardware" : efficient === false ? "software" : null);
+const hardware = (efficient: unknown) => (efficient === true ? t("voice.stats.hardware") : efficient === false ? t("voice.stats.software") : null);
 /** Hardware decoders report nothing here, which comes through as zero. */
 const quantizer = (value: number | null) => (value ? value.toFixed(1) : null);
 const joined = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ");
@@ -136,19 +137,19 @@ function whyInSoftware(report: RTCStatsReport, rtp: Stat): string | null {
   if (!navigator.userAgent.includes("Macintosh") || text(rtp, "encoderImplementation") !== "OpenH264") return null;
   const codec = report.get(text(rtp, "codecId") ?? "") as Stat | undefined;
   if (!text(codec, "sdpFmtpLine")?.includes("profile-level-id=42e01f")) return null;
-  return "This server's LiveKit doesn't take H.264's Baseline profile, the one a Mac encodes on its graphics card. Updating the server fixes it.";
+  return t("voice.stats.whyInSoftwareMac");
 }
 
-const SOURCE_NAMES: Record<string, [mine: string, theirs: string]> = {
-  [Track.Source.Microphone]: ["Your microphone", "microphone"],
-  [Track.Source.Camera]: ["Your camera", "camera"],
-  [Track.Source.ScreenShare]: ["Your screen", "screen"],
-  [Track.Source.ScreenShareAudio]: ["Your computer's sound", "shared sound"],
+const SOURCE_NAMES: Record<string, [mine: MessageKey, theirs: MessageKey]> = {
+  [Track.Source.Microphone]: [mark("voice.stats.yourMicrophone"), mark("voice.stats.theirMicrophone")],
+  [Track.Source.Camera]: [mark("voice.stats.yourCamera"), mark("voice.stats.theirCamera")],
+  [Track.Source.ScreenShare]: [mark("voice.stage.yourScreen"), mark("voice.stage.theirScreen")],
+  [Track.Source.ScreenShareAudio]: [mark("voice.stats.yourSound"), mark("voice.stats.theirSound")],
 };
 
 function titleOf(stream: StatsStream, nameOf: (userId: string) => string): string {
-  const [mine, theirs] = SOURCE_NAMES[stream.source] ?? ["Your stream", "stream"];
-  return stream.local ? mine : `${nameOf(stream.userId)}'s ${theirs}`;
+  const [mine, theirs] = SOURCE_NAMES[stream.source] ?? [mark("voice.stats.yourStream"), mark("voice.stats.theirStream")];
+  return stream.local ? t(mine) : t(theirs, { name: nameOf(stream.userId) });
 }
 
 /** Reads every stream once a second, while there's someone to look at it. */
@@ -218,7 +219,7 @@ export class StreamStats {
   // --- The connection ---
 
   /** How one direction's packets travel. This device's own address is left out, for pasting this somewhere. */
-  private path(report: RTCStatsReport | undefined, word: string, allows: string): StatRow[] {
+  private path(report: RTCStatsReport | undefined, sending: boolean, allows: string): StatRow[] {
     if (!report) return [];
     const all = [...report.values()] as Stat[];
     const transport = all.find((stat) => stat.type === "transport");
@@ -228,14 +229,15 @@ export class StreamStats {
     // Browsers don't always say the address.
     const host = text(remote, "address") ?? text(remote, "ip");
     const port = number(remote, "port");
-    const address = host ? `${host}:${port ?? "?"}` : port ? `port ${port}` : null;
+    const address = host ? `${host}:${port ?? "?"}` : port ? t("voice.stats.port", { port }) : null;
     const round = number(pair, "currentRoundTripTime");
     const kind = text(local, "candidateType");
+    const route = address && joined(text(local, "protocol")?.toUpperCase(), kind === "relay" ? t("voice.stats.relayedOver", { protocol: text(local, "relayProtocol") ?? "TURN" }) : kind, t("voice.stats.to", { address }));
     return rows([
-      row(`${word} path`, address && joined(text(local, "protocol")?.toUpperCase(), kind === "relay" ? `relayed over ${text(local, "relayProtocol") ?? "TURN"}` : kind, `to ${address}`), kind === "relay"),
-      row(`${word} round trip`, round === undefined ? null : ms(round * 1000, 0)),
-      row(`${word} network allows`, bits(number(pair, allows))),
-      row(`${word} cipher`, text(transport, "srtpCipher")),
+      row(sending ? t("voice.stats.sendingPath") : t("voice.stats.receivingPath"), route, kind === "relay"),
+      row(sending ? t("voice.stats.sendingRoundTrip") : t("voice.stats.receivingRoundTrip"), round === undefined ? null : ms(round * 1000, 0)),
+      row(sending ? t("voice.stats.sendingAllows") : t("voice.stats.receivingAllows"), bits(number(pair, allows))),
+      row(sending ? t("voice.stats.sendingCipher") : t("voice.stats.receivingCipher"), text(transport, "srtpCipher")),
     ]);
   }
 
@@ -248,16 +250,16 @@ export class StreamStats {
     }
     return {
       id: "connection",
-      title: "Connection",
+      title: t("voice.stats.connection"),
       kind: "connection",
       rows: rows([
-        row("Status", room.status, room.status !== "connected"),
-        row("Media server", host),
+        row(t("voice.stats.status"), room.status, room.status !== "connected"),
+        row(t("voice.stats.mediaServer"), host),
         row("LiveKit", joined(room.serverVersion, room.serverRegion, room.serverNode)),
-        row("In the room", String(room.people)),
-        row("Encryption", room.encrypted ? `End-to-end${room.keyIndex === undefined ? "" : `, key ${room.keyIndex} from epoch ${room.keyEpoch}`}` : "Off", !room.encrypted),
-        ...this.path(sending, "Sending", "availableOutgoingBitrate"),
-        ...this.path(receiving, "Receiving", "availableIncomingBitrate"),
+        row(t("voice.stats.inRoom"), String(room.people)),
+        row(t("voice.stats.encryption"), room.encrypted ? (room.keyIndex === undefined ? t("voice.stats.endToEnd") : t("voice.stats.endToEndKey", { key: room.keyIndex, epoch: String(room.keyEpoch) })) : t("common.off"), !room.encrypted),
+        ...this.path(sending, true, "availableOutgoingBitrate"),
+        ...this.path(receiving, false, "availableIncomingBitrate"),
       ]),
     };
   }
@@ -286,35 +288,35 @@ export class StreamStats {
       id: stream.key,
       title,
       kind: "video",
-      headline: { fps: sentFps, label: "sent", wanted: isShare ? (share?.fps ?? null) : null, history: this.history(stream.key, sentFps) },
+      headline: { fps: sentFps, label: t("voice.stats.sent"), wanted: isShare ? (share?.fps ?? null) : null, history: this.history(stream.key, sentFps) },
       rows: rows([
-        row("Encoded by", isShare ? "The browser" : null),
-        row("Sharing", isShare ? share?.name : null),
-        row("Requested from capture", isShare && share ? `${share.fps} fps${share.height ? `, up to ${share.height} lines` : ""}` : null),
-        row("Limited by the server", isShare && share?.held.length ? share.held.join(", ") : null),
-        row("Capture delivers", settings.frameRate ? `${Math.round(settings.frameRate)} fps` : null, isShare && !!share && !!settings.frameRate && settings.frameRate < share.fps),
-        row("Capturing", fps(number(capture, "framesPerSecond"))),
-        row("Encoding", fps(perSecond("framesEncoded"))),
-        row("Sending", fps(sentFps)),
-        row("Picture", joined(size(number(capture, "width") ?? settings.width, number(capture, "height") ?? settings.height), layers.length > 1 ? `sending ${size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))} of ${layers.length} layers` : null)),
-        row("Sent as", layers.length > 1 ? null : size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))),
-        row("Codec", codecOf(report, rtp)),
-        row("Encoder", joined(text(rtp, "encoderImplementation"), hardware(rtp.powerEfficientEncoder), text(rtp, "scalabilityMode"))),
-        row("Why not on the graphics card", isShare && layers.length === 1 ? whyInSoftware(report, rtp) : null, true),
-        row("Bitrate", bits(bitsPerSecond)),
-        row("Max bitrate", isShare && share ? bits(share.bitrateKbps * 1000) : null),
-        row("Target bitrate", bits(number(rtp, "targetBitrate"))),
-        row("Encode time", encodeSeconds === null ? null : ms(encodeSeconds * 1000)),
-        row("Quantizer", quantizer(each("qpSum", "framesEncoded"))),
-        row("Limited by", reason === "none" ? "Nothing" : reason, !!reason && reason !== "none"),
-        row("Limited so far", limitedFor),
-        row("Lower sizes", (number(rtp, "qualityLimitationResolutionChanges") ?? 0) > 0 ? count(number(rtp, "qualityLimitationResolutionChanges")) : null),
-        row("Keyframes", joined(count(number(rtp, "keyFramesEncoded")), `${count(number(rtp, "pliCount")) ?? 0} asked for`, change("firCount") ? `${count(number(rtp, "firCount"))} FIR` : null)),
-        row("Huge frames", (number(rtp, "hugeFramesSent") ?? 0) > 0 ? count(number(rtp, "hugeFramesSent")) : null),
-        row("Packets", joined(count(number(rtp, "packetsSent")), `${count(number(rtp, "retransmittedPacketsSent")) ?? 0} sent again`, `${count(number(rtp, "nackCount")) ?? 0} NACK`)),
-        row("Packet loss", lost === undefined ? null : percent(lost), (lost ?? 0) > NOTICEABLE_LOSS),
-        row("Round trip", round === undefined ? null : ms(round * 1000, 0)),
-        row("Encryption", stream.publication.isEncrypted ? "End-to-end" : "Off", !stream.publication.isEncrypted),
+        row(t("voice.stats.encodedBy"), isShare ? t("voice.stats.theBrowser") : null),
+        row(t("voice.stats.sharing"), isShare ? share?.name : null),
+        row(t("voice.stats.requestedFromCapture"), isShare && share ? (share.height ? t("voice.stats.fpsUpToLines", { fps: share.fps, lines: share.height }) : `${share.fps} fps`) : null),
+        row(t("voice.stats.limitedByServer"), isShare && share?.held.length ? share.held.join(", ") : null),
+        row(t("voice.stats.captureDelivers"), settings.frameRate ? `${Math.round(settings.frameRate)} fps` : null, isShare && !!share && !!settings.frameRate && settings.frameRate < share.fps),
+        row(t("voice.stats.capturing"), fps(number(capture, "framesPerSecond"))),
+        row(t("voice.stats.encoding"), fps(perSecond("framesEncoded"))),
+        row(t("voice.stats.sending"), fps(sentFps)),
+        row(t("voice.stats.picture"), joined(size(number(capture, "width") ?? settings.width, number(capture, "height") ?? settings.height), layers.length > 1 ? t("voice.stats.sendingLayer", { size: String(size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))), count: layers.length }) : null)),
+        row(t("voice.stats.sentAs"), layers.length > 1 ? null : size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))),
+        row(t("voice.stats.codec"), codecOf(report, rtp)),
+        row(t("voice.stats.encoder"), joined(text(rtp, "encoderImplementation"), hardware(rtp.powerEfficientEncoder), text(rtp, "scalabilityMode"))),
+        row(t("voice.stats.whyInSoftware"), isShare && layers.length === 1 ? whyInSoftware(report, rtp) : null, true),
+        row(t("voice.stats.bitrate"), bits(bitsPerSecond)),
+        row(t("voice.stats.maxBitrate"), isShare && share ? bits(share.bitrateKbps * 1000) : null),
+        row(t("voice.stats.targetBitrate"), bits(number(rtp, "targetBitrate"))),
+        row(t("voice.stats.encodeTime"), encodeSeconds === null ? null : ms(encodeSeconds * 1000)),
+        row(t("voice.stats.quantizer"), quantizer(each("qpSum", "framesEncoded"))),
+        row(t("voice.stats.limitedBy"), reason === "none" ? t("voice.stats.nothing") : reason, !!reason && reason !== "none"),
+        row(t("voice.stats.limitedSoFar"), limitedFor),
+        row(t("voice.stats.lowerSizes"), (number(rtp, "qualityLimitationResolutionChanges") ?? 0) > 0 ? count(number(rtp, "qualityLimitationResolutionChanges")) : null),
+        row(t("voice.stats.keyframes"), joined(count(number(rtp, "keyFramesEncoded")), t("voice.stats.askedFor", { count: count(number(rtp, "pliCount")) ?? 0 }), change("firCount") ? `${count(number(rtp, "firCount"))} FIR` : null)),
+        row(t("voice.stats.hugeFrames"), (number(rtp, "hugeFramesSent") ?? 0) > 0 ? count(number(rtp, "hugeFramesSent")) : null),
+        row(t("voice.stats.packets"), joined(count(number(rtp, "packetsSent")), t("voice.stats.sentAgain", { count: count(number(rtp, "retransmittedPacketsSent")) ?? 0 }), `${count(number(rtp, "nackCount")) ?? 0} NACK`)),
+        row(t("voice.stats.packetLoss"), lost === undefined ? null : percent(lost), (lost ?? 0) > NOTICEABLE_LOSS),
+        row(t("voice.stats.roundTrip"), round === undefined ? null : ms(round * 1000, 0)),
+        row(t("voice.stats.encryption"), stream.publication.isEncrypted ? t("voice.stats.endToEnd") : t("common.off"), !stream.publication.isEncrypted),
       ]),
     };
   }
@@ -366,32 +368,32 @@ export class StreamStats {
       id: stream.key,
       title,
       kind: "video",
-      headline: { fps: decoded, label: "decoded", wanted: null, history: this.history(stream.key, decoded) },
+      headline: { fps: decoded, label: t("voice.stats.decoded"), wanted: null, history: this.history(stream.key, decoded) },
       rows: rows([
-        row("Encoded by", stream.source === Track.Source.ScreenShare ? (stream.native ? "Their desktop app, on their graphics card" : "Their browser") : null),
-        row("Receiving", fps(perSecond("framesReceived"))),
-        row("Decoding", fps(decoded)),
-        row("Painting", fps(this.paintedRate(element))),
-        row("Frames dropped", joined(count(number(rtp, "framesDropped")), perSecond("framesDropped") ? `${perSecond("framesDropped")?.toFixed(1)} a second` : null), (perSecond("framesDropped") ?? 0) > 0),
-        row("Picture", size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))),
-        row("Shown at", element ? size(Math.round(element.clientWidth * devicePixelRatio), Math.round(element.clientHeight * devicePixelRatio)) : null),
-        row("Requested", publication.isDesired === false ? "Nothing, since it isn't on screen" : null),
-        row("Codec", codecOf(report, rtp)),
-        row("Decoder", joined(text(rtp, "decoderImplementation"), hardware(rtp.powerEfficientDecoder))),
-        row("Bitrate", bits(bitsPerSecond)),
-        row("Decode time", inMs(each("totalDecodeTime", "framesDecoded"))),
-        row("Display delay", inMs(each("totalProcessingDelay", "framesDecoded"))),
-        row("Quantizer", quantizer(each("qpSum", "framesDecoded"))),
-        row("Jitter buffer", inMs(each("jitterBufferDelay", "jitterBufferEmittedCount"))),
-        row("Target buffer", inMs(each("jitterBufferTargetDelay", "jitterBufferEmittedCount"))),
-        row("Network jitter", inMs(number(rtp, "jitter") ?? null)),
-        row("Frame spacing", spacing),
-        row("Freezes", joined(count(number(rtp, "freezeCount")), seconds(number(rtp, "totalFreezesDuration"))), (change("freezeCount") ?? 0) > 0),
-        row("Pauses", joined(count(number(rtp, "pauseCount")), seconds(number(rtp, "totalPausesDuration")))),
-        row("Keyframes", joined(count(number(rtp, "keyFramesDecoded")), `${count(number(rtp, "pliCount")) ?? 0} asked for`, change("firCount") ? `${count(number(rtp, "firCount"))} FIR` : null)),
-        row("Packets", joined(count(number(rtp, "packetsReceived")), `${count(number(rtp, "nackCount")) ?? 0} NACK`, `${count(number(rtp, "retransmittedPacketsReceived")) ?? 0} resent`)),
-        row("Lost", joined(count(number(rtp, "packetsLost")), percent(loss)), (loss ?? 0) > NOTICEABLE_LOSS),
-        row("Encryption", publication.isEncrypted ? "End-to-end" : "Off", !publication.isEncrypted),
+        row(t("voice.stats.encodedBy"), stream.source === Track.Source.ScreenShare ? (stream.native ? t("voice.stats.theirDesktopApp") : t("voice.stats.theirBrowser")) : null),
+        row(t("voice.stats.receiving"), fps(perSecond("framesReceived"))),
+        row(t("voice.stats.decoding"), fps(decoded)),
+        row(t("voice.stats.painting"), fps(this.paintedRate(element))),
+        row(t("voice.stats.framesDropped"), joined(count(number(rtp, "framesDropped")), perSecond("framesDropped") ? t("voice.stats.perSecond", { count: perSecond("framesDropped")!.toFixed(1) }) : null), (perSecond("framesDropped") ?? 0) > 0),
+        row(t("voice.stats.picture"), size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))),
+        row(t("voice.stats.shownAt"), element ? size(Math.round(element.clientWidth * devicePixelRatio), Math.round(element.clientHeight * devicePixelRatio)) : null),
+        row(t("voice.stats.requested"), publication.isDesired === false ? t("voice.stats.notOnScreen") : null),
+        row(t("voice.stats.codec"), codecOf(report, rtp)),
+        row(t("voice.stats.decoder"), joined(text(rtp, "decoderImplementation"), hardware(rtp.powerEfficientDecoder))),
+        row(t("voice.stats.bitrate"), bits(bitsPerSecond)),
+        row(t("voice.stats.decodeTime"), inMs(each("totalDecodeTime", "framesDecoded"))),
+        row(t("voice.stats.displayDelay"), inMs(each("totalProcessingDelay", "framesDecoded"))),
+        row(t("voice.stats.quantizer"), quantizer(each("qpSum", "framesDecoded"))),
+        row(t("voice.stats.jitterBuffer"), inMs(each("jitterBufferDelay", "jitterBufferEmittedCount"))),
+        row(t("voice.stats.targetBuffer"), inMs(each("jitterBufferTargetDelay", "jitterBufferEmittedCount"))),
+        row(t("voice.stats.networkJitter"), inMs(number(rtp, "jitter") ?? null)),
+        row(t("voice.stats.frameSpacing"), spacing),
+        row(t("voice.stats.freezes"), joined(count(number(rtp, "freezeCount")), seconds(number(rtp, "totalFreezesDuration"))), (change("freezeCount") ?? 0) > 0),
+        row(t("voice.stats.pauses"), joined(count(number(rtp, "pauseCount")), seconds(number(rtp, "totalPausesDuration")))),
+        row(t("voice.stats.keyframes"), joined(count(number(rtp, "keyFramesDecoded")), t("voice.stats.askedFor", { count: count(number(rtp, "pliCount")) ?? 0 }), change("firCount") ? `${count(number(rtp, "firCount"))} FIR` : null)),
+        row(t("voice.stats.packets"), joined(count(number(rtp, "packetsReceived")), `${count(number(rtp, "nackCount")) ?? 0} NACK`, t("voice.stats.resent", { count: count(number(rtp, "retransmittedPacketsReceived")) ?? 0 }))),
+        row(t("voice.stats.lost"), joined(count(number(rtp, "packetsLost")), percent(loss)), (loss ?? 0) > NOTICEABLE_LOSS),
+        row(t("voice.stats.encryption"), publication.isEncrypted ? t("voice.stats.endToEnd") : t("common.off"), !publication.isEncrypted),
       ]),
     };
   }
@@ -410,15 +412,15 @@ export class StreamStats {
       title,
       kind: "audio",
       rows: rows([
-        row("Muted", stream.publication.isMuted ? "Yes" : null),
-        row("Processing", stream.source === Track.Source.Microphone ? filters : null),
-        row("Codec", codecOf(report, rtp)),
-        row("Bitrate", bits(bitsPerSecond)),
-        row("Target bitrate", bits(number(rtp, "targetBitrate"))),
-        row("Packets", count(number(rtp, "packetsSent"))),
-        row("Packet loss", lost === undefined ? null : percent(lost), (lost ?? 0) > NOTICEABLE_LOSS),
-        row("Round trip", round === undefined ? null : ms(round * 1000, 0)),
-        row("Encryption", stream.publication.isEncrypted ? "End-to-end" : "Off", !stream.publication.isEncrypted),
+        row(t("voice.stats.muted"), stream.publication.isMuted ? t("common.yes") : null),
+        row(t("voice.stats.processing"), stream.source === Track.Source.Microphone ? filters : null),
+        row(t("voice.stats.codec"), codecOf(report, rtp)),
+        row(t("voice.stats.bitrate"), bits(bitsPerSecond)),
+        row(t("voice.stats.targetBitrate"), bits(number(rtp, "targetBitrate"))),
+        row(t("voice.stats.packets"), count(number(rtp, "packetsSent"))),
+        row(t("voice.stats.packetLoss"), lost === undefined ? null : percent(lost), (lost ?? 0) > NOTICEABLE_LOSS),
+        row(t("voice.stats.roundTrip"), round === undefined ? null : ms(round * 1000, 0)),
+        row(t("voice.stats.encryption"), stream.publication.isEncrypted ? t("voice.stats.endToEnd") : t("common.off"), !stream.publication.isEncrypted),
       ]),
     };
   }
@@ -439,15 +441,15 @@ export class StreamStats {
       title,
       kind: "audio",
       rows: rows([
-        row("Muted", muted ? "Yes" : null),
-        row("Codec", codecOf(report, rtp)),
-        row("Bitrate", bits(bitsPerSecond)),
-        row("Jitter buffer", buffer === null ? null : ms(buffer * 1000)),
-        row("Network jitter", jitter === undefined ? null : ms(jitter * 1000)),
-        row("Concealed", percent(concealed), !muted && (concealed ?? 0) > NOTICEABLE_LOSS),
-        row("Packets", count(number(rtp, "packetsReceived"))),
-        row("Lost", joined(count(number(rtp, "packetsLost")), percent(loss)), (loss ?? 0) > NOTICEABLE_LOSS),
-        row("Encryption", stream.publication.isEncrypted ? "End-to-end" : "Off", !stream.publication.isEncrypted),
+        row(t("voice.stats.muted"), muted ? t("common.yes") : null),
+        row(t("voice.stats.codec"), codecOf(report, rtp)),
+        row(t("voice.stats.bitrate"), bits(bitsPerSecond)),
+        row(t("voice.stats.jitterBuffer"), buffer === null ? null : ms(buffer * 1000)),
+        row(t("voice.stats.networkJitter"), jitter === undefined ? null : ms(jitter * 1000)),
+        row(t("voice.stats.concealed"), percent(concealed), !muted && (concealed ?? 0) > NOTICEABLE_LOSS),
+        row(t("voice.stats.packets"), count(number(rtp, "packetsReceived"))),
+        row(t("voice.stats.lost"), joined(count(number(rtp, "packetsLost")), percent(loss)), (loss ?? 0) > NOTICEABLE_LOSS),
+        row(t("voice.stats.encryption"), stream.publication.isEncrypted ? t("voice.stats.endToEnd") : t("common.off"), !stream.publication.isEncrypted),
       ]),
     };
   }
@@ -457,7 +459,7 @@ export class StreamStats {
 export function statsAsText(sections: StatSection[]): string {
   return sections
     .map((section) => {
-      const headline = section.headline ? [`${section.headline.label}: ${fps(section.headline.fps) ?? "?"}${section.headline.wanted ? ` (wanted ${section.headline.wanted})` : ""}`] : [];
+      const headline = section.headline ? [`${section.headline.label}: ${fps(section.headline.fps) ?? "?"}${section.headline.wanted ? ` ${t("voice.stats.wanted", { fps: section.headline.wanted })}` : ""}`] : [];
       return [`# ${section.title}`, ...headline, ...section.rows.map((item) => `${item.label}: ${item.value}${item.warn ? "  (!)" : ""}`)].join("\n");
     })
     .join("\n\n");

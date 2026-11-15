@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Spinner, useReturnFocus } from "@/components/ui";
 import { useEscape } from "@/lib/escape";
+import { t } from "@/lib/i18n";
 import { loadsByItself, useDecryptedUrl } from "@/lib/media";
 
 const MAX_ZOOM = 8;
@@ -217,35 +218,35 @@ export function ImageViewer({ serverId, pictures, start, onClose }: { serverId: 
       )}
       {failed && (
         <span className="image-state">
-          <AlertTriangle size={18} /> This picture couldn't be loaded.
+          <AlertTriangle size={18} /> {t("media.viewer.failed")}
         </span>
       )}
       {index > 0 && (
-        <button className="icon-btn image-nav is-before" onClick={() => go(-1)} aria-label="Previous picture">
+        <button className="icon-btn image-nav is-before" onClick={() => go(-1)} aria-label={t("media.viewer.previous")}>
           <ChevronLeft size={22} />
         </button>
       )}
       {index < pictures.length - 1 && (
-        <button className="icon-btn image-nav is-after" onClick={() => go(1)} aria-label="Next picture">
+        <button className="icon-btn image-nav is-after" onClick={() => go(1)} aria-label={t("media.viewer.next")}>
           <ChevronRight size={22} />
         </button>
       )}
       <div className="image-tools" onClick={(event) => event.stopPropagation()}>
-        {pictures.length > 1 && <span className="image-count">{`${index + 1} of ${pictures.length}`}</span>}
-        <button className="icon-btn" onClick={() => zoomTo(view.scale / 1.5)} disabled={!zoomed} aria-label="Zoom out">
+        {pictures.length > 1 && <span className="image-count">{t("media.viewer.position", { index: index + 1, total: pictures.length })}</span>}
+        <button className="icon-btn" onClick={() => zoomTo(view.scale / 1.5)} disabled={!zoomed} aria-label={t("media.viewer.zoomOut")}>
           <ZoomOut size={17} />
         </button>
-        <button className="image-zoom" onClick={() => show(FITTED)} disabled={!zoomed} aria-label="Fit to the window">
+        <button className="image-zoom" onClick={() => show(FITTED)} disabled={!zoomed} aria-label={t("media.viewer.fit")}>
           {Math.round(view.scale * fitted * 100)}%
         </button>
-        <button className="icon-btn" onClick={() => zoomTo(view.scale * 1.5)} disabled={!url || view.scale >= MAX_ZOOM} aria-label="Zoom in">
+        <button className="icon-btn" onClick={() => zoomTo(view.scale * 1.5)} disabled={!url || view.scale >= MAX_ZOOM} aria-label={t("media.viewer.zoomIn")}>
           <ZoomIn size={17} />
         </button>
         <a className="btn image-save" href={url ?? undefined} download={picture.name} aria-disabled={!url}>
-          Save
+          {t("common.save")}
         </a>
       </div>
-      <button className="icon-btn image-close" onClick={onClose} aria-label="Close">
+      <button className="icon-btn image-close" onClick={onClose} aria-label={t("common.close")}>
         <X size={18} />
       </button>
     </div>,

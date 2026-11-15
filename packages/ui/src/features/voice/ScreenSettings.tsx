@@ -3,6 +3,7 @@ import { DEFAULT_SCREEN_RULES, screenTerms } from "@zuna/core/voice";
 import { useEffect, useState } from "react";
 import { Field, Spinner, Switch, useAction } from "@/components/ui";
 import { SettingRow } from "@/features/overlays/Settings";
+import { t } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import { bitrateName, heightName, rateName, SCREEN_BITRATES, SCREEN_HEIGHTS, SCREEN_LIMIT_BITRATES, SCREEN_RATES, screenLimitsText, VOICE_DEFAULTS } from "@/voice/settings";
 import { useVoice } from "@/voice/store";
@@ -83,39 +84,39 @@ export function ScreenSettingsSection() {
 
   return (
     <>
-      <h1>Screen sharing</h1>
+      <h1>{t("settings.sections.screen")}</h1>
       {limits && <p className="screen-held">{limits}</p>}
 
-      <h3 className="settings-subhead">Quality</h3>
-      <NumberSelect label="Resolution" value={settings.screenHeight} options={[0, ...SCREEN_HEIGHTS]} name={heightName} limit={limit(shown.max_height)} onChange={(value) => update({ screenHeight: value ?? 0 })} />
-      <NumberSelect label="Frame rate" value={settings.screenFps} options={SCREEN_RATES} name={rateName} limit={limit(shown.max_fps)} onChange={(value) => update({ screenFps: value ?? VOICE_DEFAULTS.screenFps })} />
+      <h3 className="settings-subhead">{t("voice.screenSettings.quality")}</h3>
+      <NumberSelect label={t("voice.screenSettings.resolution")} value={settings.screenHeight} options={[0, ...SCREEN_HEIGHTS]} name={heightName} limit={limit(shown.max_height)} onChange={(value) => update({ screenHeight: value ?? 0 })} />
+      <NumberSelect label={t("voice.screenSettings.frameRate")} value={settings.screenFps} options={SCREEN_RATES} name={rateName} limit={limit(shown.max_fps)} onChange={(value) => update({ screenFps: value ?? VOICE_DEFAULTS.screenFps })} />
       <NumberSelect
-        label="Max bitrate"
+        label={t("voice.stats.maxBitrate")}
         value={settings.screenBitrate}
         options={SCREEN_BITRATES}
         name={bitrateName}
-        extras={[{ value: null, label: `Automatic (${bitrateName(automatic)})` }]}
+        extras={[{ value: null, label: t("voice.screenSettings.automaticBitrate", { bitrate: bitrateName(automatic) }) }]}
         limit={limit(shown.max_kbps)}
-        hint="This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."
+        hint={t("voice.screenSettings.maxBitrateHint")}
         onChange={(value) => update({ screenBitrate: value })}
       />
 
-      <h3 className="settings-subhead">Audio</h3>
+      <h3 className="settings-subhead">{t("voice.screenSettings.audio")}</h3>
       {shown.sound ? (
-        <SettingRow title="Include audio" hint="Your browser lets you include your computer's or a tab's audio when you share.">
-          <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label="Include audio" />
+        <SettingRow title={t("voice.screenSettings.includeAudio")} hint={t("voice.screenSettings.includeAudioBrowserHint")}>
+          <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label={t("voice.screenSettings.includeAudio")} />
         </SettingRow>
       ) : (
-        <p className="screen-held">This server doesn't allow audio in screen shares.</p>
+        <p className="screen-held">{t("voice.screenSettings.noAudio")}</p>
       )}
 
-      <h3 className="settings-subhead">Watching</h3>
-      <SettingRow title="Open screen shares automatically" hint="A screen share fills the stage when it starts, unless you're watching something else.">
-        <Switch on={settings.screenFocus} onChange={(value) => update({ screenFocus: value })} label="Open screen shares automatically" />
+      <h3 className="settings-subhead">{t("voice.screenSettings.watching")}</h3>
+      <SettingRow title={t("voice.screenSettings.autoOpen")} hint={t("voice.screenSettings.autoOpenHint")}>
+        <Switch on={settings.screenFocus} onChange={(value) => update({ screenFocus: value })} label={t("voice.screenSettings.autoOpen")} />
       </SettingRow>
       <label className="field">
         <span className="field-label">
-          Screen share volume <b style={{ fontWeight: 500 }}>{Math.round(settings.screenVolume * 100)}%</b>
+          {t("voice.screenSettings.volume")} <b style={{ fontWeight: 500 }}>{Math.round(settings.screenVolume * 100)}%</b>
         </span>
         <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={settings.screenVolume} onChange={(event) => update({ screenVolume: Number(event.target.value) })} />
       </label>
@@ -138,37 +139,37 @@ export function ServerScreenSection() {
 
   return (
     <>
-      <h1>Screen sharing</h1>
-      <p className="settings-lead">Screen shares are end-to-end encrypted, so the server never sees them.</p>
-      {!server?.info?.voice && <p className="channel-voice-note">This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).</p>}
+      <h1>{t("serverSettings.sections.screen")}</h1>
+      <p className="settings-lead">{t("voice.serverScreen.lead")}</p>
+      {!server?.info?.voice && <p className="channel-voice-note">{t("channels.noMediaServer")}</p>}
 
-      <h3 className="settings-subhead">Permissions</h3>
-      <SettingRow title="Who can share" hint="Changing this stops any shares it no longer allows.">
+      <h3 className="settings-subhead">{t("voice.serverScreen.permissions")}</h3>
+      <SettingRow title={t("voice.serverScreen.whoCanShare")} hint={t("voice.serverScreen.whoCanShareHint")}>
         <Segmented
           value={rules.who}
           options={[
-            { id: "everyone", label: "Everyone" },
-            { id: "admins", label: "Admins" },
-            { id: "nobody", label: "Nobody" },
+            { id: "everyone", label: t("voice.serverScreen.everyone") },
+            { id: "admins", label: t("voice.serverScreen.admins") },
+            { id: "nobody", label: t("voice.serverScreen.nobody") },
           ]}
           onChange={(who) => change({ who })}
-          label="Who can share"
+          label={t("voice.serverScreen.whoCanShare")}
         />
       </SettingRow>
-      <SettingRow title="Allow audio" hint="Turning it off stops any shares with audio.">
-        <Switch on={rules.sound} onChange={(sound) => change({ sound })} label="Allow audio" />
+      <SettingRow title={t("voice.serverScreen.allowAudio")} hint={t("voice.serverScreen.allowAudioHint")}>
+        <Switch on={rules.sound} onChange={(sound) => change({ sound })} label={t("voice.serverScreen.allowAudio")} />
       </SettingRow>
-      <Field label="Max shares per voice channel" type="number" min={0} max={99} value={String(rules.max_per_channel)} hint="0 for no limit. Each voice channel can set its own." onChange={(event) => change({ max_per_channel: count(event.target.value) })} />
-      <Field label="Max shares on the server" type="number" min={0} max={1000} value={String(rules.max_per_server)} hint="0 for no limit." onChange={(event) => change({ max_per_server: count(event.target.value) })} />
+      <Field label={t("voice.serverScreen.maxPerChannel")} type="number" min={0} max={99} value={String(rules.max_per_channel)} hint={t("voice.serverScreen.maxPerChannelHint")} onChange={(event) => change({ max_per_channel: count(event.target.value) })} />
+      <Field label={t("voice.serverScreen.maxPerServer")} type="number" min={0} max={1000} value={String(rules.max_per_server)} hint={t("voice.serverScreen.maxPerServerHint")} onChange={(event) => change({ max_per_server: count(event.target.value) })} />
 
-      <h3 className="settings-subhead">Quality limits</h3>
-      <NumberSelect label="Max resolution" value={rules.max_height} options={SCREEN_HEIGHTS} name={heightName} extras={[{ value: 0, label: "No limit" }]} onChange={(value) => change({ max_height: value ?? 0 })} />
-      <NumberSelect label="Max frame rate" value={rules.max_fps} options={SCREEN_RATES} name={rateName} extras={[{ value: 0, label: "No limit" }]} onChange={(value) => change({ max_fps: value ?? 0 })} />
-      <NumberSelect label="Max bitrate" value={rules.max_kbps} options={SCREEN_LIMIT_BITRATES} name={bitrateName} extras={[{ value: 0, label: "No limit" }]} hint="Each viewer can use up to this much of your media server's bandwidth." onChange={(value) => change({ max_kbps: value ?? 0 })} />
-      <SettingRow title="Admins bypass limits" hint="Quality limits and share counts don't apply to admins.">
-        <Switch on={rules.admins_exempt} onChange={(admins_exempt) => change({ admins_exempt })} label="Admins bypass limits" />
+      <h3 className="settings-subhead">{t("voice.serverScreen.qualityLimits")}</h3>
+      <NumberSelect label={t("voice.serverScreen.maxResolution")} value={rules.max_height} options={SCREEN_HEIGHTS} name={heightName} extras={[{ value: 0, label: t("common.noLimit") }]} onChange={(value) => change({ max_height: value ?? 0 })} />
+      <NumberSelect label={t("voice.serverScreen.maxFrameRate")} value={rules.max_fps} options={SCREEN_RATES} name={rateName} extras={[{ value: 0, label: t("common.noLimit") }]} onChange={(value) => change({ max_fps: value ?? 0 })} />
+      <NumberSelect label={t("voice.stats.maxBitrate")} value={rules.max_kbps} options={SCREEN_LIMIT_BITRATES} name={bitrateName} extras={[{ value: 0, label: t("common.noLimit") }]} hint={t("voice.serverScreen.maxBitrateHint")} onChange={(value) => change({ max_kbps: value ?? 0 })} />
+      <SettingRow title={t("voice.serverScreen.adminsExempt")} hint={t("voice.serverScreen.adminsExemptHint")}>
+        <Switch on={rules.admins_exempt} onChange={(admins_exempt) => change({ admins_exempt })} label={t("voice.serverScreen.adminsExempt")} />
       </SettingRow>
-      <p className="screen-held">Each app applies the quality limits itself, since the media server can't see encrypted video. Shares already running keep the settings they started with.</p>
+      <p className="screen-held">{t("voice.serverScreen.note")}</p>
       <div>
         <button
           className="btn btn-primary"
@@ -176,11 +177,11 @@ export function ServerScreenSection() {
           onClick={() =>
             run(async () => {
               await session().updateServerSettings({ screen_share: rules });
-              toast("Saved");
+              toast(t("common.saved"));
             })
           }
         >
-          {busy ? <Spinner /> : "Save changes"}
+          {busy ? <Spinner /> : t("common.saveChanges")}
         </button>
       </div>
     </>

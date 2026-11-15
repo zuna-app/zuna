@@ -3,6 +3,7 @@ import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { highlightCode, languageName } from "@/lib/highlight";
+import { t } from "@/lib/i18n";
 
 export function CodeBlock({ code, language }: { code: string; language?: string }) {
   const [lines, setLines] = useState<ThemedToken[][] | null>(null);
@@ -31,10 +32,10 @@ export function CodeBlock({ code, language }: { code: string; language?: string 
   return (
     <div className="code-block">
       <div className="code-head">
-        <span>{language || "code"}</span>
-        <button className="code-copy" onClick={copy} aria-label="Copy code">
+        <span>{language || t("message.code.label")}</span>
+        <button className="code-copy" onClick={copy} aria-label={t("message.code.copy")}>
           {copied ? <Check size={13} /> : <Copy size={13} />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("common.copied") : t("common.copy")}
         </button>
       </div>
       <pre className="code-body selectable">

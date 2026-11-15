@@ -3,6 +3,7 @@
 
 import { opusTrack, writeMp4 } from "./mp4";
 import { opusFromWebm } from "./webm";
+import { t } from "@/lib/i18n";
 
 export interface VoiceRecording {
   blob: Blob;
@@ -72,7 +73,7 @@ export class VoiceRecorder {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch {
-      throw new Error("There's no microphone Zuna can use.");
+      throw new Error(t("voice.mic.none"));
     }
     // Past here the microphone is open, so whatever fails closes it again, or the browser
     // would go on showing it as recording.
@@ -90,7 +91,7 @@ export class VoiceRecorder {
     } catch {
       for (const track of stream.getTracks()) track.stop();
       void audio?.close().catch(() => undefined);
-      throw new Error("This browser couldn't start recording a voice message.");
+      throw new Error(t("composer.voice.cantRecord"));
     }
   }
 

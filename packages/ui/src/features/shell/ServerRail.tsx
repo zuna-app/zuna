@@ -3,6 +3,7 @@ import { Plus, Settings } from "lucide-react";
 import { motion, Reorder } from "motion/react";
 import { memo, useRef, type RefObject } from "react";
 import { Avatar, Tooltip } from "@/components/ui";
+import { t } from "@/lib/i18n";
 import { countedUnread, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
 
@@ -60,7 +61,7 @@ function SelfButton({ userId, name, avatar }: { userId: string; name: string; av
   const speaking = useVoice((state) => state.status === "connected" && selfIsSpeaking(state));
   return (
     <Tooltip text={name} side="right">
-      <button onClick={() => setOverlay({ type: "settings", section: "profile" })} aria-label="Your profile" className={`rail-self${speaking ? " is-speaking" : ""}`}>
+      <button onClick={() => setOverlay({ type: "settings", section: "profile" })} aria-label={t("servers.rail.profile")} className={`rail-self${speaking ? " is-speaking" : ""}`}>
         <Avatar name={name} seed={userId} avatar={avatar} size={32} />
       </button>
     </Tooltip>
@@ -77,22 +78,22 @@ export function ServerRail() {
   const selfUser = active?.self ? active.users[active.self.userId] : null;
 
   return (
-    <nav className="rail" aria-label="Servers">
+    <nav className="rail" aria-label={t("servers.title")}>
       <motion.div className="rail-list" layoutScroll>
         <Reorder.Group as="div" className="rail-servers" axis="y" values={order} onReorder={setServerOrder}>
           {order.map((id) => (
             <ServerEntry key={id} serverId={id} />
           ))}
         </Reorder.Group>
-        <Tooltip text="Join a server" side="right">
-          <button className="rail-add" onClick={() => setOverlay({ type: "add-server" })} aria-label="Join a server">
+        <Tooltip text={t("servers.rail.join")} side="right">
+          <button className="rail-add" onClick={() => setOverlay({ type: "add-server" })} aria-label={t("servers.rail.join")}>
             <Plus size={20} />
           </button>
         </Tooltip>
       </motion.div>
       <div className="rail-footer">
-        <Tooltip text="Settings" side="right">
-          <button className="icon-btn" onClick={() => setOverlay({ type: "settings" })} aria-label="Settings">
+        <Tooltip text={t("settings.title")} side="right">
+          <button className="icon-btn" onClick={() => setOverlay({ type: "settings" })} aria-label={t("settings.title")}>
             <Settings size={19} />
           </button>
         </Tooltip>

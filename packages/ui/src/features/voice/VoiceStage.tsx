@@ -30,6 +30,7 @@ import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "reac
 import { Avatar, PopupMenu, Spinner, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
 import { avatarColor } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import type { VideoTile } from "@/voice/room";
 import { selfIsSpeaking, useVoice, WATCH_FOCUS } from "@/voice/store";
@@ -66,7 +67,7 @@ function VolumeSlider({ userId, stream }: { userId: string; /** The sound of the
   return (
     <label className="member-volume" onMouseDown={(event) => event.stopPropagation()}>
       <span>
-        {stream ? "Stream volume" : "Volume"} <b>{Math.round(volume * 100)}%</b>
+        {stream ? t("voice.stage.streamVolume") : t("voice.soundboard.volume")} <b>{Math.round(volume * 100)}%</b>
       </span>
       <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={volume} onChange={(event) => setVolume(userId, Number(event.target.value))} />
     </label>
@@ -87,7 +88,7 @@ function StreamVolume({ userId }: { userId: string }) {
   };
   return (
     <div className="voice-tile-sound" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
-      <button className="icon-btn is-small" onClick={toggle} aria-label={silent ? "Unmute stream" : "Mute stream"} title={silent ? "Unmute stream" : "Mute stream"}>
+      <button className="icon-btn is-small" onClick={toggle} aria-label={silent ? t("voice.stage.unmuteStream") : t("voice.stage.muteStream")} title={silent ? t("voice.stage.unmuteStream") : t("voice.stage.muteStream")}>
         {silent ? <VolumeX size={15} /> : <Volume2 size={15} />}
       </button>
       <input
@@ -98,8 +99,8 @@ function StreamVolume({ userId }: { userId: string }) {
         step={0.01}
         value={volume}
         onChange={(event) => setStreamVolume(userId, Number(event.target.value))}
-        aria-label="Stream volume"
-        title={`Stream volume ${Math.round(volume * 100)}%`}
+        aria-label={t("voice.stage.streamVolume")}
+        title={t("voice.stage.streamVolumeAt", { percent: Math.round(volume * 100) })}
       />
     </div>
   );
@@ -127,23 +128,23 @@ function MemberMenu({ userId, channelId, call, member, x, y, onClose }: { userId
     // On yourself, what the buttons below the call do, as there's nothing to do to yourself.
     ...(isSelf
       ? [
-          ...(canTalk ? [{ label: micOff ? "Unmute" : "Mute", icon: micOff ? <Mic size={15} /> : <MicOff size={15} />, onSelect: toggleMute }] : []),
-          { label: deafened ? "Undeafen" : "Deafen", icon: deafened ? <Headphones size={15} /> : <HeadphoneOff size={15} />, onSelect: toggleDeafen },
-          { label: "Voice settings", icon: <Settings size={15} />, onSelect: () => setOverlay({ type: "settings", section: "voice" }) },
+          ...(canTalk ? [{ label: micOff ? t("voice.controls.unmute") : t("voice.controls.mute"), icon: micOff ? <Mic size={15} /> : <MicOff size={15} />, onSelect: toggleMute }] : []),
+          { label: deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen"), icon: deafened ? <Headphones size={15} /> : <HeadphoneOff size={15} />, onSelect: toggleDeafen },
+          { label: t("voice.controls.settings"), icon: <Settings size={15} />, onSelect: () => setOverlay({ type: "settings", section: "voice" }) },
         ]
       : []),
-    ...(isSelf ? [] : [{ label: localMuted ? "Unmute for me" : "Mute for me", icon: localMuted ? <Volume2 size={15} /> : <VolumeX size={15} />, onSelect: () => toggleLocalMute(userId) }]),
-    ...(isSelf ? [] : [{ label: "Verify with emoji", icon: <Lock size={15} />, onSelect: () => setOverlay({ type: "verify", userId }) }]),
+    ...(isSelf ? [] : [{ label: localMuted ? t("voice.stage.unmuteForMe") : t("voice.stage.muteForMe"), icon: localMuted ? <Volume2 size={15} /> : <VolumeX size={15} />, onSelect: () => toggleLocalMute(userId) }]),
+    ...(isSelf ? [] : [{ label: t("voice.stage.verify"), icon: <Lock size={15} />, onSelect: () => setOverlay({ type: "verify", userId }) }]),
     ...(canModerate
       ? [
           { separator: true },
           {
-            label: member?.serverMuted ? "Let them talk" : "Mute for everyone",
+            label: member?.serverMuted ? t("voice.stage.letTalk") : t("voice.stage.muteForEveryone"),
             icon: <ShieldOff size={15} />,
             onSelect: () => void session().voiceMute(channelId, userId, !member?.serverMuted).catch(fail),
           },
-          ...(member?.screen ? [{ label: "Stop their screen share", icon: <MonitorOff size={15} />, onSelect: () => void session().voiceScreenStopOf(channelId, userId).catch(fail) }] : []),
-          { label: "Disconnect", icon: <UserX size={15} />, danger: true, onSelect: () => void session().voiceDisconnect(channelId, userId).catch(fail) },
+          ...(member?.screen ? [{ label: t("voice.stage.stopTheirShare"), icon: <MonitorOff size={15} />, onSelect: () => void session().voiceScreenStopOf(channelId, userId).catch(fail) }] : []),
+          { label: t("voice.controls.disconnect"), icon: <UserX size={15} />, danger: true, onSelect: () => void session().voiceDisconnect(channelId, userId).catch(fail) },
         ]
       : []),
   ];
@@ -160,13 +161,13 @@ function MemberMenu({ userId, channelId, call, member, x, y, onClose }: { userId
 function RingingTile({ userId }: { userId: string }) {
   const server = useActiveServer();
   const user = server?.users[userId];
-  const name = user?.displayName ?? "Someone";
+  const name = user?.displayName ?? t("common.someone");
   return (
     <div className="voice-tile is-ringing" style={{ background: `color-mix(in srgb, ${avatarColor(userId)} 10%, var(--bg-2))` }}>
       <Avatar name={name} seed={userId} avatar={user?.avatar} size={84} />
       <div className="voice-tile-label">
         <span className="truncate">{name}</span>
-        <span className="voice-tile-calling">Calling…</span>
+        <span className="voice-tile-calling">{t("voice.stage.calling")}</span>
       </div>
     </div>
   );
@@ -180,12 +181,12 @@ const PersonTile = memo(function PersonTile({ member, camera, onMenu }: { member
   const localMuted = useVoice((state) => !!state.localMutes[member.userId]);
   const sounding = useVoice((state) => state.sounding[member.userId]);
   const user = server?.users[member.userId];
-  const name = user?.displayName ?? "Someone";
+  const name = user?.displayName ?? t("common.someone");
   return (
     <div className={`voice-tile${speaking ? " is-speaking" : ""}`} onContextMenu={(event) => onMenu(event, member.userId)} style={camera ? undefined : { background: `color-mix(in srgb, ${avatarColor(member.userId)} 16%, var(--bg-2))` }}>
       {camera ? <VideoView tile={camera} /> : <Avatar name={name} seed={member.userId} avatar={user?.avatar} size={84} />}
       {sounding && (
-        <span className="voice-tile-played" role="status" aria-label={`${name} played a sound`}>
+        <span className="voice-tile-played" role="status" aria-label={t("voice.stage.playedSound", { name })}>
           {sounding}
         </span>
       )}
@@ -193,7 +194,7 @@ const PersonTile = memo(function PersonTile({ member, camera, onMenu }: { member
         {member.serverMuted ? <MicOff size={13} className="voice-server-muted" /> : member.muted && <MicOff size={13} />}
         {member.deafened && <HeadphoneOff size={13} />}
         {localMuted && <VolumeX size={13} />}
-        <span className="truncate">{isSelf ? `${name} (you)` : name}</span>
+        <span className="truncate">{isSelf ? t("voice.stage.you", { name }) : name}</span>
       </div>
     </div>
   );
@@ -204,7 +205,7 @@ function ScreenTile({ tile, focused, onFocus, onMenu }: { tile: VideoTile; focus
   const server = useActiveServer();
   const ref = useRef<HTMLDivElement>(null);
   const [fullScreen, setFullScreen] = useState(false);
-  const name = server?.users[tile.userId]?.displayName ?? "Someone";
+  const name = server?.users[tile.userId]?.displayName ?? t("common.someone");
   useEffect(() => {
     const onChange = () => setFullScreen(!!ref.current && document.fullscreenElement === ref.current);
     document.addEventListener("fullscreenchange", onChange);
@@ -226,25 +227,25 @@ function ScreenTile({ tile, focused, onFocus, onMenu }: { tile: VideoTile; focus
       <VideoView tile={tile} contain />
       <div className="voice-tile-label">
         <MonitorUp size={13} />
-        <span className="truncate">{tile.local ? "Your screen" : `${name}'s screen`}</span>
+        <span className="truncate">{tile.local ? t("voice.stage.yourScreen") : t("voice.stage.theirScreen", { name })}</span>
       </div>
       {tile.sound && <StreamVolume userId={tile.userId} />}
       <div className="voice-tile-actions">
         {!fullScreen && (
-          <Tooltip text={focused ? "Back to everyone" : "Fill the stage"}>
+          <Tooltip text={focused ? t("voice.stage.unfocus") : t("voice.stage.focus")}>
             <button
               className="icon-btn is-small"
               onClick={(event) => {
                 event.stopPropagation();
                 onFocus();
               }}
-              aria-label={focused ? "Back to everyone" : "Fill the stage"}
+              aria-label={focused ? t("voice.stage.unfocus") : t("voice.stage.focus")}
             >
               {focused ? <PinOff size={15} /> : <Pin size={15} />}
             </button>
           </Tooltip>
         )}
-        <Tooltip text={fullScreen ? "Exit full screen" : "Full screen"}>
+        <Tooltip text={fullScreen ? t("voice.stage.exitFullScreen") : t("voice.stage.fullScreen")}>
           <button
             className="icon-btn is-small"
             onClick={(event) => {
@@ -252,7 +253,7 @@ function ScreenTile({ tile, focused, onFocus, onMenu }: { tile: VideoTile; focus
               toggleFullScreen();
             }}
             onDoubleClick={(event) => event.stopPropagation()}
-            aria-label={fullScreen ? "Exit full screen" : "Full screen"}
+            aria-label={fullScreen ? t("voice.stage.exitFullScreen") : t("voice.stage.fullScreen")}
           >
             {fullScreen ? <Shrink size={15} /> : <Expand size={15} />}
           </button>
@@ -273,11 +274,11 @@ function DeviceMenu({ kind, x, y, onClose }: { kind: "audioinput" | "audiooutput
   const current = kind === "audioinput" ? settings.inputDevice : settings.outputDevice;
   const entries: MenuEntry[] = [
     ...devices.map((device) => ({
-      label: `${device.deviceId === current ? "✓ " : ""}${device.label || (device.deviceId === "default" ? "Default" : "Device")}`,
+      label: `${device.deviceId === current ? "✓ " : ""}${device.label || (device.deviceId === "default" ? t("voice.settings.defaultDevice") : t("voice.stage.device"))}`,
       onSelect: () => updateSettings(kind === "audioinput" ? { inputDevice: device.deviceId } : { outputDevice: device.deviceId }),
     })),
     { separator: true },
-    { label: "Voice settings", onSelect: () => setOverlay({ type: "settings", section: "voice" }) },
+    { label: t("voice.controls.settings"), onSelect: () => setOverlay({ type: "settings", section: "voice" }) },
   ];
   return <PopupMenu x={x} y={y} entries={entries} onClose={onClose} />;
 }
@@ -324,49 +325,49 @@ function Controls({
     setDeviceMenu({ kind, x: rect.left, y: rect.top - 8 });
   };
   return (
-    <div className="voice-controls" role="toolbar" aria-label="Call">
+    <div className="voice-controls" role="toolbar" aria-label={t("voice.panel.call")}>
       <div className="voice-control-group">
-        <Tooltip text={serverMuted ? "An admin muted you" : noMic ? "No microphone" : micOff ? "Unmute" : "Mute"} side="top">
-          <button className={`voice-control${micOff ? " is-off" : open ? " is-live" : ""}`} disabled={serverMuted || noMic} onClick={toggleMute} aria-label={micOff ? "Unmute" : "Mute"} aria-pressed={micOff}>
+        <Tooltip text={serverMuted ? t("voice.controls.adminMuted") : noMic ? t("voice.controls.noMic") : micOff ? t("voice.controls.unmute") : t("voice.controls.mute")} side="top">
+          <button className={`voice-control${micOff ? " is-off" : open ? " is-live" : ""}`} disabled={serverMuted || noMic} onClick={toggleMute} aria-label={micOff ? t("voice.controls.unmute") : t("voice.controls.mute")} aria-pressed={micOff}>
             {micOff ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
         </Tooltip>
-        <button className="voice-control-more" onClick={showDevices("audioinput")} aria-label="Choose a microphone">
+        <button className="voice-control-more" onClick={showDevices("audioinput")} aria-label={t("voice.controls.chooseMic")}>
           <ChevronUp size={14} />
         </button>
       </div>
       <div className="voice-control-group">
-        <Tooltip text={deafened ? "Undeafen" : "Deafen"} side="top">
-          <button className={`voice-control${deafened ? " is-off" : ""}`} onClick={toggleDeafen} aria-label={deafened ? "Undeafen" : "Deafen"} aria-pressed={deafened}>
+        <Tooltip text={deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen")} side="top">
+          <button className={`voice-control${deafened ? " is-off" : ""}`} onClick={toggleDeafen} aria-label={deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen")} aria-pressed={deafened}>
             {deafened ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
           </button>
         </Tooltip>
-        <button className="voice-control-more" onClick={showDevices("audiooutput")} aria-label="Choose where sound plays">
+        <button className="voice-control-more" onClick={showDevices("audiooutput")} aria-label={t("voice.controls.chooseOutput")}>
           <ChevronUp size={14} />
         </button>
       </div>
-      <Tooltip text={camera ? "Turn off camera" : "Turn on camera"} side="top">
-        <button className={`voice-control${camera ? " is-on" : ""}`} onClick={() => void toggleCamera()} aria-label={camera ? "Turn off camera" : "Turn on camera"} aria-pressed={camera}>
+      <Tooltip text={camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn")} side="top">
+        <button className={`voice-control${camera ? " is-on" : ""}`} onClick={() => void toggleCamera()} aria-label={camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn")} aria-pressed={camera}>
           {camera ? <Camera size={20} /> : <CameraOff size={20} />}
         </button>
       </Tooltip>
-      <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
-        <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+      <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ?? t("voice.controls.shareScreen"))} side="top">
+        <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen")} aria-pressed={!!screen}>
           {screen ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
         </button>
       </Tooltip>
       <SoundboardButton roomSounds={sounds} />
       <WatchButton allowed={watch} />
       {onToggleChat && (
-        <Tooltip text={chatOpen ? "Hide chat" : "Show chat"} side="top">
-          <button className={`voice-control${chatOpen ? " is-on" : ""}`} onClick={onToggleChat} aria-label={chatOpen ? "Hide chat" : "Show chat"} aria-pressed={chatOpen}>
+        <Tooltip text={chatOpen ? t("voice.controls.hideChat") : t("voice.controls.showChat")} side="top">
+          <button className={`voice-control${chatOpen ? " is-on" : ""}`} onClick={onToggleChat} aria-label={chatOpen ? t("voice.controls.hideChat") : t("voice.controls.showChat")} aria-pressed={chatOpen}>
             <MessageSquare size={20} />
             {chatUnread && !chatOpen && <i className="voice-control-dot" />}
           </button>
         </Tooltip>
       )}
-      <Tooltip text="Disconnect" side="top">
-        <button className="voice-control is-leave" onClick={leave} aria-label="Disconnect">
+      <Tooltip text={t("voice.controls.disconnect")} side="top">
+        <button className="voice-control is-leave" onClick={leave} aria-label={t("voice.controls.disconnect")}>
           <PhoneOff size={20} />
         </button>
       </Tooltip>
@@ -445,28 +446,28 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
       <div className="voice-stage">
         {room.call ? (
           <header className="voice-head is-call">
-            <Tooltip text="End-to-end encrypted, with keys only this conversation's members have. Neither the server nor the media server can listen in or watch.">
+            <Tooltip text={t("voice.stage.encryptedCall")}>
               <span className="voice-e2ee">
-                <Lock size={12} /> Encrypted
+                <Lock size={12} /> {t("voice.stage.encrypted")}
               </span>
             </Tooltip>
             {call && status === "connected" && <CallTime since={call.startedAt} />}
             <span className="grow" />
             {notHere && (
-              <Tooltip text="Ring everyone who isn't here">
-                <button className="icon-btn is-small" onClick={() => void ringAgain()} aria-label="Ring everyone who isn't here">
+              <Tooltip text={t("voice.stage.ringAgain")}>
+                <button className="icon-btn is-small" onClick={() => void ringAgain()} aria-label={t("voice.stage.ringAgain")}>
                   <BellRing size={15} />
                 </button>
               </Tooltip>
             )}
-            <Tooltip text="Stream stats">
-              <button className={`icon-btn is-small${statsOpen ? " is-active" : ""}`} onClick={() => setStatsOpen(!statsOpen)} aria-label="Stream stats" aria-pressed={statsOpen}>
+            <Tooltip text={t("voice.statsPanel.title")}>
+              <button className={`icon-btn is-small${statsOpen ? " is-active" : ""}`} onClick={() => setStatsOpen(!statsOpen)} aria-label={t("voice.statsPanel.title")} aria-pressed={statsOpen}>
                 <Activity size={15} />
               </button>
             </Tooltip>
             {onExpand && (
-              <Tooltip text={expanded ? "Show the chat" : "Hide the chat"}>
-                <button className="icon-btn is-small" onClick={onExpand} aria-label={expanded ? "Show the chat" : "Hide the chat"} aria-pressed={expanded}>
+              <Tooltip text={expanded ? t("voice.stage.showChat") : t("voice.stage.hideChat")}>
+                <button className="icon-btn is-small" onClick={onExpand} aria-label={expanded ? t("voice.stage.showChat") : t("voice.stage.hideChat")} aria-pressed={expanded}>
                   {expanded ? <ChevronsDownUp size={15} /> : <ChevronsUpDown size={15} />}
                 </button>
               </Tooltip>
@@ -478,13 +479,13 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
             <h3 className="truncate">{room.title}</h3>
             {room.topic && <span className="voice-topic truncate">{room.topic}</span>}
             <span className="grow" />
-            <Tooltip text="End-to-end encrypted, with keys only this channel's members have. Neither the server nor the media server can listen in or watch.">
+            <Tooltip text={t("voice.stage.encryptedChannel")}>
               <span className="voice-e2ee">
-                <Lock size={12} /> Encrypted
+                <Lock size={12} /> {t("voice.stage.encrypted")}
               </span>
             </Tooltip>
-            <Tooltip text="Stream stats">
-              <button className={`icon-btn is-small${statsOpen ? " is-active" : ""}`} onClick={() => setStatsOpen(!statsOpen)} aria-label="Stream stats" aria-pressed={statsOpen}>
+            <Tooltip text={t("voice.statsPanel.title")}>
+              <button className={`icon-btn is-small${statsOpen ? " is-active" : ""}`} onClick={() => setStatsOpen(!statsOpen)} aria-label={t("voice.statsPanel.title")} aria-pressed={statsOpen}>
                 <Activity size={15} />
               </button>
             </Tooltip>
@@ -499,11 +500,11 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
         {status === "connecting" ? (
           <div className="voice-connecting">
             <Spinner size={26} />
-            <p>{room.call ? "Connecting the call…" : `Joining ${room.title}…`}</p>
+            <p>{room.call ? t("voice.stage.connectingCall") : t("voice.stage.joining", { channel: room.title })}</p>
           </div>
         ) : (
           <>
-            {status === "reconnecting" && <div className="voice-banner">Reconnecting…</div>}
+            {status === "reconnecting" && <div className="voice-banner">{t("voice.stage.reconnecting")}</div>}
             <div className={`voice-grid-area${focused || watchFocused ? " is-focused" : ""}`}>
               {watchFocused && watch && (
                 <div className="voice-focus">

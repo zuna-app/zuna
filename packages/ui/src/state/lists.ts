@@ -5,6 +5,7 @@ import type { RemoteSession } from "@zuna/core/rpc";
 import type { MessageView } from "@zuna/core";
 import type { StoreApi } from "zustand";
 import { type AppState, type MessageList, BASE_INDEX, sortMessages, isUnread, emptyList } from "./store";
+import { t } from "@/lib/i18n";
 
 /** How many pages a chat loads to open at its first unread message, which past that it opens without. */
 const UNREAD_PAGES = 20;
@@ -171,7 +172,7 @@ export function listActions(set: StoreApi<AppState>["setState"], get: StoreApi<A
           target = message?.seq ?? null;
         }
         if (target === null) {
-          get().toast("That message isn't available.", "info");
+          get().toast(t("chat.messageUnavailable"), "info");
           return;
         }
         const window = await session.loadAround(groupId, target);

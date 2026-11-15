@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Field, Spinner, Tooltip, useAction, useReturnFocus } from "@/components/ui";
 import { useEscape } from "@/lib/escape";
+import { t } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import { playClip } from "@/voice/sounds";
 import { useVoice } from "@/voice/store";
@@ -23,7 +24,7 @@ async function soundFromFile(file: File): Promise<Blob> {
     // Decoding comes out at the context's own rate, which an offline context never plays.
     decoded = await new OfflineAudioContext(1, 1, SOUND_RATE).decodeAudioData(await file.arrayBuffer());
   } catch {
-    throw new Error("That file isn't a sound Zuna can read.");
+    throw new Error(t("voice.soundboard.unreadable"));
   }
   const frames = Math.min(decoded.length, (SOUND_RATE * SOUND_INPUT_MAX_MS) / 1000);
   // Rendered into one channel, which mixes any others into it.
@@ -38,7 +39,7 @@ async function soundFromFile(file: File): Promise<Blob> {
   return new Blob([writeWav(samples)], { type: "audio/wav" });
 }
 
-const seconds = (sound: SoundView) => `${(sound.durationMs / 1000).toFixed(1)} s`;
+const seconds = (sound: SoundView) => t("voice.soundboard.seconds", { seconds: (sound.durationMs / 1000).toFixed(1) });
 
 /** Why this person can't play a sound in the room they're in, if they can't. */
 function useRefusal(roomSounds: boolean): string | null {
@@ -46,11 +47,11 @@ function useRefusal(roomSounds: boolean): string | null {
   const deafened = useVoice((state) => state.deafened);
   const serverMuted = useVoice((state) => state.serverMuted);
   const noMic = useVoice((state) => state.noMic);
-  if (!roomSounds) return "The soundboard is off in this voice channel.";
-  if (serverMuted) return "An admin muted you, so you can't play sounds.";
-  if (deafened) return "Undeafen to play sounds.";
+  if (!roomSounds) return t("server.theSoundboardIsOffIn");
+  if (serverMuted) return t("server.anAdminMutedYouSo");
+  if (deafened) return t("server.undeafenToPlaySounds");
   // Without a microphone, someone can only listen, and so they're muted.
-  if (muted || noMic) return "Unmute to play sounds.";
+  if (muted || noMic) return t("server.unmuteToPlaySounds");
   return null;
 }
 
@@ -94,13 +95,13 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
   };
 
   return createPortal(
-    <div ref={ref} className="soundboard" role="dialog" aria-label="Soundboard" style={position}>
+    <div ref={ref} className="soundboard" role="dialog" aria-label={t("voice.soundboard.title")} style={position}>
       <header className="soundboard-head">
         <AudioLines size={15} />
-        <span className="grow">Soundboard</span>
+        <span className="grow">{t("voice.soundboard.title")}</span>
         {isAdmin && (
-          <Tooltip text="Add and change sounds">
-            <button className="icon-btn is-small" onClick={manage} aria-label="Add and change sounds">
+          <Tooltip text={t("voice.soundboard.manage")}>
+            <button className="icon-btn is-small" onClick={manage} aria-label={t("voice.soundboard.manage")}>
               <Settings size={15} />
             </button>
           </Tooltip>
@@ -109,19 +110,19 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
       {refusal && sounds.length > 0 && <p className="soundboard-note">{refusal}</p>}
       {sounds.length === 0 ? (
         <p className="soundboard-empty">
-          This server has no sounds yet.{" "}
+          {t("voice.soundboard.empty")}{" "}
           {isAdmin ? (
             <button className="soundboard-link" onClick={manage}>
-              Add some
+              {t("voice.soundboard.addSome")}
             </button>
           ) : (
-            "Admins can add them."
+            t("voice.soundboard.adminsCanAdd")
           )}
         </p>
       ) : (
         <div className="soundboard-grid">
           {sounds.map((sound) => (
-            <button key={sound.id} className="soundboard-sound" disabled={!!refusal} onClick={() => void playSound(sound.id)} title={`${sound.name}, ${seconds(sound)}`}>
+            <button key={sound.id} className="soundboard-sound" disabled={!!refusal} onClick={() => void playSound(sound.id)} title={t("voice.soundboard.soundTitle", { name: sound.name, length: seconds(sound) })}>
               <span className="soundboard-emoji" aria-hidden>
                 {sound.emoji || "🔊"}
               </span>
@@ -132,9 +133,9 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
       )}
       <label className="soundboard-volume">
         <span>
-          Volume <b>{Math.round(volume * 100)}%</b>
+          {t("voice.soundboard.volume")} <b>{Math.round(volume * 100)}%</b>
         </span>
-        <input className="voice-slider" type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => updateSettings({ soundboardVolume: Number(event.target.value) })} aria-label="Soundboard volume" />
+        <input className="voice-slider" type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => updateSettings({ soundboardVolume: Number(event.target.value) })} aria-label={t("voice.settings.soundboardVolume")} />
       </label>
     </div>,
     document.body,
@@ -146,11 +147,11 @@ export function SoundboardButton({ roomSounds }: { /** Whether the soundboard pl
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   return (
     <>
-      <Tooltip text="Soundboard" side="top">
+      <Tooltip text={t("voice.soundboard.title")} side="top">
         <button
           className={`voice-control${anchor ? " is-on" : ""}`}
           onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
-          aria-label="Soundboard"
+          aria-label={t("voice.soundboard.title")}
           aria-expanded={!!anchor}
         >
           <AudioLines size={20} />
@@ -178,14 +179,14 @@ function SoundRow({ sound }: { sound: SoundView }) {
     });
   const remove = () =>
     run(async () => {
-      if (!window.confirm(`Delete ${sound.name}? It will be removed from everyone's soundboard.`)) return;
+      if (!window.confirm(t("voice.soundboard.deleteConfirm", { name: sound.name }))) return;
       await session().deleteSound(sound.id);
     });
 
   if (editing) {
     return (
       <div className="sound-row is-editing">
-        <input className="input sound-emoji-input" value={emoji} maxLength={8} placeholder="🔊" onChange={(event) => setEmoji(event.target.value)} aria-label="Emoji" />
+        <input className="input sound-emoji-input" value={emoji} maxLength={8} placeholder="🔊" onChange={(event) => setEmoji(event.target.value)} aria-label={t("voice.soundboard.emoji")} />
         <input
           className="input grow"
           autoFocus
@@ -195,13 +196,13 @@ function SoundRow({ sound }: { sound: SoundView }) {
           onKeyDown={(event) => {
             if (event.key === "Enter" && name.trim()) void save();
           }}
-          aria-label="Name"
+          aria-label={t("common.name")}
         />
         <button className="btn" onClick={() => setEditing(false)}>
-          Cancel
+          {t("common.cancel")}
         </button>
         <button className="btn btn-primary" disabled={busy || !name.trim()} onClick={() => void save()}>
-          {busy ? <Spinner size={15} /> : "Save"}
+          {busy ? <Spinner size={15} /> : t("common.save")}
         </button>
       </div>
     );
@@ -213,12 +214,12 @@ function SoundRow({ sound }: { sound: SoundView }) {
       </span>
       <span className="grow truncate">{sound.name}</span>
       <span className="faint sound-row-length">{seconds(sound)}</span>
-      <Tooltip text="Listen">
-        <button className="icon-btn is-small" disabled={busy} onClick={() => void preview()} aria-label={`Listen to ${sound.name}`}>
+      <Tooltip text={t("voice.soundboard.listen")}>
+        <button className="icon-btn is-small" disabled={busy} onClick={() => void preview()} aria-label={t("voice.soundboard.listenTo", { name: sound.name })}>
           <Play size={15} />
         </button>
       </Tooltip>
-      <Tooltip text="Rename">
+      <Tooltip text={t("voice.soundboard.rename")}>
         <button
           className="icon-btn is-small"
           onClick={() => {
@@ -226,13 +227,13 @@ function SoundRow({ sound }: { sound: SoundView }) {
             setEmoji(sound.emoji);
             setEditing(true);
           }}
-          aria-label={`Rename ${sound.name}`}
+          aria-label={t("voice.soundboard.renameNamed", { name: sound.name })}
         >
           <Pencil size={15} />
         </button>
       </Tooltip>
-      <Tooltip text="Delete">
-        <button className="icon-btn is-small" disabled={busy} onClick={() => void remove()} aria-label={`Delete ${sound.name}`}>
+      <Tooltip text={t("common.delete")}>
+        <button className="icon-btn is-small" disabled={busy} onClick={() => void remove()} aria-label={t("voice.soundboard.deleteNamed", { name: sound.name })}>
           <Trash2 size={15} />
         </button>
       </Tooltip>
@@ -257,7 +258,7 @@ export function ServerSoundboardSection() {
     run(async () => {
       if (!file) return;
       await session().addSound(await soundFromFile(file), name.trim(), emoji.trim());
-      toast(`Added ${name.trim()}`);
+      toast(t("voice.soundboard.added", { name: name.trim() }));
       setFile(null);
       setName("");
       setEmoji("");
@@ -265,18 +266,16 @@ export function ServerSoundboardSection() {
 
   return (
     <>
-      <h1>Soundboard</h1>
-      <p className="settings-lead">
-        Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.
-      </p>
+      <h1>{t("serverSettings.sections.soundboard")}</h1>
+      <p className="settings-lead">{t("voice.soundboard.lead")}</p>
       <div className="sound-add">
         <div className="sound-add-fields">
-          <Field label="Emoji" value={emoji} maxLength={8} placeholder="🔊" onChange={(event) => setEmoji(event.target.value)} />
+          <Field label={t("voice.soundboard.emoji")} value={emoji} maxLength={8} placeholder="🔊" onChange={(event) => setEmoji(event.target.value)} />
           <Field
-            label="Name"
+            label={t("common.name")}
             value={name}
             maxLength={32}
-            placeholder="Airhorn"
+            placeholder={t("voice.soundboard.namePlaceholder")}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && file && name.trim() && !busy) void add();
@@ -285,12 +284,12 @@ export function ServerSoundboardSection() {
         </div>
         <div className="sound-add-actions">
           <button className="btn" onClick={() => fileInput.current?.click()}>
-            {file ? <span className="truncate sound-add-file">{file.name}</span> : "Choose a sound"}
+            {file ? <span className="truncate sound-add-file">{file.name}</span> : t("voice.soundboard.choose")}
           </button>
           <button className="btn btn-primary" disabled={!file || !name.trim() || busy || sounds.length >= 50} onClick={() => void add()}>
             {busy ? <Spinner size={15} /> : (
               <>
-                <Plus size={15} /> Add sound
+                <Plus size={15} /> {t("voice.soundboard.add")}
               </>
             )}
           </button>
@@ -309,7 +308,7 @@ export function ServerSoundboardSection() {
             event.target.value = "";
           }}
         />
-        <span className="setting-hint">{sounds.length >= 50 ? "The soundboard is full. Delete a sound to add another." : `${sounds.length} of 50 sounds.`}</span>
+        <span className="setting-hint">{sounds.length >= 50 ? t("server.theSoundboardIsFullDelete") : t("voice.soundboard.count", { used: sounds.length })}</span>
       </div>
       {sounds.length > 0 && (
         <div className="sound-list">

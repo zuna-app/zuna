@@ -15,6 +15,7 @@ import type { RoomQuality, VideoTile, VoiceRoom } from "./room";
 import { bitrateName, heightName, loadVoiceSettings, loadVolumes, rateName, saveVoiceSettings, saveVolumes, type VoiceSettings } from "./settings";
 import { playVoiceSound, setSoundOutput, type VoiceSound } from "./sounds";
 import type { StatSection, StatsShare, StreamStats } from "./stats";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -162,10 +163,14 @@ class ShareRefused extends Error {}
 
 const micFilters = (settings: VoiceSettings): string =>
   [
-    { zuna: "RNNoise", standard: "the browser's noise suppression", off: null }[settings.noiseSuppression],
-    settings.inputMode === "ptt" ? "push to talk" : settings.autoSensitivity ? "a gate on speech" : `a gate at ${settings.sensitivity} dB`,
-    settings.echoCancellation && "echo cancelling",
-    settings.autoGain && "automatic gain",
+    settings.noiseSuppression === "zuna" ? "RNNoise" : settings.noiseSuppression === "standard" ? t("voice.stats.browserNoiseSuppression") : null,
+    settings.inputMode === "ptt"
+      ? t("voice.stats.pushToTalk")
+      : settings.autoSensitivity
+        ? t("voice.stats.gateOnSpeech")
+        : t("voice.stats.gateAt", { db: settings.sensitivity }),
+    settings.echoCancellation && t("voice.stats.echoCancelling"),
+    settings.autoGain && t("voice.stats.automaticGain"),
   ]
     .filter(Boolean)
     .join(", ");
@@ -298,7 +303,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       return;
     }
     if (reconnects >= RECONNECT_ATTEMPTS) {
-      useApp.getState().toast("Lost the connection to voice.", "error");
+      useApp.getState().toast(t("voice.connectionLost"), "error");
       get().leave();
       return;
     }
@@ -348,7 +353,7 @@ export const useVoice = create<VoiceState>((set, get) => {
         quality: (quality, rtt) => {
           if (current() && (quality !== get().quality || rtt !== get().rtt)) set({ quality, rtt });
         },
-        micLost: () => app.toast("Your microphone was disconnected, so Zuna switched to the default one.", "info"),
+        micLost: () => app.toast(t("voice.mic.lost"), "info"),
         participants: (came, left) => {
           if (came || left) sound(came ? "join" : "leave");
         },
@@ -361,7 +366,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       applyVolumes();
       const { muted, deafened } = get();
       const noMic = !joined.hasMic;
-      if (joined.micProblem) app.toast(`${joined.micProblem} You can still listen.`, "info");
+      if (joined.micProblem) app.toast(t("voice.mic.problemCanListen", { problem: joined.micProblem }), "info");
       await joined.setMuted(muted || deafened || noMic);
       set({ status: "connected", noMic, serverMuted: joined.serverMuted });
       joined.onBrowserShareEnded(() => {
@@ -374,7 +379,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     } catch (error) {
       console.warn("[zuna] joining a voice channel", error);
       if (mine !== attempt) return;
-      app.toast((error as Error).message || "Couldn't connect to voice.", "error");
+      app.toast((error as Error).message || t("voice.couldntConnect"), "error");
       // A server that hasn't set this up, or a channel that's full, won't change in a moment.
       set({ ...NOT_IN_VOICE });
       closeStage(serverId, channelId);
@@ -393,21 +398,22 @@ export const useVoice = create<VoiceState>((set, get) => {
     closeRoom();
     set({ ...NOT_IN_VOICE });
     closeStage(serverId, channelId);
-    const message: Record<string, string> = {
-      elsewhere: "You joined this voice channel on another device.",
-      disconnected: "An admin removed you from the voice channel.",
-      deleted: "That voice channel was deleted.",
-      removed: "That voice channel is only for admins now.",
-      banned: "You were removed from this server.",
+    const message: Record<string, MessageKey> = {
+      elsewhere: mark("voice.ended.elsewhere"),
+      disconnected: mark("voice.ended.disconnected"),
+      deleted: mark("voice.ended.deleted"),
+      removed: mark("voice.ended.adminsOnly"),
+      banned: mark("voice.ended.banned"),
     };
-    const call: Record<string, string> = {
-      elsewhere: "You joined this call on another device.",
-      removed: "You're no longer in this conversation, so you left the call.",
-      deleted: "That conversation was deleted.",
-      banned: "You were removed from this server.",
+    const call: Record<string, MessageKey> = {
+      elsewhere: mark("voice.call.endedElsewhere"),
+      removed: mark("voice.call.endedRemoved"),
+      deleted: mark("voice.call.endedDeleted"),
+      banned: mark("voice.ended.banned"),
     };
     const wasCall = !useApp.getState().servers[serverId]?.channels.some((channel) => channel.id === channelId);
-    useApp.getState().toast((wasCall ? call : message)[reason] ?? (wasCall ? "You left the call." : "You left the voice channel."), "info");
+    const said = (wasCall ? call : message)[reason];
+    useApp.getState().toast(said ? t(said) : wasCall ? t("voice.call.left") : t("voice.ended.left"), "info");
     sound("self-leave");
   };
   /** A direct message's call that nobody answers ends by itself, as a phone call does. */
@@ -426,7 +432,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     if (others) return;
     const name = (conversation.peerId && server!.users[conversation.peerId]?.displayName) || conversation.title;
     get().leave();
-    useApp.getState().toast(conversation.peerId && call.declined.includes(conversation.peerId) ? `${name} declined the call.` : `${name} didn't answer.`, "info");
+    useApp.getState().toast(conversation.peerId && call.declined.includes(conversation.peerId) ? t("voice.call.declined", { name }) : t("voice.call.noAnswer", { name }), "info");
   };
   /** And once the other person in one hangs up, it's over. */
   voiceHooks.onLeft = (serverId, channelId, userId) => {
@@ -447,7 +453,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     if (!get().screen && Date.now() - shareVanishedAt > 5000) return;
     shareVanishedAt = 0;
     void endShare(false);
-    useApp.getState().toast(reason === "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.", "info");
+    useApp.getState().toast(reason === "stopped" ? t("voice.screen.stoppedByAdmin") : t("voice.screen.stoppedByRules"), "info");
   };
   voiceHooks.onServerGone = (serverId) => {
     if (get().moving?.serverId === serverId) set({ moving: null });
@@ -513,7 +519,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     if (member.deviceId !== self?.deviceId || member.serverMuted === get().serverMuted) return;
     set({ serverMuted: member.serverMuted });
     void room?.setMuted(member.serverMuted || get().muted || get().deafened || get().noMic);
-    useApp.getState().toast(member.serverMuted ? "An admin muted you." : "An admin unmuted you.", "info");
+    useApp.getState().toast(member.serverMuted ? t("voice.adminMuted") : t("voice.adminUnmuted"), "info");
     sound(member.serverMuted ? "mute" : "unmute");
   };
 
@@ -573,7 +579,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       try {
         groupId = await app.session(serverId).prepareCall(conversationKey);
       } catch (error) {
-        app.toast((error as Error).message || "Couldn't start the call.", "error");
+        app.toast((error as Error).message || t("voice.call.couldntStart"), "error");
         return;
       }
       // Someone else may have called meanwhile, which this joins rather than ringing anyone.
@@ -642,7 +648,7 @@ export const useVoice = create<VoiceState>((set, get) => {
         set({ camera: on });
         announce();
       } catch {
-        useApp.getState().toast("There's no camera Zuna can use.", "error");
+        useApp.getState().toast(t("voice.camera.none"), "error");
       }
     },
 
@@ -656,7 +662,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate }, server?.info?.screen_share, server?.self?.role);
       const wantsSound = choice.audio && terms.sound;
       const held = terms.held.map((name) => ({ height: heightName(terms.height), fps: rateName(terms.fps), kbps: bitrateName(terms.kbps) })[name]);
-      const asked = { name: "Your screen", fps: terms.fps, bitrateKbps: terms.kbps, height: terms.height, held };
+      const asked = { name: t("voice.stage.yourScreen"), fps: terms.fps, bitrateKbps: terms.kbps, height: terms.height, held };
       try {
         const access = await session.voiceScreenAccess(channelId, { sound: wantsSound }).catch((error) => {
           throw new ShareRefused((error as Error).message);
@@ -679,7 +685,7 @@ export const useVoice = create<VoiceState>((set, get) => {
         }
         void session.voiceScreenStop(channelId).catch(() => undefined);
         // Choosing not to share after all is not a failure.
-        if ((error as Error).name !== "NotAllowedError") app.toast("Couldn't share your screen.", "error");
+        if ((error as Error).name !== "NotAllowedError") app.toast(t("voice.share.failed"), "error");
       }
     },
 
@@ -726,7 +732,7 @@ export const useVoice = create<VoiceState>((set, get) => {
 
     async watchStart(url) {
       const { serverId, channelId } = get();
-      if (!serverId || !channelId) throw new Error("Join the voice channel to watch together.");
+      if (!serverId || !channelId) throw new Error(t("errors.joinVoiceToWatch"));
       const session = useApp.getState().session(serverId);
       await session.watchStart(channelId, url);
       const watch = await session.getWatch(channelId);

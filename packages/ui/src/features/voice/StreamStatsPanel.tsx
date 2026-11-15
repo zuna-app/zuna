@@ -2,6 +2,7 @@ import { Activity, Check, Copy, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Tooltip } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { t } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import { statsAsText, StreamStats, type StatSection } from "@/voice/stats";
 import { useVoice } from "@/voice/store";
@@ -33,10 +34,7 @@ function Section({ section }: { section: StatSection }) {
         <div className="stream-stats-headline">
           <div className="stream-stats-fps">
             <b>{headline.fps === null ? "…" : headline.fps.toFixed(1)}</b>
-            <span>
-              fps {headline.label}
-              {headline.wanted !== null && ` of ${headline.wanted}`}
-            </span>
+            <span>{headline.wanted !== null ? t("voice.statsPanel.fpsOf", { label: headline.label, wanted: headline.wanted }) : t("voice.statsPanel.fps", { label: headline.label })}</span>
           </div>
           <FpsGraph history={headline.history} wanted={headline.wanted} />
         </div>
@@ -69,7 +67,7 @@ export function StreamStatsPanel({ onClose }: { onClose: () => void }) {
     const reader = new StreamStats();
     let stopped = false;
     const read = async () => {
-      const next = await readStats(reader, (userId) => users.current?.[userId]?.displayName ?? "Someone").catch((error) => {
+      const next = await readStats(reader, (userId) => users.current?.[userId]?.displayName ?? t("common.someone")).catch((error) => {
         console.warn("[zuna] reading stream stats", error);
         return null;
       });
@@ -115,17 +113,17 @@ export function StreamStatsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <aside ref={panel} className="stream-stats" aria-label="Stream stats" style={place ? { left: place.x, top: place.y, right: "auto" } : undefined}>
+    <aside ref={panel} className="stream-stats" aria-label={t("voice.statsPanel.title")} style={place ? { left: place.x, top: place.y, right: "auto" } : undefined}>
       <header className="stream-stats-head" onPointerDown={startDrag}>
         <Activity size={14} />
-        <h4 className="grow">Stream stats</h4>
-        <Tooltip text={copied ? "Copied" : "Copy all"}>
-          <button className="icon-btn is-small" onClick={() => void copy()} aria-label="Copy all">
+        <h4 className="grow">{t("voice.statsPanel.title")}</h4>
+        <Tooltip text={copied ? t("common.copied") : t("voice.statsPanel.copyAll")}>
+          <button className="icon-btn is-small" onClick={() => void copy()} aria-label={t("voice.statsPanel.copyAll")}>
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </Tooltip>
-        <Tooltip text="Close">
-          <button className="icon-btn is-small" onClick={onClose} aria-label="Close stream stats">
+        <Tooltip text={t("common.close")}>
+          <button className="icon-btn is-small" onClick={onClose} aria-label={t("voice.statsPanel.close")}>
             <X size={15} />
           </button>
         </Tooltip>

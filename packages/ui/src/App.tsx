@@ -10,6 +10,7 @@ import { applySettings, saveSettings } from "@/state/settings";
 import { useApp } from "@/state/store";
 import { watchActivity } from "@/state/activity";
 import { platform } from "@/platform";
+import { t } from "@/lib/i18n";
 
 /** The web app's files changed on its host. Reloading picks up the new version. */
 function UpdateNotice() {
@@ -18,9 +19,9 @@ function UpdateNotice() {
   if (!ready) return null;
   return (
     <div className="update-notice" role="status">
-      <span>Zuna was updated.</span>
+      <span>{t("update.webUpdated")}</span>
       <button className="btn btn-small btn-primary" onClick={() => location.reload()}>
-        Reload
+        {t("common.reload")}
       </button>
     </div>
   );
@@ -44,10 +45,10 @@ function BootFailure({ message }: { message: string }) {
     <div className="boot">
       <div className="empty-state" style={{ maxWidth: 440 }}>
         <AlertTriangle size={26} className="empty-icon" style={{ color: "var(--red)" }} />
-        <h3>Zuna couldn't start</h3>
-        <p>This browser's encrypted storage, or the encryption engine, didn't open. Your messages are safe on your servers. Reload the page to try again.</p>
+        <h3>{t("startup.failedTitle")}</h3>
+        <p>{t("startup.failedText")}</p>
         <p className="mono faint" style={{ fontSize: 12 }}>{message}</p>
-        <button className="btn btn-primary" onClick={() => location.reload()}>Reload</button>
+        <button className="btn btn-primary" onClick={() => location.reload()}>{t("common.reload")}</button>
       </div>
     </div>
   );
@@ -59,6 +60,8 @@ export function App() {
   const boot = useApp((state) => state.boot);
   const hasServers = useApp((state) => state.order.length > 0);
   const settings = useApp((state) => state.settings);
+  // Everything is drawn again in a language chosen in Settings.
+  const language = useApp((state) => state.language);
   const setOverlay = useApp((state) => state.setOverlay);
 
   useEffect(() => {
@@ -142,7 +145,7 @@ export function App() {
 
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? "always" : "user"}>
-      <div className="app-root">
+      <div className="app-root" key={language}>
         <div className="app-body">
           {phase === "booting" && <BootScreen />}
           {phase === "failed" && <BootFailure message={bootError ?? ""} />}

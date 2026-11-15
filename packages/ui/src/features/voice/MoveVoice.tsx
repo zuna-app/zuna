@@ -2,17 +2,18 @@
 // devices is in one on the same server: only one of them stays in, so the other is taken out.
 
 import { Confirm } from "@/components/ui";
+import { t } from "@/lib/i18n";
 import { conversationOfGroup, useApp, type ServerState } from "@/state/store";
 import { useVoice, type VoiceMove } from "@/voice/store";
 
-/** Where the other device is, in words that follow "You're in". */
+/** Where the other device is, and what joining here does to it. */
 function whereElsewhere(server: ServerState | undefined, moving: VoiceMove): string {
   const channel = server?.channels.find((item) => item.id === moving.from);
-  if (moving.from === moving.channelId) return channel ? "this voice channel" : "this call";
-  if (channel) return channel.name || "a voice channel";
+  if (moving.from === moving.channelId) return channel ? t("voice.moveHere.thisChannel") : t("voice.moveHere.thisCall");
+  if (channel) return channel.name ? t("voice.moveHere.channel", { channel: channel.name }) : t("voice.moveHere.unnamedChannel");
   const conversation = conversationOfGroup(server, moving.from);
-  if (!conversation) return "a call";
-  return conversation.kind === "dm" ? `a call with ${conversation.title}` : `a call in ${conversation.title}`;
+  if (!conversation) return t("voice.moveHere.call");
+  return conversation.kind === "dm" ? t("voice.moveHere.callWith", { name: conversation.title }) : t("voice.move.callIn", { name: conversation.title });
 }
 
 export function MoveVoice() {
@@ -21,8 +22,8 @@ export function MoveVoice() {
   const where = useApp((state) => (moving ? whereElsewhere(state.servers[moving.serverId], moving) : ""));
   if (!moving) return null;
   return (
-    <Confirm title="Join on this device?" action="Join here" kind="primary" onCancel={() => answerMove(false)} onConfirm={() => answerMove(true)}>
-      {`You're in ${where} on another device. Joining here disconnects that device.`}
+    <Confirm title={t("voice.moveHere.title")} action={t("voice.moveHere.join")} kind="primary" onCancel={() => answerMove(false)} onConfirm={() => answerMove(true)}>
+      {where}
     </Confirm>
   );
 }

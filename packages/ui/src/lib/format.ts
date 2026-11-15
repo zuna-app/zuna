@@ -1,14 +1,35 @@
-// Times follow the browser's language, 12 or 24 hours, as it can't see the system's clock.
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { dateLocale, mark, t } from "@/lib/i18n";
 
-const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
-const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-const fullDayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
-const fullDayYearFormat = new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" });
+// Times follow the browser's language, 12 or 24 hours, as it can't see the system's clock, or
+// the language chosen in Settings. Each format is made when first used for a locale, so a
+// change of language takes effect.
+const formats = new Map<string, Intl.DateTimeFormat>();
 
-export const formatTime = (at: number) => timeFormat.format(at);
-export const formatFull = (at: number) => fullFormat.format(at);
+function formatter(name: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const locale = dateLocale();
+  const id = `${locale ?? ""}\u0000${name}`;
+  let format = formats.get(id);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options);
+    formats.set(id, format);
+  }
+  return format;
+}
+
+const timeFormat = () => formatter("time", { hour: "numeric", minute: "2-digit" });
+const fullFormat = () => formatter("full", { dateStyle: "medium", timeStyle: "short" });
+const weekdayFormat = () => formatter("weekday", { weekday: "short" });
+const dayFormat = () => formatter("day", { month: "short", day: "numeric" });
+const fullDayFormat = () => formatter("fullDay", { weekday: "long", month: "long", day: "numeric" });
+const fullDayYearFormat = () => formatter("fullDayYear", { month: "long", day: "numeric", year: "numeric" });
+const shortDateFormat = () => formatter("shortDate", { year: "numeric", month: "2-digit", day: "2-digit" });
+const shortDayFormat = () => formatter("shortDay", { dateStyle: "short" });
+const monthFormat = () => formatter("month", { month: "long", year: "numeric" });
+
+export const formatTime = (at: number) => timeFormat().format(at);
+export const formatFull = (at: number) => fullFormat().format(at);
+/** A month and its year, as over a month's things in a chat's details. */
+export const formatMonth = (at: number) => monthFormat().format(at);
 
 const startOfDay = (at: number) => {
   const date = new Date(at);
@@ -21,39 +42,35 @@ export function formatListTime(at: number): string {
   if (!at) return "";
   const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
   if (days <= 0) return formatTime(at);
-  if (days < 7) return weekdayFormat.format(at);
-  return dayFormat.format(at);
+  if (days < 7) return weekdayFormat().format(at);
+  return dayFormat().format(at);
 }
 
 export function formatDaySeparator(at: number): string {
   const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (new Date(at).getFullYear() === new Date().getFullYear()) return fullDayFormat.format(at);
-  return fullDayYearFormat.format(at);
+  if (days === 0) return t("date.today");
+  if (days === 1) return t("date.yesterday");
+  if (new Date(at).getFullYear() === new Date().getFullYear()) return fullDayFormat().format(at);
+  return fullDayYearFormat().format(at);
 }
 
 export const sameDay = (a: number, b: number) => startOfDay(a) === startOfDay(b);
 
-const shortDateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-
 /** A day in full, as between days in a channel. */
-export const formatDate = (at: number) => fullDayYearFormat.format(at);
+export const formatDate = (at: number) => fullDayYearFormat().format(at);
 
 /** When a message was sent, as beside a name in a channel: "Today at 14:32", or the date. */
 export function formatStamp(at: number): string {
   const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
-  if (days === 0) return `Today at ${formatTime(at)}`;
-  if (days === 1) return `Yesterday at ${formatTime(at)}`;
-  return `${shortDateFormat.format(at)} ${formatTime(at)}`;
+  if (days === 0) return t("date.todayAt", { time: formatTime(at) });
+  if (days === 1) return t("date.yesterdayAt", { time: formatTime(at) });
+  return t("date.dateTime", { date: shortDateFormat().format(at), time: formatTime(at) });
 }
 
 /** A moment still to come, with its date unless it's today. */
 export function formatUpcoming(at: number): string {
-  return sameDay(at, Date.now()) ? formatTime(at) : `${dayFormat.format(at)}, ${formatTime(at)}`;
+  return sameDay(at, Date.now()) ? formatTime(at) : t("date.dayTime", { date: dayFormat().format(at), time: formatTime(at) });
 }
-
-const shortDayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
 
 /**
  * When someone was last seen, worded as Telegram's desktop app words it: in a chat's header
@@ -62,19 +79,19 @@ const shortDayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short" }
  * seen "a long time ago".
  */
 export function formatLastSeen(at: number | null, hidden: boolean, full = false, now = Date.now()): string {
-  if (hidden) return "last seen recently";
-  if (at === null) return "last seen a long time ago";
+  if (hidden) return t("lastSeen.recently");
+  if (at === null) return t("lastSeen.longAgo");
   if (!full) {
     const minutes = Math.floor(Math.max(0, now - at) / 60_000);
-    if (minutes === 0) return "last seen just now";
-    if (minutes < 60) return `last seen ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    if (minutes === 0) return t("lastSeen.justNow");
+    if (minutes < 60) return t("lastSeen.minutesAgo", { count: minutes });
     const hours = Math.floor(minutes / 60);
-    if (hours < 12) return `last seen ${hours} hour${hours === 1 ? "" : "s"} ago`;
+    if (hours < 12) return t("lastSeen.hoursAgo", { count: hours });
   }
   const days = Math.round((startOfDay(now) - startOfDay(at)) / 86_400_000);
-  if (days <= 0) return `last seen today at ${formatTime(at)}`;
-  if (days === 1) return `last seen yesterday at ${formatTime(at)}`;
-  return full ? `last seen ${shortDayFormat.format(at)} at ${formatTime(at)}` : `last seen ${shortDayFormat.format(at)}`;
+  if (days <= 0) return t("lastSeen.todayAt", { time: formatTime(at) });
+  if (days === 1) return t("lastSeen.yesterdayAt", { time: formatTime(at) });
+  return full ? t("lastSeen.dateAt", { date: shortDayFormat().format(at), time: formatTime(at) }) : t("lastSeen.date", { date: shortDayFormat().format(at) });
 }
 
 /**
@@ -91,16 +108,18 @@ export function lastSeenChangesIn(at: number, now = Date.now()): number {
   return Math.max(1_000, midnight.getTime() - now);
 }
 
+const SIZE_UNITS = [mark("common.size.kb"), mark("common.size.mb"), mark("common.size.gb"), mark("common.size.tb")];
+
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
+  if (bytes < 1024) return t("common.size.bytes", { size: bytes });
+  const units = SIZE_UNITS;
   let value = bytes;
   let unit = -1;
   do {
     value /= 1024;
     unit++;
   } while (value >= 1024 && unit < units.length - 1);
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+  return t(units[unit]!, { size: value >= 100 ? Math.round(value) : value.toFixed(1) });
 }
 
 export function formatDuration(seconds: number): string {

@@ -10,13 +10,14 @@ import { activeServerNow, isUnread, useApp } from "@/state/store";
 import { MessageItem } from "./MessageItem";
 import { readUpToOf } from "./MessageDetails";
 import { useDragPick } from "./use-drag-pick";
+import { t } from "@/lib/i18n";
 
 function UndisplayableMessage() {
   return (
     <div className="msg is-other">
       <div className="msg-stack">
         <div className="bubble">
-          <span className="msg-placeholder">This message couldn't be displayed.</span>
+          <span className="msg-placeholder">{t("message.invalid")}</span>
         </div>
       </div>
     </div>
@@ -145,7 +146,7 @@ function MentionButton({ conversation, groupId, hidden, raised }: { conversation
     void jumpToMessage(groupId, next.id, next.seq);
   };
   return (
-    <button className={`to-bottom to-mention${raised ? " is-raised" : ""}`} onClick={go} aria-label={`Go to the next message that mentions you, ${mentions.length} left`}>
+    <button className={`to-bottom to-mention${raised ? " is-raised" : ""}`} onClick={go} aria-label={t("chat.nextMention", { count: mentions.length })}>
       <AtSign size={21} strokeWidth={1.7} />
       <span className="to-bottom-badge">{mentions.length > 99 ? "99+" : mentions.length}</span>
     </button>
@@ -537,14 +538,14 @@ export function MessageList({
             (showDay || unread) && (
               <div className={`channel-sep${unread ? " is-unread" : ""}${showDay ? " has-day" : ""}`}>
                 {showDay && <span className="channel-sep-day">{formatDate(message.createdAt)}</span>}
-                {unread && <span className="channel-sep-new">New</span>}
+                {unread && <span className="channel-sep-new">{t("chat.newSeparator")}</span>}
               </div>
             )
           ) : (
             <>
               {unread && (
                 <div className="unread-sep">
-                  <span>Unread messages</span>
+                  <span>{t("chat.unreadSeparator")}</span>
                 </div>
               )}
               {showDay && (
@@ -621,15 +622,17 @@ export function MessageList({
           <button className="jump-present" onClick={scrollToBottom}>
             <span className="truncate">
               {unreadBelow > 0
-                ? `${unreadBelow > 99 ? "99+" : unreadBelow} new ${unreadBelow === 1 ? "message" : "messages"}${firstUnreadAt ? ` since ${formatTime(firstUnreadAt)}` : ""}`
-                : "You're viewing older messages"}
+                ? firstUnreadAt
+                  ? t("chat.newMessagesSince", { count: unreadBelow > 99 ? "99+" : unreadBelow, time: formatTime(firstUnreadAt) })
+                  : t("chat.newMessages", { count: unreadBelow > 99 ? "99+" : unreadBelow })
+                : t("chat.viewingOlder")}
             </span>
             <span className="jump-present-go">
-              Jump to present <ArrowDown size={15} />
+              {t("chat.jumpToPresent")} <ArrowDown size={15} />
             </span>
           </button>
         ) : (
-          <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">
+          <button className="to-bottom" onClick={scrollToBottom} aria-label={t("chat.toNewest")}>
             <ChevronDown size={30} strokeWidth={1.5} />
             {unreadBelow > 0 && <span className="to-bottom-badge">{unreadBelow > 99 ? "99+" : unreadBelow}</span>}
           </button>

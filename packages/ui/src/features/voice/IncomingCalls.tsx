@@ -5,6 +5,7 @@ import type { CallView, ConversationView } from "@zuna/core";
 import { Phone, PhoneOff, Video } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { Avatar, Tooltip } from "@/components/ui";
+import { t } from "@/lib/i18n";
 import { conversationOfGroup, useApp, type ServerState } from "@/state/store";
 import { setRinging } from "@/voice/sounds";
 import { useVoice } from "@/voice/store";
@@ -38,8 +39,8 @@ function IncomingCall({ incoming, multipleServers }: { incoming: Incoming; multi
   const join = useVoice((state) => state.join);
   const decline = useVoice((state) => state.decline);
   const { conversation, call } = incoming;
-  const caller = server?.users[call.startedBy]?.displayName ?? "Someone";
-  const what = conversation.kind === "dm" ? "Calling you" : `${caller} started a call`;
+  const caller = server?.users[call.startedBy]?.displayName ?? t("common.someone");
+  const what = conversation.kind === "dm" ? t("notify.callingYou") : t("notify.startedCall", { name: caller });
   const answer = (camera: boolean) => {
     const app = useApp.getState();
     app.selectServer(incoming.serverId);
@@ -47,7 +48,7 @@ function IncomingCall({ incoming, multipleServers }: { incoming: Incoming; multi
     void join(incoming.serverId, call.groupId, undefined, { camera });
   };
   return (
-    <div className="incoming-call" role="alertdialog" aria-label={`${conversation.title}: ${what}`}>
+    <div className="incoming-call" role="alertdialog" aria-label={t("voice.incoming.label", { chat: conversation.title, what })}>
       <Avatar name={conversation.title} seed={conversation.peerId ?? conversation.groupId ?? ""} avatar={conversation.avatar} size={48} />
       <div className="incoming-call-who">
         <b className="truncate">{conversation.title}</b>
@@ -56,18 +57,18 @@ function IncomingCall({ incoming, multipleServers }: { incoming: Incoming; multi
           {multipleServers && server ? ` · ${server.entry.name}` : ""}
         </span>
       </div>
-      <Tooltip text="Decline" side="bottom">
-        <button className="call-button is-decline" onClick={() => decline(incoming.serverId, call.groupId)} aria-label="Decline">
+      <Tooltip text={t("voice.incoming.decline")} side="bottom">
+        <button className="call-button is-decline" onClick={() => decline(incoming.serverId, call.groupId)} aria-label={t("voice.incoming.decline")}>
           <PhoneOff size={18} />
         </button>
       </Tooltip>
-      <Tooltip text="Answer with video" side="bottom">
-        <button className="call-button is-video" onClick={() => answer(true)} aria-label="Answer with video">
+      <Tooltip text={t("voice.incoming.answerVideo")} side="bottom">
+        <button className="call-button is-video" onClick={() => answer(true)} aria-label={t("voice.incoming.answerVideo")}>
           <Video size={18} />
         </button>
       </Tooltip>
-      <Tooltip text="Answer" side="bottom">
-        <button className="call-button is-answer" onClick={() => answer(false)} aria-label="Answer">
+      <Tooltip text={t("voice.incoming.answer")} side="bottom">
+        <button className="call-button is-answer" onClick={() => answer(false)} aria-label={t("voice.incoming.answer")}>
           <Phone size={18} />
         </button>
       </Tooltip>

@@ -33,6 +33,7 @@ import { Avatar, BotBadge, ConnectionStatus, PopupMenu, Tooltip, TypingDots, use
 import { refocusComposer } from "@/lib/focus";
 import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import { motionReduced } from "@/lib/motion";
 import { muteEntries } from "@/lib/mute";
 import { ReadTicks, readUpToOf } from "@/features/chat/MessageDetails";
@@ -43,27 +44,28 @@ type Filter = "all" | "channels" | "people" | "bots" | "groups" | "unread";
 
 function previewFor(message: MessageView | null, users: Record<string, UserView>, selfId: string, kind: string): string {
   if (!message) return "";
-  if (message.system?.type === "timer_changed") return message.system.seconds ? `Messages disappear after ${timerText(message.system.seconds)}` : "Disappearing messages turned off";
-  if (message.system) return "Membership changed";
-  if (message.status === "undecryptable") return "Waiting for keys";
-  if (message.status === "invalid" || message.status === "unverified") return "A message that couldn't be displayed";
-  const author = message.senderId === selfId ? "You" : kind === "group" ? users[message.senderId]?.displayName.split(" ")[0] : null;
+  if (message.system?.type === "timer_changed") return message.system.seconds ? t("conversations.preview.timer", { time: timerText(message.system.seconds) }) : t("conversations.preview.timerOff");
+  if (message.system) return t("conversations.preview.membership");
+  if (message.status === "undecryptable") return t("conversations.preview.waitingForKeys");
+  if (message.status === "invalid" || message.status === "unverified") return t("conversations.preview.unreadable");
+  const author = kind === "group" && message.senderId !== selfId ? users[message.senderId]?.displayName.split(" ")[0] : null;
   const body = message.text
     ? plainText(message.text).slice(0, 80)
     : message.location
-      ? "Location"
+      ? t("conversations.preview.location")
       : message.attachments[0]
       ? message.attachments[0].voice
-        ? "Voice message"
+        ? t("conversations.preview.voiceMessage")
         : message.attachments[0].round
-        ? "Video message"
+        ? t("conversations.preview.videoMessage")
         : message.attachments[0].mime.startsWith("image/")
-        ? "Photo"
+        ? t("conversations.preview.photo")
         : message.attachments[0].mime.startsWith("video/")
-          ? "Video"
+          ? t("conversations.preview.video")
           : message.attachments[0].name
       : "";
-  return author ? `${author}: ${body}` : body;
+  if (message.senderId === selfId) return t("conversations.preview.fromYou", { text: body });
+  return author ? t("conversations.preview.from", { name: author, text: body }) : body;
 }
 
 /** The last message is one you sent, to someone who can read it, so it shows its ticks as in Telegram. Notes to yourself never get read. */
@@ -97,7 +99,7 @@ const ConversationRow = memo(function ConversationRow({
   onSelect: (key: string) => void;
   onMenu: (event: React.MouseEvent, item: ConversationView) => void;
 }) {
-  const fallback = item.kind === "dm" && !isSaved && peer ? `@${peer.username}` : isSaved ? "Notes to yourself" : "";
+  const fallback = item.kind === "dm" && !isSaved && peer ? `@${peer.username}` : isSaved ? t("conversations.row.saved") : "";
   return (
     <button
       data-row-key={item.key}
@@ -122,7 +124,7 @@ const ConversationRow = memo(function ConversationRow({
             {peer?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" />}
             {peer?.trust === "changed" && <ShieldAlert size={14} className="conv-warning" />}
             {item.muted && <BellOff size={12} className="conv-muted" />}
-            {item.blocked && <Ban size={12} className="conv-muted" aria-label="Blocked" />}
+            {item.blocked && <Ban size={12} className="conv-muted" aria-label={t("conversations.blocked")} />}
           </span>
           {readUpTo !== null && item.lastMessage && (
             <span className="conv-ticks">
@@ -135,11 +137,11 @@ const ConversationRow = memo(function ConversationRow({
           <span className={`conv-preview truncate${typing ? " is-typing" : call ? " is-call" : ""}`}>
             {typing ? (
               <>
-                typing <TypingDots />
+                {t("conversations.row.typing")} <TypingDots />
               </>
             ) : call ? (
               <>
-                <Phone size={12} className="conv-call" /> In a call
+                <Phone size={12} className="conv-call" /> {t("conversations.row.inCall")}
               </>
             ) : (
               preview || <span className="faint">{fallback}</span>
@@ -147,12 +149,12 @@ const ConversationRow = memo(function ConversationRow({
           </span>
           {item.pinned && !item.unread && !item.markedUnread && <Pin size={13} className="conv-pin" />}
           {item.unreadMentions > 0 && (
-            <span className="conv-badge conv-mention" aria-label="Mentions you">
+            <span className="conv-badge conv-mention" aria-label={t("conversations.mentionsYou")}>
               <AtSign size={12} strokeWidth={2.4} />
             </span>
           )}
           {item.unread > 0 && <span className={`conv-badge${item.muted ? " is-muted" : ""}`}>{item.unread > 99 ? "99+" : item.unread}</span>}
-          {item.unread === 0 && item.markedUnread && <span className={`conv-badge${item.muted ? " is-muted" : ""}`} aria-label="Marked as unread" />}
+          {item.unread === 0 && item.markedUnread && <span className={`conv-badge${item.muted ? " is-muted" : ""}`} aria-label={t("conversations.markedUnread")} />}
         </span>
       </span>
     </button>
@@ -278,32 +280,32 @@ export function ConversationList() {
 
   const rowEntries = (item: ConversationView): MenuEntry[] => [
     {
-      label: item.pinned ? "Unpin" : "Pin to top",
+      label: item.pinned ? t("conversations.menu.unpin") : t("conversations.menu.pin"),
       icon: item.pinned ? <PinOff size={15} /> : <Pin size={15} />,
       onSelect: () => toggle("pinned", item.key),
     },
     ...(item.unread > 0 || item.markedUnread
-      ? [{ label: "Mark as read", icon: <CheckCheck size={15} />, onSelect: () => void session().markChatRead(item.key) }]
+      ? [{ label: t("conversations.menu.markRead"), icon: <CheckCheck size={15} />, onSelect: () => void session().markChatRead(item.key) }]
       : item.groupId
-        ? [{ label: "Mark as unread", icon: <MessageSquareDot size={15} />, onSelect: () => void session().setMarkedUnread(item.key, true) }]
+        ? [{ label: t("conversations.menu.markUnread"), icon: <MessageSquareDot size={15} />, onSelect: () => void session().setMarkedUnread(item.key, true) }]
         : []),
     item.muted
-      ? { label: "Unmute", icon: <Volume2 size={15} />, onSelect: () => void session().unmute(item.key) }
-      : { label: "Mute", icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(item.key, until)) },
+      ? { label: t("conversations.menu.unmute"), icon: <Volume2 size={15} />, onSelect: () => void session().unmute(item.key) }
+      : { label: t("conversations.menu.mute"), icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(item.key, until)) },
     {
-      label: item.hidden ? "Show in list" : "Hide from list",
+      label: item.hidden ? t("conversations.menu.show") : t("conversations.menu.hide"),
       icon: item.hidden ? <Eye size={15} /> : <EyeOff size={15} />,
       onSelect: () => toggle("hidden", item.key),
     },
   ];
 
   const headerEntries: MenuEntry[] = [
-    { label: "Invite people", icon: <LinkIcon size={15} />, onSelect: () => setOverlay({ type: "invite" }) },
-    { label: "New group", icon: <UsersRound size={15} />, onSelect: () => setOverlay({ type: "new-group" }) },
-    ...(isAdmin ? [{ label: "Server settings", icon: <SettingsIcon size={15} />, onSelect: () => setOverlay({ type: "server-settings" }) }] : []),
+    { label: t("conversations.menu.invite"), icon: <LinkIcon size={15} />, onSelect: () => setOverlay({ type: "invite" }) },
+    { label: t("conversations.newGroup"), icon: <UsersRound size={15} />, onSelect: () => setOverlay({ type: "new-group" }) },
+    ...(isAdmin ? [{ label: t("conversations.menu.serverSettings"), icon: <SettingsIcon size={15} />, onSelect: () => setOverlay({ type: "server-settings" }) }] : []),
     { separator: true },
     {
-      label: "Leave this server",
+      label: t("conversations.menu.leave"),
       icon: <LogOut size={15} />,
       danger: true,
       onSelect: () => setOverlay({ type: "server-settings", section: "leave" }),
@@ -312,12 +314,12 @@ export function ConversationList() {
 
   const showsChannels = server.channels.length > 0 || isAdmin;
   const filters: { id: Filter; label: string }[] = [
-    { id: "all", label: "All" },
-    ...(showsChannels ? [{ id: "channels" as const, label: "Channels" }] : []),
-    { id: "people", label: "People" },
-    ...(conversations.some((item) => item.bot) ? [{ id: "bots" as const, label: "Bots" }] : []),
-    { id: "groups", label: "Groups" },
-    { id: "unread", label: "Unread" },
+    { id: "all", label: t("conversations.filters.all") },
+    ...(showsChannels ? [{ id: "channels" as const, label: t("conversations.filters.channels") }] : []),
+    { id: "people", label: t("conversations.filters.people") },
+    ...(conversations.some((item) => item.bot) ? [{ id: "bots" as const, label: t("conversations.filters.bots") }] : []),
+    { id: "groups", label: t("conversations.filters.groups") },
+    { id: "unread", label: t("conversations.filters.unread") },
   ];
 
   const renderRow = (item: ConversationView) => (
@@ -326,7 +328,7 @@ export function ConversationList() {
       fallback={
         <button className="conv-row" onClick={() => selectConversation(item.key)}>
           <span className="conv-body">
-            <span className="conv-title truncate">A conversation that couldn't be displayed</span>
+            <span className="conv-title truncate">{t("conversations.row.broken")}</span>
           </span>
         </button>
       }
@@ -361,8 +363,8 @@ export function ConversationList() {
         </button>
         {/* The connection shows here, as in Telegram's web app. */}
         <ConnectionStatus />
-        <Tooltip text="New group">
-          <button className="icon-btn" onClick={() => setOverlay({ type: "new-group" })} aria-label="New group">
+        <Tooltip text={t("conversations.newGroup")}>
+          <button className="icon-btn" onClick={() => setOverlay({ type: "new-group" })} aria-label={t("conversations.newGroup")}>
             <SquarePen size={17} />
           </button>
         </Tooltip>
@@ -374,7 +376,7 @@ export function ConversationList() {
           <input
             id="conversation-search"
             className="input"
-            placeholder="Search"
+            placeholder={t("common.search")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -384,10 +386,10 @@ export function ConversationList() {
                 refocusComposer();
               }
             }}
-            aria-label="Search people, groups and messages"
+            aria-label={t("conversations.search.label")}
           />
           {query && (
-            <button className="icon-btn is-small" onClick={() => setQuery("")} aria-label="Clear search">
+            <button className="icon-btn is-small" onClick={() => setQuery("")} aria-label={t("conversations.search.clear")}>
               <X size={14} />
             </button>
           )}
@@ -407,7 +409,7 @@ export function ConversationList() {
         {visible.map(renderRow)}
         {messageHits.length > 0 && (
           <div className="message-hits">
-            <h4>Messages</h4>
+            <h4>{t("conversations.search.messages")}</h4>
             {messageHits.map((hit) => {
               const conversation = conversations.find((item) => item.key === hit.conversationKey) ?? server.channels.find((item) => item.key === hit.conversationKey)?.conversation;
               const sender = users[hit.message.senderId];
@@ -423,7 +425,7 @@ export function ConversationList() {
                   <Avatar name={sender?.displayName ?? "?"} seed={hit.message.senderId} avatar={sender?.avatar} size={36} />
                   <span className="conv-body">
                     <span className="conv-line">
-                      <span className="conv-title truncate">{conversation?.title ?? "Conversation"}</span>
+                      <span className="conv-title truncate">{conversation?.title ?? t("conversations.search.untitled")}</span>
                       <span className="conv-time">{formatListTime(hit.message.createdAt)}</span>
                     </span>
                     <span className="conv-preview truncate">{plainText(hit.message.text)}</span>
@@ -435,10 +437,10 @@ export function ConversationList() {
         )}
         {visible.length === 0 && hidden.length === 0 && messageHits.length === 0 && filter !== "channels" && !(query && searching) && (
           <div className="empty-state" style={{ padding: "32px 20px" }}>
-            <p>{query ? "Nothing matches that search." : filter === "unread" ? "You're all caught up." : filter === "groups" ? "No groups yet." : "It's quiet here."}</p>
+            <p>{query ? t("conversations.empty.noMatch") : filter === "unread" ? t("conversations.empty.caughtUp") : filter === "groups" ? t("conversations.empty.noGroups") : t("conversations.empty.quiet")}</p>
             {!query && filter !== "unread" && (
               <button className="btn btn-small" onClick={() => setOverlay({ type: filter === "groups" ? "new-group" : "invite" })}>
-                {filter === "groups" ? "Create a group" : "Invite people"}
+                {filter === "groups" ? t("conversations.empty.createGroup") : t("conversations.menu.invite")}
               </button>
             )}
           </div>
@@ -447,7 +449,7 @@ export function ConversationList() {
           <div className="hidden-section">
             <button className={`hidden-toggle${showHidden ? " is-open" : ""}`} onClick={() => setShowHidden(!showHidden)}>
               <ChevronRight size={14} />
-              Hidden ({hidden.length})
+              {t("conversations.hidden", { count: hidden.length })}
             </button>
             {showHidden && hidden.map(renderRow)}
           </div>

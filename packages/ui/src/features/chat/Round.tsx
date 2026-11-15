@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui";
 import { formatDuration } from "@/lib/format";
 import { useDecryptedUrl } from "@/lib/media";
 import { playOnly } from "@/lib/voice";
+import { t } from "@/lib/i18n";
 
 /** How far round something has got, from 0 to 1, as a ring around a circle. */
 function Ring({ progress }: { progress: number }) {
@@ -76,9 +77,9 @@ export function RoundAttachment({ attachment, serverId, uploadProgress }: { atta
     void element.play().catch(() => quietly());
   };
 
-  const label = `Video message, ${formatDuration(duration)}`;
+  const label = t("message.round.label", { duration: formatDuration(duration) });
   return (
-    <button className={`round${heard ? " is-heard" : ""}`} onClick={toggle} disabled={uploading || failed} aria-label={heard && playing ? "Pause video message" : label}>
+    <button className={`round${heard ? " is-heard" : ""}`} onClick={toggle} disabled={uploading || failed} aria-label={heard && playing ? t("message.round.pause") : label}>
       {attachment.thumb && <img className="round-thumb" src={attachment.thumb} alt="" />}
       {url && (
         <video

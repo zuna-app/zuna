@@ -4,6 +4,7 @@
 import type { Role, ScreenRules } from "@zuna/core";
 import { SCREEN_DEFAULT_FPS } from "@zuna/core/voice";
 import { keepKnown, readSaved } from "@/lib/saved";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
 export type NoiseSuppression = "zuna" | "standard" | "off";
 
@@ -88,7 +89,7 @@ export const SCREEN_BITRATES = [2_000, 4_000, 6_000, 8_000, 12_000, 20_000, 30_0
 /** What a server may hold shares to, which goes higher than anyone needs to choose. */
 export const SCREEN_LIMIT_BITRATES = [...SCREEN_BITRATES, 100_000];
 
-export const heightName = (height: number): string => (height === 0 ? "Native" : height === 2160 ? "4K" : `${height}p`);
+export const heightName = (height: number): string => (height === 0 ? t("voice.screen.native") : height === 2160 ? "4K" : `${height}p`);
 export const rateName = (fps: number): string => `${fps} fps`;
 export const bitrateName = (kbps: number): string => (kbps >= 1000 ? `${kbps / 1000} Mbps` : `${kbps} kbps`);
 
@@ -96,7 +97,7 @@ export const bitrateName = (kbps: number): string => (kbps >= 1000 ? `${kbps / 1
 export function screenLimitsText(rules: ScreenRules | undefined, role: Role | undefined): string | null {
   if (!rules || (rules.admins_exempt && (role === "owner" || role === "admin"))) return null;
   const limits = [rules.max_height > 0 && heightName(rules.max_height), rules.max_fps > 0 && rateName(rules.max_fps), rules.max_kbps > 0 && bitrateName(rules.max_kbps)].filter(Boolean);
-  return limits.length ? `This server limits screen shares to ${limits.join(", ")}.` : null;
+  return limits.length ? t("voice.screen.serverLimits", { limits: limits.join(", ") }) : null;
 }
 
 export function loadVoiceSettings(): VoiceSettings {
@@ -133,23 +134,24 @@ export function saveVolumes(volumes: Record<string, number>, kind: "voice" | "st
 
 /** What a key is called, from its `KeyboardEvent.code`. */
 export function keyName(code: string): string {
-  if (!code) return "Not set";
+  if (!code) return t("voice.keys.notSet");
   if (code.startsWith("Key")) return code.slice(3);
   if (code.startsWith("Digit")) return code.slice(5);
-  if (code.startsWith("Numpad")) return `Numpad ${code.slice(6)}`;
-  if (code.startsWith("Mouse")) return `Mouse ${code.slice(5)}`;
-  const names: Record<string, string> = {
-    ControlLeft: "Left Ctrl",
-    ControlRight: "Right Ctrl",
-    ShiftLeft: "Left Shift",
-    ShiftRight: "Right Shift",
-    AltLeft: "Left Alt",
-    AltRight: "Right Alt",
-    MetaLeft: "Left Meta",
-    MetaRight: "Right Meta",
-    Backquote: "`",
-    CapsLock: "Caps Lock",
-    Space: "Space",
+  if (code.startsWith("Numpad")) return t("voice.keys.numpad", { key: code.slice(6) });
+  if (code.startsWith("Mouse")) return t("voice.keys.mouse", { button: code.slice(5) });
+  if (code === "Backquote") return "`";
+  const names: Record<string, MessageKey> = {
+    ControlLeft: mark("voice.keys.leftCtrl"),
+    ControlRight: mark("voice.keys.rightCtrl"),
+    ShiftLeft: mark("voice.keys.leftShift"),
+    ShiftRight: mark("voice.keys.rightShift"),
+    AltLeft: mark("voice.keys.leftAlt"),
+    AltRight: mark("voice.keys.rightAlt"),
+    MetaLeft: mark("voice.keys.leftMeta"),
+    MetaRight: mark("voice.keys.rightMeta"),
+    CapsLock: mark("voice.keys.capsLock"),
+    Space: mark("voice.keys.space"),
   };
-  return names[code] ?? code;
+  const name = names[code];
+  return name ? t(name) : code;
 }

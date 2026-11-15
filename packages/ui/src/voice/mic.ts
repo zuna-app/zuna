@@ -3,6 +3,7 @@
 
 import workletUrl from "./mic.worklet.ts?worker&url";
 import type { VoiceSettings } from "./settings";
+import { t } from "@/lib/i18n";
 
 export interface MicReading {
   /** How loud it is after noise suppression, in dB. */
@@ -71,7 +72,7 @@ export class Microphone {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: Microphone.constraints(settings) });
     } catch (error) {
-      throw new MicError((error as Error).name === "NotAllowedError" ? "Zuna isn't allowed to use the microphone." : "There's no microphone Zuna can use.");
+      throw new MicError((error as Error).name === "NotAllowedError" ? t("voice.mic.notAllowed") : t("voice.mic.none"));
     }
     if (this.stopped) {
       for (const track of stream.getTracks()) track.stop();

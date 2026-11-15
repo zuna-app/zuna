@@ -3,16 +3,19 @@
 // are looking: opening one is a link to OpenStreetMap, in the browser.
 
 import type { SharedLocation } from "@zuna/core";
+import { t } from "@/lib/i18n";
 
 /** "52.22970° N, 21.01220° E". */
 export function coordinatesText({ lat, lon }: SharedLocation): string {
-  return `${Math.abs(lat).toFixed(5)}° ${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(5)}° ${lon >= 0 ? "E" : "W"}`;
+  const vars = { latitude: Math.abs(lat).toFixed(5), longitude: Math.abs(lon).toFixed(5) };
+  if (lat >= 0) return lon >= 0 ? t("location.coordinatesNE", vars) : t("location.coordinatesNW", vars);
+  return lon >= 0 ? t("location.coordinatesSE", vars) : t("location.coordinatesSW", vars);
 }
 
 /** "Within 20 m", or "Within 1.5 km". */
 export function accuracyText(meters: number): string {
-  if (meters < 1000) return `Within ${Math.max(1, Math.round(meters))} m`;
-  return `Within ${(meters / 1000).toFixed(meters < 10_000 ? 1 : 0)} km`;
+  if (meters < 1000) return t("location.withinMeters", { distance: Math.max(1, Math.round(meters)) });
+  return t("location.withinKilometers", { distance: (meters / 1000).toFixed(meters < 10_000 ? 1 : 0) });
 }
 
 /** Where a location opens. */
@@ -25,7 +28,7 @@ export function mapLink({ lat, lon }: SharedLocation): string {
 export function locate(): Promise<SharedLocation> {
   return new Promise((resolve, reject) => {
     if (!("geolocation" in navigator)) {
-      reject(new Error("This device can't find its location."));
+      reject(new Error(t("location.unavailableHere")));
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -34,10 +37,10 @@ export function locate(): Promise<SharedLocation> {
         reject(
           new Error(
             error.code === error.PERMISSION_DENIED
-              ? "Zuna isn't allowed to use your location. Allow it in your system's privacy settings."
+              ? t("location.notAllowed")
               : error.code === error.TIMEOUT
-                ? "Finding your location took too long. Try again."
-                : "Your location isn't available right now.",
+                ? t("location.timedOut")
+                : t("location.unavailable"),
           ),
         ),
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 30_000 },

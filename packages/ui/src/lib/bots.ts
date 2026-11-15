@@ -2,6 +2,7 @@
 // and the words it says once before one is added.
 
 import type { BotCommand, ConversationView, UserView } from "@zuna/core";
+import { t } from "@/lib/i18n";
 
 /**
  * Whether someone may add a bot to a group: its owner always, and for a listed bot
@@ -39,4 +40,4 @@ export function commandsFor(conversation: ConversationView, users: Record<string
 }
 
 /** What someone is told before they add a bot to a group. */
-export const BOT_READS = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before.";
+export const botReads = (): string => t("bots.reads");

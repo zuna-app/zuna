@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { quick, useAction } from "@/components/ui";
 import { useEscape } from "@/lib/escape";
 import { formatFull } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import { useApp } from "@/state/store";
 
 const nothing = () => {};
@@ -37,16 +38,16 @@ function Prompt() {
   const removed = state.deviceRemoved;
   if (removed) {
     const recovery = removed.secret === "recovery";
-    title = "The device was removed";
+    title = t("security.newDevice.removedTitle");
     text = recovery
-      ? "Whoever signed in on it has your recovery key and can sign in again until you make a new one. Make a new one now."
+      ? t("security.newDevice.removedRecovery")
       : removed.secret === "password"
-        ? "Whoever signed in on it knows your password and can sign in again until you change it. Change it now."
-        : "Whoever signed in on it may know your password or your recovery key. Change your password and make a new recovery key now.";
+        ? t("security.newDevice.removedPassword")
+        : t("security.newDevice.removedEither");
     buttons = (
       <>
         <button className="btn btn-ghost" onClick={() => state.setDeviceRemoved(null)}>
-          Later
+          {t("security.newDevice.later")}
         </button>
         <button
           className="btn btn-primary"
@@ -56,7 +57,7 @@ function Prompt() {
             state.setOverlay({ type: "settings", section: "security" });
           }}
         >
-          {recovery ? "Make a new recovery key" : "Change password"}
+          {recovery ? t("security.newDevice.newRecoveryKey") : t("settings.security.changePassword")}
         </button>
       </>
     );
@@ -64,9 +65,9 @@ function Prompt() {
     const serverId = state.order.find((id) => (state.servers[id]?.newDevices.length ?? 0) > 0)!;
     const server = state.servers[serverId]!;
     const device = server.newDevices[0]!;
-    const secret = device.secret === "recovery" ? "your recovery key" : "your password";
-    title = "Was this you?";
-    text = `“${device.name}” signed in to your account on ${server.info?.name || server.entry.name} on ${formatFull(device.createdAt)}. If it wasn't you, someone else has ${secret} and is signed in as you.`;
+    const where = { device: device.name, server: server.info?.name || server.entry.name, date: formatFull(device.createdAt) };
+    title = t("security.newDevice.title");
+    text = device.secret === "recovery" ? t("security.newDevice.askRecovery", where) : t("security.newDevice.askPassword", where);
     const answer = (mine: boolean) =>
       run(async () => {
         await state.session(serverId).answerNewDevice(device.id, mine);
@@ -80,10 +81,10 @@ function Prompt() {
     buttons = (
       <>
         <button className="btn btn-danger" disabled={busy} onClick={() => answer(false)}>
-          No, remove it
+          {t("security.newDevice.no")}
         </button>
         <button className="btn btn-primary" disabled={busy} onClick={() => answer(true)}>
-          Yes, it was me
+          {t("security.newDevice.yes")}
         </button>
       </>
     );

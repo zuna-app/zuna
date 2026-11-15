@@ -6,6 +6,7 @@ import { playNotificationSound } from "@/lib/sound";
 import { voiceHooks } from "@/voice/events";
 import type { StoreApi } from "zustand";
 import { type AppState, type ServerState, sortMessages, countedUnread, emptyList, conversationOfGroup, mentionMap } from "./store";
+import { t } from "@/lib/i18n";
 
 const debouncers = new Map<string, ReturnType<typeof setTimeout>>();
 function debounced(key: string, fn: () => void, ms = 60): void {
@@ -99,10 +100,16 @@ export function coreEvents(
     const answered = Object.values(server.voice).some((member) => member.channelId === groupId && member.userId === self);
     const missed = wasRinging && !answered && !call?.declined.includes(self);
     if (!ringing && !missed) return;
-    const name = server.users[caller]?.displayName ?? "Someone";
-    const body = ringing ? (conversation.kind === "dm" ? "Calling you" : `${name} started a call`) : conversation.kind === "dm" ? "Missed call" : `Missed call from ${name}`;
+    const name = server.users[caller]?.displayName ?? t("notify.someone");
+    const body = ringing
+      ? conversation.kind === "dm"
+        ? t("notify.callingYou")
+        : t("notify.startedCall", { name })
+      : conversation.kind === "dm"
+        ? t("notifications.missedCall")
+        : t("notifications.missedCallFrom", { name });
     if (windowFocused) {
-      if (missed) get().toast(conversation.kind === "dm" ? `Missed call from ${name}.` : `Missed call from ${name} in ${conversation.title}.`, "info");
+      if (missed) get().toast(conversation.kind === "dm" ? t("voice.call.missedFrom", { name }) : t("voice.call.missedFromIn", { name, title: conversation.title }), "info");
       return;
     }
     if (!settings.notifications) return;
@@ -110,7 +117,7 @@ export function coreEvents(
     // A call's ringing has its own sound, so the notification makes none.
     platform.notify({
       title: preview === "none" ? "Zuna" : conversation.title,
-      body: preview === "none" ? (ringing ? "Incoming call" : "Missed call") : body,
+      body: preview === "none" ? (ringing ? t("notify.incomingCall") : t("notifications.missedCall")) : body,
       route: { serverId, key: conversation.key },
       messageId,
     });
@@ -342,10 +349,10 @@ export function coreEvents(
         patchEntry(event.serverId, event.reason);
         get().toast(
           event.reason === "banned"
-            ? "You were removed from a server by its admins."
+            ? t("servers.signedOut.banned")
             : event.reason === "account_deleted"
-              ? "Your account on a server was deleted from another device."
-              : "You've been signed out of a server.",
+              ? t("servers.signedOut.accountDeleted")
+              : t("servers.signedOut.other"),
           "info",
         );
         break;
@@ -377,7 +384,7 @@ export function coreEvents(
     const preview = settings.notificationPreview;
     platform.notify({
       title: preview === "none" ? "Zuna" : event.title,
-      body: preview === "full" ? event.body : "New message",
+      body: preview === "full" ? event.body : t("notify.newMessage"),
       route: { serverId: event.serverId, key: event.conversationKey },
       messageId: event.messageId,
     });

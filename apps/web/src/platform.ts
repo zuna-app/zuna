@@ -5,6 +5,7 @@ import { connectWorker, type Platform } from "@zuna/ui";
 import type { HostConfig } from "./config";
 import { deviceName, loadDeviceKey, removeUnreadableDatabase } from "./device";
 import { askToNotify, clearNotifications, notificationPermission, notify, onNotificationPermission, onOpenConversation } from "./notifications";
+import { t } from "@/lib/i18n";
 
 const UPDATE_CHECK_MS = 30 * 60_000;
 const UPDATE_CHECK_ON_FOCUS_MS = 60_000;
@@ -73,8 +74,10 @@ export function webPlatform(config: HostConfig): Platform {
       window.addEventListener("hashchange", onHashChange);
       return () => window.removeEventListener("hashchange", onHashChange);
     },
-    keyWarning:
-      "Browsers can't lock Zuna's local data to your login, so anyone who can copy this browser's profile can read it. On a computer others use, sign out when you're done, or use the desktop app.",
+    // Read each time Security shows it, in the language shown then.
+    get keyWarning() {
+      return t("settings.security.browserKeyWarning");
+    },
     defaultServer: config.server ?? undefined,
     onUpdate(listener) {
       let first: string | null = null;

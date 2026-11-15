@@ -3,6 +3,7 @@ import { BellOff, Camera, ChevronDown, Hash, HeadphoneOff, Lock, MicOff, Pencil,
 import { Reorder } from "motion/react";
 import { memo, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
+import { t } from "@/lib/i18n";
 import { muteEntries } from "@/lib/mute";
 import { activeServerNow, useActiveField, useApp } from "@/state/store";
 import { useShallow } from "zustand/react/shallow";
@@ -29,7 +30,7 @@ interface Section {
 function sectionsOf(channels: ChannelView[]): Section[] {
   const sections = new Map<string, Section>();
   for (const channel of channels) {
-    const name = channel.category || (channel.type === "voice" ? "Voice channels" : "Text channels");
+    const name = channel.category || (channel.type === "voice" ? t("channels.voiceChannels") : t("channels.textChannels"));
     let section = sections.get(name);
     if (!section) {
       section = { name, channels: [], type: channel.type };
@@ -42,7 +43,7 @@ function sectionsOf(channels: ChannelView[]): Section[] {
 
 const NO_CHANNELS: ChannelView[] = [];
 
-export const channelTitle = (channel: ChannelView): string => channel.name || (channel.unreadable ? "Unreadable channel" : "Channel");
+export const channelTitle = (channel: ChannelView): string => channel.name || (channel.unreadable ? t("channels.unreadable") : t("channels.untitled"));
 
 const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMember }) {
   const serverId = useApp((state) => state.activeServerId);
@@ -50,14 +51,14 @@ const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMem
   const inThisCall = useVoice((state) => state.channelId === member.channelId && state.serverId === serverId);
   const speaking = useVoice((state) => (member.userId === selfId ? selfIsSpeaking(state) && state.status === "connected" : inThisCall && !!state.speaking[member.userId]));
   const user = useActiveField((server) => server.users[member.userId], undefined);
-  const name = user?.displayName ?? "Someone";
+  const name = user?.displayName ?? t("common.someone");
   return (
     <div className={`voice-occupant${speaking ? " is-speaking" : ""}`}>
       <span className="voice-occupant-avatar">
         <Avatar name={name} seed={member.userId} avatar={user?.avatar} size={22} />
       </span>
       <span className="truncate grow">{name}</span>
-      {member.screen && <span className="voice-live">Live</span>}
+      {member.screen && <span className="voice-live">{t("voice.occupant.live")}</span>}
       {member.camera && <Camera size={13} className="faint" />}
       {member.serverMuted ? <MicOff size={13} className="voice-server-muted" /> : member.muted && !member.deafened && <MicOff size={13} className="faint" />}
       {member.deafened && <HeadphoneOff size={13} className="faint" />}
@@ -97,7 +98,7 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
         return;
       }
       selectConversation(channel.key);
-      toast("This server doesn't have a media server yet, so you can't join its voice channels.", "info");
+      toast(t("channels.noMediaServerJoin"), "info");
       return;
     }
     selectConversation(channel.key);
@@ -115,7 +116,7 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
       >
         {channel.type === "voice" ? <Volume2 size={20} className="channel-icon" /> : <Hash size={20} className="channel-icon" />}
         <span className="channel-name truncate">{channelTitle(channel)}</span>
-        {channel.adminOnly && <Lock size={12} className="channel-admin-only" aria-label="Admins only" />}
+        {channel.adminOnly && <Lock size={12} className="channel-admin-only" aria-label={t("channels.adminsOnly")} />}
         {conversation?.muted && <BellOff size={12} className="conv-muted" />}
         {channel.type === "voice" && channel.userLimit > 0 && (
           <span className={`channel-limit${full ? " is-full" : ""}`}>
@@ -124,11 +125,11 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
         )}
         {canEdit && (
           // A button can't hold another, so this one is only for the mouse; the row's menu has it too.
-          <Tooltip text="Edit channel">
+          <Tooltip text={t("channels.edit")}>
             <span
               className="channel-edit"
               role="button"
-              aria-label={`Edit ${channelTitle(channel)}`}
+              aria-label={t("channels.editNamed", { name: channelTitle(channel) })}
               onClick={(event) => {
                 event.stopPropagation();
                 setOverlay({ type: "channel", channelId: channel.id });
@@ -139,7 +140,7 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
           </Tooltip>
         )}
         {mentions > 0 && (
-          <span className="channel-mentions" aria-label={`${mentions} mentioning you`}>
+          <span className="channel-mentions" aria-label={t("channels.mentions", { count: mentions })}>
             {mentions > 99 ? "99+" : mentions}
           </span>
         )}
@@ -203,19 +204,19 @@ export function ChannelSections({ query }: { query: string }) {
     ...(channel.conversation
       ? [
           channel.conversation.muted
-            ? { label: "Unmute", icon: <Volume2 size={15} />, onSelect: () => void session().unmute(channel.key) }
-            : { label: "Mute", icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(channel.key, until)) },
+            ? { label: t("conversations.menu.unmute"), icon: <Volume2 size={15} />, onSelect: () => void session().unmute(channel.key) }
+            : { label: t("conversations.menu.mute"), icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(channel.key, until)) },
         ]
       : []),
     ...(isAdmin
       ? [
-          { label: "Edit channel", icon: <Pencil size={15} />, onSelect: () => setOverlay({ type: "channel", channelId: channel.id }) },
+          { label: t("channels.edit"), icon: <Pencil size={15} />, onSelect: () => setOverlay({ type: "channel", channelId: channel.id }) },
           {
-            label: "Delete channel",
+            label: t("channels.delete"),
             icon: <Trash2 size={15} />,
             danger: true,
             onSelect: () => {
-              if (window.confirm(`Delete ${channelTitle(channel)}? Its messages will be deleted for everyone.`)) {
+              if (window.confirm(t("channels.deleteWarning", { name: channelTitle(channel) }))) {
                 void session()
                   .deleteChannel(channel.id)
                   .catch((error: Error) => toast(error.message, "error"));
@@ -241,8 +242,8 @@ export function ChannelSections({ query }: { query: string }) {
                 <span className="truncate">{section.name}</span>
               </button>
               {isAdmin && (
-                <Tooltip text="New channel">
-                  <button className="icon-btn is-small" onClick={() => setOverlay({ type: "channel", channelType: section.type })} aria-label={`New channel in ${section.name}`}>
+                <Tooltip text={t("channels.new")}>
+                  <button className="icon-btn is-small" onClick={() => setOverlay({ type: "channel", channelType: section.type })} aria-label={t("channels.newIn", { heading: section.name })}>
                     <Plus size={14} />
                   </button>
                 </Tooltip>
@@ -304,7 +305,7 @@ export function ChannelSections({ query }: { query: string }) {
       {channels.length === 0 && isAdmin && !needle && (
         <div className="channel-empty">
           <button className="btn btn-small" onClick={() => setOverlay({ type: "channel", channelType: "text" })}>
-            <Plus size={14} /> New channel
+            <Plus size={14} /> {t("channels.new")}
           </button>
         </div>
       )}

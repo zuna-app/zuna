@@ -29,6 +29,7 @@ import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
 import type { VoiceSettings } from "./settings";
 import type { StatsRoom, StatsStream } from "./stats";
+import { t } from "@/lib/i18n";
 
 /**
  * How long after hearing of a new key this device starts sending under it, so that
@@ -177,7 +178,7 @@ export class VoiceRoom {
       this.mic.onDeviceLost = () => void this.recoverMic();
       return null;
     } catch (error) {
-      return error instanceof MicError ? error.message : "The microphone couldn't be used.";
+      return error instanceof MicError ? error.message : t("voice.mic.failed");
     }
   }
 

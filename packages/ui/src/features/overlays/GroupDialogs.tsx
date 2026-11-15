@@ -5,15 +5,16 @@ import type { UserView } from "@zuna/core";
 import { Check, Search, UsersRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Avatar, BotBadge, Confirm, Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
-import { BOT_READS, mayAddBot } from "@/lib/bots";
+import { botReads, mayAddBot } from "@/lib/bots";
+import { t } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 
 /** What adding a bot means, asked before it's added, each time one is. */
 function AddBotConfirm({ bots, onCancel, onConfirm }: { bots: UserView[]; onCancel: () => void; onConfirm: () => void }) {
   const names = bots.map((bot) => bot.displayName).join(", ");
   return (
-    <Confirm title={bots.length === 1 ? `Add the bot ${names}?` : `Add the bots ${names}?`} action={bots.length === 1 ? "Add the bot" : "Add the bots"} onCancel={onCancel} onConfirm={onConfirm}>
-      {BOT_READS}
+    <Confirm title={t("groups.addBot.title", { count: bots.length, names })} action={t("groups.addBot.action", { count: bots.length })} onCancel={onCancel} onConfirm={onConfirm}>
+      {botReads()}
     </Confirm>
   );
 }
@@ -54,10 +55,10 @@ export function ForwardPicker({ serverId, groupId, ids, onClose }: { serverId: s
   };
 
   return (
-    <Modal title="Forward to" onClose={onClose}>
+    <Modal title={t("groups.forward.title")} onClose={onClose}>
       <div className="input-wrap search-wrap">
         <Search size={15} className="faint" />
-        <input className="input" placeholder="Search chats" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label="Search chats" />
+        <input className="input" placeholder={t("groups.forward.search")} value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label={t("groups.forward.search")} />
       </div>
       <div className="people-list forward-list">
         {sections.map(({ server, chats }) => (
@@ -75,7 +76,7 @@ export function ForwardPicker({ serverId, groupId, ids, onClose }: { serverId: s
             })}
           </div>
         ))}
-        {sections.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 16 }}>No chats match that search.</p>}
+        {sections.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 16 }}>{t("groups.forward.noMatch")}</p>}
       </div>
     </Modal>
   );
@@ -92,7 +93,7 @@ function PeoplePicker({ users, selected, onToggle }: { users: UserView[]; select
     <div className="col" style={{ gap: 8 }}>
       <div className="input-wrap search-wrap">
         <Search size={15} className="faint" />
-        <input className="input" placeholder="Search people" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search people" />
+        <input className="input" placeholder={t("groups.people.search")} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("groups.people.search")} />
       </div>
       <div className="people-list">
         {filtered.map((user) => (
@@ -105,7 +106,7 @@ function PeoplePicker({ users, selected, onToggle }: { users: UserView[]; select
             <span className="person-check">{selected.has(user.id) && <Check size={13} strokeWidth={3} />}</span>
           </button>
         ))}
-        {filtered.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 16 }}>Nobody matches that search.</p>}
+        {filtered.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 16 }}>{t("groups.people.noMatch")}</p>}
       </div>
     </div>
   );
@@ -137,20 +138,20 @@ export function NewGroup({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="New group"
+      title={t("groups.new.title")}
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t("common.cancel")}</button>
           <button className="btn btn-primary" disabled={!name.trim() || busy} onClick={() => (bots.length > 0 ? setAsking(true) : void create())}>
-            {busy ? <Spinner /> : `Create${selected.size ? ` with ${selected.size + 1} people` : ""}`}
+            {busy ? <Spinner /> : selected.size ? t("groups.new.createWith", { count: selected.size + 1 }) : t("groups.new.create")}
           </button>
         </>
       }
     >
-      <Field label="Group name" placeholder="Weekend trip" value={name} maxLength={80} autoFocus onChange={(event) => setName(event.target.value)} />
+      <Field label={t("groups.new.name")} placeholder={t("groups.new.namePlaceholder")} value={name} maxLength={80} autoFocus onChange={(event) => setName(event.target.value)} />
       <div className="field">
-        <span className="field-label">Invite people</span>
+        <span className="field-label">{t("groups.new.invitePeople")}</span>
         <PeoplePicker
           users={users}
           selected={selected}
@@ -164,10 +165,10 @@ export function NewGroup({ onClose }: { onClose: () => void }) {
       </div>
       <div className="setting-row">
         <span className="grow">
-          <b>New members can read earlier messages</b>
-          <span className="setting-hint">If off, people only see what's sent after they join.</span>
+          <b>{t("groups.new.history")}</b>
+          <span className="setting-hint">{t("groups.new.historyHint")}</span>
         </span>
-        <Switch on={history} onChange={setHistory} label="New members can read earlier messages" />
+        <Switch on={history} onChange={setHistory} label={t("groups.new.history")} />
       </div>
       {asking && (
         <AddBotConfirm
@@ -206,17 +207,17 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
 
   return (
     <Modal
-      title="Add people"
+      title={t("groups.add.title")}
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t("common.cancel")}</button>
           <button
             className="btn btn-primary"
             disabled={selected.size === 0 || busy}
             onClick={() => (bots.length > 0 ? setAsking(true) : void add())}
           >
-            {busy ? <Spinner /> : "Add"}
+            {busy ? <Spinner /> : t("common.add")}
           </button>
         </>
       }
@@ -224,7 +225,7 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
       {conversation?.historyVisible && (
         <div className="notice">
           <UsersRound size={15} />
-          <span>This group shares its history, so they'll be able to read earlier messages. A bot never gets them.</span>
+          <span>{t("groups.add.historyNote")}</span>
         </div>
       )}
       {asking && (
@@ -238,7 +239,7 @@ export function AddMembers({ groupId, onClose }: { groupId: string; onClose: () 
         />
       )}
       {users.length === 0 ? (
-        <p className="muted" style={{ textAlign: "center", padding: 16 }}>Everyone on this server is already here.</p>
+        <p className="muted" style={{ textAlign: "center", padding: 16 }}>{t("groups.add.everyoneHere")}</p>
       ) : (
         <PeoplePicker
           users={users}

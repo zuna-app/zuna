@@ -9,6 +9,7 @@ import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
 import { useEscape } from "@/lib/escape";
 import { useRemoteImage } from "@/lib/media";
 import { useActiveField } from "@/state/store";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 
 export type Pick =
   | { kind: "emoji"; value: string }
@@ -26,6 +27,23 @@ function EmotePreview({ address }: { address: string }) {
 }
 
 type Category = (typeof EMOJI_CATEGORIES)[number];
+
+/** Each category's name, by its id in lib/emoji-data.ts, whose own labels the desktop app's list is written from. */
+const CATEGORY_NAMES: Record<string, MessageKey> = {
+  smileys: mark("emoji.category.smileys"),
+  people: mark("emoji.category.people"),
+  hearts: mark("emoji.category.hearts"),
+  nature: mark("emoji.category.nature"),
+  food: mark("emoji.category.food"),
+  activity: mark("emoji.category.activity"),
+  objects: mark("emoji.category.objects"),
+  symbols: mark("emoji.category.symbols"),
+};
+
+const categoryName = (category: Category): string => {
+  const key = CATEGORY_NAMES[category.id];
+  return key ? t(key) : category.label;
+};
 
 // The grids are kept apart from what's hovered, which only the footer shows, so moving
 // over hundreds of emotes redraws none of them.
@@ -46,7 +64,7 @@ const EmoteGrid = memo(function EmoteGrid({
         <button
           key={emote.id}
           className="emote-cell"
-          aria-label={emote.owner ? `${emote.name} by ${emote.owner}` : emote.name}
+          aria-label={emote.owner ? t("emoji.emoteBy", { name: emote.name, owner: emote.owner }) : emote.name}
           onMouseEnter={() => onHover({ kind: "emote", id: emote.id, name: emote.name, owner: emote.owner })}
           onClick={() => onPick({ kind: "emote", id: emote.id, name: emote.name, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner })}
         >
@@ -60,7 +78,7 @@ const EmoteGrid = memo(function EmoteGrid({
 const EmojiGrid = memo(function EmojiGrid({ categories, onHover, onPick }: { categories: Category[]; onHover: (hovered: Hovered) => void; onPick: (pick: Pick) => void }) {
   return categories.map((category) => (
     <section key={category.id}>
-      <h4 className="picker-heading">{category.label}</h4>
+      <h4 className="picker-heading">{categoryName(category)}</h4>
       <div className="emoji-grid">
         {category.emoji.map(([value, name]) => (
           <button key={value} className="emoji-cell" aria-label={name} onMouseEnter={() => onHover({ kind: "emoji", value, name })} onClick={() => onPick({ kind: "emoji", value })}>
@@ -139,16 +157,16 @@ export const EmotePicker = memo(function EmotePicker({
     >
       <div className="picker-tabs" role="tablist">
         <button role="tab" aria-selected={tab === "emotes"} className={tab === "emotes" ? "is-active" : ""} onClick={() => setTab("emotes")}>
-          {setName || "Server emotes"}
+          {setName || t("emoji.serverEmotes")}
         </button>
         <button role="tab" aria-selected={tab === "emoji"} className={tab === "emoji" ? "is-active" : ""} onClick={() => setTab("emoji")}>
-          Emoji
+          {t("emoji.tab")}
         </button>
       </div>
       <div className="picker-search">
         <div className="input-wrap search-wrap">
           <Search size={14} className="faint" />
-          <input className="input" placeholder="Search" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label="Search emotes and emoji" />
+          <input className="input" placeholder={t("common.search")} value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label={t("emoji.searchLabel")} />
         </div>
       </div>
       <div className="picker-body">
@@ -158,7 +176,7 @@ export const EmotePicker = memo(function EmotePicker({
           ) : (
             <div className="empty-state">
               <Smile size={22} />
-              <p>{needle ? "No emotes match that search." : "This server has no emotes yet."}</p>
+              <p>{needle ? t("emoji.noMatches") : t("emoji.noEmotes")}</p>
             </div>
           )
         ) : (
@@ -171,7 +189,7 @@ export const EmotePicker = memo(function EmotePicker({
             <EmotePreview address={`${serverUrl}/api/emotes/${hovered.id}/2x.webp`} />
             <span className="grow truncate">
               <b>{hovered.name}</b>
-              {hovered.owner && <span> by {hovered.owner}</span>}
+              {hovered.owner && <span> {t("message.emote.by", { name: hovered.owner })}</span>}
             </span>
           </>
         )}
@@ -181,7 +199,7 @@ export const EmotePicker = memo(function EmotePicker({
             <b className="truncate">{hovered.name}</b>
           </>
         )}
-        {!hovered && <span>Hover over one to see its name</span>}
+        {!hovered && <span>{t("emoji.hoverHint")}</span>}
       </div>
     </motion.div>,
     document.body,

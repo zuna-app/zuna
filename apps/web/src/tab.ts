@@ -3,6 +3,8 @@
 // The tab running it holds a Web Lock. Another tab offers "Use here", which asks
 // the first to stop over a BroadcastChannel and then takes the lock.
 
+import { t } from "@/lib/i18n";
+
 const LOCK = "zuna-core";
 const TAKE = "zuna-take";
 const channel = new BroadcastChannel("zuna-tabs");
@@ -60,8 +62,8 @@ export function showScreen(title: string, text: string, action?: { label: string
 }
 
 function showElsewhere(): void {
-  showScreen("Zuna is open in another tab", "Zuna can only run in one tab at a time. Using it here will close it in the other tab.", {
-    label: "Use here",
+  showScreen(t("startup.otherTabTitle"), t("startup.otherTabText"), {
+    label: t("startup.useHere"),
     run() {
       // A fresh page starts the app cleanly, and asks the other tab to stop as it loads.
       try {

@@ -2,6 +2,7 @@ import { Lock, LogOut, MessageCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner, useAction } from "@/components/ui";
 import { installStickyFocus } from "@/lib/focus";
+import { t } from "@/lib/i18n";
 import { prefetchEmotes } from "@/lib/media";
 import { useActiveChannel, useActiveConversation, useActiveField, useApp, type ServerState } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
@@ -31,7 +32,7 @@ function JoiningChannel() {
     <div className="no-chat">
       <div className="empty-state">
         <Spinner size={22} />
-        <p>Getting the keys to this channel…</p>
+        <p>{t("channels.joining")}</p>
       </div>
     </div>
   );
@@ -44,9 +45,9 @@ function NoConversation() {
       <div className="empty-state">
         <MessageCircle size={28} className="empty-icon" />
         <h3>{name ?? "Zuna"}</h3>
-        <p>Pick someone from the list to start talking.</p>
+        <p>{t("chat.empty.pickSomeone")}</p>
         <p className="row faint" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}>
-          <Lock size={12} /> Everything here is end-to-end encrypted
+          <Lock size={12} /> {t("chat.empty.encrypted")}
         </p>
       </div>
     </div>
@@ -69,27 +70,25 @@ function SignedOut({ server }: { server: Pick<ServerState, "entry"> }) {
         <LogOut size={28} className="empty-icon" />
         <h3>
           {reason === "banned"
-            ? `You were removed from ${server.entry.name}`
+            ? t("servers.signedOutScreen.bannedTitle", { server: server.entry.name })
             : reason === "account_deleted"
-              ? `Your account on ${server.entry.name} was deleted`
-              : `You're signed out of ${server.entry.name}`}
+              ? t("servers.signedOutScreen.deletedTitle", { server: server.entry.name })
+              : t("servers.signedOutScreen.title", { server: server.entry.name })}
         </h3>
         <p>
           {reason === "device_revoked"
-            ? "This device was removed from your account."
+            ? t("servers.signedOutScreen.deviceRevoked")
             : reason === "banned"
-              ? "Its admins ended your access."
+              ? t("servers.signedOutScreen.banned")
               : reason === "account_deleted"
-                ? "It was deleted from another of your devices."
-                : "The server ended this device's session."}{" "}
-          {reason === "account_deleted"
-            ? "What's on this device stays here for 30 days, or until you remove it."
-            : "What's on this device stays here for 30 days, or until you sign in again or remove it."}
+                ? t("servers.signedOutScreen.deleted")
+                : t("servers.signedOutScreen.ended")}{" "}
+          {reason === "account_deleted" ? t("servers.signedOutScreen.keptDeleted") : t("servers.signedOutScreen.kept")}
         </p>
         <div className="row" style={{ gap: 8, justifyContent: "center" }}>
           {reason !== "banned" && reason !== "account_deleted" && (
             <button className="btn btn-primary" onClick={() => setOverlay({ type: "add-server", signInUrl: server.entry.address })}>
-              Sign in again
+              {t("servers.signedOutScreen.signIn")}
             </button>
           )}
           <button
@@ -103,7 +102,7 @@ function SignedOut({ server }: { server: Pick<ServerState, "entry"> }) {
               })
             }
           >
-            {busy ? <Spinner /> : "Remove from this device"}
+            {busy ? <Spinner /> : t("servers.signedOutScreen.remove")}
           </button>
         </div>
       </div>

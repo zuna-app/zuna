@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { platform } from "@/platform";
 import { Avatar, ConfirmPasswordField, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { t, tx } from "@/lib/i18n";
 import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
@@ -20,11 +21,16 @@ type Step =
   | { name: "recovery-key"; serverId: string; recoveryKey: string; setup: boolean }
   | { name: "name-server"; serverId: string };
 
+/** What went wrong, as the core said it, in the person's language, or that the server couldn't be reached. */
 function describeError(error: unknown): string {
-  const message = (error as Error).message ?? "";
-  if (/Couldn't reach|fetch/i.test(message)) return "Couldn't reach that server. Check the address and your connection.";
-  return message || "Something went wrong. Please try again.";
+  const { message, code } = error as { message?: string; code?: string };
+  // The core marks a server it couldn't reach with its code; a fetch that failed outside it has none.
+  if (code === "network" || (!code && /fetch/i.test(message ?? ""))) return t("onboarding.errors.unreachable");
+  return message || t("onboarding.errors.generic");
 }
+
+/** The server's codes for a username it won't take, shown under the username rather than the form. */
+const USERNAME_ERRORS = new Set(["invalid_username", "username_taken"]);
 
 export function Onboarding() {
   return (
@@ -123,7 +129,7 @@ function StepHeader({ icon, title, children, onBack }: { icon?: ReactNode; title
   return (
     <div className="step-header">
       {onBack && (
-        <button type="button" className="icon-btn step-back" onClick={onBack} aria-label="Back">
+        <button type="button" className="icon-btn step-back" onClick={onBack} aria-label={t("common.back")}>
           <ArrowLeft size={18} />
         </button>
       )}
@@ -142,20 +148,20 @@ function WelcomeStep({ onJoin, onSignIn }: { onJoin: () => void; onSignIn: () =>
         <div className="hero-logo">
           <Logo size={64} />
         </div>
-        <h1>Welcome to Zuna</h1>
-        <p>Private chat on servers you and your friends run.</p>
+        <h1>{t("onboarding.welcome.title")}</h1>
+        <p>{t("onboarding.welcome.tagline")}</p>
         <div className="trust-chips">
-          <span><Lock size={13} /> End-to-end encrypted</span>
-          <span><ShieldCheck size={13} /> Open source</span>
-          <span><Server size={13} /> Self-hosted</span>
+          <span><Lock size={13} /> {t("onboarding.welcome.encrypted")}</span>
+          <span><ShieldCheck size={13} /> {t("onboarding.welcome.openSource")}</span>
+          <span><Server size={13} /> {t("onboarding.welcome.selfHosted")}</span>
         </div>
       </div>
       <div className="col" style={{ gap: 10 }}>
         <button type="button" className="btn btn-primary btn-large btn-block" onClick={onJoin}>
-          <LinkIcon size={16} /> Join with an invite
+          <LinkIcon size={16} /> {t("onboarding.welcome.join")}
         </button>
         <button type="button" className="btn btn-large btn-block" onClick={onSignIn}>
-          Sign in
+          {t("onboarding.signIn.title")}
         </button>
         <button
           type="button"
@@ -164,7 +170,7 @@ function WelcomeStep({ onJoin, onSignIn }: { onJoin: () => void; onSignIn: () =>
             platform.openExternal(`${PROJECT_URL}/blob/main/docs/SELF_HOSTING.md`);
           }}
         >
-          <Server size={14} /> Host your own server <ArrowUpRight size={14} />
+          <Server size={14} /> {t("onboarding.welcome.host")} <ArrowUpRight size={14} />
         </button>
       </div>
     </div>
@@ -217,8 +223,8 @@ function InviteLinkStep({
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 18 }}>
-      <StepHeader icon={<LinkIcon size={26} />} title="Join a server" onBack={onBack}>
-        Paste the invite link someone sent you.
+      <StepHeader icon={<LinkIcon size={26} />} title={t("onboarding.link.title")} onBack={onBack}>
+        {t("onboarding.link.lead")}
       </StepHeader>
       <Field
         placeholder="https://chat.example.com/invite/..."
@@ -230,15 +236,15 @@ function InviteLinkStep({
         error={error}
         autoFocus
         spellCheck={false}
-        aria-label="Invite link"
+        aria-label={t("onboarding.link.label")}
       />
       <button className="btn btn-primary btn-large btn-block" disabled={!link.trim() || busy}>
-        {busy ? <Spinner /> : <>Continue <ArrowRight size={17} /></>}
+        {busy ? <Spinner /> : <>{t("common.continue")} <ArrowRight size={17} /></>}
       </button>
       {/* On the first run the welcome screen offers signing in, one step back. */}
       {embedded && (
         <button type="button" className="btn btn-large btn-block" onClick={onSignIn}>
-          I already have an account
+          {t("onboarding.link.haveAccount")}
         </button>
       )}
     </form>
@@ -265,7 +271,7 @@ function StrengthMeter({ strength }: { strength: { score: number; label: string 
           <i key={bar} style={{ background: score >= bar ? colors[score] : "var(--bg-4)" }} />
         ))}
       </div>
-      <span style={{ color: score ? colors[score] : "var(--text-3)" }}>{label || `At least ${MIN_PASSWORD} characters`}</span>
+      <span style={{ color: score ? colors[score] : "var(--text-3)" }}>{label || t("onboarding.passwordMinimum", { count: MIN_PASSWORD })}</span>
     </div>
   );
 }
@@ -285,7 +291,7 @@ function InviteStep({
   const [usernameEdited, setUsernameEdited] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ message: string; username: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const server = preview.server;
 
@@ -297,12 +303,12 @@ function InviteStep({
     event.preventDefault();
     if (!canSubmit || !strength.accepts()) return;
     setBusy(true);
-    setError(null);
+    setFailure(null);
     try {
       const result = await core.client.register(preview, username, password, { displayName: displayName.trim() });
       onCreated(result.serverId, result.recoveryKey);
-    } catch (failure) {
-      setError(describeError(failure));
+    } catch (error) {
+      setFailure({ message: describeError(error), username: USERNAME_ERRORS.has((error as { code?: string }).code ?? "") });
       setBusy(false);
     }
   };
@@ -310,26 +316,26 @@ function InviteStep({
   return (
     <form onSubmit={submit} className="col" style={{ gap: 14 }}>
       <div className="invite-preview">
-        <button type="button" className="icon-btn step-back" onClick={onBack} aria-label="Back">
+        <button type="button" className="icon-btn step-back" onClick={onBack} aria-label={t("common.back")}>
           <ArrowLeft size={18} />
         </button>
         <Avatar name={server.name} seed={preview.url} size={56} rounded imageUrl={server.has_icon ? `${preview.url}/api/icon` : null} />
-        <h1>{preview.setup ? "Set up your server" : `Join ${server.name}`}</h1>
+        <h1>{preview.setup ? t("onboarding.invite.setUpTitle") : t("onboarding.invite.joinTitle", { server: server.name })}</h1>
         <p className="muted">
           {preview.setup ? (
-            "You're creating the owner account."
+            t("onboarding.invite.owner")
           ) : server.user_count > 0 ? (
             <span className="row" style={{ gap: 5, justifyContent: "center" }}>
-              <Users size={13} /> {server.user_count} {server.user_count === 1 ? "member" : "members"}
+              <Users size={13} /> {t("onboarding.invite.members", { count: server.user_count })}
             </span>
           ) : (
-            "Open sign-ups"
+            t("onboarding.invite.openSignUps")
           )}
         </p>
       </div>
       <Field
-        label="Your name"
-        placeholder="How people will see you"
+        label={t("onboarding.invite.yourName")}
+        placeholder={t("onboarding.invite.yourNamePlaceholder")}
         value={displayName}
         autoFocus
         maxLength={64}
@@ -339,22 +345,22 @@ function InviteStep({
         }}
       />
       <Field
-        label="Username"
-        placeholder="alex"
+        label={t("common.username")}
+        placeholder={t("onboarding.invite.usernamePlaceholder")}
         value={username}
         spellCheck={false}
         maxLength={32}
-        hint="Letters, numbers, dots, dashes and underscores."
-        error={error?.toLowerCase().includes("username") ? error : username && !validUsername ? "Usernames need at least 2 valid characters." : null}
+        hint={t("onboarding.invite.usernameHint")}
+        error={failure?.username ? failure.message : username && !validUsername ? t("onboarding.invite.usernameInvalid") : null}
         onChange={(event) => {
           setUsername(event.target.value);
           setUsernameEdited(true);
-          setError(null);
+          setFailure(null);
         }}
       />
       <div className="field">
         <PasswordField
-          label="Password"
+          label={t("common.password")}
           value={password}
           autoComplete="new-password"
           onChange={(event) => setPassword(event.target.value)}
@@ -364,24 +370,26 @@ function InviteStep({
       <ConfirmPasswordField password={password} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       <div className="notice">
         <Lock size={15} />
-        <span>Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.</span>
+        <span>{t("onboarding.invite.passwordNote")}</span>
       </div>
-      {error && !error.toLowerCase().includes("username") && <div className="field-error">{error}</div>}
+      {failure && !failure.username && <div className="field-error">{failure.message}</div>}
       <button className="btn btn-primary btn-large btn-block" disabled={!canSubmit}>
         {busy ? (
           <>
-            <Spinner /> Securing your account
+            <Spinner /> {t("onboarding.invite.securing")}
           </>
         ) : (
-          "Agree and create account"
+          t("onboarding.invite.create")
         )}
       </button>
       <p className="faint" style={{ fontSize: 12.5, textAlign: "center", margin: 0 }}>
-        By creating an account, you agree to the{" "}
-        <button type="button" className="link-button" onClick={() => platform.openExternal(TERMS_URL)}>
-          Terms of Use
-        </button>
-        .
+        {tx("onboarding.invite.terms", {
+          terms: (
+            <button type="button" className="link-button" onClick={() => platform.openExternal(TERMS_URL)}>
+              {t("onboarding.invite.termsLink")}
+            </button>
+          ),
+        })}
       </p>
     </form>
   );
@@ -398,7 +406,7 @@ function RecoveryKeyStep({ recoveryKey, onDone }: { recoveryKey: string; onDone:
   };
 
   const download = () => {
-    const blob = new Blob([`Zuna recovery key\n\n${recoveryKey}\n\nKeep this somewhere safe. It's the only way back into your account if you forget your password.\n`], {
+    const blob = new Blob([`${t("onboarding.recovery.fileTitle")}\n\n${recoveryKey}\n\n${t("onboarding.recovery.fileNote")}\n`], {
       type: "text/plain",
     });
     // In the page while it's clicked, and the address kept for a while after, as some
@@ -415,8 +423,8 @@ function RecoveryKeyStep({ recoveryKey, onDone }: { recoveryKey: string; onDone:
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      <StepHeader icon={<KeyRound size={26} />} title="Save your recovery key">
-        If you forget your password, this key is the only way back in. Nobody can reset it for you, not even your server's admin.
+      <StepHeader icon={<KeyRound size={26} />} title={t("onboarding.recovery.title")}>
+        {t("onboarding.recovery.lead")}
       </StepHeader>
       <div className="recovery-key mono selectable">
         {recoveryKey.split("-").map((part, index) => (
@@ -425,19 +433,19 @@ function RecoveryKeyStep({ recoveryKey, onDone }: { recoveryKey: string; onDone:
       </div>
       <div className="row">
         <button className="btn grow" onClick={copy}>
-          {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? "Copied" : "Copy"}
+          {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? t("common.copied") : t("common.copy")}
         </button>
         <button className="btn grow" onClick={download}>
-          <Download size={15} /> Save as file
+          <Download size={15} /> {t("common.saveAsFile")}
         </button>
       </div>
       <label className="check-row">
         <input type="checkbox" checked={saved} onChange={(event) => setSaved(event.target.checked)} />
         <span className="check-box">{saved && <Check size={13} strokeWidth={3} />}</span>
-        I've stored it somewhere safe
+        {t("onboarding.recovery.stored")}
       </label>
       <button className="btn btn-primary btn-large btn-block" disabled={!saved} onClick={onDone}>
-        Continue
+        {t("common.continue")}
       </button>
     </div>
   );
@@ -460,12 +468,12 @@ function NameServerStep({ serverId, onDone }: { serverId: string; onDone: () => 
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 16 }}>
-      <StepHeader icon={<Server size={26} />} title="Name your server">
-        People see this name when you invite them. You can change it later.
+      <StepHeader icon={<Server size={26} />} title={t("onboarding.nameServer.title")}>
+        {t("onboarding.nameServer.lead")}
       </StepHeader>
-      <Field placeholder="Our corner of the internet" value={name} autoFocus maxLength={64} onChange={(event) => setName(event.target.value)} />
+      <Field placeholder={t("onboarding.nameServer.placeholder")} value={name} autoFocus maxLength={64} onChange={(event) => setName(event.target.value)} />
       <button className="btn btn-primary btn-large btn-block" disabled={busy}>
-        {busy ? <Spinner /> : name.trim() ? "Finish" : "Skip for now"}
+        {busy ? <Spinner /> : name.trim() ? t("onboarding.nameServer.finish") : t("onboarding.nameServer.skip")}
       </button>
     </form>
   );
@@ -509,33 +517,33 @@ function SignInStep({
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 14 }}>
-      <StepHeader title="Sign in" onBack={onBack}>
-        Your history will load on this device after you sign in.
+      <StepHeader title={t("onboarding.signIn.title")} onBack={onBack}>
+        {t("onboarding.signIn.lead")}
       </StepHeader>
       <Field
-        label="Server address"
+        label={t("onboarding.signIn.address")}
         placeholder="chat.example.com"
-        hint="Or paste any link to the server."
+        hint={t("onboarding.signIn.addressHint")}
         value={url}
         autoFocus
         spellCheck={false}
         onChange={(event) => setUrl(event.target.value)}
       />
-      <Field label="Username" value={username} spellCheck={false} onChange={(event) => setUsername(event.target.value)} />
-      <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+      <Field label={t("common.username")} value={username} spellCheck={false} onChange={(event) => setUsername(event.target.value)} />
+      <PasswordField label={t("common.password")} value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       {error && <div className="field-error">{error}</div>}
       <button className="btn btn-primary btn-large btn-block" disabled={!url || !username || !password || busy}>
         {busy ? (
           <>
-            <Spinner /> Unlocking your keys
+            <Spinner /> {t("onboarding.signIn.unlocking")}
           </>
         ) : (
-          "Sign in"
+          t("onboarding.signIn.title")
         )}
       </button>
       <div className="step-links">
         <button type="button" className="link-button" disabled={!url || !username} onClick={() => onForgot(url, username)}>
-          Forgot your password?
+          {t("onboarding.signIn.forgot")}
         </button>
       </div>
     </form>
@@ -577,18 +585,18 @@ function RecoverStep({
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 14 }}>
-      <StepHeader title="Use your recovery key" onBack={onBack}>
-        Enter the key you saved when you created your account, then choose a new password for <b>{username}</b>.
+      <StepHeader title={t("onboarding.recover.title")} onBack={onBack}>
+        {tx("onboarding.recover.lead", { username: <b>{username}</b> })}
       </StepHeader>
-      <Field label="Recovery key" className="input mono" value={key} autoFocus spellCheck={false} onChange={(event) => setKey(event.target.value)} />
+      <Field label={t("onboarding.recover.key")} className="input mono" value={key} autoFocus spellCheck={false} onChange={(event) => setKey(event.target.value)} />
       <div className="field">
-        <PasswordField label="New password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
+        <PasswordField label={t("onboarding.recover.newPassword")} value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
         <StrengthMeter strength={strength} />
       </div>
-      <ConfirmPasswordField label="Confirm new password" password={password} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+      <ConfirmPasswordField label={t("onboarding.recover.confirmPassword")} password={password} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       {error && <div className="field-error">{error}</div>}
       <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || strength.score < 2 || confirm !== password || busy}>
-        {busy ? <Spinner /> : "Recover account"}
+        {busy ? <Spinner /> : t("onboarding.recover.button")}
       </button>
     </form>
   );

@@ -5,6 +5,7 @@ import { Emote } from "@/components/Emote";
 import { Avatar, BotBadge, Confirm, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
 import { BotsSection } from "@/features/bots/BotsSection";
 import { formatFull } from "@/lib/format";
+import { t, tx } from "@/lib/i18n";
 import { prepareAvatar } from "@/lib/media";
 import { REPORT_REASON_LABELS } from "@/lib/report";
 import { ServerScreenSection } from "@/features/voice/ScreenSettings";
@@ -24,10 +25,10 @@ function OverviewSection() {
   if (!server) return null;
   return (
     <>
-      <h1>Server</h1>
-      <p className="settings-lead">The name and picture are public: they appear on invite pages before anyone signs in.</p>
+      <h1>{t("serverSettings.overview.title")}</h1>
+      <p className="settings-lead">{t("serverSettings.overview.lead")}</p>
       <div className="profile-edit">
-        <button className="server-icon-edit" onClick={() => fileInput.current?.click()} aria-label="Change server picture">
+        <button className="server-icon-edit" onClick={() => fileInput.current?.click()} aria-label={t("serverSettings.changePicture")}>
           <Avatar name={server.entry.name} seed={server.entry.url} size={72} rounded imageUrl={server.entry.hasIcon ? `${server.entry.url}/api/icon?v=${iconVersion}` : null} />
           <span><ImageIcon size={18} /></span>
         </button>
@@ -48,7 +49,7 @@ function OverviewSection() {
           }}
         />
         <div className="col grow">
-          <Field label="Server name" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} />
+          <Field label={t("serverSettings.overview.name")} value={name} maxLength={64} onChange={(event) => setName(event.target.value)} />
         </div>
       </div>
       <div>
@@ -57,17 +58,17 @@ function OverviewSection() {
           disabled={!name.trim() || name === server.entry.name || busy}
           onClick={() => run(async () => {
             await session().updateServerSettings({ name: name.trim() });
-            toast("Saved");
+            toast(t("common.saved"));
           })}
         >
-          {busy ? <Spinner /> : "Save changes"}
+          {busy ? <Spinner /> : t("common.saveChanges")}
         </button>
       </div>
       <div className="settings-divider" />
-      <SettingRow title="Address" hint="The address people and apps use to reach your server.">
+      <SettingRow title={t("serverSettings.overview.address")} hint={t("serverSettings.overview.addressHint")}>
         <span className="mono selectable" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{server.entry.address}</span>
       </SettingRow>
-      <SettingRow title="Version">
+      <SettingRow title={t("serverSettings.overview.version")}>
         <span className="mono" style={{ fontSize: 12.5 }}>{server.info?.version}</span>
       </SettingRow>
     </>
@@ -82,15 +83,15 @@ function InvitesSection() {
   const open = server.info?.registration === "open";
   return (
     <>
-      <h1>Invites</h1>
-      <p className="settings-lead">Invite links are the safest way for people to join.</p>
+      <h1>{t("serverSettings.sections.invites")}</h1>
+      <p className="settings-lead">{t("serverSettings.invites.lead")}</p>
       <InvitePanel />
       <div className="settings-divider" />
-      <SettingRow title="Let members create invite links" hint="If off, only admins can.">
-        <Switch on={server.info?.allow_member_invites ?? false} onChange={(value) => void run(() => session().updateServerSettings({ allow_member_invites: value }))} label="Let members create invite links" />
+      <SettingRow title={t("serverSettings.invites.memberInvites")} hint={t("serverSettings.invites.memberInvitesHint")}>
+        <Switch on={server.info?.allow_member_invites ?? false} onChange={(value) => void run(() => session().updateServerSettings({ allow_member_invites: value }))} label={t("serverSettings.invites.memberInvites")} />
       </SettingRow>
-      <SettingRow title="Open sign-ups" hint="Anyone who knows the address can join. This gives the server the key that protects profiles, so it can read display names and pictures. Messages stay encrypted.">
-        <Switch on={open} onChange={(value) => void run(() => session().updateServerSettings({ registration: value ? "open" : "invite" }))} label="Open sign-ups" />
+      <SettingRow title={t("serverSettings.invites.openSignUps")} hint={t("serverSettings.invites.openSignUpsHint")}>
+        <Switch on={open} onChange={(value) => void run(() => session().updateServerSettings({ registration: value ? "open" : "invite" }))} label={t("serverSettings.invites.openSignUps")} />
       </SettingRow>
     </>
   );
@@ -114,19 +115,17 @@ function ReportsSection() {
   const selfRole = server.self?.role;
   return (
     <>
-      <h1>Reports</h1>
-      <p className="settings-lead">
-        People reported by others on <b>{server.entry.name}</b>, and why. Messages are encrypted, so nobody here can see what was said, and who made each report isn't kept.
-      </p>
+      <h1>{t("serverSettings.sections.reports")}</h1>
+      <p className="settings-lead">{tx("serverSettings.reports.lead", { server: <b>{server.entry.name}</b> })}</p>
       {reports === null ? (
         <Spinner />
       ) : reports.length === 0 ? (
-        <p className="muted">Nobody has been reported.</p>
+        <p className="muted">{t("serverSettings.reports.empty")}</p>
       ) : (
         <div className="device-list">
           {reports.map((report) => {
             const user = server.users[report.userId];
-            const name = user?.displayName ?? "Unknown";
+            const name = user?.displayName ?? t("chat.unknown");
             const canBan = !!user && !user.banned && !user.deleted && user.role !== "owner" && (selfRole === "owner" || user.role === "member");
             return (
               <div key={report.userId} className="device-row">
@@ -134,15 +133,15 @@ function ReportsSection() {
                 <span className="grow">
                   <span style={{ display: "block", fontWeight: 500 }}>{name}</span>
                   <span className="faint" style={{ fontSize: 12 }}>
-                    {report.count === 1 ? "1 report" : `${report.count} reports`} · {report.reasons.map((reason) => REPORT_REASON_LABELS[reason]).join(", ")} · {formatFull(report.lastAt)}
+                    {t("serverSettings.reports.count", { count: report.count })} · {report.reasons.map((reason) => REPORT_REASON_LABELS[reason]).join(", ")} · {formatFull(report.lastAt)}
                   </span>
                 </span>
                 <button className="btn btn-small" onClick={() => void run(async () => { await session().dismissReports(report.userId); load(); })}>
-                  Dismiss
+                  {t("serverSettings.reports.dismiss")}
                 </button>
                 {canBan && (
                   <button className="btn btn-small btn-danger" onClick={() => setBanning({ userId: report.userId, name })}>
-                    <Ban size={13} /> Ban
+                    <Ban size={13} /> {t("serverSettings.reports.ban")}
                   </button>
                 )}
               </div>
@@ -170,8 +169,8 @@ function ReportsSection() {
 /** What a ban does, asked before it's done, wherever it's done from. */
 function BanConfirm({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <Confirm title={`Ban ${name}?`} action="Ban from server" onCancel={onCancel} onConfirm={onConfirm}>
-      They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Bans.
+    <Confirm title={t("serverSettings.ban.title", { name })} action={t("serverSettings.ban.action")} onCancel={onCancel} onConfirm={onConfirm}>
+      {t("serverSettings.ban.text")}
     </Confirm>
   );
 }
@@ -200,20 +199,25 @@ function BansSection() {
   const shown = (bans ?? []).filter((ban) => server.users[ban.userId]?.banned !== false);
   return (
     <>
-      <h1>Bans</h1>
-      <p className="settings-lead">
-        People banned from <b>{server.entry.name}</b>. Once unbanned, they can sign in again and get their direct messages and channels back. Groups will have to add them again.
-      </p>
+      <h1>{t("serverSettings.sections.bans")}</h1>
+      <p className="settings-lead">{tx("serverSettings.bans.lead", { server: <b>{server.entry.name}</b> })}</p>
       {bans === null ? (
         <Spinner />
       ) : shown.length === 0 ? (
-        <p className="muted">Nobody is banned.</p>
+        <p className="muted">{t("serverSettings.bans.empty")}</p>
       ) : (
         <div className="device-list">
           {shown.map((ban) => {
             const user = server.users[ban.userId];
-            const name = user?.displayName ?? "Unknown";
-            const by = ban.bannedBy === server.self?.userId ? "you" : ban.bannedBy ? server.users[ban.bannedBy]?.displayName : undefined;
+            const name = user?.displayName ?? t("chat.unknown");
+            const date = formatFull(ban.bannedAt);
+            const by = ban.bannedBy && ban.bannedBy !== server.self?.userId ? server.users[ban.bannedBy]?.displayName : undefined;
+            const banned =
+              ban.bannedBy === server.self?.userId
+                ? t("serverSettings.bans.bannedByYou", { date })
+                : by
+                  ? t("serverSettings.bans.bannedBy", { name: by, date })
+                  : t("serverSettings.bans.bannedOn", { date });
             // The owner can unban anyone, and admins only members, as with banning.
             const canUnban = !!user && (selfRole === "owner" || user.role === "member");
             return (
@@ -222,16 +226,17 @@ function BansSection() {
                 <span className="grow">
                   <span style={{ display: "block", fontWeight: 500 }}>{name}</span>
                   <span className="faint" style={{ fontSize: 12 }}>
-                    {user && `@${user.username} · `}Banned {by && `by ${by} `}on {formatFull(ban.bannedAt)}
+                    {user && `@${user.username} · `}
+                    {banned}
                   </span>
                 </span>
                 <button
                   className="btn btn-small"
                   disabled={!canUnban}
-                  title={canUnban ? undefined : "Only the server's owner can unban an admin."}
+                  title={canUnban ? undefined : t("serverSettings.bans.ownerOnly")}
                   onClick={() => void run(async () => { await session().unbanUser(ban.userId); load(); })}
                 >
-                  <UserRound size={13} /> Unban
+                  <UserRound size={13} /> {t("serverSettings.bans.unban")}
                 </button>
               </div>
             );
@@ -261,10 +266,10 @@ function MembersSection() {
 
   return (
     <>
-      <h1>Members</h1>
+      <h1>{t("serverSettings.sections.members")}</h1>
       <div className="input-wrap search-wrap">
         <Search size={15} className="faint" />
-        <input className="input" placeholder={`Search ${members.length} members`} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search members" />
+        <input className="input" placeholder={t("serverSettings.members.search", { count: members.length })} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("serverSettings.members.searchLabel")} />
       </div>
       <div className="device-list">
         {users.map((user) => (
@@ -283,7 +288,7 @@ function MembersSection() {
             </span>
             {user.role !== "member" && (
               <span className="role-chip">
-                <Crown size={12} /> {user.role === "owner" ? "Owner" : "Admin"}
+                <Crown size={12} /> {user.role === "owner" ? t("serverSettings.members.owner") : t("serverSettings.members.admin")}
               </span>
             )}
           </button>
@@ -298,12 +303,12 @@ function MembersSection() {
             // A bot is never one of the server's admins.
             ...(selfRole === "owner" && !target.bot
               ? [{
-                  label: target.role === "admin" ? "Remove admin" : "Make admin",
+                  label: target.role === "admin" ? t("serverSettings.members.removeAdmin") : t("serverSettings.members.makeAdmin"),
                   icon: <Crown size={15} />,
                   onSelect: () => void run(() => session().setServerRole(target.id, target.role === "admin" ? "member" : "admin")),
                 }]
               : []),
-            { label: "Ban from server", icon: <Ban size={15} />, danger: true, onSelect: () => setBanning(target) },
+            { label: t("serverSettings.ban.action"), icon: <Ban size={15} />, danger: true, onSelect: () => setBanning(target) },
           ]}
         />
       )}
@@ -333,16 +338,13 @@ function EmotesSection() {
   const setId = server.emotes.set_id;
   return (
     <>
-      <h1>Emotes</h1>
-      <p className="settings-lead">
-        Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. It checks 7TV
-        for changes to the set every few hours.
-      </p>
+      <h1>{t("serverSettings.sections.emotes")}</h1>
+      <p className="settings-lead">{t("serverSettings.emotes.lead")}</p>
       <div className="current-set">
         <Smile size={18} />
         <span className="grow">
-          <b>{server.emotes.set_name || "No emote set"}</b>
-          <span className="setting-hint">{emotes.length} emotes</span>
+          <b>{server.emotes.set_name || t("serverSettings.emotes.noSet")}</b>
+          <span className="setting-hint">{t("serverSettings.emotes.count", { count: emotes.length })}</span>
         </span>
         {setId && (
           <button
@@ -351,20 +353,20 @@ function EmotesSection() {
             onClick={() =>
               refresh.run(async () => {
                 const result = await session().setEmoteSet(setId);
-                toast(`Updated ${result.set_name} (${result.count} emotes)`);
+                toast(t("serverSettings.emotes.updated", { name: result.set_name, count: result.count }));
               })
             }
           >
-            {refresh.busy ? <Spinner /> : "Refresh"}
+            {refresh.busy ? <Spinner /> : t("serverSettings.emotes.refresh")}
           </button>
         )}
       </div>
       <Field
-        label="Use a different set"
+        label={t("serverSettings.emotes.useDifferent")}
         placeholder="https://7tv.app/emote-sets/..."
         value={link}
         spellCheck={false}
-        hint="Paste a link to any emote set on 7TV."
+        hint={t("serverSettings.emotes.linkHint")}
         onChange={(event) => setLink(event.target.value)}
       />
       <div>
@@ -375,11 +377,11 @@ function EmotesSection() {
             run(async () => {
               const result = await session().setEmoteSet(link.trim());
               setLink("");
-              toast(`Now using ${result.set_name} (${result.count} emotes)`);
+              toast(t("serverSettings.emotes.nowUsing", { name: result.set_name, count: result.count }));
             })
           }
         >
-          {busy ? <Spinner /> : "Use this set"}
+          {busy ? <Spinner /> : t("serverSettings.emotes.useSet")}
         </button>
       </div>
       {emotes.length > 0 && (
@@ -408,15 +410,15 @@ function StorageSection() {
   }, [server?.info?.max_upload_mb, server?.info?.retention_days]);
   return (
     <>
-      <h1>Storage</h1>
-      <Field label="Largest file members can send" type="number" min={1} value={maxUpload} suffix="MB" onChange={(event) => setMaxUpload(event.target.value)} />
+      <h1>{t("serverSettings.sections.storage")}</h1>
+      <Field label={t("serverSettings.storage.maxUpload")} type="number" min={1} value={maxUpload} suffix={t("serverSettings.storage.megabytes")} onChange={(event) => setMaxUpload(event.target.value)} />
       <Field
-        label="Delete messages after"
+        label={t("serverSettings.storage.retention")}
         type="number"
         min={0}
         value={retention}
-        suffix="days"
-        hint="0 keeps messages forever. Pinned messages are kept. This is enforced by the server, so it only removes the server's copy."
+        suffix={t("serverSettings.storage.days")}
+        hint={t("serverSettings.storage.retentionHint")}
         onChange={(event) => setRetention(event.target.value)}
       />
       <div>
@@ -426,11 +428,11 @@ function StorageSection() {
           onClick={() =>
             run(async () => {
               await session().updateServerSettings({ max_upload_mb: Number(maxUpload), retention_days: Number(retention) });
-              toast("Saved");
+              toast(t("common.saved"));
             })
           }
         >
-          {busy ? <Spinner /> : "Save changes"}
+          {busy ? <Spinner /> : t("common.saveChanges")}
         </button>
       </div>
     </>
@@ -445,10 +447,8 @@ function LeaveSection({ onClose }: { onClose: () => void }) {
   if (!server) return null;
   return (
     <>
-      <h1>Sign out</h1>
-      <p className="settings-lead">
-        This signs you out of <b>{server.entry.name}</b> on this device and erases its local copy of your messages. Your account and history stay on the server, and you can sign back in with your password.
-      </p>
+      <h1>{t("serverSettings.sections.leave")}</h1>
+      <p className="settings-lead">{tx("serverSettings.leave.lead", { server: <b>{server.entry.name}</b> })}</p>
       <div>
         <button
           className="btn btn-danger"
@@ -462,7 +462,7 @@ function LeaveSection({ onClose }: { onClose: () => void }) {
             })
           }
         >
-          {busy ? <Spinner /> : <><LogOut size={15} /> Sign out and erase local data</>}
+          {busy ? <Spinner /> : <><LogOut size={15} /> {t("serverSettings.leave.action")}</>}
         </button>
       </div>
     </>
@@ -485,29 +485,25 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
   if (server.self?.role === "owner") {
     return (
       <>
-        <h1>Delete account</h1>
-        <p className="settings-lead">
-          You own <b>{name}</b>, and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data.
-        </p>
+        <h1>{t("serverSettings.sections.delete")}</h1>
+        <p className="settings-lead">{tx("serverSettings.delete.ownerLead", { server: <b>{name}</b> })}</p>
       </>
     );
   }
   return (
     <>
-      <h1>Delete account</h1>
-      <p className="settings-lead">
-        This deletes your account on <b>{name}</b>, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from "Deleted account". Someone else will be able to take your username. It can't be undone.
-      </p>
-      <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+      <h1>{t("serverSettings.sections.delete")}</h1>
+      <p className="settings-lead">{tx("serverSettings.delete.lead", { server: <b>{name}</b> })}</p>
+      <PasswordField label={t("common.password")} value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       <div>
         <button className="btn btn-danger" disabled={!password || busy} onClick={() => setConfirming(true)}>
-          {busy ? <Spinner /> : <><Trash2 size={15} /> Delete my account</>}
+          {busy ? <Spinner /> : <><Trash2 size={15} /> {t("serverSettings.delete.action")}</>}
         </button>
       </div>
       {confirming && (
         <Confirm
-          title={`Delete your account on ${name}?`}
-          action="Delete account"
+          title={t("serverSettings.delete.confirmTitle", { server: name })}
+          action={t("serverSettings.sections.delete")}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);
@@ -519,7 +515,7 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
             });
           }}
         >
-          It can't be undone. Messages you sent stay with the people you sent them to, shown as from "Deleted account".
+          {t("serverSettings.delete.confirmText")}
         </Confirm>
       )}
     </>
@@ -535,23 +531,23 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
   const sections = [
     ...(isAdmin
       ? [
-          { id: "overview", label: "Overview", icon: ServerIcon },
-          { id: "invites", label: "Invites", icon: LinkIcon },
-          { id: "members", label: "Members", icon: Users },
-          { id: "reports", label: "Reports", icon: Flag },
-          { id: "bans", label: "Bans", icon: Ban },
-          { id: "emotes", label: "Emotes", icon: Smile },
-          { id: "soundboard", label: "Soundboard", icon: AudioLines },
-          { id: "storage", label: "Storage", icon: HardDrive },
-          { id: "screen", label: "Screen sharing", icon: MonitorUp },
+          { id: "overview", label: t("serverSettings.sections.overview"), icon: ServerIcon },
+          { id: "invites", label: t("serverSettings.sections.invites"), icon: LinkIcon },
+          { id: "members", label: t("serverSettings.sections.members"), icon: Users },
+          { id: "reports", label: t("serverSettings.sections.reports"), icon: Flag },
+          { id: "bans", label: t("serverSettings.sections.bans"), icon: Ban },
+          { id: "emotes", label: t("serverSettings.sections.emotes"), icon: Smile },
+          { id: "soundboard", label: t("serverSettings.sections.soundboard"), icon: AudioLines },
+          { id: "storage", label: t("serverSettings.sections.storage"), icon: HardDrive },
+          { id: "screen", label: t("serverSettings.sections.screen"), icon: MonitorUp },
         ]
       : []),
-    ...(hasBots ? [{ id: "bots", label: "Bots", icon: Bot }] : []),
-    { id: "leave", label: "Sign out", icon: LogOut, danger: true },
-    { id: "delete", label: "Delete account", icon: Trash2, danger: true },
+    ...(hasBots ? [{ id: "bots", label: t("serverSettings.sections.bots"), icon: Bot }] : []),
+    { id: "leave", label: t("serverSettings.sections.leave"), icon: LogOut, danger: true },
+    { id: "delete", label: t("serverSettings.sections.delete"), icon: Trash2, danger: true },
   ];
   return (
-    <SettingsFrame title={server?.entry.name ?? "Server"} sections={sections} section={section} onSection={setSection} onClose={onClose}>
+    <SettingsFrame title={server?.entry.name ?? t("serverSettings.overview.title")} sections={sections} section={section} onSection={setSection} onClose={onClose}>
       {section === "overview" && <OverviewSection />}
       {section === "invites" && <InvitesSection />}
       {section === "members" && <MembersSection />}

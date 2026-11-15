@@ -16,39 +16,43 @@ import { timerChangeText } from "@/lib/disappearing";
 import { useApp } from "@/state/store";
 import { emotesIn, mentionsIn } from "./Composer";
 import { useServerField, serverOf } from "./use-server-field";
+import { t, tx } from "@/lib/i18n";
 
 export function SystemMessage({ message, highlighted, channel }: { message: MessageView; highlighted: boolean; channel: boolean }) {
   const text = useServerField((server) => {
     const name = (id?: string) => {
-      if (!id) return "Someone";
-      if (id === server.self?.userId) return "You";
-      return server.users[id]?.displayName ?? "Someone";
+      if (!id) return t("common.someone");
+      if (id === server.self?.userId) return t("common.you");
+      return server.users[id]?.displayName ?? t("common.someone");
     };
     const system = message.system!;
+    // Lines about what this person did themselves are worded for them, as languages word them differently.
+    const self = !!system.actorId && system.actorId === server.self?.userId;
+    const actor = name(system.actorId);
     // The line that says a bot was added names it as one.
-    const added = (id: string) => (server.users[id]?.bot ? `the bot ${name(id)}` : name(id));
+    const added = (id: string) => (server.users[id]?.bot ? t("message.system.theBot", { name: name(id) }) : name(id));
     const targets = (system.targetIds ?? []).map(system.type === "member_added" ? added : name).join(", ");
     switch (system.type) {
       case "group_created":
-        return `${name(system.actorId)} created this group`;
+        return self ? t("message.system.youCreatedGroup") : t("message.system.groupCreated", { name: actor });
       case "member_added":
-        return `${name(system.actorId)} added ${targets}`;
+        return self ? t("message.system.youAdded", { names: targets }) : t("message.system.memberAdded", { name: actor, names: targets });
       case "member_removed":
-        return `${name(system.actorId)} removed ${targets}`;
+        return self ? t("message.system.youRemoved", { names: targets }) : t("message.system.memberRemoved", { name: actor, names: targets });
       case "member_left":
-        return `${name(system.actorId)} left the group`;
+        return self ? t("message.system.youLeft") : t("message.system.memberLeft", { name: actor });
       case "member_rejoined":
-        return `${name(system.actorId)} rejoined this chat`;
+        return self ? t("message.system.youRejoined") : t("message.system.memberRejoined", { name: actor });
       case "unexpected_join":
-        return `${name(system.actorId)} joined without being added by a member. Check that this is expected.`;
+        return t("message.system.unexpectedJoin", { name: actor });
       case "identity_changed":
-        return `${name(system.actorId)}'s security key changed. Verify it before trusting new messages.`;
+        return t("message.system.identityChanged", { name: actor });
       case "identity_rotated":
-        return `${name(system.actorId)}'s security key changed since you verified it. You can compare keys again if you'd like.`;
+        return t("message.system.identityRotated", { name: actor });
       case "device_added":
-        return `${name(system.actorId)} added a device`;
+        return self ? t("message.system.youAddedDevice") : t("message.system.deviceAdded", { name: actor });
       case "timer_changed":
-        return timerChangeText(name(system.actorId), system.seconds ?? 0);
+        return timerChangeText(actor, system.seconds ?? 0, self);
     }
   }, "");
   const warning = message.system!.type === "unexpected_join" || message.system!.type === "identity_changed";
@@ -80,21 +84,22 @@ export function SystemMessage({ message, highlighted, channel }: { message: Mess
 export function ForwardedFrom({ userId }: { userId?: string }) {
   const name = useServerField((server) => {
     if (!userId) return null;
-    if (userId === server.self?.userId) return "You";
+    if (userId === server.self?.userId) return t("common.you");
     return server.users[userId]?.displayName ?? null;
   }, null);
   return (
     <span className="msg-forwarded">
       <Forward size={13} />
       {name && userId ? (
-        <>
-          Forwarded from{" "}
-          <button className="msg-forwarded-name" onClick={() => useApp.getState().setOverlay({ type: "verify", userId })}>
-            {name}
-          </button>
-        </>
+        tx("message.forwardedFrom", {
+          name: (
+            <button className="msg-forwarded-name" onClick={() => useApp.getState().setOverlay({ type: "verify", userId })}>
+              {name}
+            </button>
+          ),
+        })
       ) : (
-        "Forwarded"
+        t("message.forwarded")
       )}
     </span>
   );
@@ -114,7 +119,7 @@ export function ReactionChip({
   showPeople: boolean;
   onToggle: () => void;
 }) {
-  const names = useServerField((server) => reaction.userIds.map((id) => (id === selfId ? "You" : (server.users[id]?.displayName ?? "Someone"))).join(", "), "");
+  const names = useServerField((server) => reaction.userIds.map((id) => (id === selfId ? t("common.you") : (server.users[id]?.displayName ?? t("common.someone")))).join(", "), "");
   const people = useApp(
     useShallow((state) => {
       const server = serverOf(state);
@@ -123,8 +128,8 @@ export function ReactionChip({
   );
   const mine = reaction.userIds.includes(selfId);
   const chip = (
-    <button className={`reaction${mine ? " is-mine" : ""}`} onClick={onToggle} aria-label={`${reaction.key}, ${names}`}>
-      {reaction.emote ? <Emote name={reaction.key} emote={reaction.emote} serverUrl={serverUrl} size="reaction" note={`Reacted by ${names}`} /> : <span className="reaction-emoji">{reaction.key}</span>}
+    <button className={`reaction${mine ? " is-mine" : ""}`} onClick={onToggle} aria-label={t("message.reaction.label", { reaction: reaction.key, names })}>
+      {reaction.emote ? <Emote name={reaction.key} emote={reaction.emote} serverUrl={serverUrl} size="reaction" note={t("message.reaction.reactedBy", { names })} /> : <span className="reaction-emoji">{reaction.key}</span>}
       {people ? (
         <span className="reaction-people">
           {reaction.userIds.map((id, index) => (
@@ -176,8 +181,8 @@ export function ChannelReply({ message, blocked }: { message: MessageView; block
   const reply = message.reply!;
   const jump = useApp((state) => state.jumpToMessage);
   const user = useServerField((server) => server.users[reply.senderId] ?? null, null);
-  const name = user?.displayName ?? "Unknown";
-  const text = reply.deleted ? "Original message was deleted" : blocked ? "Message from someone you blocked" : plainText(reply.text);
+  const name = user?.displayName ?? t("chat.unknown");
+  const text = reply.deleted ? t("message.reply.deleted") : blocked ? t("message.reply.blocked") : plainText(reply.text);
   return (
     <div className="cmsg-reply">
       {reply.deleted ? (
@@ -193,7 +198,7 @@ export function ChannelReply({ message, blocked }: { message: MessageView; block
         </>
       )}
       <button className={`cmsg-reply-text${text ? "" : " is-empty"}`} onClick={() => jump(message.groupId, reply.id)}>
-        <span className="truncate">{text || (reply.hasAttachment ? "Click to see attachment" : "Click to see message")}</span>
+        <span className="truncate">{text || (reply.hasAttachment ? t("message.reply.seeAttachment") : t("message.reply.seeMessage"))}</span>
         {!text && reply.hasAttachment && <ImageIcon size={15} />}
       </button>
     </div>
@@ -223,7 +228,7 @@ export function InlineEditor({ message, listId }: { message: MessageView; listId
   const save = () => {
     const value = text.trim();
     if (value.length > MAX_TEXT_LENGTH) {
-      toast("That message is too long.", "error");
+      toast(t("composer.tooLong"), "error");
       return;
     }
     if (value && value !== message.text) {
@@ -252,18 +257,22 @@ export function InlineEditor({ message, listId }: { message: MessageView; listId
             save();
           }
         }}
-        aria-label="Edit message"
+        aria-label={t("message.edit.label")}
         spellCheck
       />
       <span className="cmsg-editor-hint">
-        escape to{" "}
-        <button className="link-button" onClick={stop}>
-          cancel
-        </button>{" "}
-        • enter to{" "}
-        <button className="link-button" onClick={save}>
-          save
-        </button>
+        {tx("message.edit.hint", {
+          cancel: (
+            <button className="link-button" onClick={stop}>
+              {t("message.edit.cancel")}
+            </button>
+          ),
+          save: (
+            <button className="link-button" onClick={save}>
+              {t("message.edit.save")}
+            </button>
+          ),
+        })}
       </span>
     </div>
   );

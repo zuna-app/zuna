@@ -4,6 +4,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { PasswordStrength } from "@zuna/core/password";
+import { t } from "@/lib/i18n";
 
 type Estimate = typeof import("@zuna/core/password").passwordStrength;
 
@@ -17,7 +18,7 @@ const load = (): Promise<Estimate> =>
       throw error;
     }));
 
-const FAILED: PasswordStrength = { score: 0, label: "Couldn't load the password checker. Reload the page." };
+const failedStrength = (): PasswordStrength => ({ score: 0, label: t("onboarding.passwordCheckerFailed") });
 
 /**
  * Rates `password`, using `related` (the username, the display name) as what anyone
@@ -43,7 +44,7 @@ export function usePasswordStrength(password: string, related: string[] = []): P
   const deferred = useDeferredValue(password);
   const relatedKey = related.join("\u0000");
   const strength = useMemo(
-    () => (estimate ? estimate(deferred, relatedKey ? relatedKey.split("\u0000") : []) : failed ? FAILED : { score: 0, label: "" }),
+    () => (estimate ? estimate(deferred, relatedKey ? relatedKey.split("\u0000") : []) : failed ? failedStrength() : { score: 0, label: "" }),
     [estimate, failed, deferred, relatedKey],
   );
   const accepts = () => estimate !== null && (deferred === password ? strength : estimate(password, related)).score >= 2;

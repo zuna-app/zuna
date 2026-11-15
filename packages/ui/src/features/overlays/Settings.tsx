@@ -26,6 +26,7 @@ import { platform } from "@/platform";
 import { Avatar, Confirm, ConfirmPasswordField, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { useEscape } from "@/lib/escape";
+import { LANGUAGES, mark, t, tx, type MessageKey } from "@/lib/i18n";
 import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
@@ -36,24 +37,30 @@ import { ScreenSettingsSection } from "@/features/voice/ScreenSettings";
 import { VoiceSettingsSection } from "@/features/voice/VoiceSettings";
 
 // Each swatch takes its colors from the accent's own tokens (styles/tokens.css), by data-accent.
-const ACCENTS: { id: AppSettings["accent"]; label: string }[] = [
-  { id: "neutral", label: "Neutral" },
-  { id: "blue", label: "Blue" },
-  { id: "green", label: "Green" },
-  { id: "red", label: "Red" },
-  { id: "amber", label: "Amber" },
+const ACCENTS: { id: AppSettings["accent"]; label: MessageKey }[] = [
+  { id: "neutral", label: mark("settings.appearance.accentNeutral") },
+  { id: "blue", label: mark("settings.appearance.accentBlue") },
+  { id: "green", label: mark("settings.appearance.accentGreen") },
+  { id: "red", label: mark("settings.appearance.accentRed") },
+  { id: "amber", label: mark("settings.appearance.accentAmber") },
+];
+
+const MESSAGE_SIZES: { id: AppSettings["messageSize"]; label: MessageKey }[] = [
+  { id: "small", label: mark("settings.appearance.sizeSmall") },
+  { id: "medium", label: mark("settings.appearance.sizeMedium") },
+  { id: "large", label: mark("settings.appearance.sizeLarge") },
 ];
 
 const SECTIONS = [
-  { id: "profile", label: "Profile", icon: UserRound },
-  { id: "privacy", label: "Privacy", icon: Lock },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "voice", label: "Voice and video", icon: Mic },
-  { id: "screen", label: "Screen sharing", icon: MonitorUp },
-  { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "security", label: "Security", icon: ShieldCheck },
-  { id: "data", label: "Your data", icon: Server },
-  { id: "about", label: "About", icon: Info },
+  { id: "profile", label: mark("settings.sections.profile"), icon: UserRound },
+  { id: "privacy", label: mark("settings.sections.privacy"), icon: Lock },
+  { id: "notifications", label: mark("settings.sections.notifications"), icon: Bell },
+  { id: "voice", label: mark("settings.sections.voice"), icon: Mic },
+  { id: "screen", label: mark("settings.sections.screen"), icon: MonitorUp },
+  { id: "appearance", label: mark("settings.sections.appearance"), icon: Palette },
+  { id: "security", label: mark("settings.sections.security"), icon: ShieldCheck },
+  { id: "data", label: mark("settings.sections.data"), icon: Server },
+  { id: "about", label: mark("settings.sections.about"), icon: Info },
 ] as const;
 
 export function SettingsFrame({
@@ -86,7 +93,7 @@ export function SettingsFrame({
           ))}
         </nav>
         <div className="settings-content">
-          <button className="icon-btn settings-close" onClick={onClose} aria-label="Close settings">
+          <button className="icon-btn settings-close" onClick={onClose} aria-label={t("settings.close")}>
             <X size={19} />
           </button>
           <div key={section} className="settings-page">
@@ -125,12 +132,12 @@ function ProfileSection() {
   if (!self) return null;
   return (
     <>
-      <h1>Profile</h1>
-      <p className="settings-lead">Only members of {server?.entry.name} can see this. Your server stores it encrypted.</p>
+      <h1>{t("settings.sections.profile")}</h1>
+      <p className="settings-lead">{t("settings.profile.lead", { server: server?.entry.name ?? "" })}</p>
       <div className="profile-edit">
         <div className="avatar-edit">
           <Avatar name={self.displayName} seed={self.id} avatar={self.avatar} size={72} />
-          <button className="avatar-edit-button" onClick={() => fileInput.current?.click()} aria-label="Change profile picture">
+          <button className="avatar-edit-button" onClick={() => fileInput.current?.click()} aria-label={t("settings.profile.changePicture")}>
             <Camera size={17} />
           </button>
           <input
@@ -150,15 +157,15 @@ function ProfileSection() {
           <span className="muted">@{self.username}</span>
           {self.avatar && (
             <button className="link-button" style={{ justifyContent: "flex-start" }} onClick={() => run(() => session().updateProfile({}, null))}>
-              Remove picture
+              {t("settings.profile.removePicture")}
             </button>
           )}
         </div>
       </div>
-      <Field label="Display name" value={displayName} maxLength={64} onChange={(event) => setDisplayName(event.target.value)} />
+      <Field label={t("settings.profile.displayName")} value={displayName} maxLength={64} onChange={(event) => setDisplayName(event.target.value)} />
       <label className="field">
-        <span className="field-label">Bio</span>
-        <textarea className="textarea" value={bio} maxLength={300} placeholder="A few words about you" onChange={(event) => setBio(event.target.value)} />
+        <span className="field-label">{t("settings.profile.bio")}</span>
+        <textarea className="textarea" value={bio} maxLength={300} placeholder={t("settings.profile.bioPlaceholder")} onChange={(event) => setBio(event.target.value)} />
       </label>
       <div>
         <button
@@ -167,11 +174,11 @@ function ProfileSection() {
           onClick={() =>
             run(async () => {
               await session().updateProfile({ displayName: displayName.trim(), bio });
-              toast("Profile saved");
+              toast(t("settings.profile.saved"));
             })
           }
         >
-          {busy ? <Spinner /> : "Save changes"}
+          {busy ? <Spinner /> : t("common.saveChanges")}
         </button>
       </div>
     </>
@@ -190,17 +197,17 @@ function PrivacySection() {
   const blocked = (server.prefs.blocked ?? []).flatMap((id) => server.users[id] ?? []).sort((a, b) => a.displayName.localeCompare(b.displayName));
   return (
     <>
-      <h1>Privacy</h1>
-      <p className="settings-lead">These apply to {server.entry.name}. Each server you join has its own settings.</p>
-      <SettingRow title="Send read receipts" hint="Others see when you've read their messages. If off, your devices still stay in sync.">
-        <Switch on={server.prefs.sendReadReceipts} onChange={(value) => void session().updatePreferences({ sendReadReceipts: value })} label="Send read receipts" />
+      <h1>{t("settings.sections.privacy")}</h1>
+      <p className="settings-lead">{t("settings.privacy.lead", { server: server.entry.name })}</p>
+      <SettingRow title={t("settings.privacy.readReceipts")} hint={t("settings.privacy.readReceiptsHint")}>
+        <Switch on={server.prefs.sendReadReceipts} onChange={(value) => void session().updatePreferences({ sendReadReceipts: value })} label={t("settings.privacy.readReceipts")} />
       </SettingRow>
-      <SettingRow title="Show when I'm online" hint="If off, people see “last seen recently” instead of your status.">
-        <Switch on={!self.hidesLastSeen} onChange={(value) => void run(() => session().setHideLastSeen(!value))} label="Show when I'm online" />
+      <SettingRow title={t("settings.privacy.showOnline")} hint={t("settings.privacy.showOnlineHint")}>
+        <Switch on={!self.hidesLastSeen} onChange={(value) => void run(() => session().setHideLastSeen(!value))} label={t("settings.privacy.showOnline")} />
       </SettingRow>
       <div className="settings-divider" />
-      <h3>Blocked people</h3>
-      {blocked.length === 0 && <p className="setting-hint">Nobody yet. You can block someone from their details in a chat, or from a group's member list.</p>}
+      <h3>{t("settings.privacy.blocked")}</h3>
+      {blocked.length === 0 && <p className="setting-hint">{t("settings.privacy.blockedEmpty")}</p>}
       {blocked.map((user) => (
         <div key={user.id} className="setting-row">
           <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={32} />
@@ -209,34 +216,25 @@ function PrivacySection() {
             {!user.deleted && <span className="setting-hint">@{user.username}</span>}
           </span>
           <button className="btn btn-small" onClick={() => void run(() => session().setBlocked(user.id, false))}>
-            Unblock
+            {t("settings.privacy.unblock")}
           </button>
         </div>
       ))}
-      <p className="setting-hint">You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.</p>
+      <p className="setting-hint">{t("settings.privacy.blockedHint")}</p>
       <div className="settings-divider" />
-      <h3>On this device</h3>
-      <SettingRow
-        title="Link previews"
-        hint="When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it."
-      >
-        <Switch on={settings.linkPreviews} onChange={(value) => update({ linkPreviews: value })} label="Link previews" />
+      <h3>{t("settings.privacy.onThisDevice")}</h3>
+      <SettingRow title={t("settings.privacy.linkPreviews")} hint={t("settings.privacy.linkPreviewsHint")}>
+        <Switch on={settings.linkPreviews} onChange={(value) => update({ linkPreviews: value })} label={t("settings.privacy.linkPreviews")} />
       </SettingRow>
-      <SettingRow
-        title="Remove metadata from files"
-        hint="Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."
-      >
+      <SettingRow title={t("settings.privacy.removeMetadata")} hint={t("settings.privacy.removeMetadataHint")}>
         <Switch
           on={settings.removeMetadata}
           onChange={(value) => (value ? update({ removeMetadata: true }) : setConfirmingKeep(true))}
-          label="Remove metadata from files"
+          label={t("settings.privacy.removeMetadata")}
         />
       </SettingRow>
-      <SettingRow
-        title="Play YouTube videos"
-        hint="People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first."
-      >
-        <Switch on={settings.playYouTube} onChange={(value) => update({ playYouTube: value })} label="Play YouTube videos" />
+      <SettingRow title={t("settings.privacy.playYouTube")} hint={t("settings.privacy.playYouTubeHint")}>
+        <Switch on={settings.playYouTube} onChange={(value) => update({ playYouTube: value })} label={t("settings.privacy.playYouTube")} />
       </SettingRow>
       {confirmingKeep && (
         <KeepMetadataConfirm
@@ -254,11 +252,9 @@ function PrivacySection() {
 /** Turning metadata removal off says what it shows, and waits to be sure. */
 function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <Confirm title="Send files with their metadata?" action="Turn off" width={440} onCancel={onCancel} onConfirm={onConfirm}>
-      <p style={{ fontSize: 13.5 }}>
-        Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.
-      </p>
-      <p className="muted" style={{ fontSize: 13.5 }}>Your server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.</p>
+    <Confirm title={t("settings.privacy.keepMetadataTitle")} action={t("settings.privacy.keepMetadataAction")} width={440} onCancel={onCancel} onConfirm={onConfirm}>
+      <p style={{ fontSize: 13.5 }}>{t("settings.privacy.keepMetadataText")}</p>
+      <p className="muted" style={{ fontSize: 13.5 }}>{t("settings.privacy.keepMetadataNote")}</p>
     </Confirm>
   );
 }
@@ -278,26 +274,22 @@ function NotificationsSection() {
   };
   return (
     <>
-      <h1>Notifications</h1>
-      <p className="settings-lead">Previews are decrypted on this device. No notification service ever sees them.</p>
+      <h1>{t("settings.sections.notifications")}</h1>
+      <p className="settings-lead">{t("settings.notifications.lead")}</p>
       <SettingRow
-        title="Desktop notifications"
-        hint={
-          settings.notifications && permission === "denied"
-            ? "Your browser is blocking notifications from this site. Allow them in your browser's site settings."
-            : "If you're using another device, they wait 30 seconds and won't show if you read the chat there."
-        }
+        title={t("settings.notifications.desktop")}
+        hint={settings.notifications && permission === "denied" ? t("settings.notifications.blockedByBrowser") : t("settings.notifications.desktopHint")}
       >
-        <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label="Desktop notifications" />
+        <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label={t("settings.notifications.desktop")} />
       </SettingRow>
-      <SettingRow title="Sound">
-        <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
+      <SettingRow title={t("settings.notifications.sound")}>
+        <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label={t("settings.notifications.soundLabel")} />
       </SettingRow>
-      <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
+      <SettingRow title={t("settings.notifications.preview")} hint={t("settings.notifications.previewHint")}>
         <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
-          <option value="full">Sender and message</option>
-          <option value="sender">Sender only</option>
-          <option value="none">Nothing</option>
+          <option value="full">{t("settings.notifications.previewFull")}</option>
+          <option value="sender">{t("settings.notifications.previewSender")}</option>
+          <option value="none">{t("settings.notifications.previewNone")}</option>
         </select>
       </SettingRow>
     </>
@@ -307,33 +299,55 @@ function NotificationsSection() {
 function AppearanceSection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
+  const setOverlay = useApp((state) => state.setOverlay);
   return (
     <>
-      <h1>Appearance</h1>
+      <h1>{t("settings.sections.appearance")}</h1>
+      <SettingRow title={t("settings.appearance.language")} hint={t("settings.appearance.languageHintBrowser")}>
+        <select
+          className="select"
+          style={{ width: 180 }}
+          value={settings.language}
+          onChange={(event) => {
+            // The app is drawn again in the new language, Settings with it, which then opens here.
+            setOverlay({ type: "settings", section: "appearance" });
+            update({ language: event.target.value });
+          }}
+          aria-label={t("settings.appearance.language")}
+        >
+          <option value="system">{t("settings.appearance.languageBrowser")}</option>
+          {/* Each language by its own name, which is never translated. */}
+          {LANGUAGES.map((language) => (
+            <option key={language.tag} value={language.tag} lang={language.tag}>
+              {language.name}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
       <div className="field">
-        <span className="field-label">Accent color</span>
+        <span className="field-label">{t("settings.appearance.accent")}</span>
         <div className="accent-row">
           {ACCENTS.map((accent) => (
-            <button key={accent.id} className={`accent-swatch${settings.accent === accent.id ? " is-active" : ""}`} data-accent={accent.id} onClick={() => update({ accent: accent.id })} aria-label={accent.label} aria-pressed={settings.accent === accent.id}>
+            <button key={accent.id} className={`accent-swatch${settings.accent === accent.id ? " is-active" : ""}`} data-accent={accent.id} onClick={() => update({ accent: accent.id })} aria-label={t(accent.label)} aria-pressed={settings.accent === accent.id}>
               {settings.accent === accent.id && <Check size={15} strokeWidth={2.5} />}
             </button>
           ))}
         </div>
       </div>
-      <SettingRow title="Message size">
+      <SettingRow title={t("settings.appearance.messageSize")}>
         <div className="segmented">
-          {(["small", "medium", "large"] as const).map((size) => (
-            <button key={size} className={settings.messageSize === size ? "is-active" : ""} onClick={() => update({ messageSize: size })}>
-              {size[0]!.toUpperCase() + size.slice(1)}
+          {MESSAGE_SIZES.map((size) => (
+            <button key={size.id} className={settings.messageSize === size.id ? "is-active" : ""} onClick={() => update({ messageSize: size.id })}>
+              {t(size.label)}
             </button>
           ))}
         </div>
       </SettingRow>
-      <SettingRow title="Reduce motion" hint="Turns off most animations.">
-        <Switch on={settings.reduceMotion} onChange={(value) => update({ reduceMotion: value })} label="Reduce motion" />
+      <SettingRow title={t("settings.appearance.reduceMotion")} hint={t("settings.appearance.reduceMotionHint")}>
+        <Switch on={settings.reduceMotion} onChange={(value) => update({ reduceMotion: value })} label={t("settings.appearance.reduceMotion")} />
       </SettingRow>
-      <SettingRow title="Press Enter to send" hint="If off, use Ctrl+Enter to send and Enter for new lines.">
-        <Switch on={settings.enterToSend} onChange={(value) => update({ enterToSend: value })} label="Press Enter to send" />
+      <SettingRow title={t("settings.appearance.enterToSend")} hint={t("settings.appearance.enterToSendHint")}>
+        <Switch on={settings.enterToSend} onChange={(value) => update({ enterToSend: value })} label={t("settings.appearance.enterToSend")} />
       </SettingRow>
     </>
   );
@@ -349,7 +363,7 @@ function DevicesCard() {
   }, [session, server?.users]);
   return (
     <div className="field">
-      <span className="field-label">Your devices on this server</span>
+      <span className="field-label">{t("settings.devices.title")}</span>
       <div className="device-list">
         {devices.map((device) => (
           <div key={device.id} className="device-row">
@@ -357,13 +371,13 @@ function DevicesCard() {
             <span className="grow">
               <span style={{ display: "block", fontWeight: 500 }}>
                 {device.name}
-                {device.isCurrent && <span className="device-current">This device</span>}
+                {device.isCurrent && <span className="device-current">{t("settings.devices.thisDevice")}</span>}
               </span>
-              <span className="faint" style={{ fontSize: 12 }}>Signed in {formatFull(device.createdAt)}</span>
+              <span className="faint" style={{ fontSize: 12 }}>{t("settings.devices.signedIn", { when: formatFull(device.createdAt) })}</span>
             </span>
             {!device.isCurrent && (
               <button className="btn btn-small btn-danger" onClick={() => run(() => session().revokeDevice(device.id))}>
-                <Trash2 size={13} /> Remove
+                <Trash2 size={13} /> {t("common.remove")}
               </button>
             )}
           </div>
@@ -372,7 +386,7 @@ function DevicesCard() {
       {server && (
         // A server that makes its own certificate needs its pin too, which only its links carry.
         <span className="field-hint">
-          To add a device, sign in on it at <span className="mono selectable" style={{ overflowWrap: "anywhere" }}>{server.entry.address}</span>
+          {tx("settings.devices.addDevice", { address: <span className="mono selectable" style={{ overflowWrap: "anywhere" }}>{server.entry.address}</span> })}
         </span>
       )}
     </div>
@@ -395,22 +409,22 @@ function SecuritySection() {
 
   return (
     <>
-      <h1>Security</h1>
+      <h1>{t("settings.sections.security")}</h1>
       <div className="notice is-warn">
         <Lock size={15} />
         <span>{platform.keyWarning}</span>
       </div>
-      <SettingRow title="Your security key" hint="Compare it with friends to make sure nobody is intercepting your messages.">
+      <SettingRow title={t("settings.security.securityKey")} hint={t("settings.security.securityKeyHint")}>
         <button className="btn btn-small" onClick={() => server?.self && setOverlay({ type: "verify", userId: server.self.userId })}>
-          <KeyRound size={14} /> View
+          <KeyRound size={14} /> {t("settings.security.view")}
         </button>
       </SettingRow>
       <DevicesCard />
       <div className="settings-divider" />
-      <h3>Change password</h3>
-      <PasswordField label="Current password" value={current} autoComplete="current-password" onChange={(event) => setCurrent(event.target.value)} />
-      <PasswordField label="New password" value={next} autoComplete="new-password" hint={next ? strength.label : `At least ${MIN_PASSWORD} characters.`} onChange={(event) => setNext(event.target.value)} />
-      <ConfirmPasswordField label="Confirm new password" password={next} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+      <h3>{t("settings.security.changePassword")}</h3>
+      <PasswordField label={t("settings.security.currentPassword")} value={current} autoComplete="current-password" onChange={(event) => setCurrent(event.target.value)} />
+      <PasswordField label={t("settings.security.newPassword")} value={next} autoComplete="new-password" hint={next ? strength.label : t("settings.security.passwordMinimum", { count: MIN_PASSWORD })} onChange={(event) => setNext(event.target.value)} />
+      <ConfirmPasswordField label={t("settings.security.confirmNewPassword")} password={next} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       <div>
         <button
           className="btn"
@@ -422,28 +436,28 @@ function SecuritySection() {
               setCurrent("");
               setNext("");
               setConfirm("");
-              toast("Password changed");
+              toast(t("settings.security.passwordChanged"));
             })
           }
         >
-          {busy ? <Spinner /> : "Change password"}
+          {busy ? <Spinner /> : t("settings.security.changePassword")}
         </button>
       </div>
       <div className="settings-divider" />
-      <h3>Recovery key</h3>
-      <p className="muted" style={{ fontSize: 13.5 }}>Create a new key if you've lost the old one or think someone saw it. The old key stops working immediately.</p>
+      <h3>{t("settings.security.recoveryKey")}</h3>
+      <p className="muted" style={{ fontSize: 13.5 }}>{t("settings.security.recoveryKeyHint")}</p>
       {recoveryKey ? (
         <div className="col">
           <div className="recovery-key mono selectable">
             {recoveryKey.split("-").map((part, index) => <span key={index}>{part}</span>)}
           </div>
-          <button className="btn" onClick={() => void copyText(recoveryKey).then(() => toast("Copied"))}>
-            <Copy size={14} /> Copy
+          <button className="btn" onClick={() => void copyText(recoveryKey).then(() => toast(t("common.copied")))}>
+            <Copy size={14} /> {t("common.copy")}
           </button>
         </div>
       ) : (
         <>
-          <PasswordField label="Current password" value={recoveryPassword} autoComplete="current-password" onChange={(event) => setRecoveryPassword(event.target.value)} />
+          <PasswordField label={t("settings.security.currentPassword")} value={recoveryPassword} autoComplete="current-password" onChange={(event) => setRecoveryPassword(event.target.value)} />
           <div>
             <button
               className="btn"
@@ -455,7 +469,7 @@ function SecuritySection() {
                 })
               }
             >
-              Create new recovery key
+              {t("settings.security.newRecoveryKey")}
             </button>
           </div>
         </>
@@ -464,12 +478,12 @@ function SecuritySection() {
   );
 }
 
-const DATA_TAGS: Record<ServerDataKind, string> = {
-  readable: "Readable",
-  encrypted: "Encrypted",
-  public: "Public",
-  withheld: "Left out",
-  none: "Not kept",
+const DATA_TAGS: Record<ServerDataKind, MessageKey> = {
+  readable: mark("settings.data.tagReadable"),
+  encrypted: mark("settings.data.tagEncrypted"),
+  public: mark("settings.data.tagPublic"),
+  withheld: mark("settings.data.tagWithheld"),
+  none: mark("settings.data.tagNone"),
 };
 
 /** Everything the server says it keeps about the account, in the core's plain words, and saved as its own answer. */
@@ -497,18 +511,16 @@ function ServerDataSection() {
   };
   return (
     <>
-      <h1>Your data</h1>
-      <p className="settings-lead">
-        Everything {server.entry.name} says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.
-      </p>
+      <h1>{t("settings.sections.data")}</h1>
+      <p className="settings-lead">{t("settings.data.lead", { server: server.entry.name })}</p>
       <div className="row" style={{ gap: 8 }}>
         {shown && (
           <button className="btn btn-primary" onClick={() => save(shown)}>
-            <Download size={15} /> Save as file
+            <Download size={15} /> {t("common.saveAsFile")}
           </button>
         )}
         <button className="btn" disabled={busy} onClick={() => void ask()}>
-          {busy ? <Spinner /> : <RefreshCw size={14} />} {shown ? "Ask again" : "Ask the server"}
+          {busy ? <Spinner /> : <RefreshCw size={14} />} {shown ? t("settings.data.askAgain") : t("settings.data.ask")}
         </button>
       </div>
       {shown?.sections.map((section) => (
@@ -524,7 +536,7 @@ function ServerDataSection() {
                 </span>
                 <span className="data-value">
                   <span className="selectable">{row.value}</span>
-                  <span className={`data-tag is-${row.kind}`}>{DATA_TAGS[row.kind]}</span>
+                  <span className={`data-tag is-${row.kind}`}>{t(DATA_TAGS[row.kind])}</span>
                 </span>
               </div>
             ))}
@@ -532,9 +544,7 @@ function ServerDataSection() {
         </section>
       ))}
       {shown && (
-        <p className="data-footnote">
-          This is what {server.entry.name} says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.
-        </p>
+        <p className="data-footnote">{t("settings.data.footnote", { server: server.entry.name })}</p>
       )}
     </>
   );
@@ -548,18 +558,22 @@ function AboutSection() {
       <div className="about-hero">
         <Logo size={52} />
         <h1>Zuna</h1>
-        <p className="muted">Version {import.meta.env.ZUNA_VERSION} · Free software under the AGPL-3.0 license</p>
+        <p className="muted">{t("settings.about.version", { version: import.meta.env.ZUNA_VERSION })}</p>
       </div>
       <div className="notice">
         <ShieldCheck size={15} />
         <span>
-          Messages use MLS (RFC 9420) through the independently audited OpenMLS library. Your server stores only ciphertext. {server && <>Connected to {server.entry.name}{server.info ? `, running server version ${server.info.version}` : ""}.</>}
+          {t("settings.about.encryption")}{" "}
+          {server &&
+            (server.info
+              ? t("settings.about.connectedVersion", { server: server.entry.name, version: server.info.version })
+              : t("settings.about.connected", { server: server.entry.name }))}
         </span>
       </div>
       <div className="row">
-        <button className="btn" onClick={() => open(PROJECT_URL)}>Source code</button>
-        <button className="btn" onClick={() => open(`${PROJECT_URL}/blob/main/SECURITY.md`)}>Security model</button>
-        <button className="btn" onClick={() => open(TERMS_URL)}>Terms of Use</button>
+        <button className="btn" onClick={() => open(PROJECT_URL)}>{t("settings.about.sourceCode")}</button>
+        <button className="btn" onClick={() => open(`${PROJECT_URL}/blob/main/SECURITY.md`)}>{t("settings.about.securityModel")}</button>
+        <button className="btn" onClick={() => open(TERMS_URL)}>{t("settings.about.terms")}</button>
       </div>
     </>
   );
@@ -570,8 +584,8 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
   const setOverlay = useApp((state) => state.setOverlay);
   return (
     <SettingsFrame
-      title="Settings"
-      sections={SECTIONS}
+      title={t("settings.title")}
+      sections={SECTIONS.map((item) => ({ ...item, label: t(item.label) }))}
       section={section}
       onSection={setSection}
       onClose={onClose}
@@ -590,10 +604,10 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
           <div className="settings-divider" />
           <div className="row" style={{ gap: 8 }}>
             <button className="btn btn-danger" onClick={() => setOverlay({ type: "server-settings", section: "leave" })}>
-              <LogOut size={15} /> Sign out of this server
+              <LogOut size={15} /> {t("settings.account.signOut")}
             </button>
             <button className="btn btn-danger" onClick={() => setOverlay({ type: "server-settings", section: "delete" })}>
-              <Trash2 size={15} /> Delete account
+              <Trash2 size={15} /> {t("settings.account.delete")}
             </button>
           </div>
         </>

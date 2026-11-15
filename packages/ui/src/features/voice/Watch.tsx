@@ -5,12 +5,22 @@
 
 import type { WatchView } from "@zuna/core";
 import { readYouTubeLink } from "@zuna/core";
-import { WATCH_ERRORS, WatchController, type WatchStatus } from "@zuna/watch";
+import { WatchController, type WatchError, type WatchStatus } from "@zuna/watch";
 import { Clapperboard, Square, Tv, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Spinner, Tooltip } from "@/components/ui";
+import { mark, t, type MessageKey } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import { useVoice, WATCH_FOCUS } from "@/voice/store";
+
+/** What each of YouTube's errors is, in words, so people know it isn't Zuna. */
+const WATCH_ERRORS: Record<WatchError, MessageKey> = {
+  gone: mark("voice.watch.goneOrPrivate"),
+  "not-embeddable": mark("voice.watch.ownerOnlyYouTube"),
+  unplayable: mark("voice.watch.wontPlayHere"),
+  "no-referrer": mark("voice.watch.errorNoReferrer"),
+  unknown: mark("voice.watch.errorOther"),
+};
 
 const YOUTUBE_TERMS = "https://www.youtube.com/t/terms";
 const GOOGLE_PRIVACY = "https://policies.google.com/privacy";
@@ -20,13 +30,13 @@ export function WatchConsent({ action, onCancel, onAgree }: { action: string; on
   const update = useApp((state) => state.updateSettings);
   return (
     <Modal
-      title="Play YouTube videos?"
+      title={t("voice.watch.consentTitle")}
       onClose={onCancel}
       width={460}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="btn btn-primary"
@@ -41,19 +51,15 @@ export function WatchConsent({ action, onCancel, onAgree }: { action: string; on
         </>
       }
     >
-      <p style={{ fontSize: 13.5 }}>
-        Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube, and that it's playing on this web app's address. You aren't signed in to YouTube here, so you may see ads.
-      </p>
-      <p className="muted" style={{ fontSize: 13.5 }}>
-        Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.
-      </p>
+      <p style={{ fontSize: 13.5 }}>{t("voice.watch.consentText")}</p>
+      <p className="muted" style={{ fontSize: 13.5 }}>{t("voice.watch.consentNote")}</p>
       <p style={{ fontSize: 13 }}>
         <a href={YOUTUBE_TERMS} target="_blank" rel="noreferrer">
-          YouTube's Terms of Service
+          {t("voice.watch.terms")}
         </a>
         {" · "}
         <a href={GOOGLE_PRIVACY} target="_blank" rel="noreferrer">
-          Google's Privacy Policy
+          {t("voice.watch.privacy")}
         </a>
       </p>
     </Modal>
@@ -68,7 +74,7 @@ export function WatchLinkDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     if (!readYouTubeLink(link)) {
-      setError("That isn't a link to a YouTube video. Paste one from youtube.com or youtu.be.");
+      setError(t("voice.watch.notALink"));
       return;
     }
     setBusy(true);
@@ -82,22 +88,22 @@ export function WatchLinkDialog({ onClose }: { onClose: () => void }) {
   };
   return (
     <Modal
-      title="Watch together"
+      title={t("voice.watch.title")}
       onClose={onClose}
       width={460}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button className="btn btn-primary" disabled={busy || !link.trim()} onClick={() => void submit()}>
-            {busy ? <Spinner /> : "Share video"}
+            {busy ? <Spinner /> : t("voice.watch.share")}
           </button>
         </>
       }
     >
       <label className="field">
-        <span className="field-label">YouTube link</span>
+        <span className="field-label">{t("voice.watch.link")}</span>
         <input
           className="input"
           autoFocus
@@ -108,11 +114,11 @@ export function WatchLinkDialog({ onClose }: { onClose: () => void }) {
             setError(null);
           }}
           onKeyDown={(event) => event.key === "Enter" && void submit()}
-          aria-label="YouTube link"
+          aria-label={t("voice.watch.link")}
         />
       </label>
       {error && <p className="field-error">{error}</p>}
-      <p className="setting-hint">It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.</p>
+      <p className="setting-hint">{t("voice.watch.linkHint")}</p>
     </Modal>
   );
 }
@@ -122,7 +128,7 @@ export function WatchButton({ allowed }: { /** Whether watching together is on i
   const playYouTube = useApp((state) => state.settings.playYouTube);
   const watch = useVoice((state) => state.watch);
   const [step, setStep] = useState<"consent" | "link" | null>(null);
-  const label = !allowed ? "Watching together is off in this channel" : watch ? "Another video" : "Watch together";
+  const label = !allowed ? t("voice.watch.off") : watch ? t("voice.watch.another") : t("voice.watch.title");
   return (
     <>
       <Tooltip text={label} side="top">
@@ -130,26 +136,35 @@ export function WatchButton({ allowed }: { /** Whether watching together is on i
           <Clapperboard size={20} />
         </button>
       </Tooltip>
-      {step === "consent" && <WatchConsent action="Continue" onCancel={() => setStep(null)} onAgree={() => setStep("link")} />}
+      {step === "consent" && <WatchConsent action={t("common.continue")} onCancel={() => setStep(null)} onAgree={() => setStep("link")} />}
       {step === "link" && <WatchLinkDialog onClose={() => setStep(null)} />}
     </>
   );
 }
 
-function nameOf(server: ReturnType<typeof useActiveServer>, userId: string): string {
-  if (userId === server?.self?.userId) return "you";
-  return server?.users[userId]?.displayName ?? "someone";
+/**
+ * A line about who did something to the video, worded for this person if it was them, for
+ * someone by name, or for someone this device doesn't know.
+ */
+function byWhom(server: ReturnType<typeof useActiveServer>, userId: string, keys: { you: MessageKey; name: MessageKey; someone: MessageKey }): string {
+  if (userId === server?.self?.userId) return t(keys.you);
+  const name = server?.users[userId]?.displayName;
+  return name ? t(keys.name, { name }) : t(keys.someone);
 }
+
+const PAUSED_BY = { you: mark("voice.watch.pausedByYou"), name: mark("voice.watch.pausedBy"), someone: mark("voice.watch.pausedBySomeone") };
+const SHARED_BY = { you: mark("voice.watch.sharedByYou"), name: mark("voice.watch.sharedBy"), someone: mark("voice.watch.sharedBySomeone") };
+const SHARED_BY_PRESS = { you: mark("voice.watch.coverByYou"), name: mark("voice.watch.coverBy"), someone: mark("voice.watch.coverBySomeone") };
 
 /** What's on, small, in the strip under something else that fills the stage. */
 export function WatchThumb({ watch }: { watch: WatchView }) {
   const setFocus = useVoice((state) => state.setFocus);
   return (
-    <div className="voice-tile is-watch" onClick={() => setFocus(WATCH_FOCUS)} title={watch.video.title || "A YouTube video"}>
+    <div className="voice-tile is-watch" onClick={() => setFocus(WATCH_FOCUS)} title={watch.video.title || t("voice.watch.untitled")}>
       {watch.video.image ? <img className="watch-poster" src={watch.video.image.data} alt="" /> : <Tv size={28} className="faint" />}
       <div className="voice-tile-label">
         <Tv size={13} />
-        <span className="truncate">{watch.video.title || "A YouTube video"}</span>
+        <span className="truncate">{watch.video.title || t("voice.watch.untitled")}</span>
       </div>
     </div>
   );
@@ -228,7 +243,7 @@ export function WatchStage({ watch }: { watch: WatchView }) {
   const [another, setAnother] = useState(false);
   const [status, setStatus] = useState<WatchStatus | null>(null);
   const [blocked, setBlocked] = useState(false);
-  const title = watch.video.title || "A YouTube video";
+  const title = watch.video.title || t("voice.watch.untitled");
   const silent = muted || deafened;
 
   useEffect(() => {
@@ -240,13 +255,14 @@ export function WatchStage({ watch }: { watch: WatchView }) {
   }, [status?.phase]);
 
   const press = () => (playYouTube ? setWatching(true) : setAsking("watch"));
-  const changed = watch.playing ? null : `Paused by ${nameOf(server, watch.changedBy)}`;
+  const changed = watch.playing ? null : byWhom(server, watch.changedBy, PAUSED_BY);
+  const sharedBy = byWhom(server, watch.video.startedBy, SHARED_BY);
   const note = status?.error
-    ? WATCH_ERRORS[status.error]
+    ? t(WATCH_ERRORS[status.error])
     : blocked
-      ? "Your browser blocked it from starting. Press play in the video."
+      ? t("voice.watch.blockedByBrowser")
       : watching && status?.phase === "catching-up"
-        ? "Catching up…"
+        ? t("voice.watch.catchingUp")
         : null;
 
   return (
@@ -259,22 +275,22 @@ export function WatchStage({ watch }: { watch: WatchView }) {
           <div className="watch-cover-text">
             <h3>{title}</h3>
             {watch.video.author && <p>{watch.video.author}</p>}
-            <p className="muted">Shared by {nameOf(server, watch.video.startedBy)}. It plays from YouTube when you press Watch.</p>
+            <p className="muted">{byWhom(server, watch.video.startedBy, SHARED_BY_PRESS)}</p>
             <button className="btn btn-primary" onClick={press}>
-              <Tv size={16} /> Watch
+              <Tv size={16} /> {t("voice.watch.watch")}
             </button>
           </div>
         </div>
       )}
-      <div className="watch-bar" role="toolbar" aria-label="Video">
+      <div className="watch-bar" role="toolbar" aria-label={t("voice.settings.video")}>
         <div className="watch-bar-text">
           <b className="truncate">{title}</b>
-          <span className="truncate muted">{note ?? changed ?? `Shared by ${nameOf(server, watch.video.startedBy)}${watch.video.author ? ` · ${watch.video.author}` : ""}`}</span>
+          <span className="truncate muted">{note ?? changed ?? (watch.video.author ? `${sharedBy} · ${watch.video.author}` : sharedBy)}</span>
         </div>
         {watching && (
           <div className="watch-volume">
-            <Tooltip text={deafened ? "You're deafened" : silent ? "Unmute video" : "Mute video"} side="top">
-              <button className="icon-btn is-small" disabled={deafened} onClick={() => updateSettings({ watchMuted: !muted })} aria-label={silent ? "Unmute video" : "Mute video"}>
+            <Tooltip text={deafened ? t("voice.watch.deafened") : silent ? t("voice.watch.unmute") : t("voice.watch.mute")} side="top">
+              <button className="icon-btn is-small" disabled={deafened} onClick={() => updateSettings({ watchMuted: !muted })} aria-label={silent ? t("voice.watch.unmute") : t("voice.watch.mute")}>
                 {silent ? <VolumeX size={16} /> : <Volume2 size={16} />}
               </button>
             </Tooltip>
@@ -286,22 +302,22 @@ export function WatchStage({ watch }: { watch: WatchView }) {
               step={0.01}
               value={volume}
               onChange={(event) => updateSettings({ watchVolume: Number(event.target.value), watchMuted: false })}
-              aria-label="Video volume"
-              title={`Video volume ${Math.round(volume * 100)}%`}
+              aria-label={t("voice.watch.volume")}
+              title={t("voice.watch.volumeAt", { percent: Math.round(volume * 100) })}
             />
           </div>
         )}
         <button className="btn btn-small" onClick={() => (playYouTube ? setAnother(true) : setAsking("another"))}>
-          Another video
+          {t("voice.watch.another")}
         </button>
-        <Tooltip text="Stop it for everyone" side="top">
-          <button className="btn btn-small" onClick={watchStop} aria-label="Stop for everyone">
-            <Square size={13} /> Stop
+        <Tooltip text={t("voice.watch.stopTooltip")} side="top">
+          <button className="btn btn-small" onClick={watchStop} aria-label={t("voice.watch.stopAll")}>
+            <Square size={13} /> {t("voice.watch.stop")}
           </button>
         </Tooltip>
         {watching && (
-          <Tooltip text="Stop watching on this device" side="top">
-            <button className="icon-btn is-small" onClick={() => setWatching(false)} aria-label="Stop watching here">
+          <Tooltip text={t("voice.watch.leaveTooltip")} side="top">
+            <button className="icon-btn is-small" onClick={() => setWatching(false)} aria-label={t("voice.watch.stopHere")}>
               <X size={16} />
             </button>
           </Tooltip>
@@ -309,7 +325,7 @@ export function WatchStage({ watch }: { watch: WatchView }) {
       </div>
       {asking && (
         <WatchConsent
-          action={asking === "watch" ? "Watch" : "Continue"}
+          action={asking === "watch" ? t("voice.watch.watch") : t("common.continue")}
           onCancel={() => setAsking(null)}
           onAgree={() => {
             setAsking(null);
