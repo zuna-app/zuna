@@ -970,7 +970,10 @@ struct Composer: View {
         // On Telegram someone is mentioned by name, as Telegram's apps do, whether or not they have
         // a username, and anywhere else by their username.
         let telegram = server.entry.isTelegram
-        let ids = conversation.kind == .group ? conversation.members.map(\.userId) : Array(server.users.keys)
+        // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet,
+        // and elsewhere only who's in the chat: in a direct message the person it's with, before it has a group too.
+        var ids = conversation.kind == .channel ? Array(server.users.keys) : conversation.members.map(\.userId)
+        if conversation.kind != .channel, let peer = conversation.peerId, !ids.contains(peer) { ids.append(peer) }
         return ids.compactMap { server.users[$0] }
             .filter { user in
                 let reachable = telegram ? NamedMentions.name(for: user) != nil : !user.username.isEmpty

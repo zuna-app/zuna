@@ -123,6 +123,36 @@ fn mentions_people_on_telegram_by_name(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn only_who_is_in_a_direct_message_is_suggested_to_mention(cx: &mut TestAppContext) {
+    // The two in it: Carol and Helper are on the server, not in it.
+    let (app, chat) = open_chat(cx, &World::new("mention-dm"), &format!("user:{BOB}"));
+    type_in(&app, cx, "@o");
+    assert_eq!(labels(&chat, cx), vec!["Bob"]);
+    keys(&app, cx, "backspace");
+    type_in(&app, cx, "e");
+    assert_eq!(labels(&chat, cx), vec!["Alice"]);
+}
+
+#[gpui::test]
+fn a_direct_message_with_no_group_yet_suggests_who_it_is_with(cx: &mut TestAppContext) {
+    let mut world = World::new("mention-new-dm");
+    let conversations = world.server["getConversations"].as_array_mut().unwrap();
+    let dm = conversations.iter_mut().find(|conversation| conversation["key"] == json!(format!("user:{BOB}"))).unwrap();
+    dm["members"] = json!([]);
+    let (app, chat) = open_chat(cx, &world, &format!("user:{BOB}"));
+    type_in(&app, cx, "@o");
+    assert_eq!(labels(&chat, cx), vec!["Bob"]);
+}
+
+#[gpui::test]
+fn anyone_on_the_server_is_suggested_to_mention_in_a_channel(cx: &mut TestAppContext) {
+    // Helper is on the server, not in the channel.
+    let (app, chat) = open_chat(cx, &World::new("mention-channel"), &format!("group:{GENERAL}"));
+    type_in(&app, cx, "@e");
+    assert_eq!(labels(&chat, cx), vec!["Alice", "Helper"]);
+}
+
+#[gpui::test]
 fn typing_suggesting_and_sending(cx: &mut TestAppContext) {
     let (app, chat) = open_chat(cx, &World::new("typing"), &format!("user:{BOB}"));
     app.forget_calls();

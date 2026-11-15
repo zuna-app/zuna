@@ -303,13 +303,18 @@ impl ChatView {
                     .collect()
             }
             Some((_, query, _)) => {
-                // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
-                let mut people: Vec<&UserView> = if conversation.kind == "group" {
-                    conversation.members.iter().filter_map(|member| server.users.get(&member.user_id)).collect()
-                } else {
+                // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet,
+                // and elsewhere only who's in the chat: in a direct message the person it's with, before it has a group too.
+                let mut people: Vec<&UserView> = if conversation.kind == "channel" {
                     let mut all: Vec<&UserView> = server.users.values().collect();
                     all.sort_by_cached_key(|user| user.display_name.to_lowercase());
                     all
+                } else {
+                    let mut ids: Vec<&String> = conversation.members.iter().map(|member| &member.user_id).collect();
+                    if let Some(peer) = conversation.peer_id.as_ref().filter(|peer| !ids.contains(peer)) {
+                        ids.push(peer);
+                    }
+                    ids.into_iter().filter_map(|id| server.users.get(id)).collect()
                 };
                 // On Telegram someone is mentioned by name, as Telegram's apps do, whether or not
                 // they have a username, and anywhere else by their username.

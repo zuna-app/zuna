@@ -232,8 +232,12 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
           render: <Avatar name={command.bot.displayName} seed={command.bot.id} avatar={command.bot.avatar} size={24} />,
         }));
     }
-    // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
-    const members = conversation.kind === "group" ? conversation.members.map((member) => member.userId) : Object.keys(users);
+    // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet,
+    // and elsewhere only who's in the chat: in a direct message the person it's with, before it has a group too.
+    const members =
+      conversation.kind === "channel"
+        ? Object.keys(users)
+        : [...new Set([...conversation.members.map((member) => member.userId), ...(conversation.peerId ? [conversation.peerId] : [])])];
     return members
       .map((id) => users[id])
       .filter((user): user is NonNullable<typeof user> => !!user && !user.banned && !user.deleted)
