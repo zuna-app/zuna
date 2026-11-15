@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 import UserNotifications
@@ -223,6 +224,55 @@ struct TelegramPush {
         center.removeDeliveredNotifications(withIdentifiers: stale)
         PushStore.badge -= stale.count
         return stale.count
+    }
+
+    // MARK: What a push showed
+
+    /// How many messages the extension remembers showing: more than come while the app is away.
+    private static let remembered = 300
+    private static let shownKey = "zuna-telegram-shown"
+
+    /// A message's tag in what the extension remembers, made with a key from the device key, so
+    /// nothing kept says which chats had messages; nil while the device key is locked.
+    private static func tag(groupId: String, messageId: String) -> String? {
+        guard let deviceKey = DeviceKeyStore.unlockedKey() else { return nil }
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: deviceKey), info: Data("zuna/telegram/shown/v1".utf8), outputByteCount: 32)
+        let mac = HMAC<SHA256>.authenticationCode(for: Data("\(groupId)/\(messageId)".utf8), using: key)
+        return Data(mac).prefix(12).base64EncodedString()
+    }
+
+    /// Remembers a message the extension showed, for `shown`.
+    static func remember(groupId: String, messageId: String) {
+        guard let tag = tag(groupId: groupId, messageId: messageId) else { return }
+        var tags = PushStore.defaults.stringArray(forKey: shownKey) ?? []
+        guard !tags.contains(tag) else { return }
+        tags.append(tag)
+        PushStore.defaults.set(Array(tags.suffix(remembered)), forKey: shownKey)
+    }
+
+    /// Whether this message was shown already: the engine, catching up as the app opens, hears of
+    /// what came while it was away as new, though Telegram pushed it. Its notification is still
+    /// there, worded by the extension, by iOS or by the app, or the extension remembers showing it,
+    /// as after the person cleared it.
+    static func shown(groupId: String, messageId: String) async -> Bool {
+        let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
+        let there = delivered.contains { notification in
+            let info = notification.request.content.userInfo
+            if info["serverId"] as? String == serverId {
+                // Worded by the extension, or by the app itself already.
+                return info["groupId"] as? String == groupId && info["messageId"] as? String == messageId
+            }
+            guard info["serverId"] == nil, let push = TelegramPush(info) else { return false }
+            return push.groupId == groupId && push.messageIds.first == messageId
+        }
+        if there { return true }
+        guard let tag = tag(groupId: groupId, messageId: messageId) else { return false }
+        return PushStore.defaults.stringArray(forKey: shownKey)?.contains(tag) == true
+    }
+
+    /// Forgets what the extension showed, as the account is unlinked.
+    static func forgetShown() {
+        PushStore.defaults.removeObject(forKey: shownKey)
     }
 
     /// The server ID a linked Telegram account goes by (`TELEGRAM_ID` in the core).

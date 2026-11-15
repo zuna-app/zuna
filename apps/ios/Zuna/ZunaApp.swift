@@ -100,7 +100,8 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler(core.notifications?.presentation(for: notification) ?? [.banner, .list, .sound])
+        guard let notifications = core.notifications else { return completionHandler([.banner, .list, .sound]) }
+        Task { completionHandler(await notifications.presentation(for: notification)) }
     }
 
     func userNotificationCenter(

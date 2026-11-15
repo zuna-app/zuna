@@ -275,7 +275,7 @@ As on the desktop: TDLib's database under a random key, which the app seals with
 
 ### Notifications
 
-While the app is open the engine is connected, and notifications are made on the phone as on the desktop. The rest of the time they're pushed, and they have to work as Telegram's own do: asked on 2026-11-13.
+While the app is open the engine is connected, and notifications are made on the phone as on the desktop. The rest of the time they're pushed, and they have to work as Telegram's own do: asked on 2026-11-13. What came while the app was away, which the engine hears of as new as it catches up, was pushed already, so the app doesn't show it again: not while its notification is there, nor once the person cleared it, as the extension remembers what it showed, each under a tag made with the device key (`TelegramPush.shown`). A push that comes while the app shows the same message itself shows nothing.
 
 Nothing on the phone can fetch a message for a notification. The engine can't run in the notification extension, which iOS gives little memory and half a minute, and TDLib's database opens in one process at a time. So the message has to be in the push.
 

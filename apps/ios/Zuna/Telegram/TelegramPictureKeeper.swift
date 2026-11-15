@@ -44,7 +44,10 @@ final class TelegramPictureKeeper {
     }
 
     private func pass() async {
-        if listed.isEmpty { TelegramPictures.eraseAll() }
+        if listed.isEmpty {
+            TelegramPictures.eraseAll()
+            TelegramPush.forgetShown()
+        }
         guard let keys = TelegramPictures.keys() else { return }
         let chats = listed
         for chat in chats {

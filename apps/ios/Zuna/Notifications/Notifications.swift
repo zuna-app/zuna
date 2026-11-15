@@ -234,10 +234,10 @@ final class Notifications {
     }
 
     /// While the app is open, notifications show as banners, except for the chat on screen.
-    func presentation(for notification: UNNotification) -> UNNotificationPresentationOptions {
-        // Telegram pushed it, and the app, connected to Telegram while open, shows its own (`showTelegram`).
-        let info = notification.request.content.userInfo
-        if info["telegramPush"] as? Bool == true || (info["serverId"] == nil && TelegramPush(info) != nil), model.telegram != nil {
+    func presentation(for notification: UNNotification) async -> UNNotificationPresentationOptions {
+        // Telegram pushed it while the app, connected to Telegram, showed it itself already (`showTelegram`),
+        // which in turn shows nothing a push showed: whichever comes first shows.
+        if let message = Self.telegramMessage(notification.request.content.userInfo), await Self.telegramShownByApp(message) {
             return []
         }
         if let target = target(of: notification.request.content.userInfo), let key = target.key,
@@ -373,13 +373,30 @@ final class Notifications {
         }
     }
 
+    /// The Telegram message a push is about, worded by the extension or as iOS showed it.
+    private static func telegramMessage(_ info: [AnyHashable: Any]) -> (groupId: String, messageId: String)? {
+        if info["telegramPush"] as? Bool == true, let groupId = info["groupId"] as? String, let messageId = info["messageId"] as? String {
+            return (groupId, messageId)
+        }
+        guard info["serverId"] == nil, let push = TelegramPush(info), let groupId = push.groupId, let messageId = push.messageIds.first else { return nil }
+        return (groupId, messageId)
+    }
+
+    /// Whether the app shows a Telegram message itself already, as `showTelegram` names it.
+    private static func telegramShownByApp(_ message: (groupId: String, messageId: String)) async -> Bool {
+        let id = "telegram/\(message.groupId)/\(message.messageId)"
+        return await UNUserNotificationCenter.current().deliveredNotifications().contains { $0.request.identifier == id }
+    }
+
     /// A new message on the linked Telegram account, while the app runs: Telegram decided it
     /// notifies, as for its own apps, and the core said its title and text. With "(Telegram)" after
     /// the chat's name, so it's never taken for one of Zuna's (docs/TELEGRAM_PLAN.md, Notifications),
-    /// and the chat's picture, as a push of Telegram's has it.
+    /// and the chat's picture, as a push of Telegram's has it. Not what a push showed already.
     @discardableResult
     func showTelegram(title: String, body: String, conversationKey: String, groupId: String, messageId: String) async -> Bool {
         guard settings.enabled, allowed else { return false }
+        // What came while the app was away, which the engine hears of as it catches up, Telegram pushed already.
+        if await TelegramPush.shown(groupId: groupId, messageId: messageId) { return false }
         let content = UNMutableNotificationContent()
         // As the setting has it for a server's: the sender and the message, who it's from, or only that something came.
         switch settings.preview {

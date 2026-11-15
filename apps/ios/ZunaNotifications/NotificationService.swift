@@ -124,6 +124,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         PushStore.badge += 1
         let worded = push.content(base: content, settings: settings)
         worded.badge = NSNumber(value: PushStore.badge)
+        // So the app, catching up as it opens, doesn't show it again (`TelegramPush.shown`).
+        if let chatId = push.groupId, let messageId = push.messageIds.first { TelegramPush.remember(groupId: chatId, messageId: messageId) }
         guard let chatId = push.groupId, let name = push.name else { return worded }
         return await MessageNotification.telegram(worded, chatId: chatId, name: name, conversationKey: push.conversationKey, settings: settings)
     }
