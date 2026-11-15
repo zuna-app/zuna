@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
-import { t } from "@/lib/i18n";
+import { t, translate } from "@/lib/i18n";
 import { keyName } from "@/voice/settings";
 import { conversationOfGroup, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
@@ -100,7 +100,7 @@ export function VoicePanel() {
             {camera ? <Camera size={16} /> : <CameraOff size={16} />}
           </button>
         </Tooltip>
-        <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ?? t("voice.controls.shareScreen"))} side="top">
+        <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ? translate(shareRefusal) : t("voice.controls.shareScreen"))} side="top">
           <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen")} aria-pressed={!!screen}>
             {screen ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
           </button>

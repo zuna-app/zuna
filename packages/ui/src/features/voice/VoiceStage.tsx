@@ -30,7 +30,7 @@ import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "reac
 import { Avatar, PopupMenu, Spinner, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { useScreenAwake } from "@/lib/awake";
 import { avatarColor } from "@/lib/format";
-import { t } from "@/lib/i18n";
+import { t, translate } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
 import type { VideoTile } from "@/voice/room";
 import { selfIsSpeaking, useVoice, WATCH_FOCUS } from "@/voice/store";
@@ -351,7 +351,7 @@ function Controls({
           {camera ? <Camera size={20} /> : <CameraOff size={20} />}
         </button>
       </Tooltip>
-      <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ?? t("voice.controls.shareScreen"))} side="top">
+      <Tooltip text={screen ? t("voice.controls.stopSharing") : (shareRefusal ? translate(shareRefusal) : t("voice.controls.shareScreen"))} side="top">
         <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : void startScreen({ audio: shareSound }))} aria-label={screen ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen")} aria-pressed={!!screen}>
           {screen ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
         </button>
