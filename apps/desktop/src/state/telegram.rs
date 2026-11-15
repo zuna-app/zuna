@@ -5,7 +5,50 @@
 use super::*;
 use crate::telegram::SERVER_ID;
 
+/// Where the picture chosen for the Telegram account in the rail is kept, on this device alone.
+pub fn telegram_icon_file() -> std::path::PathBuf {
+    host::data_dir().join("telegram-icon.png")
+}
+
+/// That picture, if one was chosen.
+pub fn load_telegram_icon() -> Option<Arc<Image>> {
+    let bytes = std::fs::read(telegram_icon_file()).ok()?;
+    Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)))
+}
+
 impl AppState {
+    /// Asks for a picture to show for the Telegram account in the rail. Zuna's own drawing is all
+    /// Zuna may show of it, as Telegram's terms keep its logo for its own apps, but a person may
+    /// put whatever picture they like there themselves.
+    pub fn choose_telegram_icon(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let Some(path) = paths.into_iter().next() else { return };
+            let prepared = cx.background_executor().spawn(async move { crate::media::prepare_icon(&path) }).await;
+            this.update(cx, |state, cx| state.set_telegram_icon(prepared, cx)).ok();
+        })
+        .detach();
+    }
+
+    /// Keeps a picture made ready by `media::prepare_icon` and shows it, or says it couldn't be used.
+    pub fn set_telegram_icon(&mut self, prepared: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        match prepared {
+            Some(bytes) if std::fs::write(telegram_icon_file(), &bytes).is_ok() => {
+                self.telegram_icon = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
+                cx.notify();
+            }
+            _ => self.toast(crate::i18n::t("media.imageUnprocessable"), ToastKind::Error, cx),
+        }
+    }
+
+    /// Goes back to Zuna's own drawing.
+    pub fn reset_telegram_icon(&mut self, cx: &mut Context<Self>) {
+        let _ = std::fs::remove_file(telegram_icon_file());
+        self.telegram_icon = None;
+        cx.notify();
+    }
+
     /// Whether this build can link an account, and none is linked yet.
     pub fn can_link_telegram(&self) -> bool {
         crate::telegram::available() && !self.servers.contains_key(SERVER_ID)
@@ -383,5 +426,47 @@ mod tests {
         }
         assert_eq!(*loaded.borrow(), vec![None, Some("from my phone".to_string()), None], "one written here stays, and an empty one is none");
         assert_eq!(app.calls_of("getDraft").len(), 2);
+    }
+
+    #[gpui::test]
+    fn the_accounts_icon_in_the_rail_is_a_picture_chosen_and_put_back(cx: &mut TestAppContext) {
+        let app = App::open(cx, &world("telegram-icon", true));
+        app.run(cx);
+        assert!(app.read(cx, |state| state.telegram_icon.is_none()), "Zuna's drawing to begin with");
+        let menu = |cx: &mut TestAppContext| {
+            let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+            let at = window.debug_bounds("rail-button-telegram").expect("in the rail").center();
+            window.simulate_event(gpui::MouseDownEvent { position: at, modifiers: gpui::Modifiers::none(), button: gpui::MouseButton::Right, click_count: 1, first_mouse: false });
+            app.run(cx);
+            cx.read(crate::ui::menu::open_labels)
+        };
+        assert_eq!(menu(cx), ["Change icon…"]);
+        app.update(cx, |_, cx| crate::ui::menu::close_menu(cx));
+
+        // A wide picture with a clear corner keeps its middle square, 128 px a side, and its clear.
+        let path = crate::testing::data_dir().join("wide-logo.png");
+        let mut wide = image::RgbaImage::from_pixel(300, 200, image::Rgba([40, 160, 220, 255]));
+        wide.put_pixel(50, 0, image::Rgba([0, 0, 0, 0]));
+        wide.save(&path).unwrap();
+        let prepared = crate::media::prepare_icon(&path).expect("a picture");
+        let decoded = image::load_from_memory(&prepared).unwrap().to_rgba8();
+        assert_eq!(decoded.dimensions(), (128, 128));
+        assert!(decoded.get_pixel(0, 0)[3] < 255, "the clear corner stays clear");
+        app.update(cx, |state, cx| state.set_telegram_icon(Some(prepared), cx));
+        assert!(app.read(cx, |state| state.telegram_icon.is_some()));
+        assert!(super::load_telegram_icon().is_some(), "kept for the next start");
+
+        // Zuna's drawing back, from the rail.
+        assert_eq!(menu(cx), ["Change icon…", "Use Zuna's icon"]);
+        app.window.update(cx, |_, window, cx| crate::ui::menu::choose("Use Zuna's icon", window, cx)).unwrap();
+        app.run(cx);
+        assert!(app.read(cx, |state| state.telegram_icon.is_none()) && !super::telegram_icon_file().exists());
+
+        // What isn't a picture is said to be one that couldn't be used.
+        std::fs::write(&path, b"not a picture").unwrap();
+        app.update(cx, |state, cx| state.set_telegram_icon(crate::media::prepare_icon(&path), cx));
+        assert!(app.toasts(cx).contains(&"That image couldn't be processed.".to_string()));
+        assert!(app.read(cx, |state| state.telegram_icon.is_none()));
+        let _ = std::fs::remove_file(&path);
     }
 }

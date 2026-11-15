@@ -120,6 +120,7 @@ impl Root {
             .collect();
         let me = state.active().and_then(|server| server.me.as_ref().and_then(|me| server.users.get(&me.user_id)).cloned());
         let can_link_telegram = state.can_link_telegram();
+        let telegram_icon = state.telegram_icon.clone();
         let mut list = div().flex().flex_col().items_center().gap(px(8.)).w_full();
         for server in servers {
             let id = server.id.clone();
@@ -169,8 +170,24 @@ impl Root {
                             .cursor_pointer()
                             .tip(if server.telegram { t("servers.rail.telegram").to_string() } else { server.name.clone() }, Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
+                            // Telegram's picture can be one the person chose, and put back.
+                            .when(server.telegram, |button| {
+                                let (state, custom) = (state_entity.clone(), telegram_icon.is_some());
+                                button.on_mouse_down(gpui::MouseButton::Right, move |event, _, cx| {
+                                    let choose = state.clone();
+                                    let mut entries = vec![crate::ui::menu::MenuEntry::new(t("servers.rail.changeIcon"), "image", move |_, cx| choose.update(cx, |state, cx| state.choose_telegram_icon(cx)))];
+                                    if custom {
+                                        let reset = state.clone();
+                                        entries.push(crate::ui::menu::MenuEntry::new(t("servers.rail.resetIcon"), "refresh-cw", move |_, cx| reset.update(cx, |state, cx| state.reset_telegram_icon(cx))));
+                                    }
+                                    crate::ui::menu::open_menu(event.position, entries, false, cx);
+                                })
+                            })
                             .map(|button| {
-                                if server.telegram {
+                                if let (true, Some(image)) = (server.telegram, telegram_icon.clone()) {
+                                    // The picture this person chose, as a server's icon is drawn.
+                                    button.child(cover_image(image, 42., 42., RADIUS_L, cx))
+                                } else if server.telegram {
                                     // A drawing of Zuna's own: Telegram's terms keep its logo for its own apps.
                                     button.child(
                                         div()

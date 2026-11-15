@@ -34,6 +34,17 @@ pub fn prepare_avatar(path: &Path) -> Option<PathBuf> {
     Some(file)
 }
 
+/// A picture made ready as an icon in the rail: its middle square, 128 px a side, as a PNG, so a
+/// logo keeps its transparency.
+pub fn prepare_icon(path: &Path) -> Option<Vec<u8>> {
+    let image = image::load_from_memory(&std::fs::read(path).ok()?).ok()?;
+    let side = image.width().min(image.height());
+    let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(128, 128, image::imageops::FilterType::Lanczos3);
+    let mut out = Vec::new();
+    square.to_rgba8().write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
+    Some(out)
+}
+
 /// Asks for a picture and makes it ready to send as an avatar.
 pub fn pick_avatar(cx: &mut gpui::App) -> impl std::future::Future<Output = Option<Result<PathBuf, ()>>> + use<> {
     let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });

@@ -285,6 +285,8 @@ pub struct AppState {
     pub device_removed: Option<(String, Option<String>)>,
     /// Where linking a Telegram account stands, while it's being linked or unlinked (docs/TELEGRAM_PLAN.md).
     pub telegram_link: Option<TelegramLink>,
+    /// The picture this person chose for the Telegram account in the rail, in place of Zuna's drawing.
+    pub telegram_icon: Option<Arc<Image>>,
     pub settings: Settings,
     pub window_focused: bool,
     /// When the window last came in front, which counts as input (`person_here`), as Telegram
@@ -453,6 +455,7 @@ impl AppState {
             answering_device: None,
             device_removed: None,
             telegram_link: None,
+            telegram_icon: telegram::load_telegram_icon(),
             settings,
             window_focused: false,
             in_front_since: None,
