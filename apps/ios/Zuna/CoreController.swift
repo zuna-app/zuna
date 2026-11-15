@@ -573,6 +573,11 @@ final class CoreController {
             let results = await withCheckedContinuation { continuation in runtime.probeTelegram { continuation.resume(returning: $0) } }
             let data = (try? JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])) ?? Data("{}".utf8)
             return String(decoding: data, as: UTF8.self)
+        case "telegramReclaim":
+            // The Telegram helper's door loses its sockets, as iOS takes back a suspended process's.
+            guard let runtime else { return "not-running" }
+            let asked = await withCheckedContinuation { continuation in runtime.reclaimTelegram { continuation.resume(returning: $0) } }
+            return asked ? "reclaimed" : "not-running"
         case "keepAwake":
             // A phone being tested by hand stays unlocked while the app is in front, whatever its Auto-Lock says.
             ScreenAwake.hold(.testing, on ?? true)

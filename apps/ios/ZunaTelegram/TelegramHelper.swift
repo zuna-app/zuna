@@ -212,6 +212,8 @@ final class Helper: @unchecked Sendable {
         #if DEBUG
         case ("probe", _):
             send(["zuna": "probed", "results": Probe.run(app: value["app"] as? String ?? "", door: lock.withLock { door })])
+        case ("reclaim", _):
+            lock.withLock { door }?.reclaim()
         #endif
         default:
             break
@@ -285,13 +287,7 @@ final class Helper: @unchecked Sendable {
         }
         // The way out first: a proxy added before the parameters takes effect as TDLib starts,
         // before it first connects, as on the desktop.
-        engine.send(object: [
-            "@type": "addProxy",
-            "proxy": ["@type": "proxy", "server": "127.0.0.1", "port": Int(door.port), "type": ["@type": "proxyTypeSocks5", "username": door.username, "password": door.password]],
-            "enable": true,
-            "comment": "Zuna",
-            "@extra": "zuna:door",
-        ])
+        engine.send(object: Self.useDoor(door))
         engine.send(object: [
             "@type": "setTdlibParameters",
             "use_test_dc": start.testDc ?? false,
@@ -312,6 +308,23 @@ final class Helper: @unchecked Sendable {
             "application_version": start.version,
             "@extra": "zuna:parameters",
         ])
+    }
+
+    /// The door, as TDLib's proxy: the only way it has to Telegram.
+    private static func useDoor(_ door: Door) -> [String: Any] {
+        [
+            "@type": "addProxy",
+            "proxy": ["@type": "proxy", "server": "127.0.0.1", "port": Int(door.port), "type": ["@type": "proxyTypeSocks5", "username": door.username, "password": door.password]],
+            "enable": true,
+            "comment": "Zuna",
+            "@extra": "zuna:door",
+        ]
+    }
+
+    /// The door listens on another port, as when iOS took back its socket and the old port couldn't
+    /// be had again: TDLib is told, or it would reach Telegram no more.
+    func doorMoved(_ door: Door) {
+        lock.withLock { engine }?.send(object: Self.useDoor(door))
     }
 
     /// Erases TDLib's folder, as the app asks when it unlinks or when the key to the database

@@ -392,6 +392,16 @@ public final class TelegramBridge: @unchecked Sendable {
             if let link = run?.link { link.send(json: ask) } else { done(["error": "Telegram isn't running."]) }
         }
     }
+
+    /// Has the helper's door lose its sockets as iOS takes back a suspended process's, which the
+    /// simulator never does, for the checks. Says whether there was a helper to ask.
+    public func reclaim() -> Bool {
+        queue.sync {
+            guard let link = run?.link else { return false }
+            link.send(json: Self.encode(["zuna": "reclaim"]))
+            return true
+        }
+    }
     #endif
 
     // MARK: Runs

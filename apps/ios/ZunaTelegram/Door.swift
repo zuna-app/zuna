@@ -11,11 +11,15 @@ import Foundation
 /// uses it as a way to Telegram, and only addresses, never names: Telegram's servers are reached
 /// by address, and the app connects to Telegram's own ranges alone.
 final class Door: @unchecked Sendable {
-    let port: UInt16
     let username = Door.randomText()
     let password = Door.randomText()
 
-    private let listener: Int32
+    /// The port TDLib is told to use, which stays the same when the door listens again, if it can.
+    var port: UInt16 { lock.withLock { listening } }
+
+    /// What listens for TDLib, and on which port: both made again when iOS takes it back (`listenAgain`).
+    private var listener: Int32
+    private var listening: UInt16
     private unowned let helper: Helper
     private let lock = NSLock()
     private var streams: [UInt32: Stream] = [:]
@@ -23,6 +27,8 @@ final class Door: @unchecked Sendable {
 
     /// How long the handshake and the app's answer may take.
     private static let handshake: TimeInterval = 30
+    /// How often, in milliseconds, the listener is looked at while nobody connects.
+    private static let lookEvery: Int32 = 5000
 
     private final class Answer: @unchecked Sendable {
         let ready = DispatchSemaphore(value: 0)
@@ -39,13 +45,24 @@ final class Door: @unchecked Sendable {
 
     init(helper: Helper) throws {
         self.helper = helper
+        (listener, listening) = try Door.openListener(port: 0)
+        let accepting = Thread { [self] in acceptAll() }
+        accepting.name = "door"
+        accepting.start()
+    }
+
+    /// A socket listening on this process's loopback, on the port given or on any for 0, and its port.
+    private static func openListener(port: UInt16) throws -> (Int32, UInt16) {
         let listener = socket(AF_INET, SOCK_STREAM, 0)
         guard listener >= 0 else { throw Door.failure("socket") }
+        // The same port again, while connections that came through the one before are closing.
+        var yes: Int32 = 1
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_addr.s_addr = in_addr_t(INADDR_LOOPBACK).bigEndian
-        address.sin_port = 0
+        address.sin_port = port.bigEndian
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, length) } }
         guard bound == 0, listen(listener, 16) == 0 else {
@@ -59,11 +76,7 @@ final class Door: @unchecked Sendable {
             close(listener)
             throw error
         }
-        self.listener = listener
-        port = UInt16(bigEndian: address.sin_port)
-        let accepting = Thread { [self] in acceptAll() }
-        accepting.name = "door"
-        accepting.start()
+        return (listener, UInt16(bigEndian: address.sin_port))
     }
 
     private static func failure(_ call: String) -> Error {
@@ -128,14 +141,56 @@ final class Door: @unchecked Sendable {
         }
     }
 
+    #if DEBUG
+    /// Does what iOS does to a suspended process's sockets when it takes them back: the listener
+    /// listens no more, from then on, and every connection through the door ends. For the checks
+    /// (`telegramReclaim`), as the simulator never does it.
+    func reclaim() {
+        lock.lock()
+        let listener = self.listener
+        let open = streams.values.compactMap { stream -> Int32? in
+            if case .open(let socket, _) = stream { return socket }
+            return nil
+        }
+        lock.unlock()
+        // A socket that isn't listening in its place, as the one iOS took back no longer is.
+        let dead = socket(AF_INET, SOCK_STREAM, 0)
+        if dead >= 0 {
+            dup2(dead, listener)
+            close(dead)
+        }
+        for socket in open { shutdown(socket, SHUT_RDWR) }
+        log.notice("the door's sockets were taken, for the checks")
+    }
+    #endif
+
     // MARK: TDLib's end
 
+    /// Takes each connection TDLib makes, for as long as this process runs. iOS takes back the
+    /// sockets of a process it suspended when it likes, a listener's too, which then listens no more
+    /// though the process goes on (TN2277, "Socket Resource Reclaim"): each accept fails from then
+    /// on, or nothing wakes it, and TDLib, which reaches Telegram through nothing else, said it was
+    /// connecting until the app was started again. So a listener that fails, or that's found with an
+    /// error or no longer listening, is made again.
     private func acceptAll() {
         while true {
+            let listener = lock.withLock { self.listener }
+            var ready = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+            let polled = poll(&ready, 1, Door.lookEvery)
+            if polled < 0 {
+                if errno == EINTR { continue }
+                listenAgain(listener, why: String(cString: strerror(errno)))
+                continue
+            }
+            if polled == 0 {
+                if let why = broken(listener) { listenAgain(listener, why: why) }
+                continue
+            }
             let connection = accept(listener, nil, nil)
             if connection < 0 {
-                if errno == EINTR || errno == ECONNABORTED { continue }
-                return
+                if errno == EINTR { continue }
+                listenAgain(listener, why: String(cString: strerror(errno)))
+                continue
             }
             var yes: Int32 = 1
             setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
@@ -143,6 +198,54 @@ final class Door: @unchecked Sendable {
             let serving = Thread { [self] in serve(connection) }
             serving.name = "door-stream"
             serving.start()
+        }
+    }
+
+    /// Why a listener nobody connected to can't be used any more, if it can't. One iOS took back has
+    /// an error waiting, which nothing else reads, and refuses to listen; one put in its place is on
+    /// another port.
+    private func broken(_ listener: Int32) -> String? {
+        var error: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(listener, SOL_SOCKET, SO_ERROR, &error, &length) == 0 else { return String(cString: strerror(errno)) }
+        if error != 0 { return String(cString: strerror(error)) }
+        var address = sockaddr_in()
+        length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &length) } }
+        guard named == 0 else { return String(cString: strerror(errno)) }
+        guard UInt16(bigEndian: address.sin_port) == lock.withLock({ listening }) else { return "not on the door's port" }
+        // Listening again changes nothing on a listener that is one.
+        guard listen(listener, 16) == 0 else { return String(cString: strerror(errno)) }
+        return nil
+    }
+
+    /// Listens again: on the port TDLib was told if it can, and otherwise on another, which it's
+    /// told now. Until a socket can be had, as with none left to this process, it's tried again
+    /// less and less often.
+    private func listenAgain(_ old: Int32, why: String) {
+        log.notice("the door stopped listening (\(why, privacy: .public)), so it listens again")
+        lock.withLock { listener = -1 }
+        close(old)
+        var wait: TimeInterval = 0.1
+        var tries = 0
+        while true {
+            let port = lock.withLock { listening }
+            if case let (listener, _)? = try? Door.openListener(port: port) {
+                lock.withLock { self.listener = listener }
+                return
+            }
+            tries += 1
+            if tries >= 3, case let (listener, moved)? = try? Door.openListener(port: 0) {
+                lock.withLock {
+                    self.listener = listener
+                    listening = moved
+                }
+                log.notice("the door listens on another port, which TDLib is told")
+                helper.doorMoved(self)
+                return
+            }
+            Thread.sleep(forTimeInterval: wait)
+            wait = min(wait * 2, 5)
         }
     }
 

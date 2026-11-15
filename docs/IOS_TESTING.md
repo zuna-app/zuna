@@ -67,7 +67,7 @@ Implemented so far as host commands (`{"kind": "host", "command": …}`):
 - `offline`, `exit`;
 - `evaluate`, which runs a script in the core's context and is compiled only into Debug builds;
 - for the app: `state` (`booting`, `locked`, `ready`, `failed`), `unlock` (with a password) and `lockedAccounts`;
-- for a linked Telegram account, in a build given its api_id: `telegramProbe`, which asks the Telegram helper what its box lets it do (`ZunaTelegram/Probe.swift`) and answers with what each try came to, as JSON. Only a phone's answers count: the simulator runs the helper in no box at all;
+- for a linked Telegram account, in a build given its api_id: `telegramProbe`, which asks the Telegram helper what its box lets it do (`ZunaTelegram/Probe.swift`) and answers with what each try came to, as JSON. Only a phone's answers count: the simulator runs the helper in no box at all. And `telegramReclaim`, which has the helper's door lose its sockets as iOS takes a suspended process's back, which the simulator never does: the account should be connecting for a few seconds, and online again, as the door listens again (`docs/TELEGRAM_PLAN.md`, "The door" on the iPhone);
 - for driving a real iPhone by hand: `keepAwake` (with `on`), which keeps the phone unlocked while the app is in front, as launching with `-ZunaKeepAwake YES` does from the start; `openChat` (a server's address as `path`, a conversation's key as `channel`); and `roundStart` and `roundStop`, which record a video message in the open chat as holding its button and letting go do.
 
 The control server starts before the core, so a test can also drive the app while it's locked. Messages for the core wait until it's running. Launching with `-ZunaBootSession <name>` simulates a restart of the phone.

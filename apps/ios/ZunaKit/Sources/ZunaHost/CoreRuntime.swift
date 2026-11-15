@@ -448,6 +448,11 @@ public final class CoreRuntime: @unchecked Sendable {
             telegram.probe(appDirectory: options.dataDirectory.path, done: done)
         }
     }
+
+    /// Has the Telegram helper's door lose its sockets, as iOS takes a suspended process's back.
+    public func reclaimTelegram(done: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [self] in done(telegram?.reclaim() ?? false) }
+    }
     #endif
 
     // MARK: Calling into JavaScript
