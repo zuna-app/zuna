@@ -280,7 +280,7 @@ export abstract class SessionChains extends SessionVault {
         type: "security",
         serverId: this.serverId,
         userId,
-        message: t("security.theServerShowedThisDevice"),
+        message: t("security.logOwnHistory"),
       });
       return;
     }

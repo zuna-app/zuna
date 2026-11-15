@@ -463,7 +463,6 @@
   "security.theServerReturnedTheWrong": "The server returned the wrong people for a new direct message, so nothing was sent.",
   "security.theServerSentAnOlder": "The server sent an older copy of the keys your account trusts. It was ignored.",
   "security.theServerShowedSomeoneIn": "The server showed someone in one of your conversations different sending keys than it showed you, which could let it work out which messages are theirs.",
-  "security.theServerShowedThisDevice": "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
   "security.theServerTriedToChange": "The server tried to change who wrote a message in one of your conversations. The message wasn't changed.",
   "security.untrustedInvitation": "An invitation to one of your conversations couldn't be trusted: {reason}. It wasn't used.",
   "security.updateUndone": "A broken update from {name} in one of your conversations was undone, and the conversation carries on.",
