@@ -237,6 +237,48 @@ impl TextInput {
 
     // --- The mouse ---
 
+    /// A right click opens the menu a browser's text box has, where it was: the caret goes there
+    /// first, unless that's in what's selected, which the menu then cuts or copies.
+    pub(super) fn on_right_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.disabled {
+            return;
+        }
+        cx.stop_propagation();
+        window.focus(&self.focus_handle, cx);
+        self.goal_x = None;
+        if let Some(position) = self.local(event.position) {
+            let offset = self.offset_for(position);
+            let range = &self.selected_range;
+            if range.is_empty() || offset < range.start || offset > range.end {
+                self.move_to(offset, cx);
+            }
+        }
+        crate::ui::menu::open_menu(event.position, self.menu_entries(cx), false, cx);
+    }
+
+    /// What the menu offers: cutting and copying what's selected, unless it's a password,
+    /// pasting, and selecting everything there is.
+    pub(super) fn menu_entries(&self, cx: &mut Context<Self>) -> Vec<crate::ui::menu::MenuEntry> {
+        use crate::ui::menu::MenuEntry;
+        let input = cx.entity().downgrade();
+        let act = move |run: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+            let input = input.clone();
+            move |window: &mut Window, cx: &mut App| {
+                input.update(cx, |input, cx| run(input, window, cx)).ok();
+            }
+        };
+        let mut entries = Vec::new();
+        if !self.selected_range.is_empty() && !self.masked {
+            entries.push(MenuEntry::new(crate::i18n::t("input.menu.cut"), "scissors", act(|input, window, cx| input.cut(&Cut, window, cx))));
+            entries.push(MenuEntry::new(crate::i18n::t("common.copy"), "copy", act(|input, window, cx| input.copy(&Copy, window, cx))));
+        }
+        entries.push(MenuEntry::new(crate::i18n::t("input.menu.paste"), "clipboard-paste", act(|input, window, cx| input.paste(&Paste, window, cx))));
+        if !self.content.is_empty() {
+            entries.push(MenuEntry::new(crate::i18n::t("input.menu.selectAll"), "square-dashed-text", act(|input, window, cx| input.select_all(&SelectAll, window, cx))));
+        }
+        entries
+    }
+
     pub(super) fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.disabled {
             return;

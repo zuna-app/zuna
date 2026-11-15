@@ -290,6 +290,59 @@ fn the_clipboard_copies_cuts_and_pastes_but_never_a_password(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn a_right_click_cuts_copies_pastes_and_selects_all(cx: &mut TestAppContext) {
+    let test = open(cx);
+    let world = TEXT.find("wörld").unwrap();
+    test.set(cx, &test.one, TEXT, world..world + "wörld".len(), false);
+    let right = |cx: &mut TestAppContext, position: Point<Pixels>| {
+        let mut window = gpui::VisualTestContext::from_window(test.window.into(), cx);
+        window.simulate_event(MouseDownEvent { position, modifiers: Modifiers::none(), button: MouseButton::Right, click_count: 1, first_mouse: false });
+        window.simulate_event(MouseUpEvent { position, modifiers: Modifiers::none(), button: MouseButton::Right, click_count: 1 });
+    };
+    let labels = |cx: &mut TestAppContext| cx.read(|cx| crate::ui::menu::open_labels(cx));
+    let choose = |cx: &mut TestAppContext, label: &str| {
+        assert!(test.window.update(cx, |_, window, cx| crate::ui::menu::choose(label, window, cx)).unwrap(), "{label} is there");
+        cx.run_until_parked();
+    };
+    let clipboard = |cx: &mut TestAppContext| cx.read_from_clipboard().and_then(|item| item.text());
+
+    // In what's selected, it stays selected, to cut or copy.
+    let at = test.point_at(cx, &test.one, world + 1);
+    right(cx, at);
+    assert!(test.focused(cx, &test.one));
+    assert_eq!(test.selected(cx, &test.one), world..world + "wörld".len());
+    assert_eq!(labels(cx), ["Cut", "Copy", "Paste", "Select all"]);
+    choose(cx, "Copy");
+    assert_eq!(clipboard(cx).as_deref(), Some("wörld"));
+
+    // Beside it, the caret goes where it was, and there's nothing to cut or copy.
+    let at = test.point_at(cx, &test.one, 1);
+    right(cx, at);
+    assert_eq!(test.selected(cx, &test.one), 1..1);
+    assert_eq!(labels(cx), ["Paste", "Select all"]);
+    choose(cx, "Paste");
+    assert_eq!(test.text(cx, &test.one), "hwörldéllo wörld 👍🏽");
+    let at = test.point_at(cx, &test.one, 3);
+    right(cx, at);
+    choose(cx, "Select all");
+    assert_eq!(test.selected(cx, &test.one), 0..test.text(cx, &test.one).len());
+    let at = test.point_at(cx, &test.one, 3);
+    right(cx, at);
+    choose(cx, "Cut");
+    assert_eq!((test.text(cx, &test.one), clipboard(cx).as_deref()), (String::new(), Some("hwörldéllo wörld 👍🏽")));
+
+    // An empty field only pastes, and a password gives nothing to cut or copy.
+    let at = test.point_at(cx, &test.one, 0);
+    right(cx, at);
+    assert_eq!(labels(cx), ["Paste"]);
+    test.one.update(cx, |input, cx| input.set_masked(true, cx));
+    test.set(cx, &test.one, "pässword", 0..9, false);
+    let at = test.point_at(cx, &test.one, 3);
+    right(cx, at);
+    assert_eq!(labels(cx), ["Paste", "Select all"]);
+}
+
+#[gpui::test]
 fn enter_tab_and_escape_go_to_whoever_holds_the_field(cx: &mut TestAppContext) {
     let test = open(cx);
     test.focus(cx, &test.one);

@@ -26,8 +26,11 @@ function sources(dir) {
 // to name, which docs/PLUGINS.md lists beside the rest.
 const PLUGIN_ICONS = ["Puzzle", "Store", "Blocks", "Sparkles", "Languages", "Package", "WandSparkles", "Type", "Rocket", "Star", "Heart", "Globe", "FolderOpen", "List", "FileCode", "Bug", "Keyboard", "Quote", "ScrollText", "Calculator", "Hourglass", "Music", "Gamepad2", "Sun", "Moon", "Cloud", "Tag", "Filter", "Sticker", "CircleHelp"];
 
+// Icons only the native app draws: its window's controls, its own screens, and a text box's menu.
+const NATIVE_ICONS = ["AppWindow", "MessagesSquare", "Minus", "Monitor", "Zap", "Scissors", "ClipboardPaste", "TextSelect"];
+
 // Every name imported from lucide-react anywhere in the shared interface.
-const names = new Set([...PLUGIN_ICONS, ...process.argv.slice(2)]);
+const names = new Set([...PLUGIN_ICONS, ...NATIVE_ICONS, ...process.argv.slice(2)]);
 for (const file of sources(join(root, "packages", "ui", "src"))) {
   for (const match of readFileSync(file, "utf8").matchAll(/import\s*\{([^}]+)\}\s*from\s*"lucide-react"/g)) {
     for (const part of match[1].split(",")) {
