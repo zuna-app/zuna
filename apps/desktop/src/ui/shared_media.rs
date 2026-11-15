@@ -157,7 +157,9 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
         let pictures: Rc<Vec<image_viewer::Item>> = Rc::new(
             tiles.iter().rev().filter(|(message, attachment)| image_viewer::is_picture(attachment) && !blocked.contains(&message.sender_id)).map(|(_, attachment)| image_viewer::Item::of(attachment)).collect(),
         );
-        let mut grid = div().flex().flex_col().gap(px(2.)).rounded(RADIUS_M).overflow_hidden();
+        // Unclipped, as the tiles at its corners round themselves, and never shrunk: a clipped
+        // grid in the panel's column is squeezed to the panel's height, with nothing to scroll.
+        let mut grid = div().flex_none().flex().flex_col().gap(px(2.));
         let last_row = tiles.len().saturating_sub(1) / 3;
         for (row_index, row) in tiles.chunks(3).enumerate() {
             let mut line = div().flex().gap(px(2.));

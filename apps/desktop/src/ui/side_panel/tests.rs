@@ -231,3 +231,40 @@ fn a_groups_people_its_history_and_new_members(cx: &mut TestAppContext) {
     });
     assert!(app.drawn(cx, "edit-channel"));
 }
+
+#[gpui::test]
+fn a_long_list_of_photos_scrolls_and_loads_older_ones(cx: &mut TestAppContext) {
+    let app = open(cx, "panel-media-scroll", &format!("user:{BOB}"), |_| {});
+    // As many photos as a Telegram chat has, more than the panel holds, with older ones to come.
+    let photos = |from: usize| -> Vec<Value> {
+        (from..from + 60)
+            .rev()
+            .map(|index| {
+                let attachment = json!({ "fileId": format!("{index:032}"), "key": "a2V5", "prefix": "cHJlZml4", "chunks": 1, "name": "photo.jpg", "mime": "image/jpeg", "size": 1000, "width": 640, "height": 480 });
+                message(&format!("p{index}"), DM, index as f64 + 1000., BOB, "", json!({ "attachments": [attachment] }))
+            })
+            .collect()
+    };
+    let (newest, older) = (photos(60), photos(0));
+    app.answer("loadMedia", move |args| Ok(json!({ "messages": if args[2].is_null() { newest.clone() } else { older.clone() }, "hasMore": args[2].is_null() })));
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::Photo), cx));
+    app.run(cx);
+    let side = panel(&app, cx);
+    let most = cx.read(|cx| f32::from(side.read(cx).scroll.max_offset().y));
+    assert!(most > 1000., "the photos go past the panel's end, so it scrolls: {most}");
+    scroll_to_end(&app, cx, Box::leak(format!("shared-p100-{:032}", 100).into_boxed_str()));
+    assert!(cx.read(|cx| f32::from(side.read(cx).scroll.offset().y)) < -500., "it scrolled");
+    let asked: Vec<Value> = app.calls_of("loadMedia").iter().map(|args| args[2].clone()).collect();
+    assert!(asked.contains(&json!(1060.)), "older ones are asked for from the oldest shown: {asked:?}");
+    // A long list of files scrolls too.
+    let files: Vec<Value> = (0..60)
+        .map(|index| {
+            let attachment = json!({ "fileId": format!("{index:032}"), "key": "a2V5", "prefix": "cHJlZml4", "chunks": 1, "name": "notes.pdf", "mime": "application/pdf", "size": 1000 });
+            message(&format!("d{index}"), DM, index as f64 + 2000., BOB, "", json!({ "attachments": [attachment] }))
+        })
+        .collect();
+    app.answer("loadMedia", move |_| Ok(json!({ "messages": files.clone(), "hasMore": false })));
+    app.update(cx, |state, cx| state.toggle_panel(Panel::Media(SharedKind::File), cx));
+    app.run(cx);
+    assert!(cx.read(|cx| f32::from(side.read(cx).scroll.max_offset().y)) > 1000.);
+}
