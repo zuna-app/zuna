@@ -187,6 +187,8 @@ public struct UserView: Codable, Sendable, Equatable, Identifiable {
     public var bot: BotInfo?
     /// A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any.
     public var commands: [BotCommand]?
+    /// On a linked Telegram account, their first name, which mentioning them by name writes, as Telegram's apps do.
+    public var firstName: String?
 }
 
 /// A command a bot answers to: what's typed after the "/", and what it's for. Mirrors `BotCommand`.

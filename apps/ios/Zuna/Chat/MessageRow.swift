@@ -791,7 +791,7 @@ struct MessageBodyView: View {
     let reveal: (Int) -> Void
 
     var body: some View {
-        let blocks = Markup.parse(message.text, Markup.Context(emotes: message.emotes, mentionable: server.mentionable))
+        let blocks = Markup.parse(message.text, Markup.Context(emotes: message.emotes, mentionable: server.mentionable, telegram: server.entry.isTelegram))
         let endsInText = blocks.last.map { if case .text = $0 { true } else { false } } ?? false
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in

@@ -10,6 +10,9 @@ public enum Markup {
         case emote(name: String, emote: EmoteRef)
         /// `@username`, highlighted because the username belongs to someone on the server.
         case mention(username: String, userId: String)
+        /// A mention of someone by name in a Telegram chat, `[name](tg://user?id=123)` as the core
+        /// writes Telegram's (telegram/markup.ts), drawn as the name alone.
+        case named(name: String, userId: String)
         case link(String)
         case code(String)
         case spoiler([Inline])
@@ -28,10 +31,14 @@ public enum Markup {
         public var emotes: [String: EmoteRef]
         /// Lowercased username to user ID.
         public var mentionable: [String: String]
+        /// A chat of the linked Telegram account, where a mention by name is drawn as the name.
+        /// Nowhere else, where its words could make anyone look mentioned.
+        public var telegram: Bool
 
-        public init(emotes: [String: EmoteRef] = [:], mentionable: [String: String] = [:]) {
+        public init(emotes: [String: EmoteRef] = [:], mentionable: [String: String] = [:], telegram: Bool = false) {
             self.emotes = emotes
             self.mentionable = mentionable
+            self.telegram = telegram
         }
     }
 
@@ -126,6 +133,7 @@ public enum Markup {
             let restRange = NSRange(location: position, length: ns.length - position)
             var earliest: Int?
             for (index, rule) in inlineRules.enumerated() {
+                if index == namedRule && !context.telegram { continue }
                 let known = found[index]
                 if !searched[index] || (known.map { $0.range.location < position } ?? false) {
                     found[index] = rule.firstMatch(in: source, range: restRange).map(placed)
@@ -141,6 +149,17 @@ public enum Markup {
             guard let earliest, let match = found[earliest] else { break }
             nodes += links(ns.substring(with: NSRange(location: position, length: match.range.location - position)), context)
             let inner = ns.substring(with: match.inner)
+            position = match.range.location + match.range.length
+            if earliest == namedRule {
+                // A user's number past what JavaScript counts exactly is no one's, and stays words.
+                if let id = named.firstMatch(in: source, range: match.range).map({ ns.substring(with: $0.range(at: 2)) }),
+                   let number = UInt64(id), number <= mostUserId {
+                    nodes.append(.named(name: inner, userId: id))
+                } else {
+                    nodes += links(ns.substring(with: match.range), context)
+                }
+                continue
+            }
             let node: Inline = switch earliest {
             case 0: .code(inner)
             case 1: .spoiler(renderInline(inner, context, depth: depth + 1))
@@ -149,7 +168,6 @@ public enum Markup {
             default: .italic(renderInline(inner, context, depth: depth + 1))
             }
             nodes.append(node)
-            position = match.range.location + match.range.length
         }
         return nodes + links(ns.substring(from: position), context)
     }
@@ -266,6 +284,10 @@ public enum Markup {
     private static let emojiOnly = regex("^(?:\\p{Extended_Pictographic}|\\p{Emoji_Component}|\\x{200D}|\\x{FE0F}|[\(space)])+$")
     /// Digits, # and * are emoji components only as part of a keycap, so a word needs a real emoji.
     private static let hasEmoji = regex(#"\p{Extended_Pictographic}|\p{Regional_Indicator}|\x{20E3}"#)
+    /// A mention by name: what it says, and whose user ID. Last among the rules, as no other starts with "[".
+    private static let named = regex(#"\[([^\[\]\n]{1,100})\]\(tg://user\?id=([1-9][0-9]{0,15})\)"#)
+    /// JavaScript's largest exact integer.
+    private static let mostUserId: UInt64 = (1 << 53) - 1
     private static let inlineRules = [
         regex("`([^`\\n]+)`"),
         regex(#"\|\|([^\n]+?)\|\|"#),
@@ -273,7 +295,9 @@ public enum Markup {
         regex(#"~~([^\n]+?)~~"#),
         regex("(?:\\G|(?<![\(word)*]))\\*([^\(space)*](?:[^\\n*]*[^\(space)*])?)\\*(?![\(word)*])"),
         regex("(?:\\G|(?<![\(word)_]))_([^\(space)_](?:[^\\n_]*[^\(space)_])?)_(?![\(word)_])"),
+        named,
     ]
+    private static let namedRule = 6
 
     private static func regex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
         // The patterns are constants; a mistake in one is a programming error.

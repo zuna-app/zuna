@@ -100,13 +100,9 @@ enum MessageTextBuilder {
                 piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
                 out.append(piece)
             case let .mention(username, userId):
-                var mention = attributes
-                mention[.font] = UIFont.systemFont(ofSize: style.size, weight: .semibold)
-                mention[.zunaMention] = userId
-                if spoiler == nil {
-                    mention[.backgroundColor] = UIColor.white.withAlphaComponent(userId == options.selfId ? 0.18 : 0.09)
-                }
-                out.append(NSAttributedString(string: "@" + username, attributes: mention))
+                out.append(mentionText("@" + username, userId: userId, attributes, options, spoiler: spoiler))
+            case let .named(name, userId):
+                out.append(mentionText(name, userId: userId, attributes, options, spoiler: spoiler))
             case let .link(url):
                 var link = attributes
                 link[.zunaLink] = url
@@ -134,6 +130,17 @@ enum MessageTextBuilder {
                 append(children, to: out, options, base: struck, spoiler: spoiler, spoilerIndex: &spoilerIndex)
             }
         }
+    }
+
+    /// Someone mentioned, by `@username` or, in a Telegram chat, by name: bolder, on a tint, and tappable.
+    private static func mentionText(_ words: String, userId: String, _ attributes: [NSAttributedString.Key: Any], _ options: Options, spoiler: Int?) -> NSAttributedString {
+        var mention = attributes
+        mention[.font] = UIFont.systemFont(ofSize: options.style.size, weight: .semibold)
+        mention[.zunaMention] = userId
+        if spoiler == nil {
+            mention[.backgroundColor] = UIColor.white.withAlphaComponent(userId == options.selfId ? 0.18 : 0.09)
+        }
+        return NSAttributedString(string: words, attributes: mention)
     }
 
     private static func styled(_ attributes: [NSAttributedString.Key: Any], traits: UIFontDescriptor.SymbolicTraits) -> [NSAttributedString.Key: Any] {

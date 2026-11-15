@@ -19,6 +19,7 @@ final class PlainTextTests: XCTestCase {
             ("emoji 👋 *wave* 🎉", "emoji 👋 wave 🎉"),
             ("a*b*c and _a_b", "a*b*c and _a_b"),
             ("ż*x* y", "żx y"),
+            ("**hi** [Grace](tg://user?id=2000), [*you*](tg://user?id=7)", "hi Grace, you"),
         ]
         for (input, expected) in cases {
             XCTAssertEqual(plainText(input), expected, "for \(input.debugDescription)")

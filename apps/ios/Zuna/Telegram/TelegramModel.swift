@@ -82,7 +82,7 @@ extension AppModel {
         let telegram = ServerEntry.telegram
         guard composer(telegram, key).text.isEmpty, let draft = try? await core.session(telegram).getDraft(key), !draft.isEmpty else { return }
         updateComposer(telegram, key) { state in
-            if state.text.isEmpty, state.editing == nil { state.text = draft }
+            if state.text.isEmpty, state.editing == nil { state.setMarkup(draft, telegram: true) }
         }
     }
 
@@ -91,7 +91,7 @@ extension AppModel {
         let telegram = ServerEntry.telegram
         let state = composer(telegram, key)
         guard state.editing == nil, servers[telegram] != nil else { return }
-        let text = state.text
+        let text = state.markup
         Task { try? await core.session(telegram).saveDraft(key, text) }
     }
 

@@ -4,7 +4,13 @@ import ZunaModels
 /// What's being written in a chat: the draft, the message it answers or
 /// edits, and files picked to send. Kept per conversation, like the desktop's drafts.
 struct ComposerState: Equatable {
-    var text = ""
+    var text = "" {
+        didSet {
+            if text != oldValue { named = NamedMentions.follow(from: oldValue, to: text, named) }
+        }
+    }
+    /// Telegram's mentions by name in `text`, which shows the names alone.
+    var named: [NamedMention] = []
     var replyTo: MessageView?
     var editing: MessageView?
     var files: [StagedFile] = []
@@ -18,6 +24,16 @@ struct ComposerState: Equatable {
     var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty
     }
+
+    /// What's written, as it goes out and is kept: with its mentions by name written out.
+    var markup: String { NamedMentions.put(text, named) }
+
+    /// Puts a draft's or a message's text in the box, in a Telegram chat with a mention by name as the name alone.
+    mutating func setMarkup(_ markup: String, telegram: Bool) {
+        let taken = telegram ? NamedMentions.take(markup) : (text: markup, named: [])
+        text = taken.text
+        named = taken.named
+    }
 }
 
 extension ComposerState {
@@ -26,6 +42,7 @@ extension ComposerState {
         editing = nil
         link = nil
         text = beforeEdit?.text ?? ""
+        named = beforeEdit?.named ?? []
         replyTo = beforeEdit?.replyTo
         dismissedLink = beforeEdit?.dismissedLink
         beforeEdit = nil
@@ -34,6 +51,7 @@ extension ComposerState {
 
 struct SavedDraft: Equatable {
     var text: String
+    var named: [NamedMention] = []
     var replyTo: MessageView?
     var dismissedLink: String?
 }
@@ -73,9 +91,9 @@ extension AppModel {
     func edit(_ serverId: String, _ conversationKey: String, _ message: MessageView?) {
         updateComposer(serverId, conversationKey) { state in
             if let message {
-                if state.editing == nil { state.beforeEdit = SavedDraft(text: state.text, replyTo: state.replyTo, dismissedLink: state.dismissedLink) }
+                if state.editing == nil { state.beforeEdit = SavedDraft(text: state.text, named: state.named, replyTo: state.replyTo, dismissedLink: state.dismissedLink) }
                 state.editing = message
-                state.text = message.text
+                state.setMarkup(message.text, telegram: serverId == ServerEntry.telegram)
                 state.replyTo = nil
                 state.link = nil
             } else if state.editing != nil {
@@ -119,7 +137,7 @@ extension AppModel {
     /// Sends what's in the composer, or saves the edit, as the desktop's composer does.
     func sendComposer(_ serverId: String, _ conversation: ConversationView) {
         let state = composer(serverId, conversation.key)
-        let value = state.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = state.markup.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let server = servers[serverId], !value.isEmpty || !state.files.isEmpty else { return }
 
         if let editing = state.editing {

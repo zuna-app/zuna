@@ -48,6 +48,19 @@ final class MarkupTests: XCTestCase {
         XCTAssertEqual(nodes.filter { if case .italic = $0 { true } else { false } }.count, 20_000)
     }
 
+    /// As the desktop's `draws_a_mention_by_name_only_in_telegram_chats`.
+    func testDrawsAMentionByNameOnlyInTelegramChats() {
+        let text = "hi **[Łukasz Ż](tg://user?id=42)**, [me](tg://user?id=7) and [no one](tg://user?id=99999999999999999) [x](tg://user?id=9999999999999999)"
+        let telegram = Markup.parse(text, Markup.Context(telegram: true))
+        XCTAssertEqual(telegram, [.text([
+            .text("hi "), .bold([.named(name: "Łukasz Ż", userId: "42")]), .text(", "), .named(name: "me", userId: "7"),
+            .text(" and [no one](tg://user?id=99999999999999999) [x](tg://user?id=9999999999999999)"),
+        ])])
+        // Elsewhere its words are what was written.
+        XCTAssertEqual(Markup.parse("[me](tg://user?id=7)", Markup.Context()), [.text([.text("[me](tg://user?id=7)")])])
+        XCTAssertEqual(Self.html(Markup.parse("[me](tg://user?id=7)", Markup.Context(telegram: true)), selfId: "7"), #"<span class="text-block"><button class="mention is-self">me</button><time></time></span>"#)
+    }
+
     func testSizesLargeEmojiLikeTheDesktop() {
         XCTAssertGreaterThan(golden.jumbo.count, 15)
         for item in golden.jumbo {
@@ -85,6 +98,8 @@ final class MarkupTests: XCTestCase {
                 #"<i data-emote="\#(escape(name))" data-id="\#(escape(emote.id))" data-zw="\#(emote.zeroWidth == true ? "1" : "0")"></i>"#
             case let .mention(username, userId):
                 #"<button class="mention\#(userId == selfId ? " is-self" : "")">@\#(escape(username))</button>"#
+            case let .named(name, userId):
+                #"<button class="mention\#(userId == selfId ? " is-self" : "")">\#(escape(name))</button>"#
             case let .link(url):
                 #"<a href="\#(escape(url))" target="_blank" rel="noreferrer noopener">\#(escape(url))</a>"#
             case let .code(code):

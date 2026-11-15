@@ -23,6 +23,8 @@ private let plainTextRules: [(NSRegularExpression, String)] = [
     (#"~~([^\n]+?)~~"#, "$1"),
     (#"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])"#, "$1"),
     (#"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])"#, "$1"),
+    // A mention by name in a Telegram chat, which says the name alone.
+    (#"\[([^\[\]\n]{1,100})\]\(tg://user\?id=[1-9][0-9]{0,15}\)"#, "$1"),
     (#"(?m)^>\s?"#, ""),
     (#"\s+"#, " "),
 ].map { pattern, template in

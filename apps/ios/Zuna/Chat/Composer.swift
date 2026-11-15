@@ -904,6 +904,8 @@ struct Composer: View {
         let insert: String
         let emote: Emote?
         let user: UserView?
+        /// Someone on Telegram, mentioned by the name it puts in: its length in UTF-16 code units, and their user ID.
+        var named: (length: Int, userId: String)? = nil
     }
 
     /// The caret, as an offset in UTF-16 code units like the desktop's selectionStart.
@@ -965,12 +967,24 @@ struct Composer: View {
                 Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : t("message.emote.by", ["name": $0.owner]), insert: "\($0.name) ", emote: $0, user: nil)
             }
         }
+        // On Telegram someone is mentioned by name, as Telegram's apps do, whether or not they have
+        // a username, and anywhere else by their username.
+        let telegram = server.entry.isTelegram
         let ids = conversation.kind == .group ? conversation.members.map(\.userId) : Array(server.users.keys)
         return ids.compactMap { server.users[$0] }
-            .filter { !$0.banned && !$0.deleted && ($0.username.lowercased().contains(trigger.query) || $0.displayName.lowercased().contains(trigger.query)) }
+            .filter { user in
+                let reachable = telegram ? NamedMentions.name(for: user) != nil : !user.username.isEmpty
+                return !user.banned && !user.deleted && reachable && (user.username.lowercased().contains(trigger.query) || user.displayName.lowercased().contains(trigger.query))
+            }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             .prefix(Self.maxSuggestions)
-            .map { Suggestion(id: $0.id, label: $0.displayName, hint: "@\($0.username)", insert: "@\($0.username) ", emote: nil, user: $0) }
+            .map { user in
+                let hint = user.username.isEmpty ? nil : "@\(user.username)"
+                if telegram, let name = NamedMentions.name(for: user) {
+                    return Suggestion(id: user.id, label: user.displayName, hint: hint, insert: name + " ", emote: nil, user: user, named: (name.utf16.count, user.id))
+                }
+                return Suggestion(id: user.id, label: user.displayName, hint: hint, insert: "@\(user.username) ", emote: nil, user: user)
+            }
     }
 
     @ViewBuilder
@@ -1015,7 +1029,12 @@ struct Composer: View {
         let before = String(current.utf16.prefix(trigger.start)) ?? ""
         let after = String(current.utf16.dropFirst(trigger.end)) ?? ""
         let next = before + suggestion.insert + after
-        model.updateComposer(serverId, conversation.key) { $0.text = next }
+        model.updateComposer(serverId, conversation.key) { state in
+            state.text = next
+            if let named = suggestion.named {
+                state.named.append(NamedMention(location: trigger.start, length: named.length, userId: named.userId))
+            }
+        }
         selection = TextSelection(insertionPoint: next.index(next.startIndex, offsetBy: (before + suggestion.insert).count))
     }
 }
