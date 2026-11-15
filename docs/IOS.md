@@ -139,7 +139,7 @@ interface FileAdapter {
 
 ### Lifecycle and connectivity
 
-- **Going to the background:** a background task gives the outbox and the current upload up to about 30 seconds, then `client.suspend()` closes sockets and stops timers.
+- **Going to the background:** a background task gives the outbox and the current upload up to about 30 seconds, then `client.suspend()` closes sockets and stops timers. It's the task the app holds the core's lock with (`CoreLock`), from the moment it's taken until it goes, and as its time runs out the lock goes first (`LockKeeper`): iOS ends an app suspended holding a lock in the App Group, with `0xDEAD10CC`.
 - **Returning:** `resume()` reconnects and runs `syncAll`. "Updating" shows until it's done.
 - **The network coming back** (`NWPathMonitor`) calls `nudge()`, like the desktop's `online` event.
 - **An upload interrupted by the app being killed** shows "Not sent. Try again" through the existing `markStaleSendsFailed`.

@@ -2,6 +2,7 @@ import Foundation
 import Intents
 import Observation
 import UIKit
+import ZunaHost
 import ZunaModels
 
 /// What the share sheet does, and how what's picked is sent, which happens

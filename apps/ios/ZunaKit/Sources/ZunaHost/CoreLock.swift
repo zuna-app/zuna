@@ -8,13 +8,14 @@ import Foundation
 /// A file lock in the App Group, which the system lets go of when a process
 /// ends. It counts how often it's been taken, so a process taking it again can
 /// tell whether another had it meanwhile, and read everything again. The app
-/// lets go of it before iOS suspends it, which would otherwise end the app for
-/// holding a lock in a shared container. The file is open only while it's held:
+/// holds it only through `LockKeeper`, which lets go of it before iOS suspends
+/// the app, as iOS ends a process suspended holding a lock in a shared
+/// container. The file is open only while it's held:
 /// iOS also ends a suspended process that has a locked file there open, without
 /// asking whose lock it is, as when the extension takes it while the app still
 /// runs in the background.
-final class CoreLock: @unchecked Sendable {
-    enum Holder: UInt8, Sendable {
+public final class CoreLock: @unchecked Sendable {
+    public enum Holder: UInt8, Sendable {
         case app = 1
         case share = 2
     }
@@ -28,7 +29,7 @@ final class CoreLock: @unchecked Sendable {
     private var taken: UInt64?
     private var holding = false
 
-    init(directory: URL) throws {
+    public init(directory: URL) throws {
         path = directory.appendingPathComponent("core.lock").path
         let file = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         guard file >= 0 else { throw CocoaError(.fileWriteUnknown) }
@@ -39,22 +40,13 @@ final class CoreLock: @unchecked Sendable {
         if descriptor >= 0 { close(descriptor) }
     }
 
-    var isHeld: Bool { state.withLock { holding } }
+    public var isHeld: Bool { state.withLock { holding } }
 
-    /// Waits until no other process holds it, then takes it. True if another
-    /// process held it since this one last did, so what's in memory is behind.
-    ///
-    /// It asks again and again rather than blocking, so that it's never handed
-    /// to this process while iOS has it suspended.
-    func take(as holder: Holder) async -> Bool {
-        while true {
-            if let moved = tryTake(as: holder) { return moved }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-    }
-
-    /// Takes it only if nobody else holds it. Nil if somebody does, otherwise as `take`.
-    func tryTake(as holder: Holder) -> Bool? {
+    /// Takes it only if nobody else holds it: nil if somebody does, and otherwise
+    /// true if another process held it since this one last did, so what's in
+    /// memory is behind. It never waits, so that it's never handed to this
+    /// process while iOS has it suspended: whoever waits asks again.
+    public func tryTake(as holder: Holder) -> Bool? {
         queue.sync {
             if state.withLock({ holding }) { return false }
             let file = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
@@ -69,7 +61,7 @@ final class CoreLock: @unchecked Sendable {
     }
 
     /// Who holds it now, as they wrote when they took it.
-    func holder() -> Holder? {
+    public func holder() -> Holder? {
         let file = open(path, O_RDONLY | O_CLOEXEC)
         guard file >= 0 else { return nil }
         defer { close(file) }
@@ -78,7 +70,7 @@ final class CoreLock: @unchecked Sendable {
         return Holder(rawValue: record.holder)
     }
 
-    func release() {
+    public func release() {
         queue.sync {
             guard state.withLock({ holding }) else { return }
             var record = read()

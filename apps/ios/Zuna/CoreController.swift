@@ -48,12 +48,14 @@ final class CoreController {
     /// A link opened before the app was ready, such as while it waits to be unlocked.
     private var pendingLink: String?
     private var directory: URL?
-    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var suspendTask: Task<Void, Never>?
     /// Which process runs the core on this device's data: this app, except while it sleeps, when the share extension may.
-    private var lock: CoreLock?
+    /// Held only with a background task, whose end it goes before, so iOS never suspends the app holding it.
+    private var lock: LockKeeper?
     /// The core is connected and the lock is this app's, rather than both put away in the background.
     private var awake = false
+    /// The share extension has had the data since the core last read it, which it reads again as it wakes.
+    private var behind = false
     /// Going to sleep and waking up, one after another, since each waits for the core or the lock.
     private var lifecycle: Task<Void, Never>?
     /// Going to sleep was asked for, and not called off by coming back before its turn.
@@ -177,16 +179,17 @@ final class CoreController {
         // Launched in the background, as for a push, Telegram's TDLib waits for the app to come on screen.
         runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         // The share extension may be sending with a core of its own: this one starts once it's done.
-        let lock = try self.lock ?? CoreLock(directory: directory)
+        let lock = try self.lock ?? keeper(of: CoreLock(directory: directory))
         self.lock = lock
-        _ = await lock.take(as: .app)
+        _ = await lock.take()
         do {
             try await runtime.start()
         } catch {
             lock.release()
             throw error
         }
-        awake = true
+        // Unless the time ran out while it started, and the lock went (`lockLost`).
+        awake = lock.isHeld
         self.runtime = runtime
         // Whatever the app did while the core started, which nothing told it of.
         runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
@@ -247,7 +250,7 @@ final class CoreController {
         shareInbox.onIdle = { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
         }
-        shareInbox.listening = true
+        shareInbox.listening = awake
         self.shareInbox = shareInbox
         reportActivity()
         self.notifications = notifications
@@ -257,6 +260,12 @@ final class CoreController {
         control?.attach(runtime)
         #endif
         phase = .ready
+        if !awake {
+            // The time ran out while the core started, and the lock went: it sleeps until it's woken,
+            // which the app coming back meanwhile couldn't do yet.
+            inTurn { try? await connection.suspend() }
+            if UIApplication.shared.applicationState == .active { inTurn { [self] in await wakeUp() } }
+        }
         // Launched in the background, as for a push: it goes to sleep as it would on leaving the screen.
         if UIApplication.shared.applicationState == .background { didEnterBackground() }
     }
@@ -285,9 +294,10 @@ final class CoreController {
 
     // MARK: Lifecycle
 
-    /// iOS stops the app soon after it leaves the screen. The core gets a
-    /// background task to finish sending, then closes its connections cleanly,
-    /// and hands its data to the share extension until the app is back.
+    /// iOS stops the app soon after it leaves the screen. The core keeps
+    /// running a while to finish sending, through the background task the lock
+    /// is held with, then closes its connections cleanly, and hands its data to
+    /// the share extension until the app is back.
     /// Not during a call, which goes on out of sight, or one ringing: the
     /// server would take this device out of its voice channel once its
     /// connection had gone. Nor while sending what the share extension handed over.
@@ -296,9 +306,6 @@ final class CoreController {
         // iOS suspends Telegram's TDLib with the app, which starts nothing for it while out of sight.
         runtime?.setTelegramOutOfSight(true)
         guard connection != nil, suspendTask == nil, !keptAwake else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
-            MainActor.assumeIsolated { self?.timeIsUp() }
-        }
         let delay = suspendDelay
         suspendTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
@@ -361,7 +368,6 @@ final class CoreController {
         suspendTask?.cancel()
         suspendTask = nil
         sleepWanted = false
-        endBackgroundTask()
         reportActivity()
         guard let connection else { return }
         inTurn { [self] in
@@ -388,14 +394,11 @@ final class CoreController {
     private func suspendNow() {
         suspendTask?.cancel()
         suspendTask = nil
-        guard !keptAwake else {
-            endBackgroundTask()
-            return
-        }
+        // It goes to sleep once the call or the share is over (`onEnded`, `onIdle`), or the lock goes as the time runs out.
+        guard !keptAwake else { return }
         sleepWanted = true
         inTurn { [self] in
             if sleepWanted { await goToSleep() }
-            endBackgroundTask()
         }
     }
 
@@ -405,7 +408,6 @@ final class CoreController {
     private func callPushed() {
         suspendTask?.cancel()
         suspendTask = nil
-        endBackgroundTask()
         guard let connection else { return }
         inTurn { [self] in
             await wakeUp()
@@ -413,19 +415,29 @@ final class CoreController {
         }
     }
 
-    /// The background task's time is up, and iOS suspends the app once this returns:
-    /// the lock has to be let go of now, though the core is a moment from stopping.
-    private func timeIsUp() {
+    /// Holds the lock with a background task, so that iOS never suspends the app holding it.
+    private func keeper(of lock: CoreLock) -> LockKeeper {
+        let keeper = LockKeeper(lock: lock, as: .app, keepRunning: { expiring in
+            let task = UIApplication.shared.beginBackgroundTask(withName: "Hold the core's data") {
+                MainActor.assumeIsolated { expiring() }
+            }
+            return task == .invalid ? nil : task.rawValue
+        }, stopRunning: { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) })
+        keeper.onLost = { [weak self] in self?.lockLost() }
+        return keeper
+    }
+
+    /// The background task the lock was held with ran out of time, and iOS suspends the app once it ends,
+    /// so the lock has gone already, though the core is a moment from stopping. In a call too: iOS gives
+    /// the app all the time it likes while a call's sound plays, and is about to suspend it otherwise.
+    private func lockLost() {
         suspendTask?.cancel()
         suspendTask = nil
-        if awake, !keptAwake {
-            let connection = connection
-            Task { try? await connection?.suspend() }
-            awake = false
-            shareInbox?.listening = false
-            lock?.release()
-        }
-        endBackgroundTask()
+        guard awake else { return }
+        let connection = connection
+        Task { try? await connection?.suspend() }
+        awake = false
+        shareInbox?.listening = false
     }
 
     /// Closes the core's connections and lets go of its data, which nothing in
@@ -444,16 +456,19 @@ final class CoreController {
     private func wakeUp() async {
         sleepWanted = false
         guard !awake, let lock, let connection else { return }
-        let moved = await lock.take(as: .app)
+        if await lock.take() { behind = true }
+        // The time ran out as it was taken, and it went again (`lockLost`): the core wakes when next asked.
+        guard lock.isHeld else { return }
         awake = true
         let reloaded: Bool
-        if moved {
+        if behind {
+            behind = false
             try? await connection.reload()
             reloaded = true
         } else {
             reloaded = (try? await connection.resume()) ?? false
         }
-        shareInbox?.listening = true
+        shareInbox?.listening = awake
         if reloaded { await model?.reloaded() }
     }
 
@@ -467,12 +482,6 @@ final class CoreController {
         }
         lifecycle = next
         return next
-    }
-
-    private func endBackgroundTask() {
-        guard backgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTask)
-        backgroundTask = .invalid
     }
 
     /// Reconnects as soon as the network comes back, like the desktop's "online" event.

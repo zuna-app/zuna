@@ -236,7 +236,6 @@ targets:
       - path: Zuna/Shared/A11y.swift
       - path: Zuna/Shared/AppLock.swift
       - path: Zuna/Shared/AvatarView.swift
-      - path: Zuna/Shared/CoreLock.swift
       - path: Zuna/Shared/DeviceKeyStore.swift
       - path: Zuna/Shared/Format.swift
       - path: Zuna/Shared/Glass.swift
