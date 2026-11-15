@@ -14,6 +14,7 @@ use parking_lot::Mutex;
 
 use super::audio::{FRAME, Input, SharedProcessing};
 use super::settings::VoiceSettings;
+use crate::i18n::t;
 
 /// How far ahead of what's being sent the gate looks, in frames.
 const LOOKAHEAD_FRAMES: usize = 2;
@@ -121,7 +122,7 @@ impl Microphone {
                     }
                 }
             })
-            .map_err(|_| "The microphone couldn't be used.".to_string())?;
+            .map_err(|_| t("voice.mic.failed").to_string())?;
         Ok(Microphone { _input: input, settings: shared, key, reading, lost, stop })
     }
 

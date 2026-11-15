@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::record::{Camera, Microphone};
 use super::{MAX_ROUND_SECONDS, ROUND_SIZE};
+use crate::i18n::t;
 
 /// A video message being recorded: the camera's frames and the microphone's sound, written
 /// as they come, up to a minute.
@@ -26,7 +27,7 @@ impl RoundRecorder {
         let stop = Arc::new(AtomicBool::new(false));
         let (frames, stopping, target) = (camera.clone(), stop.clone(), path.clone());
         let thread = std::thread::spawn(move || {
-            let failed = |_| "The video message couldn't be recorded.".to_string();
+            let failed = |_| t("composer.round.failed").to_string();
             let mut writer = super::encode::RoundWriter::create(&target).map_err(failed)?;
             let frame_time = Duration::from_secs_f64(1. / super::encode::ROUND_FPS as f64);
             let mut next = Instant::now();
@@ -49,7 +50,7 @@ impl RoundRecorder {
             let seconds = writer.seconds();
             writer.finish().map_err(failed)?;
             if !started {
-                return Err("The video message couldn't be recorded.".into());
+                return Err(t("composer.round.failed").into());
             }
             Ok(seconds)
         });
@@ -70,7 +71,7 @@ impl RoundRecorder {
     /// Stops and gives how long it is, once it's written.
     pub fn stop(mut self) -> Result<f64, String> {
         self.stop.store(true, Ordering::Relaxed);
-        self.thread.take().map(|thread| thread.join().unwrap_or(Err("The video message couldn't be recorded.".into()))).unwrap_or(Err("The video message couldn't be recorded.".into()))
+        self.thread.take().map(|thread| thread.join().unwrap_or(Err(t("composer.round.failed").into()))).unwrap_or(Err(t("composer.round.failed").into()))
     }
 }
 

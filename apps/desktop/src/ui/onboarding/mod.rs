@@ -16,6 +16,7 @@ use super::motion::{Enter, Motion};
 use super::scrollbar::{RevealsFocus, Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::MIN_PASSWORD;
+use crate::i18n::t;
 use crate::models::{InvitePreview, Registered, from_value};
 use crate::state::AppState;
 use crate::theme::{FONT_MONO, RADIUS_M};
@@ -60,7 +61,7 @@ pub struct Onboarding {
 
 fn describe_error(message: &str) -> String {
     if message.contains("Load failed") || message.contains("error sending request") || message.contains("connect") {
-        "Couldn't reach that server. Check the address and your connection.".into()
+        t("onboarding.errors.unreachable").into()
     } else {
         message.to_string()
     }
@@ -100,13 +101,13 @@ impl Onboarding {
     fn build(state: Entity<AppState>, sign_in_url: Option<String>, link: Option<String>, embedded: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let inputs: Vec<Entity<TextInput>> = [
             ("https://chat.example.com/invite/...", false),
-            ("How people will see you", false),
-            ("alex", false),
+            (t("onboarding.invite.yourNamePlaceholder"), false),
+            (t("onboarding.invite.usernamePlaceholder"), false),
             ("", true),
             ("", true),
             ("chat.example.com", false),
             ("", false),
-            ("Our corner of the internet", false),
+            (t("onboarding.nameServer.placeholder"), false),
         ]
         .into_iter()
         .map(|(placeholder, masked)| cx.new(|cx| TextInput::new(cx, placeholder).masked(masked)))

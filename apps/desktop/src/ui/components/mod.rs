@@ -17,6 +17,7 @@ use gpui::{
 };
 
 use crate::format::{avatar_color, initials_of};
+use crate::i18n::t;
 use crate::theme::{self, Theme, RADIUS_M, RADIUS_S};
 use super::motion::Motion;
 
@@ -24,15 +25,81 @@ pub fn theme(cx: &App) -> Theme {
     *cx.global::<Theme>()
 }
 
+/// A looked-up text's words and the values filled into it, in the order the text has them, for a
+/// line that draws its values apart from its words, as a bold name or a link.
+pub enum TextPart<'a> {
+    Words(&'a str),
+    /// A value's name, as `{name}` in the text.
+    Value(&'a str),
+}
+
+/// A text's words and values: `{name}` is a value where it's a name, and anything else is words.
+pub fn text_parts(text: &str) -> Vec<TextPart<'_>> {
+    let is_name = |name: &str| {
+        let mut chars = name.chars();
+        chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_') && chars.all(|char| char.is_ascii_alphanumeric() || char == '_')
+    };
+    let mut parts = Vec::new();
+    let (mut start, mut at) = (0, 0);
+    while let Some(open) = text[at..].find('{').map(|found| at + found) {
+        let name = text[open + 1..].find('}').map(|close| &text[open + 1..open + 1 + close]).filter(|&name| is_name(name));
+        match name {
+            Some(name) => {
+                if open > start {
+                    parts.push(TextPart::Words(&text[start..open]));
+                }
+                parts.push(TextPart::Value(name));
+                start = open + name.len() + 2;
+                at = start;
+            }
+            None => at = open + 1,
+        }
+    }
+    if start < text.len() {
+        parts.push(TextPart::Words(&text[start..]));
+    }
+    parts
+}
+
+/// A looked-up text as a row of its words and its values, each value drawn by `value` from its
+/// name, so that the words stay one text, in whatever order a language puts them. With `gap`,
+/// the row's own gap stands for the spaces beside each value; without, they're kept.
+pub fn text_row(text: &str, gap: bool, mut value: impl FnMut(&str) -> AnyElement) -> Div {
+    let mut row = div().flex();
+    for part in text_parts(text) {
+        match part {
+            TextPart::Words(words) => {
+                let words = if gap { words.trim().to_string() } else { kept_spaces(words) };
+                if !words.is_empty() {
+                    row = row.child(words);
+                }
+            }
+            TextPart::Value(name) => row = row.child(value(name)),
+        }
+    }
+    row
+}
+
+/// Words drawn on their own, with the spaces at either end kept as no-break spaces, which a line
+/// of their own would drop.
+fn kept_spaces(words: &str) -> String {
+    let start = words.len() - words.trim_start_matches(' ').len();
+    let end = words.trim_end_matches(' ').len();
+    if start >= end {
+        return "\u{a0}".repeat(words.len());
+    }
+    format!("{}{}{}", "\u{a0}".repeat(start), &words[start..end], "\u{a0}".repeat(words.len() - end))
+}
+
 /// The active server's connection while it isn't simply online (`ConnectionStatus`): an amber
 /// dot and the web's words.
 /// With a proxy set, and the proxy what's wrong, it says so instead (host/net.rs).
 pub fn connection_status(server: &crate::state::ServerState, theme: &Theme) -> Option<Div> {
-    let trouble = || crate::host::net::trouble().map(|failure| if failure == crate::host::net::Failure::Refused { "The proxy refused the password" } else { "Can't reach the proxy" });
+    let trouble = || crate::host::net::trouble().map(|failure| if failure == crate::host::net::Failure::Refused { t("servers.connection.proxyRefused") } else { t("servers.connection.proxyUnreachable") });
     let status = match server.connection.as_str() {
-        "connecting" => trouble().unwrap_or("Connecting"),
-        "offline" => trouble().unwrap_or("Waiting for network"),
-        "syncing" => "Updating",
+        "connecting" => trouble().unwrap_or(t("servers.connection.connecting")),
+        "offline" => trouble().unwrap_or(t("servers.connection.offline")),
+        "syncing" => t("servers.connection.syncing"),
         _ => return None,
     };
     Some(div().flex().items_center().gap(px(6.)).text_color(theme.text2).child(div().size(px(6.)).rounded_full().bg(theme.amber)).child(status))
@@ -329,7 +396,7 @@ pub fn bot_badge(cx: &App) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme.accent_soft)
         .text_color(theme.accent_text)
-        .child("BOT")
+        .child(t("bots.badgeText"))
 }
 
 /// A line of information in a soft box, with its icon (`.notice`).

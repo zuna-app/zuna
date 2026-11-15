@@ -32,6 +32,7 @@ use gpui::{App, AppContext, Context, Entity, Global, Task, Window};
 use serde_json::{Value, json};
 
 use crate::host::read_bytes;
+use crate::i18n::t;
 use crate::models::{CallView, ChannelView, ConversationView, VoiceMember};
 use crate::state::{AppState, ServerState, ToastKind};
 use audio::{Mixer, Processing, SharedProcessing};
@@ -310,7 +311,7 @@ pub fn open_channel(state: &Entity<AppState>, channel: &ChannelView, _window: &m
     if !ready {
         state.update(cx, |state, cx| {
             state.select_conversation(Some(key), cx);
-            state.toast("This server doesn't have a media server yet, so you can't join its voice channels.", ToastKind::Info, cx);
+            state.toast(t("channels.noMediaServerJoin"), ToastKind::Info, cx);
         });
         return;
     }

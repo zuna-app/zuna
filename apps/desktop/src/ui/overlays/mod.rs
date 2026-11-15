@@ -24,6 +24,7 @@ use super::onboarding::Onboarding;
 use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::models::{SafetyCheck, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
+use crate::i18n::t;
 use crate::theme::{self, RADIUS_L, RADIUS_M, RADIUS_XL};
 
 /// How far a dialog's card rises as it comes in, and over how long, with motion's `quick`:
@@ -101,7 +102,7 @@ pub fn confirm(title: String, action: &str, text: String, on_cancel: impl Fn(&mu
                 .gap(px(8.))
                 .px(px(20.))
                 .pb(px(16.))
-                .child(button("confirm-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(move |_, window, cx| cancel(window, cx)))
+                .child(button("confirm-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(move |_, window, cx| cancel(window, cx)))
                 .child(button("confirm-action", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(action.to_string()).on_click(move |_, window, cx| on_confirm(window, cx))),
         );
     div()
@@ -208,8 +209,8 @@ pub struct Dialog {
 
 impl Dialog {
     fn new(state: Entity<AppState>, kind: DialogKind, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let name = cx.new(|cx| TextInput::new(cx, "Weekend trip"));
-        let people_search = cx.new(|cx| TextInput::new(cx, "Search people"));
+        let name = cx.new(|cx| TextInput::new(cx, t("groups.new.namePlaceholder")));
+        let people_search = cx.new(|cx| TextInput::new(cx, t("groups.people.search")));
         let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
         for (index, input) in [&name, &people_search].into_iter().enumerate() {
             subscriptions.push(cx.subscribe_in(input, window, move |view, _, event, _, cx| {
@@ -234,9 +235,9 @@ impl Dialog {
         if let DialogKind::Channel { channel_id, kind: wanted } = &kind {
             let channel = channel_id.as_ref().and_then(|id| state.read(cx).active().and_then(|server| server.channels.iter().find(|item| item.id == *id).cloned()));
             let kind_name = channel.as_ref().map(|c| c.kind.clone()).or(wanted.clone()).unwrap_or_else(|| "text".into());
-            let topic = cx.new(|cx| TextInput::new(cx, "What it's for"));
-            let category = cx.new(|cx| TextInput::new(cx, if kind_name == "voice" { "Voice channels" } else { "Text channels" }));
-            name.update(cx, |input, cx| input.set_placeholder(if kind_name == "voice" { "Lounge" } else { "new-channel" }, cx));
+            let topic = cx.new(|cx| TextInput::new(cx, t("channels.form.topicPlaceholder")));
+            let category = cx.new(|cx| TextInput::new(cx, if kind_name == "voice" { t("channels.voiceChannels") } else { t("channels.textChannels") }));
+            name.update(cx, |input, cx| input.set_placeholder(if kind_name == "voice" { t("channels.dialog.voicePlaceholder") } else { t("channels.dialog.textPlaceholder") }, cx));
             if let Some(channel) = &channel {
                 name.update(cx, |input, cx| input.set_text(channel.name.clone(), cx));
                 topic.update(cx, |input, cx| input.set_text(channel.topic.clone(), cx));
@@ -290,7 +291,7 @@ impl Dialog {
             people_search.focus_handle(cx).focus(window, cx);
         }
         if matches!(kind, DialogKind::Forward { .. }) {
-            people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
+            people_search.update(cx, |input, cx| input.set_placeholder(t("groups.forward.search"), cx));
             people_search.focus_handle(cx).focus(window, cx);
         }
         let focus = cx.focus_handle();
@@ -436,11 +437,11 @@ impl Dialog {
             div()
                 .text_size(px(13.5))
                 .text_color(theme.text2)
-                .child("Anyone with a link can create an account here. It also holds the key that protects member profiles, so only share it with people you trust.")
+                .child(t("invites.warning"))
                 .into_any_element(),
             self.invite_panel.clone().map(|panel| panel.into_any_element()).unwrap_or_else(|| div().into_any_element()),
         ];
-        self.modal(Some("Invite people".into()), 440., body, None, cx)
+        self.modal(Some(t("invites.title").into()), 440., body, None, cx)
     }
 
     fn leave_server(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -450,19 +451,19 @@ impl Dialog {
         let body = vec![div()
             .text_size(px(13.5))
             .text_color(theme.text2)
-            .child(format!("This signs this device out of {} and removes its messages from this device. Your account stays, and you can sign in again later.", server.entry.name))
+            .child(tr!("servers.leave.text", server = server.entry.name))
             .into_any_element()];
         let state = self.state.clone();
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("leave", ButtonKind::Danger, ButtonSize::Normal, false, cx).child("Leave this server").on_click(move |_, _, cx| {
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("leave", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(t("servers.leave.confirm")).on_click(move |_, _, cx| {
                 let id = id.clone();
                 state.update(cx, |state, cx| state.call(None, "leaveServer", vec![json!(id.clone())], cx, move |state, _, cx| state.remove_server(&id, cx)))
             }))
             .into_any_element();
-        self.modal(Some(format!("Leave {}?", server.entry.name)), 440., body, Some(footer), cx)
+        self.modal(Some(tr!("servers.leave.title", server = server.entry.name)), 440., body, Some(footer), cx)
     }
 
     /// Asks before coming into a voice channel or a call here, while another of this person's
@@ -470,23 +471,23 @@ impl Dialog {
     fn move_voice(&mut self, moving: crate::voice::VoiceMove, cx: &mut Context<Self>) -> AnyElement {
         let server = self.state.read(cx).servers.get(&moving.server_id);
         let channel = server.and_then(|server| server.channels.iter().find(|channel| channel.id == moving.from));
-        // Where the other device is, in words that follow "You're in".
-        let place = match (channel, server.and_then(|server| crate::voice::conversation_of_group(server, &moving.from))) {
-            (Some(_), _) if moving.from == moving.channel_id => "this voice channel".to_string(),
-            (None, _) if moving.from == moving.channel_id => "this call".to_string(),
-            (Some(channel), _) if !channel.name.is_empty() => channel.name.clone(),
-            (Some(_), _) => "a voice channel".to_string(),
-            (None, Some(conversation)) if conversation.kind == "dm" => format!("a call with {}", conversation.title),
-            (None, Some(conversation)) => format!("a call in {}", conversation.title),
-            (None, None) => "a call".to_string(),
+        // Where the other device is.
+        let text = match (channel, server.and_then(|server| crate::voice::conversation_of_group(server, &moving.from))) {
+            (Some(_), _) if moving.from == moving.channel_id => t("voice.moveHere.thisChannel").to_string(),
+            (None, _) if moving.from == moving.channel_id => t("voice.moveHere.thisCall").to_string(),
+            (Some(channel), _) if !channel.name.is_empty() => tr!("voice.moveHere.channel", channel = channel.name),
+            (Some(_), _) => t("voice.moveHere.unnamedChannel").to_string(),
+            (None, Some(conversation)) if conversation.kind == "dm" => tr!("voice.moveHere.callWith", name = conversation.title),
+            (None, Some(conversation)) => tr!("voice.moveHere.callIn", chat = conversation.title),
+            (None, None) => t("voice.moveHere.call").to_string(),
         };
-        let body = vec![div().text_size(px(13.5)).child(format!("You're in {place} on another device. Joining here disconnects that device.")).into_any_element()];
+        let body = vec![div().text_size(px(13.5)).child(text).into_any_element()];
         let state = self.state.clone();
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("move-voice", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Join here").on_click(move |_, _, cx| {
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("move-voice", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("voice.moveHere.join")).on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| state.set_overlay(None, cx));
                 if let Some(voice) = crate::voice::get(cx) {
                     let moving = moving.clone();
@@ -494,25 +495,25 @@ impl Dialog {
                 }
             }))
             .into_any_element();
-        self.modal(Some("Join on this device?".into()), 420., body, Some(footer), cx)
+        self.modal(Some(t("voice.moveHere.title").into()), 420., body, Some(footer), cx)
     }
 
     /// Asks before an update restarts the app while this device is in a voice channel or a
     /// call, which that ends (`InstallUpdate`).
     fn install_update(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let version = crate::platform::updates::current().ready.map(|update| update.label()).unwrap_or_default();
-        let body = vec![div().text_size(px(13.5)).child(format!("Updating to {version} restarts Zuna, which will take you out of your call. You can rejoin once it's back.")).into_any_element()];
+        let body = vec![div().text_size(px(13.5)).child(tr!("update.duringCall.text", version = version)).into_any_element()];
         let state = self.state.clone();
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Not now").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("install-update", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Update and restart").on_click(move |_, _, cx| {
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.notNow")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("install-update", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("update.duringCall.confirm")).on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| state.set_overlay(None, cx));
                 crate::ui::restart_into_update(cx);
             }))
             .into_any_element();
-        self.modal(Some("Update now?".into()), 420., body, Some(footer), cx)
+        self.modal(Some(t("update.duringCall.title").into()), 420., body, Some(footer), cx)
     }
 }
 
@@ -522,23 +523,23 @@ impl Dialog {
     fn watch_consent(&mut self, then_link: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let body = vec![
-            div().text_size(px(13.5)).child("Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube. You aren't signed in to YouTube here, so you may see ads.").into_any_element(),
-            div().pt(px(10.)).text_size(px(13.5)).text_color(theme.text2).child("Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.").into_any_element(),
+            div().text_size(px(13.5)).child(t("voice.watchConsent.text")).into_any_element(),
+            div().pt(px(10.)).text_size(px(13.5)).text_color(theme.text2).child(t("voice.watch.consentNote")).into_any_element(),
             div()
                 .pt(px(10.))
                 .flex()
                 .gap(px(14.))
                 .text_size(px(13.))
-                .child(div().id("youtube-terms").text_color(theme.accent).cursor_pointer().child("YouTube's Terms of Service").on_click(|_, _, cx| cx.open_url("https://www.youtube.com/t/terms")))
-                .child(div().id("google-privacy").text_color(theme.accent).cursor_pointer().child("Google's Privacy Policy").on_click(|_, _, cx| cx.open_url("https://policies.google.com/privacy")))
+                .child(div().id("youtube-terms").text_color(theme.accent).cursor_pointer().child(t("voice.watch.terms")).on_click(|_, _, cx| cx.open_url("https://www.youtube.com/t/terms")))
+                .child(div().id("google-privacy").text_color(theme.accent).cursor_pointer().child(t("voice.watch.privacy")).on_click(|_, _, cx| cx.open_url("https://policies.google.com/privacy")))
                 .into_any_element(),
         ];
         let state = self.state.clone();
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("watch-agree", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(if then_link { "Continue" } else { "Watch" }).on_click(move |_, _, cx| {
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("watch-agree", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(if then_link { t("common.continue") } else { t("voice.watch.watch") }).on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| {
                     state.update_settings(|settings| settings.play_youtube = true, cx);
                     state.set_overlay(if then_link { Some(Overlay::WatchLink) } else { None }, cx);
@@ -550,25 +551,25 @@ impl Dialog {
                 }
             }))
             .into_any_element();
-        self.modal(Some("Play YouTube videos?".into()), 460., body, Some(footer), cx)
+        self.modal(Some(t("voice.watch.consentTitle").into()), 460., body, Some(footer), cx)
     }
 
     /// A YouTube link to put on for everyone in the room (`WatchLinkDialog`).
     fn watch_link(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let focused = self.focused == Some(0);
-        let mut body = vec![field(Some("YouTube link"), self.name.clone(), self.link_error.clone(), None, focused, None, cx).into_any_element()];
+        let mut body = vec![field(Some(t("voice.watch.link")), self.name.clone(), self.link_error.clone(), None, focused, None, cx).into_any_element()];
         if self.link_error.is_none() {
-            body.push(div().pt(px(8.)).text_size(px(12.5)).text_color(theme.text2).child("It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.").into_any_element());
+            body.push(div().pt(px(8.)).text_size(px(12.5)).text_color(theme.text2).child(t("voice.watch.linkHint")).into_any_element());
         }
         let busy = self.busy;
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { "Sharing…" } else { "Share video" }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("watch-put-on", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { t("voice.watchLink.sharing") } else { t("voice.watch.share") }).on_click(cx.listener(|dialog, _, _, cx| dialog.put_on(cx))))
             .into_any_element();
-        self.modal(Some("Watch together".into()), 460., body, Some(footer), cx)
+        self.modal(Some(t("voice.watch.title").into()), 460., body, Some(footer), cx)
     }
 
     fn put_on(&mut self, cx: &mut Context<Self>) {

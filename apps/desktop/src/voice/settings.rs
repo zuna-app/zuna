@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::t;
 use crate::models::ScreenRules;
 use crate::voice::rules::SCREEN_DEFAULT_FPS;
 
@@ -145,7 +146,7 @@ pub const SCREEN_LIMIT_BITRATES: [u32; 9] = [2_000, 4_000, 6_000, 8_000, 12_000,
 
 pub fn height_name(height: u32) -> String {
     match height {
-        0 => "Native".into(),
+        0 => t("voice.screen.native").into(),
         2160 => "4K".into(),
         _ => format!("{height}p"),
     }
@@ -180,13 +181,13 @@ pub fn screen_limits_text(rules: Option<&ScreenRules>, role: &str) -> Option<Str
     if rules.max_kbps > 0 {
         limits.push(bitrate_name(rules.max_kbps));
     }
-    (!limits.is_empty()).then(|| format!("This server limits screen shares to {}.", limits.join(", ")))
+    (!limits.is_empty()).then(|| tr!("voice.screen.serverLimits", limits = limits.join(", ")))
 }
 
 /// What a key is called, from its `KeyboardEvent.code`.
 pub fn key_name(code: &str) -> String {
     if code.is_empty() {
-        return "Not set".into();
+        return t("voice.keys.notSet").into();
     }
     if let Some(rest) = code.strip_prefix("Key") {
         return rest.into();
@@ -195,23 +196,23 @@ pub fn key_name(code: &str) -> String {
         return rest.into();
     }
     if let Some(rest) = code.strip_prefix("Numpad") {
-        return format!("Numpad {rest}");
+        return tr!("voice.keys.numpad", key = rest);
     }
     if let Some(rest) = code.strip_prefix("Mouse") {
-        return format!("Mouse {rest}");
+        return tr!("voice.keys.mouse", button = rest);
     }
     match code {
-        "ControlLeft" => "Left Ctrl",
-        "ControlRight" => "Right Ctrl",
-        "ShiftLeft" => "Left Shift",
-        "ShiftRight" => "Right Shift",
-        "AltLeft" => "Left Alt",
-        "AltRight" => "Right Alt",
-        "MetaLeft" => "Left Meta",
-        "MetaRight" => "Right Meta",
+        "ControlLeft" => t("voice.keys.leftCtrl"),
+        "ControlRight" => t("voice.keys.rightCtrl"),
+        "ShiftLeft" => t("voice.keys.leftShift"),
+        "ShiftRight" => t("voice.keys.rightShift"),
+        "AltLeft" => t("voice.keys.leftAlt"),
+        "AltRight" => t("voice.keys.rightAlt"),
+        "MetaLeft" => t("voice.keys.leftMeta"),
+        "MetaRight" => t("voice.keys.rightMeta"),
         "Backquote" => "`",
-        "CapsLock" => "Caps Lock",
-        "Space" => "Space",
+        "CapsLock" => t("voice.keys.capsLock"),
+        "Space" => t("voice.keys.space"),
         other => other,
     }
     .into()

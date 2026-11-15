@@ -19,7 +19,7 @@ pub(super) fn meta_element(message: &MessageView, own: bool, is_deleted: bool, r
         meta = meta.child(icon("pin", 10., color).with_transformation(gpui::Transformation::rotate(gpui::radians(35f32.to_radians()))));
     }
     if message.edited_at.is_some() && !is_deleted {
-        meta = meta.child("edited");
+        meta = meta.child(t("message.edited"));
     }
     meta = meta.child(format_time(message.created_at));
     if own && !is_deleted {
@@ -70,7 +70,8 @@ pub(super) fn meta_padding(message: &MessageView, own: bool, theme: &Theme, wind
     let small = TextRun { len: 0, font: gpui::font(FONT_UI), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
     let mut label = format_time(message.created_at);
     if message.edited_at.is_some() {
-        label = format!("edited {label}");
+        // Measured as it's drawn: the word, the gap and the time.
+        label = format!("{} {label}", t("message.edited"));
     }
     let measure = |text: &str, size: Pixels, window: &mut Window| -> f32 {
         let run = TextRun { len: text.len(), ..small.clone() };
@@ -445,7 +446,7 @@ pub(super) fn code_block(text: &str, language: Option<&str>, message_id: &str, i
                 .text_color(theme.text3)
                 .border_b_1()
                 .border_color(theme.line)
-                .child(language.unwrap_or("code").to_string())
+                .child(language.unwrap_or(t("message.code.label")).to_string())
                 .child(
                     div()
                         .id(SharedString::from(format!("copy-{message_id}-{index}")))
@@ -459,7 +460,7 @@ pub(super) fn code_block(text: &str, language: Option<&str>, message_id: &str, i
                         .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
                         .on_click(move |_, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy_text.clone())))
                         .child(icon("copy", 12., theme.text3))
-                        .child("Copy"),
+                        .child(t("common.copy")),
                 ),
         )
         .child(
@@ -568,7 +569,7 @@ impl Render for EmoteCard {
             let run = TextRun { len: text.len(), font: gpui::Font { weight, ..gpui::font(FONT_UI) }, color: theme.text1, background_color: None, underline: None, strikethrough: None };
             f32::from(window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &[run], None).width)
         };
-        let owner = self.owner.as_ref().map(|owner| format!("by {owner}"));
+        let owner = self.owner.as_ref().map(|owner| tr!("message.emote.by", name = owner));
         let mut text_width = measure(&self.name, 14., FontWeight::SEMIBOLD, window);
         let mut text_height: f32 = 19.;
         if let Some(owner) = &owner {

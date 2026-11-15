@@ -12,6 +12,8 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 
+use crate::i18n::t;
+
 /// Everything here works at this rate, as WebRTC and RNNoise do.
 pub const RATE: u32 = 48_000;
 /// 10 ms, which WebRTC's processing and RNNoise each take at a time.
@@ -49,7 +51,7 @@ pub fn list(input: bool) -> Vec<Device> {
 #[cfg(any(windows, target_os = "macos"))]
 pub fn list(input: bool) -> Vec<Device> {
     let host = cpal::default_host();
-    let mut list = vec![Device { id: "default".into(), name: "Default".into() }];
+    let mut list = vec![Device { id: "default".into(), name: t("media.devices.default").into() }];
     if let Ok(devices) = if input { host.input_devices() } else { host.output_devices() } {
         for device in devices {
             if let Ok(name) = device.name() {
@@ -435,8 +437,8 @@ impl Input {
                     ready.send(Err(error)).ok();
                 }
             })
-            .map_err(|_| "The microphone couldn't be used.".to_string())?;
-        started.recv().map_err(|_| "The microphone couldn't be used.".to_string())??;
+            .map_err(|_| t("voice.mic.failed").to_string())?;
+        started.recv().map_err(|_| t("voice.mic.failed").to_string())??;
         Ok((Input { stop, lost }, receiver))
     }
 }
@@ -478,13 +480,13 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
     let mut take = input_taker(RATE, 1, frames);
     super::pipewire::record(device, move |samples| take(&mut |index| samples[index], samples.len()), lost).map_err(|error| {
         log::warn!("the microphone: {error}");
-        "There's no microphone Zuna can use.".to_string()
+        t("voice.mic.none").to_string()
     })
 }
 
 #[cfg(any(windows, target_os = "macos"))]
 fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> Result<cpal::Stream, String> {
-    let none = || "There's no microphone Zuna can use.".to_string();
+    let none = || t("voice.mic.none").to_string();
     let device = find(true, device).ok_or_else(none)?;
     let config = device.default_input_config().map_err(|_| none())?;
     let rate = config.sample_rate().0;
@@ -501,7 +503,7 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
     }
     .map_err(|error| match error {
         cpal::BuildStreamError::DeviceNotAvailable => none(),
-        _ => "Zuna can't use the microphone. Allow it in your system's privacy settings.".to_string(),
+        _ => t("media.devices.micBlocked").to_string(),
     })?;
     stream.play().map_err(|_| none())?;
     Ok(stream)
@@ -740,7 +742,7 @@ fn open_media_output(rate: u32, mut fill: impl FnMut(&mut [f32], usize) + Send +
 /// Records one channel at 48 kHz from the default microphone, handing what's heard to `take`.
 #[cfg(target_os = "linux")]
 pub fn record_media(take: impl FnMut(&[f32]) + Send + 'static) -> Result<MediaStream, String> {
-    super::pipewire::record("default", take, Arc::new(AtomicBool::new(false))).map_err(|_| "There's no microphone Zuna can use.".to_string())
+    super::pipewire::record("default", take, Arc::new(AtomicBool::new(false))).map_err(|_| t("voice.mic.none").to_string())
 }
 
 /// Records one channel at 48 kHz from the default microphone, handing what's heard to `take`,

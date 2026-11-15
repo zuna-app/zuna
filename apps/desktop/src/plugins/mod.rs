@@ -36,6 +36,7 @@ use futures::channel::{mpsc, oneshot};
 use gpui::{App, AppContext, Context, Entity, Task};
 use serde_json::{Value, json};
 
+use crate::i18n::t;
 use manifest::{Manifest, Permission};
 use package::Package;
 use store::{Installed, Keys, Origin, Record, Storage};
@@ -275,9 +276,9 @@ impl Plugins {
             }
         }));
         let safe_mode = if no_plugins {
-            Some("Zuna was started with --no-plugins, so no plugin is running.".to_string())
+            Some(t("plugins.safeMode.flag").to_string())
         } else if record.plugins.iter().any(|plugin| plugin.enabled) && failed_starts(&data_dir) >= 2 {
-            Some("Zuna failed to start twice in a row with plugins on, so it started without them this time.".to_string())
+            Some(t("plugins.safeMode.failedStarts").to_string())
         } else {
             None
         };
@@ -356,32 +357,32 @@ impl Plugins {
             Origin::Folder => Package::open_folder(Path::new(&record.path))?,
             Origin::Verified | Origin::File => {
                 let path = store::packages(&self.data_dir).join(&record.path);
-                let bytes = std::fs::read(&path).map_err(|_| "Its package is missing.".to_string())?;
+                let bytes = std::fs::read(&path).map_err(|_| t("plugins.load.missing").to_string())?;
                 let package = Package::open(&bytes)?;
                 if package.sha256.as_deref() != record.sha256.as_deref() {
-                    return Err("Its package has changed since it was installed, so it won't run.".into());
+                    return Err(t("plugins.load.changed").into());
                 }
                 if record.origin == Origin::Verified && !trust::verified(&package) {
-                    return Err("Its package is no longer signed by Zuna, so it won't run.".into());
+                    return Err(t("plugins.load.unsigned").into());
                 }
                 package
             }
         };
         if package.manifest.id != record.id {
-            return Err("Its package belongs to a different plugin.".into());
+            return Err(t("plugins.load.otherPlugin").into());
         }
         if let Some(hash) = &package.sha256 {
             if self.record.revoked_hashes.contains(hash) {
-                return Err("Zuna pulled this plugin because it's harmful.".into());
+                return Err(t("plugins.pulled").into());
             }
         }
         if package.manifest.min_build > crate::platform::BUILD && crate::platform::BUILD > 0 {
-            return Err("It needs a newer version of Zuna.".into());
+            return Err(t("plugins.needsNewer").into());
         }
         // What it was granted is what it asked for at install: a package asking for more doesn't get it.
         if package.manifest.permissions.iter().any(|permission| !record.granted.contains(permission)) || package.manifest.hosts.iter().any(|host| !record.hosts.contains(host)) {
             if record.origin != Origin::Folder {
-                return Err("It asks for more access than it was given.".into());
+                return Err(t("plugins.load.moreAccess").into());
             }
         }
         Ok(package)
@@ -484,7 +485,7 @@ impl Plugins {
                     },
                 );
             }
-            Err(error) => self.turn_off(uid, &format!("Its process didn't start: {error}"), cx),
+            Err(error) => self.turn_off(uid, &tr!("plugins.off.processFailed", error = error), cx),
         }
         cx.notify();
     }
@@ -529,7 +530,7 @@ impl Plugins {
         }
         self.save();
         self.log(uid, "error", format!("Turned off: {reason}"));
-        let message = format!("{name} was turned off. {reason}");
+        let message = tr!("plugins.turnedOff", name = name, reason = reason);
         self.toast_app(message, crate::state::ToastKind::Error, cx);
         self.refresh_theme(cx);
     }
@@ -586,27 +587,27 @@ impl Plugins {
     /// switch on. Returns its uid.
     pub fn install(&mut self, bytes: &[u8], expected: Option<&market::Version>, cx: &mut Context<Self>) -> Result<String, String> {
         if !self.usable() {
-            return Err("Plugins can't be installed because this device's key couldn't be read.".into());
+            return Err(t("plugins.noDeviceKey").into());
         }
         let package = Package::open(bytes)?;
         let verified = trust::verified(&package);
         if let Some(expected) = expected {
             market::matches(expected, &package)?;
             if !verified {
-                return Err("The marketplace's package isn't signed by Zuna.".into());
+                return Err(t("plugins.market.marketPackageUnsigned").into());
             }
         }
         if !verified && !self.record.allow_unverified {
-            return Err("Plugins Zuna hasn't checked are off. Turn them on in Settings → Plugins first.".into());
+            return Err(t("plugins.unverifiedOffSettings").into());
         }
         let hash = package.sha256.clone().unwrap_or_default();
         if self.record.revoked_hashes.contains(&hash) || self.market.revoked(&package) {
-            return Err("Zuna pulled this plugin because it's harmful.".into());
+            return Err(t("plugins.pulled").into());
         }
         let origin = if verified { Origin::Verified } else { Origin::File };
         let manifest = package.manifest.clone();
         if manifest.min_build > crate::platform::BUILD && crate::platform::BUILD > 0 {
-            return Err("It needs a newer version of Zuna.".into());
+            return Err(t("plugins.needsNewer").into());
         }
         let file = format!("{}-{}-{}.zunaplugin", origin.name(), manifest.id, manifest.version);
         std::fs::create_dir_all(store::packages(&self.data_dir)).map_err(|error| error.to_string())?;
@@ -648,7 +649,7 @@ impl Plugins {
     /// Runs a developer's folder, as it's written, behind the same broker and the same mark.
     pub fn load_folder(&mut self, dir: &Path, cx: &mut Context<Self>) -> Result<String, String> {
         if !self.record.allow_unverified {
-            return Err("Plugins Zuna hasn't checked are off. Turn them on first.".into());
+            return Err(t("plugins.unverifiedOff").into());
         }
         let package = Package::open_folder(dir)?;
         let manifest = package.manifest.clone();
@@ -725,7 +726,7 @@ impl Plugins {
     // --- What the interface asks ---
 
     pub fn name(&self, uid: &str) -> String {
-        self.loaded.get(uid).map(|loaded| loaded.manifest().name.clone()).or_else(|| self.record.find(uid).map(|record| record.name.clone())).unwrap_or_else(|| "A plugin".into())
+        self.loaded.get(uid).map(|loaded| loaded.manifest().name.clone()).or_else(|| self.record.find(uid).map(|record| record.name.clone())).unwrap_or_else(|| t("plugins.aPlugin").into())
     }
 
     pub fn verified(&self, uid: &str) -> bool {
@@ -909,9 +910,9 @@ impl Plugins {
         let name = self.name(uid);
         self.log(uid, "warn", format!("It didn't respond in time ({strikes} in a row)."));
         if strikes >= STRIKES {
-            self.turn_off(uid, "It didn't respond in time three times in a row.", cx);
+            self.turn_off(uid, t("plugins.off.noResponse"), cx);
         } else if toast {
-            self.toast_app(format!("{name} didn't answer in time, so Zuna went on without it."), crate::state::ToastKind::Error, cx);
+            self.toast_app(tr!("plugins.slow", name = name), crate::state::ToastKind::Error, cx);
         }
     }
 
@@ -948,12 +949,12 @@ impl Plugins {
             // The pipe closed without being asked to: it crashed.
             let stopping = self.running.get(uid).is_some_and(|running| running.stopping);
             if !stopping {
-                self.turn_off(uid, "It stopped working.", cx);
+                self.turn_off(uid, t("plugins.off.crashed"), cx);
             }
             return;
         };
         let Ok(message) = serde_json::from_str::<Value>(&message) else {
-            self.turn_off(uid, "It sent something plugins aren't allowed to send.", cx);
+            self.turn_off(uid, t("plugins.off.badMessage"), cx);
             return;
         };
         let kind = message.get("t").and_then(Value::as_str).unwrap_or_default();
@@ -966,8 +967,8 @@ impl Plugins {
                 cx.notify();
             }
             "failed" => {
-                let error = message.get("error").and_then(Value::as_str).unwrap_or("It didn't start.").chars().take(300).collect::<String>();
-                self.turn_off(uid, &format!("It didn't start: {error}"), cx);
+                let error = message.get("error").and_then(Value::as_str).unwrap_or(t("plugins.off.noReason")).chars().take(300).collect::<String>();
+                self.turn_off(uid, &tr!("plugins.off.didntStart", error = error), cx);
             }
             "ask" => {
                 let n = message.get("n").and_then(Value::as_u64).unwrap_or(0);
@@ -993,11 +994,11 @@ impl Plugins {
                 cx.notify();
             }
             "fault" => match message.get("reason").and_then(Value::as_str) {
-                Some("memory") => self.turn_off(uid, "It used more memory than plugins are allowed.", cx),
-                Some("flood") => self.turn_off(uid, "It sent more data than plugins are allowed.", cx),
+                Some("memory") => self.turn_off(uid, t("plugins.off.memory"), cx),
+                Some("flood") => self.turn_off(uid, t("plugins.off.flood"), cx),
                 _ => self.strike(uid, false, cx),
             },
-            _ => self.turn_off(uid, "It sent something plugins aren't allowed to send.", cx),
+            _ => self.turn_off(uid, t("plugins.off.badMessage"), cx),
         }
     }
 

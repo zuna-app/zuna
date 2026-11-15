@@ -23,7 +23,7 @@ static CAMERAS: Listed<CameraDevice> = Listed::new("zuna-cameras", crate::media:
 /// The microphones or the speakers, with the default first.
 pub fn sound(input: bool) -> Vec<Device> {
     let list = if input { INPUTS.get() } else { OUTPUTS.get() };
-    if list.is_empty() { vec![Device { id: "default".into(), name: "Default".into() }] } else { list }
+    if list.is_empty() { vec![Device { id: "default".into(), name: crate::i18n::t("media.devices.default").into() }] } else { list }
 }
 
 /// The cameras, as `media::record::cameras` lists them, which is none until they've been read.

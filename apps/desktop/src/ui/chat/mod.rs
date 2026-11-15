@@ -35,6 +35,7 @@ use super::selection;
 use super::side_panel::SidePanel;
 use super::text_input::{InputEvent, TextInput};
 use crate::format::{format_bytes, format_last_seen, now_ms, timer_text, wait_text};
+use crate::i18n::t;
 use crate::markup::{find_link, mentions_in, plain_text};
 use crate::models::{ConversationView, Emote, LinkPreview, MessageView, UserView};
 use crate::state::{AppState, Panel, Picture, ToastKind, is_unread};
@@ -264,11 +265,12 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
     let server_id = server_id.to_string();
     let members_scroll = scroll_handle("member-list");
     let mut list = div().id("member-list").size_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
-    for (title, people, here) in [("Bots", bots, true), ("Online", online, true), ("Offline", offline, false)] {
+    let headings = [tr!("channels.members.bots", count = bots.len()), tr!("channels.members.online", count = online.len()), tr!("channels.members.offline", count = offline.len())];
+    for (title, (people, here)) in headings.into_iter().zip([(bots, true), (online, true), (offline, false)]) {
         if people.is_empty() {
             continue;
         }
-        list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.channel_muted).child(format!("{} — {}", title.to_uppercase(), people.len())));
+        list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.channel_muted).child(title.to_uppercase()));
         for user in people {
             let image = user.avatar.as_ref().and_then(|avatar| state_entity.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx)));
             let (open_state, profile_id) = (state_entity.clone(), user.id.clone());
@@ -293,17 +295,17 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
                     .on_mouse_down(MouseButton::Right, move |event, _, cx| {
                         let mut entries = Vec::new();
                         let (state, id) = (menu_state.clone(), menu_id.clone());
-                        entries.push(super::menu::MenuEntry::new("Profile", "user-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: id.clone() }), cx))));
+                        entries.push(super::menu::MenuEntry::new(t("channels.members.profile"), "user-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: id.clone() }), cx))));
                         if !is_self {
                             let (state, key) = (menu_state.clone(), format!("user:{}", menu_id));
-                            entries.push(super::menu::MenuEntry::new("Message", "message-circle", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
+                            entries.push(super::menu::MenuEntry::new(t("channels.members.message"), "message-circle", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
                         }
                         super::menu::open_menu(event.position, entries, false, cx);
                     })
                     .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: user.bot.is_none() && (here && !user.is_self || user.online), rounded: false, dot_border: theme.bg1 }, cx))
                     .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
                     .when(user.bot.is_some(), |el| el.child(div().flex_none().ml(px(-4.)).child(bot_badge(cx))))
-                    .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip("Server owner", Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
+                    .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip(t("channels.members.owner"), Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
             );
         }
     }
@@ -334,7 +336,7 @@ impl ChatView {
         // Each chat's message box scrolls on its own.
         super::scrollbar::forget_scroll("composer-scroll");
         let composer = cx.new(|cx| {
-            let mut input = TextInput::new(cx, "Message").multiline().accepts_files();
+            let mut input = TextInput::new(cx, t("composer.label")).multiline().accepts_files();
             input.set_newline_on_enter(false);
             input
         });
@@ -509,7 +511,15 @@ impl ChatView {
         let enter = self.state.read(cx).settings.enter_to_send;
         let is_saved = conversation.peer_id.as_deref() == self.state.read(cx).servers.get(&self.server_id).map(|s| s.self_id());
         let telegram = self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.entry.is_telegram());
-        let placeholder = if telegram { "Message on Telegram".to_string() } else if is_saved { "Write a note to yourself".to_string() } else if conversation.kind == "channel" { format!("Message #{}", conversation.title) } else { format!("Message {}", conversation.title) };
+        let placeholder = if telegram {
+            t("composer.placeholderTelegram").to_string()
+        } else if is_saved {
+            t("composer.placeholderSaved").to_string()
+        } else if conversation.kind == "channel" {
+            tr!("composer.placeholderChannel", name = conversation.title)
+        } else {
+            tr!("composer.placeholder", name = conversation.title)
+        };
         let draft = self.state.read(cx).drafts.get(&conversation.key).cloned().unwrap_or_default();
         let no_draft = draft.is_empty();
         self.composer.update(cx, |input, cx| {
@@ -683,11 +693,8 @@ impl Render for ChatView {
                                     .text_size(px(13.))
                                     .text_color(theme.amber_text)
                                     .child(icon("shield-alert", 16., theme.amber))
-                                    .child(div().flex_1().min_w_0().child(format!(
-                                        "{}'s security key changed. This can mean someone is intercepting this chat. Compare keys before sharing anything private.",
-                                        conversation.title
-                                    )))
-                                    .child(button("verify", ButtonKind::Default, ButtonSize::Small, false, cx).child("Verify").on_click(move |_, _, cx| {
+                                    .child(div().flex_1().min_w_0().child(tr!("chat.keyChanged.banner", name = conversation.title)))
+                                    .child(button("verify", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("chat.keyChanged.verify")).on_click(move |_, _, cx| {
                                         state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: user_id.clone() }), cx))
                                     })),
                             ),
@@ -742,8 +749,8 @@ impl Render for ChatView {
                                 .border_color(theme.line_strong)
                                 .text_color(theme.text1)
                                 .child(div().mb(px(4.)).child(icon("upload", 26., theme.text2)))
-                                .child(div().font_weight(FontWeight::MEDIUM).child("Drop to send"))
-                                .child(div().text_size(px(13.)).text_color(theme.text2).child("Files are encrypted before they leave this device")),
+                                .child(div().font_weight(FontWeight::MEDIUM).child(t("chat.drop.title")))
+                                .child(div().text_size(px(13.)).text_color(theme.text2).child(t("chat.drop.hint"))),
                         )
                         .enter("drop-overlay", Enter::Fade, 80),
                 )

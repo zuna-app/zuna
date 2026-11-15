@@ -79,7 +79,7 @@ pub fn screens() -> Vec<Source> {
                 let _ = DeleteDC(memory);
                 thumb
             };
-            Source { id: format!("screen:{index}:{},{}", rect.left, rect.top), name: if single { "Entire screen".into() } else { format!("Screen {}", index + 1) }, screen: true, thumbnail }
+            Source { id: format!("screen:{index}:{},{}", rect.left, rect.top), name: if single { crate::i18n::t("voice.screens.entire").into() } else { tr!("voice.screens.numbered", number = index + 1) }, screen: true, thumbnail }
         })
         .collect();
     unsafe { ReleaseDC(None, desktop) };

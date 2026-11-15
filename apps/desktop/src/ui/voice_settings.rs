@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 
 use super::components::*;
 use super::settings::SettingsView;
+use crate::i18n::{mark, t};
 use crate::state::AppState;
 use crate::theme::{RADIUS_M, RADIUS_S};
 use crate::voice::rules::{SCREEN_DEFAULT_FPS, automatic_kbps};
@@ -22,10 +23,11 @@ fn percent(level: f32) -> f32 {
     ((level - METER_FLOOR) / -METER_FLOOR).clamp(0., 1.)
 }
 
+/// Each choice, with the keys of its name and its hint.
 const NOISE_CHOICES: [(&str, &str, &str); 3] = [
-    ("zuna", "Enhanced", "Removes fan, keyboard and traffic noise. Runs on this device."),
-    ("standard", "Standard", "WebRTC's built-in filter. Uses less CPU."),
-    ("off", "Off", "For a good microphone in a quiet room."),
+    ("zuna", mark("voice.settings.noiseEnhanced"), mark("voice.settings.noiseEnhancedHint")),
+    ("standard", mark("voice.settings.noiseStandard"), mark("voice.settings.noiseStandardHint")),
+    ("off", mark("common.off"), mark("voice.settings.noiseOffHint")),
 ];
 
 fn label_with(label: &str, value: String, cx: &App) -> AnyElement {
@@ -202,7 +204,7 @@ impl VoiceSettingsPage {
 
     fn device_select(&self, id: &'static str, label: &str, input: bool, current: &str, cx: &mut Context<Self>) -> AnyElement {
         let devices = crate::devices::sound(input);
-        let shown = devices.iter().find(|device| device.id == current).map(|device| device.name.clone()).unwrap_or_else(|| "Default".into());
+        let shown = devices.iter().find(|device| device.id == current).map(|device| device.name.clone()).unwrap_or_else(|| t("media.devices.default").into());
         let choices = devices
             .into_iter()
             .map(|device| {
@@ -219,7 +221,7 @@ impl VoiceSettingsPage {
 
     fn camera_select(&self, current: &str, cx: &mut Context<Self>) -> AnyElement {
         let cameras = crate::devices::cameras();
-        let shown = cameras.iter().find(|camera| camera.id == current).map(|camera| camera.name.clone()).unwrap_or_else(|| "Default".into());
+        let shown = cameras.iter().find(|camera| camera.id == current).map(|camera| camera.name.clone()).unwrap_or_else(|| t("media.devices.default").into());
         let choices = cameras
             .into_iter()
             .map(|camera| {
@@ -231,7 +233,7 @@ impl VoiceSettingsPage {
                 (camera.name, action)
             })
             .collect();
-        field(plain_label("Camera", cx), select_box("camera-device", shown, choices, cx), None, cx)
+        field(plain_label(t("voice.settings.camera"), cx), select_box("camera-device", shown, choices, cx), None, cx)
     }
 
     fn slider_field(&self, id: &'static str, label: &str, value: String, fraction: f32, hint: Option<&str>, on_change: impl Fn(f32, &mut App) + 'static, cx: &mut Context<Self>) -> AnyElement {
@@ -306,7 +308,7 @@ impl VoiceSettingsPage {
         let content: AnyElement = match (&self.camera, &self.camera_image) {
             (Some(_), Some((_, image))) => img(image.clone()).w_full().max_h(px(260.)).object_fit(gpui::ObjectFit::Contain).rounded(RADIUS_M).into_any_element(),
             (Some(_), None) => spinner(18., theme.text2).into_any_element(),
-            (None, _) => button("try-camera", ButtonKind::Default, ButtonSize::Normal, false, cx).child(div().flex().items_center().gap(px(6.)).child(icon("camera", 15., theme.text1)).child("Preview camera")).on_click(cx.listener(|page, _, _, cx| page.toggle_camera(cx))).into_any_element(),
+            (None, _) => button("try-camera", ButtonKind::Default, ButtonSize::Normal, false, cx).child(div().flex().items_center().gap(px(6.)).child(icon("camera", 15., theme.text1)).child(t("voice.settings.previewCamera"))).on_click(cx.listener(|page, _, _, cx| page.toggle_camera(cx))).into_any_element(),
         };
         div()
             .id("camera-preview")
@@ -334,10 +336,10 @@ impl Render for VoiceSettingsPage {
         let in_call = voice.status != VoiceStatus::Idle;
         let testing = voice.testing_mic();
         let meter_now = meter(voice, cx);
-        let mut parts: Vec<AnyElement> = vec![SettingsView::heading("Voice and video", &theme), subhead("Input")];
-        parts.push(self.device_select("input-device", "Input device", true, &settings.input_device, cx));
+        let mut parts: Vec<AnyElement> = vec![SettingsView::heading(t("settings.sections.voice"), &theme), subhead(t("voice.settings.input"))];
+        parts.push(self.device_select("input-device", t("voice.settings.inputDevice"), true, &settings.input_device, cx));
         let voice_entity = self.voice.clone();
-        parts.push(self.slider_field("input-volume", "Input volume", format!("{}%", (settings.input_volume * 100.).round()), settings.input_volume / 2., None, {
+        parts.push(self.slider_field("input-volume", t("voice.settings.inputVolume"), format!("{}%", (settings.input_volume * 100.).round()), settings.input_volume / 2., None, {
             let voice = voice_entity.clone();
             move |fraction, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.input_volume = fraction * 2., cx))
         }, cx));
@@ -346,16 +348,16 @@ impl Render for VoiceSettingsPage {
         let support = crate::platform::ptt::support();
         let no_push_to_talk = support.is_some_and(|support| !support.anywhere);
         let why_not = support.and_then(|support| support.why).filter(|_| no_push_to_talk).map(|why| match why {
-            crate::platform::NoKeyWatch::Uninstalled => "Push to talk needs an installed copy of Zuna, since your system only gives global shortcuts to installed apps. Start Zuna from your applications menu, or install your distribution's package.",
-            crate::platform::NoKeyWatch::Compositor => "Your compositor doesn't support global shortcuts, so push to talk can't work here.",
-            crate::platform::NoKeyWatch::Permission => "Push to talk needs Input Monitoring. Allow Zuna in System Settings, under Privacy & Security, then Input Monitoring, and open Zuna again.",
+            crate::platform::NoKeyWatch::Uninstalled => t("voice.settings.pttUninstalled"),
+            crate::platform::NoKeyWatch::Compositor => t("voice.settings.pttCompositor"),
+            crate::platform::NoKeyWatch::Permission => t("voice.settings.pttPermission"),
         });
         parts.push(field(
-            plain_label("Input mode", cx),
+            plain_label(t("voice.settings.inputMode"), cx),
             div().flex().child(segmented(
                 "voice-mode",
                 &settings.input_mode,
-                &[("voice", "Voice activity"), ("ptt", "Push to talk")],
+                &[("voice", t("voice.settings.voiceActivity")), ("ptt", t("voice.settings.pushToTalk"))],
                 if no_push_to_talk { &["ptt"] } else { &[] },
                 Rc::new(move |mode, cx| mode_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.input_mode = mode.into(), cx))),
                 cx,
@@ -366,12 +368,12 @@ impl Render for VoiceSettingsPage {
         if settings.input_mode == "voice" {
             let auto = settings.auto_sensitivity;
             let auto_voice = voice_entity.clone();
-            parts.push(SettingsView::row("Automatic sensitivity", Some("Detects when you're talking, so you don't have to set a level."), switch("auto-sensitivity", auto, cx).on_click(move |_, _, cx| auto_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.auto_sensitivity = !auto, cx))), &theme));
+            parts.push(SettingsView::row(t("voice.settings.autoSensitivity"), Some(t("voice.settings.autoSensitivityHint")), switch("auto-sensitivity", auto, cx).on_click(move |_, _, cx| auto_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.auto_sensitivity = !auto, cx))), &theme));
             if !auto {
                 let sense_voice = voice_entity.clone();
                 let fraction = (settings.sensitivity - METER_FLOOR) / -METER_FLOOR;
                 parts.push(field(
-                    label_with("Sensitivity", format!("{} dB", settings.sensitivity), cx),
+                    label_with(t("voice.settings.sensitivity"), format!("{} dB", settings.sensitivity), cx),
                     threshold(meter_now, fraction, move |fraction, cx| {
                         let level = (METER_FLOOR + fraction * -METER_FLOOR).round();
                         sense_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.sensitivity = level, cx));
@@ -381,29 +383,31 @@ impl Render for VoiceSettingsPage {
                 ));
             }
         } else {
-            let label = if self.choosing_key { "Press a key".to_string() } else { key_name(&settings.ptt_key) };
+            let label = if self.choosing_key { t("voice.settings.pressKey").to_string() } else { key_name(&settings.ptt_key) };
             let choosing = self.choosing_key;
             // Where the system binds the key itself, it may ask, and give another.
             let key_hint = if support.is_some_and(|support| !support.mouse) {
-                let bound = self.voice.read(cx).key_bound.as_ref().map(|key| format!(" Currently {key}.")).unwrap_or_default();
-                format!("Works in any window. Your system asks you to confirm the key, and may suggest another.{bound}")
+                match self.voice.read(cx).key_bound.as_ref() {
+                    Some(key) => tr!("voice.settings.pttHintConfirmBound", key = key),
+                    None => t("voice.settings.pttHintConfirm").to_string(),
+                }
             } else {
-                "Works in any window.".into()
+                t("voice.settings.pttHint").into()
             };
             parts.push(SettingsView::row(
-                "Push-to-talk key",
+                t("voice.settings.pttKey"),
                 Some(&key_hint),
                 button("ptt-key", ButtonKind::Default, ButtonSize::Normal, false, cx).min_w(px(150.)).when(choosing, |el| el.border_1().border_color(theme.accent)).child(label).on_click(cx.listener(|page, _, _, cx| page.choose_key(cx))),
                 &theme,
             ));
             let release_voice = voice_entity.clone();
-            parts.push(self.slider_field("ptt-release", "Release delay", format!("{} ms", settings.ptt_release as u32), settings.ptt_release / 1000., None, move |fraction, cx| {
+            parts.push(self.slider_field("ptt-release", t("voice.settings.releaseDelay"), format!("{} ms", settings.ptt_release as u32), settings.ptt_release / 1000., None, move |fraction, cx| {
                 let value = (fraction * 100.).round() * 10.;
                 release_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.ptt_release = value, cx));
             }, cx));
         }
         if settings.input_mode != "voice" || settings.auto_sensitivity {
-            parts.push(field(plain_label("Input level", cx), meter(self.voice.read(cx), cx), None, cx));
+            parts.push(field(plain_label(t("voice.settings.inputLevel"), cx), meter(self.voice.read(cx), cx), None, cx));
         }
         if !in_call {
             let test_voice = voice_entity.clone();
@@ -412,25 +416,25 @@ impl Render for VoiceSettingsPage {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(button("mic-test", ButtonKind::Default, ButtonSize::Normal, false, cx).child(if testing { "Stop test" } else { "Test microphone" }).on_click(move |_, _, cx| test_voice.update(cx, |voice, cx| voice.toggle_mic_test(cx))))
-                    .when(testing, |el| el.child(div().text_size(px(12.5)).text_color(theme.text3).child("You're hearing what others hear.")))
-                    .when(!testing, |el| el.child(div().text_size(px(12.5)).text_color(theme.text3).child("Use headphones to avoid hearing yourself twice.")))
+                    .child(button("mic-test", ButtonKind::Default, ButtonSize::Normal, false, cx).child(if testing { t("voice.settings.stopTest") } else { t("voice.settings.testMic") }).on_click(move |_, _, cx| test_voice.update(cx, |voice, cx| voice.toggle_mic_test(cx))))
+                    .when(testing, |el| el.child(div().text_size(px(12.5)).text_color(theme.text3).child(t("voice.settings.hearingYourself"))))
+                    .when(!testing, |el| el.child(div().text_size(px(12.5)).text_color(theme.text3).child(t("voice.settings.useHeadphones"))))
                     .into_any_element(),
             );
         }
 
-        parts.push(subhead("Output"));
-        parts.push(self.device_select("output-device", "Output device", false, &settings.output_device, cx));
-        parts.push(self.slider_field("output-volume", "Output volume", format!("{}%", (settings.output_volume * 100.).round()), settings.output_volume / 2., None, {
+        parts.push(subhead(t("voice.settings.output")));
+        parts.push(self.device_select("output-device", t("voice.settings.outputDevice"), false, &settings.output_device, cx));
+        parts.push(self.slider_field("output-volume", t("voice.settings.outputVolume"), format!("{}%", (settings.output_volume * 100.).round()), settings.output_volume / 2., None, {
             let voice = voice_entity.clone();
             move |fraction, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.output_volume = fraction * 2., cx))
         }, cx));
         parts.push(self.slider_field(
             "soundboard-volume-setting",
-            "Soundboard volume",
-            if settings.soundboard_volume == 0. { "off".into() } else { format!("{}%", (settings.soundboard_volume * 100.).round()) },
+            t("voice.settings.soundboardVolume"),
+            if settings.soundboard_volume == 0. { t("voice.settings.soundboardOff").into() } else { format!("{}%", (settings.soundboard_volume * 100.).round()) },
             settings.soundboard_volume,
-            Some("At 0, soundboard sounds don't play for you."),
+            Some(t("voice.settings.soundboardVolumeHint")),
             {
                 let voice = voice_entity.clone();
                 move |fraction, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.soundboard_volume = fraction, cx))
@@ -438,7 +442,7 @@ impl Render for VoiceSettingsPage {
             cx,
         ));
 
-        parts.push(subhead("Voice processing"));
+        parts.push(subhead(t("voice.settings.processing")));
         let mut noise = div().flex().flex_col().gap(px(6.));
         for (id, label, hint) in NOISE_CHOICES {
             let active = settings.noise_suppression == id;
@@ -455,24 +459,24 @@ impl Render for VoiceSettingsPage {
                     .when(!active, |el| el.hover(move |style| style.bg(theme.hover)))
                     .cursor_pointer()
                     .on_click(move |_, _, cx| noise_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.noise_suppression = id.into(), cx)))
-                    .child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).child(label))
-                    .child(div().text_size(px(12.5)).text_color(theme.text2).child(hint)),
+                    .child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).child(t(label)))
+                    .child(div().text_size(px(12.5)).text_color(theme.text2).child(t(hint))),
             );
         }
-        parts.push(field(plain_label("Noise suppression", cx), noise, None, cx));
+        parts.push(field(plain_label(t("voice.settings.noiseSuppression"), cx), noise, None, cx));
         let toggle_row = |id: &'static str, title: &'static str, hint: &'static str, on: bool, set: fn(&mut VoiceSettings, bool), voice: Entity<Voice>, cx: &mut Context<Self>| {
             SettingsView::row(title, Some(hint), switch(id, on, cx).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| set(settings, !on), cx))), &theme)
         };
-        parts.push(toggle_row("echo", "Echo cancellation", "Stops your microphone from picking up your speakers.", settings.echo_cancellation, |settings, on| settings.echo_cancellation = on, voice_entity.clone(), cx));
-        parts.push(toggle_row("auto-gain", "Automatic gain control", "Keeps your voice at a steady level.", settings.auto_gain, |settings, on| settings.auto_gain = on, voice_entity.clone(), cx));
+        parts.push(toggle_row("echo", t("voice.settings.echoCancellation"), t("voice.settings.echoCancellationHint"), settings.echo_cancellation, |settings, on| settings.echo_cancellation = on, voice_entity.clone(), cx));
+        parts.push(toggle_row("auto-gain", t("voice.settings.autoGain"), t("voice.settings.autoGainHint"), settings.auto_gain, |settings, on| settings.auto_gain = on, voice_entity.clone(), cx));
 
-        parts.push(subhead("Video"));
+        parts.push(subhead(t("voice.settings.video")));
         parts.push(self.camera_select(&settings.camera_device, cx));
         parts.push(self.camera_preview(cx));
 
-        parts.push(subhead("Voice channels"));
-        parts.push(toggle_row("voice-sounds", "Sound effects", "When people join or leave, and when you mute.", settings.sounds, |settings, on| settings.sounds = on, voice_entity.clone(), cx));
-        parts.push(toggle_row("start-muted", "Join muted", "Your microphone starts off in every voice channel.", settings.start_muted, |settings, on| settings.start_muted = on, voice_entity, cx));
+        parts.push(subhead(t("voice.settings.voiceChannels")));
+        parts.push(toggle_row("voice-sounds", t("voice.settings.soundEffects"), t("voice.settings.soundEffectsHint"), settings.sounds, |settings, on| settings.sounds = on, voice_entity.clone(), cx));
+        parts.push(toggle_row("start-muted", t("voice.settings.joinMuted"), t("voice.settings.joinMutedHint"), settings.start_muted, |settings, on| settings.start_muted = on, voice_entity, cx));
         div().flex().flex_col().gap(px(14.)).children(parts)
     }
 }
@@ -519,39 +523,39 @@ impl Render for ScreenSettingsPage {
         let toggle = |id: &'static str, title: &str, hint: Option<&str>, on: bool, change: fn(&mut VoiceSettings, bool), voice: Entity<Voice>, cx: &mut Context<Self>| {
             SettingsView::row(title, hint, switch(id, on, cx).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.update_settings(move |settings| change(settings, !on), cx))), &theme)
         };
-        let mut parts: Vec<AnyElement> = vec![SettingsView::heading("Screen sharing", &theme)];
+        let mut parts: Vec<AnyElement> = vec![SettingsView::heading(t("settings.sections.screen"), &theme)];
         if let Some(limits) = &limits {
             parts.push(note(limits));
         }
 
-        parts.push(subhead("Quality"));
+        parts.push(subhead(t("voice.screenSettings.quality")));
         let resolutions: Vec<u32> = std::iter::once(0).chain(SCREEN_HEIGHTS).collect();
-        parts.push(number_select("screen-resolution", "Resolution", Some(settings.screen_resolution), &resolutions, height_name, None, limit(shown.max_height), set(&self.voice, Rc::new(|settings, value| settings.screen_resolution = value.unwrap_or(0))), cx));
-        parts.push(number_select("screen-frame-rate", "Frame rate", Some(settings.screen_frame_rate), &SCREEN_RATES, rate_name, None, limit(shown.max_fps), set(&self.voice, Rc::new(|settings, value| settings.screen_frame_rate = value.unwrap_or(SCREEN_DEFAULT_FPS))), cx));
-        parts.push(number_select("screen-max-bitrate", "Max bitrate", settings.screen_max_bitrate, &SCREEN_BITRATES, bitrate_name, Some(format!("Automatic ({})", bitrate_name(automatic))), limit(shown.max_kbps), set(&self.voice, Rc::new(|settings, value| settings.screen_max_bitrate = value)), cx));
-        parts.push(hint_text("This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."));
-        parts.push(toggle("screen-cursor", "Show cursor", None, settings.screen_cursor, |settings, on| settings.screen_cursor = on, self.voice.clone(), cx));
+        parts.push(number_select("screen-resolution", t("voice.screenSettings.resolution"), Some(settings.screen_resolution), &resolutions, height_name, None, limit(shown.max_height), set(&self.voice, Rc::new(|settings, value| settings.screen_resolution = value.unwrap_or(0))), cx));
+        parts.push(number_select("screen-frame-rate", t("voice.screenSettings.frameRate"), Some(settings.screen_frame_rate), &SCREEN_RATES, rate_name, None, limit(shown.max_fps), set(&self.voice, Rc::new(|settings, value| settings.screen_frame_rate = value.unwrap_or(SCREEN_DEFAULT_FPS))), cx));
+        parts.push(number_select("screen-max-bitrate", t("voice.stats.maxBitrate"), settings.screen_max_bitrate, &SCREEN_BITRATES, bitrate_name, Some(tr!("voice.screenSettings.automaticBitrate", bitrate = bitrate_name(automatic))), limit(shown.max_kbps), set(&self.voice, Rc::new(|settings, value| settings.screen_max_bitrate = value)), cx));
+        parts.push(hint_text(t("voice.screenSettings.maxBitrateHint")));
+        parts.push(toggle("screen-cursor", t("voice.screenSettings.cursor"), None, settings.screen_cursor, |settings, on| settings.screen_cursor = on, self.voice.clone(), cx));
 
-        parts.push(subhead("Audio"));
+        parts.push(subhead(t("voice.screenSettings.audio")));
         if shown.sound {
-            parts.push(toggle("sound-default", "Include audio", Some("Sharing a screen includes your computer's audio, and sharing a window includes that app's audio. You can change this each time."), settings.screen_sound_by_default, |settings, on| settings.screen_sound_by_default = on, self.voice.clone(), cx));
+            parts.push(toggle("sound-default", t("voice.screenSettings.includeAudio"), Some(t("voice.screenSettings.includeAudioHint")), settings.screen_sound_by_default, |settings, on| settings.screen_sound_by_default = on, self.voice.clone(), cx));
         } else {
-            parts.push(note("This server doesn't allow audio in screen shares."));
+            parts.push(note(t("voice.screenSettings.noAudio")));
         }
 
-        parts.push(subhead("Watching"));
-        parts.push(toggle("screen-focus", "Open screen shares automatically", Some("A screen share fills the stage when it starts, unless you're watching something else."), settings.screen_focus, |settings, on| settings.screen_focus = on, self.voice.clone(), cx));
+        parts.push(subhead(t("voice.screenSettings.watching")));
+        parts.push(toggle("screen-focus", t("voice.screenSettings.autoOpen"), Some(t("voice.screenSettings.autoOpenHint")), settings.screen_focus, |settings, on| settings.screen_focus = on, self.voice.clone(), cx));
         let volume_voice = self.voice.clone();
-        parts.push(field(label_with("Screen share volume", format!("{}%", (settings.screen_volume * 100.).round()), cx), slider("screen-volume-setting", settings.screen_volume / 2., move |fraction, _, cx| volume_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_volume = fraction * 2., cx)), cx), None, cx));
+        parts.push(field(label_with(t("voice.screenSettings.volume"), format!("{}%", (settings.screen_volume * 100.).round()), cx), slider("screen-volume-setting", settings.screen_volume / 2., move |fraction, _, cx| volume_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_volume = fraction * 2., cx)), cx), None, cx));
 
         // Encoded here on Windows and Linux; macOS hands VideoToolbox H.264.
         #[cfg(not(target_os = "macos"))]
         {
-            parts.push(subhead("Advanced"));
+            parts.push(subhead(t("voice.screenSettings.advanced")));
             #[cfg(target_os = "windows")]
-            let encoders: &[(&str, &str)] = &[("auto", "Automatic"), ("h264_nvenc", "NVIDIA (NVENC)"), ("h264_amf", "AMD (AMF)"), ("h264_mf", "Intel or other (Media Foundation)")];
+            let encoders: &[(&str, &str)] = &[("auto", t("voice.screenSettings.automatic")), ("h264_nvenc", "NVIDIA (NVENC)"), ("h264_amf", "AMD (AMF)"), ("h264_mf", t("voice.screenSettings.encoderMediaFoundation"))];
             #[cfg(not(target_os = "windows"))]
-            let encoders: &[(&str, &str)] = &[("auto", "Automatic"), ("h264_nvenc", "NVIDIA (NVENC)"), ("h264_vaapi", "AMD or Intel (VA-API)")];
+            let encoders: &[(&str, &str)] = &[("auto", t("voice.screenSettings.automatic")), ("h264_nvenc", "NVIDIA (NVENC)"), ("h264_vaapi", t("voice.screenSettings.encoderVaapi"))];
             let current = encoders.iter().find(|(id, _)| *id == settings.screen_encoder).map(|(_, name)| name.to_string()).unwrap_or_else(|| encoders[0].1.into());
             let choices = encoders
                 .iter()
@@ -564,11 +568,11 @@ impl Render for ScreenSettingsPage {
                     (name.to_string(), action)
                 })
                 .collect();
-            parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("Automatic uses the graphics card connected to your display. If the one you pick can't be used, the share won't start and you'll see why."), cx));
+            parts.push(field(plain_label(t("voice.stats.encoder"), cx), select_box("screen-encoder", current, choices, cx), Some(t("voice.screenSettings.encoderHint")), cx));
             let codec_voice = self.voice.clone();
             parts.push(SettingsView::row(
-                "Codec",
-                Some("AV1 is experimental and needs a graphics card that can encode it. It looks sharper at the same bitrate, but only Zuna's desktop app can play it."),
+                t("voice.stats.codec"),
+                Some(t("voice.screenSettings.codecHint")),
                 segmented("screen-codec", &settings.screen_codec, &[("h264", "H.264"), ("av1", "AV1")], &[], Rc::new(move |codec, cx| codec_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_codec = codec.into(), cx))), cx),
                 &theme,
             ));

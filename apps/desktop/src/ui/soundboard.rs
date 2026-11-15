@@ -6,6 +6,7 @@ use gpui::{AnyElement, Anchor, App, Entity, FontWeight, IntoElement, ParentEleme
 
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
+use crate::i18n::t;
 use crate::state::{AppState, Overlay};
 use crate::theme::{RADIUS_L, RADIUS_M, RADIUS_S};
 use crate::voice::Voice;
@@ -13,17 +14,17 @@ use crate::voice::Voice;
 /// Why this person can't play a sound in the room they're in, if they can't.
 fn refusal(voice: &Voice, room_sounds: bool) -> Option<&'static str> {
     if !room_sounds {
-        return Some("The soundboard is off in this voice channel.");
+        return Some(t("server.theSoundboardIsOffIn"));
     }
     if voice.server_muted {
-        return Some("An admin muted you, so you can't play sounds.");
+        return Some(t("server.anAdminMutedYouSo"));
     }
     if voice.deafened {
-        return Some("Undeafen to play sounds.");
+        return Some(t("server.undeafenToPlaySounds"));
     }
     // Without a microphone, someone can only listen, and so they're muted.
     if voice.muted || voice.no_mic {
-        return Some("Unmute to play sounds.");
+        return Some(t("server.unmuteToPlaySounds"));
     }
     None
 }
@@ -45,7 +46,7 @@ pub fn soundboard_button(state: &Entity<AppState>, voice_entity: &Entity<Voice>,
         .bg(if open { theme.accent } else { theme.bg3 })
         .cursor_pointer()
         .hover(move |style| if open { style } else { style.bg(theme.bg4) })
-        .tip("Soundboard", Side::Top)
+        .tip(t("voice.soundboard.title"), Side::Top)
         .on_click(move |_, _, cx| {
             toggle.update(cx, |voice, cx| {
                 voice.soundboard_open = !voice.soundboard_open;
@@ -135,8 +136,8 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.text1)
                 .child(icon("audio-lines", 15., theme.text2))
-                .child(div().flex_1().child("Soundboard"))
-                .when(is_admin, |el| el.child(icon_button("soundboard-manage", "settings", 15., true, false, cx).tip("Add and change sounds", Side::Bottom).on_click(move |_, _, cx| manage(cx)))),
+                .child(div().flex_1().child(t("voice.soundboard.title")))
+                .when(is_admin, |el| el.child(icon_button("soundboard-manage", "settings", 15., true, false, cx).tip(t("voice.soundboard.manage"), Side::Bottom).on_click(move |_, _, cx| manage(cx)))),
         )
         .when(refusal.is_some() && !sounds.is_empty(), |el| el.child(div().text_size(px(12.5)).text_color(theme.text2).bg(theme.bg2).rounded(RADIUS_S).px(px(9.)).py(px(6.)).child(refusal.unwrap_or_default())))
         .child(if sounds.is_empty() {
@@ -148,11 +149,11 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 .px(px(2.))
                 .text_size(px(13.))
                 .text_color(theme.text2)
-                .child("This server has no sounds yet.")
+                .child(t("voice.soundboard.empty"))
                 .child(if is_admin {
-                    div().id("soundboard-add").font_weight(FontWeight::MEDIUM).text_color(theme.accent_text).cursor_pointer().on_click(move |_, _, cx| manage_link(cx)).child("Add some").into_any_element()
+                    div().id("soundboard-add").font_weight(FontWeight::MEDIUM).text_color(theme.accent_text).cursor_pointer().on_click(move |_, _, cx| manage_link(cx)).child(t("voice.soundboard.addSome")).into_any_element()
                 } else {
-                    div().child("Admins can add them.").into_any_element()
+                    div().child(t("voice.soundboard.adminsCanAdd")).into_any_element()
                 })
                 .into_any_element()
         } else {
@@ -171,7 +172,7 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 .border_color(theme.line)
                 .text_size(px(12.5))
                 .text_color(theme.text2)
-                .child(div().flex().gap(px(4.)).child("Volume").child(div().font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(format!("{}%", (volume * 100.).round()))))
+                .child(div().flex().gap(px(4.)).child(t("voice.soundboard.volume")).child(div().font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(format!("{}%", (volume * 100.).round()))))
                 .child(slider("soundboard-volume", volume, move |value, _, cx| slide.update(cx, |voice, cx| voice.update_settings(|settings| settings.soundboard_volume = value, cx)), cx)),
         )
         .into_any_element()

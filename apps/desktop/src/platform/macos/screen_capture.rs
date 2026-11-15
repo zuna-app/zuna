@@ -248,7 +248,7 @@ pub fn capture(picked: Picked, max_height: u32, fps: u32, cursor: bool, on_pictu
             if let Some(error) = error.as_ref() {
                 let problem = error.localizedDescription().to_string();
                 log::warn!("the screen capture didn't start: {problem}");
-                failed(Some(format!("The screen capture didn't start: {problem}")));
+                failed(Some(tr!("voice.screens.captureFailed", problem = problem)));
             }
         });
         stream.startCaptureWithCompletionHandler(Some(&started));

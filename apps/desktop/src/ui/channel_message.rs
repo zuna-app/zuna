@@ -10,6 +10,7 @@ use super::motion::{Enter, Motion};
 use super::menu::open_menu_with_reactions;
 use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, emote_placeholder, emote_width, jumbo_body, menu_entries, name_of, system_text, text_body, with_emote_card};
 use crate::format::{format_day, format_full, format_stamp, format_time, name_color};
+use crate::i18n::t;
 use crate::markup;
 use crate::models::{MessageView, ReactionView};
 use crate::state::Overlay;
@@ -61,7 +62,7 @@ pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, wi
                     .line_height(px(13.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(gpui::white())
-                    .child("NEW"),
+                    .child(t("channels.newLine")),
             );
         }
         row = row.child(line);
@@ -77,7 +78,7 @@ pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, wi
 /// The top of a channel's history, as in Discord.
 fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let title = context.channel_title.clone();
-    let mut text = format!("This is the start of the #{title} channel.");
+    let mut text = tr!("channels.welcome.start", name = title);
     if !context.channel_description.is_empty() {
         text.push(' ');
         text.push_str(&context.channel_description);
@@ -91,7 +92,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
         .items_start()
         // Its lines held to the column's width, to wrap where it's narrow, as beside a voice channel's stage.
         .child(div().size(px(68.)).rounded_full().bg(theme.bg3).flex().items_center().justify_center().child(if context.voice_channel { icon("volume-2", 40., theme.text1) } else { icon("hash", 44., theme.text1) }))
-        .child(div().w_full().my(px(8.)).text_size(px(32.)).line_height(px(40.)).font_weight(FontWeight::BOLD).child(format!("Welcome to #{title}!")))
+        .child(div().w_full().my(px(8.)).text_size(px(32.)).line_height(px(40.)).font_weight(FontWeight::BOLD).child(tr!("channels.welcome.title", name = title)))
         .child(div().w_full().text_size(px(16.)).line_height(px(22.)).text_color(theme.text2).child(text))
         .child(
             div()
@@ -104,7 +105,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .line_height(px(18.))
                 .text_color(theme.channel_muted)
                 .child(div().mt(px(2.)).child(icon("lock", 13., theme.channel_muted)))
-                .child(div().flex_1().min_w_0().child(if context.admin_only { "End-to-end encrypted. Only admins can read it, and the server itself can't." } else { "End-to-end encrypted. Everyone on this server can read it, but the server itself can't." })),
+                .child(div().flex_1().min_w_0().child(if context.admin_only { t("channels.welcome.encryptedAdmins") } else { t("channels.welcome.encryptedEveryone") })),
         );
     if let (true, Some(channel_id)) = (context.is_server_admin, context.channel_id.clone()) {
         let state = context.state.clone();
@@ -122,7 +123,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .hover(|style| style.underline())
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(channel_id.clone()), category: None }), cx)))
                 .child(icon("pencil", 15., theme.link))
-                .child("Edit channel"),
+                .child(t("channels.edit")),
         );
     }
     let _ = cx;
@@ -191,7 +192,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
             .gap(px(6.))
             .text_size(px(14.))
             .text_color(theme.channel_muted)
-            .child("A message from someone you blocked.")
+            .child(t("channels.message.blocked"))
             .child(
                 named_div(SharedString::from(format!("show-{}", message.id)))
                     .text_color(theme.text2)
@@ -201,7 +202,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
                         revealed.borrow_mut().insert(id.clone());
                         state.update(cx, |_, cx| cx.notify());
                     })
-                    .child("Show"),
+                    .child(t("message.showBlocked")),
             )
             .into_any_element();
     }
@@ -214,7 +215,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
     let editing_here = context.editing_id.as_deref() == Some(message.id.as_str());
     // Whoever wrote one that hasn't opened isn't known yet: it's drawn as nobody's, with nothing to open.
     let known = !message.sender_id.is_empty();
-    let name = if known { context.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into()) } else { "Not known yet".into() };
+    let name = if known { context.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into()) } else { t("message.senderNotKnown").into() };
     let group = SharedString::from(format!("cmsg-{}", message.id));
     let mut entries = menu_entries(message, own, can_act, context);
     if can_act {
@@ -356,12 +357,12 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
     let dim = super::motion::delayed_dim(&format!("cmsg-{}", message.id), message.status == "sending", 500, 200, 0.55, 150, window);
     let mut body = div().min_w_0().flex().flex_col().when(dim < 1., |el| el.opacity(dim));
     let placeholder = if is_deleted {
-        Some(("Message deleted", false))
+        Some((t("message.deleted"), false))
     } else {
         match message.status.as_str() {
-            "undecryptable" => Some(("Waiting for this message's keys", false)),
-            "unverified" => Some(("This message couldn't be verified, so it isn't shown.", true)),
-            "invalid" => Some(("This message couldn't be displayed.", true)),
+            "undecryptable" => Some((t("message.waitingForKeys"), false)),
+            "unverified" => Some((t("message.unverified"), true)),
+            "invalid" => Some((t("message.invalid"), true)),
             _ => None,
         }
     };
@@ -386,23 +387,25 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
                     .pb(px(4.))
                     .child(div().min_h(px(44.)).px(px(16.)).py(px(11.)).rounded(px(8.)).bg(theme.bg3).line_height(px(22.)).child(editor))
                     .child(
-                        div()
-                            .mt(px(4.))
-                            .flex()
-                            .gap(px(3.))
-                            .text_size(px(12.))
-                            .text_color(theme.text2)
-                            .child("escape to")
-                            .child(
-                                div()
-                                    .id("inline-cancel")
-                                    .text_color(theme.link)
-                                    .cursor_pointer()
-                                    .hover(|style| style.underline())
-                                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_editing(&list_id, None, cx)))
-                                    .child("cancel"),
-                            )
-                            .child("• enter to save"),
+                        // "escape to cancel • enter to save", with "cancel" the link that does it.
+                        text_row(t("message.edit.hint"), true, |value| {
+                            if value != "cancel" {
+                                return div().child(t("message.edit.save")).into_any_element();
+                            }
+                            let (state, list_id) = (state.clone(), list_id.clone());
+                            div()
+                                .id("inline-cancel")
+                                .text_color(theme.link)
+                                .cursor_pointer()
+                                .hover(|style| style.underline())
+                                .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_editing(&list_id, None, cx)))
+                                .child(t("message.edit.cancel"))
+                                .into_any_element()
+                        })
+                        .mt(px(4.))
+                        .gap(px(3.))
+                        .text_size(px(12.))
+                        .text_color(theme.text2),
                     ),
             );
         }
@@ -423,8 +426,8 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
                     .text_color(theme.text2)
                     .child(icon("forward", 13., theme.text2))
                     .child(match from {
-                        Some(name) => format!("Forwarded from {name}"),
-                        None => "Forwarded".to_string(),
+                        Some(name) => tr!("message.forwardedFrom", name = name),
+                        None => t("message.forwarded").to_string(),
                     }),
             );
         }
@@ -433,13 +436,13 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
             let text = if jumbo > 0 { jumbo_body(message, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
             let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(text);
             if message.edited_at.is_some() {
-                line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(theme.channel_muted).child("(edited)"));
+                line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(theme.channel_muted).child(t("message.editedChannel")));
             }
             if message.time_differs == Some(true) {
-                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip("The sender's device reported a very different time for this message.")).child(icon("shield-alert", 13., theme.channel_muted)));
+                line = line.child(div().id(SharedString::from(format!("time-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(t("message.meta.timeDiffers"))).child(icon("shield-alert", 13., theme.channel_muted)));
             }
             if let Some(expires) = message.expires_at {
-                line = line.child(div().id(SharedString::from(format!("timer-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(format!("Disappears {}", format_full(expires)))).child(icon("timer", 12., theme.channel_muted)));
+                line = line.child(div().id(SharedString::from(format!("timer-flag-{}", message.id))).ml(px(4.)).tooltip(tooltip(tr!("message.disappears", date = format_full(expires)))).child(icon("timer", 12., theme.channel_muted)));
             }
             body = body.child(line);
         }
@@ -477,7 +480,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
                 .cursor_pointer()
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("retryMessage", vec![json!(group_id), json!(id)], cx)))
                 .child(icon("circle-alert", 13., theme.red))
-                .child("Not sent. Try again"),
+                .child(t("message.notSent")),
         );
     }
     row = row.child(main.child(body));
@@ -490,11 +493,11 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
 /// What a message answers: above it, joined to its picture by a line.
 fn channel_reply(message: &MessageView, reply: &crate::models::ReplyPreview, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let blocked = context.blocked.contains(&reply.sender_id);
-    let name = context.users.get(&reply.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+    let name = context.users.get(&reply.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into());
     let text = if reply.deleted {
-        "Original message was deleted".to_string()
+        t("message.reply.deleted").to_string()
     } else if blocked {
-        "Message from someone you blocked".to_string()
+        t("message.reply.blocked").to_string()
     } else {
         markup::plain_text(&reply.text)
     };
@@ -532,7 +535,7 @@ fn channel_reply(message: &MessageView, reply: &crate::models::ReplyPreview, con
             .hover(move |style| style.text_color(theme.text1))
             .when(empty, |el| el.italic())
             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &target, cx)))
-            .child(div().min_w_0().one_line().child(if empty { if reply.has_attachment { "Click to see attachment".to_string() } else { "Click to see message".to_string() } } else { text }))
+            .child(div().min_w_0().one_line().child(if empty { if reply.has_attachment { t("message.reply.seeAttachment").to_string() } else { t("message.reply.seeMessage").to_string() } } else { text }))
             .when(empty && reply.has_attachment, |el| el.child(icon("image", 15., theme.text2))),
     );
     line.into_any_element()
@@ -591,7 +594,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
     {
         let state = context.state.clone();
         let (group_id, id) = (message.group_id.clone(), message.id.clone());
-        bar = bar.child(tool(format!("react-{}", message.id), "face-slightly-smiling-plus", 19., "Add reaction").on_click(move |event, window, cx| {
+        bar = bar.child(tool(format!("react-{}", message.id), "face-slightly-smiling-plus", 19., t("message.action.addReaction")).on_click(move |event, window, cx| {
             let state = state.clone();
             let (group_id, id) = (group_id.clone(), id.clone());
             super::picker::open_picker(
@@ -613,17 +616,17 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
     if can_edit {
         let state = context.state.clone();
         let (list_id, message) = (context.list_id.clone(), message.clone());
-        bar = bar.child(tool(format!("edit-{}", message.id), "pencil", 17., "Edit").on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_editing(&list_id, Some(message.clone()), cx))));
+        bar = bar.child(tool(format!("edit-{}", message.id), "pencil", 17., t("common.edit")).on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_editing(&list_id, Some(message.clone()), cx))));
     }
     {
         let state = context.state.clone();
         let (list_id, reply) = (context.list_id.clone(), message.clone());
-        bar = bar.child(tool(format!("reply-{}", message.id), "corner-up-left", 19., "Reply").on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply.clone()), cx))));
+        bar = bar.child(tool(format!("reply-{}", message.id), "corner-up-left", 19., t("message.action.reply")).on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply.clone()), cx))));
     }
     {
         let state = context.state.clone();
         let (server_id, group_id, id) = (context.server_id.clone(), message.group_id.clone(), message.id.clone());
-        bar = bar.child(tool(format!("forward-{}", message.id), "forward", 19., "Forward").on_click(move |_, _, cx| {
+        bar = bar.child(tool(format!("forward-{}", message.id), "forward", 19., t("message.action.forward")).on_click(move |_, _, cx| {
             let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: group_id.clone(), ids: vec![id.clone()] };
             state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
         }));
@@ -631,7 +634,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
     {
         let state = context.state.clone();
         let (group_id, id) = (message.group_id.clone(), message.id.clone());
-        bar = bar.child(tool(format!("more-{}", message.id), "ellipsis", 19., "More").on_click(move |event, _, cx| {
+        bar = bar.child(tool(format!("more-{}", message.id), "ellipsis", 19., t("message.action.more")).on_click(move |event, _, cx| {
             let state = state.clone();
             let (group_id, id) = (group_id.clone(), id.clone());
             open_menu_with_reactions(event.position(), entries.clone(), QUICK_REACTIONS.to_vec(), move |emoji, _, cx| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group_id), json!(id), json!(emoji)], cx)), true, cx);
@@ -681,7 +684,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
                 Some(image) => {
                     let picture = img(image).h(px(20.)).when_some(emote_width(context, &emote.id, 20., 44.), |el, width| el.w(px(width))).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
-                    chip.child(with_emote_card(picture, SharedString::from(format!("creaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(format!("Reacted by {names}")), context, cx))
+                    chip.child(with_emote_card(picture, SharedString::from(format!("creaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(tr!("message.reaction.reactedBy", names = names)), context, cx))
                 }
                 None => chip.child(emote_placeholder(context, &url, &reaction.key, emote_width(context, &emote.id, 20., 44.), 20., cx)),
             }

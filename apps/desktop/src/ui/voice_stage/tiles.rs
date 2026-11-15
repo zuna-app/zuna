@@ -22,19 +22,19 @@ impl VoiceStage {
             if !voice.server_muted && !voice.no_mic {
                 let voice = voice_entity.clone();
                 let off = voice_entity.read(cx).muted || voice_entity.read(cx).deafened;
-                entries.push(MenuEntry::new(if off { "Unmute" } else { "Mute" }, if off { "mic" } else { "mic-off" }, move |_, cx| voice.update(cx, |voice, cx| voice.toggle_mute(cx))));
+                entries.push(MenuEntry::new(if off { t("voice.controls.unmute") } else { t("voice.controls.mute") }, if off { "mic" } else { "mic-off" }, move |_, cx| voice.update(cx, |voice, cx| voice.toggle_mute(cx))));
             }
             let deafened = voice.deafened;
             let deafen = voice_entity.clone();
-            entries.push(MenuEntry::new(if deafened { "Undeafen" } else { "Deafen" }, if deafened { "headphones" } else { "headphone-off" }, move |_, cx| deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))));
+            entries.push(MenuEntry::new(if deafened { t("voice.controls.undeafen") } else { t("voice.controls.deafen") }, if deafened { "headphones" } else { "headphone-off" }, move |_, cx| deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))));
             let settings = self.state.clone();
-            entries.push(MenuEntry::new("Voice settings", "settings", move |_, cx| settings.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx))));
+            entries.push(MenuEntry::new(t("voice.controls.settings"), "settings", move |_, cx| settings.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx))));
         } else {
             let local_muted = voice.local_mutes.contains(&user_id);
             let (mute, user) = (voice_entity.clone(), user_id.clone());
-            entries.push(MenuEntry::new(if local_muted { "Unmute for me" } else { "Mute for me" }, if local_muted { "volume-2" } else { "volume-x" }, move |_, cx| mute.update(cx, |voice, cx| voice.toggle_local_mute(&user, cx))));
+            entries.push(MenuEntry::new(if local_muted { t("voice.stage.unmuteForMe") } else { t("voice.stage.muteForMe") }, if local_muted { "volume-2" } else { "volume-x" }, move |_, cx| mute.update(cx, |voice, cx| voice.toggle_local_mute(&user, cx))));
             let (verify, user) = (self.state.clone(), user_id.clone());
-            entries.push(MenuEntry::new("Verify with emoji", "lock", move |_, cx| verify.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user.clone() }), cx))));
+            entries.push(MenuEntry::new(t("voice.stage.verify"), "lock", move |_, cx| verify.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user.clone() }), cx))));
         }
         if can_moderate {
             entries.push(MenuEntry::separator());
@@ -54,11 +54,11 @@ impl VoiceStage {
             };
             let channel = serde_json::json!(self.room.id);
             let user = serde_json::json!(user_id);
-            entries.push(MenuEntry::new(if server_muted { "Let them talk" } else { "Mute for everyone" }, "shield-off", act("voiceMute", vec![channel.clone(), user.clone(), serde_json::json!(!server_muted)])));
+            entries.push(MenuEntry::new(if server_muted { t("voice.stage.letTalk") } else { t("voice.stage.muteForEveryone") }, "shield-off", act("voiceMute", vec![channel.clone(), user.clone(), serde_json::json!(!server_muted)])));
             if member.as_ref().is_some_and(|member| member.screen) {
-                entries.push(MenuEntry::new("Stop their screen share", "monitor-off", act("voiceScreenStopOf", vec![channel.clone(), user.clone()])));
+                entries.push(MenuEntry::new(t("voice.stage.stopTheirShare"), "monitor-off", act("voiceScreenStopOf", vec![channel.clone(), user.clone()])));
             }
-            entries.push(MenuEntry::new("Disconnect", "user-x", act("voiceDisconnect", vec![channel, user])).danger());
+            entries.push(MenuEntry::new(t("voice.controls.disconnect"), "user-x", act("voiceDisconnect", vec![channel, user])).danger());
         }
         let header: Option<Header> = (!is_self).then(|| {
             let (voice, user) = (voice_entity.clone(), user_id.clone());
@@ -84,9 +84,9 @@ impl VoiceStage {
                             voice.update(cx, |voice, cx| if stream_volume { voice.set_stream_volume(&user, fraction * 2., cx) } else { voice.set_volume(&user, fraction * 2., cx) })
                         }, cx))
                 };
-                let mut header = div().flex().flex_col().child(row("member-volume", "Volume", level, false, voice.clone(), user.clone(), cx));
+                let mut header = div().flex().flex_col().child(row("member-volume", t("voice.soundboard.volume"), level, false, voice.clone(), user.clone(), cx));
                 if stream_sound {
-                    header = header.child(row("member-stream-volume", "Stream volume", stream, true, voice.clone(), user.clone(), cx));
+                    header = header.child(row("member-stream-volume", t("voice.stage.streamVolume"), stream, true, voice.clone(), user.clone(), cx));
                 }
                 header.into_any_element()
             }) as Header
@@ -104,7 +104,7 @@ impl VoiceStage {
         let speaking = if is_self { voice.self_speaking() } else { voice.speaking.contains(&member.user_id) };
         let local_muted = voice.local_mutes.contains(&member.user_id);
         let sounding = voice.sounding.get(&member.user_id).cloned();
-        let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
         let image = user.as_ref().and_then(|user| user.avatar.clone()).and_then(|avatar| {
             let server_id = self.room.server_id.clone();
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -128,7 +128,7 @@ impl VoiceStage {
         if local_muted {
             label = label.child(icon("volume-x", 13., gpui::white()));
         }
-        label = label.child(div().min_w_0().one_line().child(if is_self { format!("{name} (you)") } else { name.clone() }));
+        label = label.child(div().min_w_0().one_line().child(if is_self { tr!("voice.stage.you", name = name) } else { name.clone() }));
         named_div(SharedString::from(format!("person-{}", member.device_id)))
             .relative()
             .w(px(size.0))
@@ -199,7 +199,7 @@ impl VoiceStage {
     /// and a right click opens no menu, as a full screen hides the app's.
     pub(super) fn screen_tile(&mut self, tile: &VideoTile, focused: bool, size: (f32, f32), full: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
-        let name = self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(&tile.user_id)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let name = self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(&tile.user_id)).map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
         #[cfg(target_os = "macos")]
         let surface = if full { Self::surface(tile, gpui::ObjectFit::Contain, px(0.)) } else { None };
         #[cfg(not(target_os = "macos"))]
@@ -262,7 +262,7 @@ impl VoiceStage {
                     .text_color(gpui::white())
                     .bg(theme::color(theme::black_a(0.62)))
                     .child(icon("monitor-up", 13., gpui::white()))
-                    .child(div().min_w_0().one_line().child(if tile.local { "Your screen".to_string() } else { format!("{name}'s screen") })),
+                    .child(div().min_w_0().one_line().child(if tile.local { t("voice.stage.yourScreen").to_string() } else { tr!("voice.stage.theirScreen", name = name) })),
             )
             .child(
                 div()
@@ -282,7 +282,7 @@ impl VoiceStage {
                                 .justify_center()
                                 .rounded(RADIUS_S)
                                 .bg(theme::color(theme::black_a(0.62)))
-                                .tip(if focused { "Back to everyone" } else { "Fill the stage" }, Side::Bottom)
+                                .tip(if focused { t("voice.stage.unfocus") } else { t("voice.stage.focus") }, Side::Bottom)
                                 .on_click(move |_, _, cx| {
                                     cx.stop_propagation();
                                     toggle_focus(cx);
@@ -299,7 +299,7 @@ impl VoiceStage {
                             .justify_center()
                             .rounded(RADIUS_S)
                             .bg(theme::color(theme::black_a(0.62)))
-                            .tip(if full { "Exit full screen" } else { "Full screen" }, Side::Bottom)
+                            .tip(if full { t("voice.stage.exitFullScreen") } else { t("voice.stage.fullScreen") }, Side::Bottom)
                             .on_click(cx.listener(move |stage, _, window, cx| {
                                 cx.stop_propagation();
                                 stage.toggle_full_screen(&key, window, cx);
@@ -338,7 +338,7 @@ impl VoiceStage {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .tooltip(tooltip(if silent { "Unmute stream" } else { "Mute stream" }))
+                            .tooltip(tooltip(if silent { t("voice.stage.unmuteStream") } else { t("voice.stage.muteStream") }))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 let user = user.clone();
@@ -364,7 +364,7 @@ impl VoiceStage {
     pub(super) fn ringing_tile(&mut self, user_id: &str, size: (f32, f32), cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let user = self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(user_id)).cloned();
-        let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
         let image = user.as_ref().and_then(|user| user.avatar.clone()).and_then(|avatar| {
             let server_id = self.room.server_id.clone();
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -398,7 +398,7 @@ impl VoiceStage {
                     .text_color(gpui::white())
                     .bg(theme::color(theme::black_a(0.62)))
                     .child(div().one_line().child(name))
-                    .child(div().text_color(theme::color(theme::white_a(0.7))).child("Calling…")),
+                    .child(div().text_color(theme::color(theme::white_a(0.7))).child(t("voice.stage.calling"))),
             )
             .into_any_element()
     }

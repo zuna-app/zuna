@@ -4,6 +4,8 @@
 
 use gpui::{App, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
 
+use crate::i18n::t;
+
 use crate::ui::text_input::{Copy, Cut, Paste, SelectAll};
 
 actions!(zuna_menu, [About, OpenSettings, Hide, HideOthers, ShowAll, Minimize, Zoom, CloseWindow]);
@@ -39,38 +41,42 @@ pub fn set_menus(cx: &mut App) {
     });
     // As the red button does: out of sight, with the app still running.
     cx.on_action(|_: &CloseWindow, cx| crate::platform::later(cx, super::hide_main));
+    show_menus(cx);
+}
 
+/// The menus, in the language shown, again when it changes.
+pub fn show_menus(cx: &mut App) {
     cx.set_menus([
         Menu {
             name: "Zuna".into(),
             items: vec![
-                MenuItem::action("About Zuna", About),
+                MenuItem::action(t("tray.menu.about"), About),
                 MenuItem::separator(),
-                MenuItem::action("Settings…", OpenSettings),
+                MenuItem::action(t("tray.menu.settings"), OpenSettings),
                 MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::os_submenu(t("tray.menu.services"), SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Hide Zuna", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(t("tray.menu.hide"), Hide),
+                MenuItem::action(t("tray.menu.hideOthers"), HideOthers),
+                MenuItem::action(t("tray.menu.showAll"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Zuna", crate::Quit),
+                MenuItem::action(t("tray.menu.quit"), crate::Quit),
             ],
             disabled: false,
         },
         Menu {
-            name: "Edit".into(),
+            name: t("tray.menu.edit").into(),
             items: vec![
-                MenuItem::os_action("Cut", Cut, OsAction::Cut),
-                MenuItem::os_action("Copy", Copy, OsAction::Copy),
-                MenuItem::os_action("Paste", Paste, OsAction::Paste),
-                MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                MenuItem::os_action(t("tray.menu.cut"), Cut, OsAction::Cut),
+                MenuItem::os_action(t("common.copy"), Copy, OsAction::Copy),
+                MenuItem::os_action(t("tray.menu.paste"), Paste, OsAction::Paste),
+                MenuItem::os_action(t("tray.menu.selectAll"), SelectAll, OsAction::SelectAll),
             ],
             disabled: false,
         },
         Menu {
-            name: "Window".into(),
-            items: vec![MenuItem::action("Minimize", Minimize), MenuItem::action("Zoom", Zoom), MenuItem::separator(), MenuItem::action("Close", CloseWindow)],
+            name: t("tray.menu.window").into(),
+            items: vec![MenuItem::action(t("tray.menu.minimize"), Minimize), MenuItem::action(t("tray.menu.zoom"), Zoom), MenuItem::separator(), MenuItem::action(t("common.close"), CloseWindow)],
             disabled: false,
         },
     ]);

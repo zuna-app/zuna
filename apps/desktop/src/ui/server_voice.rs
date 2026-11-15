@@ -10,6 +10,7 @@ use serde_json::json;
 use super::components::*;
 use super::text_input::{InputEvent, TextInput};
 use super::voice_settings::number_select;
+use crate::i18n::t;
 use crate::models::{ScreenRules, SoundView};
 use crate::state::{AppState, ToastKind};
 use crate::theme::{RADIUS_M, RADIUS_S};
@@ -32,9 +33,9 @@ fn lead(text: &str, cx: &App) -> AnyElement {
 /// What someone picked, as the core makes a sound from: WAV in one channel at 48 kHz, of no more
 /// than its first 20 seconds. The core cuts the silence and the rest.
 fn sound_from_file(path: &std::path::Path) -> Result<PathBuf, String> {
-    let (samples, rate) = crate::media::mf::decode_audio(path).map_err(|_| "That file isn't a sound Zuna can read.".to_string())?;
+    let (samples, rate) = crate::media::mf::decode_audio(path).map_err(|_| t("voice.soundboard.unreadable").to_string())?;
     if samples.is_empty() || rate == 0 {
-        return Err("That file isn't a sound Zuna can read.".into());
+        return Err(t("voice.soundboard.unreadable").into());
     }
     let step = rate as f64 / 48_000.;
     let frames = ((samples.len() as f64 / step) as usize).min(48_000 * SOUND_INPUT_SECONDS);
@@ -84,7 +85,7 @@ pub struct ServerSoundboard {
 impl ServerSoundboard {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let emoji = cx.new(|cx| TextInput::new(cx, "🔊"));
-        let name = cx.new(|cx| TextInput::new(cx, "Airhorn"));
+        let name = cx.new(|cx| TextInput::new(cx, t("voice.soundboard.namePlaceholder")));
         let subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
             cx.subscribe_in(&emoji, window, |_, _, _, _, cx| cx.notify()),
@@ -156,7 +157,7 @@ impl ServerSoundboard {
                 Ok(wav) => {
                     view.busy = false;
                     let file = crate::host::file(&wav.to_string_lossy(), "audio/wav");
-                    view.call("addSound", vec![file, json!(name.clone()), json!(emoji)], Some(format!("Added {name}")), |view, cx| {
+                    view.call("addSound", vec![file, json!(name.clone()), json!(emoji)], Some(tr!("voice.soundboard.added", name = name)), |view, cx| {
                         view.file = None;
                         view.name.update(cx, |input, cx| input.set_text("", cx));
                         view.emoji.update(cx, |input, cx| input.set_text("", cx));
@@ -224,11 +225,11 @@ impl ServerSoundboard {
                     .bg(theme.bg2)
                     .child(div().w(px(64.)).flex_none().child(field(None, emoji, None, None, false, None, cx)))
                     .child(div().flex_1().min_w_0().child(field(None, name, None, None, false, None, cx)))
-                    .child(button(SharedString::from(format!("cancel-{}", sound.id)), ButtonKind::Default, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|view, _, _, cx| {
+                    .child(button(SharedString::from(format!("cancel-{}", sound.id)), ButtonKind::Default, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|view, _, _, cx| {
                         view.editing = None;
                         cx.notify();
                     })))
-                    .child(button(SharedString::from(format!("save-{}", sound.id)), ButtonKind::Primary, ButtonSize::Normal, !can_save, cx).child("Save").when(can_save, |el| el.on_click(cx.listener(|view, _, _, cx| view.save_editing(cx)))))
+                    .child(button(SharedString::from(format!("save-{}", sound.id)), ButtonKind::Primary, ButtonSize::Normal, !can_save, cx).child(t("common.save")).when(can_save, |el| el.on_click(cx.listener(|view, _, _, cx| view.save_editing(cx)))))
                     .into_any_element();
             }
         }
@@ -245,12 +246,12 @@ impl ServerSoundboard {
                 .rounded(RADIUS_M)
                 .bg(theme.bg2)
                 .text_size(px(13.5))
-                .child(div().flex_1().min_w_0().child(format!("Delete {}? It will be removed from everyone's soundboard.", sound.name)))
-                .child(button(SharedString::from(format!("keep-{}", sound.id)), ButtonKind::Default, ButtonSize::Small, false, cx).child("Cancel").on_click(cx.listener(|view, _, _, cx| {
+                .child(div().flex_1().min_w_0().child(tr!("voice.soundboard.deleteConfirm", name = sound.name)))
+                .child(button(SharedString::from(format!("keep-{}", sound.id)), ButtonKind::Default, ButtonSize::Small, false, cx).child(t("common.cancel")).on_click(cx.listener(|view, _, _, cx| {
                     view.deleting = None;
                     cx.notify();
                 })))
-                .child(button(SharedString::from(format!("delete-{}", sound.id)), ButtonKind::Danger, ButtonSize::Small, self.busy, cx).child("Delete").on_click(cx.listener(move |view, _, _, cx| {
+                .child(button(SharedString::from(format!("delete-{}", sound.id)), ButtonKind::Danger, ButtonSize::Small, self.busy, cx).child(t("common.delete")).on_click(cx.listener(move |view, _, _, cx| {
                     view.deleting = None;
                     view.call("deleteSound", vec![json!(id.clone())], None, |_, _| {}, cx);
                 })))
@@ -272,14 +273,14 @@ impl ServerSoundboard {
             .child(div().w(px(22.)).flex_none().text_center().text_size(px(17.)).child(if sound.emoji.is_empty() { "🔊".to_string() } else { sound.emoji.clone() }))
             .child(div().flex_1().min_w_0().one_line().child(sound.name.clone()))
             .child(div().text_size(px(12.5)).text_color(theme.text3).child(format!("{:.1} s", sound.duration_ms / 1000.)))
-            .child(icon_button(SharedString::from(format!("listen-{}", sound.id)), "play", 15., true, false, cx).tip("Listen", Side::Bottom).on_click(move |_, _, cx| {
+            .child(icon_button(SharedString::from(format!("listen-{}", sound.id)), "play", 15., true, false, cx).tip(t("voice.soundboard.listen"), Side::Bottom).on_click(move |_, _, cx| {
                 if let Some(voice) = crate::voice::get(cx) {
                     let (server_id, id) = (server_id.clone(), listen.id.clone());
                     voice.update(cx, |voice, cx| voice.preview_sound(server_id, id, cx));
                 }
             }))
-            .child(icon_button(SharedString::from(format!("rename-{}", sound.id)), "pencil", 15., true, false, cx).tip("Rename", Side::Bottom).on_click(cx.listener(move |view, _, _, cx| view.start_editing(&rename, cx))))
-            .child(icon_button(SharedString::from(format!("remove-{}", sound.id)), "trash", 15., true, false, cx).tip("Delete", Side::Bottom).on_click(cx.listener(move |view, _, _, cx| {
+            .child(icon_button(SharedString::from(format!("rename-{}", sound.id)), "pencil", 15., true, false, cx).tip(t("voice.soundboard.rename"), Side::Bottom).on_click(cx.listener(move |view, _, _, cx| view.start_editing(&rename, cx))))
+            .child(icon_button(SharedString::from(format!("remove-{}", sound.id)), "trash", 15., true, false, cx).tip(t("common.delete"), Side::Bottom).on_click(cx.listener(move |view, _, _, cx| {
                 view.deleting = Some(delete.clone());
                 cx.notify();
             })))
@@ -295,21 +296,21 @@ impl Render for ServerSoundboard {
         let can_add = self.file.is_some() && !self.name.read(cx).text().trim().is_empty() && !self.busy && !full;
         let file_label = self.file.as_ref().and_then(|path| path.file_name()).map(|name| name.to_string_lossy().to_string());
         let mut parts = vec![
-            heading("Soundboard"),
-            lead("Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.", cx),
+            heading(t("serverSettings.sections.soundboard")),
+            lead(t("voice.soundboard.lead"), cx),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(div().flex().gap(px(10.)).child(div().w(px(96.)).flex_none().child(field(Some("Emoji"), self.emoji.clone(), None, None, false, None, cx))).child(div().flex_1().min_w_0().child(field(Some("Name"), self.name.clone(), None, None, false, None, cx))))
+                .child(div().flex().gap(px(10.)).child(div().w(px(96.)).flex_none().child(field(Some(t("voice.soundboard.emoji")), self.emoji.clone(), None, None, false, None, cx))).child(div().flex_1().min_w_0().child(field(Some(t("common.name")), self.name.clone(), None, None, false, None, cx))))
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
-                        .child(button("choose-sound", ButtonKind::Default, ButtonSize::Normal, false, cx).max_w(px(260.)).child(div().min_w_0().one_line().child(file_label.unwrap_or_else(|| "Choose a sound".into()))).on_click(cx.listener(|view, _, _, cx| view.choose_file(cx))))
-                        .child(button("add-sound", ButtonKind::Primary, ButtonSize::Normal, !can_add, cx).child(if self.busy { spinner(15., theme.on_accent).into_any_element() } else { div().flex().items_center().gap(px(6.)).child(icon("plus", 15., theme.on_accent)).child("Add sound").into_any_element() }).when(can_add, |el| el.on_click(cx.listener(|view, _, _, cx| view.add(cx))))),
+                        .child(button("choose-sound", ButtonKind::Default, ButtonSize::Normal, false, cx).max_w(px(260.)).child(div().min_w_0().one_line().child(file_label.unwrap_or_else(|| t("voice.soundboard.choose").into()))).on_click(cx.listener(|view, _, _, cx| view.choose_file(cx))))
+                        .child(button("add-sound", ButtonKind::Primary, ButtonSize::Normal, !can_add, cx).child(if self.busy { spinner(15., theme.on_accent).into_any_element() } else { div().flex().items_center().gap(px(6.)).child(icon("plus", 15., theme.on_accent)).child(t("voice.soundboard.add")).into_any_element() }).when(can_add, |el| el.on_click(cx.listener(|view, _, _, cx| view.add(cx))))),
                 )
-                .child(div().text_size(px(12.5)).text_color(theme.text3).child(if full { "The soundboard is full. Delete a sound to add another.".to_string() } else { format!("{} of {MAX_SOUNDS} sounds.", sounds.len()) }))
+                .child(div().text_size(px(12.5)).text_color(theme.text3).child(if full { t("server.theSoundboardIsFullDelete").to_string() } else { tr!("voice.soundboard.count", used = sounds.len()) }))
                 .into_any_element(),
         ];
         if !sounds.is_empty() {
@@ -376,7 +377,7 @@ impl ServerScreenRules {
             view.update(cx, |view, cx| {
                 view.busy = false;
                 view.state.update(cx, |state, cx| match result {
-                    Ok(_) => state.toast("Saved", ToastKind::Info, cx),
+                    Ok(_) => state.toast(t("common.saved"), ToastKind::Info, cx),
                     Err(error) => state.toast(error.message, ToastKind::Error, cx),
                 });
                 cx.notify();
@@ -396,7 +397,7 @@ impl Render for ServerScreenRules {
         let subhead = |text: &str| div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text3).mt(px(8.)).child(text.to_uppercase()).into_any_element();
         let row = |title: &str, hint: Option<&str>, control: AnyElement| super::settings::SettingsView::row(title, hint, control, &theme);
         let me = cx.entity();
-        let who_options = [("everyone", "Everyone"), ("admins", "Admins"), ("nobody", "Nobody")];
+        let who_options = [("everyone", t("voice.serverScreen.everyone")), ("admins", t("voice.serverScreen.admins")), ("nobody", t("voice.serverScreen.nobody"))];
         let mut who = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.));
         for (id, label) in who_options {
             let active = rules.who == id;
@@ -422,31 +423,31 @@ impl Render for ServerScreenRules {
         let sound = rules.sound;
         let exempt = rules.admins_exempt;
         let (sound_me, exempt_me) = (me.clone(), me.clone());
-        let mut parts = vec![heading("Screen sharing"), lead("Screen shares are end-to-end encrypted, so the server never sees them.", cx)];
+        let mut parts = vec![heading(t("serverSettings.sections.screen")), lead(t("voice.serverScreen.lead"), cx)];
         if !voice_ready {
-            parts.push(div().text_size(px(13.)).text_color(theme.amber).bg(theme.amber_soft).rounded(RADIUS_M).px(px(10.)).py(px(8.)).child("This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).").into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.amber).bg(theme.amber_soft).rounded(RADIUS_M).px(px(10.)).py(px(8.)).child(t("channels.noMediaServer")).into_any_element());
         }
-        parts.push(subhead("Permissions"));
-        parts.push(row("Who can share", Some("Changing this stops any shares it no longer allows."), who.into_any_element()));
-        parts.push(row("Allow audio", Some("Turning it off stops any shares with audio."), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
+        parts.push(subhead(t("voice.serverScreen.permissions")));
+        parts.push(row(t("voice.serverScreen.whoCanShare"), Some(t("voice.serverScreen.whoCanShareHint")), who.into_any_element()));
+        parts.push(row(t("voice.serverScreen.allowAudio"), Some(t("voice.serverScreen.allowAudioHint")), switch("rules-sound", sound, cx).on_click(move |_, _, cx| sound_me.update(cx, |view, cx| {
             view.rules.sound = !sound;
             cx.notify();
         })).into_any_element()));
-        parts.push(field(Some("Max shares per voice channel"), self.per_channel.clone(), None, Some("0 for no limit. Each voice channel can set its own.".into()), false, None, cx).into_any_element());
-        parts.push(field(Some("Max shares on the server"), self.per_server.clone(), None, Some("0 for no limit.".into()), false, None, cx).into_any_element());
+        parts.push(field(Some(t("voice.serverScreen.maxPerChannel")), self.per_channel.clone(), None, Some(t("voice.serverScreen.maxPerChannelHint").into()), false, None, cx).into_any_element());
+        parts.push(field(Some(t("voice.serverScreen.maxPerServer")), self.per_server.clone(), None, Some(t("voice.serverScreen.maxPerServerHint").into()), false, None, cx).into_any_element());
         let with_zero = |options: &[u32]| -> Vec<u32> { std::iter::once(0).chain(options.iter().copied()).collect() };
-        parts.push(subhead("Quality limits"));
-        parts.push(number_select("max-height", "Max resolution", Some(rules.max_height), &with_zero(&SCREEN_HEIGHTS), |value| if value == 0 { "No limit".into() } else { height_name(value) }, None, 0, self.change(|rules, value| rules.max_height = value.unwrap_or(0), cx), cx));
-        parts.push(number_select("max-fps", "Max frame rate", Some(rules.max_fps), &with_zero(&SCREEN_RATES), |value| if value == 0 { "No limit".into() } else { rate_name(value) }, None, 0, self.change(|rules, value| rules.max_fps = value.unwrap_or(0), cx), cx));
-        parts.push(number_select("max-kbps", "Max bitrate", Some(rules.max_kbps), &with_zero(&SCREEN_LIMIT_BITRATES), |value| if value == 0 { "No limit".into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_kbps = value.unwrap_or(0), cx), cx));
-        parts.push(div().mt(px(-8.)).child(note("Each viewer can use up to this much of your media server's bandwidth.")).into_any_element());
-        parts.push(row("Admins bypass limits", Some("Quality limits and share counts don't apply to admins."), switch("rules-exempt", exempt, cx).on_click(move |_, _, cx| exempt_me.update(cx, |view, cx| {
+        parts.push(subhead(t("voice.serverScreen.qualityLimits")));
+        parts.push(number_select("max-height", t("voice.serverScreen.maxResolution"), Some(rules.max_height), &with_zero(&SCREEN_HEIGHTS), |value| if value == 0 { t("common.noLimit").into() } else { height_name(value) }, None, 0, self.change(|rules, value| rules.max_height = value.unwrap_or(0), cx), cx));
+        parts.push(number_select("max-fps", t("voice.serverScreen.maxFrameRate"), Some(rules.max_fps), &with_zero(&SCREEN_RATES), |value| if value == 0 { t("common.noLimit").into() } else { rate_name(value) }, None, 0, self.change(|rules, value| rules.max_fps = value.unwrap_or(0), cx), cx));
+        parts.push(number_select("max-kbps", t("voice.stats.maxBitrate"), Some(rules.max_kbps), &with_zero(&SCREEN_LIMIT_BITRATES), |value| if value == 0 { t("common.noLimit").into() } else { bitrate_name(value) }, None, 0, self.change(|rules, value| rules.max_kbps = value.unwrap_or(0), cx), cx));
+        parts.push(div().mt(px(-8.)).child(note(t("voice.serverScreen.maxBitrateHint"))).into_any_element());
+        parts.push(row(t("voice.serverScreen.adminsExempt"), Some(t("voice.serverScreen.adminsExemptHint")), switch("rules-exempt", exempt, cx).on_click(move |_, _, cx| exempt_me.update(cx, |view, cx| {
             view.rules.admins_exempt = !exempt;
             cx.notify();
         })).into_any_element()));
-        parts.push(note("Each app applies the quality limits itself, since the media server can't see encrypted video. Shares already running keep the settings they started with."));
+        parts.push(note(t("voice.serverScreen.note")));
         let busy = self.busy;
-        parts.push(div().flex().child(button("save-screen-rules", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { spinner(15., theme.on_accent).into_any_element() } else { div().child("Save changes").into_any_element() }).when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.save(cx))))).into_any_element());
+        parts.push(div().flex().child(button("save-screen-rules", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(if busy { spinner(15., theme.on_accent).into_any_element() } else { div().child(t("common.saveChanges")).into_any_element() }).when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.save(cx))))).into_any_element());
         div().flex().flex_col().gap(px(14.)).children(parts)
     }
 }

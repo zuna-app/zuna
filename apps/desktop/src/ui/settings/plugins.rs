@@ -83,13 +83,13 @@ impl SettingsView {
 
     pub(super) fn propose_file(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
         let result = match std::fs::metadata(path) {
-            Ok(meta) if meta.len() > crate::plugins::package::MAX_PACKAGE as u64 => Err("A plugin package can be at most 8 MB.".to_string()),
+            Ok(meta) if meta.len() > crate::plugins::package::MAX_PACKAGE as u64 => Err(t("plugins.packageTooLarge").to_string()),
             Ok(_) => std::fs::read(path).map_err(|error| error.to_string()),
             Err(error) => Err(error.to_string()),
         };
         let result = result.and_then(|bytes| match crate::plugins::get(cx) {
             Some(plugins) => plugins.update(cx, |plugins, cx| plugins.propose_file(bytes, cx).map(|_| ())),
-            None => Err("Plugins aren't ready.".into()),
+            None => Err(t("plugins.notReady").into()),
         });
         if let Err(error) = result {
             self.state.update(cx, |state, cx| state.toast(error, ToastKind::Error, cx));
@@ -104,7 +104,7 @@ impl SettingsView {
             view.update(cx, |view, cx| {
                 let result = match crate::plugins::get(cx) {
                     Some(plugins) => plugins.update(cx, |plugins, cx| plugins.propose_folder(dir, cx)),
-                    None => Err("Plugins aren't ready.".into()),
+                    None => Err(t("plugins.notReady").into()),
                 };
                 if let Err(error) = result {
                     view.state.update(cx, |state, cx| state.toast(error, ToastKind::Error, cx));
@@ -125,44 +125,44 @@ impl SettingsView {
 
     pub(super) fn plugins_page(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
-        let Some(plugins_entity) = crate::plugins::get(cx) else { return vec![Self::heading("Plugins", &theme)] };
+        let Some(plugins_entity) = crate::plugins::get(cx) else { return vec![Self::heading(t("settings.sections.plugins"), &theme)] };
         let (items, safe_mode, allow, usable) = {
             let plugins = plugins_entity.read(cx);
             (listed(plugins), plugins.safe_mode.clone(), plugins.record.allow_unverified, plugins.usable())
         };
         let mut parts = vec![
-            Self::heading("Plugins", &theme),
-            Self::lead("Plugins change how the app works on this device only, and no server knows about them. Each one runs separately from your keys and can only do what you've allowed.".into(), &theme),
+            Self::heading(t("settings.sections.plugins"), &theme),
+            Self::lead(t("settings.plugins.lead").into(), &theme),
         ];
         if let Some(reason) = safe_mode {
             parts.push(notice("info", reason, cx).into_any_element());
         }
         if !usable {
-            parts.push(notice("triangle-alert", "Plugins can't be installed because this device's key couldn't be read.", cx).into_any_element());
+            parts.push(notice("triangle-alert", t("plugins.noDeviceKey"), cx).into_any_element());
         }
         parts.push(
             div()
                 .flex()
                 .gap(px(8.))
-                .child(button("plugins-browse", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(icon("store", 15., theme.on_accent)).child("Browse").on_click(cx.listener(|view, _, _, cx| view.browse(cx))))
+                .child(button("plugins-browse", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(icon("store", 15., theme.on_accent)).child(t("settings.plugins.browse")).on_click(cx.listener(|view, _, _, cx| view.browse(cx))))
                 .into_any_element(),
         );
         if self.browsing {
             parts.extend(self.marketplace(cx));
         }
         parts.push(Self::divider(&theme));
-        parts.push(Self::subheading("Installed"));
+        parts.push(Self::subheading(t("settings.plugins.installed")));
         if items.is_empty() {
-            parts.push(div().text_size(px(13.)).text_color(theme.text2).child("None yet. No plugins come with the app, and a device without plugins never contacts the marketplace.").into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.text2).child(t("settings.plugins.noneInstalled")).into_any_element());
         }
         for item in items {
             parts.push(self.installed_row(item, cx));
         }
         parts.push(Self::divider(&theme));
-        parts.push(Self::subheading("Advanced"));
+        parts.push(Self::subheading(t("settings.plugins.advanced")));
         parts.push(Self::row(
-            "Allow plugins Zuna hasn't checked",
-            Some("Plugins from a file or folder that nobody on Zuna's team has reviewed. They're marked wherever they appear."),
+            t("settings.plugins.allowUnverified"),
+            Some(t("settings.plugins.allowUnverifiedHint")),
             switch("plugins-unverified", allow, cx).on_click(cx.listener(move |view, _, _, cx| {
                 if allow {
                     if let Some(plugins) = crate::plugins::get(cx) {
@@ -179,11 +179,11 @@ impl SettingsView {
             div()
                 .flex()
                 .gap(px(8.))
-                .child(button("plugins-file", ButtonKind::Default, ButtonSize::Normal, !usable, cx).child("Install from a file…").when(usable, |el| el.on_click(cx.listener(|view, _, _, cx| view.pick_file(cx)))))
-                .child(button("plugins-folder", ButtonKind::Default, ButtonSize::Normal, !allow, cx).child("Load a folder…").when(allow, |el| el.on_click(cx.listener(|view, _, _, cx| view.pick_folder(cx)))))
+                .child(button("plugins-file", ButtonKind::Default, ButtonSize::Normal, !usable, cx).child(t("settings.plugins.fromFile")).when(usable, |el| el.on_click(cx.listener(|view, _, _, cx| view.pick_file(cx)))))
+                .child(button("plugins-folder", ButtonKind::Default, ButtonSize::Normal, !allow, cx).child(t("settings.plugins.fromFolder")).when(allow, |el| el.on_click(cx.listener(|view, _, _, cx| view.pick_folder(cx)))))
                 .into_any_element(),
         );
-        parts.push(div().text_size(px(12.5)).text_color(theme.text3).child("You can also drop a plugin file here. Plugins can never be installed from a chat.").into_any_element());
+        parts.push(div().text_size(px(12.5)).text_color(theme.text3).child(t("settings.plugins.dropHint")).into_any_element());
         parts
     }
 
@@ -191,16 +191,16 @@ impl SettingsView {
         let theme = theme(cx);
         let uid = item.uid.clone();
         let from = match item.origin {
-            Origin::Verified => "Verified by Zuna".to_string(),
-            Origin::File => "From a file".to_string(),
-            Origin::Folder => format!("From a folder: {}", item.path),
+            Origin::Verified => t("settings.plugins.verified").to_string(),
+            Origin::File => t("settings.plugins.fromAFile").to_string(),
+            Origin::Folder => tr!("settings.plugins.fromAFolder", path = item.path),
         };
         let status = if item.enabled && item.running {
-            "On".to_string()
+            t("settings.plugins.on").to_string()
         } else if item.enabled && item.problem.is_none() {
-            "Starting".to_string()
+            t("settings.plugins.starting").to_string()
         } else {
-            "Off".to_string()
+            t("common.off").to_string()
         };
         let (toggle_uid, remove_uid, update_uid, log_uid) = (uid.clone(), uid.clone(), uid.clone(), uid.clone());
         let enabled = item.enabled;
@@ -237,7 +237,7 @@ impl SettingsView {
             )
             .when_some(item.problem.clone(), |el, problem| el.child(div().text_size(px(12.5)).text_color(theme.red).child(problem)))
             .child(div().flex().flex_col().gap(px(3.)).children(if item.told.is_empty() {
-                vec![div().text_size(px(12.5)).text_color(theme.text2).child("Doesn't need any access to your account.").into_any_element()]
+                vec![div().text_size(px(12.5)).text_color(theme.text2).child(t("plugins.noAccess")).into_any_element()]
             } else {
                 item.told.iter().map(|(line, strong)| div().text_size(px(12.5)).text_color(theme.text2).when(*strong, |el| el.font_weight(FontWeight::SEMIBOLD).text_color(theme.text1)).child(format!("• {line}")).into_any_element()).collect()
             }))
@@ -246,7 +246,7 @@ impl SettingsView {
                     .flex()
                     .gap(px(8.))
                     .when_some(item.waiting.clone(), |el, version| {
-                        el.child(button(SharedString::from(format!("plugin-update-{uid}")), ButtonKind::Primary, ButtonSize::Small, false, cx).child(format!("Update to {version}…")).on_click(move |_, _, cx| {
+                        el.child(button(SharedString::from(format!("plugin-update-{uid}")), ButtonKind::Primary, ButtonSize::Small, false, cx).child(tr!("settings.plugins.updateTo", version = version)).on_click(move |_, _, cx| {
                             let id = update_uid.split_once(':').map(|(_, id)| id.to_string()).unwrap_or_default();
                             if let Some(plugins) = crate::plugins::get(cx) {
                                 let result = plugins.update(cx, |plugins, cx| plugins.propose_market(&id, cx));
@@ -257,12 +257,12 @@ impl SettingsView {
                         }))
                     })
                     .when(item.origin == Origin::Folder || !item.log.is_empty(), |el| {
-                        el.child(button(SharedString::from(format!("plugin-log-{uid}")), ButtonKind::Ghost, ButtonSize::Small, false, cx).child(if showing_log { "Hide log" } else { "Log" }).on_click(cx.listener(move |view, _, _, cx| {
+                        el.child(button(SharedString::from(format!("plugin-log-{uid}")), ButtonKind::Ghost, ButtonSize::Small, false, cx).child(if showing_log { t("settings.plugins.hideLog") } else { t("settings.plugins.log") }).on_click(cx.listener(move |view, _, _, cx| {
                             view.showing_log = if view.showing_log.as_deref() == Some(log_uid.as_str()) { None } else { Some(log_uid.clone()) };
                             cx.notify();
                         })))
                     })
-                    .child(button(SharedString::from(format!("plugin-remove-{uid}")), ButtonKind::Danger, ButtonSize::Small, false, cx).child("Remove").on_click(move |_, _, cx| {
+                    .child(button(SharedString::from(format!("plugin-remove-{uid}")), ButtonKind::Danger, ButtonSize::Small, false, cx).child(t("common.remove")).on_click(move |_, _, cx| {
                         if let Some(plugins) = crate::plugins::get(cx) {
                             plugins.update(cx, |plugins, cx| plugins.remove(&remove_uid, cx));
                         }
@@ -280,7 +280,7 @@ impl SettingsView {
                         .font_family(theme::FONT_MONO)
                         .text_size(px(11.5))
                         .children(if item.log.is_empty() {
-                            vec![div().text_color(theme.text3).child("Nothing yet.").into_any_element()]
+                            vec![div().text_color(theme.text3).child(t("settings.plugins.logEmpty")).into_any_element()]
                         } else {
                             item.log
                                 .iter()
@@ -307,7 +307,7 @@ impl SettingsView {
         let mut parts = Vec::new();
         parts.push(field(None, self.plugin_search.clone(), None, None, false, None, cx).into_any_element());
         if loading && index.is_none() {
-            parts.push(div().flex().items_center().gap(px(8.)).text_color(theme.text2).child(spinner(14., theme.text2)).child("Loading the marketplace…").into_any_element());
+            parts.push(div().flex().items_center().gap(px(8.)).text_color(theme.text2).child(spinner(14., theme.text2)).child(t("settings.plugins.loadingMarketplace")).into_any_element());
         }
         if let Some(error) = error {
             parts.push(notice("triangle-alert", error, cx).into_any_element());
@@ -321,18 +321,18 @@ impl SettingsView {
             }
             let Some((_, version)) = index.newest(&entry.id) else { continue };
             shown += 1;
-            let permissions: Vec<String> = version.permissions.iter().filter_map(|name| crate::plugins::manifest::Permission::parse(name)).map(|permission| if permission == crate::plugins::manifest::Permission::Network { format!("Contacts {}", version.hosts.join(", ")) } else { permission.told().to_string() }).collect();
+            let permissions: Vec<String> = version.permissions.iter().filter_map(|name| crate::plugins::manifest::Permission::parse(name)).map(|permission| if permission == crate::plugins::manifest::Permission::Network { tr!("plugins.contacts", hosts = version.hosts.join(", ")) } else { permission.told().to_string() }).collect();
             let have = installed.get(&entry.id).cloned();
             let newer = have.as_ref().is_some_and(|have| crate::plugins::manifest::parse_version(&version.version) > crate::plugins::manifest::parse_version(have));
             let busy = installing.as_deref() == Some(entry.id.as_str());
             let id = entry.id.clone();
             let source = entry.source.clone();
             let action = if busy {
-                button(SharedString::from(format!("market-{id}")), ButtonKind::Default, ButtonSize::Small, true, cx).child("Installing…")
+                button(SharedString::from(format!("market-{id}")), ButtonKind::Default, ButtonSize::Small, true, cx).child(t("settings.plugins.installing"))
             } else if have.is_some() && !newer {
-                button(SharedString::from(format!("market-{id}")), ButtonKind::Default, ButtonSize::Small, true, cx).child("Installed")
+                button(SharedString::from(format!("market-{id}")), ButtonKind::Default, ButtonSize::Small, true, cx).child(t("settings.plugins.installed"))
             } else {
-                button(SharedString::from(format!("market-{id}")), ButtonKind::Primary, ButtonSize::Small, false, cx).child(if newer { "Update" } else { "Install" }).on_click(move |_, _, cx| {
+                button(SharedString::from(format!("market-{id}")), ButtonKind::Primary, ButtonSize::Small, false, cx).child(if newer { t("settings.plugins.update") } else { t("settings.plugins.install") }).on_click(move |_, _, cx| {
                     if let Some(plugins) = crate::plugins::get(cx) {
                         let result = plugins.update(cx, |plugins, cx| plugins.propose_market(&id, cx));
                         if let Err(error) = result {
@@ -357,17 +357,17 @@ impl SettingsView {
                             .items_center()
                             .gap(px(10.))
                             .child(icon("puzzle", 18., theme.text2))
-                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().font_weight(FontWeight::MEDIUM).child(entry.name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("{} · by {} · {}", version.version, entry.author, entry.license))))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().font_weight(FontWeight::MEDIUM).child(entry.name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(tr!("settings.plugins.marketDetail", version = version.version, author = entry.author, license = entry.license))))
                             .child(action),
                     )
                     .child(div().text_size(px(13.)).child(entry.summary.clone()))
-                    .child(div().text_size(px(12.)).text_color(theme.text2).child(if permissions.is_empty() { "Doesn't need any access to your account.".to_string() } else { permissions.join(" · ") }))
-                    .when(!source.is_empty(), |el| el.child(div().id(SharedString::from(format!("market-source-{}", entry.id))).text_size(px(12.)).text_color(theme.link).cursor_pointer().child("Source").on_click(move |_, _, cx| cx.open_url(&source))))
+                    .child(div().text_size(px(12.)).text_color(theme.text2).child(if permissions.is_empty() { t("plugins.noAccess").to_string() } else { permissions.join(" · ") }))
+                    .when(!source.is_empty(), |el| el.child(div().id(SharedString::from(format!("market-source-{}", entry.id))).text_size(px(12.)).text_color(theme.link).cursor_pointer().child(t("settings.plugins.source")).on_click(move |_, _, cx| cx.open_url(&source))))
                     .into_any_element(),
             );
         }
         if shown == 0 {
-            parts.push(div().text_size(px(13.)).text_color(theme.text2).child(if query.is_empty() { "Nothing is on the marketplace yet." } else { "No plugins match." }).into_any_element());
+            parts.push(div().text_size(px(13.)).text_color(theme.text2).child(if query.is_empty() { t("settings.plugins.marketEmpty") } else { t("settings.plugins.noMatch") }).into_any_element());
         }
         parts
     }
@@ -378,7 +378,7 @@ impl SettingsView {
         let Some(plugins) = crate::plugins::get(cx) else { return Vec::new() };
         let (name, verified, specs, values, has_view) = {
             let plugins = plugins.read(cx);
-            let Some(loaded) = plugins.loaded.get(uid) else { return vec![Self::heading("Plugin", &theme)] };
+            let Some(loaded) = plugins.loaded.get(uid) else { return vec![Self::heading(t("settings.plugins.plugin"), &theme)] };
             (loaded.manifest().name.clone(), loaded.record.verified(), loaded.manifest().contributes.settings.clone(), plugins.settings_of(uid), plugins.slots.get(uid).is_some_and(|slots| slots.settings_view))
         };
         let mut parts = vec![div().flex().items_center().gap(px(8.)).child(Self::heading(&name, &theme)).when(!verified, |el| el.child(crate::ui::plugins::unverified_mark(cx))).into_any_element()];
@@ -389,7 +389,7 @@ impl SettingsView {
             let node = plugins.read(cx).view(uid, "settings:settings").cloned();
             parts.push(match node {
                 Some(node) => crate::ui::plugins::view::render(uid, &node, cx),
-                None => div().text_color(theme.text3).child("Starting…").into_any_element(),
+                None => div().text_color(theme.text3).child(t("plugins.startingView")).into_any_element(),
             });
             return parts;
         }
@@ -475,9 +475,9 @@ impl SettingsView {
         let view = cx.entity().downgrade();
         let cancel_view = view.clone();
         crate::ui::overlays::confirm(
-            "Allow plugins Zuna hasn't checked?".into(),
-            "Allow them",
-            "Nobody on Zuna's team has reviewed these plugins, and there's no way to confirm who wrote them. One that can read your messages and access the internet could send them anywhere. If someone told you to turn this on to fix a problem, to win something, or to see something hidden, it's a scam.".into(),
+            t("settings.plugins.allowUnverifiedTitle").into(),
+            t("settings.plugins.allowUnverifiedConfirm"),
+            t("settings.plugins.allowUnverifiedBody").into(),
             move |_, cx| {
                 cancel_view.update(cx, |view, cx| {
                     view.confirming_unverified = false;

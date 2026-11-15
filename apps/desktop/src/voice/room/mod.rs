@@ -32,6 +32,7 @@ use parking_lot::Mutex;
 use sha2::Sha256;
 
 use super::audio::{FRAME, Mixer, RATE};
+use crate::i18n::t;
 
 /// How long after hearing of a new key this device starts sending under it, so that
 /// everyone else has heard too. It keeps listening under both meanwhile.
@@ -289,7 +290,7 @@ impl VoiceRoom {
             if let Some(relays) = &relays {
                 crate::voice::proxy::finish(relays);
             }
-            "Couldn't connect to voice.".to_string()
+            t("voice.couldntConnect").to_string()
         })?;
         room.e2ee_manager().set_enabled(true);
         let shared = Arc::new(Shared {
@@ -513,7 +514,7 @@ impl VoiceRoom {
             video_encoding: Some(VideoEncoding { max_bitrate: 1_700_000, max_framerate: 30. }),
             ..Default::default()
         };
-        let publication = self.room.local_participant().publish_track(LocalTrack::Video(track), options).await.map_err(|_| "There's no camera Zuna can use.".to_string())?;
+        let publication = self.room.local_participant().publish_track(LocalTrack::Video(track), options).await.map_err(|_| t("voice.camera.none").to_string())?;
         self.shared.apply_sending_index(&self.room);
         *self.camera.lock() = Some((publication, camera, feed));
         Ok(())

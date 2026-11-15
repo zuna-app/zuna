@@ -304,7 +304,7 @@ impl NotificationCenter {
         let card = self.shown.iter_mut().find(|card| card.id == id)?;
         card.replying = true;
         let input = cx.new(|cx| {
-            let mut input = TextInput::new(cx, "Write a reply…").multiline();
+            let mut input = TextInput::new(cx, crate::i18n::t("notifications.reply.placeholder")).multiline();
             input.set_newline_on_enter(false);
             input
         });

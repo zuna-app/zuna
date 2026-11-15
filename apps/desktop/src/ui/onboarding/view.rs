@@ -44,7 +44,8 @@ impl Onboarding {
         let (score, label) = &self.strength;
         let colors = [theme.bg5, theme.red, theme.amber, theme.text2, theme.green];
         let typed = !self.password.read(cx).text().is_empty();
-        let label = if label.is_empty() || !typed { format!("At least {MIN_PASSWORD} characters") } else { label.clone() };
+        // The core's rating comes with its words in English, so its score is named here.
+        let label = if label.is_empty() || !typed { tr!("onboarding.passwordMinimum", count = MIN_PASSWORD) } else { crate::ui::password_strength(*score).to_string() };
         let color = if *score > 0 && typed { colors[*score as usize] } else { theme.text3 };
         div()
             .flex()
@@ -96,8 +97,8 @@ impl Onboarding {
                 .text_center()
                 .gap(px(6.))
                 .child(div().mb(px(14.)).child(logo(64.)))
-                .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Welcome to Zuna"))
-                .child(div().text_size(px(13.5)).text_color(theme.text2).child("Private chat on servers you and your friends run."))
+                .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child(t("onboarding.welcome.title")))
+                .child(div().text_size(px(13.5)).text_color(theme.text2).child(t("onboarding.welcome.tagline")))
                 // Two rows, as they wrap at this width on the web. GPUI measures a wrapping
                 // row as one line when centering, which would put everything lower.
                 .child(
@@ -107,8 +108,8 @@ impl Onboarding {
                         .items_center()
                         .gap(px(6.))
                         .mt(px(10.))
-                        .child(div().flex().gap(px(6.)).child(chip("lock", "End-to-end encrypted")).child(chip("shield-check", "Open source")))
-                        .child(chip("server", "Self-hosted")),
+                        .child(div().flex().gap(px(6.)).child(chip("lock", t("onboarding.welcome.encrypted"))).child(chip("shield-check", t("onboarding.welcome.openSource"))))
+                        .child(chip("server", t("onboarding.welcome.selfHosted"))),
                 )
                 .into_any_element(),
             div()
@@ -120,10 +121,10 @@ impl Onboarding {
                     button("join", ButtonKind::Primary, ButtonSize::Large, false, cx)
                         .w_full()
                         .child(icon("link", 16., theme.on_accent))
-                        .child("Join with an invite")
+                        .child(t("onboarding.welcome.join"))
                         .on_click(cx.listener(|view, _, window, cx| view.go(Step::Link, window, cx))),
                 )
-                .child(button("sign-in", ButtonKind::Default, ButtonSize::Large, false, cx).w_full().child("Sign in").on_click(cx.listener(|view, _, window, cx| view.go(Step::SignIn, window, cx))))
+                .child(button("sign-in", ButtonKind::Default, ButtonSize::Large, false, cx).w_full().child(t("onboarding.signIn.title")).on_click(cx.listener(|view, _, window, cx| view.go(Step::SignIn, window, cx))))
                 .child(
                     div()
                         .id("host-own")
@@ -139,7 +140,7 @@ impl Onboarding {
                         .hover(move |style| style.text_color(theme.text1))
                         .on_click(|_, _, cx| cx.open_url("https://github.com/zuna-app/zuna/blob/main/docs/SELF_HOSTING.md"))
                         .child(icon("server", 14., theme.text2))
-                        .child("Host your own server")
+                        .child(t("onboarding.welcome.host"))
                         .child(icon("arrow-up-right", 14., theme.text2)),
                 )
                 // Before any server is joined, so that even signing up goes through it.
@@ -159,11 +160,21 @@ impl Onboarding {
                         .hover(move |style| style.text_color(theme.text1))
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy { from_settings: false }), cx)))
                         .child(icon("shield", 14., theme.text2))
-                        .child(if on { "Connecting through a proxy" } else { "Connect through a proxy" })
+                        .child(if on { t("onboarding.welcome.proxyOn") } else { t("onboarding.welcome.proxy") })
                 })
                 .into_any_element(),
         ]
     }
+}
+
+/// Text beside a link, in a row of its own: the spaces at its edges are kept by making them
+/// non-breaking, as a space at the end of a line of its own would be lost.
+fn keep_edges(text: &str) -> String {
+    let trimmed_start = text.trim_start_matches(' ');
+    let leading = text.len() - trimmed_start.len();
+    let trimmed = trimmed_start.trim_end_matches(' ');
+    let trailing = trimmed_start.len() - trimmed.len();
+    format!("{}{}{}", "\u{a0}".repeat(leading), trimmed, "\u{a0}".repeat(trailing))
 }
 
 /// A form's error, which takes a place only when there is one: without it, an empty row
@@ -194,7 +205,7 @@ impl Render for Onboarding {
                 let has_link = !self.link.read(cx).text().trim().is_empty();
                 let back = if self.embedded { None } else { Some(Step::Welcome) };
                 let mut parts = vec![
-                    self.header(Some("link"), "Join a server".into(), Some("Paste the invite link someone sent you.".into()), back, cx),
+                    self.header(Some("link"), t("onboarding.link.title").into(), Some(t("onboarding.link.lead").into()), back, cx),
                     self.input_field(0, &self.link.clone(), None, None, error, None, cx),
                 ];
                 let busy = self.busy;
@@ -202,12 +213,12 @@ impl Render for Onboarding {
                     button("continue", ButtonKind::Primary, ButtonSize::Large, !has_link || busy, cx)
                         .w_full()
                         .when(busy, |el| el.child(spinner(18., theme.text3)))
-                        .when(!busy, |el| el.child("Continue").child(icon("arrow-right", 17., if has_link { theme.on_accent } else { theme.text3 })))
+                        .when(!busy, |el| el.child(t("common.continue")).child(icon("arrow-right", 17., if has_link { theme.on_accent } else { theme.text3 })))
                         .when(has_link && !busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.preview_invite(cx))))
                         .into_any_element(),
                 );
                 if self.embedded {
-                    parts.push(button("have-account", ButtonKind::Default, ButtonSize::Large, false, cx).w_full().child("I already have an account").on_click(cx.listener(|view, _, window, cx| view.go(Step::SignIn, window, cx))).into_any_element());
+                    parts.push(button("have-account", ButtonKind::Default, ButtonSize::Large, false, cx).w_full().child(t("onboarding.link.haveAccount")).on_click(cx.listener(|view, _, window, cx| view.go(Step::SignIn, window, cx))).into_any_element());
                 }
                 parts
             }
@@ -226,20 +237,20 @@ impl Render for Onboarding {
                 let username_error = if error.as_ref().is_some_and(|e| e.to_lowercase().contains("username")) {
                     error.clone()
                 } else if !username.is_empty() && !valid_username(&username) {
-                    Some("Usernames need at least 2 valid characters.".to_string())
+                    Some(t("onboarding.invite.usernameInvalid").to_string())
                 } else {
                     None
                 };
                 let error = error.filter(|e| !e.to_lowercase().contains("username"));
-                let confirm_error = if !confirm.is_empty() && !password.starts_with(&confirm) { Some("The passwords don't match.".to_string()) } else { None };
+                let confirm_error = if !confirm.is_empty() && !password.starts_with(&confirm) { Some(t("common.passwordsDontMatch").to_string()) } else { None };
                 let can_submit = !display_name.is_empty() && valid_username(&username) && password.chars().count() >= MIN_PASSWORD && self.strength.0 >= 2 && confirm == password;
                 let members = server.user_count as u64;
                 let subtitle: AnyElement = if preview.setup {
-                    div().child("You're creating the owner account.").into_any_element()
+                    div().child(t("onboarding.invite.owner")).into_any_element()
                 } else if members > 0 {
-                    div().flex().items_center().gap(px(5.)).child(icon("users", 13., theme.text2)).child(format!("{members} {}", if members == 1 { "member" } else { "members" })).into_any_element()
+                    div().flex().items_center().gap(px(5.)).child(icon("users", 13., theme.text2)).child(tr!("onboarding.invite.members", count = members)).into_any_element()
                 } else {
-                    div().child("Open sign-ups").into_any_element()
+                    div().child(t("onboarding.invite.openSignUps")).into_any_element()
                 };
                 let suffix = self.password_suffix(cx);
                 let confirm_suffix = self.password_suffix(cx);
@@ -255,13 +266,13 @@ impl Render for Onboarding {
                         .mb(px(6.))
                         .child(div().absolute().left(px(-6.)).top(px(-4.)).child(icon_button("back", "arrow-left", 18., false, false, cx).on_click(cx.listener(|view, _, window, cx| view.go(Step::Link, window, cx)))))
                         .child(avatar(AvatarProps { name: server.name.clone(), seed: preview.url.clone(), image: icon_image, size: 56., online: false, rounded: true, dot_border: theme.bg0 }, cx))
-                        .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child(if preview.setup { "Set up your server".to_string() } else { format!("Join {}", server.name) }))
+                        .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child(if preview.setup { t("onboarding.invite.setUpTitle").to_string() } else { tr!("onboarding.invite.joinTitle", server = server.name) }))
                         .child(div().text_color(theme.text2).child(subtitle))
                         .into_any_element(),
-                    self.input_field(1, &self.display_name.clone(), Some("Your name"), None, None, None, cx),
-                    self.input_field(2, &self.username.clone(), Some("Username"), Some("Letters, numbers, dots, dashes and underscores."), username_error, None, cx),
-                    div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some("Password"), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
-                    self.input_field(4, &self.confirm.clone(), Some("Confirm password"), None, confirm_error, Some(confirm_suffix), cx),
+                    self.input_field(1, &self.display_name.clone(), Some(t("onboarding.invite.yourName")), None, None, None, cx),
+                    self.input_field(2, &self.username.clone(), Some(t("common.username")), Some(t("onboarding.invite.usernameHint")), username_error, None, cx),
+                    div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some(t("common.password")), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
+                    self.input_field(4, &self.confirm.clone(), Some(t("common.confirmPassword")), None, confirm_error, Some(confirm_suffix), cx),
                     div()
                         .flex()
                         .gap(px(10.))
@@ -272,13 +283,13 @@ impl Render for Onboarding {
                         .text_size(px(13.))
                         .text_color(theme.text2)
                         .child(div().mt(px(1.)).child(icon("lock", 15., theme.text2)))
-                        .child(div().flex_1().min_w_0().child("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it."))
+                        .child(div().flex_1().min_w_0().child(t("onboarding.invite.passwordNote")))
                         .into_any_element(),
                     error_slot(error.clone(), &theme),
                     button("create", ButtonKind::Primary, ButtonSize::Large, !can_submit || busy, cx)
                         .w_full()
-                        .when(busy, |el| el.child(spinner(18., theme.text3)).child("Securing your account"))
-                        .when(!busy, |el| el.child("Agree and create account"))
+                        .when(busy, |el| el.child(spinner(18., theme.text3)).child(t("onboarding.invite.securing")))
+                        .when(!busy, |el| el.child(t("onboarding.invite.create")))
                         .when(can_submit && !busy, |el| el.on_click(cx.listener(|view, _, window, cx| view.submit(window, cx))))
                         .into_any_element(),
                     div()
@@ -287,9 +298,16 @@ impl Render for Onboarding {
                         .justify_center()
                         .text_size(px(12.5))
                         .text_color(theme.text3)
-                        .child("By creating an account, you agree to the\u{a0}")
-                        .child(div().id("terms").text_color(theme.text2).cursor_pointer().hover(move |style| style.text_color(theme.text1)).on_click(|_, _, cx| cx.open_url(crate::ui::TERMS_URL)).child("Terms of Use"))
-                        .child(".")
+                        // One sentence, around the link to the terms where it says {terms}.
+                        .children({
+                            let agreement = t("onboarding.invite.terms");
+                            let (before, after) = agreement.split_once("{terms}").unwrap_or((agreement, ""));
+                            [
+                                div().child(keep_edges(before)).into_any_element(),
+                                div().id("terms").text_color(theme.text2).cursor_pointer().hover(move |style| style.text_color(theme.text1)).on_click(|_, _, cx| cx.open_url(crate::ui::TERMS_URL)).child(t("onboarding.invite.termsLink")).into_any_element(),
+                                div().child(keep_edges(after)).into_any_element(),
+                            ]
+                        })
                         .into_any_element(),
                 ]
             }
@@ -302,8 +320,8 @@ impl Render for Onboarding {
                 vec![
                     self.header(
                         Some("key-round"),
-                        "Save your recovery key".into(),
-                        Some("If you forget your password, this key is the only way back in. Nobody can reset it for you, not even your server's admin.".into()),
+                        t("onboarding.recovery.title").into(),
+                        Some(t("onboarding.recovery.lead").into()),
                         None,
                         cx,
                     ),
@@ -328,7 +346,7 @@ impl Render for Onboarding {
                             button("copy-key", ButtonKind::Default, ButtonSize::Normal, false, cx)
                                 .flex_1()
                                 .child(icon(if copied { "check" } else { "copy" }, 15., theme.text1))
-                                .child(if copied { "Copied" } else { "Copy" })
+                                .child(if copied { t("common.copied") } else { t("common.copy") })
                                 .on_click(cx.listener(move |view, _, _, cx| {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(key_for_copy.clone()));
                                     view.copied = true;
@@ -344,10 +362,10 @@ impl Render for Onboarding {
                                     .detach();
                                 })),
                         )
-                        .child(button("save-key", ButtonKind::Default, ButtonSize::Normal, false, cx).flex_1().child(icon("download", 15., theme.text1)).child("Save as file").on_click(move |_, _, cx| {
+                        .child(button("save-key", ButtonKind::Default, ButtonSize::Normal, false, cx).flex_1().child(icon("download", 15., theme.text1)).child(t("common.saveAsFile")).on_click(move |_, _, cx| {
                             let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
                             let chosen = cx.prompt_for_new_path(&downloads, Some("zuna-recovery-key.txt"));
-                            let text = format!("Zuna recovery key\n\n{key_for_file}\n\nKeep this somewhere safe. It's the only way back into your account if you forget your password.\n");
+                            let text = tr!("onboarding.recoveryKey.file", key = key_for_file);
                             cx.spawn(async move |_| {
                                 if let Ok(Ok(Some(path))) = chosen.await {
                                     std::fs::write(path, text).ok();
@@ -379,15 +397,15 @@ impl Render for Onboarding {
                                 .bg(if saved { theme.accent } else { theme.bg2 })
                                 .when(saved, |el| el.child(icon("check", 13., theme.on_accent))),
                         )
-                        .child("I've stored it somewhere safe")
+                        .child(t("onboarding.recovery.stored"))
                         .into_any_element(),
-                    self.primary("continue", "Continue", saved, cx),
+                    self.primary("continue", t("common.continue"), saved, cx),
                 ]
             }
             Step::NameServer { .. } => vec![
-                self.header(Some("server"), "Name your server".into(), Some("Everyone who joins sees this name.".into()), None, cx),
+                self.header(Some("server"), t("onboarding.nameServer.title").into(), Some(t("onboarding.nameServer.hint").into()), None, cx),
                 self.input_field(7, &self.server_name.clone(), None, None, error, None, cx),
-                self.primary("save-name", "Continue", true, cx),
+                self.primary("save-name", t("common.continue"), true, cx),
             ],
             Step::SignIn => {
                 let url = self.server.read(cx).text().trim().to_string();
@@ -398,15 +416,15 @@ impl Render for Onboarding {
                 let busy = self.busy;
                 let back = if self.embedded { Step::Link } else { Step::Welcome };
                 vec![
-                    self.header(None, "Sign in".into(), Some("Your history will load on this device after you sign in.".into()), Some(back), cx),
-                    self.input_field(5, &self.server.clone(), Some("Server address"), Some("Or paste any link to the server."), None, None, cx),
-                    self.input_field(2, &self.username.clone(), Some("Username"), None, None, None, cx),
-                    self.input_field(3, &self.password.clone(), Some("Password"), None, None, Some(suffix), cx),
+                    self.header(None, t("onboarding.signIn.title").into(), Some(t("onboarding.signIn.lead").into()), Some(back), cx),
+                    self.input_field(5, &self.server.clone(), Some(t("onboarding.signIn.address")), Some(t("onboarding.signIn.addressHint")), None, None, cx),
+                    self.input_field(2, &self.username.clone(), Some(t("common.username")), None, None, None, cx),
+                    self.input_field(3, &self.password.clone(), Some(t("common.password")), None, None, Some(suffix), cx),
                     error_slot(error.clone(), &theme),
                     button("sign-in-submit", ButtonKind::Primary, ButtonSize::Large, !enabled || busy, cx)
                         .w_full()
-                        .when(busy, |el| el.child(spinner(18., theme.text3)).child("Unlocking your keys"))
-                        .when(!busy, |el| el.child("Sign in"))
+                        .when(busy, |el| el.child(spinner(18., theme.text3)).child(t("onboarding.signIn.unlocking")))
+                        .when(!busy, |el| el.child(t("onboarding.signIn.title")))
                         .when(enabled && !busy, |el| el.on_click(cx.listener(|view, _, window, cx| view.submit(window, cx))))
                         .into_any_element(),
                     div()
@@ -423,7 +441,7 @@ impl Render for Onboarding {
                                         view.go(Step::Recover { url: url.clone(), username: username.clone() }, window, cx)
                                     }))
                                 })
-                                .child("Forgot your password?"),
+                                .child(t("onboarding.signIn.forgot")),
                         )
                         .into_any_element(),
                 ]
@@ -433,15 +451,15 @@ impl Render for Onboarding {
                 let password = self.password.read(cx).text().to_string();
                 let confirm = self.confirm.read(cx).text().to_string();
                 let enabled = !key.is_empty() && password.chars().count() >= MIN_PASSWORD && self.strength.0 >= 2 && confirm == password;
-                let confirm_error = if !confirm.is_empty() && !password.starts_with(&confirm) { Some("The passwords don't match.".to_string()) } else { None };
+                let confirm_error = if !confirm.is_empty() && !password.starts_with(&confirm) { Some(t("common.passwordsDontMatch").to_string()) } else { None };
                 let suffix = self.password_suffix(cx);
                 vec![
-                    self.header(None, "Use your recovery key".into(), Some(format!("Choose a new password for {username}. Your other devices will need it next time.")), Some(Step::SignIn), cx),
-                    self.input_field(6, &self.recovery.clone(), Some("Recovery key"), None, None, None, cx),
-                    div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some("New password"), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
-                    self.input_field(4, &self.confirm.clone(), Some("Confirm new password"), None, confirm_error, None, cx),
+                    self.header(None, t("onboarding.recover.title").into(), Some(tr!("onboarding.recover.hint", username = username)), Some(Step::SignIn), cx),
+                    self.input_field(6, &self.recovery.clone(), Some(t("onboarding.recover.key")), None, None, None, cx),
+                    div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some(t("onboarding.recover.newPassword")), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
+                    self.input_field(4, &self.confirm.clone(), Some(t("onboarding.recover.confirmPassword")), None, confirm_error, None, cx),
                     error_slot(error.clone(), &theme),
-                    self.primary("recover", "Set new password and sign in", enabled, cx),
+                    self.primary("recover", t("onboarding.recover.submit"), enabled, cx),
                 ]
             }
         };

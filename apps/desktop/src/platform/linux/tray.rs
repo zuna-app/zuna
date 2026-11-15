@@ -59,7 +59,7 @@ impl ksni::Tray for ZunaTray {
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
-        let title = if self.unread > 0 { format!("Zuna: {} unread", self.unread) } else { "Zuna".into() };
+        let title = if self.unread > 0 { tr!("tray.unread", count = self.unread) } else { "Zuna".into() };
         ksni::ToolTip { title, ..Default::default() }
     }
 
@@ -73,9 +73,9 @@ impl ksni::Tray for ZunaTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
-            StandardItem { label: "Open Zuna".into(), activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Open)), ..Default::default() }.into(),
+            StandardItem { label: crate::i18n::t("tray.open").into(), activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Open)), ..Default::default() }.into(),
             MenuItem::Separator,
-            StandardItem { label: "Quit".into(), activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Quit)), ..Default::default() }.into(),
+            StandardItem { label: crate::i18n::t("tray.quit").into(), activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Quit)), ..Default::default() }.into(),
         ]
     }
 }

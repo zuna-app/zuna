@@ -39,7 +39,7 @@ impl Voice {
         let on = !self.camera;
         let device = self.settings.camera_device.clone();
         cx.spawn(async move |this, cx| {
-            let result = crate::host::tokio().spawn(async move { room.set_camera(on, &device).await }).await.unwrap_or_else(|_| Err("There's no camera Zuna can use.".into()));
+            let result = crate::host::tokio().spawn(async move { room.set_camera(on, &device).await }).await.unwrap_or_else(|_| Err(t("voice.camera.none").into()));
             this.update(cx, |voice, cx| {
                 match result {
                     Ok(()) => {
@@ -222,7 +222,7 @@ impl Voice {
                     voice.mixer.open(&voice.settings.output_device);
                     voice.mixer.once(samples.as_ref().clone(), volume);
                 }
-                None => voice.toast("That sound couldn't be played.", ToastKind::Error, cx),
+                None => voice.toast(t("voice.errors.soundFailed"), ToastKind::Error, cx),
             })
             .ok();
         })

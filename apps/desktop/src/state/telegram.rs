@@ -64,7 +64,7 @@ impl AppState {
                 state.telegram_link = None;
                 match result {
                     Ok(value) if linked && value.get("signedOut").and_then(Value::as_bool) != Some(true) => state.toast(
-                        "Telegram was unlinked from this device, but Zuna couldn't tell Telegram. End Zuna's session in Telegram's app, under Devices.",
+                        crate::i18n::t("telegram.unlink.notTold"),
                         ToastKind::Info,
                         cx,
                     ),
@@ -90,9 +90,9 @@ impl AppState {
             let alone = choices.get("forSelf").and_then(Value::as_bool) == Some(true);
             let result = if everyone || alone { Some(core.call(Some(SERVER_ID), "deleteMessages", vec![json!(group), json!([id]), json!(everyone)]).await) } else { None };
             this.update(cx, |state, cx| match result {
-                None => state.toast("Telegram doesn't let this message be deleted.", ToastKind::Info, cx),
+                None => state.toast(crate::i18n::t("telegram.delete.notAllowed"), ToastKind::Info, cx),
                 Some(Err(error)) => state.toast(error.message, ToastKind::Error, cx),
-                Some(Ok(_)) if !everyone && !saved => state.toast("Deleted only for you. Others in the chat can still see it.", ToastKind::Info, cx),
+                Some(Ok(_)) if !everyone && !saved => state.toast(crate::i18n::t("telegram.delete.onlyYou"), ToastKind::Info, cx),
                 Some(Ok(_)) => {}
             })
             .ok();
@@ -170,7 +170,7 @@ impl AppState {
                 // over, from the QR code to a phone number, has nothing in the rail to take away.
                 if self.servers.contains_key(SERVER_ID) {
                     if self.telegram_link.is_none() && !matches!(self.overlay, Some(Overlay::Telegram)) {
-                        self.toast("Your Telegram session was ended, so Telegram was unlinked from this device.", ToastKind::Info, cx);
+                        self.toast(crate::i18n::t("telegram.unlink.sessionEnded"), ToastKind::Info, cx);
                     }
                     self.remove_server(SERVER_ID, cx);
                 }

@@ -9,6 +9,7 @@ use gpui::{App, Context};
 use serde_json::{Value, json};
 
 use super::Voice;
+use crate::i18n::t;
 use crate::models::WatchView;
 use crate::state::ToastKind;
 
@@ -117,7 +118,7 @@ impl Voice {
     /// asking may be in the middle of an update of its own.
     pub fn watch_start(&mut self, url: String, done: impl FnOnce(Result<(), String>, &mut App) + 'static, cx: &mut Context<Self>) {
         let (Some(server_id), Some(channel_id)) = (self.server_id.clone(), self.channel_id.clone()) else {
-            cx.defer(move |cx| done(Err("Join the voice channel to watch together.".into()), cx));
+            cx.defer(move |cx| done(Err(t("errors.joinVoiceToWatch").into()), cx));
             return;
         };
         let core = self.core(cx);

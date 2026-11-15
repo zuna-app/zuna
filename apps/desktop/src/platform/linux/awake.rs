@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use zbus::zvariant::{OwnedObjectPath, Value};
 
 /// What the desktop shows as holding the screen on, as KDE's battery applet does.
-const REASON: &str = "Showing a call's video";
+const REASON: &str = crate::i18n::mark("voice.awake.reason");
 
 /// Asks for the screen not to dim or lock, and the computer not to sleep, while `on`.
 pub fn keep_screen_on(on: bool) {
@@ -45,7 +45,7 @@ enum Inhibit {
 fn hold() -> Option<Inhibit> {
     let bus = super::bus::session()?;
     // 8 is idle: the session isn't marked idle, so the screen stays on and unlocked.
-    let options = HashMap::from([("reason", Value::from(REASON))]);
+    let options = HashMap::from([("reason", Value::from(crate::i18n::t(REASON)))]);
     let portal = bus
         .call_method(Some("org.freedesktop.portal.Desktop"), "/org/freedesktop/portal/desktop", Some("org.freedesktop.portal.Inhibit"), "Inhibit", &("", 8u32, options))
         .and_then(|reply| reply.body().deserialize::<OwnedObjectPath>());
@@ -57,7 +57,7 @@ fn hold() -> Option<Inhibit> {
         Err(error) => log::info!("no Inhibit portal ({error}), so the screen saver is asked to keep the screen on"),
     }
     let screen_saver = bus
-        .call_method(Some("org.freedesktop.ScreenSaver"), "/org/freedesktop/ScreenSaver", Some("org.freedesktop.ScreenSaver"), "Inhibit", &("Zuna", REASON))
+        .call_method(Some("org.freedesktop.ScreenSaver"), "/org/freedesktop/ScreenSaver", Some("org.freedesktop.ScreenSaver"), "Inhibit", &("Zuna", crate::i18n::t(REASON)))
         .and_then(|reply| reply.body().deserialize::<u32>());
     match screen_saver {
         Ok(cookie) => {

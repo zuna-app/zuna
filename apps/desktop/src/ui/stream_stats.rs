@@ -9,6 +9,7 @@ use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, Pa
 
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
+use crate::i18n::t;
 use crate::state::AppState;
 use crate::theme::{self, RADIUS_L};
 use crate::voice::stats::{Extra, Reader, Section, as_text};
@@ -62,7 +63,7 @@ impl StreamStatsPanel {
                             };
                             let server_id = voice.server_id.clone().unwrap_or_default();
                             let users = panel.state.read(cx).servers.get(&server_id).map(|server| server.users.clone()).unwrap_or_default();
-                            let name_of = |user: &str| users.get(user).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+                            let name_of = |user: &str| users.get(user).map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
                             panel.sections = panel.reader.read(&samples, &connection, &extra, &name_of);
                             cx.notify();
                         })
@@ -120,15 +121,15 @@ pub fn mic_filters(voice: &Voice) -> String {
     let mut filters: Vec<String> = Vec::new();
     match settings.noise_suppression.as_str() {
         "zuna" => filters.push("RNNoise".into()),
-        "standard" => filters.push("WebRTC's noise suppression".into()),
+        "standard" => filters.push(t("voice.stats.filterWebrtc").into()),
         _ => {}
     }
-    filters.push(if settings.input_mode == "ptt" { "push to talk".into() } else if settings.auto_sensitivity { "a gate on speech".into() } else { format!("a gate at {} dB", settings.sensitivity) });
+    filters.push(if settings.input_mode == "ptt" { t("voice.stats.pushToTalk").into() } else if settings.auto_sensitivity { t("voice.stats.gateOnSpeech").into() } else { tr!("voice.stats.filterGateAt", level = settings.sensitivity) });
     if settings.echo_cancellation {
-        filters.push("echo cancelling".into());
+        filters.push(t("voice.stats.echoCancelling").into());
     }
     if settings.auto_gain {
-        filters.push("automatic gain".into());
+        filters.push(t("voice.stats.automaticGain").into());
     }
     filters.join(", ")
 }
@@ -180,7 +181,7 @@ impl Render for StreamStatsPanel {
                                     .flex_col()
                                     .gap(px(2.))
                                     .child(div().font_family(theme::FONT_MONO).text_size(px(21.)).font_weight(FontWeight::SEMIBOLD).line_height(px(21.)).child(headline.fps.map(|fps| format!("{fps:.1}")).unwrap_or_else(|| "…".into())))
-                                    .child(div().text_size(px(11.)).text_color(theme.text3).child(format!("fps {}{}", headline.label, headline.wanted.map(|wanted| format!(" of {wanted}")).unwrap_or_default()))),
+                                    .child(div().text_size(px(11.)).text_color(theme.text3).child(headline.caption())),
                             )
                             .child(Self::graph(headline.history.clone(), headline.wanted, cx)),
                     );
@@ -248,8 +249,8 @@ impl Render for StreamStatsPanel {
                         cx.stop_propagation();
                     }))
                     .child(icon("activity", 14., theme.text2))
-                    .child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Stream stats"))
-                    .child(icon_button("stats-copy", if copied { "check" } else { "copy" }, 14., true, false, cx).tip(if copied { "Copied" } else { "Copy all" }, Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
+                    .child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(t("voice.statsPanel.title")))
+                    .child(icon_button("stats-copy", if copied { "check" } else { "copy" }, 14., true, false, cx).tip(if copied { t("common.copied") } else { t("voice.statsPanel.copyAll") }, Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(as_text(&panel.sections)));
                         panel.copied = true;
                         cx.notify();
@@ -263,7 +264,7 @@ impl Render for StreamStatsPanel {
                         })
                         .detach();
                     })))
-                    .child(icon_button("stats-close", "x", 15., true, false, cx).tip("Close", Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
+                    .child(icon_button("stats-close", "x", 15., true, false, cx).tip(t("common.close"), Side::Bottom).on_click(cx.listener(|panel, _, _, cx| {
                         let voice = panel.voice.clone();
                         voice.update(cx, |voice, cx| {
                             voice.stats_open = false;

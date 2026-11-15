@@ -9,6 +9,7 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::text_input::TabScope;
 use crate::format::format_full;
+use crate::i18n::t;
 use crate::state::{AppState, Overlay};
 use crate::theme::{self, RADIUS_XL};
 
@@ -17,18 +18,18 @@ pub fn prompt(state: &Entity<AppState>, focus: &FocusHandle, cx: &App) -> Option
     let app = state.read(cx);
     let (title, text, buttons): (&str, String, Vec<AnyElement>) = if let Some((server_id, secret)) = app.device_removed.clone() {
         let text = match secret.as_deref() {
-            Some("recovery") => "Whoever signed in on it has your recovery key and can sign in again until you make a new one. Make a new one now.",
-            Some(_) => "Whoever signed in on it knows your password and can sign in again until you change it. Change it now.",
-            None => "Whoever signed in on it may know your password or your recovery key. Change your password and make a new recovery key now.",
+            Some("recovery") => t("security.newDevice.removedRecovery"),
+            Some(_) => t("security.newDevice.removedPassword"),
+            None => t("security.newDevice.removedEither"),
         };
-        let action = if secret.as_deref() == Some("recovery") { "Make a new recovery key" } else { "Change password" };
+        let action = if secret.as_deref() == Some("recovery") { t("security.newDevice.newRecoveryKey") } else { t("settings.security.changePassword") };
         let (later, open) = (state.clone(), state.clone());
         (
-            "The device was removed",
+            t("security.newDevice.removedTitle"),
             text.to_string(),
             vec![
                 button("new-device-later", ButtonKind::Ghost, ButtonSize::Normal, false, cx)
-                    .child("Later")
+                    .child(t("security.newDevice.later"))
                     .on_click(move |_, _, cx| later.update(cx, |state, cx| {
                         state.device_removed = None;
                         cx.notify();
@@ -48,27 +49,25 @@ pub fn prompt(state: &Entity<AppState>, focus: &FocusHandle, cx: &App) -> Option
         let (server_id, server) = app.order.iter().find_map(|id| app.servers.get(id).filter(|server| !server.new_devices.is_empty()).map(|server| (id.clone(), server)))?;
         let device = server.new_devices[0].clone();
         let busy = app.answering_device.is_some();
-        let secret = if device.secret.as_deref() == Some("recovery") { "your recovery key" } else { "your password" };
         let place = server.info.as_ref().map(|info| info.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| server.entry.name.clone());
-        let text = format!(
-            "\u{201c}{}\u{201d} signed in to your account on {} on {}. If it wasn't you, someone else has {} and is signed in as you.",
-            device.name,
-            place,
-            format_full(device.created_at),
-            secret
-        );
+        let date = format_full(device.created_at);
+        let text = if device.secret.as_deref() == Some("recovery") {
+            tr!("security.newDevice.askRecovery", device = device.name, server = place, date = date)
+        } else {
+            tr!("security.newDevice.askPassword", device = device.name, server = place, date = date)
+        };
         let (no, yes) = (state.clone(), state.clone());
         let (no_server, no_device, yes_server, yes_device) = (server_id.clone(), device.id.clone(), server_id, device.id);
         (
-            "Was this you?",
+            t("security.newDevice.title"),
             text,
             vec![
                 button("new-device-not-me", ButtonKind::Danger, ButtonSize::Normal, busy, cx)
-                    .child("No, remove it")
+                    .child(t("security.newDevice.no"))
                     .on_click(move |_, _, cx| no.update(cx, |state, cx| state.answer_new_device(&no_server, &no_device, false, cx)))
                     .into_any_element(),
                 button("new-device-me", ButtonKind::Primary, ButtonSize::Normal, busy, cx)
-                    .child("Yes, it was me")
+                    .child(t("security.newDevice.yes"))
                     .on_click(move |_, _, cx| yes.update(cx, |state, cx| state.answer_new_device(&yes_server, &yes_device, true, cx)))
                     .into_any_element(),
             ],

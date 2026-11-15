@@ -31,11 +31,11 @@ pub fn download(client: &reqwest::Client, url: &str, to: &Path, size: u64) -> Re
         let mut written = 0u64;
         while let Some(chunk) = response.chunk().await.map_err(crate::platform::updates::problem)? {
             if crate::host::net::generation() != generation {
-                return Err("the proxy changed".into());
+                return Err(crate::i18n::t("update.problem.proxyChanged").into());
             }
             written += chunk.len() as u64;
             if written > size {
-                return Err(format!("{url} is larger than its manifest says"));
+                return Err(tr!("update.problem.larger", url = url));
             }
             file.write_all(&chunk).map_err(|error| error.to_string())?;
         }

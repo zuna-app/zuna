@@ -65,7 +65,7 @@ async fn listen(trigger: &str, listener: &(impl Fn(bool) + Send), bound: impl Fn
     let bus = connect().await.map_err(text)?;
     let session = create_session(&bus).await?;
     let token = token();
-    let shortcut: HashMap<&str, Value> = [("description", Value::from("Push to talk")), ("preferred_trigger", Value::from(trigger))].into();
+    let shortcut: HashMap<&str, Value> = [("description", Value::from(crate::i18n::t("voice.settings.pushToTalk"))), ("preferred_trigger", Value::from(trigger))].into();
     let options: HashMap<&str, Value> = [("handle_token", Value::from(token.as_str()))].into();
     let mut results = request(&bus, "BindShortcuts", &token, &(&session, vec![(ID, shortcut)], "", options)).await?;
     let given: Vec<(String, HashMap<String, OwnedValue>)> = results.remove("shortcuts").and_then(|value| value.try_into().ok()).unwrap_or_default();

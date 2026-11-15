@@ -102,7 +102,7 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
                     return Ok(number(&c, *handle as f64));
                 }
                 let path = file_for(&state.dir, &name);
-                let connection = Connection::open(&path).map_err(|error| fail(&c, format!("Couldn't open {name}: {error}")))?;
+                let connection = Connection::open(&path).map_err(|error| fail(&c, tr!("common.couldntOpen", name = name, error = error)))?;
                 connection
                     .execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000;")
                     .map_err(|error| fail(&c, error.to_string()))?;

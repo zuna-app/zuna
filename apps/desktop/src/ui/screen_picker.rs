@@ -9,6 +9,7 @@ use gpui::{AnyElement, App, Context, Entity, FocusHandle, FontWeight, IntoElemen
 
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
+use crate::i18n::t;
 use crate::platform::screens::{self, Source, THUMB_HEIGHT, THUMB_WIDTH};
 use crate::state::{AppState, Overlay};
 use crate::theme::{self, RADIUS_M, RADIUS_S, RADIUS_XL};
@@ -187,7 +188,7 @@ impl Render for ScreenPicker {
         match &self.sources {
             None => body.push(div().flex().justify_center().p(px(40.)).child(spinner(22., theme.text2)).into_any_element()),
             Some(sources) => {
-                body.push(div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).w(px(180.)).child(tab("tab-screens", "Screens", self.screen_tab, true, cx)).child(tab("tab-windows", "Windows", !self.screen_tab, false, cx)).into_any_element());
+                body.push(div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).w(px(180.)).child(tab("tab-screens", t("voice.screenPicker.screens"), self.screen_tab, true, cx)).child(tab("tab-windows", t("voice.screenPicker.windows"), !self.screen_tab, false, cx)).into_any_element());
                 let mut grid = div().w(px(596.)).flex().flex_wrap().gap(px(8.)).p(px(2.));
                 let pickable: Vec<&Source> = sources.iter().filter(|source| source.screen == self.screen_tab).collect();
                 for item in &pickable {
@@ -234,13 +235,13 @@ impl Render for ScreenPicker {
                     );
                 }
                 if pickable.is_empty() {
-                    grid = grid.child(div().text_color(theme.text3).child(if self.screen_tab { "There are no screens to share." } else { "There are no windows to share." }));
+                    grid = grid.child(div().text_color(theme.text3).child(if self.screen_tab { t("voice.screenPicker.noScreens") } else { t("voice.screenPicker.noWindows") }));
                 }
                 let handle = scroll_handle("screen-grid");
                 body.push(div().id("screen-grid").max_h(px(320.)).overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(grid).child(scrollbar("screen-grid", Scrolls::Div(handle.clone()))).into_any_element());
                 if let Some(source) = source.as_ref().filter(|source| source.system_picks()) {
                     // `.setting-hint`.
-                    let asks = if source.screen { "Your system will ask which screen to share after you press Share." } else { "Your system will ask which window to share after you press Share." };
+                    let asks = if source.screen { t("voice.screenPicker.systemAsksScreen") } else { t("voice.screenPicker.systemAsksWindow") };
                     body.push(div().text_size(px(12.5)).text_color(theme.text2).child(asks).into_any_element());
                 }
             }
@@ -267,7 +268,7 @@ impl Render for ScreenPicker {
             let label = |app: &SoundApp, quiet: bool, listed: &[(SoundApp, bool)]| {
                 let name = app_name(&app.name);
                 let named = if listed.iter().filter(|(other, _)| other.name == app.name).count() > 1 { format!("{name} ({})", app.id) } else { name };
-                if quiet { format!("{named}, once it plays") } else { named }
+                if quiet { tr!("voice.screenPicker.oncePlays", app = named) } else { named }
             };
             let key = source.as_ref().map(|source| source.id.clone()).unwrap_or_default();
             let choose = |value: String, picker: Entity<ScreenPicker>, key: String| -> Rc<dyn Fn(&mut Window, &mut App)> {
@@ -280,29 +281,29 @@ impl Render for ScreenPicker {
                 })
             };
             let me = cx.entity();
-            let mut choices: Vec<(String, Rc<dyn Fn(&mut Window, &mut App)>)> = vec![("No audio".into(), choose(String::new(), me.clone(), key.clone())), ("Entire system".into(), choose("everything".into(), me.clone(), key.clone()))];
+            let mut choices: Vec<(String, Rc<dyn Fn(&mut Window, &mut App)>)> = vec![(t("voice.screenPicker.noAudio").into(), choose(String::new(), me.clone(), key.clone())), (t("voice.screenPicker.entireSystem").into(), choose("everything".into(), me.clone(), key.clone()))];
             for (app, quiet) in &listed {
                 choices.push((label(app, *quiet, &listed), choose(format!("app:{}", app.id), me.clone(), key.clone())));
             }
             let current = match pick.as_str() {
-                "" => "No audio".to_string(),
-                "everything" => "Entire system".to_string(),
+                "" => t("voice.screenPicker.noAudio").to_string(),
+                "everything" => t("voice.screenPicker.entireSystem").to_string(),
                 _ => listed.iter().find(|(app, _)| Some(&app.id) == picked.as_ref()).map(|(app, quiet)| label(app, *quiet, &listed)).unwrap_or_default(),
             };
             let picked_name = listed.iter().find(|(app, _)| Some(&app.id) == picked.as_ref()).map(|(app, _)| app.name.clone());
             let hint = if pick == "everything" {
-                "All sound from your computer, except Zuna.".to_string()
+                t("voice.screenPicker.everythingHint").to_string()
             } else if let Some(name) = picked_name {
-                format!("Only sound from {}.", app_name(&name))
+                tr!("voice.screenPicker.appHint", app = app_name(&name))
             } else {
-                "Apps appear here while they play audio.".to_string()
+                t("voice.screenPicker.appsHint").to_string()
             };
             body.push(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Audio"))
+                    .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("voice.screenSettings.audio")))
                     .child(select_box("screen-sound", current, choices, cx))
                     .child(div().text_size(px(12.5)).text_color(theme.text3).child(hint))
                     .into_any_element(),
@@ -318,7 +319,7 @@ impl Render for ScreenPicker {
                 .cursor_pointer()
                 .hover(|style| style.text_color(theme.text1))
                 .on_click(move |_, _, cx| settings_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("screen".into()) }), cx)))
-                .child("Screen sharing settings")
+                .child(t("voice.screenPicker.settings"))
                 .into_any_element(),
         );
         let can_share = !self.starting && self.sources.is_some() && source.is_some();
@@ -328,8 +329,8 @@ impl Render for ScreenPicker {
             .gap(px(8.))
             .px(px(20.))
             .pb(px(16.))
-            .child(button("screen-cancel", ButtonKind::Default, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|picker, _, window, cx| picker.close(window, cx))))
-            .child(button("screen-share", ButtonKind::Primary, ButtonSize::Normal, !can_share, cx).child(if self.starting { spinner(15., theme.on_accent).into_any_element() } else { div().child("Share").into_any_element() }).when(can_share, |el| el.on_click(cx.listener(|picker, _, window, cx| picker.start(window, cx)))));
+            .child(button("screen-cancel", ButtonKind::Default, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|picker, _, window, cx| picker.close(window, cx))))
+            .child(button("screen-share", ButtonKind::Primary, ButtonSize::Normal, !can_share, cx).child(if self.starting { spinner(15., theme.on_accent).into_any_element() } else { div().child(t("voice.screenPicker.share")).into_any_element() }).when(can_share, |el| el.on_click(cx.listener(|picker, _, window, cx| picker.start(window, cx)))));
         div()
             .id("modal-layer")
             .absolute()
@@ -372,7 +373,7 @@ impl Render for ScreenPicker {
                             .pr(px(16.))
                             .pb(px(4.))
                             .pl(px(20.))
-                            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Share your screen"))
+                            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(t("voice.controls.shareScreen")))
                             .child(icon_button("close-modal", "x", 16., true, false, cx).on_click(cx.listener(|picker, _, window, cx| picker.close(window, cx)))),
                     )
                     .child({

@@ -35,7 +35,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
         if let Some(key) = unprotect(DEVICE_KEY, &sealed) {
             return Ok(DeviceKey { key, protected: true });
         }
-        return Err(std::io::Error::other(UNSEAL_FAILED));
+        return Err(std::io::Error::other(unseal_failed()));
     }
     if let Ok(key) = std::fs::read(&plain_path) {
         // Kept plain because the system wouldn't seal it then, as when the app started with
@@ -135,12 +135,15 @@ unsafe fn take_blob(blob: windows::Win32::Security::Cryptography::CRYPT_INTEGER_
     }
 }
 
-#[cfg(windows)]
-const UNSEAL_FAILED: &str = "Windows couldn't unseal this device's key.";
-#[cfg(target_os = "macos")]
-const UNSEAL_FAILED: &str = "The keychain couldn't unseal this device's key.";
-#[cfg(target_os = "linux")]
-const UNSEAL_FAILED: &str = "The system's keyring couldn't unseal this device's key.";
+/// Why the device key couldn't be read.
+fn unseal_failed() -> &'static str {
+    #[cfg(windows)]
+    return crate::i18n::t("onboarding.deviceKey.unsealWindows");
+    #[cfg(target_os = "macos")]
+    return crate::i18n::t("onboarding.deviceKey.unsealMac");
+    #[cfg(target_os = "linux")]
+    return crate::i18n::t("onboarding.deviceKey.unsealLinux");
+}
 
 /// On Linux the key itself goes into the Secret Service (GNOME Keyring, KWallet, KeePassXC),
 /// as Electron's safeStorage kept its own there, and what's written to disk only names its

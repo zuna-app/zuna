@@ -191,9 +191,9 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
         }
         let size_color = if own { theme.bubble_own_faint } else { theme.text2 };
         let label = if attachment.voice == Some(true) {
-            "Voice message".to_string()
+            t("message.voiceMessage").to_string()
         } else if attachment.round == Some(true) {
-            "Video message".to_string()
+            t("message.videoMessage").to_string()
         } else {
             attachment.name.clone()
         };
@@ -265,8 +265,8 @@ pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: se
             state
                 .update(cx, |state, cx| match result.map_err(|error| error.message).and_then(|value| crate::state::checked_download(&server_id, value)) {
                     Ok(value) => match crate::host::save_value(&value, &path, false) {
-                        Ok(()) => state.toast("Saved", ToastKind::Info, cx),
-                        Err(error) => state.toast(format!("Couldn't save the file: {error}"), ToastKind::Error, cx),
+                        Ok(()) => state.toast(t("common.saved"), ToastKind::Info, cx),
+                        Err(error) => state.toast(tr!("message.saveFailed", error = error), ToastKind::Error, cx),
                     },
                     Err(error) => state.toast(error, ToastKind::Error, cx),
                 })
@@ -375,7 +375,7 @@ pub(in crate::ui) fn location_card(id: &str, location: &crate::models::SharedLoc
         .bg(bg)
         .cursor_pointer()
         .hover(move |style| style.bg(theme.hover_strong))
-        .tooltip(tooltip("Open on OpenStreetMap"))
+        .tooltip(tooltip(t("location.openMap")))
         .on_click(move |_, _, cx| cx.open_url(&url))
         .child(div().size(px(40.)).flex_none().rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 20., theme.on_accent)))
         .child(
@@ -385,7 +385,7 @@ pub(in crate::ui) fn location_card(id: &str, location: &crate::models::SharedLoc
                 .flex_col()
                 .gap(px(1.))
                 .text_size(px(13.))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("Location"))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(t("location.title")))
                 .child(crate::format::coordinates_text(location.lat, location.lon))
                 .when_some(location.accuracy, |el, meters| el.child(div().text_size(px(12.)).text_color(if own && !channel { theme.bubble_own_faint } else { theme.text2 }).child(crate::format::accuracy_text(meters)))),
         )

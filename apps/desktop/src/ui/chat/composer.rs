@@ -28,8 +28,8 @@ impl ChatView {
                     .items_center()
                     .gap(px(8.))
                     .child(icon("x", 15., theme.text2))
-                    .child("You're no longer in this conversation. Its messages stay on this device for 30 days.")
-                    .child(button("forget", ButtonKind::Default, ButtonSize::Small, false, cx).child("Remove now").on_click(move |_, _, cx| {
+                    .child(t("composer.disabled.left"))
+                    .child(button("forget", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("composer.disabled.removeNow")).on_click(move |_, _, cx| {
                         state.update(cx, |state, cx| {
                             state.select_conversation(None, cx);
                             state.act("forgetConversation", vec![json!(group)], cx);
@@ -40,7 +40,7 @@ impl ChatView {
         }
         if let Some(peer) = &peer {
             if (peer.banned || peer.deleted) && !is_saved {
-                let why = if peer.deleted { "This account was deleted." } else { "This person was removed from the server." };
+                let why = if peer.deleted { t("composer.disabled.deleted") } else { t("composer.disabled.removed") };
                 return disabled(div().flex().items_center().gap(px(8.)).child(icon("x", 15., theme.text2)).child(why).into_any_element());
             }
             if conversation.blocked {
@@ -52,8 +52,8 @@ impl ChatView {
                         .items_center()
                         .gap(px(8.))
                         .child(icon("ban", 15., theme.text2))
-                        .child(format!("You blocked {}.", peer.display_name))
-                        .child(button("unblock", ButtonKind::Default, ButtonSize::Small, false, cx).child("Unblock").on_click(move |_, _, cx| {
+                        .child(tr!("composer.disabled.blocked", name = peer.display_name))
+                        .child(button("unblock", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("composer.disabled.unblock")).on_click(move |_, _, cx| {
                             state.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(false)], cx))
                         }))
                         .into_any_element(),
@@ -69,8 +69,9 @@ impl ChatView {
         let server_url = server.entry.url.clone();
         let mut area = if is_channel { div().relative().rounded(px(8.)).bg(theme.bg2) } else { div().flex_none().relative().bg(theme.bg1).border_t_1().border_color(theme.line) };
         if let (true, Some(context)) = (is_channel, reply.clone()) {
-            // What's being replied to, joined to the top of the box.
-            let sender = if context.sender_id == server.self_id() { "yourself".to_string() } else { server.display_name(&context.sender_id) };
+            // What's being replied to, joined to the top of the box, with whose it is in bold.
+            let replying = if context.sender_id == server.self_id() { t("composer.replyingToYourself") } else { t("composer.replyingTo") };
+            let mut sender = Some(server.display_name(&context.sender_id));
             let state = self.state.clone();
             let list = list_id.clone();
             area = area.child(
@@ -85,7 +86,7 @@ impl ChatView {
                     .bg(theme.bg1)
                     .text_size(px(14.))
                     .text_color(theme.text2)
-                    .child(div().flex_1().min_w_0().flex().child("Replying to ").child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(sender)))
+                    .child(text_row(replying, false, move |_| div().font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(sender.take().unwrap_or_default()).into_any_element()).flex_1().min_w_0())
                     .child(
                         named_div("cancel-reply")
                             .size(px(26.))
@@ -102,11 +103,16 @@ impl ChatView {
             );
         } else if editing.is_some() || reply.is_some() {
             let context = editing.clone().or(reply.clone()).unwrap();
-            let sender = if context.sender_id == server.self_id() { "yourself".to_string() } else { server.display_name(&context.sender_id) };
-            let title = if editing.is_some() { "Editing message".to_string() } else { format!("Replying to {sender}") };
+            let title = if editing.is_some() {
+                t("composer.editing").to_string()
+            } else if context.sender_id == server.self_id() {
+                t("composer.replyingToYourself").to_string()
+            } else {
+                tr!("composer.replyingTo", name = server.display_name(&context.sender_id))
+            };
             let text = {
                 let plain = plain_text(&context.text);
-                if !plain.is_empty() { plain } else { context.attachments.first().map(|a| a.name.clone()).unwrap_or("Attachment".into()) }
+                if !plain.is_empty() { plain } else { context.attachments.first().map(|a| a.name.clone()).unwrap_or_else(|| t("message.reply.attachment").into()) }
             };
             let state = self.state.clone();
             let composer = self.composer.clone();
@@ -153,7 +159,7 @@ impl ChatView {
                 .preview
                 .as_ref()
                 .and_then(|preview| preview.title.clone().or_else(|| preview.site_name.clone()))
-                .unwrap_or_else(|| "Loading the link's preview…".into());
+                .unwrap_or_else(|| t("composer.linkLoading").into());
             let text = draft.preview.as_ref().and_then(|preview| preview.description.clone()).unwrap_or_else(|| draft.url.clone());
             let picture = draft.preview.as_ref().and_then(|preview| preview.image.as_ref()).and_then(|image| crate::ui::message::data_url_image(&image.data));
             let url = draft.url.clone();
@@ -298,7 +304,7 @@ impl ChatView {
                         .justify_center()
                         .cursor_pointer()
                         .group("attach")
-                        .tip("Attach", Side::Top)
+                        .tip(t("composer.attach"), Side::Top)
                         .on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx)))
                         .child(icon("plus-circle-filled", 22., theme.text2).group_hover("attach", move |style| style.text_color(theme.text1))),
                 )
@@ -306,7 +312,7 @@ impl ChatView {
         } else {
             let plugin_buttons = if editing.is_none() && !telegram { crate::ui::plugins::composer_buttons(cx) } else { Vec::new() };
             div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
-                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tip("Attach", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
+                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tip(t("composer.attach"), Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
             })
             .children(plugin_buttons)
         };
@@ -330,7 +336,7 @@ impl ChatView {
                         .child(self.composer.clone())
                         .child(scrollbar("composer-scroll", Scrolls::Div(composer_scroll.clone()))),
                 )
-                .child(composer_button("emoji", "face-slightly-smiling", cx).child(emoji_probe).tip("Emoji and emotes", Side::Top).on_click(cx.listener(move |view, _: &gpui::ClickEvent, window, cx| {
+                .child(composer_button("emoji", "face-slightly-smiling", cx).child(emoji_probe).tip(t("emoji.picker.title"), Side::Top).on_click(cx.listener(move |view, _: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
                     let (sticker_state, sticker_key) = (view.state.clone(), view.key.clone());
                     // As the web's: 330 px left of the button's right edge, at its top.
@@ -388,7 +394,7 @@ impl ChatView {
                     )
                 })
                 .when(show_record, |el| {
-                    el.child(composer_button("record-round", "video", cx).tip("Record a video message", Side::Top).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
+                    el.child(composer_button("record-round", "video", cx).tip(t("composer.recordRound"), Side::Top).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
                         .child(
                             div()
                                 .id("record-voice")
@@ -399,7 +405,7 @@ impl ChatView {
                                 .items_center()
                                 .justify_center()
                                 .cursor_pointer()
-                                .tip("Record a voice message", Side::Top)
+                                .tip(t("composer.recordVoice"), Side::Top)
                                 .on_click(cx.listener(|view, _, _, cx| view.start_voice(cx)))
                                 .child(icon("mic", 18., theme.text1)),
                         )

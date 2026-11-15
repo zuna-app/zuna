@@ -47,7 +47,7 @@ pub(super) fn reaction_chip(reaction: &ReactionView, message: &MessageView, own:
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
                 Some(image) => {
                     let picture = img(image).h(px(18.)).when_some(emote_width(context, &emote.id, 18., 40.), |el, width| el.w(px(width))).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
-                    chip.child(with_emote_card(picture, SharedString::from(format!("reaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(format!("Reacted by {names}")), context, cx))
+                    chip.child(with_emote_card(picture, SharedString::from(format!("reaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(tr!("message.reaction.reactedBy", names = names)), context, cx))
                 }
                 None => chip.child(emote_placeholder(context, &url, &reaction.key, emote_width(context, &emote.id, 18., 40.), 18., cx)),
             }
@@ -82,34 +82,34 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
     let is_deleted = message.deleted_at.is_some();
     if can_act {
         let (state, list_id, message) = (state.clone(), list_id.clone(), message.clone());
-        entries.push(MenuEntry::new("Reply", "corner-up-left", move |_, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(message.clone()), cx))));
+        entries.push(MenuEntry::new(t("message.action.reply"), "corner-up-left", move |_, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(message.clone()), cx))));
         let (forward_state, server_id, forward_group, forward_id) = (context.state.clone(), context.server_id.clone(), group.clone(), id.clone());
         // From Telegram, only to Telegram's own chats (the picker keeps them apart).
-        entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
+        entries.push(MenuEntry::new(t("message.action.forward"), "forward", move |_, cx| {
             let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
             forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
         }));
         let (select_state, select_list, select_id) = (context.state.clone(), context.list_id.clone(), id.clone());
-        entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
+        entries.push(MenuEntry::new(t("message.action.select"), "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
     if !message.text.is_empty() && !is_deleted {
         // What's selected in it, if anything, as the web's "Copy selection".
         let selected = selection::text_in(&message.id);
-        let label = if selected.is_some() { "Copy selection" } else { "Copy text" };
+        let label = if selected.is_some() { t("message.action.copySelection") } else { t("message.action.copyText") };
         let (state, text) = (state.clone(), selected.unwrap_or_else(|| message.text.clone()));
         entries.push(MenuEntry::new(label, "copy", move |_, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-            state.update(cx, |state, cx| state.toast("Copied", ToastKind::Info, cx));
+            state.update(cx, |state, cx| state.toast(t("common.copied"), ToastKind::Info, cx));
         }));
     }
     if can_act && own && !message.text.is_empty() && message.forwarded.is_none() {
         let (state, list_id, message) = (state.clone(), list_id.clone(), message.clone());
-        entries.push(MenuEntry::new("Edit", "pencil", move |_, cx| state.update(cx, |state, cx| state.set_editing(&list_id, Some(message.clone()), cx))));
+        entries.push(MenuEntry::new(t("common.edit"), "pencil", move |_, cx| state.update(cx, |state, cx| state.set_editing(&list_id, Some(message.clone()), cx))));
     }
     if can_act {
         let pinned = message.pinned_at.is_some();
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new(if pinned { "Unpin" } else { "Pin" }, if pinned { "pin-off" } else { "pin" }, move |_, cx| {
+        entries.push(MenuEntry::new(if pinned { t("message.action.unpin") } else { t("message.action.pin") }, if pinned { "pin-off" } else { "pin" }, move |_, cx| {
             state.update(cx, |state, cx| state.act("setPinned", vec![json!(group), json!(id), json!(!pinned)], cx))
         }));
     }
@@ -131,26 +131,26 @@ pub(in crate::ui) fn menu_entries(message: &MessageView, own: bool, can_act: boo
                         .with_avatar(user.display_name.clone(), user.id.clone(), context.avatars.get(&user.id).cloned())
                 })
                 .collect();
-            entries.push(MenuEntry::submenu(format!("Read by {}", readers.len()), "check-check", people));
+            entries.push(MenuEntry::submenu(tr!("message.action.readBy", count = readers.len()), "check-check", people));
         }
     }
     // Telegram's engine sends a message again itself, and drops one it can't.
     if message.status == "failed" && context.server_id != crate::telegram::SERVER_ID {
         let (retry_state, group_a, id_a) = (state.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new("Try again", "refresh-cw", move |_, cx| retry_state.update(cx, |state, cx| state.act("retryMessage", vec![json!(group_a), json!(id_a)], cx))));
+        entries.push(MenuEntry::new(t("message.action.retry"), "refresh-cw", move |_, cx| retry_state.update(cx, |state, cx| state.act("retryMessage", vec![json!(group_a), json!(id_a)], cx))));
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new("Discard", "trash", move |_, cx| state.update(cx, |state, cx| state.act("discardMessage", vec![json!(group), json!(id)], cx))).danger());
+        entries.push(MenuEntry::new(t("message.action.discard"), "trash", move |_, cx| state.update(cx, |state, cx| state.act("discardMessage", vec![json!(group), json!(id)], cx))).danger());
     }
     if can_act && context.server_id == crate::telegram::SERVER_ID {
         // Telegram decides: for everyone where it allows it, and for this account alone otherwise,
         // which the app then says.
         entries.push(MenuEntry::separator());
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new("Delete", "trash", move |_, cx| state.update(cx, |state, cx| state.delete_telegram_message(group.clone(), id.clone(), cx))).danger());
+        entries.push(MenuEntry::new(t("common.delete"), "trash", move |_, cx| state.update(cx, |state, cx| state.delete_telegram_message(group.clone(), id.clone(), cx))).danger());
     } else if can_act && (own || (context.is_group && context.is_group_admin)) {
         entries.push(MenuEntry::separator());
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        entries.push(MenuEntry::new("Delete for everyone", "trash", move |_, cx| state.update(cx, |state, cx| state.act("deleteMessage", vec![json!(group), json!(id)], cx))).danger());
+        entries.push(MenuEntry::new(t("message.action.deleteForEveryone"), "trash", move |_, cx| state.update(cx, |state, cx| state.act("deleteMessage", vec![json!(group), json!(id)], cx))).danger());
     }
     entries
 }

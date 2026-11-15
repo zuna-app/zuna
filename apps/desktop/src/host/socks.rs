@@ -62,18 +62,18 @@ pub enum Failure {
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Failure::Unreachable(why) => write!(f, "Can't reach the proxy: {why}"),
-            Failure::Refused => f.write_str("The proxy refused the username or password."),
-            Failure::Declined(code) => f.write_str(match code {
-                2 => "The proxy doesn't allow that connection.",
-                3 => "The proxy can't reach that network.",
-                4 => "The proxy can't reach that server.",
-                5 => "That server refused the proxy's connection.",
-                6 => "The proxy's connection timed out.",
-                7 => "The proxy doesn't support that.",
-                8 => "The proxy doesn't support that type of address.",
-                _ => "The proxy couldn't make the connection.",
-            }),
+            Failure::Unreachable(why) => f.write_str(&tr!("proxy.failure.unreachable", reason = why)),
+            Failure::Refused => f.write_str(crate::i18n::t("proxy.failure.refused")),
+            Failure::Declined(code) => f.write_str(crate::i18n::t(match code {
+                2 => crate::i18n::mark("proxy.failure.notAllowed"),
+                3 => crate::i18n::mark("proxy.failure.network"),
+                4 => crate::i18n::mark("proxy.failure.host"),
+                5 => crate::i18n::mark("proxy.failure.connectionRefused"),
+                6 => crate::i18n::mark("proxy.failure.timedOut"),
+                7 => crate::i18n::mark("proxy.failure.unsupported"),
+                8 => crate::i18n::mark("proxy.failure.addressType"),
+                _ => crate::i18n::mark("proxy.failure.other"),
+            })),
         }
     }
 }
@@ -138,7 +138,7 @@ async fn timed<T>(work: impl std::future::Future<Output = std::io::Result<T>>) -
     match tokio::time::timeout(TIMEOUT, work).await {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(error)) => Err(unreachable(error)),
-        Err(_) => Err(Failure::Unreachable("it didn't answer".into())),
+        Err(_) => Err(Failure::Unreachable(crate::i18n::t("proxy.failure.noAnswer").into())),
     }
 }
 
@@ -151,7 +151,7 @@ async fn greet(proxy: &Proxy) -> Result<TcpStream, Failure> {
     let mut chosen = [0u8; 2];
     timed(stream.read_exact(&mut chosen)).await?;
     if chosen[0] != 5 {
-        return Err(Failure::Unreachable("it doesn't speak SOCKS5".into()));
+        return Err(Failure::Unreachable(crate::i18n::t("proxy.failure.notSocks").into()));
     }
     match chosen[1] {
         0 => Ok(stream),
@@ -181,7 +181,7 @@ async fn request(stream: &mut TcpStream, command: u8, host: &str, port: u16) -> 
     let mut head = [0u8; 4];
     timed(stream.read_exact(&mut head)).await?;
     if head[0] != 5 {
-        return Err(Failure::Unreachable("it doesn't speak SOCKS5".into()));
+        return Err(Failure::Unreachable(crate::i18n::t("proxy.failure.notSocks").into()));
     }
     if head[1] != 0 {
         return Err(Failure::Declined(head[1]));
@@ -196,15 +196,15 @@ async fn request(stream: &mut TcpStream, command: u8, host: &str, port: u16) -> 
             timed(stream.read_exact(&mut name)).await?;
             let mut whole = vec![3, length[0]];
             whole.extend(name);
-            return decode_address(&whole).map(|(target, _)| target).ok_or_else(|| Failure::Unreachable("it answered with an address it can't have".into()));
+            return decode_address(&whole).map(|(target, _)| target).ok_or_else(|| Failure::Unreachable(crate::i18n::t("proxy.failure.badAddress").into()));
         }
-        _ => return Err(Failure::Unreachable("it answered with an address it can't have".into())),
+        _ => return Err(Failure::Unreachable(crate::i18n::t("proxy.failure.badAddress").into())),
     };
     let mut address = vec![0u8; rest];
     timed(stream.read_exact(&mut address)).await?;
     let mut whole = vec![head[3]];
     whole.extend(address);
-    decode_address(&whole).map(|(target, _)| target).ok_or_else(|| Failure::Unreachable("it answered with an address it can't have".into()))
+    decode_address(&whole).map(|(target, _)| target).ok_or_else(|| Failure::Unreachable(crate::i18n::t("proxy.failure.badAddress").into()))
 }
 
 /// A connection to `host`, through the proxy, which resolves it where it's a name.
@@ -223,7 +223,7 @@ pub async fn associate(proxy: &Proxy) -> Result<(TcpStream, SocketAddr), Failure
         Target::Address(address) if !address.ip().is_unspecified() => address,
         // A proxy that doesn't say where takes them where it was reached.
         Target::Address(address) => SocketAddr::new(stream.peer_addr().map(|peer| peer.ip()).unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)), address.port()),
-        Target::Name(..) => return Err(Failure::Unreachable("it named its relay rather than giving its address".into())),
+        Target::Name(..) => return Err(Failure::Unreachable(crate::i18n::t("proxy.failure.namedRelay").into())),
     };
     Ok((stream, relay))
 }

@@ -21,12 +21,12 @@ pub fn screens() -> Vec<Source> {
     if shared_kinds() & 1 == 0 {
         return Vec::new();
     }
-    vec![Source { id: "portal:screen".into(), name: "Entire screen".into(), screen: true, thumbnail: None }]
+    vec![Source { id: "portal:screen".into(), name: crate::i18n::t("voice.screens.entire").into(), screen: true, thumbnail: None }]
 }
 
 pub fn windows() -> Vec<Source> {
     if shared_kinds() & 2 == 0 {
         return Vec::new();
     }
-    vec![Source { id: "portal:window".into(), name: "A window".into(), screen: false, thumbnail: None }]
+    vec![Source { id: "portal:window".into(), name: crate::i18n::t("voice.screens.window").into(), screen: false, thumbnail: None }]
 }

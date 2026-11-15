@@ -102,7 +102,7 @@ fn database_key(data_dir: &Path, device_key: &[u8]) -> Result<Vec<u8>, String> {
     let sealing = zuna_crypto::primitives::hkdf_sha256(device_key, &[], KEY_AAD, 32).map_err(|error| error.to_string())?;
     let path = key_file(data_dir);
     if let Ok(sealed) = std::fs::read(&path) {
-        return zuna_crypto::primitives::aead_open(&sealing, &sealed, KEY_AAD).map_err(|_| "the key to Telegram's database couldn't be opened".to_string());
+        return zuna_crypto::primitives::aead_open(&sealing, &sealed, KEY_AAD).map_err(|_| crate::i18n::t("telegram.engine.keyUnreadable").to_string());
     }
     let key = zuna_crypto::primitives::random_bytes(32).map_err(|error| error.to_string())?;
     let sealed = zuna_crypto::primitives::aead_seal(&sealing, &key, KEY_AAD).map_err(|error| error.to_string())?;
@@ -188,8 +188,8 @@ impl Engine {
         let (path, credentials) = match given {
             Some(given) => given,
             None => {
-                let credentials = credentials().ok_or("This build of Zuna can't use Telegram.")?;
-                (engine_path().filter(|path| path.is_file()).ok_or("Telegram's engine wasn't found next to the app.")?, credentials)
+                let credentials = credentials().ok_or(crate::i18n::t("telegram.engine.notInBuild"))?;
+                (engine_path().filter(|path| path.is_file()).ok_or(crate::i18n::t("telegram.engine.notFound"))?, credentials)
             }
         };
         let key = match database_key(&self.data_dir, &self.device_key) {
@@ -215,7 +215,7 @@ impl Engine {
         let spawned = crate::platform::sandbox::spawn_unboxed(&path, &[], &directory);
         #[cfg(not(all(test, unix)))]
         let spawned = crate::platform::sandbox::spawn(&path, &[], &directory);
-        let spawned = spawned.map_err(|error| format!("Telegram's engine couldn't start: {error}"))?;
+        let spawned = spawned.map_err(|error| tr!("telegram.engine.cantStart", error = error))?;
         let crate::platform::sandbox::Spawned { stdin, stdout, stderr, process: child } = spawned;
 
         state.generation += 1;
@@ -290,7 +290,7 @@ impl Engine {
         if state.tokens < 1.0 {
             drop(state);
             log::warn!(target: "telegram", "too many requests, one refused");
-            return refuse(429, "Too many requests at once.".into());
+            return refuse(429, crate::i18n::t("telegram.engine.tooMany").into());
         }
         state.tokens -= 1.0;
         match &state.running {
@@ -299,7 +299,7 @@ impl Engine {
             }
             None => {
                 drop(state);
-                refuse(503, "Telegram isn't running.".into());
+                refuse(503, crate::i18n::t("telegram.engine.notRunning").into());
             }
         }
     }
@@ -366,7 +366,7 @@ impl Engine {
                     self.heard(&door, json);
                 }
                 Ok(Some(Frame::Data(id, bytes))) => door.data(id, bytes),
-                Ok(None) => break "it stopped".to_string(),
+                Ok(None) => break crate::i18n::t("telegram.engine.ended").to_string(),
                 Err(error) => break error.to_string(),
             }
         };

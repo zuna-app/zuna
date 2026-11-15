@@ -9,7 +9,7 @@ impl Dialog {
         let Some(user) = server.users.get(&user_id).cloned() else { return div().into_any_element() };
         let is_self = user_id == server.self_id();
         let trust = self.check.as_ref().map(|check| check.trust.clone()).unwrap_or(user.trust.clone());
-        let title = if is_self { "Your security key".to_string() } else { format!("Verify {} (@{})", user.display_name, user.username) };
+        let title = if is_self { t("verify.ownTitle").to_string() } else { tr!("verify.title", name = user.display_name, username = user.username) };
         let notice = |icon_name: &str, color: gpui::Hsla, bg: gpui::Hsla, text_color: gpui::Hsla, text: String| {
             div().flex().gap(px(10.)).px(px(12.)).py(px(10.)).rounded(RADIUS_M).bg(bg).text_size(px(13.)).text_color(text_color).child(icon(icon_name, 16., color)).child(div().flex_1().min_w_0().child(text)).into_any_element()
         };
@@ -20,14 +20,14 @@ impl Dialog {
                 theme.red,
                 theme.red_soft,
                 theme.danger_text,
-                format!("{}'s security key changed in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.", user.display_name),
+                tr!("verify.changedFull", name = user.display_name),
             )),
-            "verified" => body.push(notice("shield-check", theme.text2, theme.bg2, theme.text2, format!("You've verified {}. Nobody can secretly intercept your messages.", user.display_name))),
+            "verified" => body.push(notice("shield-check", theme.text2, theme.bg2, theme.text2, tr!("verify.verified", name = user.display_name))),
             _ if !is_self => body.push(
                 div()
                     .text_size(px(13.5))
                     .text_color(theme.text2)
-                    .child(format!("Compare these emoji with {} in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.", user.display_name))
+                    .child(tr!("verify.compare", name = user.display_name))
                     .into_any_element(),
             ),
             _ => {}
@@ -69,7 +69,7 @@ impl Dialog {
                 body.push(
                     button("clear-verification", ButtonKind::Default, ButtonSize::Normal, false, cx)
                         .w_full()
-                        .child("Remove verification")
+                        .child(t("verify.remove"))
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("clearVerification", vec![json!(id)], cx)))
                         .into_any_element(),
                 );
@@ -80,9 +80,9 @@ impl Dialog {
                     div()
                         .flex()
                         .gap(px(10.))
-                        .child(button("no-match", ButtonKind::Default, ButtonSize::Normal, false, cx).flex_1().child(icon("triangle-alert", 15., theme.text1)).child("They don't match").on_click(move |_, _, cx| {
+                        .child(button("no-match", ButtonKind::Default, ButtonSize::Normal, false, cx).flex_1().child(icon("triangle-alert", 15., theme.text1)).child(t("verify.noMatch")).on_click(move |_, _, cx| {
                             dismiss_state.update(cx, |state, cx| {
-                                state.toast("Don't share anything private with them until you know why the emoji differ.", ToastKind::Security, cx);
+                                state.toast(t("verify.mismatchToast"), ToastKind::Security, cx);
                                 state.set_overlay(None, cx);
                             })
                         }))
@@ -90,7 +90,7 @@ impl Dialog {
                             button("match", ButtonKind::Primary, ButtonSize::Normal, covers.is_none(), cx)
                                 .flex_1()
                                 .child(icon("badge-check", 16., theme.on_accent))
-                                .child("They match")
+                                .child(t("verify.match"))
                                 .when_some(covers, |el, covers| {
                                     el.on_click(move |_, _, cx| {
                                         let (id, covers, name) = (id.clone(), covers.clone(), name.clone());
@@ -98,7 +98,7 @@ impl Dialog {
                                             let server = state.active_server.clone();
                                             state.call(server.as_deref(), "markVerified", vec![json!(id), json!(covers)], cx, move |state, result, cx| match result {
                                                 Ok(_) => {
-                                                    state.toast(format!("{name} is verified"), ToastKind::Info, cx);
+                                                    state.toast(tr!("verify.verifiedToast", name = name), ToastKind::Info, cx);
                                                     state.set_overlay(None, cx);
                                                 }
                                                 Err(error) => state.toast(error.message, ToastKind::Error, cx),

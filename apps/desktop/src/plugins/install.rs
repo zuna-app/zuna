@@ -9,6 +9,7 @@ use std::sync::Arc;
 use gpui::Context;
 
 use super::manifest::{Manifest, Permission};
+use crate::i18n::t;
 use super::package::Package;
 use super::store::Origin;
 use super::{Plugins, trust};
@@ -61,10 +62,10 @@ impl Proposal {
         let manifest_like = (self.permissions.contains(&Permission::MessagesRead) || self.permissions.contains(&Permission::FilesRead)) && self.permissions.contains(&Permission::Network);
         let mut lines = Vec::new();
         if manifest_like {
-            lines.push((format!("Read your messages and send them to {}", self.hosts.join(", ")), true));
+            lines.push((tr!("plugins.install.readAndSend", hosts = self.hosts.join(", ")), true));
         }
         for permission in &self.permissions {
-            let line = if *permission == Permission::Network { format!("Connect to {}. Each can see your IP address and whatever the plugin sends it", self.hosts.join(", ")) } else { permission.told().to_string() };
+            let line = if *permission == Permission::Network { tr!("plugins.install.connectTo", hosts = self.hosts.join(", ")) } else { permission.told().to_string() };
             lines.push((line, permission.strong()));
         }
         lines
@@ -93,15 +94,15 @@ impl Plugins {
     /// Proposes a package from a file the person picked or dropped on the Plugins page.
     pub fn propose_file(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) -> Result<u64, String> {
         if !self.usable() {
-            return Err("Plugins can't be installed because this device's key couldn't be read.".into());
+            return Err(t("plugins.noDeviceKey").into());
         }
         let package = Package::open(&bytes)?;
         let verified = trust::verified(&package);
         if !verified && !self.record.allow_unverified {
-            return Err("This plugin isn't one Zuna checked. To install it anyway, turn on \"Allow plugins Zuna hasn't checked\" under Advanced first.".into());
+            return Err(t("plugins.unverifiedOffFile").into());
         }
         if package.sha256.as_ref().is_some_and(|hash| self.record.revoked_hashes.contains(hash)) || self.market.revoked(&package) {
-            return Err("Zuna pulled this plugin because it's harmful.".into());
+            return Err(t("plugins.pulled").into());
         }
         let origin = if verified { Origin::Verified } else { Origin::File };
         let installed = self.installed_manifest(origin, &package.manifest.id);
@@ -113,7 +114,7 @@ impl Plugins {
     /// Proposes a developer's folder: the dialog once for each folder, then it loads as it changes.
     pub fn propose_folder(&mut self, dir: PathBuf, cx: &mut Context<Self>) -> Result<(), String> {
         if !self.record.allow_unverified {
-            return Err("Turn on \"Allow plugins Zuna hasn't checked\" under Advanced first.".into());
+            return Err(t("plugins.unverifiedOffFolder").into());
         }
         let package = Package::open_folder(&dir)?;
         let known = self.record.plugins.iter().any(|plugin| plugin.origin == Origin::Folder && std::path::Path::new(&plugin.path) == dir && plugin.id == package.manifest.id);
@@ -129,11 +130,11 @@ impl Plugins {
 
     /// Proposes the newest version of a plugin on the marketplace, from what the index says of it.
     pub fn propose_market(&mut self, plugin: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        let Some(index) = self.market.index.as_ref() else { return Err("The marketplace isn't loaded.".into()) };
-        let Some((entry, version)) = index.newest(plugin).map(|(entry, version)| (entry.clone(), version.clone())) else { return Err("No version of it works with this version of Zuna.".into()) };
+        let Some(index) = self.market.index.as_ref() else { return Err(t("plugins.market.notLoaded").into()) };
+        let Some((entry, version)) = index.newest(plugin).map(|(entry, version)| (entry.clone(), version.clone())) else { return Err(t("plugins.market.noVersion").into()) };
         let permissions: Vec<Permission> = version.permissions.iter().filter_map(|name| Permission::parse(name)).collect();
         if permissions.len() != version.permissions.len() {
-            return Err("It needs something this version of Zuna doesn't support.".into());
+            return Err(t("plugins.market.unsupported").into());
         }
         let mut sorted = permissions.clone();
         sorted.sort();
@@ -171,7 +172,7 @@ impl Plugins {
             }
         };
         match result {
-            Ok(()) => self.toast_app(format!("{} is installed.", proposal.name), crate::state::ToastKind::Info, cx),
+            Ok(()) => self.toast_app(tr!("plugins.installed", name = proposal.name), crate::state::ToastKind::Info, cx),
             Err(error) => self.toast_app(error, crate::state::ToastKind::Error, cx),
         }
         cx.notify();

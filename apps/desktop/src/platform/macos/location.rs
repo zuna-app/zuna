@@ -120,8 +120,8 @@ pub fn locate() -> Result<(f64, f64, Option<f64>), String> {
         .ok();
     match answer.recv_timeout(ASK_WITHIN + FIND_WITHIN) {
         Ok(Found::Position(latitude, longitude, accuracy)) => Ok((latitude, longitude, Some(accuracy.round()))),
-        Ok(Found::Refused) => Err("Zuna isn't allowed to use your location. Allow it in System Settings, under Privacy & Security, then Location Services.".into()),
-        Ok(Found::Unavailable) => Err("Your location isn't available right now.".into()),
-        Err(_) => Err("Finding your location took too long. Try again.".into()),
+        Ok(Found::Refused) => Err(crate::i18n::t("location.notAllowedMac").into()),
+        Ok(Found::Unavailable) => Err(crate::i18n::t("location.unavailable").into()),
+        Err(_) => Err(crate::i18n::t("location.timedOut").into()),
     }
 }

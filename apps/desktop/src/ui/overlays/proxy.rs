@@ -35,11 +35,11 @@ impl ProxyForm {
                 input
             })
         };
-        let host = make("127.0.0.1 or proxy.example.com", setting.host.clone(), false, cx);
+        let host = make(t("proxy.dialog.addressPlaceholder"), setting.host.clone(), false, cx);
         let port = make("1080", if setting.port == 0 { String::new() } else { setting.port.to_string() }, false, cx);
-        let username = make("Optional", setting.username.clone(), false, cx);
+        let username = make(t("common.optional"), setting.username.clone(), false, cx);
         let kept_password = !setting.username.is_empty() && ProxySetting::kept_password().is_some();
-        let password = make(if kept_password { "Kept on this device" } else { "Optional" }, String::new(), true, cx);
+        let password = make(if kept_password { t("proxy.dialog.passwordKept") } else { t("common.optional") }, String::new(), true, cx);
         for (index, input) in [&host, &port, &username, &password].into_iter().enumerate() {
             subscriptions.push(cx.subscribe_in(input, window, move |dialog, _, event, _, cx| {
                 match event {
@@ -66,13 +66,13 @@ impl ProxyForm {
     fn proxy(&self, cx: &App) -> Result<Proxy, String> {
         let host = self.host.read(cx).text().trim().trim_start_matches('[').trim_end_matches(']').to_string();
         if host.is_empty() || host.contains(char::is_whitespace) || host.contains('/') {
-            return Err("Enter the proxy's address: a host name or an IP address.".into());
+            return Err(t("proxy.dialog.badAddress").into());
         }
-        let port = self.port.read(cx).text().trim().parse::<u16>().ok().filter(|port| *port > 0).ok_or("The port must be a number from 1 to 65535.")?;
+        let port = self.port.read(cx).text().trim().parse::<u16>().ok().filter(|port| *port > 0).ok_or(t("proxy.dialog.badPort"))?;
         let username = self.username.read(cx).text().to_string();
         let typed = self.password.read(cx).text().to_string();
         if username.len() > 255 || typed.len() > 255 {
-            return Err("SOCKS5 usernames and passwords can be at most 255 bytes each.".into());
+            return Err(t("proxy.dialog.tooLong").into());
         }
         let password = if username.is_empty() {
             String::new()
@@ -94,13 +94,13 @@ impl Dialog {
         let mut body = vec![
             div()
                 .text_size(px(13.5))
-                .child("You can send everything from this device through a SOCKS5 proxy of your choice, for every server you've joined: messages, files, calls, link previews, updates and plugins. Your servers and their media servers will see the proxy's address instead of yours. The proxy can see which servers you connect to, when, and how much you send, but not what you send, since that stays encrypted.")
+                .child(t("proxy.dialog.intro"))
                 .into_any_element(),
             div()
                 .flex()
                 .items_center()
                 .gap(px(16.))
-                .child(div().flex_1().text_size(px(14.)).font_weight(FontWeight::MEDIUM).child("Connect through a proxy"))
+                .child(div().flex_1().text_size(px(14.)).font_weight(FontWeight::MEDIUM).child(t("proxy.dialog.switch")))
                 .child(switch("proxy-on", on, cx).on_click(cx.listener(|dialog, _, _, cx| {
                     if let Some(form) = dialog.proxy_form.as_mut() {
                         form.on = !form.on;
@@ -115,26 +115,23 @@ impl Dialog {
                 div()
                     .flex()
                     .gap(px(10.))
-                    .child(div().flex_1().min_w_0().child(field(Some("Address"), form.host.clone(), None, None, focused(0), None, cx)))
-                    .child(div().w(px(96.)).flex_none().child(field(Some("Port"), form.port.clone(), None, None, focused(1), None, cx)))
+                    .child(div().flex_1().min_w_0().child(field(Some(t("proxy.dialog.address")), form.host.clone(), None, None, focused(0), None, cx)))
+                    .child(div().w(px(96.)).flex_none().child(field(Some(t("proxy.dialog.port")), form.port.clone(), None, None, focused(1), None, cx)))
                     .into_any_element(),
             );
             body.push(
                 div()
                     .flex()
                     .gap(px(10.))
-                    .child(div().flex_1().min_w_0().child(field(Some("Username"), form.username.clone(), None, None, focused(2), None, cx)))
-                    .child(div().flex_1().min_w_0().child(field(Some("Password"), form.password.clone(), None, None, focused(3), None, cx)))
+                    .child(div().flex_1().min_w_0().child(field(Some(t("proxy.dialog.username")), form.username.clone(), None, None, focused(2), None, cx)))
+                    .child(div().flex_1().min_w_0().child(field(Some(t("common.password")), form.password.clone(), None, None, focused(3), None, cx)))
                     .into_any_element(),
             );
             body.push(
                 div()
                     .text_size(px(12.5))
                     .text_color(theme.text2)
-                    .child(format!(
-                        "If the proxy can't be reached, Zuna won't connect at all. It never bypasses the proxy. SOCKS5 itself isn't encrypted, so the proxy's password and your servers' names travel to the proxy unencrypted. That isn't a concern for a proxy running on this computer, such as Tor or ssh -D.{}",
-                        if cfg!(target_os = "macos") { "" } else { " Watching YouTube together doesn't go through a proxy on this system yet, so it's off while one is set." }
-                    ))
+                    .child(if cfg!(target_os = "macos") { t("proxy.dialog.warning") } else { t("proxy.dialog.warningNoWatch") })
                     .into_any_element(),
             );
         }
@@ -142,7 +139,7 @@ impl Dialog {
             body.push(div().text_size(px(13.)).text_color(theme.danger_text).child(problem.clone()).into_any_element());
         }
         if form.checking {
-            body.push(div().text_size(px(13.)).text_color(theme.text2).child("Checking…").into_any_element());
+            body.push(div().text_size(px(13.)).text_color(theme.text2).child(t("proxy.dialog.checking")).into_any_element());
         }
         if let Some(report) = &form.report {
             let line = |good: bool, text: String| {
@@ -157,19 +154,19 @@ impl Dialog {
             let mut lines = Vec::new();
             match &report.signed_in {
                 Ok(took) => {
-                    lines.push(line(true, format!("Connected to the proxy in {}.", milliseconds(*took))));
+                    lines.push(line(true, tr!("proxy.check.connected", time = milliseconds(*took))));
                     lines.push(if report.udp {
-                        line(true, "It supports UDP, which calls use.".into())
+                        line(true, t("proxy.check.udp").into())
                     } else {
-                        line(false, "It doesn't support UDP, so calls will use TCP instead and may sound worse.".into())
+                        line(false, t("proxy.check.noUdp").into())
                     });
                 }
                 Err(failure) => lines.push(line(false, failure.to_string())),
             }
             for (name, reached) in &report.servers {
                 lines.push(match reached {
-                    Ok(took) => line(true, format!("Reached {name} through the proxy in {}.", milliseconds(*took))),
-                    Err(why) => line(false, format!("{name}: {why}")),
+                    Ok(took) => line(true, tr!("proxy.check.reached", server = name, time = milliseconds(*took))),
+                    Err(why) => line(false, tr!("proxy.check.failed", server = name, reason = why)),
                 });
             }
             body.push(div().flex().flex_col().gap(px(6.)).p(px(12.)).rounded(RADIUS_M).bg(theme.bg2).children(lines).into_any_element());
@@ -178,11 +175,11 @@ impl Dialog {
         let footer = div()
             .flex()
             .gap(px(8.))
-            .when(on, |el| el.child(button("proxy-check", ButtonKind::Default, ButtonSize::Normal, busy, cx).child("Check").on_click(cx.listener(|dialog, _, _, cx| dialog.check_proxy(cx)))))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("proxy-save", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child("Save").on_click(cx.listener(|dialog, _, _, cx| dialog.save_proxy(cx))))
+            .when(on, |el| el.child(button("proxy-check", ButtonKind::Default, ButtonSize::Normal, busy, cx).child(t("proxy.dialog.check")).on_click(cx.listener(|dialog, _, _, cx| dialog.check_proxy(cx)))))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("proxy-save", ButtonKind::Primary, ButtonSize::Normal, busy, cx).child(t("common.save")).on_click(cx.listener(|dialog, _, _, cx| dialog.save_proxy(cx))))
             .into_any_element();
-        self.modal(Some("Proxy".into()), 520., body, Some(footer), cx)
+        self.modal(Some(t("proxy.dialog.title").into()), 520., body, Some(footer), cx)
     }
 
     /// Signs in to the proxy as it's written, and reaches each server joined through it.
@@ -231,7 +228,7 @@ impl Dialog {
                 }
             };
             if let Err(error) = ProxySetting::keep_password(&proxy.password) {
-                form.problem = Some(format!("Couldn't save the password: {error}"));
+                form.problem = Some(tr!("proxy.dialog.saveFailed", error = error));
                 cx.notify();
                 return;
             }
@@ -246,7 +243,7 @@ impl Dialog {
 }
 
 fn milliseconds(took: Duration) -> String {
-    format!("{} ms", took.as_millis().max(1))
+    tr!("proxy.check.milliseconds", ms = took.as_millis().max(1))
 }
 
 #[cfg(test)]

@@ -161,14 +161,14 @@ pub enum Refused {
 
 impl std::fmt::Display for Refused {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        out.write_str(match self {
-            Refused::Signature => "its manifest isn't signed with one of Zuna's keys",
-            Refused::WrongKey => "it's signed for the other update channel",
-            Refused::Channel => "it's a nightly, and this app is set to stable releases",
-            Refused::Old => "it isn't newer than this app",
-            Refused::Malformed => "its manifest can't be read",
-            Refused::NoFile => "it has no installer for this system",
-        })
+        out.write_str(crate::i18n::t(match self {
+            Refused::Signature => crate::i18n::mark("update.refused.signature"),
+            Refused::WrongKey => crate::i18n::mark("update.refused.wrongKey"),
+            Refused::Channel => crate::i18n::mark("update.refused.channel"),
+            Refused::Old => crate::i18n::mark("update.refused.old"),
+            Refused::Malformed => crate::i18n::mark("update.refused.malformed"),
+            Refused::NoFile => crate::i18n::mark("update.refused.noFile"),
+        }))
     }
 }
 
@@ -411,37 +411,38 @@ fn change(update: impl FnOnce(&mut Updates)) {
     }
 }
 
-/// How long ago something was, as Settings says it: "just now", "12 minutes ago", "3 hours ago".
-pub fn ago(then: SystemTime, now: SystemTime) -> String {
+/// That it's up to date, and how long ago that was found, as Settings says it: "just now",
+/// "12 minutes ago", "3 hours ago".
+fn up_to_date(then: SystemTime, now: SystemTime) -> String {
     let minutes = now.duration_since(then).map(|passed| passed.as_secs() / 60).unwrap_or(0);
     match minutes {
-        0 => "just now".into(),
-        1 => "a minute ago".into(),
-        2..=59 => format!("{minutes} minutes ago"),
-        60..=119 => "an hour ago".into(),
-        _ => format!("{} hours ago", minutes / 60),
+        0 => crate::i18n::t("update.status.checkedJustNow").into(),
+        1 => crate::i18n::t("update.status.checkedMinute").into(),
+        2..=59 => tr!("update.status.checkedMinutes", count = minutes),
+        60..=119 => crate::i18n::t("update.status.checkedHour").into(),
+        _ => tr!("update.status.checkedHours", count = minutes / 60),
     }
 }
 
 /// The line under the channel in Settings.
 pub fn status_line(updates: &Updates, now: SystemTime) -> String {
     if let Some(update) = &updates.ready {
-        return format!("{} is ready to install", update.label());
+        return tr!("update.status.ready", version = update.label());
     }
     match &updates.activity {
-        Activity::Downloading(label) => return format!("Downloading {label}"),
-        Activity::Checking => return "Checking for updates".into(),
+        Activity::Downloading(label) => return tr!("update.status.downloading", version = label),
+        Activity::Checking => return crate::i18n::t("update.status.checking").into(),
         Activity::Idle => {}
     }
     if let Some(version) = &updates.not_installed {
-        return format!("The update to {version} couldn't be installed. Zuna will try again.");
+        return tr!("update.status.notInstalled", version = version);
     }
     match (&updates.problem, updates.checked) {
-        (Some(problem), _) => format!("Couldn't check for updates: {problem}"),
+        (Some(problem), _) => tr!("update.status.failed", problem = problem),
         // A release is out that this app won't take, which is worth a person's knowing.
-        (None, Some(_)) if updates.refused.is_some() => format!("Skipped the latest release: {}", updates.refused.as_deref().unwrap_or_default()),
-        (None, Some(checked)) => format!("Up to date, checked {}", ago(checked, now)),
-        (None, None) => "Not checked yet".into(),
+        (None, Some(_)) if updates.refused.is_some() => tr!("update.status.skipped", reason = updates.refused.as_deref().unwrap_or_default()),
+        (None, Some(checked)) => up_to_date(checked, now),
+        (None, None) => crate::i18n::t("update.status.notChecked").into(),
     }
 }
 
@@ -641,9 +642,9 @@ mod running {
     pub(in crate::platform) fn problem(error: reqwest::Error) -> String {
         log::warn!("updates: {error:?}");
         match error.status() {
-            Some(status) => format!("GitHub answered {}", status.as_u16()),
-            None if error.is_timeout() => "the connection timed out".into(),
-            None => "no connection to GitHub".into(),
+            Some(status) => tr!("update.problem.status", status = status.as_u16()),
+            None if error.is_timeout() => crate::i18n::t("update.problem.timeout").into(),
+            None => crate::i18n::t("update.problem.offline").into(),
         }
     }
 
@@ -658,7 +659,7 @@ mod running {
             response.bytes().await.map(Some).map_err(problem)
         })?;
         match bytes {
-            Some(bytes) if bytes.len() > limit => Err(format!("{url} answered with more than expected")),
+            Some(bytes) if bytes.len() > limit => Err(tr!("update.problem.tooMuch", url = url)),
             Some(bytes) => Ok(Some(bytes.to_vec())),
             None => Ok(None),
         }
@@ -732,8 +733,8 @@ mod running {
             system::download(&client()?, &format!("{downloads}/{}/{}", update.tag, update.name), &partial, update.size)?;
             if !file_matches(&partial, update.size, &update.sha256) {
                 std::fs::remove_file(&partial).ok();
-                change(|state| state.refused = Some("the file isn't the one its manifest names".into()));
-                return Err(format!("{} isn't the file its manifest names", update.name));
+                change(|state| state.refused = Some(crate::i18n::t("update.refused.wrongFile").into()));
+                return Err(tr!("update.problem.wrongFile", file = update.name));
             }
             std::fs::rename(&partial, &path).map_err(|error| error.to_string())?;
         }
@@ -741,8 +742,8 @@ mod running {
         if let Some(publisher) = publisher {
             if system::signed_by(&path).as_ref() != Some(publisher) {
                 std::fs::remove_file(&path).ok();
-                change(|state| state.refused = Some("the installer isn't signed as this app is".into()));
-                return Err(format!("{} isn't signed by {}", update.name, publisher.name));
+                change(|state| state.refused = Some(crate::i18n::t("update.refused.unsigned").into()));
+                return Err(tr!("update.problem.unsigned", file = update.name, publisher = publisher.name));
             }
         }
         Ok(path)

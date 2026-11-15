@@ -120,10 +120,10 @@ pub async fn check(proxy: Proxy, servers: Vec<(String, String)>) -> Report {
         let result = match &client {
             Ok(client) => match client.get(format!("{}/healthz", url.trim_end_matches('/'))).send().await {
                 Ok(response) if response.status().is_success() => Ok(started.elapsed()),
-                Ok(response) => Err(format!("It responded with status {}.", response.status().as_u16())),
+                Ok(response) => Err(tr!("proxy.check.status", status = response.status().as_u16())),
                 Err(error) => {
                     log::info!("checking the proxy with {url}: {}", super::runtime::describe_request_error(&error));
-                    Err(if error.is_timeout() { "It didn't answer in time.".into() } else { "The proxy couldn't reach it.".into() })
+                    Err(if error.is_timeout() { crate::i18n::t("proxy.check.timedOut").into() } else { crate::i18n::t("proxy.check.unreachable").into() })
                 }
             },
             Err(error) => Err(error.to_string()),

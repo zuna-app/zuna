@@ -1,8 +1,12 @@
-//! Times, sizes, initials and colors, as packages/ui/src/lib/format.ts makes them.
+//! Times, sizes, initials and colors, as packages/ui/src/lib/format.ts makes them. Their words
+//! are looked up (crate::i18n): a month's name with its day, so that a language can order and
+//! inflect them, and a weekday's where it stands alone.
 
 use std::sync::OnceLock;
 
-use chrono::{DateTime, Datelike, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
+
+use crate::i18n::{mark, t};
 
 /// Whether the system's clock shows 12 hours, as the Electron app followed it.
 fn hour12() -> bool {
@@ -75,7 +79,91 @@ pub fn same_day(a: f64, b: f64) -> bool {
 
 pub fn format_time(at_ms: f64) -> String {
     let time = local(at_ms);
-    if hour12() { time.format("%-I:%M %p").to_string() } else { time.format("%H:%M").to_string() }
+    if hour12() {
+        let clock = time.format("%-I:%M").to_string();
+        if time.hour() < 12 { tr!("date.timeAm", time = clock) } else { tr!("date.timePm", time = clock) }
+    } else {
+        time.format("%H:%M").to_string()
+    }
+}
+
+/// "November 6": a month's name with its day, a key for each month.
+fn month_day(time: &DateTime<Local>) -> String {
+    const KEYS: [&str; 12] = [
+        mark("date.monthDay.january"),
+        mark("date.monthDay.february"),
+        mark("date.monthDay.march"),
+        mark("date.monthDay.april"),
+        mark("date.monthDay.may"),
+        mark("date.monthDay.june"),
+        mark("date.monthDay.july"),
+        mark("date.monthDay.august"),
+        mark("date.monthDay.september"),
+        mark("date.monthDay.october"),
+        mark("date.monthDay.november"),
+        mark("date.monthDay.december"),
+    ];
+    crate::i18n::format(KEYS[time.month0() as usize % 12], &[("day", &time.day() as &dyn std::fmt::Display)])
+}
+
+/// "Nov 6": a month's short name with its day.
+fn month_day_short(time: &DateTime<Local>) -> String {
+    const KEYS: [&str; 12] = [
+        mark("date.monthDayShort.january"),
+        mark("date.monthDayShort.february"),
+        mark("date.monthDayShort.march"),
+        mark("date.monthDayShort.april"),
+        mark("date.monthDay.may"),
+        mark("date.monthDayShort.june"),
+        mark("date.monthDayShort.july"),
+        mark("date.monthDayShort.august"),
+        mark("date.monthDayShort.september"),
+        mark("date.monthDayShort.october"),
+        mark("date.monthDayShort.november"),
+        mark("date.monthDayShort.december"),
+    ];
+    crate::i18n::format(KEYS[time.month0() as usize % 12], &[("day", &time.day() as &dyn std::fmt::Display)])
+}
+
+/// "Thursday", standing alone.
+fn weekday(time: &DateTime<Local>) -> &'static str {
+    const KEYS: [&str; 7] = [
+        mark("date.weekday.monday"),
+        mark("date.weekday.tuesday"),
+        mark("date.weekday.wednesday"),
+        mark("date.weekday.thursday"),
+        mark("date.weekday.friday"),
+        mark("date.weekday.saturday"),
+        mark("date.weekday.sunday"),
+    ];
+    t(KEYS[time.weekday().num_days_from_monday() as usize % 7])
+}
+
+/// "Thu", standing alone.
+fn weekday_short(time: &DateTime<Local>) -> &'static str {
+    const KEYS: [&str; 7] = [
+        mark("date.weekdayShort.monday"),
+        mark("date.weekdayShort.tuesday"),
+        mark("date.weekdayShort.wednesday"),
+        mark("date.weekdayShort.thursday"),
+        mark("date.weekdayShort.friday"),
+        mark("date.weekdayShort.saturday"),
+        mark("date.weekdayShort.sunday"),
+    ];
+    t(KEYS[time.weekday().num_days_from_monday() as usize % 7])
+}
+
+/// A month and day with the year: "November 6, 2026".
+fn with_year(date: String, time: &DateTime<Local>) -> String {
+    tr!("date.withYear", date = date, year = time.year())
+}
+
+/// A moment still to come, with its date unless it's today: "14:32", or "Nov 6, 14:32" (`formatUpcoming`).
+pub fn format_upcoming(at_ms: f64) -> String {
+    if same_day(at_ms, now_ms()) {
+        return format_time(at_ms);
+    }
+    tr!("date.dayTime", date = month_day_short(&local(at_ms)), time = format_time(at_ms))
 }
 
 /// "Nov 5, 2026, 14:32", as Intl's medium date and short time.
@@ -83,20 +171,24 @@ pub fn format_time(at_ms: f64) -> String {
 /// when they were sent (`formatStamp`).
 pub fn format_stamp(at_ms: f64) -> String {
     match days_ago(at_ms) {
-        0 => format!("Today at {}", format_time(at_ms)),
-        1 => format!("Yesterday at {}", format_time(at_ms)),
-        _ => format!("{} {}", local(at_ms).format("%m/%d/%Y"), format_time(at_ms)),
+        0 => tr!("date.todayAt", time = format_time(at_ms)),
+        1 => tr!("date.yesterdayAt", time = format_time(at_ms)),
+        _ => {
+            let when = local(at_ms);
+            tr!("date.numericDateTime", month = when.format("%m"), day = when.format("%d"), year = when.format("%Y"), time = format_time(at_ms))
+        }
     }
 }
 
 /// "November 6, 2026", as on the line between days in a channel.
 pub fn format_day(at_ms: f64) -> String {
-    local(at_ms).format("%B %-d, %Y").to_string()
+    let time = local(at_ms);
+    with_year(month_day(&time), &time)
 }
 
 pub fn format_full(at_ms: f64) -> String {
     let time = local(at_ms);
-    format!("{}, {}", time.format("%b %-d, %Y"), format_time(at_ms))
+    tr!("date.dayTime", date = with_year(month_day_short(&time), &time), time = format_time(at_ms))
 }
 
 /// The compact time shown in the conversation list.
@@ -108,22 +200,22 @@ pub fn format_list_time(at_ms: f64) -> String {
     if days <= 0 {
         format_time(at_ms)
     } else if days < 7 {
-        local(at_ms).format("%a").to_string()
+        weekday_short(&local(at_ms)).to_string()
     } else {
-        local(at_ms).format("%b %-d").to_string()
+        month_day_short(&local(at_ms))
     }
 }
 
 pub fn format_day_separator(at_ms: f64) -> String {
     let days = days_ago(at_ms);
     if days == 0 {
-        return "Today".into();
+        return t("date.today").into();
     }
     if days == 1 {
-        return "Yesterday".into();
+        return t("date.yesterday").into();
     }
     let time = local(at_ms);
-    if time.year() == Local::now().year() { time.format("%A, %B %-d").to_string() } else { time.format("%B %-d, %Y").to_string() }
+    if time.year() == Local::now().year() { tr!("date.withWeekday", weekday = weekday(&time), date = month_day(&time)) } else { with_year(month_day(&time), &time) }
 }
 
 /// When someone was last seen, worded as Telegram's desktop app words it (`formatLastSeen`): in a
@@ -132,33 +224,34 @@ pub fn format_day_separator(at_ms: f64) -> String {
 /// never seen "a long time ago".
 pub fn format_last_seen(at_ms: Option<f64>, hidden: bool, full: bool) -> String {
     if hidden {
-        return "last seen recently".into();
+        return t("lastSeen.recently").into();
     }
-    let Some(at) = at_ms else { return "last seen a long time ago".into() };
+    let Some(at) = at_ms else { return t("lastSeen.longAgo").into() };
     if !full {
         let minutes = ((now_ms() - at).max(0.) / 60_000.0).floor() as i64;
         if minutes == 0 {
-            return "last seen just now".into();
+            return t("lastSeen.justNow").into();
         }
         if minutes < 60 {
-            return format!("last seen {minutes} minute{} ago", if minutes == 1 { "" } else { "s" });
+            return tr!("lastSeen.minutesAgo", count = minutes);
         }
         let hours = minutes / 60;
         if hours < 12 {
-            return format!("last seen {hours} hour{} ago", if hours == 1 { "" } else { "s" });
+            return tr!("lastSeen.hoursAgo", count = hours);
         }
     }
     match days_ago(at) {
-        ..=0 => format!("last seen today at {}", format_time(at)),
-        1 => format!("last seen yesterday at {}", format_time(at)),
-        _ if full => format!("last seen {} at {}", short_date(at), format_time(at)),
-        _ => format!("last seen {}", short_date(at)),
+        ..=0 => tr!("lastSeen.todayAt", time = format_time(at)),
+        1 => tr!("lastSeen.yesterdayAt", time = format_time(at)),
+        _ if full => tr!("lastSeen.dateAt", date = short_date(at), time = format_time(at)),
+        _ => tr!("lastSeen.date", date = short_date(at)),
     }
 }
 
 /// A date as Qt's short format gives it in English: "11/9/26".
 fn short_date(at_ms: f64) -> String {
-    local(at_ms).format("%-m/%-d/%y").to_string()
+    let time = local(at_ms);
+    tr!("date.numericShort", month = time.month(), day = time.day(), year = time.format("%y"))
 }
 
 /// How long until `format_last_seen`'s words next change, or None if they never do, as Telegram
@@ -182,9 +275,9 @@ pub fn last_seen_changes_in(at_ms: Option<f64>, hidden: bool) -> Option<std::tim
 
 pub fn format_bytes(bytes: f64) -> String {
     if bytes < 1024.0 {
-        return format!("{} B", bytes as u64);
+        return tr!("common.size.bytes", size = bytes as u64);
     }
-    let units = ["KB", "MB", "GB", "TB"];
+    let units = [mark("common.size.kb"), mark("common.size.mb"), mark("common.size.gb"), mark("common.size.tb")];
     let mut value = bytes;
     let mut unit = 0;
     value /= 1024.0;
@@ -192,7 +285,8 @@ pub fn format_bytes(bytes: f64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    if value >= 100.0 { format!("{} {}", value.round(), units[unit]) } else { format!("{:.1} {}", value, units[unit]) }
+    let size = if value >= 100.0 { format!("{}", value.round()) } else { format!("{:.1}", value) };
+    crate::i18n::format(units[unit], &[("size", &size as &dyn std::fmt::Display)])
 }
 
 pub fn format_duration(seconds: f64) -> String {
@@ -237,18 +331,30 @@ pub fn name_color(seed: &str) -> &'static str {
 /// "1 day", "2 weeks", or "Off" for 0 (lib/disappearing.ts).
 pub fn timer_text(seconds: f64) -> String {
     if seconds <= 0.0 {
-        return "Off".into();
+        return t("common.off").into();
     }
     let seconds = seconds as u64;
-    let units: [(u64, &str); 6] = [(30 * 86_400, "month"), (7 * 86_400, "week"), (86_400, "day"), (3600, "hour"), (60, "minute"), (1, "second")];
-    let (size, name) = units.iter().find(|(size, _)| seconds % size == 0).copied().unwrap_or((1, "second"));
+    let units: [(u64, &'static str); 6] = [
+        (30 * 86_400, mark("date.duration.months")),
+        (7 * 86_400, mark("date.duration.weeks")),
+        (86_400, mark("date.duration.days")),
+        (3600, mark("date.duration.hours")),
+        (60, mark("date.duration.minutes")),
+        (1, mark("date.duration.seconds")),
+    ];
+    let (size, key) = units.iter().find(|(size, _)| seconds % size == 0).copied().unwrap_or((1, mark("date.duration.seconds")));
     let count = seconds / size;
-    format!("{count} {name}{}", if count == 1 { "" } else { "s" })
+    crate::i18n::format(key, &[("count", &count as &dyn std::fmt::Display)])
 }
 
 /// What a chat says when someone changes how long its messages last.
 pub fn timer_change_text(who: &str, seconds: f64) -> String {
-    if seconds > 0.0 { format!("{who} set messages to disappear after {}", timer_text(seconds)) } else { format!("{who} turned off disappearing messages") }
+    if seconds > 0.0 { tr!("message.system.timerSet", name = who, time = timer_text(seconds)) } else { tr!("message.system.timerOff", name = who) }
+}
+
+/// What a chat says when you change how long its messages last.
+pub fn own_timer_change_text(seconds: f64) -> String {
+    if seconds > 0.0 { tr!("message.system.youSetTimer", time = timer_text(seconds)) } else { t("message.system.youTurnedOffTimer").to_string() }
 }
 
 /// The shortest password allowed when signing up or changing it.
@@ -264,17 +370,23 @@ pub fn wait_text(seconds: u64) -> String {
 
 /// "52.22970° N, 21.01220° E" (lib/location.ts).
 pub fn coordinates_text(lat: f64, lon: f64) -> String {
-    format!("{:.5}° {}, {:.5}° {}", lat.abs(), if lat >= 0. { "N" } else { "S" }, lon.abs(), if lon >= 0. { "E" } else { "W" })
+    let (latitude, longitude) = (format!("{:.5}", lat.abs()), format!("{:.5}", lon.abs()));
+    match (lat >= 0., lon >= 0.) {
+        (true, true) => tr!("location.coordinatesNE", latitude = latitude, longitude = longitude),
+        (true, false) => tr!("location.coordinatesNW", latitude = latitude, longitude = longitude),
+        (false, true) => tr!("location.coordinatesSE", latitude = latitude, longitude = longitude),
+        (false, false) => tr!("location.coordinatesSW", latitude = latitude, longitude = longitude),
+    }
 }
 
 /// "Within 20 m", or "Within 1.5 km".
 pub fn accuracy_text(meters: f64) -> String {
     if meters < 1000. {
-        format!("Within {} m", meters.round().max(1.) as u64)
+        tr!("location.withinMeters", distance = meters.round().max(1.) as u64)
     } else if meters < 10_000. {
-        format!("Within {:.1} km", meters / 1000.)
+        tr!("location.withinKilometers", distance = format!("{:.1}", meters / 1000.))
     } else {
-        format!("Within {:.0} km", meters / 1000.)
+        tr!("location.withinKilometers", distance = format!("{:.0}", meters / 1000.))
     }
 }
 

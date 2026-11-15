@@ -213,10 +213,10 @@ pub fn webkit_package() -> &'static str {
 /// What to install for GStreamer's decoders and sound, which WebKitGTK plays video through.
 pub fn decoder_packages() -> &'static str {
     match family() {
-        "arch" => "gst-plugins-good and gst-libav",
-        "debian" => "gstreamer1.0-plugins-good and gstreamer1.0-libav",
+        "arch" => crate::i18n::t("voice.watch.decodersArch"),
+        "debian" => crate::i18n::t("voice.watch.decodersDebian"),
         "fedora" => "gstreamer1-plugins-good",
         "suse" => "gstreamer-plugins-good",
-        _ => "GStreamer's good plugins",
+        _ => crate::i18n::t("voice.watch.decodersOther"),
     }
 }

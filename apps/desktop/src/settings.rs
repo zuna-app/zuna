@@ -39,6 +39,8 @@ pub struct Settings {
     /// The server shown last, or the linked Telegram account, which the app opens on when it's
     /// started again, as iOS does (`AppSettings.lastServer`). The first is shown where it's gone.
     pub last_server: Option<String>,
+    /// The language the app is shown in, by its tag, or `None` for the system's (src/i18n.rs).
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -103,6 +105,7 @@ impl Default for Settings {
             theme: None,
             proxy: ProxySetting::default(),
             last_server: None,
+            language: None,
         }
     }
 }

@@ -1,6 +1,7 @@
 //! Notifications, and whether the person is here to see them.
 
 use super::*;
+use crate::i18n::t;
 
 #[cfg(test)]
 mod tests;
@@ -69,11 +70,11 @@ impl AppState {
             "Zuna".to_string()
         } else if server_id == crate::telegram::SERVER_ID {
             // Never taken for a Zuna chat's: the person's or group's name says where it is.
-            format!("{} (Telegram)", text("title"))
+            tr!("notifications.telegramTitle", title = text("title"))
         } else {
             text("title")
         };
-        let body = if preview == "full" { text("body") } else { "New message".to_string() };
+        let body = if preview == "full" { text("body") } else { t("notify.newMessage").to_string() };
         // The same picture as beside the chat in the list.
         let picture = if preview == "none" {
             None
@@ -130,17 +131,17 @@ impl AppState {
         if !ringing && !missed {
             return;
         }
-        let name = server.users.get(&caller).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let name = server.users.get(&caller).map(|user| user.display_name.clone()).unwrap_or_else(|| t("notify.someone").into());
         let dm = conversation.kind == "dm";
         let body = match (ringing, dm) {
-            (true, true) => "Calling you".to_string(),
-            (true, false) => format!("{name} started a call"),
-            (false, true) => "Missed call".to_string(),
-            (false, false) => format!("Missed call from {name}"),
+            (true, true) => t("notify.callingYou").to_string(),
+            (true, false) => tr!("notify.startedCall", name = name),
+            (false, true) => t("notifications.missedCall").to_string(),
+            (false, false) => tr!("notifications.missedCallFrom", name = name),
         };
         if self.window_in_front() {
             if missed {
-                let message = if dm { format!("Missed call from {name}.") } else { format!("Missed call from {name} in {}.", conversation.title) };
+                let message = if dm { tr!("voice.call.missedFrom", name = name) } else { tr!("voice.call.missedFromIn", name = name, title = conversation.title) };
                 self.toast(message, ToastKind::Info, cx);
             }
             return;
@@ -164,7 +165,7 @@ impl AppState {
         });
         let payload = crate::ui::notifications::Payload {
             title: if preview == "none" { "Zuna".to_string() } else { conversation.title.clone() },
-            body: if preview == "none" { (if ringing { "Incoming call" } else { "Missed call" }).to_string() } else { body },
+            body: if preview == "none" { (if ringing { t("notify.incomingCall") } else { t("notifications.missedCall") }).to_string() } else { body },
             server_id: server_id.to_string(),
             key: conversation.key.clone(),
             message_id,
@@ -277,8 +278,8 @@ impl AppState {
                     let verdict = task.await;
                     this.update(cx, |state, cx| match verdict {
                         crate::plugins::Verdict::Go(draft) => send(state, draft.get("text").and_then(Value::as_str).unwrap_or_default().to_string(), cx),
-                        crate::plugins::Verdict::Stopped(name) => state.toast(format!("{name} kept your reply from going."), ToastKind::Info, cx),
-                        crate::plugins::Verdict::Held(name) => state.toast(format!("{name} didn't answer, so your reply wasn't sent."), ToastKind::Error, cx),
+                        crate::plugins::Verdict::Stopped(name) => state.toast(tr!("notifications.reply.stopped", plugin = name), ToastKind::Info, cx),
+                        crate::plugins::Verdict::Held(name) => state.toast(tr!("notifications.reply.held", plugin = name), ToastKind::Error, cx),
                     })
                     .ok();
                 })

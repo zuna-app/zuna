@@ -43,6 +43,7 @@ use gpui::{
     Window, WindowControlArea, div, prelude::*, px,
 };
 
+use crate::i18n::t;
 use crate::state::{AppState, Phase, ToastKind};
 
 gpui::actions!(shell, [FocusSearch, NextConversation, PreviousConversation]);
@@ -67,6 +68,16 @@ pub const PROJECT_URL: &str = "https://github.com/zuna-app/zuna";
 /// The terms of use everyone agrees to when they create an account.
 pub const TERMS_URL: &str = "https://zuna.chat/terms/";
 
+/// What a new password's rating is called, by its score from 0 to 4, as the core words it.
+pub fn password_strength(score: u8) -> &'static str {
+    match score {
+        0 | 1 => t("password.tooEasyToGuess"),
+        2 => t("password.couldBeStronger"),
+        3 => t("password.good"),
+        _ => t("password.strong"),
+    }
+}
+
 /// Pressing Update: installs the update that's ready and starts the app again. In a voice
 /// channel or a call it asks first, as that ends it.
 pub fn install_update(cx: &mut gpui::App) {
@@ -85,7 +96,7 @@ pub fn restart_into_update(cx: &mut gpui::App) {
         crate::quit(cx);
     } else {
         let state = cx.global::<crate::state::Store>().0.clone();
-        state.update(cx, |state, cx| state.toast("The update couldn't be started. Zuna will download it again.", ToastKind::Error, cx));
+        state.update(cx, |state, cx| state.toast(t("update.couldntStart"), ToastKind::Error, cx));
     }
 }
 
@@ -324,8 +335,8 @@ impl Render for Root {
                         .text_color(theme.text2)
                         .text_center()
                         .child(div().mb(px(8.)).child(icon("triangle-alert", 26., theme.red)))
-                        .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Zuna couldn't start"))
-                        .child("Its encrypted storage didn't open. Your messages are safe on your servers. Try restarting the app.")
+                        .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(t("startup.failedTitle")))
+                        .child(t("startup.failedTextApp"))
                         .child(div().font_family(theme::FONT_MONO).text_size(px(12.)).text_color(theme.text3).child(message)),
                 )
                 .into_any_element(),

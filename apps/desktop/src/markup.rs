@@ -301,17 +301,24 @@ pub fn jumbo_size(text: &str, emotes: &HashMap<String, EmoteRef>) -> u8 {
     }
 }
 
-static PLAIN_RULES: LazyLock<Vec<(FancyRegex, &'static str)>> = LazyLock::new(|| {
+/// What a rule of `plain_text` puts in place of what it finds: words, looked up by their key as
+/// the text is made plain, or a replacement of the pattern's own.
+enum Plain {
+    Words(&'static str),
+    Pattern(&'static str),
+}
+
+static PLAIN_RULES: LazyLock<Vec<(FancyRegex, Plain)>> = LazyLock::new(|| {
     vec![
-        (FancyRegex::new(r"```(?s:.)*?```").unwrap(), "[code]"),
-        (FancyRegex::new(r"\|\|[^\n]+?\|\|").unwrap(), "[spoiler]"),
-        (FancyRegex::new(r"`([^`\n]+)`").unwrap(), "$1"),
-        (FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap(), "$1"),
-        (FancyRegex::new(r"~~([^\n]+?)~~").unwrap(), "$1"),
-        (FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), "$1"),
-        (FancyRegex::new(r"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])").unwrap(), "$1"),
-        (FancyRegex::new(r"(?m)^>\s?").unwrap(), ""),
-        (FancyRegex::new(r"\s+").unwrap(), " "),
+        (FancyRegex::new(r"```(?s:.)*?```").unwrap(), Plain::Words(crate::i18n::mark("message.preview.code"))),
+        (FancyRegex::new(r"\|\|[^\n]+?\|\|").unwrap(), Plain::Words(crate::i18n::mark("message.preview.spoiler"))),
+        (FancyRegex::new(r"`([^`\n]+)`").unwrap(), Plain::Pattern("$1")),
+        (FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap(), Plain::Pattern("$1")),
+        (FancyRegex::new(r"~~([^\n]+?)~~").unwrap(), Plain::Pattern("$1")),
+        (FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), Plain::Pattern("$1")),
+        (FancyRegex::new(r"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])").unwrap(), Plain::Pattern("$1")),
+        (FancyRegex::new(r"(?m)^>\s?").unwrap(), Plain::Pattern("")),
+        (FancyRegex::new(r"\s+").unwrap(), Plain::Pattern(" ")),
     ]
 });
 
@@ -319,7 +326,10 @@ static PLAIN_RULES: LazyLock<Vec<(FancyRegex, &'static str)>> = LazyLock::new(||
 pub fn plain_text(text: &str) -> String {
     let mut out: String = text.chars().take(4096).collect();
     for (pattern, replacement) in PLAIN_RULES.iter() {
-        out = pattern.replace_all(&out, *replacement).into_owned();
+        out = match replacement {
+            Plain::Words(key) => pattern.replace_all(&out, fancy_regex::NoExpand(crate::i18n::t(*key))).into_owned(),
+            Plain::Pattern(with) => pattern.replace_all(&out, *with).into_owned(),
+        };
     }
     out.trim().to_string()
 }

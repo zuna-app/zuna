@@ -15,22 +15,24 @@ use super::components::*;
 use super::scrollbar::{RevealsFocus, Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::format::{MIN_PASSWORD, format_full};
+use crate::i18n::{mark, t};
 use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
+/// Each section: its id, the key of its name, and its icon.
 const SECTIONS: [(&str, &str, &str); 11] = [
-    ("profile", "Profile", "user-round"),
-    ("privacy", "Privacy", "lock"),
-    ("connections", "Connections", "link"),
-    ("notifications", "Notifications", "bell"),
-    ("voice", "Voice and video", "mic"),
-    ("screen", "Screen sharing", "monitor-up"),
-    ("appearance", "Appearance", "palette"),
-    ("security", "Security", "shield-check"),
-    ("data", "Your data", "server"),
-    ("plugins", "Plugins", "puzzle"),
-    ("about", "About", "info"),
+    ("profile", mark("settings.sections.profile"), "user-round"),
+    ("privacy", mark("settings.sections.privacy"), "lock"),
+    ("connections", mark("settings.connections.title"), "link"),
+    ("notifications", mark("settings.sections.notifications"), "bell"),
+    ("voice", mark("settings.sections.voice"), "mic"),
+    ("screen", mark("settings.sections.screen"), "monitor-up"),
+    ("appearance", mark("settings.sections.appearance"), "palette"),
+    ("security", mark("settings.sections.security"), "shield-check"),
+    ("data", mark("settings.sections.data"), "server"),
+    ("plugins", mark("settings.sections.plugins"), "puzzle"),
+    ("about", mark("settings.sections.about"), "info"),
 ];
 
 /// The sections that are a server's own, which the Telegram account in front has none of.
@@ -85,7 +87,7 @@ impl SettingsView {
             })
         };
         let display_name = make(cx, "", false, false);
-        let bio = make(cx, "A few words about you", false, true);
+        let bio = make(cx, t("settings.profile.bioPlaceholder"), false, true);
         let current = make(cx, "", true, false);
         let next = make(cx, "", true, false);
         let confirm = make(cx, "", true, false);
@@ -102,7 +104,7 @@ impl SettingsView {
                 cx.notify();
             }));
         }
-        let plugin_search = make(cx, "Search plugins", false, false);
+        let plugin_search = make(cx, t("settings.plugins.searchPlaceholder"), false, false);
         subscriptions.push(cx.subscribe(&plugin_search, |_, _, _: &InputEvent, cx| cx.notify()));
         if let Some(plugins) = crate::plugins::get(cx) {
             subscriptions.push(cx.observe(&plugins, |_, _, cx| cx.notify()));
@@ -244,15 +246,15 @@ impl SettingsView {
                 .text_center()
                 .child(logo(56.))
                 .child(div().mt(px(6.)).text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Zuna"))
-                .child(div().text_color(theme.text2).child(format!("Version {} for {}", crate::platform::version_name(crate::platform::VERSION, crate::platform::CHANNEL, crate::platform::BUILD), crate::platform::SYSTEM_NAME)))
-                .child(div().text_size(px(13.)).text_color(theme.text3).child("End-to-end encrypted chat on servers you run."))
+                .child(div().text_color(theme.text2).child(tr!("settings.about.versionFor", version = crate::platform::version_name(crate::platform::VERSION, crate::platform::CHANNEL, crate::platform::BUILD), system = crate::platform::SYSTEM_NAME)))
+                .child(div().text_size(px(13.)).text_color(theme.text3).child(t("settings.about.tagline")))
                 .into_any_element(),
         ];
         parts.extend(self.updates(cx));
         if let Some(server) = server {
             parts.push(Self::row(&server.entry.name, Some(&server.entry.url), div().text_size(px(12.5)).text_color(theme.text3).child(server.info.map(|info| info.version).unwrap_or_default()), &theme));
         }
-        let links = [("source", "Source code", super::PROJECT_URL.to_string()), ("security-model", "Security model", format!("{}/blob/main/SECURITY.md", super::PROJECT_URL)), ("terms", "Terms of Use", super::TERMS_URL.to_string())];
+        let links = [("source", t("settings.about.sourceCode"), super::PROJECT_URL.to_string()), ("security-model", t("settings.about.securityModel"), format!("{}/blob/main/SECURITY.md", super::PROJECT_URL)), ("terms", t("settings.about.terms"), super::TERMS_URL.to_string())];
         parts.push(
             div()
                 .flex()
@@ -271,15 +273,15 @@ impl SettingsView {
         let theme = theme(cx);
         let found = updates::current();
         if !found.enabled {
-            let note = "This copy doesn't update automatically. Only installed releases do.";
+            let note = t("settings.updates.notAutomatic");
             return if cfg!(windows) { vec![div().text_center().text_size(px(12.5)).text_color(theme.text3).child(note).into_any_element()] } else { Vec::new() };
         }
         let channels = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).children([Channel::Stable, Channel::Nightly].into_iter().map(|channel| {
             let active = found.following == channel;
-            let label = if channel == Channel::Stable { "Stable" } else { "Nightly" };
+            let (id, label) = if channel == Channel::Stable { ("Stable", t("settings.updates.stable")) } else { ("Nightly", t("settings.updates.nightly")) };
             let state = self.state.clone();
             div()
-                .id(label)
+                .id(id)
                 .px(px(11.))
                 .py(px(4.))
                 .rounded(RADIUS_S)
@@ -297,9 +299,9 @@ impl SettingsView {
         }));
         // Going back to stable never installs an older build, as the app's data has moved on.
         let hint = match (found.following, Channel::of_build()) {
-            (Channel::Nightly, _) => "Nightly builds get new changes first, but are tested less.",
-            (Channel::Stable, Channel::Nightly) => "This is a nightly build, so it won't update until a newer stable release comes out. Stable releases are fully tested before they come out.",
-            (Channel::Stable, Channel::Stable) => "Stable releases are fully tested before they come out.",
+            (Channel::Nightly, _) => t("settings.updates.nightlyHint"),
+            (Channel::Stable, Channel::Nightly) => t("settings.updates.stableFromNightlyHint"),
+            (Channel::Stable, Channel::Stable) => t("settings.updates.stableHint"),
         };
         let page = found.ready.as_ref().map(|update| update.page()).or_else(updates::own_page);
         let busy = found.activity != Activity::Idle;
@@ -307,15 +309,15 @@ impl SettingsView {
             .flex()
             .flex_none()
             .gap(px(8.))
-            .when_some(page, |el, page| el.child(button("whats-new", ButtonKind::Ghost, ButtonSize::Small, false, cx).child("What's new").on_click(move |_, _, cx| cx.open_url(&page))))
+            .when_some(page, |el, page| el.child(button("whats-new", ButtonKind::Ghost, ButtonSize::Small, false, cx).child(t("settings.updates.whatsNew")).on_click(move |_, _, cx| cx.open_url(&page))))
             .child(if found.ready.is_some() {
-                button("update-now", ButtonKind::Primary, ButtonSize::Small, false, cx).child("Update and restart").on_click(|_, _, cx| crate::ui::install_update(cx))
+                button("update-now", ButtonKind::Primary, ButtonSize::Small, false, cx).child(t("settings.updates.updateAndRestart")).on_click(|_, _, cx| crate::ui::install_update(cx))
             } else {
-                button("check-now", ButtonKind::Default, ButtonSize::Small, busy, cx).child("Check now").when(!busy, |el| el.on_click(|_, _, _| updates::check_now()))
+                button("check-now", ButtonKind::Default, ButtonSize::Small, busy, cx).child(t("settings.updates.checkNow")).when(!busy, |el| el.on_click(|_, _, _| updates::check_now()))
             });
         vec![
             Self::divider(&theme),
-            Self::row("Updates", Some(hint), channels, &theme),
+            Self::row(t("settings.updates.title"), Some(hint), channels, &theme),
             Self::row(&updates::status_line(&found, std::time::SystemTime::now()), None, actions, &theme),
         ]
     }
@@ -379,7 +381,7 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .gap(px(1.))
-            .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child("Settings"))
+            .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child(t("settings.title")))
             // Connections only where Telegram can be linked, or one is: a build without an api_id has nothing to say there.
             .children(SECTIONS.iter().filter(|(id, _, _)| (!telegram_in_front || !SERVER_SECTIONS.contains(id)) && (*id != "connections" || has_connections)).map(|(id, label, icon_name)| {
                 let active = self.section == *id;
@@ -406,9 +408,9 @@ impl Render for SettingsView {
                         cx.notify();
                     }))
                     .child(icon(icon_name, 17., if active { theme.text1 } else { theme.text2 }))
-                    .child(label.to_string())
+                    .child(t(*label))
             }))
-            .when(!plugin_sections.is_empty(), |el| el.child(div().px(px(10.)).pt(px(14.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).child("Plugins")))
+            .when(!plugin_sections.is_empty(), |el| el.child(div().px(px(10.)).pt(px(14.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).child(t("settings.sections.plugins"))))
             .children(plugin_sections.into_iter().map(|(uid, name, verified)| {
                 let section = format!("plugin:{uid}");
                 let active = self.section == section;

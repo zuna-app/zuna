@@ -37,19 +37,16 @@ impl SettingsView {
         let Some((server, _)) = self.me(cx) else { return Vec::new() };
         let data: Option<ServerDataExport> = self.server_data.as_ref().filter(|(id, _)| *id == server.entry.id).map(|(_, data)| data.clone());
         let mut parts = vec![
-            Self::heading("Your data", &theme),
+            Self::heading(t("settings.sections.data"), &theme),
             Self::lead(
-                format!(
-                    "Everything {} says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.",
-                    server.entry.name
-                ),
+                tr!("settings.data.lead", server = server.entry.name),
                 &theme,
             ),
         ];
         let state = self.state.clone();
         let save = data.as_ref().map(|data| {
             let (file_name, json) = (data.file_name.clone(), data.json.clone());
-            button("save-server-data", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(icon("download", 15., theme.on_accent)).child("Save as file").on_click(move |_, _, cx| {
+            button("save-server-data", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(icon("download", 15., theme.on_accent)).child(t("common.saveAsFile")).on_click(move |_, _, cx| {
                 let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
                 let chosen = cx.prompt_for_new_path(&downloads, Some(&file_name));
                 let json = json.clone();
@@ -59,8 +56,8 @@ impl SettingsView {
                         let written = std::fs::write(&path, json);
                         state
                             .update(cx, |state, cx| match written {
-                                Ok(()) => state.toast("Saved", ToastKind::Info, cx),
-                                Err(error) => state.toast(format!("Couldn't save the file: {error}"), ToastKind::Error, cx),
+                                Ok(()) => state.toast(t("common.saved"), ToastKind::Info, cx),
+                                Err(error) => state.toast(tr!("settings.data.couldntSave", error = error), ToastKind::Error, cx),
                             })
                             .ok();
                     })
@@ -79,7 +76,7 @@ impl SettingsView {
                     button("load-server-data", ButtonKind::Default, ButtonSize::Normal, busy, cx)
                         .when(busy, |el| el.child(spinner(14., theme.text2)))
                         .when(!busy, |el| el.child(icon("refresh-cw", 14., theme.text1)))
-                        .child(if data.is_some() { "Ask again" } else { "Ask the server" })
+                        .child(if data.is_some() { t("settings.data.askAgain") } else { t("settings.data.ask") })
                         .when(!busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.load_server_data(true, cx)))),
                 )
                 .into_any_element(),
@@ -92,10 +89,7 @@ impl SettingsView {
             div()
                 .text_size(px(12.5))
                 .text_color(theme.text3)
-                .child(format!(
-                    "This is what {} says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.",
-                    server.entry.name
-                ))
+                .child(tr!("settings.data.footnote", server = server.entry.name))
                 .into_any_element(),
         );
         parts
@@ -151,11 +145,11 @@ impl SettingsView {
     fn kind_tag(kind: &str, theme: &Theme) -> AnyElement {
         let soft = |color: gpui::Hsla| gpui::Hsla { a: 0.14, ..color };
         let (label, bg, fg) = match kind {
-            "readable" => ("Readable", theme.amber_soft, theme.amber_text),
-            "encrypted" => ("Encrypted", soft(theme.green), theme.green),
-            "public" => ("Public", theme.bg4, theme.text2),
-            "withheld" => ("Left out", theme.bg4, theme.text2),
-            _ => ("Not kept", soft(theme.green), theme.green),
+            "readable" => (t("settings.data.tagReadable"), theme.amber_soft, theme.amber_text),
+            "encrypted" => (t("settings.data.tagEncrypted"), soft(theme.green), theme.green),
+            "public" => (t("settings.data.tagPublic"), theme.bg4, theme.text2),
+            "withheld" => (t("settings.data.tagWithheld"), theme.bg4, theme.text2),
+            _ => (t("settings.data.tagNone"), soft(theme.green), theme.green),
         };
         div().px(px(7.)).py(px(1.)).rounded(px(10.)).bg(bg).text_color(fg).text_size(px(11.)).font_weight(FontWeight::MEDIUM).child(label).into_any_element()
     }

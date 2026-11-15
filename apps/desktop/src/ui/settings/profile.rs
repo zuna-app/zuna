@@ -17,8 +17,8 @@ impl SettingsView {
         let state = self.state.clone();
         let busy = self.busy;
         vec![
-            Self::heading("Profile", &theme),
-            Self::lead(format!("Only members of {} can see this. Your server stores it encrypted.", server.entry.name), &theme),
+            Self::heading(t("settings.sections.profile"), &theme),
+            Self::lead(tr!("settings.profile.lead", server = server.entry.name), &theme),
             div()
                 .flex()
                 .items_center()
@@ -65,17 +65,17 @@ impl SettingsView {
                                     .cursor_pointer()
                                     .hover(move |style| style.text_color(theme.text1))
                                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("updateProfile", vec![json!({}), serde_json::Value::Null], cx)))
-                                    .child("Remove picture"),
+                                    .child(t("settings.profile.removePicture")),
                             )
                         }),
                 )
                 .into_any_element(),
-            field(Some("Display name"), self.display_name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
+            field(Some(t("settings.profile.displayName")), self.display_name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Bio"))
+                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("settings.profile.bio")))
                 .child(
                     div()
                         .min_h(px(76.))
@@ -93,7 +93,7 @@ impl SettingsView {
                 .flex()
                 .child(
                     button("save-profile", ButtonKind::Primary, ButtonSize::Normal, !dirty || name.is_empty() || busy, cx)
-                        .child(if busy { "Saving…" } else { "Save changes" })
+                        .child(if busy { t("common.saving") } else { t("common.saveChanges") })
                         .when(dirty && !name.is_empty() && !busy, |el| {
                             el.on_click(cx.listener(move |view, _, _, cx| {
                                 view.busy = true;
@@ -101,7 +101,7 @@ impl SettingsView {
                                 state.update(cx, |state, cx| {
                                     let server = state.active_server.clone();
                                     state.call(server.as_deref(), "updateProfile", vec![json!({ "displayName": name, "bio": bio })], cx, |state, result, cx| match result {
-                                        Ok(_) => state.toast("Profile saved", ToastKind::Info, cx),
+                                        Ok(_) => state.toast(t("settings.profile.saved"), ToastKind::Info, cx),
                                         Err(error) => state.toast(error.message, ToastKind::Error, cx),
                                     });
                                 });
@@ -121,13 +121,13 @@ impl SettingsView {
                     .child(
                         button("sign-out", ButtonKind::Danger, ButtonSize::Normal, false, cx)
                             .child(icon("log-out", 15., theme.red))
-                            .child("Sign out of this server")
+                            .child(t("settings.account.signOut"))
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))),
                     )
                     .child(
                         button("delete-account", ButtonKind::Danger, ButtonSize::Normal, false, cx)
                             .child(icon("trash", 15., theme.red))
-                            .child("Delete account")
+                            .child(t("settings.account.delete"))
                             .on_click(move |_, _, cx| delete_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some("delete".into()) }), cx))),
                     )
                     .into_any_element()
@@ -145,7 +145,7 @@ impl SettingsView {
             let prepared = crate::media::prepare_avatar(path);
             state.update(cx, |state, cx| match prepared {
                 Some(file) => state.act("updateProfile", vec![json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], cx),
-                None => state.toast("That image couldn't be processed.", ToastKind::Error, cx),
+                None => state.toast(t("media.imageUnprocessable"), ToastKind::Error, cx),
             });
         })
         .detach();

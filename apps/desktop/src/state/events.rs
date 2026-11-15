@@ -302,9 +302,9 @@ impl AppState {
                     server.entry.signed_out = Some(reason.clone());
                 }
                 let message = match reason.as_str() {
-                    "banned" => "You were removed from a server by its admins.",
-                    "account_deleted" => "Your account on a server was deleted from another device.",
-                    _ => "You've been signed out of a server.",
+                    "banned" => crate::i18n::t("servers.signedOut.banned"),
+                    "account_deleted" => crate::i18n::t("servers.signedOut.accountDeleted"),
+                    _ => crate::i18n::t("servers.signedOut.other"),
                 };
                 self.toast(message, ToastKind::Info, cx);
             }

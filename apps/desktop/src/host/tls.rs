@@ -80,7 +80,7 @@ impl ServerCertVerifier for Verifier {
         match wanted {
             Some(wanted) => match pin_of(end_entity) {
                 Some(pin) if wanted.contains(&pin) => Ok(ServerCertVerified::assertion()),
-                _ => Err(rustls::Error::General("The server's certificate doesn't match its pin.".into())),
+                _ => Err(rustls::Error::General(crate::i18n::t("servers.pinMismatch").into())),
             },
             None => self.roots.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now),
         }

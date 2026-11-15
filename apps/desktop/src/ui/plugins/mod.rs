@@ -14,6 +14,7 @@ pub mod view;
 use gpui::{AnyElement, App, Div, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use serde_json::{Value, json};
 
+use crate::i18n::t;
 use crate::models::{ConversationView, MessageView};
 use crate::plugins::{Decoration, Plugins};
 use crate::theme::RADIUS_S;
@@ -35,7 +36,7 @@ pub fn unverified_mark(cx: &App) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme.red_soft)
         .text_color(theme.red)
-        .child("Unverified")
+        .child(t("plugins.unverified"))
 }
 
 /// A plugin's name as its frames show it, with its mark when it isn't verified.
@@ -44,7 +45,7 @@ pub fn plugin_name(uid: &str, cx: &App) -> Div {
     let (name, verified) = crate::plugins::get(cx).map(|plugins| {
         let plugins = plugins.read(cx);
         (plugins.name(uid), plugins.verified(uid))
-    }).unwrap_or_else(|| ("A plugin".into(), false));
+    }).unwrap_or_else(|| (t("plugins.aPlugin").into(), false));
     div()
         .flex()
         .items_center()
@@ -71,7 +72,7 @@ fn press(uid: String, kind: &'static str, id: String, target: Value, cx: &mut Ap
 /// What the person is told a button does: its title, and whose it is.
 pub fn title_of(uid: &str, title: &str, cx: &App) -> String {
     let (name, verified) = with_plugins(cx, |plugins| (plugins.name(uid), plugins.verified(uid))).unwrap_or_default();
-    if verified { format!("{title} ({name})") } else { format!("{title} ({name}, unverified)") }
+    if verified { tr!("plugins.titleOf", title = title, name = name) } else { tr!("plugins.titleOfUnverified", title = title, name = name) }
 }
 
 /// The buttons plugins put in a chat's header.
@@ -126,7 +127,7 @@ pub fn message_entries(server_id: &str, message: &MessageView, cx: &App) -> Vec<
     let mut entries = vec![MenuEntry::separator()];
     for (uid, slot) in slots {
         let verified = with_plugins(cx, |plugins| plugins.verified(&uid)).unwrap_or(false);
-        let label = if verified { slot.title.clone() } else { format!("{} · Unverified", slot.title) };
+        let label = if verified { slot.title.clone() } else { tr!("plugins.entryUnverified", title = slot.title) };
         let target = message_target(&uid, server_id, message, cx);
         let icon = crate::assets::static_icon(&slot.icon).unwrap_or("puzzle");
         entries.push(MenuEntry::new(label, icon, move |_, cx| press(uid.clone(), "messageAction", slot.id.clone(), target.clone(), cx)));
@@ -168,7 +169,7 @@ pub fn conversation_entries(server_id: &str, conversation: &ConversationView, cx
     let mut entries = vec![MenuEntry::separator()];
     for (uid, slot) in slots {
         let (verified, reads) = with_plugins(cx, |plugins| (plugins.verified(&uid), plugins.granted(&uid, crate::plugins::manifest::Permission::ConversationsRead))).unwrap_or_default();
-        let label = if verified { slot.title.clone() } else { format!("{} · Unverified", slot.title) };
+        let label = if verified { slot.title.clone() } else { tr!("plugins.entryUnverified", title = slot.title) };
         let target = if reads {
             json!({ "serverId": server_id, "key": conversation.key, "groupId": conversation.group_id, "name": conversation.title })
         } else {
@@ -207,7 +208,7 @@ pub fn body(handle: u32, cx: &mut App) -> AnyElement {
     let node = plugins.read(cx).view(&uid, &view_id).cloned();
     match node {
         Some(node) => view::render(&uid, &node, cx),
-        None => div().flex().items_center().gap(px(8.)).text_color(theme.text3).child(spinner(14., theme.text3)).child("Starting…").into_any_element(),
+        None => div().flex().items_center().gap(px(8.)).text_color(theme.text3).child(spinner(14., theme.text3)).child(t("plugins.startingView")).into_any_element(),
     }
 }
 
@@ -246,7 +247,7 @@ pub fn changed_line(server_id: &str, message: &MessageView, decoration: &Decorat
     let theme = theme(cx);
     let key = crate::plugins::decoration_key(server_id, message);
     let showing = showing_original(server_id, message, cx);
-    let what = if decoration.hidden { "Hidden" } else { "Changed" };
+    let what = if decoration.hidden { tr!("plugins.hiddenBy", name = decoration.name) } else { tr!("plugins.changedBy", name = decoration.name) };
     div()
         .flex()
         .items_center()
@@ -255,14 +256,14 @@ pub fn changed_line(server_id: &str, message: &MessageView, decoration: &Decorat
         .text_size(px(11.5))
         .text_color(theme.text3)
         .child(icon("puzzle", 11., theme.text3))
-        .child(format!("{what} by {}", decoration.name))
+        .child(what)
         .when(!decoration.verified, |el| el.child(unverified_mark(cx)))
         .child(
             div()
                 .id(gpui::ElementId::Name(format!("show-original-{key}").into()))
                 .text_color(theme.link)
                 .cursor_pointer()
-                .child(if showing { "Show the plugin's version" } else { "Show the original" })
+                .child(if showing { t("plugins.showPluginVersion") } else { t("plugins.showOriginal") })
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     if let Some(plugins) = crate::plugins::get(cx) {

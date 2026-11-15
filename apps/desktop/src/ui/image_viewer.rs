@@ -14,6 +14,7 @@ use gpui::{
 
 use super::components::*;
 use super::motion::{Enter, Motion};
+use crate::i18n::t;
 use crate::models::{Attachment, AvatarRef, MessageView};
 use crate::platform;
 use crate::state::{AppState, MediaFile, Picture, Store};
@@ -650,7 +651,7 @@ impl Render for ImageViewer {
             .when(if is_video { self.video.is_none() } else { self.image.is_none() }, |el| {
                 let state = div().absolute().inset_0().flex().items_center().justify_center().gap(px(8.)).text_size(px(14.)).text_color(theme.text2);
                 el.child(if self.failed {
-                    state.child(icon("triangle-alert", 18., theme.text2)).child(if is_video { "This video couldn't be loaded." } else { "This picture couldn't be loaded." })
+                    state.child(icon("triangle-alert", 18., theme.text2)).child(if is_video { t("media.viewer.videoFailed") } else { t("media.viewer.failed") })
                 } else {
                     state.child(spinner(18., theme.text2))
                 })
@@ -671,7 +672,7 @@ impl Render for ImageViewer {
                     .bg(theme::color(theme::rgba(24, 24, 27, 0.85)))
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .when(count > 1, |el| el.child(div().px(px(8.)).text_size(px(12.5)).text_color(theme.text2).child(format!("{} of {count}", index + 1))))
+                    .when(count > 1, |el| el.child(div().px(px(8.)).text_size(px(12.5)).text_color(theme.text2).child(tr!("media.viewer.position", index = index + 1, total = count))))
                     // A video doesn't zoom.
                     .when(!is_video, |el| el.child(tool("zoom-out", "zoom-out", zoomed, cx).on_click(cx.listener(|viewer, _, _, cx| {
                         if viewer.view.scale > 1. {
@@ -702,7 +703,7 @@ impl Render for ImageViewer {
                         let scale = viewer.view.scale;
                         viewer.zoom_to(scale * 1.5, None, true, cx);
                     }))))
-                    .child(button("save-image", ButtonKind::Default, ButtonSize::Normal, false, cx).ml(px(4.)).child("Save").on_click(cx.listener(|viewer, _, _, cx| viewer.save(cx)))),
+                    .child(button("save-image", ButtonKind::Default, ButtonSize::Normal, false, cx).ml(px(4.)).child(t("common.save")).on_click(cx.listener(|viewer, _, _, cx| viewer.save(cx)))),
             )
             .child(
                 // In the screen's corner, as Telegram's, with no title bar to keep clear of.

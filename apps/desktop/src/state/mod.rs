@@ -79,7 +79,7 @@ impl ServerState {
     }
 
     pub fn display_name(&self, user_id: &str) -> String {
-        self.users.get(user_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into())
+        self.users.get(user_id).map(|user| user.display_name.clone()).unwrap_or_else(|| crate::i18n::t("chat.unknown").into())
     }
 
     /// Unread messages for the rail's badge: what's said to you in channels, everything elsewhere.
@@ -564,6 +564,8 @@ impl AppState {
                 .ok();
                 return;
             }
+            // The core words its errors and notifications, and the server's messages, in the same language.
+            core.call(None, "setLanguage", crate::i18n::for_core()).await.ok();
             let entries: Vec<ServerEntry> = match core.call(None, "listServers", vec![]).await {
                 Ok(value) => from_value(value),
                 Err(error) => {
@@ -767,9 +769,19 @@ impl AppState {
     }
 
     pub fn update_settings(&mut self, change: impl FnOnce(&mut Settings), cx: &mut Context<Self>) {
+        let language = self.settings.language.clone();
         change(&mut self.settings);
         self.settings.save();
         self.refresh_theme(cx);
+        if self.settings.language != language {
+            // Everything is drawn again in the language chosen, and the core words things in it too.
+            crate::i18n::set_language(self.settings.language.as_deref());
+            let call = self.core.call(None, "setLanguage", crate::i18n::for_core());
+            cx.background_spawn(async move { call.await.ok() }).detach();
+            #[cfg(target_os = "macos")]
+            crate::platform::show_menus(cx);
+            cx.refresh_windows();
+        }
         cx.notify();
     }
 
@@ -848,7 +860,7 @@ impl AppState {
             return;
         }
         if self.window_focused {
-            self.toast(format!("{name}: {title}{}{body}", if body.is_empty() { "" } else { " — " }), ToastKind::Info, cx);
+            self.toast(if body.is_empty() { tr!("notifications.plugin.title", plugin = name, title = title) } else { tr!("notifications.plugin.withBody", plugin = name, title = title, body = body) }, ToastKind::Info, cx);
             return;
         }
         let system = crate::platform::notification_state();
@@ -856,7 +868,7 @@ impl AppState {
             return;
         }
         let payload = crate::ui::notifications::Payload {
-            title: format!("{name}: {title}"),
+            title: tr!("notifications.plugin.title", plugin = name, title = title),
             body,
             server_id: String::new(),
             key: String::new(),

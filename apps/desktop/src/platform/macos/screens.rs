@@ -6,9 +6,9 @@
 pub use crate::platform::{Source, THUMB_HEIGHT, THUMB_WIDTH};
 
 pub fn screens() -> Vec<Source> {
-    vec![Source { id: "portal:screen".into(), name: "Entire screen".into(), screen: true, thumbnail: None }]
+    vec![Source { id: "portal:screen".into(), name: crate::i18n::t("voice.screens.entire").into(), screen: true, thumbnail: None }]
 }
 
 pub fn windows() -> Vec<Source> {
-    vec![Source { id: "portal:window".into(), name: "A window".into(), screen: false, thumbnail: None }]
+    vec![Source { id: "portal:window".into(), name: crate::i18n::t("voice.screens.window").into(), screen: false, thumbnail: None }]
 }

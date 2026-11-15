@@ -35,7 +35,7 @@ impl Dialog {
                         if let Some(form) = &mut dialog.channel_form {
                             form.kind = kind.to_string();
                         }
-                        let placeholder = if kind == "text" { "new-channel" } else { "Lounge" };
+                        let placeholder = if kind == "text" { t("channels.dialog.textPlaceholder") } else { t("channels.dialog.voicePlaceholder") };
                         dialog.name.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
                         cx.notify();
                     }))
@@ -47,13 +47,13 @@ impl Dialog {
                     .flex()
                     .flex_col()
                     .gap(px(5.))
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Type"))
+                    .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.form.type")))
                     .child(
                         div()
                             .flex()
                             .gap(px(8.))
-                            .child(choice("text", "hash", "Text", "Messages, pictures and files", text, cx))
-                            .child(choice("voice", "volume-2", "Voice", "Talk, and share your camera or screen", !text, cx)),
+                            .child(choice("text", "hash", t("channels.form.text"), t("channels.form.textHint"), text, cx))
+                            .child(choice("voice", "volume-2", t("channels.form.voice"), t("channels.form.voiceHint"), !text, cx)),
                     )
                     .into_any_element(),
             );
@@ -67,22 +67,22 @@ impl Dialog {
                     .bg(theme.amber_soft)
                     .text_size(px(13.))
                     .text_color(theme.amber)
-                    .child("This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit (see SELF_HOSTING.md).")
+                    .child(t("channels.noMediaServer"))
                     .into_any_element(),
             );
         }
         let form = self.channel_form.as_ref().unwrap();
-        body.push(field(Some("Name"), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element());
-        body.push(field(Some("Topic"), form.topic.clone(), None, None, false, None, cx).into_any_element());
-        body.push(field(Some("Heading"), form.category.clone(), None, None, false, None, cx).into_any_element());
+        body.push(field(Some(t("channels.form.name")), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element());
+        body.push(field(Some(t("channels.form.topic")), form.topic.clone(), None, None, false, None, cx).into_any_element());
+        body.push(field(Some(t("channels.form.heading")), form.category.clone(), None, None, false, None, cx).into_any_element());
         let admin_only = form.admin_only;
-        let admin_hint = if admin_only && channel.as_ref().is_some_and(|channel| !channel.admin_only) { "Only admins will see it. Anyone else in it now is taken out." } else { "Only admins can see it and join it." };
+        let admin_hint = if admin_only && channel.as_ref().is_some_and(|channel| !channel.admin_only) { t("channels.editor.adminOnlyNow") } else { t("channels.form.adminOnlyHint") };
         body.push(
             div()
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Admins only")).child(div().text_size(px(12.5)).text_color(theme.text3).child(admin_hint)))
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.adminsOnly"))).child(div().text_size(px(12.5)).text_color(theme.text3).child(admin_hint)))
                 .child(switch("admin-only", admin_only, cx).on_click(cx.listener(|dialog, _, _, cx| {
                     if let Some(form) = &mut dialog.channel_form {
                         form.admin_only = !form.admin_only;
@@ -97,7 +97,7 @@ impl Dialog {
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Slow mode")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Everyone except admins has to wait between messages.")))
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.form.slowMode"))).child(div().text_size(px(12.5)).text_color(theme.text3).child(t("channels.form.slowModeHint"))))
                 .child(switch("slow-mode", slow_on, cx).on_click(cx.listener(|dialog, _, _, cx| {
                     if let Some(form) = &mut dialog.channel_form {
                         form.slow_on = !form.slow_on;
@@ -128,7 +128,7 @@ impl Dialog {
                     (crate::format::timer_text(seconds), action)
                 })
                 .collect();
-            body.push(labeled("Time between messages", select_box("slow-time", crate::format::timer_text(slow_mode), choices, cx).into_any_element(), cx));
+            body.push(labeled(t("channels.form.slowModeTime"), select_box("slow-time", crate::format::timer_text(slow_mode), choices, cx).into_any_element(), cx));
         }
         if !text {
             let form = self.channel_form.as_ref().unwrap();
@@ -145,17 +145,17 @@ impl Dialog {
                     .ok();
                 })
             };
-            let qualities = [(0., "Standard (64 kbit/s)"), (96., "Better (96 kbit/s)"), (128., "Great (128 kbit/s)"), (256., "Best (256 kbit/s)")];
-            let quality_label = qualities.iter().find(|(kbps, _)| *kbps == form.bitrate).map(|(_, label)| label.to_string()).unwrap_or_else(|| format!("{} kbit/s", form.bitrate));
+            let qualities = [(0., t("channels.audio.standard")), (96., t("channels.audio.better")), (128., t("channels.audio.great")), (256., t("channels.audio.best"))];
+            let quality_label = qualities.iter().find(|(kbps, _)| *kbps == form.bitrate).map(|(_, label)| label.to_string()).unwrap_or_else(|| tr!("channels.audio.custom", rate = form.bitrate));
             let quality_choices = qualities.iter().map(|(kbps, label)| (label.to_string(), pick(*kbps, |form, value| form.bitrate = value))).collect();
-            body.push(labeled("Audio quality", select_box("audio-quality", quality_label, quality_choices, cx).into_any_element(), cx));
+            body.push(labeled(t("channels.form.audioQuality"), select_box("audio-quality", quality_label, quality_choices, cx).into_any_element(), cx));
             let limit = form.user_limit;
             body.push(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(5.))
-                    .child(div().flex().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Max people: ").child(div().text_color(theme.text1).child(if limit == 0. { "no limit".to_string() } else { (limit as u32).to_string() })))
+                    .child(div().flex().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.form.maxPeople")).child(div().text_color(theme.text1).child(if limit == 0. { t("channels.form.noLimit").to_string() } else { (limit as u32).to_string() })))
                     .child(slider("user-limit", (limit / 99.) as f32, {
                         let weak = weak.clone();
                         move |value, _, cx| {
@@ -170,21 +170,21 @@ impl Dialog {
                     }, cx))
                     .into_any_element(),
             );
-            let mut limits: Vec<(f64, String)> = vec![(0., "Server default".into()), (-1., "Off".into())];
-            limits.extend([1., 2., 3., 4., 5., 10.].iter().map(|limit| (*limit, if *limit == 1. { "1 at a time".to_string() } else { format!("Up to {limit} at once") })));
+            let mut limits: Vec<(f64, String)> = vec![(0., t("channels.dialog.screenDefault").into()), (-1., t("common.off").into())];
+            limits.extend([1., 2., 3., 4., 5., 10.].iter().map(|limit| (*limit, if *limit == 1. { t("channels.dialog.screenOne").to_string() } else { tr!("channels.screen.upTo", count = limit) })));
             if !limits.iter().any(|(limit, _)| *limit == form.screen_limit) {
-                limits.push((form.screen_limit, format!("Up to {} at once", form.screen_limit)));
+                limits.push((form.screen_limit, tr!("channels.screen.upTo", count = form.screen_limit)));
             }
             let screen_label = limits.iter().find(|(limit, _)| *limit == form.screen_limit).map(|(_, label)| label.clone()).unwrap_or_default();
             let screen_choices = limits.iter().map(|(limit, label)| (label.clone(), pick(*limit, |form, value| form.screen_limit = value))).collect();
-            body.push(labeled("Screen sharing", select_box("screen-limit", screen_label, screen_choices, cx).into_any_element(), cx));
+            body.push(labeled(t("channels.form.screenSharing"), select_box("screen-limit", screen_label, screen_choices, cx).into_any_element(), cx));
             let sounds = form.sounds;
             body.push(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Soundboard")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Anyone in the channel can play the server's sounds to everyone there.")))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.form.soundboard"))).child(div().text_size(px(12.5)).text_color(theme.text3).child(t("channels.form.soundboardHint"))))
                     .child(switch("soundboard", sounds, cx).on_click(cx.listener(|dialog, _, _, cx| {
                         if let Some(form) = &mut dialog.channel_form {
                             form.sounds = !form.sounds;
@@ -199,7 +199,7 @@ impl Dialog {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Watch together")).child(div().text_size(px(12.5)).text_color(theme.text3).child("Anyone in the channel can start a YouTube video for everyone. It only plays for people who press Watch.")))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("channels.form.watch"))).child(div().text_size(px(12.5)).text_color(theme.text3).child(t("channels.form.watchHint"))))
                     .child(switch("watch-together", watch, cx).on_click(cx.listener(|dialog, _, _, cx| {
                         if let Some(form) = &mut dialog.channel_form {
                             form.watch = !form.watch;
@@ -209,8 +209,8 @@ impl Dialog {
                     .into_any_element(),
             );
         }
-        let who = if admin_only { "Only the server's admins can see and join this channel." } else { "Everyone on this server can see and join channels." };
-        body.push(div().text_size(px(12.5)).text_color(theme.text3).child(format!("{who} The name and everything said are end-to-end encrypted, so the server can't read them.")).into_any_element());
+        let who = if admin_only { t("channels.form.adminsOnlyNote") } else { t("channels.form.everyoneNote") };
+        body.push(div().text_size(px(12.5)).text_color(theme.text3).child(who).into_any_element());
         let busy = self.busy;
         let ready = !final_name.is_empty() && !busy;
         let editing = channel.is_some();
@@ -220,8 +220,8 @@ impl Dialog {
             .w_full()
             .gap(px(8.))
             .when_some(delete_channel, |el, channel| {
-                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child("Delete").on_click(cx.listener(move |_, _, window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {}?", channel.name), Some("Its messages will be deleted for everyone."), &["Delete", "Cancel"], cx);
+                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child(t("common.delete")).on_click(cx.listener(move |_, _, window, cx| {
+                    let answer = window.prompt(gpui::PromptLevel::Warning, &tr!("channels.deleteTitle", name = channel.name), Some(t("channels.delete.text")), &[t("common.delete"), t("common.cancel")], cx);
                     let (id, key) = (channel.id.clone(), channel.key.clone());
                     cx.spawn(async move |dialog, cx| {
                         if answer.await != Ok(0) {
@@ -249,9 +249,9 @@ impl Dialog {
                 })))
                 .child(div().flex_1())
             })
-            .child(button("cancel", ButtonKind::Default, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("save-channel", ButtonKind::Primary, ButtonSize::Normal, !ready, cx).child(if busy { "Saving…" } else if editing { "Save" } else { "Create channel" }).when(ready, |el| el.on_click(cx.listener(move |dialog, _, _, cx| dialog.save_channel(cx)))));
-        self.modal(Some(if editing { "Edit channel".into() } else { "New channel".into() }), 460., body, Some(footer.into_any_element()), cx)
+            .child(button("cancel", ButtonKind::Default, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("save-channel", ButtonKind::Primary, ButtonSize::Normal, !ready, cx).child(if busy { t("common.saving") } else if editing { t("common.save") } else { t("channels.form.create") }).when(ready, |el| el.on_click(cx.listener(move |dialog, _, _, cx| dialog.save_channel(cx)))));
+        self.modal(Some(if editing { t("channels.edit").into() } else { t("channels.new").into() }), 460., body, Some(footer.into_any_element()), cx)
     }
 
     pub(super) fn save_channel(&mut self, cx: &mut Context<Self>) {

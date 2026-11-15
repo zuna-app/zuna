@@ -8,11 +8,11 @@ pub fn checked_download(server_id: &str, value: serde_json::Value) -> Result<ser
     if server_id != crate::telegram::SERVER_ID {
         return Ok(value);
     }
-    let path = value.get("$file").and_then(|file| file.get("path")).and_then(serde_json::Value::as_str).ok_or("Telegram sent no file")?;
+    let path = value.get("$file").and_then(|file| file.get("path")).and_then(serde_json::Value::as_str).ok_or(crate::i18n::t("media.telegram.noFile"))?;
     if crate::telegram::inside_engine_folder(std::path::Path::new(path), &crate::telegram::folder(&host::data_dir())) {
         Ok(value)
     } else {
-        Err("That file isn't one of Telegram's.".into())
+        Err(crate::i18n::t("media.telegram.notTheirs").into())
     }
 }
 

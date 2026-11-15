@@ -1,4 +1,5 @@
-// Embeds the icons, so the app is one file, and checks the core bundle is there.
+// Embeds the icons and the interface's languages, so the app is one file, and checks the core
+// bundle is there.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -24,6 +25,7 @@ fn main() {
     let out = Path::new(&std::env::var("OUT_DIR").unwrap()).join("icons.rs");
     std::fs::write(out, table).unwrap();
 
+    embed_locales(&root);
     embed_icon(&root);
     link_ffmpeg();
     link_objc();
@@ -33,6 +35,28 @@ fn main() {
     if !Path::new("assets/core/zuna-core.js").exists() {
         panic!("The core bundle is missing. Build it first: node apps/desktop/core-bundle/build.mjs");
     }
+}
+
+/// Every language's catalog in packages/i18n/locales, English always among them (src/i18n.rs).
+fn embed_locales(root: &str) {
+    let dir = Path::new(root).join("../../packages/i18n/locales");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut tags: Vec<String> = std::fs::read_dir(&dir)
+        .expect("packages/i18n/locales exists")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter_map(|name| name.strip_suffix(".json").map(str::to_string))
+        .collect();
+    tags.sort();
+    assert!(tags.iter().any(|tag| tag == "en"), "packages/i18n/locales/en.json is missing");
+    let mut table = String::from("/// Each language's tag and catalog.\npub static CATALOGS: &[(&str, &str)] = &[\n");
+    for tag in tags {
+        let path = dir.join(format!("{tag}.json"));
+        println!("cargo:rerun-if-changed={}", path.display());
+        writeln!(table, "    (\"{tag}\", include_str!(r\"{}\")),", path.display()).unwrap();
+    }
+    table.push_str("];\n");
+    std::fs::write(Path::new(&std::env::var("OUT_DIR").unwrap()).join("locales.rs"), table).unwrap();
 }
 
 /// On Linux, where FFmpeg's libraries are found: in `lib` beside the program, where the screen

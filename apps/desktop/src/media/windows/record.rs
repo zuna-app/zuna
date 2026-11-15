@@ -10,6 +10,7 @@ use windows::Win32::Media::Audio::*;
 use windows::Win32::Media::MediaFoundation::*;
 
 use super::encode::RATE;
+use crate::i18n::t;
 
 /// What's been heard so far: the samples, and a loudness from 0 to 1 every 50 ms.
 #[derive(Default)]
@@ -36,7 +37,7 @@ impl Microphone {
         let format = WAVEFORMATEX { wFormatTag: WAVE_FORMAT_PCM as u16, nChannels: 1, nSamplesPerSec: RATE, nAvgBytesPerSec: RATE * 2, nBlockAlign: 2, wBitsPerSample: 16, cbSize: 0 };
         let mut wave = HWAVEIN::default();
         if unsafe { waveInGetNumDevs() } == 0 || unsafe { waveInOpen(Some(&mut wave), WAVE_MAPPER, &format, None, None, CALLBACK_NULL) } != 0 {
-            return Err("There's no microphone Zuna can use.".into());
+            return Err(t("voice.mic.none").into());
         }
         let heard = Arc::new(Mutex::new(Heard::default()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -125,7 +126,7 @@ pub use crate::media::CameraDevice;
 
 /// The cameras, by name, each with its activation object.
 unsafe fn camera_list() -> Result<Vec<(String, IMFActivate)>, String> {
-    let none = || "There's no camera Zuna can use.".to_string();
+    let none = || t("voice.camera.none").to_string();
     super::mf::start();
     let mut attributes = None;
     unsafe { MFCreateAttributes(&mut attributes, 1) }.map_err(|_| none())?;
@@ -149,7 +150,7 @@ unsafe fn camera_list() -> Result<Vec<(String, IMFActivate)>, String> {
                 unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _)) };
                 text
             } else {
-                "Camera".to_string()
+                t("media.devices.camera").to_string()
             };
             found.push((label, device));
         }
@@ -160,7 +161,7 @@ unsafe fn camera_list() -> Result<Vec<(String, IMFActivate)>, String> {
 
 /// The cameras, with the default first.
 pub fn cameras() -> Vec<CameraDevice> {
-    let mut list = vec![CameraDevice { id: "default".into(), name: "Default".into() }];
+    let mut list = vec![CameraDevice { id: "default".into(), name: t("media.devices.default").into() }];
     if let Ok(found) = unsafe { camera_list() } {
         list.extend(found.into_iter().map(|(name, _)| CameraDevice { id: name.clone(), name }));
     }
@@ -169,11 +170,11 @@ pub fn cameras() -> Vec<CameraDevice> {
 
 /// Opens a camera by its name, or the first one.
 fn open_camera(device: &str) -> Result<IMFMediaSource, String> {
-    let none = || "There's no camera Zuna can use.".to_string();
+    let none = || t("voice.camera.none").to_string();
     let found = unsafe { camera_list() }?;
     let chosen = found.iter().position(|(name, _)| name == device).unwrap_or(0);
     let (_, activate) = found.into_iter().nth(chosen).ok_or_else(none)?;
-    unsafe { activate.ActivateObject() }.map_err(|_| "Zuna can't use the camera. Allow it in your system's privacy settings.".to_string())
+    unsafe { activate.ActivateObject() }.map_err(|_| t("media.devices.cameraBlocked").to_string())
 }
 
 /// Reads frames from a camera until stopped, each as its width, height and BGRA, top row first.

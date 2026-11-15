@@ -2,6 +2,7 @@
 //! notice, and the toasts and dialogs over them.
 
 use super::*;
+use crate::i18n::t;
 
 impl Root {
     /// A plugin's page over the main area: its title, whose it is, and the app's close button,
@@ -87,7 +88,7 @@ impl Root {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(div().flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(spinner(22., theme.text2)).child("Getting the keys to this channel…"))
+                        .child(div().flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(spinner(22., theme.text2)).child(t("channels.joining")))
                         .into_any_element();
                 }
                 div()
@@ -105,13 +106,13 @@ impl Root {
                             .text_color(theme.text2)
                             .child(div().mb(px(8.)).child(icon("message-circle", 28., theme.text3)))
                             .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(entry.name.clone()))
-                            .child("Pick someone from the list to start talking.")
+                            .child(t("chat.empty.pickSomeone"))
                             .child({
                                 // A linked Telegram account's chats aren't, and the line says who keeps them.
                                 let (mark, line) = if entry.is_telegram() {
-                                    ("cloud", "Not end-to-end encrypted. Telegram keeps these messages.")
+                                    ("cloud", t("chat.telegramNotEncrypted"))
                                 } else {
-                                    ("lock", "Everything here is end-to-end encrypted")
+                                    ("lock", t("chat.empty.encrypted"))
                                 };
                                 div()
                                     .flex()
@@ -133,16 +134,19 @@ impl Root {
         let theme = theme(cx);
         let name = entry.name.clone();
         let title = match reason {
-            "banned" => format!("You were removed from {name}"),
-            "account_deleted" => format!("Your account on {name} was deleted"),
-            _ => format!("You're signed out of {name}"),
+            "banned" => tr!("servers.signedOutScreen.bannedTitle", server = name),
+            "account_deleted" => tr!("servers.signedOutScreen.deletedTitle", server = name),
+            _ => tr!("servers.signedOutScreen.title", server = name),
         };
         let why = match reason {
-            "device_revoked" => "This device was removed from your account.",
-            "banned" => "Its admins ended your access.",
-            "account_deleted" => "It was deleted from another of your devices.",
-            _ => "The server ended this device's session.",
+            "device_revoked" => t("servers.signedOutScreen.deviceRevoked"),
+            "banned" => t("servers.signedOutScreen.banned"),
+            "account_deleted" => t("servers.signedOutScreen.deleted"),
+            _ => t("servers.signedOutScreen.ended"),
         };
+        // Then that what's here stays for 30 days, or until signing in again where that's still
+        // possible: two sentences, each whole, as the web's screen says them.
+        let kept = if reason == "account_deleted" { t("servers.signedOutScreen.keptDeleted") } else { t("servers.signedOutScreen.kept") };
         // An account that's gone can't be signed in to again.
         let can_sign_in = reason != "banned" && reason != "account_deleted";
         let state = self.state.clone();
@@ -160,22 +164,18 @@ impl Root {
                 .text_center()
                 .child(div().mb(px(8.)).child(icon("log-out", 28., theme.text3)))
                 .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(title))
-                .child(if reason == "account_deleted" {
-                    format!("{why} What's on this device stays here for 30 days, or until you remove it.")
-                } else {
-                    format!("{why} What's on this device stays here for 30 days, or until you sign in again or remove it.")
-                })
+                .child(format!("{why} {kept}"))
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
                         .mt(px(8.))
                         .when(can_sign_in, |el| {
-                            el.child(button("sign-in-again", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Sign in again").on_click(move |_, _, cx| {
+                            el.child(button("sign-in-again", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("servers.signedOutScreen.signIn")).on_click(move |_, _, cx| {
                                 state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: Some(address.clone()) }), cx))
                             }))
                         })
-                        .child(button("remove-server", ButtonKind::Default, ButtonSize::Normal, false, cx).child("Remove from this device").on_click(move |_, _, cx| {
+                        .child(button("remove-server", ButtonKind::Default, ButtonSize::Normal, false, cx).child(t("servers.signedOutScreen.remove")).on_click(move |_, _, cx| {
                             let id = id.clone();
                             remove_state.update(cx, |state, cx| {
                                 state.call(None, "leaveServer", vec![serde_json::json!(id.clone())], cx, move |state, _, cx| state.remove_server(&id, cx))

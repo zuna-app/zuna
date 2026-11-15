@@ -25,7 +25,7 @@ use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGEventType};
 
 pub mod watch_view;
 pub use awake::keep_screen_on;
-pub use menu::set_menus;
+pub use menu::{set_menus, show_menus};
 
 /// What's asked of the main window from outside an update, done on the next one.
 enum Command {

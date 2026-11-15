@@ -190,10 +190,10 @@ mod linux_box {
     /// the box's test tries each of that this one can stand in for.
     pub(super) fn spawn_as(program: &Path, args: &[&str], folder: &Path, abi: u32, namespaces: bool) -> Result<Spawned> {
         if abi == 0 {
-            return Err(Error::other("this system has no Landlock, which the engine's box is made of"));
+            return Err(Error::other(crate::i18n::t("telegram.box.noLandlock")));
         }
         if !namespaces && abi < 4 {
-            return Err(Error::other("this system lets a program have no network of its own, and is too old to hold one to a port"));
+            return Err(Error::other(crate::i18n::t("telegram.box.tooOld")));
         }
         if !namespaces {
             log::info!(target: "telegram", "no namespaces for the engine here, so Landlock alone holds it to its port");
@@ -464,8 +464,8 @@ mod macos_box {
     /// that it's boxed, may not read the folder beside its own, where the app keeps its sealed
     /// keys, and may not make a process. Until then nothing is sent to it.
     fn holds(process: &mut Process, folder: &Path) -> Result<()> {
-        let check = sandbox_check().ok_or_else(|| Error::other("this macOS can't say whether a program is boxed"))?;
-        let beside = folder.canonicalize()?.parent().map(Path::to_path_buf).ok_or_else(|| Error::other("the engine's folder has none around it"))?;
+        let check = sandbox_check().ok_or_else(|| Error::other(crate::i18n::t("telegram.box.cantCheck")))?;
+        let beside = folder.canonicalize()?.parent().map(Path::to_path_buf).ok_or_else(|| Error::other(crate::i18n::t("telegram.box.noParent")))?;
         let beside = c_path(&beside)?;
         let deadline = Instant::now() + BOXING;
         loop {
@@ -474,15 +474,15 @@ mod macos_box {
                 let refused_data = unsafe { check(process.pid, c"file-read-data".as_ptr(), SANDBOX_FILTER_PATH, beside.as_ptr()) } == 1;
                 let refused_fork = unsafe { check(process.pid, c"process-fork".as_ptr(), SANDBOX_FILTER_NONE) } == 1;
                 if !refused_data || !refused_fork {
-                    return Err(Error::other("the engine's box doesn't hold: it may read the app's data or make a process"));
+                    return Err(Error::other(crate::i18n::t("telegram.box.leaks")));
                 }
                 return Ok(());
             }
             if let Some(code) = process.try_wait()? {
-                return Err(Error::other(format!("it ended before it was boxed, with {code}")));
+                return Err(Error::other(tr!("telegram.box.endedEarly", code = code)));
             }
             if Instant::now() >= deadline {
-                return Err(Error::other("it didn't close its box in time"));
+                return Err(Error::other(crate::i18n::t("telegram.box.tooSlow")));
             }
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -584,7 +584,7 @@ mod windows_box {
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         let found = unsafe { GetNamedSecurityInfoW(&name, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None, Some(&mut old), None, &mut descriptor) };
         if found.is_err() {
-            return Err(std::io::Error::other(format!("couldn't read who may open {}: {found:?}", path.display())));
+            return Err(std::io::Error::other(tr!("telegram.box.cantReadAccess", path = path.display(), error = format!("{found:?}"))));
         }
         let entry = EXPLICIT_ACCESS_W {
             grfAccessPermissions: access,
@@ -595,10 +595,10 @@ mod windows_box {
         let mut new: *mut ACL = std::ptr::null_mut();
         let made = unsafe { SetEntriesInAclW(Some(&[entry]), Some(old), &mut new) };
         let result = if made.is_err() {
-            Err(std::io::Error::other(format!("couldn't add to who may open {}: {made:?}", path.display())))
+            Err(std::io::Error::other(tr!("telegram.box.cantAddAccess", path = path.display(), error = format!("{made:?}"))))
         } else {
             let set = unsafe { SetNamedSecurityInfoW(&name, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None, Some(new), None) };
-            if set.is_err() { Err(std::io::Error::other(format!("couldn't let the engine into {}: {set:?}", path.display()))) } else { Ok(()) }
+            if set.is_err() { Err(std::io::Error::other(tr!("telegram.box.cantGrant", path = path.display(), error = format!("{set:?}")))) } else { Ok(()) }
         };
         unsafe {
             if !new.is_null() {
@@ -722,7 +722,7 @@ mod windows_box {
             )
         };
         unsafe { DeleteProcThreadAttributeList(list) };
-        created.map_err(|error| std::io::Error::other(format!("the engine couldn't start in its box: {error}")))?;
+        created.map_err(|error| std::io::Error::other(tr!("telegram.box.cantStartBoxed", error = error)))?;
         let process = unsafe { OwnedHandle::from_raw_handle(information.hProcess.0) };
         let thread = unsafe { OwnedHandle::from_raw_handle(information.hThread.0) };
 
@@ -752,12 +752,12 @@ mod windows_box {
             Ok(job) => job,
             Err(error) => {
                 unsafe { TerminateProcess(raw(&process), 1) }.ok();
-                return Err(std::io::Error::other(format!("the engine's job couldn't be made: {error}")));
+                return Err(std::io::Error::other(tr!("telegram.box.noJob", error = error)));
             }
         };
         if unsafe { ResumeThread(raw(&thread)) } == u32::MAX {
             unsafe { TerminateProcess(raw(&process), 1) }.ok();
-            return Err(std::io::Error::other(format!("the engine couldn't be started: {:?}", unsafe { GetLastError() })));
+            return Err(std::io::Error::other(tr!("telegram.box.cantResume", error = format!("{:?}", unsafe { GetLastError() }))));
         }
         drop(thread);
         // The engine's ends are its own now.

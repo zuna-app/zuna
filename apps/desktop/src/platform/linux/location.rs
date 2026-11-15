@@ -57,8 +57,8 @@ pub fn locate() -> Result<(f64, f64, Option<f64>), String> {
     // A little past the wait `find` ends itself, for a portal that doesn't answer at all.
     match answer.recv_timeout(FIND_WITHIN + Duration::from_secs(10)) {
         Ok(Found::Position(latitude, longitude, accuracy)) => Ok((latitude, longitude, Some(accuracy.round()))),
-        Ok(Found::Refused) => Err("Zuna isn't allowed to use your location. Allow it in your system's privacy settings.".into()),
-        Ok(Found::Unavailable) => Err("Your location isn't available right now.".into()),
-        Ok(Found::TookTooLong) | Err(_) => Err("Finding your location took too long. Try again.".into()),
+        Ok(Found::Refused) => Err(crate::i18n::t("location.notAllowed").into()),
+        Ok(Found::Unavailable) => Err(crate::i18n::t("location.unavailable").into()),
+        Ok(Found::TookTooLong) | Err(_) => Err(crate::i18n::t("location.timedOut").into()),
     }
 }

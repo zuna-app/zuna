@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use super::manifest::Manifest;
+use crate::i18n::t;
 
 /// The most a package may be, packed or unpacked.
 pub const MAX_PACKAGE: usize = 8 << 20;
@@ -47,17 +48,17 @@ pub fn bad_path(name: &str) -> Option<String> {
         return None;
     }
     if !name.starts_with("assets/") {
-        return Some(format!("{name} is outside a package's layout."));
+        return Some(tr!("plugins.package.outsideLayout", name = name));
     }
     let parts: Vec<&str> = name.split('/').collect();
     if parts.len() > MAX_DEPTH + 1 {
-        return Some(format!("{name} is too deep under assets/."));
+        return Some(tr!("plugins.package.tooDeep", name = name));
     }
     if parts.iter().any(|part| part.is_empty() || *part == "." || *part == "..") {
-        return Some(format!("{name} isn't a plain path."));
+        return Some(tr!("plugins.package.notPlain", name = name));
     }
     if !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'/' | b'-')) {
-        return Some(format!("{name} has characters a package's paths don't."));
+        return Some(tr!("plugins.package.badCharacters", name = name));
     }
     None
 }
@@ -70,27 +71,27 @@ impl Package {
     /// Reads a package from its bytes.
     pub fn open(bytes: &[u8]) -> Result<Package, String> {
         if bytes.len() > MAX_PACKAGE {
-            return Err("It's larger than 8 MB.".into());
+            return Err(t("plugins.package.tooLarge").into());
         }
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| "It isn't a plugin package.".to_string())?;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| t("plugins.package.notPackage").to_string())?;
         if archive.len() > MAX_FILES + 1 {
-            return Err(format!("It has more than {MAX_FILES} files."));
+            return Err(tr!("plugins.package.tooManyFiles", count = MAX_FILES));
         }
         let mut files = BTreeMap::new();
         let mut total = 0usize;
         for index in 0..archive.len() {
-            let mut entry = archive.by_index(index).map_err(|_| "Its zip file is damaged.".to_string())?;
-            let name = entry.name().map(|name| name.to_string()).map_err(|_| "Its zip file has a file name that can't be read.".to_string())?;
+            let mut entry = archive.by_index(index).map_err(|_| t("plugins.package.damaged").to_string())?;
+            let name = entry.name().map(|name| name.to_string()).map_err(|_| t("plugins.package.unreadableName").to_string())?;
             // Folders come in some zips as their own entries, which hold nothing.
             if entry.is_dir() {
                 let folder = name.trim_end_matches('/');
                 if folder == "assets" || bad_path(folder).is_none() && folder.starts_with("assets/") {
                     continue;
                 }
-                return Err(format!("{name} is outside a package's layout."));
+                return Err(tr!("plugins.package.outsideLayout", name = name));
             }
             if entry.is_symlink() {
-                return Err(format!("{name} is a link, which a package can't hold."));
+                return Err(tr!("plugins.package.link", name = name));
             }
             if let Some(problem) = bad_path(&name) {
                 return Err(problem);
@@ -99,13 +100,13 @@ impl Package {
             // package that unpacks to gigabytes stops at the limit.
             let mut data = Vec::new();
             let left = MAX_PACKAGE.saturating_sub(total) as u64 + 1;
-            (&mut entry).take(left).read_to_end(&mut data).map_err(|_| format!("{name} doesn't unpack."))?;
+            (&mut entry).take(left).read_to_end(&mut data).map_err(|_| tr!("plugins.package.doesntUnpack", name = name))?;
             total += data.len();
             if total > MAX_PACKAGE {
-                return Err("It unpacks to more than 8 MB.".into());
+                return Err(t("plugins.package.unpacksTooLarge").into());
             }
             if files.insert(name.clone(), data).is_some() {
-                return Err(format!("It contains {name} twice."));
+                return Err(tr!("plugins.package.twice", name = name));
             }
         }
         let mut package = Package::from_files(files, false)?;
@@ -116,7 +117,7 @@ impl Package {
     /// Reads a developer's folder: plugin.json, the script `zuna-plugin build` made (dist/main.js, or main.js
     /// beside the manifest), and assets/.
     pub fn open_folder(dir: &Path) -> Result<Package, String> {
-        let read = |path: PathBuf| std::fs::read(&path).map_err(|error| format!("{} couldn't be read: {error}", path.display()));
+        let read = |path: PathBuf| std::fs::read(&path).map_err(|error| tr!("plugins.package.couldntRead", path = path.display(), error = error));
         let mut files = BTreeMap::new();
         files.insert("plugin.json".to_string(), read(dir.join("plugin.json"))?);
         let built = [dir.join("dist").join("main.js"), dir.join("main.js")].into_iter().find(|path| path.is_file());
@@ -131,20 +132,20 @@ impl Package {
                 let path = entry.path();
                 let kind = entry.file_type().map_err(|error| error.to_string())?;
                 if kind.is_symlink() {
-                    return Err(format!("{} is a link, which a plugin can't hold.", path.display()));
+                    return Err(tr!("plugins.package.folderLink", path = path.display()));
                 }
                 if kind.is_dir() {
                     stack.push(path);
                     continue;
                 }
-                let name = path.strip_prefix(dir).map_err(|_| "A file is outside the folder.".to_string())?.to_string_lossy().replace('\\', "/");
+                let name = path.strip_prefix(dir).map_err(|_| t("plugins.package.outsideFolder").to_string())?.to_string_lossy().replace('\\', "/");
                 if let Some(problem) = bad_path(&name) {
                     return Err(problem);
                 }
                 let data = read(path)?;
                 total += data.len();
                 if total > MAX_PACKAGE || files.len() >= MAX_FILES {
-                    return Err("The folder is larger than a package can be.".into());
+                    return Err(t("plugins.package.folderTooLarge").into());
                 }
                 files.insert(name, data);
             }
@@ -152,31 +153,31 @@ impl Package {
         let mut package = Package::from_files(files, true)?;
         // A script the manifest names and the folder lacks is said plainly: it isn't built yet.
         if package.manifest.scripted() && !package.files.contains_key("main.js") {
-            return Err("Its script isn't built. Run zuna-plugin build in the folder.".into());
+            return Err(t("plugins.package.notBuilt").into());
         }
         package.signature = None;
         Ok(package)
     }
 
     fn from_files(mut files: BTreeMap<String, Vec<u8>>, folder: bool) -> Result<Package, String> {
-        let manifest = Manifest::parse(files.get("plugin.json").ok_or("It has no plugin.json.")?)?;
+        let manifest = Manifest::parse(files.get("plugin.json").ok_or(t("plugins.package.noManifest"))?)?;
         let signature = match files.remove("signature") {
             Some(text) => {
                 use base64::Engine;
-                let text = String::from_utf8(text).map_err(|_| "Its signature can't be read.".to_string())?;
-                Some(base64::engine::general_purpose::STANDARD.decode(text.trim()).map_err(|_| "Its signature can't be read.".to_string())?)
+                let text = String::from_utf8(text).map_err(|_| t("plugins.package.badSignature").to_string())?;
+                Some(base64::engine::general_purpose::STANDARD.decode(text.trim()).map_err(|_| t("plugins.package.badSignature").to_string())?)
             }
             None => None,
         };
         if !manifest.scripted() && files.contains_key("main.js") {
-            return Err("It has a main.js that its manifest doesn't list.".into());
+            return Err(t("plugins.package.unlistedScript").into());
         }
         if manifest.scripted() && !files.contains_key("main.js") && !folder {
-            return Err("Its manifest lists main.js, but there isn't one.".into());
+            return Err(t("plugins.package.missingScript").into());
         }
         if let Some(icon) = &manifest.icon {
             if !files.contains_key(icon) {
-                return Err("Its icon is missing.".into());
+                return Err(t("plugins.package.missingIcon").into());
             }
         }
         Ok(Package { manifest, files, signature, sha256: None })

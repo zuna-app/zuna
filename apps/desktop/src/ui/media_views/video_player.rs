@@ -441,7 +441,7 @@ impl VideoPlayer {
                     .cursor_default()
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(control("video-play-pause", if playing { "pause" } else { "play" }).tip(if playing { "Pause" } else { "Play" }, Side::Top).on_click(cx.listener(|player, _, _, cx| {
+                    .child(control("video-play-pause", if playing { "pause" } else { "play" }).tip(if playing { t("media.video.pause") } else { t("media.video.play") }, Side::Top).on_click(cx.listener(|player, _, _, cx| {
                         cx.stop_propagation();
                         player.toggle_pause(cx);
                     })))
@@ -454,7 +454,7 @@ impl VideoPlayer {
                         .ok();
                     }, cx)))
                     .child(div().flex_none().child(format_duration(length)))
-                    .child(control("video-exit-full", "shrink").tip("Exit full screen", Side::Top).on_click(|_, window, cx| {
+                    .child(control("video-exit-full", "shrink").tip(t("media.player.exitFullScreen"), Side::Top).on_click(|_, window, cx| {
                         cx.stop_propagation();
                         // The viewer's window, whose going gives the video back to its message.
                         window.remove_window();
@@ -539,7 +539,7 @@ impl Render for VideoPlayer {
                                 .justify_center()
                                 .rounded(px(4.))
                                 .hover(|style| style.bg(theme::color(theme::white_a(0.15))))
-                                .tip("Full screen", Side::Top)
+                                .tip(t("media.player.fullScreen"), Side::Top)
                                 .on_click(cx.listener(|player, _, window, cx| {
                                     cx.stop_propagation();
                                     player.open_full(window, cx);

@@ -3,6 +3,7 @@
 //! ScreenCaptureKit, with the computer's sound beside it.
 
 use super::*;
+use crate::i18n::t;
 
 impl Voice {
     pub(in crate::voice) fn stop_share_handles(&mut self) {
@@ -50,7 +51,7 @@ impl Voice {
             return;
         }
         self.end_share(false, cx);
-        self.toast(if reason == "stopped" { "An admin stopped your screen share." } else { "This server's rules changed, so your screen share stopped." }, ToastKind::Info, cx);
+        self.toast(if reason == "stopped" { t("voice.screen.stoppedByAdmin") } else { t("voice.screen.stoppedByRules") }, ToastKind::Info, cx);
     }
 
     /// Shares a screen or a window, natively, once the server says it may.
@@ -135,9 +136,9 @@ impl Voice {
                     match futures::future::select(next, &mut timeout).await {
                         futures::future::Either::Left((Some(Event::Ready(ready)), _)) => break Ok(ready),
                         futures::future::Either::Left((Some(Event::Stats(_)), _)) => continue,
-                        futures::future::Either::Left((Some(Event::Ended(problem)), _)) => break Err(problem.unwrap_or_else(|| "It stopped unexpectedly.".into())),
-                        futures::future::Either::Left((None, _)) => break Err("It stopped unexpectedly.".into()),
-                        futures::future::Either::Right(_) => break Err("It took too long to start.".into()),
+                        futures::future::Either::Left((Some(Event::Ended(problem)), _)) => break Err(problem.unwrap_or_else(|| t("voice.screen.stoppedUnexpectedly").into())),
+                        futures::future::Either::Left((None, _)) => break Err(t("voice.screen.stoppedUnexpectedly").into()),
+                        futures::future::Either::Right(_) => break Err(t("voice.screen.tooSlow").into()),
                     }
                 }
             };
@@ -146,7 +147,7 @@ impl Voice {
                 Err(problem) => {
                     native.stop();
                     // FFmpeg's word for a card without AV1 says nothing of what to do about it.
-                    let problem = if codec == Codec::Av1 && problem.starts_with("Opening av1_") { format!("This graphics card may not support AV1. Try H.264 in Settings, under Screen sharing. {problem}") } else { problem };
+                    let problem = if codec == Codec::Av1 && problem.starts_with("Opening av1_") { tr!("voice.screen.noAv1", problem = problem) } else { problem };
                     this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
                     return;
                 }
@@ -195,7 +196,7 @@ impl Voice {
                                         if voice.screen.is_some() {
                                             voice.end_share(true, cx);
                                             if let Some(problem) = problem {
-                                                voice.toast(format!("Your screen share stopped: {}", problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
+                                                voice.toast(tr!("voice.screen.stopped", problem = problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
                                             }
                                         }
                                         false
@@ -246,7 +247,7 @@ impl Voice {
                     Some(Err(problem)) => {
                         capture::picked_done();
                         if !problem.is_empty() {
-                            this.update(cx, |voice, cx| voice.toast(format!("Couldn't share your screen. {problem}"), ToastKind::Error, cx)).ok();
+                            this.update(cx, |voice, cx| voice.toast(tr!("voice.screen.failed", problem = problem), ToastKind::Error, cx)).ok();
                         }
                         return;
                     }
@@ -324,7 +325,7 @@ impl Voice {
                                 if voice.share.capture.is_some() {
                                     voice.end_share(true, cx);
                                     if let Some(problem) = problem {
-                                        voice.toast(format!("Your screen share stopped: {problem}"), ToastKind::Error, cx);
+                                        voice.toast(tr!("voice.screen.stopped", problem = problem), ToastKind::Error, cx);
                                     }
                                 }
                             })
@@ -353,7 +354,7 @@ impl Voice {
         log::warn!("the screen share didn't start: {problem}");
         let call = self.core(cx).call(Some(server_id), "voiceScreenStop", vec![json!(channel_id)]);
         cx.background_executor().spawn(async move { call.await.ok() }).detach();
-        self.toast(format!("Couldn't share your screen. {}", problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
+        self.toast(tr!("voice.screen.failed", problem = problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
     }
 
     /// Sends the computer's sound beside a share. A share without its sound is still worth having, so this only says so.
@@ -386,7 +387,7 @@ impl Voice {
                                 if let Some(room) = voice.room.clone() {
                                     crate::host::tokio().spawn(async move { room.stop_share_sound().await });
                                 }
-                                voice.toast(format!("Your screen's audio stopped: {problem}"), ToastKind::Error, cx);
+                                voice.toast(tr!("voice.screen.audioStopped", problem = problem), ToastKind::Error, cx);
                             })
                             .ok();
                         }
@@ -396,7 +397,7 @@ impl Voice {
                     log::warn!("sharing the computer's sound: {error}");
                     let room = room.clone();
                     crate::host::tokio().spawn(async move { room.stop_share_sound().await });
-                    voice.toast("Your screen is being shared without audio.", ToastKind::Info, cx);
+                    voice.toast(t("voice.screen.noAudio"), ToastKind::Info, cx);
                 }
             })
             .ok();

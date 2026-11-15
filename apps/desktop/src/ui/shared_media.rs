@@ -11,6 +11,7 @@ use super::image_viewer;
 use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu};
 use crate::format::{avatar_color, format_bytes, format_duration, format_full, name_color};
+use crate::i18n::{mark, t};
 use crate::markup::plain_text;
 use crate::models::{Attachment, AvatarRef, ConversationView, MessageView};
 use crate::state::{AppState, Picture, ServerState, SharedKind};
@@ -24,19 +25,19 @@ pub fn loads_by_itself(attachment: &Attachment) -> bool {
     attachment.size <= AUTO_LOAD_BYTES && attachment.chunks <= AUTO_LOAD_CHUNKS
 }
 
-/// Each kind in Telegram's order: its icon, how one and many are called, and its title.
-pub const KINDS: [(SharedKind, &str, &str, &str, &str); 7] = [
-    (SharedKind::Photo, "image", "photo", "photos", "Photos"),
-    (SharedKind::Video, "video", "video", "videos", "Videos"),
-    (SharedKind::File, "file", "file", "files", "Files"),
-    (SharedKind::Audio, "headphones", "audio file", "audio files", "Audio files"),
-    (SharedKind::Link, "link-2", "shared link", "shared links", "Shared links"),
-    (SharedKind::Voice, "mic", "voice message", "voice messages", "Voice messages"),
-    (SharedKind::Groups, "users", "group in common", "groups in common", "Groups in common"),
+/// Each kind in Telegram's order: its icon, and its title's key.
+pub const KINDS: [(SharedKind, &str, &str); 7] = [
+    (SharedKind::Photo, "image", mark("details.media.photos")),
+    (SharedKind::Video, "video", mark("details.media.videos")),
+    (SharedKind::File, "file", mark("details.media.files")),
+    (SharedKind::Audio, "headphones", mark("details.media.audio")),
+    (SharedKind::Link, "link-2", mark("details.media.links")),
+    (SharedKind::Voice, "mic", mark("details.media.voice")),
+    (SharedKind::Groups, "users", mark("details.media.groups")),
 ];
 
 pub fn title(kind: SharedKind) -> &'static str {
-    KINDS.iter().find(|entry| entry.0 == kind).map(|entry| entry.4).unwrap_or("")
+    KINDS.iter().find(|entry| entry.0 == kind).map(|entry| t(entry.2)).unwrap_or("")
 }
 
 /// The core's name for a kind, as `mediaCounts` and `loadMedia` use it.
@@ -87,7 +88,7 @@ fn show_in_chat(state: Entity<AppState>, message: &MessageView) -> impl Fn(&gpui
     let (group, id) = (message.group_id.clone(), message.id.clone());
     move |event, _, cx| {
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        let entry = MenuEntry::new("Show in chat", "message-square", move |_, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &id, cx)));
+        let entry = MenuEntry::new(t("details.media.showInChat"), "message-square", move |_, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &id, cx)));
         open_menu(event.position, vec![entry], false, cx);
     }
 }
@@ -96,9 +97,9 @@ fn show_in_chat(state: Entity<AppState>, message: &MessageView) -> impl Fn(&gpui
 fn sent_by(message: &MessageView, server: &ServerState, cx: &App) -> AnyElement {
     let theme = theme(cx);
     let name = if message.sender_id == server.self_id() {
-        "You".to_string()
+        t("common.you").to_string()
     } else {
-        server.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into())
+        server.users.get(&message.sender_id).map(|user| user.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into())
     };
     div()
         .flex()
@@ -110,15 +111,32 @@ fn sent_by(message: &MessageView, server: &ServerState, cx: &App) -> AnyElement 
         .into_any_element()
 }
 
+/// "November 2026": a month's name with its year, a key for each month.
 fn month_of(at_ms: f64) -> String {
+    use chrono::Datelike;
+    const KEYS: [&str; 12] = [
+        mark("date.monthYear.january"),
+        mark("date.monthYear.february"),
+        mark("date.monthYear.march"),
+        mark("date.monthYear.april"),
+        mark("date.monthYear.may"),
+        mark("date.monthYear.june"),
+        mark("date.monthYear.july"),
+        mark("date.monthYear.august"),
+        mark("date.monthYear.september"),
+        mark("date.monthYear.october"),
+        mark("date.monthYear.november"),
+        mark("date.monthYear.december"),
+    ];
     chrono::DateTime::from_timestamp_millis(at_ms as i64)
-        .map(|time| time.with_timezone(&chrono::Local).format("%B %Y").to_string())
+        .map(|time| time.with_timezone(&chrono::Local))
+        .map(|time| crate::i18n::format(KEYS[time.month0() as usize % 12], &[("year", &time.year() as &dyn std::fmt::Display)]))
         .unwrap_or_default()
 }
 
 fn nothing(cx: &App) -> AnyElement {
     let theme = theme(cx);
-    div().p(px(30.)).flex().justify_center().text_color(theme.text2).child("Nothing here anymore.").into_any_element()
+    div().p(px(30.)).flex().justify_center().text_color(theme.text2).child(t("details.media.nothing")).into_any_element()
 }
 
 /// One kind from a chat, newest first.
@@ -271,7 +289,7 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
 /// A file, a sound file or a voice message, and who sent it.
 fn attachment_row(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let label = if attachment.voice == Some(true) { "Voice message".to_string() } else { attachment.name.clone() };
+    let label = if attachment.voice == Some(true) { t("media.shared.voiceMessage").to_string() } else { attachment.name.clone() };
     let detail = match attachment.duration {
         Some(duration) if attachment.voice == Some(true) || attachment.mime.starts_with("audio/") => format!("{} · {}", format_duration(duration), format_bytes(attachment.size)),
         _ => format_bytes(attachment.size),
@@ -423,7 +441,7 @@ pub fn groups(state: &Entity<AppState>, server: &ServerState, peer_id: Option<&s
                         .flex()
                         .flex_col()
                         .child(div().one_line().font_weight(FontWeight::SEMIBOLD).child(group.title.clone()))
-                        .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("{} {}", group.members.len(), if group.members.len() == 1 { "member" } else { "members" }))),
+                        .child(div().text_size(px(12.)).text_color(theme.text3).child(tr!("details.group.members", count = group.members.len()))),
                 ),
         );
     }

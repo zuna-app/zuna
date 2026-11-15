@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{AnyElement, Context, Entity, FocusHandle, FontWeight, IntoElement, ParentElement, Render, Styled, Subscription, Window, div, prelude::*, px};
 
+use crate::i18n::t;
 use crate::plugins::install::Proposal;
 use crate::state::AppState;
 use crate::theme::{self, RADIUS_M, RADIUS_XL};
@@ -81,7 +82,7 @@ impl InstallDialog {
         let theme = theme(cx);
         let told = proposal.told();
         if told.is_empty() {
-            return vec![div().text_color(if danger { theme.danger_text } else { theme.text2 }).child("It doesn't need any access to your account.").into_any_element()];
+            return vec![div().text_color(if danger { theme.danger_text } else { theme.text2 }).child(t("plugins.install.noAccess")).into_any_element()];
         }
         told.into_iter()
             .map(|(line, strong)| {
@@ -111,8 +112,8 @@ impl Render for InstallDialog {
         });
         let ready = self.may_install(proposal.verified);
         let update_line = proposal.update_of.as_ref().map(|(older, permissions, hosts)| {
-            let more: Vec<String> = permissions.iter().map(|permission| permission.told().to_string()).chain(hosts.iter().map(|host| format!("Contacts {host}"))).collect();
-            if more.is_empty() { format!("This replaces version {older}.") } else { format!("This replaces version {older} and needs more access: {}.", more.join("; ")) }
+            let more: Vec<String> = permissions.iter().map(|permission| permission.told().to_string()).chain(hosts.iter().map(|host| tr!("plugins.contacts", hosts = host))).collect();
+            if more.is_empty() { tr!("plugins.install.replaces", version = older) } else { tr!("plugins.install.replacesMore", version = older, access = more.join("; ")) }
         });
         if proposal.verified {
             let card = div()
@@ -129,11 +130,11 @@ impl Render for InstallDialog {
                 .rounded(RADIUS_XL)
                 .shadow(shadow_l())
                 .occlude()
-                .child(div().flex().items_center().gap(px(10.)).child(icon("puzzle", 20., theme.text2)).child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(format!("Install {}?", proposal.name))))
-                .child(div().text_size(px(13.)).text_color(theme.text2).child(format!("Version {}, by {}. Reviewed and signed by the Zuna team.", proposal.version, proposal.author)))
+                .child(div().flex().items_center().gap(px(10.)).child(icon("puzzle", 20., theme.text2)).child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(tr!("plugins.install.title", name = proposal.name))))
+                .child(div().text_size(px(13.)).text_color(theme.text2).child(tr!("plugins.install.verifiedBy", version = proposal.version, author = proposal.author)))
                 .when(!proposal.description.is_empty(), |el| el.child(div().text_size(px(13.5)).child(proposal.description.clone())))
                 .when_some(update_line, |el, line| el.child(notice("info", line, cx)))
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Once installed it can:"))
+                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("plugins.install.canDo")))
                 .children(Self::lines(&proposal, false, cx))
                 .child(
                     div()
@@ -141,8 +142,8 @@ impl Render for InstallDialog {
                         .justify_end()
                         .gap(px(8.))
                         .pt(px(6.))
-                        .child(button("plugin-install-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))))
-                        .child(button("plugin-install-confirm", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Install").on_click(cx.listener(|dialog, _, _, cx| dialog.install(cx)))),
+                        .child(button("plugin-install-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))))
+                        .child(button("plugin-install-confirm", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("plugins.install.confirm")).on_click(cx.listener(|dialog, _, _, cx| dialog.install(cx)))),
                 );
             return div()
                 .id("plugin-install-layer")
@@ -184,9 +185,9 @@ impl Render for InstallDialog {
                     .border_color(theme.red)
                     .when(ticked, |el| el.bg(theme.red).child(icon("check", 13., theme::color(theme::hex(0xffffff))))),
             )
-            .child("I understand, and I trust where this came from");
+            .child(t("plugins.install.trust"));
         let waited = self.opened.elapsed() >= WAIT;
-        let action = if ticked && !waited { format!("Install anyway ({})", (WAIT.saturating_sub(self.opened.elapsed()).as_secs() + 1)) } else { "Install anyway".to_string() };
+        let action = if ticked && !waited { tr!("plugins.install.anywayIn", seconds = WAIT.saturating_sub(self.opened.elapsed()).as_secs() + 1) } else { t("plugins.install.anyway").to_string() };
         let body = div()
             .id("plugin-install-warning")
             .w(px(560.))
@@ -201,14 +202,11 @@ impl Render for InstallDialog {
             .border_color(theme.red)
             .shadow(shadow_l())
             .occlude()
-            .child(div().flex().items_center().gap(px(12.)).child(icon("shield-alert", 26., theme.red)).child(div().text_size(px(21.)).font_weight(FontWeight::BOLD).text_color(theme.red).child("Zuna hasn't checked this plugin")))
-            .child(div().text_size(px(14.)).text_color(theme.text1).child(format!(
-                "Nobody on Zuna's team has read its code. It calls itself \"{}\", by \"{}\", which nothing confirms. Once installed it can:",
-                proposal.name, proposal.author
-            )))
+            .child(div().flex().items_center().gap(px(12.)).child(icon("shield-alert", 26., theme.red)).child(div().text_size(px(21.)).font_weight(FontWeight::BOLD).text_color(theme.red).child(t("plugins.install.unverifiedTitle"))))
+            .child(div().text_size(px(14.)).text_color(theme.text1).child(tr!("plugins.install.unverifiedBody", name = proposal.name, author = proposal.author)))
             .child(div().flex().flex_col().gap(px(6.)).p(px(14.)).rounded(RADIUS_M).bg(theme.red_soft).children(Self::lines(&proposal, true, cx)))
             .when_some(update_line, |el, line| el.child(div().text_size(px(13.5)).text_color(theme.amber_text).child(line)))
-            .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("If someone told you to install this to fix a problem, to win something, or to see something hidden, it's a scam."))
+            .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(t("plugins.install.scam")))
             .child(checkbox)
             .child(
                 div()
@@ -216,7 +214,7 @@ impl Render for InstallDialog {
                     .justify_end()
                     .gap(px(8.))
                     .pt(px(4.))
-                    .child(button("plugin-install-cancel", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))))
+                    .child(button("plugin-install-cancel", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))))
                     .child(button("plugin-install-anyway", ButtonKind::Danger, ButtonSize::Normal, !ready, cx).child(action).when(ready, |el| el.on_click(cx.listener(|dialog, _, _, cx| dialog.install(cx))))),
             );
         if ticked && !waited {

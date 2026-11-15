@@ -19,7 +19,7 @@ impl SidePanel {
                 .min_h(px(36.))
                 .text_size(px(13.5))
                 .child(icon(if muted { "bell-off" } else { "bell" }, 17., theme.text2))
-                .child(div().flex_1().min_w_0().child("Notifications"))
+                .child(div().flex_1().min_w_0().child(t("details.notifications")))
                 .child(switch("notifications", !muted, cx).on_click(move |event, _, cx| {
                     if muted {
                         state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx));
@@ -42,7 +42,7 @@ impl SidePanel {
                     .py(px(7.))
                     .text_size(px(13.5))
                     .child(icon("at-sign", 17., theme.text2))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child("Only mentions").child(div().text_size(px(12.)).text_color(theme.text3).child("Notify only when someone mentions you or replies to you")))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(t("details.mentionsOnly")).child(div().text_size(px(12.)).text_color(theme.text3).child(t("details.mentionsOnlyHint"))))
                     .child(switch("mentions-only", on, cx).on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("setMentionsOnly", vec![json!(key), json!(!on)], cx)))),
             );
         }
@@ -54,16 +54,16 @@ impl SidePanel {
         };
         section = section
             .child(
-                Self::row("pin-row", if conversation.pinned { "pin-off" } else { "pin" }, if conversation.pinned { "Unpin from top" } else { "Pin to top" }.into(), None, false, cx)
+                Self::row("pin-row", if conversation.pinned { "pin-off" } else { "pin" }, if conversation.pinned { t("details.unpinFromTop") } else { t("details.pinToTop") }.into(), None, false, cx)
                     .on_click(toggle("pinned", server.prefs.pinned.clone(), conversation.key.clone(), self.state.clone())),
             )
             // On Telegram, hiding a chat archives it there, and its Saved messages can't be.
             .when(!(telegram && conversation.peer_id.as_deref() == Some(server.self_id())), |section| section.child({
                 let label = match (telegram, conversation.hidden) {
-                    (true, true) => "Unarchive",
-                    (true, false) => "Archive",
-                    (false, true) => "Show in list",
-                    (false, false) => "Hide from list",
+                    (true, true) => t("details.unarchive"),
+                    (true, false) => t("details.archive"),
+                    (false, true) => t("details.showInList"),
+                    (false, false) => t("details.hideFromList"),
                 };
                 Self::row("hide-row", if conversation.hidden { "eye" } else { "eye-off" }, label.into(), None, false, cx).on_click(toggle("hidden", server.prefs.hidden.clone(), conversation.key.clone(), self.state.clone()))
             }));
@@ -115,10 +115,17 @@ impl SidePanel {
             if let (Some(bot), false) = (&peer.bot, peer.deleted) {
                 // Nobody is using a bot, so it's never online and was never last seen. Whose it is
                 // and what it reads stand there instead.
-                let whose = if bot.owner_id == server.self_id() { "Your bot".to_string() } else { format!("{}'s bot", server.users.get(&bot.owner_id).map(|owner| owner.display_name.clone()).unwrap_or_else(|| "Someone".into())) };
+                let about = if bot.owner_id == server.self_id() {
+                    t("details.bot.yours").to_string()
+                } else {
+                    match server.users.get(&bot.owner_id) {
+                        Some(owner) => tr!("details.bot.theirs", name = owner.display_name),
+                        None => t("details.bot.someones").to_string(),
+                    }
+                };
                 card = card
                     .child(div().mt(px(2.)).child(bot_badge(cx)))
-                    .child(div().mt(px(4.)).text_size(px(12.5)).text_color(theme.text3).child(format!("{whose}. It's run by a program, which can read everything said in the chats it's in.")));
+                    .child(div().mt(px(4.)).text_size(px(12.5)).text_color(theme.text3).child(about));
             } else if !is_self {
                 let showing = !peer.deleted && !peer.online;
                 crate::ui::components::redraw_last_seen(&mut self.last_seen_tick, peer.last_seen_at.filter(|_| showing), peer.hides_last_seen, cx);
@@ -127,9 +134,9 @@ impl SidePanel {
                         .text_size(px(12.5))
                         .text_color(if peer.online { theme.green } else { theme.text3 })
                         .child(if peer.deleted {
-                            "Deleted their account".to_string()
+                            t("chat.header.deleted").to_string()
                         } else if peer.online {
-                            "online".to_string()
+                            t("chat.header.online").to_string()
                         } else {
                             format_last_seen(peer.last_seen_at, peer.hides_last_seen, true)
                         }),
@@ -151,13 +158,13 @@ impl SidePanel {
             let state = self.state.clone();
             let user_id = peer.id.clone();
             let (icon_name, color, title, text, bg) = match peer.trust.as_str() {
-                "verified" => ("shield-check", theme.green, "Verified", "You've confirmed this is really them.", None),
-                "changed" => ("shield-alert", theme.amber, "Security key changed", "Compare emoji to make sure nobody is intercepting your messages.", Some(theme.amber_soft)),
-                _ => ("shield", theme.text2, "Not verified yet", "Compare emoji to make sure nobody is intercepting your messages.", None),
+                "verified" => ("shield-check", theme.green, t("details.encryption.verified"), t("details.encryption.verifiedHint"), None),
+                "changed" => ("shield-alert", theme.amber, t("details.encryption.changed"), t("details.encryption.compareHint"), Some(theme.amber_soft)),
+                _ => ("shield", theme.text2, t("details.encryption.notVerified"), t("details.encryption.compareHint"), None),
             };
             parts.push(
                 Self::section(cx)
-                    .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(8.)).py(px(5.)).child("Encryption"))
+                    .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(8.)).py(px(5.)).child(t("details.encryption.title")))
                     .child(
                         named_div("trust-card")
                             .w_full()
@@ -195,8 +202,8 @@ impl SidePanel {
                         Self::row(
                             "block",
                             "ban",
-                            if blocked { format!("Unblock {}", peer.display_name) } else { format!("Block {}", peer.display_name) },
-                            if blocked { None } else { Some("You won't see their messages or get notified about them. They won't be told.".into()) },
+                            if blocked { tr!("details.block.unblock", name = peer.display_name) } else { tr!("details.block.block", name = peer.display_name) },
+                            if blocked { None } else { Some(t("details.block.hint").into()) },
                             !blocked,
                             cx,
                         )
@@ -227,8 +234,8 @@ impl SidePanel {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Not end-to-end encrypted"))
-                            .child(div().text_size(px(12.5)).text_color(theme.text2).child("Telegram keeps these messages on its servers, as it does for its own apps. Zuna's servers never see them.")),
+                            .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(t("details.telegram.notEncrypted")))
+                            .child(div().text_size(px(12.5)).text_color(theme.text2).child(t("details.telegram.keeps"))),
                     ),
             )
             .into_any_element()
@@ -250,23 +257,23 @@ impl SidePanel {
                 .text_size(px(13.5))
                 .text_color(theme.text3)
                 .child(icon("flag", 17., theme.text2))
-                .child("Reported to the server's admins")
+                .child(t("details.report.done"))
                 .into_any_element();
         }
         let (state, id) = (self.state.clone(), peer.id.clone());
-        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins will see who you reported and why, but not what was said or who reported them.".into()), true, cx)
+        Self::row("report", "flag", tr!("details.report.title", name = peer.display_name), Some(t("details.report.hint").into()), true, cx)
             .on_click(move |event, _, cx| {
                 let entries = REPORT_REASONS
                     .iter()
                     .map(|&(reason, label)| {
                         let (state, id) = (state.clone(), id.clone());
                         MenuEntry::plain(
-                            label,
+                            t(label),
                             std::rc::Rc::new(move |_, cx| {
                                 state.update(cx, |state, cx| {
                                     let Some(server) = state.active_server.clone() else { return };
                                     state.call(Some(&server), "reportUser", vec![json!(id), json!(reason)], cx, |state, result, cx| match result {
-                                        Ok(_) => state.toast("Reported to the server's admins", ToastKind::Info, cx),
+                                        Ok(_) => state.toast(t("details.report.done"), ToastKind::Info, cx),
                                         Err(error) => state.toast(error.message, ToastKind::Error, cx),
                                     })
                                 })
@@ -288,7 +295,7 @@ impl SidePanel {
             return div().into_any_element();
         }
         let after = conversation.disappear_after;
-        let hint = if after > 0. { format!("New messages disappear {} after they're sent.", timer_text(after)) } else { "New messages stay until they're deleted.".to_string() };
+        let hint = if after > 0. { tr!("details.disappearing.on", time = timer_text(after)) } else { t("details.disappearing.off").to_string() };
         let state = self.state.clone();
         let group = conversation.group_id.clone().unwrap_or_default();
         let mut row = named_div("disappearing")
@@ -302,7 +309,7 @@ impl SidePanel {
             .rounded(RADIUS_M)
             .text_size(px(13.5))
             .child(icon("timer", 17., theme.text2))
-            .child(div().flex_1().min_w_0().flex().flex_col().child("Disappearing messages").child(div().mt(px(1.)).text_size(px(12.)).text_color(theme.text3).child(hint)))
+            .child(div().flex_1().min_w_0().flex().flex_col().child(t("details.disappearing.title")).child(div().mt(px(1.)).text_size(px(12.)).text_color(theme.text3).child(hint)))
             .child(div().text_color(theme.text3).child(timer_text(after)));
         if can_change {
             row = row.cursor_pointer().hover(move |style| style.bg(theme.hover)).on_click(move |event, _, cx| {

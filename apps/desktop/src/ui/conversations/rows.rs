@@ -16,7 +16,7 @@ impl ConversationList {
             // Someone on Telegram may have no username.
             peer.as_ref().filter(|peer| !peer.username.is_empty()).map(|peer| format!("@{}", peer.username)).unwrap_or_default()
         } else if is_saved {
-            "Notes to yourself".into()
+            t("conversations.row.saved").into()
         } else {
             String::new()
         };
@@ -64,9 +64,9 @@ impl ConversationList {
             title = title.child(icon("ban", 12., theme.text3));
         }
         let preview_el: AnyElement = if typing {
-            div().flex().items_center().gap(px(4.)).text_color(theme.text1).child("typing").child(typing_dots(theme.text1)).into_any_element()
+            div().flex().items_center().gap(px(4.)).text_color(theme.text1).child(t("conversations.row.typing")).child(typing_dots(theme.text1)).into_any_element()
         } else if call {
-            div().flex().items_center().gap(px(4.)).text_color(theme.green).child(icon("phone", 12., theme.green)).child("In a call").into_any_element()
+            div().flex().items_center().gap(px(4.)).text_color(theme.green).child(icon("phone", 12., theme.green)).child(t("conversations.row.inCall")).into_any_element()
         } else if preview.is_empty() {
             div().text_color(theme.text3).one_line().child(fallback).into_any_element()
         } else {
@@ -205,13 +205,13 @@ pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Prefer
         }
     };
     let mut entries = vec![if item.pinned {
-        MenuEntry::new("Unpin", "pin-off", toggle("pinned", prefs.pinned.clone(), key.clone(), state.clone()))
+        MenuEntry::new(t("conversations.menu.unpin"), "pin-off", toggle("pinned", prefs.pinned.clone(), key.clone(), state.clone()))
     } else {
-        MenuEntry::new("Pin to top", "pin", toggle("pinned", prefs.pinned.clone(), key.clone(), state.clone()))
+        MenuEntry::new(t("conversations.menu.pin"), "pin", toggle("pinned", prefs.pinned.clone(), key.clone(), state.clone()))
     }];
     if item.unread > 0. || item.marked_unread {
         let (state, key) = (state.clone(), key.clone());
-        entries.push(MenuEntry::new("Mark as read", "check-check", move |_, cx| {
+        entries.push(MenuEntry::new(t("conversations.menu.markRead"), "check-check", move |_, cx| {
             state.update(cx, |state, cx| {
                 let Some(server) = state.active_server.clone() else { return };
                 let payload = json!({ "serverId": server, "groupId": null, "conversationKey": key });
@@ -220,22 +220,22 @@ pub(super) fn row_entries(item: &ConversationView, prefs: &crate::models::Prefer
         }));
     } else if item.group_id.is_some() {
         let (state, key) = (state.clone(), key.clone());
-        entries.push(MenuEntry::new("Mark as unread", "message-square-dot", move |_, cx| {
+        entries.push(MenuEntry::new(t("conversations.menu.markUnread"), "message-square-dot", move |_, cx| {
             state.update(cx, |state, cx| state.act("setMarkedUnread", vec![json!(key), json!(true)], cx))
         }));
     }
     if item.muted {
         let (state, key) = (state.clone(), key.clone());
-        entries.push(MenuEntry::new("Unmute", "volume-2", move |_, cx| state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx))));
+        entries.push(MenuEntry::new(t("conversations.menu.unmute"), "volume-2", move |_, cx| state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx))));
     } else {
-        entries.push(MenuEntry::submenu("Mute", "volume-x", mute_entries(key.clone(), state.clone())));
+        entries.push(MenuEntry::submenu(t("conversations.menu.mute"), "volume-x", mute_entries(key.clone(), state.clone())));
     }
     // On Telegram, hiding a chat archives it there, and showing it takes it out of the archive.
     // Its Saved messages can't be archived.
     if telegram && own {
         return entries;
     }
-    let (show, hide) = if telegram { ("Unarchive", "Archive") } else { ("Show in list", "Hide from list") };
+    let (show, hide) = if telegram { (t("conversations.menu.unarchive"), t("conversations.menu.archive")) } else { (t("conversations.menu.show"), t("conversations.menu.hide")) };
     entries.push(if item.hidden {
         MenuEntry::new(show, "eye", toggle("hidden", prefs.hidden.clone(), key.clone(), state.clone()))
     } else {

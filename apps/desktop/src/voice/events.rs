@@ -77,16 +77,16 @@ impl Voice {
         self.close_stage(Some(server_id.to_string()), Some(channel_id.to_string()), cx);
         let was_call = !self.state.read(cx).servers.get(server_id).is_some_and(|server| server.channels.iter().any(|channel| channel.id == channel_id));
         let message = match (was_call, reason) {
-            (false, "elsewhere") => "You joined this voice channel on another device.",
-            (false, "disconnected") => "An admin removed you from the voice channel.",
-            (false, "deleted") => "That voice channel was deleted.",
-            (false, "removed") => "That voice channel is only for admins now.",
-            (_, "banned") => "You were removed from this server.",
-            (true, "elsewhere") => "You joined this call on another device.",
-            (true, "removed") => "You're no longer in this conversation, so you left the call.",
-            (true, "deleted") => "That conversation was deleted.",
-            (true, _) => "You left the call.",
-            (false, _) => "You left the voice channel.",
+            (false, "elsewhere") => t("voice.ended.elsewhere"),
+            (false, "disconnected") => t("voice.ended.disconnected"),
+            (false, "deleted") => t("voice.ended.deleted"),
+            (false, "removed") => t("voice.ended.adminsOnly"),
+            (_, "banned") => t("voice.ended.banned"),
+            (true, "elsewhere") => t("voice.call.endedElsewhere"),
+            (true, "removed") => t("voice.call.endedRemoved"),
+            (true, "deleted") => t("voice.call.endedDeleted"),
+            (true, _) => t("voice.call.left"),
+            (false, _) => t("voice.ended.left"),
         };
         self.toast(message, ToastKind::Info, cx);
         self.sound(VoiceSound::SelfLeave);
@@ -119,7 +119,7 @@ impl Voice {
         let name = conversation.peer_id.as_ref().and_then(|peer| server.users.get(peer)).map(|user| user.display_name.clone()).unwrap_or_else(|| conversation.title.clone());
         let declined = conversation.peer_id.as_ref().is_some_and(|peer| call.declined.contains(peer));
         self.leave(cx);
-        self.toast(if declined { format!("{name} declined the call.") } else { format!("{name} didn't answer.") }, ToastKind::Info, cx);
+        self.toast(if declined { tr!("voice.call.declined", name = name) } else { tr!("voice.call.noAnswer", name = name) }, ToastKind::Info, cx);
     }
 
     /// Being muted by an admin, or no longer, comes with the rest of what's said about this device.
@@ -134,7 +134,7 @@ impl Voice {
         }
         self.server_muted = member.server_muted;
         self.apply_mute(cx);
-        self.toast(if member.server_muted { "An admin muted you." } else { "An admin unmuted you." }, ToastKind::Info, cx);
+        self.toast(if member.server_muted { t("voice.adminMuted") } else { t("voice.adminUnmuted") }, ToastKind::Info, cx);
         self.sound(if member.server_muted { VoiceSound::Mute } else { VoiceSound::Unmute });
         cx.notify();
     }

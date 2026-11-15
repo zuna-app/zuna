@@ -26,7 +26,8 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu_with_reactions};
 use super::selection;
-use crate::format::{format_bytes, format_day_separator, format_time, name_color, timer_change_text};
+use crate::format::{format_bytes, format_day_separator, format_time, name_color, own_timer_change_text, timer_change_text};
+use crate::i18n::t;
 use crate::markup::{self, Block, Rich};
 use crate::models::{Attachment, EmoteRef, MessageView, ReactionView, UserView};
 use crate::state::{AppState, Overlay, Picture, ToastKind};
@@ -140,28 +141,37 @@ pub fn continues(a: Option<&MessageView>, b: Option<&MessageView>) -> bool {
 
 pub(super) fn name_of(context: &ChatContext, id: &str) -> String {
     if id == context.self_id {
-        return "You".into();
+        return t("common.you").into();
     }
-    context.users.get(id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into())
+    context.users.get(id).map(|user| user.display_name.clone()).unwrap_or_else(|| t("notify.someone").into())
 }
 
 pub(super) fn system_text(message: &MessageView, context: &ChatContext) -> String {
     let system = message.system.as_ref().unwrap();
-    let actor = system.actor_id.as_deref().map(|id| name_of(context, id)).unwrap_or_else(|| "Someone".into());
+    let actor = system.actor_id.as_deref().map(|id| name_of(context, id)).unwrap_or_else(|| t("notify.someone").into());
+    // What you did yourself is said as a sentence of its own, as a language may word it differently.
+    let by_you = system.actor_id.as_deref() == Some(context.self_id.as_str());
     // The line that says a bot was added names it as one.
-    let named = |id: &String| if system.kind == "member_added" && context.users.get(id).is_some_and(|user| user.bot.is_some()) { format!("the bot {}", name_of(context, id)) } else { name_of(context, id) };
+    let named = |id: &String| if system.kind == "member_added" && context.users.get(id).is_some_and(|user| user.bot.is_some()) { tr!("message.system.theBot", name = name_of(context, id)) } else { name_of(context, id) };
     let targets = system.target_ids.clone().unwrap_or_default().iter().map(named).collect::<Vec<_>>().join(", ");
-    match system.kind.as_str() {
-        "group_created" => format!("{actor} created this group"),
-        "member_added" => format!("{actor} added {targets}"),
-        "member_removed" => format!("{actor} removed {targets}"),
-        "member_left" => format!("{actor} left the group"),
-        "member_rejoined" => format!("{actor} rejoined this chat"),
-        "unexpected_join" => format!("{actor} joined without being added by a member. Check that this is expected."),
-        "identity_changed" => format!("{actor}'s security key changed. Verify it before trusting new messages."),
-        "identity_rotated" => format!("{actor}'s security key changed since you verified it. You can compare keys again if you'd like."),
-        "device_added" => format!("{actor} added a device"),
-        "timer_changed" => timer_change_text(&actor, system.seconds.unwrap_or(0.)),
+    match (system.kind.as_str(), by_you) {
+        ("group_created", true) => t("message.system.youCreatedGroup").into(),
+        ("group_created", false) => tr!("message.system.groupCreated", name = actor),
+        ("member_added", true) => tr!("message.system.youAdded", names = targets),
+        ("member_added", false) => tr!("message.system.memberAdded", name = actor, names = targets),
+        ("member_removed", true) => tr!("message.system.youRemoved", names = targets),
+        ("member_removed", false) => tr!("message.system.memberRemoved", name = actor, names = targets),
+        ("member_left", true) => t("message.system.youLeft").into(),
+        ("member_left", false) => tr!("message.system.memberLeft", name = actor),
+        ("member_rejoined", true) => t("message.system.youRejoined").into(),
+        ("member_rejoined", false) => tr!("message.system.memberRejoined", name = actor),
+        ("unexpected_join", _) => tr!("message.system.unexpectedJoin", name = actor),
+        ("identity_changed", _) => tr!("message.system.identityChanged", name = actor),
+        ("identity_rotated", _) => tr!("message.system.identityRotated", name = actor),
+        ("device_added", true) => t("message.system.youAddedDevice").into(),
+        ("device_added", false) => tr!("message.system.deviceAdded", name = actor),
+        ("timer_changed", true) => own_timer_change_text(system.seconds.unwrap_or(0.)),
+        ("timer_changed", false) => timer_change_text(&actor, system.seconds.unwrap_or(0.)),
         _ => String::new(),
     }
 }
@@ -245,7 +255,7 @@ pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, wi
     }
     if unread {
         row = row.child(
-            div().mt(px(12.)).mb(px(4.)).ml(px(-14.)).mr(px(-10.)).py(px(4.)).flex().justify_center().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).bg(theme.bg2).child("Unread messages"),
+            div().mt(px(12.)).mb(px(4.)).ml(px(-14.)).mr(px(-10.)).py(px(4.)).flex().justify_center().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).bg(theme.bg2).child(t("chat.unreadSeparator")),
         );
     }
     if show_day {
@@ -334,7 +344,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                     .text_size(px(12.5))
                     .text_color(theme.text3)
                     .child(icon("ban", 13., theme.text3))
-                    .child("A message from someone you blocked")
+                    .child(t("message.blocked"))
                     .child(
                         div()
                             .id(SharedString::from(format!("show-{}", message.id)))
@@ -345,7 +355,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                                 revealed_set.borrow_mut().insert(id.clone());
                                 state.update(cx, |_, cx| cx.notify());
                             })
-                            .child("Show"),
+                            .child(t("message.showBlocked")),
                     ),
             )
             .into_any_element();
@@ -400,20 +410,20 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
 
     // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name.
     if !own && context.is_group && !grouped && !bare && !message.sender_id.is_empty() {
-        let name = context.users.get(&message.sender_id).map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+        let name = context.users.get(&message.sender_id).map(|u| u.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into());
         let is_bot = context.users.get(&message.sender_id).is_some_and(|user| user.bot.is_some());
         bubble = bubble.child(div().flex().items_center().gap(px(5.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).mb(px(1.)).line_height(px(18.)).text_color(theme::css(name_color(&message.sender_id))).child(name).when(is_bot, |el| el.child(bot_badge(cx))));
     }
 
     if placeholder {
         let (icon_name, text, danger) = if is_deleted {
-            (None, "Message deleted", false)
+            (None, t("message.deleted"), false)
         } else if message.status == "undecryptable" {
-            (Some("spinner"), "Waiting for this message's keys", false)
+            (Some("spinner"), t("message.waitingForKeys"), false)
         } else if message.status == "unverified" {
-            (Some("shield-alert"), "This message couldn't be verified, so it isn't shown.", true)
+            (Some("shield-alert"), t("message.unverified"), true)
         } else {
-            (Some("shield-alert"), "This message couldn't be displayed.", true)
+            (Some("shield-alert"), t("message.invalid"), true)
         };
         let color = if danger { theme.danger_text } else if own { theme.bubble_own_faint } else { theme.text2 };
         let mut line = div().flex().items_center().gap(px(7.)).text_size(px(13.5)).text_color(color);
@@ -437,26 +447,29 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                     .text_color(faint)
                     .child(icon("forward", 13., faint))
                     .child(match name {
-                        Some(name) => div().flex().gap(px(4.)).child("Forwarded from").child(div().font_weight(FontWeight::SEMIBOLD).text_color(text_color).child(name)).into_any_element(),
-                        None => div().child("Forwarded").into_any_element(),
+                        Some(name) => {
+                            let mut name = Some(name);
+                            text_row(t("message.forwardedFrom"), true, move |_| div().font_weight(FontWeight::SEMIBOLD).text_color(text_color).child(name.take().unwrap_or_default()).into_any_element()).gap(px(4.)).into_any_element()
+                        }
+                        None => div().child(t("message.forwarded")).into_any_element(),
                     }),
             );
         }
         if let Some(reply) = &message.reply {
-            let reply_name = if reply.sender_id.is_empty() { "Earlier message".to_string() } else { name_of(context, &reply.sender_id) };
+            let reply_name = if reply.sender_id.is_empty() { t("message.reply.earlier").to_string() } else { name_of(context, &reply.sender_id) };
             let blocked_reply = context.blocked.contains(&reply.sender_id);
             let reply_text = if reply.deleted {
-                "Message deleted".to_string()
+                t("message.deleted").to_string()
             } else if blocked_reply {
-                "A message from someone you blocked".into()
+                t("message.blocked").into()
             } else {
                 let plain = markup::plain_text(&reply.text);
                 if !plain.is_empty() {
                     plain
                 } else if reply.has_attachment {
-                    "Attachment".into()
+                    t("message.reply.attachment").into()
                 } else {
-                    "Tap to view".into()
+                    t("message.reply.tapToView").into()
                 }
             };
             let state = context.state.clone();
@@ -554,7 +567,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                 .cursor_pointer()
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("retryMessage", vec![json!(group_id), json!(message_id)], cx)))
                 .child(icon("circle-alert", 13., theme.red))
-                .child("Not sent. Try again"),
+                .child(t("message.notSent")),
         );
     }
 
@@ -628,7 +641,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         let mut slot = div().w(px(32.)).flex_none().mr(px(3.)).flex();
         if last_in_group && !message.sender_id.is_empty() {
             let user = context.users.get(&message.sender_id);
-            let name = user.map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+            let name = user.map(|u| u.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into());
             let image = context.avatars.get(&message.sender_id).cloned();
             slot = slot.child(avatar(AvatarProps { name, seed: message.sender_id.clone(), image, size: 32., online: false, rounded: false, dot_border: theme.bg_chat }, cx));
         }
@@ -654,7 +667,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                 .group_hover(group, |style| style.opacity(1.))
                 .when(own, |el| el.flex_row_reverse())
                 .children(plugin_actions)
-                .child(icon_button_in(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, theme.text3, cx).tip("React", Side::Top).on_click(move |event, window, cx| {
+                .child(icon_button_in(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, theme.text3, cx).tip(t("message.action.react"), Side::Top).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());
                     super::picker::open_picker(
@@ -679,10 +692,10 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                 }))
                 .child(
                     icon_button_in(SharedString::from(format!("reply-btn-{id}")), "corner-up-left", 15., true, false, theme.text3, cx)
-                        .tip("Reply", Side::Top)
+                        .tip(t("message.action.reply"), Side::Top)
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply_message.clone()), cx))),
                 )
-                .child(icon_button_in(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, theme.text3, cx).tip("More", Side::Top).on_click(move |event, _, cx| {
+                .child(icon_button_in(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, theme.text3, cx).tip(t("message.action.more"), Side::Top).on_click(move |event, _, cx| {
                     let state = more_state.clone();
                     let (group, id) = (more_group.clone(), more_id.clone());
                     open_menu_with_reactions(

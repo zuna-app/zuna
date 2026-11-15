@@ -14,35 +14,35 @@ impl ChatView {
         let telegram = server.entry.is_telegram();
         let typing: Vec<String> = conversation.group_id.as_ref().and_then(|group| server.typing.get(group)).map(|typing| typing.keys().cloned().collect()).unwrap_or_default();
         let status: AnyElement = if !typing.is_empty() {
-            let names: Vec<String> = typing.iter().map(|id| server.users.get(id).map(|u| u.display_name.split(' ').next().unwrap_or("").to_string()).unwrap_or("Someone".into())).collect();
+            let names: Vec<String> = typing.iter().map(|id| server.users.get(id).map(|u| u.display_name.split(' ').next().unwrap_or("").to_string()).unwrap_or_else(|| t("notify.someone").into())).collect();
             let label = if conversation.kind == "dm" {
-                "typing".to_string()
+                t("chat.typing.dm").to_string()
             } else if names.len() == 1 {
-                format!("{} is typing", names[0])
+                tr!("chat.typing.one", name = names[0])
             } else {
-                format!("{} people are typing", names.len())
+                tr!("chat.typing.many", count = names.len())
             };
             div().flex().items_center().gap(px(5.)).text_color(theme.text1).child(label).child(typing_dots(theme.text1)).into_any_element()
         } else if conversation.kind == "group" && telegram {
-            div().text_color(theme.text3).child("group on Telegram").into_any_element()
+            div().text_color(theme.text3).child(t("chat.header.telegramGroup")).into_any_element()
         } else if conversation.kind == "group" {
             let online = conversation.members.iter().filter(|member| server.users.get(&member.user_id).is_some_and(|u| u.online)).count();
             let count = conversation.members.len();
             div()
                 .text_color(theme.text3)
-                .child(format!("{count} {}{}", if count == 1 { "member" } else { "members" }, if online > 0 { format!(", {online} online") } else { String::new() }))
+                .child(if online > 0 { tr!("chat.header.membersOnline", count = count, online = online) } else { tr!("chat.header.members", count = count) })
                 .into_any_element()
         } else if is_saved {
-            div().text_color(theme.text3).child("Notes to yourself").into_any_element()
+            div().text_color(theme.text3).child(t("chat.header.notesToSelf")).into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.deleted) {
-            div().text_color(theme.text3).child("Deleted their account").into_any_element()
+            div().text_color(theme.text3).child(t("chat.header.deleted")).into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.banned) {
-            div().text_color(theme.text3).child("Removed from this server").into_any_element()
+            div().text_color(theme.text3).child(t("chat.header.removed")).into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.bot.is_some()) {
             // Nobody is using a bot, so it's never online, and was never last seen.
-            div().text_color(theme.text3).child("bot").into_any_element()
+            div().text_color(theme.text3).child(t("chat.header.bot")).into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.online) {
-            div().text_color(theme.green).child("online").into_any_element()
+            div().text_color(theme.green).child(t("chat.header.online")).into_any_element()
         } else {
             div().text_color(theme.text3).child(format_last_seen(peer.as_ref().and_then(|p| p.last_seen_at), peer.as_ref().is_some_and(|p| p.hides_last_seen), false)).into_any_element()
         };
@@ -85,12 +85,12 @@ impl ChatView {
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.text2)
-                    .tip("Not end-to-end encrypted. Telegram keeps these messages.", Side::Bottom)
+                    .tip(t("chat.telegramNotEncrypted"), Side::Bottom)
                     .child("Telegram"),
             );
         }
         if conversation.disappear_after > 0. {
-            title = title.child(div().id("timer-icon").tip(format!("Messages disappear after {}", timer_text(conversation.disappear_after)), Side::Bottom).child(icon("timer", 14., theme.text2)));
+            title = title.child(div().id("timer-icon").tip(tr!("chat.header.disappearAfter", time = timer_text(conversation.disappear_after)), Side::Bottom).child(icon("timer", 14., theme.text2)));
         }
         let toggle = |panel_kind: Panel, state: Entity<AppState>| move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| state.update(cx, |state, cx| state.toggle_panel(panel_kind, cx));
         let has_group = conversation.group_id.is_some();
@@ -142,17 +142,17 @@ impl ChatView {
                     .children(plugin_buttons)
                     .child(
                         icon_button("chat-search", "search", 17., false, panel == Some(Panel::Search), cx)
-                            .tip("Search this chat", Side::Bottom)
+                            .tip(t("chat.header.search"), Side::Bottom)
                             .when(has_group, |el| el.on_click(toggle(Panel::Search, self.state.clone())))
                             .when(!has_group, |el| el.opacity(0.35)),
                     )
                     .child(
                         icon_button("chat-pins", "pin", 17., false, panel == Some(Panel::Pins), cx)
-                            .tip("Pinned messages", Side::Bottom)
+                            .tip(t("chat.pinned"), Side::Bottom)
                             .when(has_group, |el| el.on_click(toggle(Panel::Pins, self.state.clone())))
                             .when(!has_group, |el| el.opacity(0.35)),
                     )
-                    .child(icon_button("chat-details", "panel-right", 17., false, panel == Some(Panel::Info), cx).tip("Details", Side::Bottom).on_click(toggle(Panel::Info, self.state.clone()))),
+                    .child(icon_button("chat-details", "panel-right", 17., false, panel == Some(Panel::Info), cx).tip(t("chat.header.details"), Side::Bottom).on_click(toggle(Panel::Info, self.state.clone()))),
             )
             .into_any_element()
     }
@@ -239,7 +239,7 @@ impl ChatView {
             .child(div().flex_1())
             .child(
                 action("channel-mute", if muted { "bell-off" } else { "bell" }, false)
-                    .tip(if muted { "Unmute channel" } else { "Notification settings" }, Side::Bottom)
+                    .tip(if muted { t("channels.header.unmute") } else { t("channels.header.notifications") }, Side::Bottom)
                     .on_click(move |event, _, cx| {
                         if muted {
                             mute_state.update(cx, |state, cx| state.act("unmute", vec![json!(mute_key)], cx));
@@ -248,11 +248,11 @@ impl ChatView {
                         }
                     }),
             )
-            .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tip("Pinned messages", Side::Bottom).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
+            .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tip(t("chat.pinned"), Side::Bottom).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
             .when(self.beside_voice.is_none(), |el| {
                 el.child(
                     action("channel-members", "users", show_members && panel.is_none())
-                        .tip(if show_members { "Hide member list" } else { "Show member list" }, Side::Bottom)
+                        .tip(if show_members { t("channels.header.hideMembers") } else { t("channels.header.showMembers") }, Side::Bottom)
                         .on_click(move |_, _, cx| {
                             members_state.update(cx, |state, cx| {
                                 // It takes the place of whatever panel was open.
@@ -289,11 +289,11 @@ impl ChatView {
                     .cursor_pointer()
                     .hover(move |style| style.text_color(theme.text2))
                     .on_click(move |_, _, cx| search_state.update(cx, |state, cx| state.toggle_panel(Panel::Search, cx)))
-                    .child("Search")
+                    .child(t("common.search"))
                     .child(icon("search", 15., if searching { theme.text1 } else { muted_color })),
             )
             .when_some(self.beside_voice.clone(), |el, stage| {
-                el.child(action("channel-hide-chat", "x", false).tip("Hide chat", Side::Bottom).on_click(move |_, _, cx| {
+                el.child(action("channel-hide-chat", "x", false).tip(t("chat.hide"), Side::Bottom).on_click(move |_, _, cx| {
                     stage.update(cx, |stage, cx| stage.hide_chat(cx)).ok();
                 }))
             })
@@ -309,15 +309,26 @@ impl ChatView {
             .group_id
             .as_ref()
             .and_then(|group| server.and_then(|server| server.typing.get(group)))
-            .map(|typing| typing.keys().filter(|id| server.is_some_and(|server| *id != server.self_id())).map(|id| server.and_then(|server| server.users.get(id)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into())).collect())
+            .map(|typing| typing.keys().filter(|id| server.is_some_and(|server| *id != server.self_id())).map(|id| server.and_then(|server| server.users.get(id)).map(|user| user.display_name.clone()).unwrap_or_else(|| t("notify.someone").into())).collect())
             .unwrap_or_default();
         let bold = |name: &str| div().font_weight(FontWeight::BOLD).child(name.to_string());
+        // Each name bold where the sentence puts it: {name}, or {first}, {second} and {third}.
+        let line = |text: &str| {
+            text_row(text, false, |value| {
+                let index = match value {
+                    "second" => 1,
+                    "third" => 2,
+                    _ => 0,
+                };
+                bold(names.get(index).map_or("", String::as_str)).into_any_element()
+            })
+        };
         let text: Option<gpui::Div> = match names.len() {
             0 => None,
-            1 => Some(div().flex().child(bold(&names[0])).child("\u{a0}is typing…")),
-            2 => Some(div().flex().child(bold(&names[0])).child("\u{a0}and\u{a0}").child(bold(&names[1])).child("\u{a0}are typing…")),
-            3 => Some(div().flex().child(bold(&names[0])).child(",\u{a0}").child(bold(&names[1])).child("\u{a0}and\u{a0}").child(bold(&names[2])).child("\u{a0}are typing…")),
-            _ => Some(div().child("Several people are typing…")),
+            1 => Some(line(t("channels.typing.one"))),
+            2 => Some(line(t("channels.typing.two"))),
+            3 => Some(line(t("channels.typing.three"))),
+            _ => Some(div().child(t("channels.typing.several"))),
         };
         div()
             .flex_none()
@@ -343,9 +354,9 @@ impl ChatView {
                         .gap(px(4.))
                         .text_size(px(13.))
                         .text_color(theme.text2)
-                        .tip(format!("Each person can send one message every {}, except admins", crate::format::timer_text(conversation.slow_mode)), Side::Top)
+                        .tip(tr!("channels.slowMode.tooltip", time = crate::format::timer_text(conversation.slow_mode)), Side::Top)
                         .child(icon("timer", 14., theme.text2))
-                        .child("Slow mode is on"),
+                        .child(t("channels.slowMode.on")),
                 )
             })
             .into_any_element()

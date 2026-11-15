@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 use super::Voice;
 use super::watch::{PAGE, intent_of, page_origin, player_host};
+use crate::i18n::t;
 use crate::models::WatchView;
 use crate::platform::watch_view::{FromWindow, Problem, WatchView as Window};
 
@@ -86,7 +87,7 @@ struct WatchWindow {
 
 /// The window's title: what's on, and whose window it is.
 fn title_of(watch: &WatchView) -> String {
-    if watch.video.title.is_empty() { "A YouTube video · Zuna".into() } else { format!("{} · Zuna", watch.video.title) }
+    if watch.video.title.is_empty() { t("voice.watch.windowUntitled").into() } else { format!("{} · Zuna", watch.video.title) }
 }
 
 impl Voice {
@@ -141,9 +142,9 @@ impl Voice {
         log::warn!("watch: the player's window can't play: {problem:?}");
         self.watch_here.window = None;
         let words = match problem {
-            Problem::NotThere => "This copy of Zuna is missing its video player, zuna-watch.".into(),
-            Problem::NoWebKit => format!("Playing it here needs WebKitGTK. Install {} and press Watch again.", crate::platform::watch_view::webkit_package()),
-            Problem::Other(_) => "The player window couldn't open. Press Watch to try again.".into(),
+            Problem::NotThere => t("voice.watch.missingPlayer").into(),
+            Problem::NoWebKit => tr!("voice.watch.needsWebKit", package = crate::platform::watch_view::webkit_package()),
+            Problem::Other(_) => t("voice.watch.windowFailed").into(),
         };
         self.watch_here.problem = Some((session.to_string(), words));
         self.watching = None;

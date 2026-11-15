@@ -26,7 +26,7 @@ pub fn keep_screen_on(on: bool) {
         (true, None) => {
             // CFStrings, as NSStrings are the same objects.
             let kind = NSString::from_str("PreventUserIdleDisplaySleep");
-            let name = NSString::from_str("Zuna is showing a call's video");
+            let name = NSString::from_str(crate::i18n::t("voice.awake.reasonMac"));
             let mut id = 0;
             let result = unsafe { IOPMAssertionCreateWithName(Retained::as_ptr(&kind).cast(), LEVEL_ON, Retained::as_ptr(&name).cast(), &mut id) };
             if result == 0 {

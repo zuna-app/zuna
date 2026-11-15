@@ -173,7 +173,7 @@ impl AppState {
             let found = core.call(Some(&server_id), "messageById", vec![json!(group), json!(id)]).await.ok();
             let seq = found.and_then(|value| value.get("seq").and_then(Value::as_f64));
             let Some(seq) = seq else {
-                this.update(cx, |state, cx| state.toast("That message isn't available.", ToastKind::Info, cx)).ok();
+                this.update(cx, |state, cx| state.toast(crate::i18n::t("chat.messageUnavailable"), ToastKind::Info, cx)).ok();
                 return;
             };
             let Ok(window) = core.call(Some(&server_id), "loadAround", vec![json!(group), json!(seq)]).await else { return };

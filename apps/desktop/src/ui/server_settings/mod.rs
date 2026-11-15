@@ -15,6 +15,7 @@ use super::invites::InvitePanel;
 use super::menu::{MenuEntry, open_menu};
 use super::text_input::{InputEvent, TabScope, TextInput};
 use crate::format::format_full;
+use crate::i18n::t;
 use crate::models::{BanView, ReportView, from_value, report_reason_label};
 use crate::state::{AppState, ServerState, ToastKind};
 use crate::theme::{FONT_MONO, RADIUS_M, RADIUS_XL};
@@ -62,7 +63,7 @@ impl ServerSettings {
             })
         };
         let name = input(cx, "", server.as_ref().map(|s| s.entry.name.clone()).unwrap_or_default());
-        let member_search = input(cx, &format!("Search {} members", server.as_ref().map(|s| s.users.len()).unwrap_or(0)), String::new());
+        let member_search = input(cx, &tr!("serverSettings.members.search", count = server.as_ref().map(|s| s.users.len()).unwrap_or(0)), String::new());
         let emote_link = input(cx, "https://7tv.app/emote-sets/...", String::new());
         let info = server.as_ref().and_then(|s| s.info.clone()).unwrap_or_default();
         let max_upload = input(cx, "", format!("{}", if info.max_upload_mb > 0. { info.max_upload_mb } else { 100. }));
@@ -204,24 +205,24 @@ impl Render for ServerSettings {
         let mut sections: Vec<(&str, &str, &str)> = Vec::new();
         if is_admin {
             sections.extend([
-                ("overview", "Overview", "server"),
-                ("invites", "Invites", "link"),
-                ("members", "Members", "users"),
-                ("reports", "Reports", "flag"),
-                ("bans", "Bans", "ban"),
-                ("emotes", "Emotes", "face-slightly-smiling"),
-                ("soundboard", "Soundboard", "audio-lines"),
-                ("storage", "Storage", "hard-drive"),
-                ("screen", "Screen sharing", "monitor-up"),
+                ("overview", t("serverSettings.sections.overview"), "server"),
+                ("invites", t("serverSettings.sections.invites"), "link"),
+                ("members", t("serverSettings.sections.members"), "users"),
+                ("reports", t("serverSettings.sections.reports"), "flag"),
+                ("bans", t("serverSettings.sections.bans"), "ban"),
+                ("emotes", t("serverSettings.sections.emotes"), "face-slightly-smiling"),
+                ("soundboard", t("serverSettings.sections.soundboard"), "audio-lines"),
+                ("storage", t("serverSettings.sections.storage"), "hard-drive"),
+                ("screen", t("serverSettings.sections.screen"), "monitor-up"),
             ]);
         }
         // Bots are there for admins, for members where the server lets them make bots, and for whoever has one.
         let has_bots = is_admin || server.info.as_ref().is_some_and(|info| info.allow_member_bots) || server.users.values().any(|user| !user.deleted && user.bot.as_ref().is_some_and(|bot| bot.owner_id == server.self_id()));
         if has_bots {
-            sections.push(("bots", "Bots", "bot"));
+            sections.push(("bots", t("serverSettings.sections.bots"), "bot"));
         }
-        sections.push(("leave", "Sign out", "log-out"));
-        sections.push(("delete", "Delete account", "trash"));
+        sections.push(("leave", t("serverSettings.sections.leave"), "log-out"));
+        sections.push(("delete", t("serverSettings.sections.delete"), "trash"));
         let page = match self.section.as_str() {
             "overview" if is_admin => self.overview(&server, cx),
             "invites" if is_admin => self.invites_section(&server, cx),

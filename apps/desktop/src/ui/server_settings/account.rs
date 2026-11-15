@@ -10,9 +10,9 @@ impl ServerSettings {
         }
         let (cancel, delete) = (cx.entity().downgrade(), cx.entity().downgrade());
         Some(crate::ui::overlays::confirm(
-            format!("Delete your account on {server_name}?"),
-            "Delete account",
-            "It can't be undone. Messages you sent stay with the people you sent them to, shown as from \"Deleted account\".".into(),
+            tr!("serverSettings.delete.confirmTitle", server = server_name),
+            t("serverSettings.sections.delete"),
+            t("serverSettings.delete.confirmText").into(),
             move |_, cx| {
                 cancel
                     .update(cx, |view, cx| {
@@ -60,25 +60,22 @@ impl ServerSettings {
         // A server can't be without its owner, whom nobody else can become.
         if server.me.as_ref().is_some_and(|me| me.role == "owner") {
             return vec![
-                Self::heading("Delete account"),
-                Self::lead(&format!("You own {name}, and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data."), cx),
+                Self::heading(t("serverSettings.sections.delete")),
+                Self::lead(&tr!("serverSettings.delete.ownerLead", server = name), cx),
             ];
         }
         let typed = !self.delete_password.read(cx).text().is_empty();
         let busy = self.busy;
         vec![
-            Self::heading("Delete account"),
-            Self::lead(
-                &format!("This deletes your account on {name}, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from \"Deleted account\". Someone else will be able to take your username. It can't be undone."),
-                cx,
-            ),
-            field(Some("Password"), self.delete_password.clone(), None, None, false, None, cx).into_any_element(),
+            Self::heading(t("serverSettings.sections.delete")),
+            Self::lead(&tr!("serverSettings.delete.lead", server = name), cx),
+            field(Some(t("common.password")), self.delete_password.clone(), None, None, false, None, cx).into_any_element(),
             div()
                 .flex()
                 .child(
                     button("delete-account", ButtonKind::Danger, ButtonSize::Normal, !typed || busy, cx)
                         .when(busy, |el| el.child(spinner(15., theme.red)))
-                        .when(!busy, |el| el.child(icon("trash", 15., theme.red)).child("Delete my account"))
+                        .when(!busy, |el| el.child(icon("trash", 15., theme.red)).child(t("serverSettings.delete.action")))
                         .when(typed && !busy, |el| {
                             el.on_click(cx.listener(|view, _, window, cx| {
                                 view.deleting = true;
@@ -96,18 +93,15 @@ impl ServerSettings {
         let busy = self.busy;
         let id = server.entry.id.clone();
         vec![
-            Self::heading("Sign out"),
+            Self::heading(t("serverSettings.sections.leave")),
             div()
                 .text_size(px(13.5))
                 .text_color(theme.text2)
-                .child(format!(
-                    "This signs you out of {} on this device and erases its local copy of your messages. Your account and history stay on the server, and you can sign back in with your password.",
-                    server.entry.name
-                ))
+                .child(tr!("serverSettings.leave.lead", server = server.entry.name))
                 .into_any_element(),
             div()
                 .flex()
-                .child(button("sign-out-server", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("log-out", 15., theme.red)).child("Sign out and erase local data").when(!busy, |el| {
+                .child(button("sign-out-server", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("log-out", 15., theme.red)).child(t("serverSettings.leave.action")).when(!busy, |el| {
                     el.on_click(cx.listener(move |view, _, _, cx| {
                         view.busy = true;
                         let id = id.clone();

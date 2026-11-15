@@ -25,7 +25,7 @@ impl ServerSettings {
                             view.icon_version = crate::format::now_ms() as u64;
                             view.run("updateServerIcon", vec![crate::host::file(&file.to_string_lossy(), "image/jpeg")], None, cx);
                         }
-                        Err(()) => view.state.update(cx, |state, cx| state.toast("That image couldn't be processed.", ToastKind::Error, cx)),
+                        Err(()) => view.state.update(cx, |state, cx| state.toast(t("media.imageUnprocessable"), ToastKind::Error, cx)),
                     })
                     .ok();
                 })
@@ -41,18 +41,18 @@ impl ServerSettings {
         let busy = self.busy;
         let version = server.info.as_ref().map(|info| info.version.clone()).unwrap_or_default();
         vec![
-            Self::heading("Server"),
-            Self::lead("The name and picture are public: they appear on invite pages before anyone signs in.", cx),
-            div().flex().items_center().gap(px(18.)).child(picture).child(div().flex_1().child(field(Some("Server name"), self.name.clone(), None, None, false, None, cx))).into_any_element(),
+            Self::heading(t("serverSettings.overview.title")),
+            Self::lead(t("serverSettings.overview.lead"), cx),
+            div().flex().items_center().gap(px(18.)).child(picture).child(div().flex_1().child(field(Some(t("serverSettings.overview.name")), self.name.clone(), None, None, false, None, cx))).into_any_element(),
             div()
                 .flex()
-                .child(button("save-server", ButtonKind::Primary, ButtonSize::Normal, !changed || busy, cx).child("Save changes").when(changed && !busy, |el| {
-                    el.on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "name": name })], Some("Saved".into()), cx)))
+                .child(button("save-server", ButtonKind::Primary, ButtonSize::Normal, !changed || busy, cx).child(t("common.saveChanges")).when(changed && !busy, |el| {
+                    el.on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "name": name })], Some(t("common.saved").into()), cx)))
                 }))
                 .into_any_element(),
             Self::divider(cx),
-            Self::row("Address", Some("The address people and apps use to reach your server."), div().max_w(px(260.)).font_family(FONT_MONO).text_size(px(12.5)).child(server.entry.address.clone()).into_any_element(), cx),
-            Self::row("Version", None, div().font_family(FONT_MONO).text_size(px(12.5)).child(version).into_any_element(), cx),
+            Self::row(t("serverSettings.overview.address"), Some(t("serverSettings.overview.addressHint")), div().max_w(px(260.)).font_family(FONT_MONO).text_size(px(12.5)).child(server.entry.address.clone()).into_any_element(), cx),
+            Self::row(t("serverSettings.overview.version"), None, div().font_family(FONT_MONO).text_size(px(12.5)).child(version).into_any_element(), cx),
         ]
     }
 
@@ -61,19 +61,19 @@ impl ServerSettings {
         let open = info.registration == "open";
         let members_invite = info.allow_member_invites;
         vec![
-            Self::heading("Invites"),
-            Self::lead("Invite links are the safest way for people to join.", cx),
+            Self::heading(t("serverSettings.sections.invites")),
+            Self::lead(t("serverSettings.invites.lead"), cx),
             self.invites.clone().into_any_element(),
             Self::divider(cx),
             Self::row(
-                "Let members create invite links",
-                Some("If off, only admins can."),
+                t("serverSettings.invites.memberInvites"),
+                Some(t("serverSettings.invites.memberInvitesHint")),
                 switch("member-invites", members_invite, cx).on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "allow_member_invites": !members_invite })], None, cx))).into_any_element(),
                 cx,
             ),
             Self::row(
-                "Open sign-ups",
-                Some("Anyone who knows the address can join. This gives the server the key that protects profiles, so it can read display names and pictures. Messages stay encrypted."),
+                t("serverSettings.invites.openSignUps"),
+                Some(t("serverSettings.invites.openSignUpsHint")),
                 switch("open-signups", open, cx).on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "registration": if open { "invite" } else { "open" } })], None, cx))).into_any_element(),
                 cx,
             ),
@@ -93,8 +93,8 @@ impl ServerSettings {
             grid = grid.child(div().id(SharedString::from(format!("emote-preview-{}", emote.id))).size(px(40.)).p(px(4.)).tooltip(tooltip(emote.name.clone())).when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain))));
         }
         vec![
-            Self::heading("Emotes"),
-            Self::lead("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. It checks 7TV for changes to the set every few hours.", cx),
+            Self::heading(t("serverSettings.sections.emotes")),
+            Self::lead(t("serverSettings.emotes.lead"), cx),
             div()
                 .flex()
                 .items_center()
@@ -110,25 +110,25 @@ impl ServerSettings {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::MEDIUM).child(if server.emotes.set_name.is_empty() { "No emote set".to_string() } else { server.emotes.set_name.clone() }))
-                        .child(div().text_size(px(12.5)).text_color(theme.text3).child(format!("{count} emotes"))),
+                        .child(div().font_weight(FontWeight::MEDIUM).child(if server.emotes.set_name.is_empty() { t("serverSettings.emotes.noSet").to_string() } else { server.emotes.set_name.clone() }))
+                        .child(div().text_size(px(12.5)).text_color(theme.text3).child(tr!("serverSettings.emotes.count", count = count))),
                 )
                 .when(!set_id.is_empty(), |el| {
-                    el.child(button("refresh-emotes", ButtonKind::Default, ButtonSize::Small, busy, cx).child(if self.refreshing { "Refreshing…" } else { "Refresh" }).when(!busy, |el| {
+                    el.child(button("refresh-emotes", ButtonKind::Default, ButtonSize::Small, busy, cx).child(if self.refreshing { t("serverSettings.emotes.refreshing") } else { t("serverSettings.emotes.refresh") }).when(!busy, |el| {
                         el.on_click(cx.listener(move |view, _, _, cx| {
                             view.refreshing = true;
-                            view.set_emotes(set_id.clone(), "Updated", cx);
+                            view.set_emotes(set_id.clone(), false, cx);
                         }))
                     }))
                 })
                 .into_any_element(),
-            field(Some("Use a different set"), self.emote_link.clone(), None, Some("Paste a link to any emote set on 7TV.".into()), false, None, cx).into_any_element(),
+            field(Some(t("serverSettings.emotes.useDifferent")), self.emote_link.clone(), None, Some(t("serverSettings.emotes.linkHint").into()), false, None, cx).into_any_element(),
             div()
                 .flex()
-                .child(button("use-set", ButtonKind::Primary, ButtonSize::Normal, link.is_empty() || busy, cx).child("Use this set").when(!link.is_empty() && !busy, |el| {
+                .child(button("use-set", ButtonKind::Primary, ButtonSize::Normal, link.is_empty() || busy, cx).child(t("serverSettings.emotes.useSet")).when(!link.is_empty() && !busy, |el| {
                     el.on_click(cx.listener(move |view, _, _, cx| {
                         view.busy = true;
-                        view.set_emotes(link.clone(), "Now using", cx);
+                        view.set_emotes(link.clone(), true, cx);
                     }))
                 }))
                 .into_any_element(),
@@ -136,7 +136,8 @@ impl ServerSettings {
         ]
     }
 
-    pub(super) fn set_emotes(&mut self, set: String, verb: &'static str, cx: &mut Context<Self>) {
+    /// Uses an emote set: a new one, whose link is then emptied, or the one in use, read again.
+    pub(super) fn set_emotes(&mut self, set: String, new: bool, cx: &mut Context<Self>) {
         let Some(server) = self.state.read(cx).active_server.clone() else { return };
         let call = self.state.read(cx).core.call(Some(&server), "setEmoteSet", vec![json!(set)]);
         cx.notify();
@@ -149,10 +150,12 @@ impl ServerSettings {
                     Ok(value) => {
                         let name = value.get("set_name").and_then(|name| name.as_str()).unwrap_or_default().to_string();
                         let count = value.get("count").and_then(|count| count.as_f64()).unwrap_or(0.);
-                        if verb == "Now using" {
+                        if new {
                             view.emote_link.update(cx, |input, cx| input.set_text("", cx));
                         }
-                        view.state.update(cx, |state, cx| state.toast(format!("{verb} {name} ({} emotes)", count as u64), ToastKind::Info, cx));
+                        let count = count as u64;
+                        let said = if new { tr!("serverSettings.emotes.nowUsing", name = name, count = count) } else { tr!("serverSettings.emotes.updated", name = name, count = count) };
+                        view.state.update(cx, |state, cx| state.toast(said, ToastKind::Info, cx));
                     }
                     Err(error) => view.state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx)),
                 }
@@ -171,22 +174,22 @@ impl ServerSettings {
         let theme = theme(cx);
         let suffix = |text: &str| div().text_size(px(13.)).text_color(theme.text3).child(text.to_string()).into_any_element();
         vec![
-            Self::heading("Storage"),
-            field(Some("Largest file members can send"), self.max_upload.clone(), None, None, false, Some(suffix("MB")), cx).into_any_element(),
+            Self::heading(t("serverSettings.sections.storage")),
+            field(Some(t("serverSettings.storage.maxUpload")), self.max_upload.clone(), None, None, false, Some(suffix(t("serverSettings.storage.megabytes"))), cx).into_any_element(),
             field(
-                Some("Delete messages after"),
+                Some(t("serverSettings.storage.retention")),
                 self.retention.clone(),
                 None,
-                Some("0 keeps messages forever. Pinned messages are kept. This is enforced by the server, so it only removes the server's copy.".into()),
+                Some(t("serverSettings.storage.retentionHint").into()),
                 false,
-                Some(suffix("days")),
+                Some(suffix(t("serverSettings.storage.days"))),
                 cx,
             )
             .into_any_element(),
             div()
                 .flex()
-                .child(button("save-storage", ButtonKind::Primary, ButtonSize::Normal, !valid || busy, cx).child("Save changes").when(valid && !busy, |el| {
-                    el.on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "max_upload_mb": max, "retention_days": keep })], Some("Saved".into()), cx)))
+                .child(button("save-storage", ButtonKind::Primary, ButtonSize::Normal, !valid || busy, cx).child(t("common.saveChanges")).when(valid && !busy, |el| {
+                    el.on_click(cx.listener(move |view, _, _, cx| view.run("updateServerSettings", vec![json!({ "max_upload_mb": max, "retention_days": keep })], Some(t("common.saved").into()), cx)))
                 }))
                 .into_any_element(),
         ]

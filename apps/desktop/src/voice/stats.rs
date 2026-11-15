@@ -9,6 +9,7 @@ use livekit::webrtc::stats::RtcStats;
 
 use super::ShareInfo;
 use super::room::{VoiceRoom, parse_identity};
+use crate::i18n::t;
 
 /// Losing more than this shows as worth a look.
 const NOTICEABLE_LOSS: f64 = 0.02;
@@ -186,9 +187,22 @@ pub struct Row {
 #[derive(Clone, Debug)]
 pub struct Headline {
     pub fps: Option<f64>,
+    /// Which rate it is: "sent" or "decoded".
     pub label: &'static str,
     pub wanted: Option<u32>,
     pub history: Vec<f64>,
+}
+
+impl Headline {
+    /// What the big number is, under it: "fps sent of 60".
+    pub fn caption(&self) -> String {
+        match (self.label, self.wanted) {
+            ("sent", Some(wanted)) => tr!("voice.stats.fpsSentOf", wanted = wanted),
+            ("sent", None) => t("voice.stats.fpsSent").to_string(),
+            (_, Some(wanted)) => tr!("voice.stats.fpsDecodedOf", wanted = wanted),
+            _ => t("voice.stats.fpsDecoded").to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -202,6 +216,26 @@ pub struct Section {
 
 fn row(label: &'static str, value: Option<String>, warn: bool) -> Option<Row> {
     value.filter(|value| !value.is_empty()).map(|value| Row { label, value, warn })
+}
+
+/// Where the call is at, in words.
+fn status_words(status: &str) -> &'static str {
+    match status {
+        "connected" => t("voice.stats.statusConnected"),
+        "connecting" => t("voice.stats.statusConnecting"),
+        "reconnecting" => t("voice.stats.statusReconnecting"),
+        _ => t("voice.stats.statusClosed"),
+    }
+}
+
+/// What WebRTC says is holding a video back, in words.
+fn limit_reason(reason: &str) -> String {
+    match reason {
+        "bandwidth" => t("voice.stats.limitBandwidth").to_string(),
+        "cpu" => t("voice.stats.limitCpu").to_string(),
+        "other" => t("voice.stats.limitOther").to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn fps(value: Option<f64>) -> Option<String> {
@@ -281,18 +315,18 @@ impl Reader {
     pub fn read(&mut self, samples: &[Sample], connection: &Connection, extra: &Extra, name_of: &dyn Fn(&str) -> String) -> Vec<Section> {
         let mut sections = vec![Section {
             id: "connection".into(),
-            title: "Connection".into(),
+            title: t("voice.stats.connection").into(),
             audio: false,
             headline: None,
             rows: [
-                row("Status", Some(extra.status.into()), extra.status != "connected"),
-                row("Media server", Some(extra.host.clone()), false),
+                row(t("voice.stats.status"), Some(status_words(extra.status).into()), extra.status != "connected"),
+                row(t("voice.stats.mediaServer"), Some(extra.host.clone()), false),
                 // With a proxy set, which way the call's media goes through it (voice/proxy.rs).
-                row("Proxy", crate::voice::proxy::way().map(str::to_string), crate::voice::proxy::way().is_some_and(|way| way.ends_with("TCP"))),
-                row("In the room", Some(extra.people.to_string()), false),
-                row("Encryption", Some(if extra.encrypted { format!("End-to-end{}", extra.key.map(|(index, epoch)| format!(", key {index} from epoch {epoch}")).unwrap_or_default()) } else { "Off".into() }), !extra.encrypted),
-                row("Round trip", connection.round_trip.map(|value| format!("{:.0} ms", value * 1000.)), false),
-                row("Available bandwidth", bits(connection.allows), false),
+                row(t("voice.stats.proxy"), crate::voice::proxy::way().map(|way| (if way.ends_with("TCP") { t("voice.stats.proxyTcp") } else { t("voice.stats.proxyUdp") }).to_string()), crate::voice::proxy::way().is_some_and(|way| way.ends_with("TCP"))),
+                row(t("voice.stats.inRoom"), Some(extra.people.to_string()), false),
+                row(t("voice.stats.encryption"), Some(if extra.encrypted { match extra.key { Some((index, epoch)) => tr!("voice.stats.encryptedKey", index = index, epoch = epoch), None => t("voice.stats.endToEnd").to_string() } } else { t("common.off").into() }), !extra.encrypted),
+                row(t("voice.stats.roundTrip"), connection.round_trip.map(|value| format!("{:.0} ms", value * 1000.)), false),
+                row(t("voice.stats.bandwidth"), bits(connection.allows), false),
             ]
             .into_iter()
             .flatten()
@@ -304,28 +338,28 @@ impl Reader {
             let history = self.history("native", sent);
             sections.push(Section {
                 id: "native".into(),
-                title: "Your screen".into(),
+                title: t("voice.stage.yourScreen").into(),
                 audio: false,
                 headline: Some(Headline { fps: sent, label: "sent", wanted: Some(share.fps), history }),
                 rows: [
-                    row("Encoded by", Some("This app, on the graphics card".into()), false),
-                    row("Sharing", Some(share.name.clone()), false),
-                    row("Capture and encoder", share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
-                    row("Codec", share.info.as_ref().and_then(|info| info.get("codec")).and_then(serde_json::Value::as_str).map(|codec| if codec == "AV1" { "AV1 (experimental, desktop app only)".to_string() } else { codec.to_string() }), false),
-                    row("Picture", size(number("width"), number("height")), false),
-                    row("Max height", (share.height > 0).then(|| format!("{} lines", share.height)), false),
-                    row("Limited by the server", (!share.held.is_empty()).then(|| share.held.join(", ")), false),
-                    row("New frames", fps(number("fps")), false),
-                    row("Repeated frames", fps(number("repeatFps")), false),
-                    row("Bitrate", bits(number("kbps").map(|value| value * 1000.)), false),
-                    row("Max bitrate", bits(Some(share.kbps as f64 * 1000.)), false),
-                    row("Available bandwidth", bits(number("targetKbps").map(|value| value * 1000.)), false),
-                    row("Encoder bitrate", bits(number("encoderKbps").map(|value| value * 1000.)), false),
-                    row("Encode time", number("encodeMsAvg").map(|average| format!("{average:.1} ms, at most {:.1} ms", number("encodeMsMax").unwrap_or(0.))), false),
-                    row("CPU", number("cpuCores").map(|cores| format!("{:.1}% of a core", cores * 100.)), false),
-                    row("Keyframes", number("allKeys").map(|keys| format!("{}, {} asked for, {} for a new bitrate", count(Some(keys)).unwrap_or_default(), count(number("allKeyRequests")).unwrap_or_default(), count(number("allBitrateChanges")).unwrap_or_default())), false),
-                    row("Frames rejected", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
-                    row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End-to-end".to_string() } else { "Off".to_string() }), false),
+                    row(t("voice.stats.encodedBy"), Some(t("voice.stats.encodedHere").into()), false),
+                    row(t("voice.stats.sharing"), Some(share.name.clone()), false),
+                    row(t("voice.stats.captureEncoder"), share.info.as_ref().and_then(|info| info.get("description")).and_then(serde_json::Value::as_str).map(str::to_string), false),
+                    row(t("voice.stats.codec"), share.info.as_ref().and_then(|info| info.get("codec")).and_then(serde_json::Value::as_str).map(|codec| if codec == "AV1" { t("voice.stats.av1Experimental").to_string() } else { codec.to_string() }), false),
+                    row(t("voice.stats.picture"), size(number("width"), number("height")), false),
+                    row(t("voice.stats.maxHeight"), (share.height > 0).then(|| tr!("voice.stats.lines", count = share.height)), false),
+                    row(t("voice.stats.limitedByServer"), (!share.held.is_empty()).then(|| share.held.join(", ")), false),
+                    row(t("voice.stats.newFrames"), fps(number("fps")), false),
+                    row(t("voice.stats.repeatedFrames"), fps(number("repeatFps")), false),
+                    row(t("voice.stats.bitrate"), bits(number("kbps").map(|value| value * 1000.)), false),
+                    row(t("voice.stats.maxBitrate"), bits(Some(share.kbps as f64 * 1000.)), false),
+                    row(t("voice.stats.bandwidth"), bits(number("targetKbps").map(|value| value * 1000.)), false),
+                    row(t("voice.stats.encoderBitrate"), bits(number("encoderKbps").map(|value| value * 1000.)), false),
+                    row(t("voice.stats.encodeTime"), number("encodeMsAvg").map(|average| tr!("voice.stats.encodeTimeValue", average = format!("{average:.1}"), most = format!("{:.1}", number("encodeMsMax").unwrap_or(0.)))), false),
+                    row(t("voice.stats.cpu"), number("cpuCores").map(|cores| tr!("voice.stats.cpuValue", percent = format!("{:.1}", cores * 100.))), false),
+                    row(t("voice.stats.keyframes"), number("allKeys").map(|keys| tr!("voice.stats.keyframesNative", keys = count(Some(keys)).unwrap_or_default(), asked = count(number("allKeyRequests")).unwrap_or_default(), changes = count(number("allBitrateChanges")).unwrap_or_default())), false),
+                    row(t("voice.stats.framesRejected"), count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
+                    row(t("voice.stats.encryption"), share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { t("voice.stats.endToEnd").to_string() } else { t("common.off").to_string() }), false),
                 ]
                 .into_iter()
                 .flatten()
@@ -351,14 +385,17 @@ impl Reader {
             };
             let bitrate = per_second("bytes").map(|bytes| bytes * 8.);
             let text = |name: &str| sample.texts.get(name).cloned();
-            let encryption = row("Encryption", Some(if sample.encrypted { "End-to-end".into() } else { "Off".into() }), !sample.encrypted);
-            let (mine, theirs) = match sample.source {
-                Source::Microphone => ("Your microphone", "microphone"),
-                Source::Camera => ("Your camera", "camera"),
-                Source::Screen => ("Your screen", "screen"),
-                Source::ScreenSound => ("Your computer's sound", "shared sound"),
+            let encryption = row(t("voice.stats.encryption"), Some(if sample.encrypted { t("voice.stats.endToEnd").into() } else { t("common.off").into() }), !sample.encrypted);
+            let title = match (sample.source, sample.local) {
+                (Source::Microphone, true) => t("voice.stats.yourMicrophone").to_string(),
+                (Source::Camera, true) => t("voice.stats.yourCamera").to_string(),
+                (Source::Screen, true) => t("voice.stage.yourScreen").to_string(),
+                (Source::ScreenSound, true) => t("voice.stats.yourSound").to_string(),
+                (Source::Microphone, false) => tr!("voice.stats.theirMicrophone", name = name_of(&sample.user_id)),
+                (Source::Camera, false) => tr!("voice.stats.theirCamera", name = name_of(&sample.user_id)),
+                (Source::Screen, false) => tr!("voice.stage.theirScreen", name = name_of(&sample.user_id)),
+                (Source::ScreenSound, false) => tr!("voice.stats.theirSound", name = name_of(&sample.user_id)),
             };
-            let title = if sample.local { mine.to_string() } else { format!("{}'s {theirs}", name_of(&sample.user_id)) };
             let section = match (sample.local, sample.video) {
                 (true, true) => {
                     let sent = per_second("frames_sent");
@@ -371,20 +408,20 @@ impl Reader {
                         audio: false,
                         headline: Some(Headline { fps: sent, label: "sent", wanted: None, history }),
                         rows: [
-                            row("Encoding", fps(per_second("frames_encoded")), false),
-                            row("Sending", fps(sent), false),
-                            row("Picture", size(get("width"), get("height")), false),
-                            row("Codec", text("codec"), false),
-                            row("Encoder", text("encoder"), false),
-                            row("Bitrate", bits(bitrate), false),
-                            row("Target bitrate", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
-                            row("Encode time", ms(each("encode_time", "frames_encoded").map(|seconds| seconds * 1000.)), false),
-                            row("Limited by", Some(limited.clone().unwrap_or_else(|| "Nothing".into())), limited.is_some()),
-                            row("Keyframes", joined(&[count(get("key_frames")), Some(format!("{} asked for", count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
-                            row("Huge frames", count(get("huge_frames").filter(|value| *value > 0.)), false),
-                            row("Packets", joined(&[count(get("packets")), Some(format!("{} sent again", count(get("resent")).unwrap_or_else(|| "0".into()))), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
-                            row("Packet loss", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
-                            row("Round trip", get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
+                            row(t("voice.stats.encoding"), fps(per_second("frames_encoded")), false),
+                            row(t("voice.stats.sending"), fps(sent), false),
+                            row(t("voice.stats.picture"), size(get("width"), get("height")), false),
+                            row(t("voice.stats.codec"), text("codec"), false),
+                            row(t("voice.stats.encoder"), text("encoder"), false),
+                            row(t("voice.stats.bitrate"), bits(bitrate), false),
+                            row(t("voice.stats.targetBitrate"), bits(get("target_bitrate").filter(|value| *value > 0.)), false),
+                            row(t("voice.stats.encodeTime"), ms(each("encode_time", "frames_encoded").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.limitedBy"), Some(limited.as_deref().map(limit_reason).unwrap_or_else(|| t("voice.stats.nothing").into())), limited.is_some()),
+                            row(t("voice.stats.keyframes"), joined(&[count(get("key_frames")), Some(tr!("voice.stats.askedFor", count = count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
+                            row(t("voice.stats.hugeFrames"), count(get("huge_frames").filter(|value| *value > 0.)), false),
+                            row(t("voice.stats.packets"), joined(&[count(get("packets")), Some(tr!("voice.stats.sentAgain", count = count(get("resent")).unwrap_or_else(|| "0".into()))), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
+                            row(t("voice.stats.packetLoss"), percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row(t("voice.stats.roundTrip"), get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
                             encryption,
                         ]
                         .into_iter()
@@ -406,21 +443,21 @@ impl Reader {
                         audio: false,
                         headline: Some(Headline { fps: decoded, label: "decoded", wanted: None, history }),
                         rows: [
-                            row("Encoded by", (sample.source == Source::Screen).then(|| if sample.native { "Their desktop app, on their graphics card".to_string() } else { "Their browser".to_string() }), false),
-                            row("Receiving", fps(per_second("frames_received")), false),
-                            row("Decoding", fps(decoded), false),
-                            row("Frames dropped", joined(&[count(get("frames_dropped")), dropped.filter(|value| *value > 0.).map(|value| format!("{value:.1} a second"))]), dropped.unwrap_or(0.) > 0.),
-                            row("Picture", size(get("width"), get("height")), false),
-                            row("Codec", text("codec"), false),
-                            row("Decoder", text("decoder"), false),
-                            row("Bitrate", bits(bitrate), false),
-                            row("Decode time", ms(each("decode_time", "frames_decoded").map(|seconds| seconds * 1000.)), false),
-                            row("Jitter buffer", ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
-                            row("Network jitter", ms(get("jitter").map(|seconds| seconds * 1000.)), false),
-                            row("Freezes", count(get("freezes")), change("freezes").unwrap_or(0.) > 0.),
-                            row("Keyframes", joined(&[count(get("key_frames")), Some(format!("{} asked for", count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
-                            row("Packets", joined(&[count(get("packets")), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
-                            row("Lost", joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row(t("voice.stats.encodedBy"), (sample.source == Source::Screen).then(|| if sample.native { t("voice.stats.theirDesktopApp").to_string() } else { t("voice.stats.theirBrowser").to_string() }), false),
+                            row(t("voice.stats.receiving"), fps(per_second("frames_received")), false),
+                            row(t("voice.stats.decoding"), fps(decoded), false),
+                            row(t("voice.stats.framesDropped"), joined(&[count(get("frames_dropped")), dropped.filter(|value| *value > 0.).map(|value| tr!("voice.stats.perSecond", count = format!("{value:.1}")))]), dropped.unwrap_or(0.) > 0.),
+                            row(t("voice.stats.picture"), size(get("width"), get("height")), false),
+                            row(t("voice.stats.codec"), text("codec"), false),
+                            row(t("voice.stats.decoder"), text("decoder"), false),
+                            row(t("voice.stats.bitrate"), bits(bitrate), false),
+                            row(t("voice.stats.decodeTime"), ms(each("decode_time", "frames_decoded").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.jitterBuffer"), ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.networkJitter"), ms(get("jitter").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.freezes"), count(get("freezes")), change("freezes").unwrap_or(0.) > 0.),
+                            row(t("voice.stats.keyframes"), joined(&[count(get("key_frames")), Some(tr!("voice.stats.askedFor", count = count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
+                            row(t("voice.stats.packets"), joined(&[count(get("packets")), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
+                            row(t("voice.stats.lost"), joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             encryption,
                         ]
                         .into_iter()
@@ -436,14 +473,14 @@ impl Reader {
                         audio: true,
                         headline: None,
                         rows: [
-                            row("Muted", sample.muted.then(|| "Yes".to_string()), false),
-                            row("Processing", (sample.source == Source::Microphone).then(|| extra.filters.clone()), false),
-                            row("Codec", text("codec"), false),
-                            row("Bitrate", bits(bitrate), false),
-                            row("Target bitrate", bits(get("target_bitrate").filter(|value| *value > 0.)), false),
-                            row("Packets", count(get("packets")), false),
-                            row("Packet loss", percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
-                            row("Round trip", get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
+                            row(t("voice.stats.muted"), sample.muted.then(|| t("common.yes").to_string()), false),
+                            row(t("voice.stats.processing"), (sample.source == Source::Microphone).then(|| extra.filters.clone()), false),
+                            row(t("voice.stats.codec"), text("codec"), false),
+                            row(t("voice.stats.bitrate"), bits(bitrate), false),
+                            row(t("voice.stats.targetBitrate"), bits(get("target_bitrate").filter(|value| *value > 0.)), false),
+                            row(t("voice.stats.packets"), count(get("packets")), false),
+                            row(t("voice.stats.packetLoss"), percent(lost), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row(t("voice.stats.roundTrip"), get("round_trip").filter(|value| *value > 0.).map(|value| format!("{:.0} ms", value * 1000.)), false),
                             encryption,
                         ]
                         .into_iter()
@@ -465,14 +502,14 @@ impl Reader {
                         audio: true,
                         headline: None,
                         rows: [
-                            row("Muted", sample.muted.then(|| "Yes".to_string()), false),
-                            row("Codec", text("codec"), false),
-                            row("Bitrate", bits(bitrate), false),
-                            row("Jitter buffer", ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
-                            row("Network jitter", ms(get("jitter").map(|seconds| seconds * 1000.)), false),
-                            row("Concealed", percent(concealed), !sample.muted && concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
-                            row("Packets", count(get("packets")), false),
-                            row("Lost", joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row(t("voice.stats.muted"), sample.muted.then(|| t("common.yes").to_string()), false),
+                            row(t("voice.stats.codec"), text("codec"), false),
+                            row(t("voice.stats.bitrate"), bits(bitrate), false),
+                            row(t("voice.stats.jitterBuffer"), ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.networkJitter"), ms(get("jitter").map(|seconds| seconds * 1000.)), false),
+                            row(t("voice.stats.concealed"), percent(concealed), !sample.muted && concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row(t("voice.stats.packets"), count(get("packets")), false),
+                            row(t("voice.stats.lost"), joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             encryption,
                         ]
                         .into_iter()
@@ -494,7 +531,12 @@ pub fn as_text(sections: &[Section]) -> String {
         .map(|section| {
             let mut lines = vec![format!("# {}", section.title)];
             if let Some(headline) = &section.headline {
-                lines.push(format!("{}: {}{}", headline.label, fps(headline.fps).unwrap_or_else(|| "?".into()), headline.wanted.map(|wanted| format!(" (wanted {wanted})")).unwrap_or_default()));
+                let word = if headline.label == "sent" { t("voice.stats.sent") } else { t("voice.stats.decoded") };
+                let value = fps(headline.fps).unwrap_or_else(|| "?".into());
+                lines.push(match headline.wanted {
+                    Some(wanted) => tr!("voice.stats.copiedWanted", label = word, value = value, wanted = wanted),
+                    None => format!("{word}: {value}"),
+                });
             }
             for row in &section.rows {
                 lines.push(format!("{}: {}{}", row.label, row.value, if row.warn { "  (!)" } else { "" }));

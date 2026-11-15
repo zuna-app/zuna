@@ -83,8 +83,8 @@ impl Voice {
                 let server_muted = access.get("serverMuted").and_then(Value::as_bool).unwrap_or(false);
                 let key = core.call(Some(&server_id), "voiceKey", vec![json!(channel_id)]).await.map_err(|error| error.message)?;
                 let epoch = key.get("epoch").and_then(Value::as_u64).unwrap_or(0);
-                let room_key = key.get("key").and_then(read_bytes).ok_or_else(|| "Couldn't connect to voice.".to_string())?;
-                let (room, events) = crate::host::tokio().spawn(VoiceRoom::join(url, token, identity, epoch, room_key, mixer, volumes)).await.map_err(|_| "Couldn't connect to voice.".to_string())??;
+                let room_key = key.get("key").and_then(read_bytes).ok_or_else(|| t("voice.couldntConnect").to_string())?;
+                let (room, events) = crate::host::tokio().spawn(VoiceRoom::join(url, token, identity, epoch, room_key, mixer, volumes)).await.map_err(|_| t("voice.couldntConnect").to_string())??;
                 Ok((room, events, server_muted))
             }
             .await;
@@ -131,7 +131,7 @@ impl Voice {
                     }
                 }));
                 if let Some(problem) = mic_problem {
-                    self.toast(format!("{problem} You can still listen."), ToastKind::Info, cx);
+                    self.toast(tr!("voice.mic.problemCanListen", problem = problem), ToastKind::Info, cx);
                 }
                 self.no_mic = self.mic.is_none();
                 self.server_muted = server_muted;
@@ -162,7 +162,7 @@ impl Voice {
                     return;
                 }
                 log::warn!("joining a voice channel: {message}");
-                self.toast(if message.is_empty() { "Couldn't connect to voice.".to_string() } else { message }, ToastKind::Error, cx);
+                self.toast(if message.is_empty() { t("voice.couldntConnect").to_string() } else { message }, ToastKind::Error, cx);
                 // A server that hasn't set this up, or a channel that's full, won't change in a moment.
                 self.close_room();
                 self.reset();
@@ -191,7 +191,7 @@ impl Voice {
                         cx.notify();
                     }
                     if voice.mic.as_ref().is_some_and(|mic| mic.lost.load(std::sync::atomic::Ordering::Relaxed)) {
-                        voice.toast("Your microphone was disconnected, so Zuna switched to the default one.", ToastKind::Info, cx);
+                        voice.toast(t("voice.mic.lost"), ToastKind::Info, cx);
                         voice.reopen_mic(Some("default".into()), cx);
                     }
                     true
@@ -294,7 +294,7 @@ impl Voice {
             return;
         }
         if self.reconnects >= RECONNECT_ATTEMPTS {
-            self.toast("Lost the connection to voice.", ToastKind::Error, cx);
+            self.toast(t("voice.connectionLost"), ToastKind::Error, cx);
             self.leave(cx);
             return;
         }
@@ -326,7 +326,7 @@ impl Voice {
                     let going = voice.state.read(cx).servers.get(&server_id).is_some_and(|server| server.voice.values().any(|member| member.channel_id == group_id));
                     voice.join(server_id, group_id, None, JoinHow { ring: !going, camera, open: None }, cx);
                 }
-                Err(error) => voice.toast(if error.message.is_empty() { "Couldn't start the call.".to_string() } else { error.message }, ToastKind::Error, cx),
+                Err(error) => voice.toast(if error.message.is_empty() { t("voice.call.couldntStart").to_string() } else { error.message }, ToastKind::Error, cx),
             })
             .ok();
         })

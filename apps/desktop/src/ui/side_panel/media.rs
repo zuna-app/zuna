@@ -41,14 +41,14 @@ impl SidePanel {
         }
         let mut section = Self::section(cx);
         let mut any = false;
-        for (kind, icon_name, one, many, _) in shared_media::KINDS {
+        for (kind, icon_name) in shared_media::KINDS.iter().map(|entry| (entry.0, entry.1)) {
             let count = if kind == SharedKind::Groups { groups as f64 } else { self.counts.as_ref().and_then(|counts| counts.get(shared_media::core_name(kind))).copied().unwrap_or(0.) };
             if count <= 0. {
                 continue;
             }
             any = true;
             let state = self.state.clone();
-            section = section.child(Self::row(format!("media-{}", shared_media::core_name(kind)), icon_name, format!("{} {}", count as u64, if count == 1. { one } else { many }), None, false, cx).on_click(move |_, _, cx| {
+            section = section.child(Self::row(format!("media-{}", shared_media::core_name(kind)), icon_name, count_label(kind, count as u64), None, false, cx).on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| {
                     state.panel = Some(Panel::Media(kind));
                     cx.notify();
@@ -121,4 +121,17 @@ impl SidePanel {
     }
 
     // --- Groups and channels ---
+}
+
+/// How many of a kind have been shared, as its row says it.
+fn count_label(kind: SharedKind, count: u64) -> String {
+    match kind {
+        SharedKind::Photo => tr!("details.media.photoCount", count = count),
+        SharedKind::Video => tr!("details.media.videoCount", count = count),
+        SharedKind::File => tr!("details.media.fileCount", count = count),
+        SharedKind::Audio => tr!("details.media.audioCount", count = count),
+        SharedKind::Link => tr!("details.media.linkCount", count = count),
+        SharedKind::Voice => tr!("details.media.voiceCount", count = count),
+        SharedKind::Groups => tr!("details.media.groupCount", count = count),
+    }
 }

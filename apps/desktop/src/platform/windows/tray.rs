@@ -80,7 +80,7 @@ fn apply(hwnd: HWND, message: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
     if let Some(icon) = icon {
         data.hIcon = icon;
     }
-    let tip = if unread > 0 { format!("Zuna: {unread} unread") } else { "Zuna".to_string() };
+    let tip = if unread > 0 { tr!("tray.unread", count = unread) } else { "Zuna".to_string() };
     for (slot, unit) in data.szTip.iter_mut().zip(tip.encode_utf16().chain([0])) {
         *slot = unit;
     }
@@ -132,9 +132,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
 unsafe fn show_menu(hwnd: HWND) {
     unsafe {
         let Ok(menu) = CreatePopupMenu() else { return };
-        let _ = AppendMenuW(menu, MF_STRING, MENU_OPEN, w!("Open Zuna"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_OPEN, &HSTRING::from(crate::i18n::t("tray.open")));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, w!("Quit"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, &HSTRING::from(crate::i18n::t("tray.quit")));
         let mut point = POINT::default();
         let _ = GetCursorPos(&mut point);
         // Without this the menu stays open when clicking elsewhere.

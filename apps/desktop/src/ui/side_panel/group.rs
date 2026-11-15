@@ -16,7 +16,7 @@ impl SidePanel {
         if server.is_admin() {
             let state = self.state.clone();
             let channel_id = conversation.group_id.clone().unwrap_or_default();
-            section = section.child(Self::row("edit-channel", "pencil", "Edit channel".into(), None, false, cx).on_click(move |_, _, cx| {
+            section = section.child(Self::row("edit-channel", "pencil", t("details.channel.edit").into(), None, false, cx).on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(channel_id.clone()), category: None }), cx))
             }));
         }
@@ -25,8 +25,8 @@ impl SidePanel {
             Self::row(
                 "channel-mute",
                 if muted { "bell-off" } else { "bell" },
-                if muted { "Unmute" } else { "Mute" }.into(),
-                Some(if muted { "You won't be notified about anything here." } else { "You're notified when someone mentions you or replies to you." }.into()),
+                if muted { t("details.channel.unmute") } else { t("details.channel.mute") }.into(),
+                Some(if muted { t("details.channel.mutedHint") } else { t("details.channel.unmutedHint") }.into()),
                 false,
                 cx,
             )
@@ -53,7 +53,7 @@ impl SidePanel {
                         .py(px(7.))
                         .text_size(px(13.5))
                         .child(icon("lock", 17., theme.text2))
-                        .child(div().flex_1().min_w_0().flex().flex_col().child("End-to-end encrypted").child(div().text_size(px(12.)).text_color(theme.text3).child(if admin_only { "Only admins can read it, and the server itself can't." } else { "Everyone on this server can read it, but the server itself can't." }))),
+                        .child(div().flex_1().min_w_0().flex().flex_col().child(t("details.channel.encrypted")).child(div().text_size(px(12.)).text_color(theme.text3).child(if admin_only { t("details.channel.adminsRead") } else { t("details.channel.everyoneReads") }))),
                 )
                 .into_any_element(),
         );
@@ -108,7 +108,7 @@ impl SidePanel {
                                                 }
                                             },
                                         ),
-                                        Err(()) => state.toast("That image couldn't be processed.", crate::state::ToastKind::Error, cx),
+                                        Err(()) => state.toast(t("media.imageUnprocessable"), crate::state::ToastKind::Error, cx),
                                     });
                             })
                             .detach();
@@ -129,17 +129,17 @@ impl SidePanel {
                     .flex_col()
                     .gap(px(10.))
                     .text_left()
-                    .child(field(Some("Name"), self.edit_name.clone(), None, None, false, None, cx))
-                    .child(field(Some("Description"), self.edit_description.clone(), None, None, false, None, cx))
+                    .child(field(Some(t("details.group.name")), self.edit_name.clone(), None, None, false, None, cx))
+                    .child(field(Some(t("details.group.description")), self.edit_description.clone(), None, None, false, None, cx))
                     .child(
                         div()
                             .flex()
                             .gap(px(8.))
-                            .child(button("cancel-edit", ButtonKind::Default, ButtonSize::Small, false, cx).flex_1().justify_center().child("Cancel").on_click(cx.listener(|panel, _, _, cx| {
+                            .child(button("cancel-edit", ButtonKind::Default, ButtonSize::Small, false, cx).flex_1().justify_center().child(t("common.cancel")).on_click(cx.listener(|panel, _, _, cx| {
                                 panel.editing = false;
                                 cx.notify();
                             })))
-                            .child(button("save-edit", ButtonKind::Primary, ButtonSize::Small, false, cx).flex_1().justify_center().child("Save").on_click(cx.listener(move |panel, _, _, cx| {
+                            .child(button("save-edit", ButtonKind::Primary, ButtonSize::Small, false, cx).flex_1().justify_center().child(t("common.save")).on_click(cx.listener(move |panel, _, _, cx| {
                                 let name = name_input.read(cx).text().trim().to_string();
                                 let description = description_input.read(cx).text().to_string();
                                 let name = if name.is_empty() { title.clone() } else { name };
@@ -192,7 +192,7 @@ impl SidePanel {
         if telegram {
             parts.push(Self::telegram_card(cx));
         } else {
-            parts.push(notice("lock", "The server can see who is in this group, but not its name, picture or messages.", cx).into_any_element());
+            parts.push(notice("lock", t("details.group.serverSees"), cx).into_any_element());
         }
         if let Some(rows) = self.media_rows(server, conversation, cx) {
             parts.push(rows);
@@ -208,10 +208,10 @@ impl SidePanel {
                 .text_size(px(12.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.text3)
-                .child(format!("{count} {}", if count == 1 { "member" } else { "members" }))
+                .child(tr!("details.group.members", count = count))
                 .when(is_admin, |el| {
                     let (state, group) = (self.state.clone(), group.clone());
-                    el.child(icon_button("add-people", "user-plus", 15., true, false, cx).tip("Add people", Side::Bottom).on_click(move |_, _, cx| {
+                    el.child(icon_button("add-people", "user-plus", 15., true, false, cx).tip(t("details.group.addPeople"), Side::Bottom).on_click(move |_, _, cx| {
                         state.update(cx, |state, cx| state.set_overlay(Some(Overlay::AddMembers { group_id: group.clone() }), cx))
                     }))
                 }),
@@ -220,7 +220,7 @@ impl SidePanel {
         sorted.sort_by_cached_key(|member| (member.role != "admin", server.users.get(&member.user_id).map(|user| user.display_name.to_lowercase()).unwrap_or_default()));
         for member in sorted {
             let user = server.users.get(&member.user_id).cloned();
-            let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+            let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into());
             let image = user.as_ref().and_then(|user| user.avatar.clone()).and_then(|avatar| {
                 let server_id = self.server_id.clone();
                 self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -230,9 +230,9 @@ impl SidePanel {
             let detail = if telegram {
                 if username.is_empty() { String::new() } else { format!("@{username}") }
             } else if member.not_on_roster == Some(true) {
-                "Can read this chat, but isn't listed as a member".to_string()
+                t("details.group.notOnRoster").to_string()
             } else if member.no_keys == Some(true) {
-                "No device in this chat yet".to_string()
+                t("details.group.noKeys").to_string()
             } else {
                 format!("@{}", user.as_ref().map(|user| user.username.clone()).unwrap_or_default())
             };
@@ -268,7 +268,7 @@ impl SidePanel {
                                     .font_weight(FontWeight::MEDIUM)
                                     .child(div().min_w_0().one_line().child(name))
                                     .when(user.as_ref().is_some_and(|user| user.bot.is_some()), |el| el.child(div().flex_none().ml(px(6.)).child(bot_badge(cx))))
-                                    .when(is_me, |el| el.child(div().flex_none().text_color(theme.text3).child("\u{a0}(you)"))),
+                                    .when(is_me, |el| el.child(div().flex_none().text_color(theme.text3).child(format!("\u{a0}{}", t("details.group.you"))))),
                             )
                             .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(detail)),
                     )
@@ -284,12 +284,12 @@ impl SidePanel {
             let (state, group) = (self.state.clone(), group.clone());
             parts.push(
                 Self::section(cx)
-                    .child(Self::row("invite-link", "link", "Copy invite link".into(), Some("Anyone with it can join this group on Telegram.".into()), false, cx).on_click(move |_, _, cx| {
+                    .child(Self::row("invite-link", "link", t("details.telegram.copyInvite").into(), Some(t("details.telegram.inviteHint").into()), false, cx).on_click(move |_, _, cx| {
                         state.update(cx, |state, cx| {
                             state.call(Some(crate::telegram::SERVER_ID), "createInvite", vec![json!(group)], cx, |state, result, cx| match result {
                                 Ok(value) => {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.as_str().unwrap_or_default().to_string()));
-                                    state.toast("Copied the invite link", crate::state::ToastKind::Info, cx);
+                                    state.toast(t("details.telegram.inviteCopied"), crate::state::ToastKind::Info, cx);
                                 }
                                 Err(error) => state.toast(error.message, crate::state::ToastKind::Error, cx),
                             })
@@ -312,7 +312,7 @@ impl SidePanel {
                             .py(px(7.))
                             .text_size(px(13.5))
                             .child(icon("eye", 17., theme.text2))
-                            .child(div().flex_1().min_w_0().flex().flex_col().child("New members can read earlier messages").child(div().text_size(px(12.)).text_color(theme.text3).child("Applies to people added after this is turned on.")))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(t("details.group.history")).child(div().text_size(px(12.)).text_color(theme.text3).child(t("details.group.historyHint"))))
                             .child(switch("history-visible", on, cx).on_click(move |_, _, cx| {
                                 state.update(cx, |state, cx| {
                                     state.call(Some(&server_id), "updateGroupMeta", vec![json!(group), json!({}), serde_json::Value::Null, json!(!on)], cx, |state, result, cx| {
@@ -330,14 +330,14 @@ impl SidePanel {
         let (state, delete_state, delete_group) = (self.state.clone(), self.state.clone(), group.clone());
         parts.push(
             Self::section(cx)
-                .child(Self::row("leave-group", "log-out", "Leave group".into(), None, true, cx).on_click(move |_, _, cx| {
+                .child(Self::row("leave-group", "log-out", t("details.group.leave").into(), None, true, cx).on_click(move |_, _, cx| {
                     state.update(cx, |state, cx| {
                         state.act("leaveGroup", vec![json!(group)], cx);
                         state.select_conversation(None, cx);
                     })
                 }))
                 .when(is_admin && !telegram, |el| {
-                    el.child(Self::row("delete-group", "trash", "Delete group for everyone".into(), None, true, cx).on_click(move |_, _, cx| {
+                    el.child(Self::row("delete-group", "trash", t("details.group.delete").into(), None, true, cx).on_click(move |_, _, cx| {
                         delete_state.update(cx, |state, cx| {
                             state.act("deleteGroup", vec![json!(delete_group)], cx);
                             state.select_conversation(None, cx);
@@ -356,33 +356,33 @@ impl SidePanel {
         let user_id = user_id.to_string();
         let mut entries = Vec::new();
         let (s, key) = (state.clone(), format!("user:{user_id}"));
-        entries.push(MenuEntry::new("Message", "check", move |_, cx| s.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
+        entries.push(MenuEntry::new(t("details.member.message"), "check", move |_, cx| s.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
         // A Telegram group's people have no keys of Zuna's to verify, and its admins are set in Telegram's app.
         let telegram = server.entry.is_telegram();
         if telegram {
             if is_admin && user_id != server.self_id() {
                 entries.push(MenuEntry::separator());
                 let (s, g, id) = (state.clone(), group.clone(), user_id.clone());
-                entries.push(MenuEntry::new("Remove from group", "user-minus", move |_, cx| s.update(cx, |state, cx| state.act("removeMember", vec![json!(g), json!(id)], cx))).danger());
+                entries.push(MenuEntry::new(t("details.member.remove"), "user-minus", move |_, cx| s.update(cx, |state, cx| state.act("removeMember", vec![json!(g), json!(id)], cx))).danger());
             }
             return entries;
         }
         let (s, id) = (state.clone(), user_id.clone());
-        entries.push(MenuEntry::new("Verify security key", "shield", move |_, cx| s.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: id.clone() }), cx))));
+        entries.push(MenuEntry::new(t("details.member.verify"), "shield", move |_, cx| s.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: id.clone() }), cx))));
         if user_id != server.self_id() {
             let blocked = server.prefs.blocked().contains(&user_id);
             let (s, id) = (state.clone(), user_id.clone());
-            entries.push(MenuEntry::new(if blocked { "Unblock" } else { "Block" }, "ban", move |_, cx| s.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(!blocked)], cx))));
+            entries.push(MenuEntry::new(if blocked { t("details.member.unblock") } else { t("details.member.block") }, "ban", move |_, cx| s.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(!blocked)], cx))));
         }
         if is_admin {
             let admin = conversation.is_admin(&user_id);
             let (s, g, id) = (state.clone(), group.clone(), user_id.clone());
-            entries.push(MenuEntry::new(if admin { "Remove admin" } else { "Make admin" }, "crown", move |_, cx| {
+            entries.push(MenuEntry::new(if admin { t("details.member.removeAdmin") } else { t("details.member.makeAdmin") }, "crown", move |_, cx| {
                 s.update(cx, |state, cx| state.act("setGroupRole", vec![json!(g), json!(id), json!(if admin { "member" } else { "admin" })], cx))
             }));
             entries.push(MenuEntry::separator());
             let (s, g, id) = (state.clone(), group.clone(), user_id.clone());
-            entries.push(MenuEntry::new("Remove from group", "user-minus", move |_, cx| s.update(cx, |state, cx| state.act("removeMember", vec![json!(g), json!(id)], cx))).danger());
+            entries.push(MenuEntry::new(t("details.member.remove"), "user-minus", move |_, cx| s.update(cx, |state, cx| state.act("removeMember", vec![json!(g), json!(id)], cx))).danger());
         }
         entries
     }

@@ -24,6 +24,7 @@ use super::motion::{Enter, Motion};
 use super::menu::{Header, MenuEntry, open_menu_with_header};
 use super::voice::mix;
 use crate::format::avatar_color;
+use crate::i18n::t;
 use crate::models::VoiceMember;
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, RADIUS_L, RADIUS_S};
@@ -193,7 +194,7 @@ fn device_menu(voice: &Entity<Voice>, state: &Entity<AppState>, input: bool, pos
         .collect();
     entries.push(MenuEntry::separator());
     let state = state.clone();
-    entries.push(MenuEntry::plain("Voice settings", Rc::new(move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx)))));
+    entries.push(MenuEntry::plain(t("voice.controls.settings"), Rc::new(move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx)))));
     open_menu_with_header(position, None, entries, true, cx);
 }
 
@@ -293,7 +294,7 @@ impl Render for VoiceStage {
                 .p(px(24.))
                 .text_color(theme.text2)
                 .child(spinner(26., theme.text2))
-                .child(if self.room.call { "Connecting the call…".to_string() } else { format!("Joining {title}…") })
+                .child(if self.room.call { t("voice.stage.connectingCall").to_string() } else { tr!("voice.stage.joining", channel = title) })
                 .into_any_element()
         } else {
             let area = self.area.get();
@@ -332,7 +333,7 @@ impl Render for VoiceStage {
                         .text_color(theme.text2)
                         .text_center()
                         .child(icon("monitor-up", 30., theme.text2))
-                        .child(format!("You're sharing {}", share.name))
+                        .child(tr!("voice.stage.youreSharing", name = share.name))
                         .into_any_element(),
                 );
             }
@@ -404,7 +405,7 @@ impl Render for VoiceStage {
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .when(status == VoiceStatus::Reconnecting, |el| el.child(div().flex_none().text_center().text_size(px(13.)).p(px(5.)).text_color(theme.amber).bg(theme.amber_soft).child("Reconnecting…")))
+                .when(status == VoiceStatus::Reconnecting, |el| el.child(div().flex_none().text_center().text_size(px(13.)).p(px(5.)).text_color(theme.amber).bg(theme.amber_soft).child(t("voice.stage.reconnecting"))))
                 .child(grid_area)
                 .child(self.controls(share_refusal, sounds, chat_unread, cx))
                 .into_any_element()

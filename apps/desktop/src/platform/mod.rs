@@ -73,12 +73,14 @@ pub const APP_ID: &str = "chat.zuna.desktop";
 pub const AWAY_AFTER_MS: u32 = 30_000;
 
 /// What Security says when the system couldn't protect the device key, as the Electron app said it.
-#[cfg(windows)]
-pub const KEY_WARNING: &str = "Windows couldn't protect this device's key, so it's stored without that protection.";
-#[cfg(target_os = "linux")]
-pub const KEY_WARNING: &str = "Your system has no keychain available, so Zuna can't lock its local data to your login. Installing a secret service such as GNOME Keyring fixes this.";
-#[cfg(target_os = "macos")]
-pub const KEY_WARNING: &str = "Zuna couldn't keep this device's key in your keychain, so it's stored without that protection.";
+pub fn key_warning() -> &'static str {
+    #[cfg(windows)]
+    return crate::i18n::t("settings.security.keyWarningWindows");
+    #[cfg(target_os = "linux")]
+    return crate::i18n::t("settings.security.keyWarningLinux");
+    #[cfg(target_os = "macos")]
+    return crate::i18n::t("settings.security.keyWarningMac");
+}
 
 /// The files copied in a file manager, if that's what the clipboard holds: through Win32 on
 /// Windows, as GPUI reads them there as one run of names, on Linux through GPUI's own

@@ -21,6 +21,7 @@ use gpui::{
 use super::components::*;
 use super::message::ChatContext;
 use crate::format::{format_bytes, format_duration};
+use crate::i18n::t;
 use crate::media::player::{self, Clip};
 use crate::models::Attachment;
 use crate::state::{ClipState, MediaFile};
@@ -221,7 +222,7 @@ pub fn voice(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
                 .text_size(px(11.))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .cursor_pointer()
-                .tooltip(tooltip("Playback speed"))
+                .tooltip(tooltip(t("message.voice.speed")))
                 .on_click(next_speed)
                 .child(speed_label(speed)),
         )
@@ -311,7 +312,7 @@ pub fn audio(attachment: &Attachment, own: bool, context: &ChatContext, cx: &mut
     };
     let position = playing.map(|(at, _)| at).unwrap_or_else(|| context.state.read(cx).paused_at.get(&key).copied().unwrap_or(0.));
     let detail = if matches!(clip, Some(ClipState::Failed)) {
-        "Couldn't load".to_string()
+        t("message.attachment.couldntLoad").to_string()
     } else if started {
         format!("{} / {}", format_duration(position), format_duration(duration))
     } else if duration > 0. {
@@ -417,7 +418,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
                 .justify_center()
                 .bg(theme::color(theme::black_a(0.55)))
                 .hover(|style| style.bg(theme::color(theme::black_a(0.75))))
-                .tip("Full screen", Side::Top)
+                .tip(t("media.player.fullScreen"), Side::Top)
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();

@@ -8,13 +8,14 @@ use gpui::Focusable as _;
 use serde_json::Value;
 
 use super::*;
+use crate::i18n::mark;
 use crate::models::BotView;
 
-/// Who may add a bot to groups: what the server calls each, and what people are told.
-const ADD: [(&str, &str); 3] = [("owner", "Only its owner"), ("admins", "Its owner and the server's admins"), ("anyone", "Anyone on the server")];
+/// Who may add a bot to groups: what the server calls each, and the key of what people are told.
+const ADD: [(&str, &str); 3] = [("owner", mark("bots.add.owner")), ("admins", mark("bots.add.admins")), ("anyone", mark("bots.add.anyone"))];
 
-/// What an owner is told once a change to a bot's profile is on its way.
-const SENT: &str = "Sent to the bot. It'll update the next time it's running";
+/// The key of what an owner is told once a change to a bot's profile is on its way.
+const SENT: &str = mark("bots.settings.sentToBot");
 
 /// Whether a bot may have this username, as the server checks it.
 fn username_ok(name: &str) -> bool {
@@ -36,12 +37,12 @@ fn card(cx: &gpui::App) -> gpui::Div {
 
 /// Who can add a bot to groups, as a choice among the three.
 fn add_select(id: &'static str, current: &str, on_change: Rc<dyn Fn(&'static str, &mut gpui::App)>, cx: &gpui::App) -> AnyElement {
-    let label = ADD.iter().find(|(value, _)| *value == current).map(|(_, label)| *label).unwrap_or("");
+    let label = ADD.iter().find(|(value, _)| *value == current).map(|(_, label)| t(*label)).unwrap_or("");
     let choices = ADD
         .iter()
         .map(|(value, label)| {
             let (value, on_change) = (*value, on_change.clone());
-            (label.to_string(), Rc::new(move |_: &mut Window, cx: &mut gpui::App| on_change(value, cx)) as Rc<dyn Fn(&mut Window, &mut gpui::App)>)
+            (t(*label).to_string(), Rc::new(move |_: &mut Window, cx: &mut gpui::App| on_change(value, cx)) as Rc<dyn Fn(&mut Window, &mut gpui::App)>)
         })
         .collect();
     div().w(px(250.)).flex_none().child(select_box(id, label, choices, cx)).into_any_element()
@@ -137,8 +138,8 @@ impl ServerBots {
     }
 
     fn start_creating(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = cx.new(|cx| TextInput::new(cx, "Weather"));
-        let username = cx.new(|cx| TextInput::new(cx, "weather"));
+        let name = cx.new(|cx| TextInput::new(cx, t("bots.new.namePlaceholder")));
+        let username = cx.new(|cx| TextInput::new(cx, t("bots.new.usernamePlaceholder")));
         for input in [&name, &username] {
             cx.subscribe(input, |view, _, event: &InputEvent, cx| {
                 match event {
@@ -192,7 +193,7 @@ impl ServerBots {
                 input
             };
             let name = input(cx, "", user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| bot.username.clone()));
-            let about = input(cx, "What it does", user.map(|user| user.bio).unwrap_or_default());
+            let about = input(cx, t("bots.settings.aboutPlaceholder"), user.map(|user| user.bio).unwrap_or_default());
             self.open = Some((bot.id.clone(), name, about));
         }
         cx.notify();
@@ -209,9 +210,9 @@ impl ServerBots {
         let name = self.state.read(cx).active().and_then(|server| server.users.get(&id)).map(|user| user.display_name.clone()).unwrap_or_else(|| bot.username.clone());
         let (cancel, delete) = (cx.entity().downgrade(), cx.entity().downgrade());
         Some(crate::ui::overlays::confirm(
-            format!("Delete {name}?"),
-            "Delete bot",
-            if bot.set_up { "It'll be signed out and removed from all its chats. Messages it sent will stay. This can't be undone." } else { "Its setup link will stop working." }.into(),
+            tr!("bots.settings.deleteTitle", name = name),
+            t("bots.settings.delete"),
+            if bot.set_up { t("bots.settings.deleteSetUp") } else { t("bots.settings.deleteNotSetUp") }.into(),
             move |_, cx| {
                 cancel
                     .update(cx, |view, cx| {
@@ -255,7 +256,7 @@ impl ServerBots {
         let command = format!("zuna-bot init \"{link}\"");
         let copied = command.clone();
         card(cx)
-            .child(notice("terminal", "Set up the bot on the computer that will run it within the next hour. Its keys are created there, so not even you have them. This link works once and won't be shown again.", cx).bg(theme.bg3))
+            .child(notice("terminal", t("bots.setup.note"), cx).bg(theme.bg3))
             .child(
                 div()
                     .flex()
@@ -270,13 +271,13 @@ impl ServerBots {
                     .border_color(theme.line)
                     .text_size(px(12.))
                     .child(div().flex_1().min_w_0().one_line().font_family(FONT_MONO).child(command))
-                    .child(icon_button("copy-bot-command", "copy", 14., true, false, cx).tip("Copy the command", Side::Bottom).on_click(cx.listener(move |view, _, _, cx| {
+                    .child(icon_button("copy-bot-command", "copy", 14., true, false, cx).tip(t("bots.setup.copy"), Side::Bottom).on_click(cx.listener(move |view, _, _, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
-                        view.say("Command copied", cx);
+                        view.say(t("bots.setup.copied"), cx);
                     }))),
             )
-            .child(hint("Then start it with zuna-bot run. Whoever controls the computer running a bot can read its chats.", cx))
-            .child(div().flex().child(button("bot-link-done", ButtonKind::Default, ButtonSize::Small, false, cx).child("Done").on_click(cx.listener(|view, _, _, cx| {
+            .child(hint(t("bots.setup.runHint"), cx))
+            .child(div().flex().child(button("bot-link-done", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("common.done")).on_click(cx.listener(|view, _, _, cx| {
                 view.link = None;
                 cx.notify();
             }))))
@@ -288,20 +289,20 @@ impl ServerBots {
         let (name, username, listed, add, files) = (form.name.clone(), form.username.clone(), form.listed, form.add.clone(), form.files);
         let typed = username.read(cx).text().trim().to_string();
         let valid = !name.read(cx).text().trim().is_empty() && username_ok(&typed);
-        let error = (!typed.is_empty() && !username_ok(&typed)).then(|| "2 to 32 letters, numbers, dots, dashes and underscores.".to_string());
+        let error = (!typed.is_empty() && !username_ok(&typed)).then(|| t("bots.new.usernameInvalid").to_string());
         let busy = self.busy;
         let mut form = card(cx).child(
             div()
                 .flex()
                 .items_start()
                 .gap(px(10.))
-                .child(div().flex_1().min_w_0().child(field(Some("Name"), name, None, None, false, None, cx)))
-                .child(div().flex_1().min_w_0().child(field(Some("Username"), username, error, None, false, None, cx))),
+                .child(div().flex_1().min_w_0().child(field(Some(t("common.name")), name, None, None, false, None, cx)))
+                .child(div().flex_1().min_w_0().child(field(Some(t("common.username")), username, error, None, false, None, cx))),
         );
         if can_list {
             form = form.child(ServerSettings::row(
-                "List it for everyone",
-                Some("If off, the bot is private: only you and people in chats with it can see it. Other admins can't."),
+                t("bots.list"),
+                Some(t("bots.listHintNew")),
                 switch("new-bot-listed", listed, cx)
                     .on_click(cx.listener(|view, _, _, cx| {
                         if let Some(form) = &mut view.creating {
@@ -324,11 +325,11 @@ impl ServerBots {
                 })
                 .ok();
             });
-            form = form.child(ServerSettings::row("Who can add it to groups", None, add_select("new-bot-add", &add, chosen, cx), cx));
+            form = form.child(ServerSettings::row(t("bots.whoCanAdd"), None, add_select("new-bot-add", &add, chosen, cx), cx));
         }
         form = form.child(ServerSettings::row(
-            "Let it send files",
-            Some("Up to the server's file size limit."),
+            t("bots.files"),
+            Some(t("bots.filesHint")),
             switch("new-bot-files", files, cx)
                 .on_click(cx.listener(|view, _, _, cx| {
                     if let Some(form) = &mut view.creating {
@@ -343,8 +344,8 @@ impl ServerBots {
             div()
                 .flex()
                 .gap(px(8.))
-                .child(button("make-bot", ButtonKind::Primary, ButtonSize::Normal, !valid || busy, cx).child(if busy { "Making…" } else { "Create bot" }).when(valid && !busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.create(cx)))))
-                .child(button("cancel-bot", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|view, _, _, cx| {
+                .child(button("make-bot", ButtonKind::Primary, ButtonSize::Normal, !valid || busy, cx).child(if busy { t("bots.form.making") } else { t("bots.new.create") }).when(valid && !busy, |el| el.on_click(cx.listener(|view, _, _, cx| view.create(cx)))))
+                .child(button("cancel-bot", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|view, _, _, cx| {
                     view.creating = None;
                     cx.notify();
                 }))),
@@ -363,7 +364,7 @@ impl ServerBots {
         // Whose it is, for a bot that isn't this person's own.
         let owner = if bot.owner_id == server.self_id() { None } else { server.users.get(&bot.owner_id).map(|owner| owner.display_name.clone()) };
         let detail = match owner {
-            Some(owner) => format!("@{} · {owner}'s", bot.username),
+            Some(owner) => format!("@{} · {}", bot.username, tr!("bots.ownedBy", owner = owner)),
             None => format!("@{}", bot.username),
         };
         let toggled = bot.clone();
@@ -383,11 +384,11 @@ impl ServerBots {
             .child(avatar(AvatarProps { name: name.clone(), seed: bot.id.clone(), image, size: 36., online: false, rounded: false, dot_border: theme.bg2 }, cx))
             .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::MEDIUM).child(name)).child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(detail)))
             .child(div().flex_none().px(px(7.)).py(px(1.)).rounded(px(10.)).text_size(px(11.5)).bg(theme.bg4).text_color(theme.text2).child(if !bot.set_up {
-                "Waiting to be set up"
+                t("bots.status.waiting")
             } else if bot.listed {
-                "Listed"
+                t("bots.status.listed")
             } else {
-                "Private"
+                t("bots.status.private")
             }))
             .into_any_element()
     }
@@ -403,11 +404,11 @@ impl ServerBots {
         let mut settings = card(cx).mb(px(3.));
         if !bot.set_up {
             let id = bot.id.clone();
-            settings = settings.child(hint("The bot hasn't been set up yet. If the link expired or got lost, make a new one. The old link will stop working.", cx)).child(
+            settings = settings.child(hint(t("bots.settings.notSetUp"), cx)).child(
                 div().flex().child(
                     button("new-bot-link", ButtonKind::Default, ButtonSize::Small, busy || !own, cx)
                         .child(icon("refresh-cw", 13., theme.text1))
-                        .child("New setup link")
+                        .child(t("bots.settings.newLink"))
                         .when(!busy && own, |el| el.on_click(cx.listener(move |view, _, _, cx| view.call("newBotLink", vec![json!(id)], |view, link, _| view.link = link.as_str().map(str::to_string), cx)))),
                 ),
             );
@@ -433,8 +434,8 @@ impl ServerBots {
                     cx.spawn(async move |view, cx| {
                         let Some(prepared) = picked.await else { return };
                         view.update(cx, |view, cx| match prepared {
-                            Ok(file) => view.call("updateBotProfile", vec![json!(id), json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], |view, _, cx| view.say(SENT, cx), cx),
-                            Err(()) => view.state.update(cx, |state, cx| state.toast("That image couldn't be processed.", ToastKind::Error, cx)),
+                            Ok(file) => view.call("updateBotProfile", vec![json!(id), json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], |view, _, cx| view.say(t(SENT), cx), cx),
+                            Err(()) => view.state.update(cx, |state, cx| state.toast(t("media.imageUnprocessable"), ToastKind::Error, cx)),
                         })
                         .ok();
                     })
@@ -454,21 +455,21 @@ impl ServerBots {
                         .items_center()
                         .gap(px(14.))
                         .child(picture)
-                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(8.)).child(field(Some("Name"), name, None, None, false, None, cx)).child(field(Some("About"), about, None, None, false, None, cx))),
+                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(8.)).child(field(Some(t("common.name")), name, None, None, false, None, cx)).child(field(Some(t("bots.settings.about")), about, None, None, false, None, cx))),
                 )
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
-                        .child(button("save-bot", ButtonKind::Primary, ButtonSize::Small, !can_save, cx).child("Save").when(can_save, |el| {
+                        .child(button("save-bot", ButtonKind::Primary, ButtonSize::Small, !can_save, cx).child(t("common.save")).when(can_save, |el| {
                             el.on_click(cx.listener(move |view, _, _, cx| {
                                 let Some((_, name, about)) = view.open.clone() else { return };
                                 // A profile is sealed by the account it belongs to, so the bot is asked to set it.
                                 let changes = json!({ "displayName": name.read(cx).text().trim().chars().take(64).collect::<String>(), "bio": about.read(cx).text().trim().chars().take(300).collect::<String>() });
-                                view.call("updateBotProfile", vec![json!(id), changes], |view, _, cx| view.say(SENT, cx), cx);
+                                view.call("updateBotProfile", vec![json!(id), changes], |view, _, cx| view.say(t(SENT), cx), cx);
                             }))
                         }))
-                        .child(button("message-bot", ButtonKind::Default, ButtonSize::Small, false, cx).child(icon("message-circle", 13., theme.text1)).child("Message").on_click(move |_, _, cx| {
+                        .child(button("message-bot", ButtonKind::Default, ButtonSize::Small, false, cx).child(icon("message-circle", 13., theme.text1)).child(t("bots.settings.message")).on_click(move |_, _, cx| {
                             state.update(cx, |state, cx| {
                                 state.select_conversation(Some(key.clone()), cx);
                                 state.set_overlay(None, cx);
@@ -480,8 +481,8 @@ impl ServerBots {
             let may_list = is_admin || listed;
             let id = bot.id.clone();
             settings = settings.child(ServerSettings::row(
-                "List it for everyone",
-                Some(if may_list { "If off, the bot is private: only you and people in chats with it can see it. It will leave its channels." } else { "Only the server's admins can list a bot." }),
+                t("bots.list"),
+                Some(if may_list { t("bots.listHint") } else { t("bots.listAdminsOnly") }),
                 switch("bot-listed", listed, cx).when(may_list && !busy, |el| el.on_click(cx.listener(move |view, _, _, cx| view.change(id.clone(), json!({ "listed": !listed }), cx)))).into_any_element(),
                 cx,
             ));
@@ -490,11 +491,11 @@ impl ServerBots {
                 let chosen: Rc<dyn Fn(&'static str, &mut gpui::App)> = Rc::new(move |value, cx| {
                     weak.update(cx, |view, cx| view.change(id.clone(), json!({ "add": value }), cx)).ok();
                 });
-                settings = settings.child(ServerSettings::row("Who can add it to groups", None, add_select("bot-add", &bot.add, chosen, cx), cx));
+                settings = settings.child(ServerSettings::row(t("bots.whoCanAdd"), None, add_select("bot-add", &bot.add, chosen, cx), cx));
             }
             let (files, id) = (bot.files, bot.id.clone());
             settings = settings.child(ServerSettings::row(
-                "Let it send files",
+                t("bots.files"),
                 None,
                 switch("bot-files", files, cx).when(!busy, |el| el.on_click(cx.listener(move |view, _, _, cx| view.change(id.clone(), json!({ "files": !files }), cx)))).into_any_element(),
                 cx,
@@ -538,14 +539,14 @@ impl ServerBots {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Channels"))
-                    .child(hint("It joins the channels you pick and reads what's said there from then on.", cx))
+                    .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("bots.settings.channels")))
+                    .child(hint(t("bots.settings.channelsHint"), cx))
                     .child(given),
             );
         }
         let id = bot.id.clone();
         settings
-            .child(div().flex().child(button("delete-bot", ButtonKind::Danger, ButtonSize::Small, busy, cx).child(icon("trash", 13., theme.red)).child("Delete bot").when(!busy, |el| {
+            .child(div().flex().child(button("delete-bot", ButtonKind::Danger, ButtonSize::Small, busy, cx).child(icon("trash", 13., theme.red)).child(t("bots.settings.delete")).when(!busy, |el| {
                 el.on_click(cx.listener(move |view, _, _, cx| {
                     view.deleting = Some(id.clone());
                     cx.notify();
@@ -566,8 +567,8 @@ impl Render for ServerBots {
         let bots = self.bots.clone();
         let mine = bots.as_ref().map(|bots| bots.iter().filter(|bot| bot.owner_id == server.self_id()).count()).unwrap_or(0);
         let mut parts = vec![
-            ServerSettings::heading("Bots"),
-            ServerSettings::lead("A bot is an account run by a program, on a computer its owner chooses. It can read everything said in its chats after it's added, and always shows a bot badge next to its name.", cx),
+            ServerSettings::heading(t("serverSettings.sections.bots")),
+            ServerSettings::lead(t("bots.lead"), cx),
         ];
         if let Some(link) = self.link.clone() {
             parts.push(self.setup_link(link, cx));
@@ -581,16 +582,16 @@ impl Render for ServerBots {
                     .flex_col()
                     .items_start()
                     .gap(px(6.))
-                    .child(button("new-bot", ButtonKind::Primary, ButtonSize::Normal, full, cx).child(icon("plus", 15., theme.on_accent)).child("New bot").when(!full, |el| el.on_click(cx.listener(|view, _, window, cx| view.start_creating(window, cx)))))
-                    .when(full, |el| el.child(hint("You've reached this server's limit of bots per person.", cx)))
+                    .child(button("new-bot", ButtonKind::Primary, ButtonSize::Normal, full, cx).child(icon("plus", 15., theme.on_accent)).child(t("bots.new.button")).when(!full, |el| el.on_click(cx.listener(|view, _, window, cx| view.start_creating(window, cx)))))
+                    .when(full, |el| el.child(hint(t("bots.limitReached"), cx)))
                     .into_any_element(),
             );
         } else {
-            parts.push(notice("bot", "On this server, only admins can create bots.", cx).into_any_element());
+            parts.push(notice("bot", t("bots.adminsOnly"), cx).into_any_element());
         }
         match bots {
             None => parts.push(div().py(px(8.)).child(spinner(18., theme.text3)).into_any_element()),
-            Some(bots) if bots.is_empty() => parts.push(div().text_color(theme.text2).child("No bots yet.").into_any_element()),
+            Some(bots) if bots.is_empty() => parts.push(div().text_color(theme.text2).child(t("bots.empty")).into_any_element()),
             Some(bots) => {
                 let mut list = div().flex().flex_col().gap(px(3.));
                 for bot in &bots {
@@ -622,12 +623,12 @@ impl Render for ServerBots {
                 .collect();
             parts.push(ServerSettings::divider(cx));
             parts.push(ServerSettings::row(
-                "Let members create private bots",
-                Some("If off, only admins can create bots. Listed bots can only ever be created by admins."),
+                t("bots.memberBots"),
+                Some(t("bots.memberBotsHint")),
                 switch("member-bots", allow, cx).on_click(cx.listener(move |view, _, _, cx| view.call("updateServerSettings", vec![json!({ "allow_member_bots": !allow })], |_, _, _| {}, cx))).into_any_element(),
                 cx,
             ));
-            parts.push(ServerSettings::row("Bots per person", None, div().w(px(90.)).flex_none().child(select_box("max-bots", most.to_string(), choices, cx)).into_any_element(), cx));
+            parts.push(ServerSettings::row(t("bots.perPerson"), None, div().w(px(90.)).flex_none().child(select_box("max-bots", most.to_string(), choices, cx)).into_any_element(), cx));
         }
         div().flex().flex_col().gap(px(14.)).children(parts)
     }
@@ -694,7 +695,7 @@ mod tests {
         app.run(cx);
         app.click(cx, "save-bot");
         assert_eq!(app.calls_of("updateBotProfile"), vec![vec![json!(BOT), json!({ "displayName": "Helpful", "bio": "Answers things" })]]);
-        assert!(app.toasts(cx).contains(&SENT.to_string()));
+        assert!(app.toasts(cx).contains(&t(SENT).to_string()));
         // Listing, who may add it, and files, each read back after.
         app.forget_calls();
         app.click(cx, "bot-files");

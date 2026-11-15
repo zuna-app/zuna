@@ -10,7 +10,7 @@ impl Dialog {
         cx.spawn(async move |dialog, cx| {
             // Tests ask the system nothing: on a runner, Windows may never answer whether the app
             // may know where it is, and the test waits for ever.
-            let found = if cfg!(test) { Err("Your location isn't available right now.".to_string()) } else { cx.background_executor().spawn(async { crate::platform::location::locate() }).await };
+            let found = if cfg!(test) { Err(t("location.unavailable").to_string()) } else { cx.background_executor().spawn(async { crate::platform::location::locate() }).await };
             dialog
                 .update(cx, |dialog, cx| {
                     dialog.location = Some(found);
@@ -30,12 +30,12 @@ impl Dialog {
                 .flex_col()
                 .gap(px(1.))
                 .text_size(px(13.))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("Your current location"))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(t("location.share.current")))
                 .child(crate::format::coordinates_text(*lat, *lon))
                 .when_some(*accuracy, |el, meters| el.child(div().text_color(theme.text3).child(crate::format::accuracy_text(meters))))
                 .into_any_element(),
             Some(Err(error)) => div().text_size(px(13.)).child(error.clone()).into_any_element(),
-            None => div().flex().items_center().gap(px(8.)).text_size(px(13.)).child(spinner(14., theme.text2)).child("Finding where you are…").into_any_element(),
+            None => div().flex().items_center().gap(px(8.)).text_size(px(13.)).child(spinner(14., theme.text2)).child(t("location.share.finding")).into_any_element(),
         };
         let body = vec![
             div()
@@ -47,7 +47,7 @@ impl Dialog {
                 .child(div().size(px(52.)).flex_none().rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 26., theme.on_accent)))
                 .child(text)
                 .into_any_element(),
-            div().text_size(px(12.5)).text_color(theme.text3).child("It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.").into_any_element(),
+            div().text_size(px(12.5)).text_color(theme.text3).child(t("location.share.note")).into_any_element(),
         ];
         let busy = self.busy;
         let found = match &self.location {
@@ -58,11 +58,11 @@ impl Dialog {
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
             .child(if failed {
-                button("retry-location", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Try again").on_click(cx.listener(|dialog, _, _, cx| dialog.locate(cx)))
+                button("retry-location", ButtonKind::Primary, ButtonSize::Normal, false, cx).child(t("common.tryAgain")).on_click(cx.listener(|dialog, _, _, cx| dialog.locate(cx)))
             } else {
-                button("send-location", ButtonKind::Primary, ButtonSize::Normal, found.is_none() || busy, cx).child(if busy { "Sending…" } else { "Send location" }).when_some(found.filter(|_| !busy), |el, (lat, lon, accuracy)| {
+                button("send-location", ButtonKind::Primary, ButtonSize::Normal, found.is_none() || busy, cx).child(if busy { t("location.share.sending") } else { t("location.share.send") }).when_some(found.filter(|_| !busy), |el, (lat, lon, accuracy)| {
                     el.on_click(cx.listener(move |dialog, _, _, cx| {
                         dialog.busy = true;
                         let mut location = json!({ "lat": lat, "lon": lon });
@@ -81,6 +81,6 @@ impl Dialog {
                     }))
                 })
             });
-        self.modal(Some("Share location".into()), 400., body, Some(footer.into_any_element()), cx)
+        self.modal(Some(t("location.share.title").into()), 400., body, Some(footer.into_any_element()), cx)
     }
 }

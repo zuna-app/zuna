@@ -4,7 +4,7 @@
 use super::*;
 
 /// What someone is told before they add a bot to a group (`BOT_READS`).
-const BOT_READS: &str = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before.";
+const BOT_READS: &str = crate::i18n::mark("bots.reads");
 
 impl Dialog {
     /// The bots among the people picked.
@@ -22,12 +22,11 @@ impl Dialog {
         }
         let bots = self.picked_bots(cx);
         let names = bots.iter().map(|bot| bot.display_name.clone()).collect::<Vec<_>>().join(", ");
-        let one = bots.len() == 1;
         let (cancel, add) = (cx.entity().downgrade(), cx.entity().downgrade());
         Some(confirm(
-            if one { format!("Add the bot {names}?") } else { format!("Add the bots {names}?") },
-            if one { "Add the bot" } else { "Add the bots" },
-            BOT_READS.into(),
+            tr!("groups.addBot.title", count = bots.len(), names = names),
+            &tr!("groups.addBot.action", count = bots.len()),
+            t(BOT_READS).into(),
             move |_, cx| {
                 cancel
                     .update(cx, |dialog, cx| {
@@ -110,7 +109,7 @@ impl Dialog {
         let people_scroll = scroll_handle("new-group-people");
         let mut people = div().id("people-list").max_h(px(260.)).overflow_y_scroll().track_scroll(&people_scroll).pr(gutter(&people_scroll)).flex().flex_col().gap(px(1.)).mx(px(-4.));
         if filtered.is_empty() {
-            people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child("Nobody matches that search."));
+            people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child(t("groups.people.noMatch")));
         }
         for user in filtered {
             let selected = self.selected.contains(&user.id);
@@ -168,12 +167,12 @@ impl Dialog {
         let history = self.history;
         let busy = self.busy;
         let body = vec![
-            field(Some("Group name"), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
+            field(Some(t("groups.new.name")), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Invite people"))
+                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("groups.new.invitePeople")))
                 .child(
                     div()
                         .flex()
@@ -202,8 +201,8 @@ impl Dialog {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::MEDIUM).child("New members can read earlier messages"))
-                        .child(div().text_size(px(12.5)).text_color(theme.text2).child("If off, people only see what's sent after they join.")),
+                        .child(div().font_weight(FontWeight::MEDIUM).child(t("groups.new.history")))
+                        .child(div().text_size(px(12.5)).text_color(theme.text2).child(t("groups.new.historyHint"))),
                 )
                 .child(switch("history", history, cx).on_click(cx.listener(|dialog, _, _, cx| {
                     dialog.history = !dialog.history;
@@ -214,14 +213,14 @@ impl Dialog {
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
             .child(
                 button("create", ButtonKind::Primary, ButtonSize::Normal, name.is_empty() || busy, cx)
-                    .child(if count > 0 { format!("Create with {} people", count + 1) } else { "Create".to_string() })
+                    .child(if count > 0 { tr!("groups.new.createWith", count = count + 1) } else { t("groups.new.create").to_string() })
                     .when(!name.is_empty() && !busy, |el| el.on_click(cx.listener(|dialog, _, _, cx| dialog.create_group_or_ask(cx)))),
             )
             .into_any_element();
-        self.modal(Some("New group".into()), 440., body, Some(footer), cx)
+        self.modal(Some(t("groups.new.title").into()), 440., body, Some(footer), cx)
     }
 
     /// Where to forward messages: any chat on any server, this one first. Picking one sends
@@ -254,7 +253,7 @@ impl Dialog {
         let forward_scroll = scroll_handle("forward-list");
         let mut list = div().id("forward-list").max_h(px(380.)).mt(px(10.)).overflow_y_scroll().track_scroll(&forward_scroll).pr(gutter(&forward_scroll)).flex().flex_col().mx(px(-4.));
         if sections.is_empty() {
-            list = list.child(div().p(px(16.)).text_center().text_color(theme.text2).child("No chats match that search."));
+            list = list.child(div().p(px(16.)).text_center().text_color(theme.text2).child(t("groups.forward.noMatch")));
         }
         let busy = self.busy;
         for (index, (server_id, server_name, chats)) in sections.into_iter().enumerate() {
@@ -331,7 +330,7 @@ impl Dialog {
             .text_size(px(13.5))
             .child(icon("search", 14., theme.text3))
             .child(div().flex_1().min_w_0().child(self.people_search.clone()));
-        self.modal(Some("Forward to".into()), 440., vec![div().flex().flex_col().child(search).child(list.child(scrollbar("forward-list", Scrolls::Div(forward_scroll.clone())))).into_any_element()], None, cx)
+        self.modal(Some(t("groups.forward.title").into()), 440., vec![div().flex().flex_col().child(search).child(list.child(scrollbar("forward-list", Scrolls::Div(forward_scroll.clone())))).into_any_element()], None, cx)
     }
 
     /// People to pick from, with a search above them, as `PeoplePicker` lists them.
@@ -342,7 +341,7 @@ impl Dialog {
         let people_scroll = scroll_handle("add-people");
         let mut people = div().id("add-people").max_h(px(260.)).overflow_y_scroll().track_scroll(&people_scroll).pr(gutter(&people_scroll)).flex().flex_col().gap(px(1.)).mx(px(-4.));
         if filtered.is_empty() {
-            people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child("Nobody matches that search."));
+            people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child(t("groups.people.noMatch")));
         }
         for user in filtered {
             let selected = self.selected.contains(&user.id);
@@ -429,10 +428,10 @@ impl Dialog {
         users.sort_by_cached_key(|user| user.display_name.to_lowercase());
         let mut body = Vec::new();
         if conversation.as_ref().is_some_and(|c| c.history_visible) {
-            body.push(notice("users-round", "This group shares its history, so they'll be able to read earlier messages.", cx).into_any_element());
+            body.push(notice("users-round", t("groups.add.historyShared"), cx).into_any_element());
         }
         if users.is_empty() {
-            body.push(div().p(px(16.)).text_center().text_color(theme.text2).child("Everyone on this server is already here.").into_any_element());
+            body.push(div().p(px(16.)).text_center().text_color(theme.text2).child(t("groups.add.everyoneHere")).into_any_element());
         } else {
             body.push(self.people_picker(&server, users, cx));
         }
@@ -441,8 +440,8 @@ impl Dialog {
         let footer = div()
             .flex()
             .gap(px(8.))
-            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
-            .child(button("add", ButtonKind::Primary, ButtonSize::Normal, count == 0 || busy, cx).child(if busy { "Adding…" } else { "Add" }).when(count > 0 && !busy, |el| {
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(button("add", ButtonKind::Primary, ButtonSize::Normal, count == 0 || busy, cx).child(if busy { t("groups.add.adding") } else { t("common.add") }).when(count > 0 && !busy, |el| {
                 el.on_click(cx.listener(move |dialog, _, _, cx| {
                     // A bot among them is asked about first, each time.
                     if dialog.picked_bots(cx).is_empty() {
@@ -453,6 +452,6 @@ impl Dialog {
                     cx.notify();
                 }))
             }));
-        self.modal(Some("Add people".into()), 440., body, Some(footer.into_any_element()), cx)
+        self.modal(Some(t("groups.add.title").into()), 440., body, Some(footer.into_any_element()), cx)
     }
 }

@@ -26,6 +26,7 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
+use crate::i18n::t;
 use crate::media::CameraDevice;
 use crate::media::camera::Reader;
 
@@ -88,10 +89,10 @@ fn device(id: &str) -> Option<Retained<AVCaptureDevice>> {
 /// Opens a camera, saying what's wrong at once, and gives what reads it on a thread of its own.
 pub(crate) fn open(id: &str) -> Result<Reader, String> {
     if !allowed() {
-        return Err("Zuna isn't allowed to use the camera. Allow it in System Settings, under Privacy & Security, then Camera.".into());
+        return Err(t("media.devices.cameraNotAllowedMac").into());
     }
     if device(id).is_none() {
-        return Err("There's no camera Zuna can use.".into());
+        return Err(t("voice.camera.none").into());
     }
     let id = id.to_string();
     Ok(Box::new(move |stop: Arc<AtomicBool>, on_frame: &mut dyn FnMut(u32, u32, Vec<u8>)| {

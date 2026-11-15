@@ -20,6 +20,7 @@ use super::menu::{MenuEntry, open_menu};
 use super::shared_media;
 use super::text_input::{InputEvent, TextInput};
 use crate::format::{format_last_seen, format_list_time, timer_text};
+use crate::i18n::t;
 use crate::markup::plain_text;
 use crate::models::{ConversationView, MessageView, REPORT_REASONS, SearchResult, UserView};
 use crate::state::{AppState, Overlay, Panel, ServerState, SharedKind, ToastKind};
@@ -64,7 +65,7 @@ pub const WIDTH: f32 = 320.;
 
 impl SidePanel {
     pub fn new(state: Entity<AppState>, server_id: String, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx, "Search messages"));
+        let search = cx.new(|cx| TextInput::new(cx, t("details.search.placeholder")));
         let subscriptions = vec![
             cx.observe(&state, |panel, _, cx| {
                 panel.snapshot.replace(None);
@@ -76,8 +77,8 @@ impl SidePanel {
                 }
             }),
         ];
-        let edit_name = cx.new(|cx| TextInput::new(cx, "Name"));
-        let edit_description = cx.new(|cx| TextInput::new(cx, "Description"));
+        let edit_name = cx.new(|cx| TextInput::new(cx, t("details.group.name")));
+        let edit_description = cx.new(|cx| TextInput::new(cx, t("details.group.description")));
         SidePanel {
             state,
             server_id,
@@ -203,7 +204,7 @@ impl SidePanel {
     fn result_row(&self, message: &MessageView, server: &ServerState, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let sender = server.users.get(&message.sender_id).cloned();
-        let name = sender.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+        let name = sender.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| t("chat.unknown").into());
         let picture = sender.as_ref().and_then(|sender| sender.avatar.clone()).and_then(|avatar| {
             let server_id = server.entry.id.clone();
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -249,14 +250,14 @@ impl Render for SidePanel {
         let panel = self.state.read(cx).panel.or(self.shown);
         self.shown = panel;
         let title: gpui::SharedString = match panel {
-            Some(Panel::Search) if conversation.kind == "channel" => "Search this channel".into(),
-            Some(Panel::Search) => "Search this chat".into(),
-            Some(Panel::Pins) => "Pinned messages".into(),
+            Some(Panel::Search) if conversation.kind == "channel" => t("channels.header.search").into(),
+            Some(Panel::Search) => t("chat.header.search").into(),
+            Some(Panel::Pins) => t("chat.pinned").into(),
             Some(Panel::Media(kind)) => shared_media::title(kind).into(),
             Some(Panel::Plugin(handle)) => crate::ui::plugins::title(handle, cx).map(|(title, _)| title).unwrap_or_default().into(),
-            _ if conversation.kind == "group" => "Group details".into(),
-            _ if conversation.kind == "channel" => "Channel details".into(),
-            _ => "Details".into(),
+            _ if conversation.kind == "group" => t("details.groupTitle").into(),
+            _ if conversation.kind == "channel" => t("details.channelTitle").into(),
+            _ => t("chat.header.details").into(),
         };
         let in_media = matches!(panel, Some(Panel::Media(_)));
         let close_state = self.state.clone();
@@ -284,7 +285,7 @@ impl Render for SidePanel {
                 ];
                 let results = self.results.clone();
                 if results.is_empty() && !self.search_pending && self.search.read(cx).text().trim().chars().count() >= 2 {
-                    parts.push(div().p(px(20.)).text_center().text_color(theme.text2).child("No messages match.").into_any_element());
+                    parts.push(div().p(px(20.)).text_center().text_color(theme.text2).child(t("details.search.noMatch")).into_any_element());
                 }
                 for result in &results {
                     parts.push(self.result_row(&result.message, &server, cx));
@@ -298,7 +299,7 @@ impl Render for SidePanel {
                 if self.pins.is_none() {
                     Vec::new()
                 } else if pins.is_empty() {
-                    vec![div().p(px(30.)).flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(icon("pin", 22., theme.text3)).child("Nothing is pinned yet. Right-click a message to pin it.").into_any_element()]
+                    vec![div().p(px(30.)).flex().flex_col().items_center().gap(px(6.)).text_color(theme.text2).child(icon("pin", 22., theme.text3)).child(t("details.pins.empty")).into_any_element()]
                 } else {
                     pins.iter().map(|message| self.result_row(message, &server, cx)).collect()
                 }

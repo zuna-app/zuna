@@ -182,7 +182,7 @@ fn notify_arguments(payload: &Payload) -> Notify {
     if let Some(image) = image_data(payload.picture.as_ref()) {
         hints.insert("image-data", image);
     }
-    let actions = vec!["default", "Open"];
+    let actions = vec!["default", crate::i18n::t("notifications.open")];
     ("Zuna", 0u32, "", escaped(&payload.title), escaped(&payload.body), actions, hints, -1i32)
 }
 

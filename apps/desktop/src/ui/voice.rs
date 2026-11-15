@@ -7,6 +7,7 @@ use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Shar
 
 use super::components::*;
 use super::motion::{Enter, Motion};
+use crate::i18n::t;
 use crate::models::ConversationView;
 use crate::state::{AppState, Overlay};
 use crate::theme::{self, RADIUS_L, RADIUS_M, RADIUS_S};
@@ -22,14 +23,14 @@ pub fn mix(over: gpui::Hsla, base: gpui::Hsla, amount: f32) -> gpui::Hsla {
 fn quality_icon(voice: &Voice, cx: &App) -> AnyElement {
     let theme = theme(cx);
     let (name, color, words) = match voice.quality {
-        Quality::Poor => ("signal-low", theme.amber, "Weak connection"),
-        Quality::Lost => ("signal-low", theme.red, "Connection lost"),
-        Quality::Good => ("signal-medium", theme.green, "Good connection"),
-        Quality::Excellent => ("signal", theme.green, "Great connection"),
-        Quality::Unknown => ("signal", theme.green, "Connected"),
+        Quality::Poor => ("signal-low", theme.amber, t("voice.quality.weak")),
+        Quality::Lost => ("signal-low", theme.red, t("voice.quality.lost")),
+        Quality::Good => ("signal-medium", theme.green, t("voice.quality.good")),
+        Quality::Excellent => ("signal", theme.green, t("voice.quality.great")),
+        Quality::Unknown => ("signal", theme.green, t("voice.quality.connected")),
     };
     let text = match voice.rtt {
-        Some(rtt) => format!("{words}, {rtt} ms"),
+        Some(rtt) => tr!("voice.panel.quality", quality = words, rtt = rtt),
         None => words.to_string(),
     };
     div().id("voice-quality").flex().tip(text, Side::Top).child(icon(name, 14., color)).into_any_element()
@@ -55,21 +56,26 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
     let mic_off = voice.mic_off();
     let speaking = voice.self_speaking();
     let status_text = match voice.status {
-        VoiceStatus::Connected if voice.call => "Call connected",
-        VoiceStatus::Connected => "Voice connected",
-        VoiceStatus::Reconnecting => "Reconnecting",
-        _ => "Connecting",
+        VoiceStatus::Connected if voice.call => t("voice.panel.callConnected"),
+        VoiceStatus::Connected => t("voice.panel.voiceConnected"),
+        VoiceStatus::Reconnecting => t("voice.panel.reconnecting"),
+        _ => t("voice.panel.connecting"),
     };
-    let where_text = if voice.call { conversation.as_ref().map(|item| item.title.clone()).unwrap_or_else(|| "Call".into()) } else { channel.as_ref().map(|item| item.name.clone()).unwrap_or_else(|| "Voice channel".into()) };
+    let where_text = if voice.call { conversation.as_ref().map(|item| item.title.clone()).unwrap_or_else(|| t("voice.panel.call").into()) } else { channel.as_ref().map(|item| item.name.clone()).unwrap_or_else(|| t("voice.panel.voiceChannel").into()) };
     let status_color = if voice.status == VoiceStatus::Connected { theme.green } else { theme.amber };
     let self_line = if voice.server_muted {
-        "Muted by an admin".to_string()
+        t("voice.panel.adminMuted").to_string()
     } else if voice.no_mic {
-        "No microphone".to_string()
+        t("voice.controls.noMic").to_string()
     } else if voice.settings.input_mode == "ptt" {
-        if voice.settings.ptt_key.is_empty() { "Set a push to talk key".into() } else { format!("Hold {}{}", voice.key_bound.clone().unwrap_or_else(|| voice::settings::key_name(&voice.settings.ptt_key)), if voice.key_held { "…" } else { "" }) }
+        if voice.settings.ptt_key.is_empty() {
+            t("voice.panel.setKey").into()
+        } else {
+            let key = voice.key_bound.clone().unwrap_or_else(|| voice::settings::key_name(&voice.settings.ptt_key));
+            if voice.key_held { tr!("voice.panel.holding", key = key) } else { tr!("voice.panel.hold", key = key) }
+        }
     } else {
-        "Voice activity".to_string()
+        t("voice.settings.voiceActivity").to_string()
     };
     let (camera, sharing, deafened, server_muted, no_mic) = (voice.camera, voice.screen.is_some(), voice.deafened, voice.server_muted, voice.no_mic);
     let status_icon = if voice.status == VoiceStatus::Connected { quality_icon(voice, cx) } else { spinner(12., status_color).into_any_element() };
@@ -142,7 +148,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                                     .text_color(status_color)
                                     .child(status_icon)
                                     .child(status_text)
-                                    .child(div().id("voice-panel-lock").tip("End-to-end encrypted: the server can't listen in", Side::Top).child(icon("lock", 11., theme.text3))),
+                                    .child(div().id("voice-panel-lock").tip(t("voice.panel.encrypted"), Side::Top).child(icon("lock", 11., theme.text3))),
                             )
                             .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(format!("{where_text} / {server_name}"))),
                     )
@@ -158,7 +164,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                             .group("voice-leave")
                             .cursor_pointer()
                             .hover(move |style| style.bg(theme.red_soft))
-                            .tip("Disconnect", Side::Top)
+                            .tip(t("voice.controls.disconnect"), Side::Top)
                             .on_click(move |_, _, cx| voice_for_leave.update(cx, |voice, cx| voice.leave(cx)))
                             // `.icon-btn.voice-leave`: text-2, and red under the pointer.
                             .child(icon("phone-off", 17., theme.text2).group_hover("voice-leave", move |style| style.text_color(theme.red))),
@@ -168,9 +174,9 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                 div()
                     .flex()
                     .gap(px(6.))
-                    .child(action("voice-camera", camera, if camera { "camera" } else { "camera-off" }, if camera { "Turn off camera".into() } else { "Turn on camera".into() }, false).on_click(move |_, _, cx| voice_for_camera.update(cx, |voice, cx| voice.toggle_camera(cx))))
+                    .child(action("voice-camera", camera, if camera { "camera" } else { "camera-off" }, if camera { t("voice.controls.cameraOff").into() } else { t("voice.controls.cameraOn").into() }, false).on_click(move |_, _, cx| voice_for_camera.update(cx, |voice, cx| voice.toggle_camera(cx))))
                     .child(
-                        action("voice-share", sharing, if sharing { "monitor-off" } else { "monitor-up" }, if sharing { "Stop sharing".into() } else { share_refusal.unwrap_or("Share your screen").to_string() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
+                        action("voice-share", sharing, if sharing { "monitor-off" } else { "monitor-up" }, if sharing { t("voice.controls.stopSharing").into() } else { share_refusal.unwrap_or(t("voice.controls.shareScreen")).to_string() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
                             if sharing {
                                 voice_for_share.update(cx, |voice, cx| voice.stop_screen(cx));
                             } else if share_refusal.is_none() {
@@ -192,12 +198,12 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                             .flex()
                             .flex_col()
                             .line_height(gpui::relative(1.2))
-                            .child(div().one_line().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(me.map(|me| me.display_name).unwrap_or_else(|| "You".into())))
+                            .child(div().one_line().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(me.map(|me| me.display_name).unwrap_or_else(|| t("common.you").into())))
                             .child(div().one_line().text_size(px(11.5)).text_color(theme.text3).child(self_line)),
                     )
-                    .child(small_toggle("voice-mute", if mic_off { "mic-off" } else { "mic" }, if mic_off { Some(theme.red) } else if speaking { Some(theme.green) } else { None }, if server_muted { "An admin muted you" } else if mic_off { "Unmute" } else { "Mute" }, server_muted || no_mic, cx).on_click(move |_, _, cx| voice_for_mute.update(cx, |voice, cx| voice.toggle_mute(cx))))
-                    .child(small_toggle("voice-deafen", if deafened { "headphone-off" } else { "headphones" }, deafened.then_some(theme.red), if deafened { "Undeafen" } else { "Deafen" }, false, cx).on_click(move |_, _, cx| voice_for_deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))))
-                    .child(small_toggle("voice-settings", "settings", None, "Voice settings", false, cx).on_click(move |_, _, cx| settings_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx)))),
+                    .child(small_toggle("voice-mute", if mic_off { "mic-off" } else { "mic" }, if mic_off { Some(theme.red) } else if speaking { Some(theme.green) } else { None }, if server_muted { t("voice.controls.adminMuted") } else if mic_off { t("voice.controls.unmute") } else { t("voice.controls.mute") }, server_muted || no_mic, cx).on_click(move |_, _, cx| voice_for_mute.update(cx, |voice, cx| voice.toggle_mute(cx))))
+                    .child(small_toggle("voice-deafen", if deafened { "headphone-off" } else { "headphones" }, deafened.then_some(theme.red), if deafened { t("voice.controls.undeafen") } else { t("voice.controls.deafen") }, false, cx).on_click(move |_, _, cx| voice_for_deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))))
+                    .child(small_toggle("voice-settings", "settings", None, t("voice.controls.settings"), false, cx).on_click(move |_, _, cx| settings_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("voice".into()) }), cx)))),
             )
             .into_any_element(),
     )
@@ -235,8 +241,8 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
     let mut column = div().absolute().top(px(12.)).left_0().right_0().flex().flex_col().items_center().gap(px(8.)).occlude();
     for item in incoming {
         let server = state.read(cx).servers.get(&item.server_id).cloned();
-        let caller = server.as_ref().and_then(|server| server.users.get(&item.call.started_by)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
-        let what = if item.conversation.kind == "dm" { "Calling you".to_string() } else { format!("{caller} started a call") };
+        let caller = server.as_ref().and_then(|server| server.users.get(&item.call.started_by)).map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
+        let what = if item.conversation.kind == "dm" { t("notify.callingYou").to_string() } else { tr!("notify.startedCall", name = caller) };
         let image = item.conversation.avatar.clone().and_then(|avatar| {
             let server_id = item.server_id.clone();
             state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -296,9 +302,9 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                         .child(div().one_line().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(item.conversation.title.clone()))
                         .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(format!("{what}{}", if several { server.map(|server| format!(" · {}", server.entry.name)).unwrap_or_default() } else { String::new() }))),
                 )
-                .child(round("decline", theme.red, gpui::white(), "phone-off", "Decline").on_click(decline))
-                .child(round("video", theme.bg5, theme.text1, "video", "Answer with video").on_click(answer(true)))
-                .child(round("answer", theme.green, gpui::white(), "phone", "Answer").on_click(answer(false)))
+                .child(round("decline", theme.red, gpui::white(), "phone-off", t("voice.incoming.decline")).on_click(decline))
+                .child(round("video", theme.bg5, theme.text1, "video", t("voice.incoming.answerVideo")).on_click(answer(true)))
+                .child(round("answer", theme.green, gpui::white(), "phone", t("voice.incoming.answer")).on_click(answer(false)))
                 // `.incoming-call`: rise-in 0.14s.
                 .enter(SharedString::from(format!("{id}-in")), Enter::Rise(5.), 140),
         );
@@ -343,8 +349,8 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
         return Some(
             button("call-join", ButtonKind::Default, ButtonSize::Small, false, cx)
                 .text_color(theme.green)
-                .tip("Join the call", Side::Bottom)
-                .child(div().flex().items_center().gap(px(5.)).child(icon("phone", 15., theme.green)).child("Join"))
+                .tip(t("voice.call.joinTitle"), Side::Bottom)
+                .child(div().flex().items_center().gap(px(5.)).child(icon("phone", 15., theme.green)).child(t("voice.call.join")))
                 .on_click(move |_, _, cx| voice_entity.update(cx, |voice, cx| voice.join(server_id.clone(), group.clone(), None, JoinHow::default(), cx)))
                 .into_any_element(),
         );
@@ -357,8 +363,8 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
             .flex()
             .items_center()
             .gap(px(2.))
-            .child(icon_button("call-voice", "phone", 17., false, false, cx).tip("Start a voice call", Side::Bottom).on_click(move |_, _, cx| voice_call.update(cx, |voice, cx| voice.start_call(server_call.clone(), key_call.clone(), false, cx))))
-            .child(icon_button("call-video", "video", 18., false, false, cx).tip("Start a video call", Side::Bottom).on_click(move |_, _, cx| voice_video.update(cx, |voice, cx| voice.start_call(server_video.clone(), key_video.clone(), true, cx))))
+            .child(icon_button("call-voice", "phone", 17., false, false, cx).tip(t("voice.call.startVoice"), Side::Bottom).on_click(move |_, _, cx| voice_call.update(cx, |voice, cx| voice.start_call(server_call.clone(), key_call.clone(), false, cx))))
+            .child(icon_button("call-video", "video", 18., false, false, cx).tip(t("voice.call.startVideo"), Side::Bottom).on_click(move |_, _, cx| voice_video.update(cx, |voice, cx| voice.start_call(server_video.clone(), key_video.clone(), true, cx))))
             .into_any_element(),
     )
 }
@@ -379,15 +385,18 @@ pub fn call_banner(state: &Entity<AppState>, server_id: &str, conversation: &Con
         return None;
     }
     let self_id = server.self_id().to_string();
-    let names: Vec<String> = people.iter().map(|id| if *id == self_id { "You".to_string() } else { server.users.get(id).map(|user| user.display_name.split(' ').next().unwrap_or("Someone").to_string()).unwrap_or_else(|| "Someone".into()) }).collect();
-    let who = match names.len() {
-        1 => names[0].clone(),
-        2 => format!("{} and {}", names[0], names[1]),
-        count => format!("{}, {} and {} more", names[0], names[1], count - 2),
-    };
+    let names: Vec<String> = people.iter().map(|id| if *id == self_id { t("common.you").to_string() } else { server.users.get(id).map(|user| user.display_name.split(' ').next().unwrap_or(t("common.someone")).to_string()).unwrap_or_else(|| t("common.someone").into()) }).collect();
     // Being in it on another device of yours is still being in it.
     let elsewhere = people.contains(&self_id);
-    let text = if elsewhere { "You're in this call on another device".to_string() } else { format!("{who} {} in a call", if people.len() == 1 { "is" } else { "are" }) };
+    let text = if elsewhere {
+        t("voice.call.elsewhere").to_string()
+    } else {
+        match names.len() {
+            1 => tr!("voice.call.bannerOne", name = names[0]),
+            2 => tr!("voice.call.bannerTwo", first = names[0], second = names[1]),
+            count => tr!("voice.call.bannerMany", first = names[0], second = names[1], count = count - 2),
+        }
+    };
     let server_id = server_id.to_string();
     Some(
         div()
@@ -405,7 +414,7 @@ pub fn call_banner(state: &Entity<AppState>, server_id: &str, conversation: &Con
             .border_color(theme.line)
             .child(icon("phone", 15., theme.green))
             .child(div().flex_1().min_w_0().one_line().text_color(theme.text1).child(text))
-            .child(button("call-banner-join", ButtonKind::Primary, ButtonSize::Small, false, cx).child(if elsewhere { "Move here" } else { "Join" }).on_click(move |_, _, cx| voice_entity.update(cx, |voice, cx| voice.join(server_id.clone(), group.clone(), None, JoinHow::default(), cx))))
+            .child(button("call-banner-join", ButtonKind::Primary, ButtonSize::Small, false, cx).child(if elsewhere { t("voice.call.moveHere") } else { t("voice.call.join") }).on_click(move |_, _, cx| voice_entity.update(cx, |voice, cx| voice.join(server_id.clone(), group.clone(), None, JoinHow::default(), cx))))
             .into_any_element(),
     )
 }

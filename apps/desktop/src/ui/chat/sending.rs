@@ -263,7 +263,7 @@ impl ChatView {
                     .map(|emote| Suggestion {
                         key: emote.id.clone(),
                         label: emote.name.clone(),
-                        hint: (!emote.owner.is_empty()).then(|| format!("by {}", emote.owner)),
+                        hint: (!emote.owner.is_empty()).then(|| tr!("message.emote.by", name = emote.owner)),
                         insert: format!("{} ", emote.name),
                         what: Suggested::Emote(emote.clone()),
                     })
@@ -438,7 +438,7 @@ impl ChatView {
             return;
         }
         if value.chars().count() > MAX_TEXT_LENGTH {
-            self.state.update(cx, |state, cx| state.toast("That message is too long. Try sending it as a file.", ToastKind::Error, cx));
+            self.state.update(cx, |state, cx| state.toast(t("composer.tooLongFile"), ToastKind::Error, cx));
             return;
         }
         // A plugin's slash command runs in place of sending.
@@ -488,11 +488,11 @@ impl ChatView {
                                 }
                                 crate::plugins::Verdict::Stopped(name) => {
                                     restore(view, cx);
-                                    view.state.update(cx, |state, cx| state.toast(format!("{name} kept this message from going."), ToastKind::Info, cx));
+                                    view.state.update(cx, |state, cx| state.toast(tr!("composer.pluginStopped", name = name), ToastKind::Info, cx));
                                 }
                                 crate::plugins::Verdict::Held(name) => {
                                     restore(view, cx);
-                                    view.state.update(cx, |state, cx| state.toast(format!("{name} didn't answer, so this message wasn't sent. It's back in the message box to try again."), ToastKind::Error, cx));
+                                    view.state.update(cx, |state, cx| state.toast(tr!("composer.pluginHeld", name = name), ToastKind::Error, cx));
                                 }
                             }
                         })
@@ -585,10 +585,10 @@ impl ChatView {
         let state = self.state.clone();
         let key = conversation.key.clone();
         let entries = vec![
-            crate::ui::menu::MenuEntry::new("Photo or file", "file", move |window, cx| {
+            crate::ui::menu::MenuEntry::new(t("composer.attachFile"), "file", move |window, cx| {
                 view.update(cx, |view, cx| view.attach(window, cx)).ok();
             }),
-            crate::ui::menu::MenuEntry::new("Location", "map-pin", move |_, cx| {
+            crate::ui::menu::MenuEntry::new(t("composer.attach.location"), "map-pin", move |_, cx| {
                 state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::ShareLocation { conversation_key: key.clone() }), cx))
             }),
         ];

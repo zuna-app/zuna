@@ -87,7 +87,7 @@ impl ChatView {
                             }
                             let path = crate::host::cache_dir().join("media").join(format!("voice-{}.m4a", now_ms() as u64));
                             std::fs::create_dir_all(path.parent().unwrap()).ok();
-                            crate::media::encode::write_voice(&path, &samples).map_err(|_| "The voice message couldn't be recorded.".to_string())?;
+                            crate::media::encode::write_voice(&path, &samples).map_err(|_| t("composer.recordingFailed").to_string())?;
                             let file = json!({
                                 "blob": crate::host::file(&path.to_string_lossy(), "audio/mp4"),
                                 "name": "Voice message.m4a",
@@ -171,11 +171,11 @@ impl ChatView {
                 .px(px(10.))
                 .when(is_channel, |el| el.pl(px(8.)).min_h(px(44.)))
                 .when(!is_channel, |el| el.py(px(8.)))
-                .child(icon_button("delete-recording", "trash", 18., false, false, cx).tip("Delete recording", Side::Top).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
+                .child(icon_button("delete-recording", "trash", 18., false, false, cx).tip(t("composer.deleteRecording"), Side::Top).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
                 // `.recording-dot`: 9 px, its opacity pulsing every 1.2 s.
                 .child(crate::ui::motion::pulse(div().size(px(9.)).flex_none().rounded_full().bg(theme.red), "recording-dot", 1200, |el, t| el.opacity(1. - 0.65 * gpui::ease_in_out(1. - (t * 2. - 1.).abs()))))
                 .child(div().text_size(px(13.)).text_color(theme.text1).child(crate::format::format_duration(elapsed)))
-                .when(round, |el| el.child(div().flex_1().text_size(px(13.5)).text_color(theme.text2).child("Recording a video message")))
+                .when(round, |el| el.child(div().flex_1().text_size(px(13.5)).text_color(theme.text2).child(t("composer.recordingRound"))))
                 .when(!round, |el| el.child(bars))
                 .child(
                     div()

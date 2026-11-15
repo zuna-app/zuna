@@ -525,13 +525,18 @@ pub struct BanView {
     pub banned_by: String,
 }
 
-/// What someone can be reported for, in the order offered, with what each is called
-/// (`REPORT_REASON_LABELS` in lib/report.ts).
-pub const REPORT_REASONS: [(&str, &str); 4] = [("spam", "Spam"), ("harassment", "Harassment"), ("inappropriate", "Inappropriate content"), ("other", "Something else")];
+/// What someone can be reported for, in the order offered, with the key of what each is called
+/// (`REPORT_REASON_LABELS` in lib/report.ts), to look up with `t`.
+pub const REPORT_REASONS: [(&str, &str); 4] = [
+    ("spam", crate::i18n::mark("details.report.spam")),
+    ("harassment", crate::i18n::mark("details.report.harassment")),
+    ("inappropriate", crate::i18n::mark("details.report.inappropriate")),
+    ("other", crate::i18n::mark("details.report.other")),
+];
 
 /// What a reason for reporting someone is called.
 pub fn report_reason_label(reason: &str) -> &str {
-    REPORT_REASONS.iter().find(|(known, _)| *known == reason).map(|(_, label)| *label).unwrap_or(reason)
+    REPORT_REASONS.iter().find(|(known, _)| *known == reason).map(|(_, label)| crate::i18n::t(*label)).unwrap_or(reason)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

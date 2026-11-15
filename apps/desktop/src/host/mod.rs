@@ -160,7 +160,7 @@ impl Core {
                             message: error
                                 .and_then(|error| error.get("message"))
                                 .and_then(Value::as_str)
-                                .unwrap_or("Something went wrong.")
+                                .unwrap_or(crate::i18n::t("common.somethingWrong"))
                                 .to_string(),
                             code: error.and_then(|error| error.get("code")).and_then(Value::as_str).map(str::to_string),
                             status: error.and_then(|error| error.get("status")).and_then(Value::as_u64).map(|status| status as u16),
@@ -199,9 +199,9 @@ impl Core {
         let sent = self.inner.tasks.send(Task::Boot { key, name, done });
         async move {
             if sent.is_err() {
-                return Err("The core stopped.".to_string());
+                return Err(crate::i18n::t("common.coreStopped").to_string());
             }
-            wait.await.unwrap_or_else(|_| Err("The core stopped.".into()))
+            wait.await.unwrap_or_else(|_| Err(crate::i18n::t("common.coreStopped").into()))
         }
     }
 
@@ -216,7 +216,7 @@ impl Core {
     pub async fn eval(&self, source: String) -> String {
         let (done, wait) = oneshot::channel();
         if self.inner.tasks.send(Task::Eval { source, done }).is_err() {
-            return "The core stopped.".into();
+            return crate::i18n::t("common.coreStopped").into();
         }
         wait.await.unwrap_or_default()
     }
@@ -241,9 +241,9 @@ impl Core {
         let sent = self.ask(server, method, args, reply);
         async move {
             if !sent {
-                return Err(CoreError { message: "The core stopped.".into(), code: None, status: None });
+                return Err(CoreError { message: crate::i18n::t("common.coreStopped").into(), code: None, status: None });
             }
-            wait.await.unwrap_or_else(|_| Err(CoreError { message: "The core stopped.".into(), code: None, status: None }))
+            wait.await.unwrap_or_else(|_| Err(CoreError { message: crate::i18n::t("common.coreStopped").into(), code: None, status: None }))
         }
     }
 }
@@ -356,7 +356,7 @@ pub fn save_value(value: &Value, target: &std::path::Path, moving: bool) -> Resu
         }
         return std::fs::copy(source, target).map(|_| ()).map_err(|error| error.to_string());
     }
-    let bytes = read_bytes(value).ok_or_else(|| "nothing came to save".to_string())?;
+    let bytes = read_bytes(value).ok_or_else(|| crate::i18n::t("media.nothingToSave").to_string())?;
     std::fs::write(target, bytes).map_err(|error| error.to_string())
 }
 

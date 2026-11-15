@@ -17,6 +17,7 @@ use super::manifest::{API, Manifest, parse_version};
 use super::package::{Package, sha256_hex};
 use super::store::Origin;
 use super::{Plugins, trust};
+use crate::i18n::t;
 
 /// Where the index and the packages are.
 const RELEASE: &str = "https://github.com/zuna-app/plugins/releases/download/plugins";
@@ -139,11 +140,11 @@ impl Market {
 /// the highest serial seen.
 pub fn open_index(bytes: &[u8], signature: &str, keys: &[Vec<u8>], seen: u64) -> Result<Index, String> {
     if !trust::index_signed(bytes, signature, keys) {
-        return Err("The marketplace's list isn't signed by Zuna.".into());
+        return Err(t("plugins.market.unsigned").into());
     }
-    let index: Index = serde_json::from_slice(bytes).map_err(|_| "The marketplace's list can't be read.".to_string())?;
+    let index: Index = serde_json::from_slice(bytes).map_err(|_| t("plugins.market.unreadable").to_string())?;
     if index.serial < seen {
-        return Err("The marketplace sent an older list than this device has already seen.".into());
+        return Err(t("plugins.market.older").into());
     }
     Ok(index)
 }
@@ -156,10 +157,10 @@ pub fn matches(expected: &Version, package: &Package) -> Result<(), String> {
 pub fn matches_with(expected: &Version, package: &Package, keys: &[Vec<u8>]) -> Result<(), String> {
     let manifest: &Manifest = &package.manifest;
     if package.sha256.as_deref() != Some(expected.sha256.as_str()) {
-        return Err("The package doesn't match the marketplace's list.".into());
+        return Err(t("plugins.market.mismatch").into());
     }
     if !trust::verified_with(package, keys) {
-        return Err("The package isn't signed by Zuna.".into());
+        return Err(t("plugins.market.packageUnsigned").into());
     }
     let permissions: Vec<&str> = manifest.permissions.iter().map(|permission| permission.name()).collect();
     let mut said: Vec<&str> = expected.permissions.iter().map(String::as_str).collect();
@@ -167,7 +168,7 @@ pub fn matches_with(expected: &Version, package: &Package, keys: &[Vec<u8>]) -> 
     said.sort();
     found.sort();
     if manifest.version != expected.version || said != found || manifest.hosts != expected.hosts {
-        return Err("The package asks for different access than the marketplace's list says.".into());
+        return Err(t("plugins.market.differentAccess").into());
     }
     Ok(())
 }
@@ -227,9 +228,9 @@ impl Plugins {
             let by_hash = sha256.as_deref().and_then(|hash| index.revocation("", "", Some(hash)));
             if let Some(reason) = by_id.or(by_hash) {
                 if self.record.find(uid).is_some_and(|plugin| plugin.enabled) {
-                    self.turn_off(uid, &format!("Zuna pulled it: {reason}"), cx);
+                    self.turn_off(uid, &tr!("plugins.pulledBecause", reason = reason), cx);
                 }
-                self.problems.insert(uid.clone(), format!("Zuna pulled it: {reason}"));
+                self.problems.insert(uid.clone(), tr!("plugins.pulledBecause", reason = reason));
             }
         }
         // Updates: one that asks for nothing more installs by itself, and one that does waits.
@@ -272,7 +273,7 @@ impl Plugins {
                 }
                 let result = bytes.and_then(|bytes| {
                     if bytes.len() as u64 != version.size || sha256_hex(&bytes) != version.sha256 {
-                        return Err("The package doesn't match the marketplace's list.".to_string());
+                        return Err(t("plugins.market.mismatch").to_string());
                     }
                     plugins.install(&bytes, Some(&version), cx)
                 });
@@ -283,7 +284,7 @@ impl Plugins {
                             plugins.log(&uid, "info", format!("Updated to {}.", version.version));
                         }
                     }
-                    Err(error) => plugins.toast_app(format!("{id} couldn't be installed: {error}"), crate::state::ToastKind::Error, cx),
+                    Err(error) => plugins.toast_app(tr!("plugins.market.installFailed", plugin = id, error = error), crate::state::ToastKind::Error, cx),
                 }
                 cx.notify();
             })

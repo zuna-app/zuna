@@ -1,6 +1,7 @@
 //! The title bar, and the rail of servers down the window's left side.
 
 use super::*;
+use crate::i18n::t;
 
 impl Root {
     pub(super) fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -70,9 +71,9 @@ impl Root {
                 .font_weight(FontWeight::SEMIBOLD)
                 .cursor_pointer()
                 .hover(|style| style.opacity(0.88))
-                .tip(format!("Update to {} and restart", update.label()), Side::Bottom)
+                .tip(tr!("update.titleBar.tip", version = update.label()), Side::Bottom)
                 .on_click(|_, _, cx| install_update(cx))
-                .child("Update")
+                .child(t("update.titleBar.button"))
         });
         // Covers the root, whose focus tracking would otherwise take each press here and leave
         // Windows nothing to drag, minimize, maximize or close with.
@@ -166,7 +167,7 @@ impl Root {
                         named_div(gpui::SharedString::from(format!("rail-button-{id}")))
                             .rounded(RADIUS_L)
                             .cursor_pointer()
-                            .tip(if server.telegram { "Telegram: not end-to-end encrypted".to_string() } else { server.name.clone() }, Side::Right)
+                            .tip(if server.telegram { t("servers.rail.telegram").to_string() } else { server.name.clone() }, Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
                             .map(|button| {
                                 if server.telegram {
@@ -242,7 +243,7 @@ impl Root {
                 .cursor_pointer()
                 .child(motion::hover_layer("rail-add", theme.hover_strong, RADIUS_L, 100))
                 .group("rail-add")
-                .tip(if can_link_telegram { "Join a server or connect Telegram" } else { "Join a server" }, Side::Right)
+                .tip(if can_link_telegram { t("servers.joinOrTelegram") } else { t("servers.rail.join") }, Side::Right)
                 .on_click(move |event, _, cx| {
                     if !add_state.read(cx).can_link_telegram() {
                         return add_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx));
@@ -252,8 +253,8 @@ impl Root {
                     crate::ui::menu::open_menu(
                         event.position(),
                         vec![
-                            crate::ui::menu::MenuEntry::new("Join a server", "plus", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))),
-                            crate::ui::menu::MenuEntry::new("Connect Telegram", "messages-square", move |_, cx| link.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Telegram), cx))),
+                            crate::ui::menu::MenuEntry::new(t("servers.rail.join"), "plus", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))),
+                            crate::ui::menu::MenuEntry::new(t("servers.rail.connectTelegram"), "messages-square", move |_, cx| link.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Telegram), cx))),
                         ],
                         false,
                         cx,
@@ -281,7 +282,7 @@ impl Root {
         let profile_state = state_entity.clone();
         let mut footer = div().flex().flex_col().items_center().gap(px(8.)).pt(px(8.)).child(
             icon_button("rail-settings", "settings", 19., false, false, cx)
-                .tip("Settings", Side::Right)
+                .tip(t("settings.title"), Side::Right)
                 .on_click(move |_, _, cx| settings_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Settings { section: None }), cx))),
         );
         if let Some(me) = me {

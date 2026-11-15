@@ -272,7 +272,7 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
             };
             for (id, handle) in requests {
                 handle.abort();
-                call(ctx, "__zunaHttpDone", vec![number(ctx, id as f64), number(ctx, 0.), string(ctx, "{}")?, Value::new_null(ctx.clone()), string(ctx, "The connection changed.")?])?;
+                call(ctx, "__zunaHttpDone", vec![number(ctx, id as f64), number(ctx, 0.), string(ctx, "{}")?, Value::new_null(ctx.clone()), string(ctx, crate::i18n::t("common.connectionChanged"))?])?;
             }
             for (id, (_, handle)) in sockets {
                 handle.abort();
@@ -580,7 +580,7 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         let path = string_arg(&a, 0);
         let start = number_arg(&a, 1).max(0.0) as u64;
         let end = number_arg(&a, 2).max(0.0) as u64;
-        let mut file = std::fs::File::open(&path).map_err(|error| fail(&c, format!("Couldn't read the file: {error}")))?;
+        let mut file = std::fs::File::open(&path).map_err(|error| fail(&c, tr!("media.readFailed", error = error)))?;
         file.seek(SeekFrom::Start(start)).map_err(|error| fail(&c, error.to_string()))?;
         let mut buffer = Vec::with_capacity(end.saturating_sub(start) as usize);
         file.take(end.saturating_sub(start)).read_to_end(&mut buffer).map_err(|error| fail(&c, error.to_string()))?;
@@ -592,7 +592,7 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         let extension: String = string_arg(&a, 1).chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
         let name = format!("{}.{}", hex(&zuna_crypto::primitives::random_bytes(12).unwrap_or_default()), if extension.is_empty() { "bin".into() } else { extension });
         let path = h.borrow().files.join(name);
-        let mut file = std::fs::File::create(&path).map_err(|error| fail(&c, format!("Couldn't save the file: {error}")))?;
+        let mut file = std::fs::File::create(&path).map_err(|error| fail(&c, tr!("media.saveFailed", error = error)))?;
         // What was written of a file that couldn't be finished goes.
         let written: rquickjs::Result<()> = (|| {
             if let Some(parts) = a.first().and_then(|value| value.as_array()) {

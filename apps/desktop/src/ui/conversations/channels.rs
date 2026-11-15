@@ -48,6 +48,13 @@ impl ConversationList {
             );
         for (name, kind, list) in sections {
             let folded = collapsed.contains(&name) && query.is_empty();
+            // A heading for a type of channel, which none of its channels named, is said in the
+            // person's language. Its name in English stays what it's known by.
+            let heading = match list.first() {
+                Some(channel) if channel.category.is_empty() && kind == "voice" => t("channels.voiceChannels").to_string(),
+                Some(channel) if channel.category.is_empty() => t("channels.textChannels").to_string(),
+                _ => name.clone(),
+            };
             let group = SharedString::from(format!("section-{name}"));
             let toggle_state = self.state.clone();
             let toggle_name = name.clone();
@@ -92,7 +99,7 @@ impl ConversationList {
                         })
                         // `.channel-section-title svg`: turned back a quarter when folded, over 100 ms.
                         .child(crate::ui::motion::transition(icon("chevron-down", 12., theme.text3).group_hover(SharedString::from(format!("section-title-{name}")), move |style| style.text_color(theme.text1)), format!("section-chevron-{name}"), if folded { 1. } else { 0. }, 100, crate::ui::motion::ease_out(), |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(-t * std::f32::consts::FRAC_PI_2)))))
-                        .child(div().min_w_0().one_line().child(name.to_uppercase())),
+                        .child(div().min_w_0().one_line().child(heading.to_uppercase())),
                 );
             if is_admin {
                 let (state, kind) = (self.state.clone(), kind.clone());
@@ -102,7 +109,7 @@ impl ConversationList {
                         icon_button(SharedString::from(format!("new-in-{name}")), "plus", 14., true, false, cx)
                             .w(px(22.))
                             .h(px(18.))
-                            .tip("New channel", Side::Bottom)
+                            .tip(t("channels.new"), Side::Bottom)
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: None, category: Some(kind.clone()) }), cx))),
                     ),
                 );
@@ -130,7 +137,7 @@ impl ConversationList {
                 div().px(px(14.)).pt(px(8.)).pb(px(10.)).child(
                     button("first-channel", ButtonKind::Default, ButtonSize::Small, false, cx)
                         .child(icon("plus", 14., theme.text1))
-                        .child("New channel")
+                        .child(t("channels.new"))
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: None, category: Some("text".into()) }), cx))),
                 ),
             );
@@ -151,7 +158,7 @@ impl ConversationList {
         occupants.sort_by(|a, b| a.since.partial_cmp(&b.since).unwrap_or(std::cmp::Ordering::Equal));
         let full = channel.user_limit > 0. && occupants.len() as f64 >= channel.user_limit;
         let connected = crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == server.entry.id && channel_id == channel.id);
-        let title = if !channel.name.is_empty() { channel.name.clone() } else if channel.unreadable { "Unreadable channel".into() } else { "Channel".into() };
+        let title = if !channel.name.is_empty() { channel.name.clone() } else if channel.unreadable { t("channels.unreadable").into() } else { t("channels.untitled").into() };
         let group = SharedString::from(format!("channel-{}", channel.id));
         let (open_state, open_channel) = (self.state.clone(), channel.clone());
         let menu = self.channel_menu(server, channel);
@@ -200,7 +207,7 @@ impl ConversationList {
             .when(unread, |el| el.child(div().absolute().left(px(-8.)).top(px(13.)).w(px(4.)).h(px(8.)).rounded_r(px(4.)).bg(theme.text1)))
             .child(icon(if channel.kind == "voice" { "volume-2" } else { "hash" }, 20., if connected { theme.green } else { theme.text3 }))
             .child(div().flex_1().min_w_0().one_line().when(unread, |el| el.font_weight(FontWeight::SEMIBOLD)).child(title.clone()))
-            .when(channel.admin_only, |el| el.child(named_div(SharedString::from(format!("admin-only-{}", channel.id))).flex_none().tip("Admins only", Side::Bottom).child(icon("lock", 12., theme.text3))))
+            .when(channel.admin_only, |el| el.child(named_div(SharedString::from(format!("admin-only-{}", channel.id))).flex_none().tip(t("channels.adminsOnly"), Side::Bottom).child(icon("lock", 12., theme.text3))))
             .when(muted, |el| el.child(icon("bell-off", 12., theme.text3)))
             .when(channel.kind == "voice" && channel.user_limit > 0., |el| {
                 el.child(
@@ -223,7 +230,7 @@ impl ConversationList {
                         .group("channel-edit")
                         .flex_none()
                         .flex()
-                        .tip("Edit channel", Side::Bottom)
+                        .tip(t("channels.edit"), Side::Bottom)
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
                             state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))
@@ -329,7 +336,7 @@ impl ConversationList {
     pub(super) fn voice_occupant(&self, server: &ServerState, member: &VoiceMember, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let user = server.users.get(&member.user_id);
-        let name = user.map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let name = user.map(|user| user.display_name.clone()).unwrap_or_else(|| t("notify.someone").into());
         let image = user.and_then(|user| user.avatar.clone()).and_then(|avatar| {
             let server_id = server.entry.id.clone();
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -355,7 +362,7 @@ impl ConversationList {
             )
             .child(div().flex_1().min_w_0().one_line().child(name))
             .when(member.screen, |el| {
-                el.child(div().flex_none().px(px(5.)).rounded(px(4.)).bg(theme.red).text_size(px(10.)).line_height(px(15.)).font_weight(FontWeight::BOLD).text_color(gpui::white()).child("Live"))
+                el.child(div().flex_none().px(px(5.)).rounded(px(4.)).bg(theme.red).text_size(px(10.)).line_height(px(15.)).font_weight(FontWeight::BOLD).text_color(gpui::white()).child(t("voice.occupant.live")))
             })
             .when(member.camera, |el| el.child(icon("camera", 13., theme.text3)))
             .when(member.server_muted, |el| el.child(icon("mic-off", 13., theme.red)))
@@ -370,18 +377,18 @@ impl ConversationList {
         if let Some(conversation) = &channel.conversation {
             let (state, key) = (self.state.clone(), channel.key.clone());
             if conversation.muted {
-                entries.push(MenuEntry::new("Unmute", "volume-2", move |_, cx| state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx))));
+                entries.push(MenuEntry::new(t("conversations.menu.unmute"), "volume-2", move |_, cx| state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx))));
             } else {
-                entries.push(MenuEntry::submenu("Mute", "volume-x", mute_entries(key, state)));
+                entries.push(MenuEntry::submenu(t("conversations.menu.mute"), "volume-x", mute_entries(key, state)));
             }
         }
         if server.is_admin() {
             let (state, id) = (self.state.clone(), channel.id.clone());
-            entries.push(MenuEntry::new("Edit channel", "pencil", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))));
+            entries.push(MenuEntry::new(t("channels.edit"), "pencil", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))));
             let (state, id, name) = (self.state.clone(), channel.id.clone(), channel.name.clone());
             entries.push(
-                MenuEntry::new("Delete channel", "trash", move |window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {name}?"), Some("Its messages will be deleted for everyone."), &["Delete", "Cancel"], cx);
+                MenuEntry::new(t("channels.delete"), "trash", move |window, cx| {
+                    let answer = window.prompt(gpui::PromptLevel::Warning, &tr!("channels.deleteTitle", name = name), Some(t("channels.delete.text")), &[t("common.delete"), t("common.cancel")], cx);
                     let (state, id) = (state.clone(), id.clone());
                     cx.spawn(async move |cx| {
                         if answer.await == Ok(0) {

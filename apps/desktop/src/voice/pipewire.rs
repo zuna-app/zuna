@@ -14,6 +14,7 @@ use pw::properties::properties;
 use pw::spa;
 
 use super::audio::{Device, RATE};
+use crate::i18n::t;
 
 unsafe extern "C" {
     /// libwebrtc, linked in for LiveKit, carries stand-ins for 37 of PipeWire's functions,
@@ -41,7 +42,7 @@ fn init() -> bool {
 
 /// The microphones or the speakers, by the names PipeWire gives them, with the default first.
 pub fn devices(input: bool) -> Vec<Device> {
-    let mut list = vec![Device { id: "default".into(), name: "Default".into() }];
+    let mut list = vec![Device { id: "default".into(), name: t("media.devices.default").into() }];
     // A virtual microphone, such as a noise filter's, is one to choose too.
     let classes: &'static [&'static str] = if input { &["Audio/Source", "Audio/Source/Virtual"] } else { &["Audio/Sink"] };
     list.extend(nodes(classes).unwrap_or_default());

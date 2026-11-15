@@ -34,11 +34,11 @@ pub(super) struct PlayerStatus {
 /// What each of YouTube's errors is, in words, so people know it isn't Zuna (`WATCH_ERRORS`).
 fn error_words(error: &str) -> &'static str {
     match error {
-        "gone" => "This video was removed or is private.",
-        "not-embeddable" => "Its owner only allows it to play on YouTube.",
-        "unplayable" => "YouTube won't play this video here.",
-        "no-referrer" => "YouTube refused to play it here. That's a bug in Zuna.",
-        _ => "YouTube couldn't play this video.",
+        "gone" => t("voice.watch.errorGone"),
+        "not-embeddable" => t("voice.watch.errorNotEmbeddable"),
+        "unplayable" => t("voice.watch.wontPlayHere"),
+        "no-referrer" => t("voice.watch.errorNoReferrer"),
+        _ => t("voice.watch.errorOther"),
     }
 }
 
@@ -160,7 +160,7 @@ impl VoiceStage {
         self.watch_failures.retain(|at| now.duration_since(*at) < WINDOW);
         self.watch_failures.push(now);
         let rtss = crate::platform::watch_view::rtss_running();
-        let rtss_words = "RivaTuner Statistics Server, which comes with MSI Afterburner, is known to crash it. In RivaTuner, add msedgewebview2.exe and set its Application detection level to None.";
+        let rtss_words = t("voice.watch.rtss");
         let gave_up = self.watch_failures.len() >= MOST;
         log::warn!("watch: the player's web view died{}{}", if rtss { ", with RivaTuner Statistics Server running" } else { "" }, if gave_up { ", too often to start it again" } else { ", so it's started again" });
         let message = if gave_up {
@@ -169,10 +169,10 @@ impl VoiceStage {
             let voice = self.voice.clone();
             // Out of drawing, which this is called from.
             cx.defer(move |cx| voice.update(cx, |voice, cx| voice.set_watching(false, cx)));
-            Some(if rtss { format!("The video player kept crashing, so it was stopped. {rtss_words}") } else { "The video player kept crashing, so it was stopped. Press Watch to try again.".to_string() })
+            Some(if rtss { tr!("voice.watch.crashedStoppedAdvice", advice = rtss_words) } else { t("voice.watch.crashedStopped").to_string() })
         } else if rtss && !self.watch_told_rtss {
             self.watch_told_rtss = true;
-            Some(format!("The video player crashed and was restarted. {rtss_words}"))
+            Some(tr!("voice.watch.crashedRestartedAdvice", advice = rtss_words))
         } else {
             None
         };
@@ -346,13 +346,14 @@ impl VoiceStage {
         player.sent = Some((watch.clone(), muted, held, volume));
     }
 
-    fn person_name(&self, user_id: &str, cx: &App) -> String {
+    /// Who someone is, by name, or None for this person, whose sentences say "you" instead.
+    fn person_name(&self, user_id: &str, cx: &App) -> Option<String> {
         let state = self.state.read(cx);
-        let Some(server) = state.servers.get(&self.room.server_id) else { return "someone".into() };
+        let Some(server) = state.servers.get(&self.room.server_id) else { return Some(t("chat.someone").into()) };
         if user_id == server.self_id() {
-            return "you".into();
+            return None;
         }
-        server.users.get(user_id).map(|user| user.display_name.clone()).unwrap_or_else(|| "someone".into())
+        Some(server.users.get(user_id).map(|user| user.display_name.clone()).unwrap_or_else(|| t("chat.someone").into()))
     }
 
     /// The video, filling the stage.
@@ -361,7 +362,7 @@ impl VoiceStage {
         let voice = self.voice.read(cx);
         let watching = voice.watching.as_deref() == Some(&watch.session);
         let (muted, deafened, volume) = (voice.settings.watch_muted, voice.deafened, voice.settings.watch_volume);
-        let title = if watch.video.title.is_empty() { "A YouTube video".to_string() } else { watch.video.title.clone() };
+        let title = if watch.video.title.is_empty() { t("voice.watch.untitled").to_string() } else { watch.video.title.clone() };
         let put_on_by = self.person_name(&watch.video.started_by, cx);
         let status = self.watch_player.as_ref().map(|player| player.status.borrow().clone()).unwrap_or_default();
         // On Linux the window it plays in is held by voice, and so is what its player says.
@@ -370,7 +371,7 @@ impl VoiceStage {
         #[cfg(target_os = "linux")]
         let (problem, decode_note) = (
             voice.watch_here.problem(&watch.session).map(str::to_string),
-            voice.watch_here.status().is_some_and(|here| here.cant_decode).then(|| format!("To play YouTube videos here, install {}.", crate::platform::watch_view::decoder_packages())),
+            voice.watch_here.status().is_some_and(|here| here.cant_decode).then(|| tr!("voice.watch.installDecoder", packages = crate::platform::watch_view::decoder_packages())),
         );
         #[cfg(not(target_os = "linux"))]
         let (problem, decode_note) = (None::<String>, None::<String>);
@@ -378,15 +379,29 @@ impl VoiceStage {
         let note = if let Some(error) = &status.error {
             error.clone()
         } else if status.blocked {
-            "It didn't start automatically. Press play in the video.".to_string()
+            t("voice.watch.blocked").to_string()
         } else if watching && status.phase == "catching-up" {
-            "Catching up…".to_string()
+            t("voice.watch.catchingUp").to_string()
         } else if !watch.playing {
-            format!("Paused by {}", self.person_name(&watch.changed_by, cx))
+            match self.person_name(&watch.changed_by, cx) {
+                Some(name) => tr!("voice.watch.pausedBy", name = name),
+                None => t("voice.watch.pausedByYou").to_string(),
+            }
         } else if watch.video.author.is_empty() {
-            format!("Shared by {put_on_by}")
+            match &put_on_by {
+                Some(name) => tr!("voice.watch.sharedBy", name = name),
+                None => t("voice.watch.sharedByYou").to_string(),
+            }
         } else {
-            format!("Shared by {put_on_by} · {}", watch.video.author)
+            match &put_on_by {
+                Some(name) => tr!("voice.watch.sharedByAuthor", name = name, author = watch.video.author),
+                None => tr!("voice.watch.sharedByYouAuthor", author = watch.video.author),
+            }
+        };
+        // A sentence about who shared it, by their name, or about this person.
+        let by = |named: &'static str, you: &'static str| match &put_on_by {
+            Some(name) => crate::i18n::format(named, &[("name", name as &dyn std::fmt::Display)]),
+            None => t(you).to_string(),
         };
         if watching {
             self.sync_player(watch, cx);
@@ -449,31 +464,31 @@ impl VoiceStage {
                         .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(title.clone()))
                         .when(!watch.video.author.is_empty(), |el| el.child(div().text_size(px(13.)).child(watch.video.author.clone())))
                         .child(div().id("watch-where").text_size(px(13.)).text_color(theme::color(theme::white_a(0.75))).child(if in_window {
-                            decode_note.unwrap_or_else(|| "It's playing in a separate window. Closing that window stops it here.".into())
+                            decode_note.unwrap_or_else(|| t("voice.watch.inWindow").into())
                         } else if let Some(problem) = problem {
                             problem
                         } else if plays_here {
-                            format!("Shared by {put_on_by}. It plays from YouTube when you press Watch.")
+                            by(crate::i18n::mark("voice.watch.coverBy"), crate::i18n::mark("voice.watch.coverByYou"))
                         } else if crate::host::net::proxy().is_some() {
-                            format!("Shared by {put_on_by}. This app can't play videos through a proxy yet, so it won't play while one is set.")
+                            by(crate::i18n::mark("voice.watch.proxy"), crate::i18n::mark("voice.watch.proxyYou"))
                         } else if cfg!(windows) {
-                            format!("Shared by {put_on_by}. Playing it here needs Microsoft's WebView2 Runtime, which comes with Windows 11. Install it, then restart Zuna.")
+                            by(crate::i18n::mark("voice.watch.needsWebView2"), crate::i18n::mark("voice.watch.needsWebView2You"))
                         } else {
-                            format!("Shared by {put_on_by}. This app can't play it on this system yet, but the web app and the iPhone app can.")
+                            by(crate::i18n::mark("voice.watch.unsupported"), crate::i18n::mark("voice.watch.unsupportedYou"))
                         }))
                         .when(!plays_here && cfg!(windows) && crate::host::net::proxy().is_none(), |el| {
-                            el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child("Get WebView2").on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
+                            el.child(button("watch-runtime", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(t("voice.watch.getWebView2")).on_click(|_, _, cx| cx.open_url(WEBVIEW2_DOWNLOAD)))
                         })
                         .when(in_window, |el| {
                             let voice = voice.clone();
-                            el.child(button("watch-raise", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("app-window", 16., theme.text1)).child("Show the video's window").on_click(move |_, _, cx| {
+                            el.child(button("watch-raise", ButtonKind::Default, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("app-window", 16., theme.text1)).child(t("voice.watch.showWindow")).on_click(move |_, _, cx| {
                                 #[cfg(target_os = "linux")]
                                 voice.read(cx).watch_here.raise();
                                 let _ = (&voice, cx);
                             }))
                         })
                         .when(plays_here && !in_window, |el| {
-                            el.child(button("watch-here", ButtonKind::Primary, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("tv", 16., theme.on_accent)).child("Watch").on_click(move |_, _, cx| {
+                            el.child(button("watch-here", ButtonKind::Primary, ButtonSize::Normal, false, cx).mt(px(8.)).child(icon("tv", 16., theme.on_accent)).child(t("voice.watch.watch")).on_click(move |_, _, cx| {
                                 if play_youtube {
                                     voice.update(cx, |voice, cx| voice.set_watching(true, cx));
                                 } else {
@@ -519,13 +534,13 @@ impl VoiceStage {
         }
         let another_state = state.clone();
         bar = bar
-            .child(button("watch-another", ButtonKind::Ghost, ButtonSize::Small, false, cx).child("Another video").on_click(move |_, _, cx| {
+            .child(button("watch-another", ButtonKind::Ghost, ButtonSize::Small, false, cx).child(t("voice.watch.another")).on_click(move |_, _, cx| {
                 let overlay = if another_state.read(cx).settings.play_youtube { Overlay::WatchLink } else { Overlay::WatchConsent { then_link: true } };
                 another_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx));
             }))
             .child({
                 let voice = voice.clone();
-                button("watch-stop", ButtonKind::Ghost, ButtonSize::Small, false, cx).child(icon("square", 13., theme.text1)).child("Stop").on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.watch_stop(cx)))
+                button("watch-stop", ButtonKind::Ghost, ButtonSize::Small, false, cx).child(icon("square", 13., theme.text1)).child(t("voice.watch.stop")).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.watch_stop(cx)))
             });
         if watching {
             let voice = voice.clone();
@@ -538,7 +553,7 @@ impl VoiceStage {
     pub(super) fn watch_thumb(&mut self, watch: &WatchView, size: (f32, f32), cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let picture = watch.video.image.as_ref().and_then(|image| crate::ui::message::data_url_image(&image.data));
-        let title = if watch.video.title.is_empty() { "A YouTube video".to_string() } else { watch.video.title.clone() };
+        let title = if watch.video.title.is_empty() { t("voice.watch.untitled").to_string() } else { watch.video.title.clone() };
         let voice = self.voice.clone();
         div()
             .id("watch-thumb")

@@ -18,6 +18,7 @@ use v4l::video::Capture;
 use v4l::video::capture::Parameters;
 use v4l::{Device, Format, FourCC};
 
+use crate::i18n::t;
 use crate::media::CameraDevice;
 
 /// The formats read here, the cheapest first: three kinds of BGRA are taken as they are, two
@@ -47,14 +48,14 @@ fn found() -> Vec<(String, String)> {
                 return None;
             }
             let card = device.query_caps().ok()?.card;
-            Some((path, if card.trim().is_empty() { "Camera".into() } else { card }))
+            Some((path, if card.trim().is_empty() { t("media.devices.camera").into() } else { card }))
         })
         .collect()
 }
 
 /// The cameras, with the default first.
 pub fn cameras() -> Vec<CameraDevice> {
-    let mut list = vec![CameraDevice { id: "default".into(), name: "Default".into() }];
+    let mut list = vec![CameraDevice { id: "default".into(), name: t("media.devices.default").into() }];
     list.extend(found().into_iter().map(|(_, name)| CameraDevice { id: name.clone(), name }));
     list
 }
@@ -122,18 +123,18 @@ fn choose(modes: &[Mode]) -> Option<Mode> {
 /// What to say when a camera can't be opened.
 fn why(error: io::Error) -> String {
     match error.raw_os_error() {
-        Some(libc::EBUSY) => "The camera is in use by another app.".into(),
-        Some(libc::EACCES | libc::EPERM) => "Zuna isn't allowed to use the camera.".into(),
-        _ => "Zuna can't use the camera.".into(),
+        Some(libc::EBUSY) => t("media.devices.cameraBusy").into(),
+        Some(libc::EACCES | libc::EPERM) => t("media.devices.cameraNotAllowed").into(),
+        _ => t("media.devices.cameraFailed").into(),
     }
 }
 
 /// Opens a camera by its name, or the first one, for `Camera` to read.
 pub(crate) fn open(device: &str) -> Result<crate::media::camera::Reader, String> {
     let found = found();
-    let (path, _) = found.iter().find(|(_, name)| name == device).or(found.first()).ok_or("There's no camera Zuna can use.")?;
+    let (path, _) = found.iter().find(|(_, name)| name == device).or(found.first()).ok_or(t("voice.camera.none"))?;
     let camera = Device::with_path(path).map_err(why)?;
-    let mode = choose(&modes(&camera)).ok_or("There's no camera Zuna can use.")?;
+    let mode = choose(&modes(&camera)).ok_or(t("voice.camera.none"))?;
     let format = camera.set_format(&Format::new(mode.width, mode.height, FourCC::new(&mode.fourcc))).map_err(why)?;
     camera.set_params(&Parameters::with_fps(mode.fps.min(30))).ok();
     let mut stream = MmapStream::with_buffers(&camera, Type::VideoCapture, 4).map_err(why)?;

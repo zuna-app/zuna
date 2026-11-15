@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::t;
+
 /// The plugin API's version. An app runs only plugins made for its own.
 pub const API: u32 = 1;
 
@@ -91,21 +93,21 @@ impl Permission {
     /// What the person is told it allows, in the same words everywhere.
     pub fn told(self) -> &'static str {
         match self {
-            Permission::MessagesRead => "Reads your messages",
-            Permission::MessagesSend => "Writes and deletes messages as you",
-            Permission::Network => "Contacts the internet",
-            Permission::FilesRead => "Reads files and photos sent to you",
-            Permission::MessagesIntercept => "Changes what you send before it's encrypted",
-            Permission::ActivityIntercept => "Changes what others see of your activity",
-            Permission::MessagesDecorate => "Changes how messages are shown to you",
-            Permission::Notifications => "Shows and hides notifications",
-            Permission::ClipboardRead => "Reads your clipboard",
-            Permission::ClipboardWrite => "Writes to your clipboard",
-            Permission::VoiceControl => "Joins, leaves and mutes voice for you",
-            Permission::VoiceRead => "Sees who's in voice",
-            Permission::UsersRead => "Sees the people on your servers",
-            Permission::ConversationsRead => "Sees your chats and who's in them",
-            Permission::ServersRead => "Sees which servers you're on",
+            Permission::MessagesRead => t("plugins.permissions.messagesRead"),
+            Permission::MessagesSend => t("plugins.permissions.messagesSend"),
+            Permission::Network => t("plugins.permissions.network"),
+            Permission::FilesRead => t("plugins.permissions.filesRead"),
+            Permission::MessagesIntercept => t("plugins.permissions.messagesIntercept"),
+            Permission::ActivityIntercept => t("plugins.permissions.activityIntercept"),
+            Permission::MessagesDecorate => t("plugins.permissions.messagesDecorate"),
+            Permission::Notifications => t("plugins.permissions.notifications"),
+            Permission::ClipboardRead => t("plugins.permissions.clipboardRead"),
+            Permission::ClipboardWrite => t("plugins.permissions.clipboardWrite"),
+            Permission::VoiceControl => t("plugins.permissions.voiceControl"),
+            Permission::VoiceRead => t("plugins.permissions.voiceRead"),
+            Permission::UsersRead => t("plugins.permissions.usersRead"),
+            Permission::ConversationsRead => t("plugins.permissions.conversationsRead"),
+            Permission::ServersRead => t("plugins.permissions.serversRead"),
         }
     }
 
@@ -313,7 +315,7 @@ fn color_ok(color: &str) -> bool {
 impl Manifest {
     /// Parses and checks a manifest, saying what's wrong with the first thing that is.
     pub fn parse(bytes: &[u8]) -> Result<Manifest, String> {
-        let manifest: Manifest = serde_json::from_slice(bytes).map_err(|error| format!("Its plugin.json is invalid: {error}"))?;
+        let manifest: Manifest = serde_json::from_slice(bytes).map_err(|error| tr!("plugins.manifest.invalid", error = error))?;
         manifest.check()?;
         Ok(manifest)
     }
@@ -321,101 +323,101 @@ impl Manifest {
     fn check(&self) -> Result<(), String> {
         let fail = |problem: &str| Err(problem.to_string());
         if self.manifest != 1 {
-            return fail("This version of Zuna can't read its manifest.");
+            return fail(t("plugins.manifest.unknownFormat"));
         }
         if !id_ok(&self.id) {
-            return fail("Its id must be 3 to 40 lowercase letters, digits or hyphens.");
+            return fail(t("plugins.manifest.badId"));
         }
         if self.name.trim().is_empty() || self.name.chars().count() > 40 {
-            return fail("Its name must be 1 to 40 characters.");
+            return fail(t("plugins.manifest.badName"));
         }
         if parse_version(&self.version).is_none() {
-            return fail("Its version must be in MAJOR.MINOR.PATCH form.");
+            return fail(t("plugins.manifest.badVersion"));
         }
         if self.description.chars().count() > 300 {
-            return fail("Its description is longer than 300 characters.");
+            return fail(t("plugins.manifest.longDescription"));
         }
         if self.author.name.trim().is_empty() || self.author.name.chars().count() > 60 || self.author.url.as_ref().is_some_and(|url| !url.starts_with("https://")) {
-            return fail("Its author isn't in the right format.");
+            return fail(t("plugins.manifest.badAuthor"));
         }
         if self.license.trim().is_empty() || self.license.chars().count() > 60 {
-            return fail("It doesn't name a license.");
+            return fail(t("plugins.manifest.noLicense"));
         }
         if self.source.as_ref().is_some_and(|url| !url.starts_with("https://") || url.len() > 300) {
-            return fail("Its source isn't an https:// address.");
+            return fail(t("plugins.manifest.badSource"));
         }
         if self.icon.as_ref().is_some_and(|icon| !asset_ok(icon)) {
-            return fail("Its icon must be a file in assets/.");
+            return fail(t("plugins.manifest.badIcon"));
         }
         if self.main.as_ref().is_some_and(|main| main != "main.js") {
-            return fail("Its script must be main.js.");
+            return fail(t("plugins.manifest.badScript"));
         }
         if self.api != API {
-            return fail(if self.api > API { "It needs a newer version of Zuna. Update the app to use it." } else { "It was made for an older version of Zuna and hasn't been updated." });
+            return fail(if self.api > API { t("plugins.manifest.newerApi") } else { t("plugins.manifest.olderApi") });
         }
         let mut seen = std::collections::HashSet::new();
         if !self.permissions.iter().all(|permission| seen.insert(*permission)) {
-            return fail("It lists a permission twice.");
+            return fail(t("plugins.manifest.permissionTwice"));
         }
         if self.has(Permission::MessagesDecorate) && !self.has(Permission::MessagesRead) {
-            return fail("It asks to change how messages look without permission to read them.");
+            return fail(t("plugins.manifest.decorateWithoutRead"));
         }
         if !self.permissions.is_empty() && self.main.is_none() {
-            return fail("It asks for permissions but has no script to use them.");
+            return fail(t("plugins.manifest.permissionsWithoutScript"));
         }
         if self.hosts.len() > 20 || !self.hosts.iter().all(|host| host_ok(host)) {
-            return fail("Some of its hosts aren't valid host names.");
+            return fail(t("plugins.manifest.badHosts"));
         }
         if self.has(Permission::Network) != !self.hosts.is_empty() {
-            return fail("It lists hosts without network access, or network access without any hosts.");
+            return fail(t("plugins.manifest.hostsWithoutNetwork"));
         }
         let contributes = &self.contributes;
         if contributes.settings.len() > 40 || contributes.commands.len() > 40 || contributes.themes.len() > 10 {
-            return fail("It adds more than a plugin is allowed to.");
+            return fail(t("plugins.manifest.tooMuch"));
         }
         let mut keys = std::collections::HashSet::new();
         for setting in &contributes.settings {
             if !key_ok(setting.key()) || !keys.insert(setting.key().to_string()) {
-                return fail("One of its settings has an invalid or repeated key.");
+                return fail(t("plugins.manifest.badSettingKey"));
             }
             if setting.label().trim().is_empty() || setting.label().chars().count() > 80 || setting.hint().is_some_and(|hint| hint.chars().count() > 200) {
-                return fail("One of its settings has no label, or a label or hint that's too long.");
+                return fail(t("plugins.manifest.badSettingLabel"));
             }
             match setting {
                 SettingSpec::Select { choices, default, .. } => {
                     if choices.is_empty() || choices.len() > 50 || choices.iter().any(|choice| choice.chars().count() > 80) || default.as_ref().is_some_and(|default| !choices.contains(default)) {
-                        return fail("One of its choice settings is invalid.");
+                        return fail(t("plugins.manifest.badChoices"));
                     }
                 }
                 SettingSpec::Text { default, placeholder, .. } => {
                     if default.as_ref().is_some_and(|text| text.chars().count() > 500) || placeholder.as_ref().is_some_and(|text| text.chars().count() > 120) {
-                        return fail("One of its text settings is too long.");
+                        return fail(t("plugins.manifest.longText"));
                     }
                 }
                 SettingSpec::Slider { default, .. } => {
                     if default.is_some_and(|value| !(0.0..=1.0).contains(&value)) {
-                        return fail("One of its sliders has a default outside 0 to 1.");
+                        return fail(t("plugins.manifest.badSlider"));
                     }
                 }
                 SettingSpec::Switch { .. } => {}
             }
         }
         if !contributes.commands.is_empty() && self.main.is_none() {
-            return fail("It has commands but no script to run them.");
+            return fail(t("plugins.manifest.commandsWithoutScript"));
         }
         for command in &contributes.commands {
             let keys_ok = command.keys.as_ref().is_none_or(|keys| (1..=40).contains(&keys.len()) && keys.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'));
             let slash_ok = command.slash.as_ref().is_none_or(|slash| (1..=32).contains(&slash.len()) && slash.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'));
             if !key_ok(&command.id) || command.title.trim().is_empty() || command.title.chars().count() > 80 || !keys_ok || !slash_ok {
-                return fail("One of its commands isn't in the right format.");
+                return fail(t("plugins.manifest.badCommand"));
             }
         }
         for theme in &contributes.themes {
             if !key_ok(&theme.id) || theme.name.trim().is_empty() || theme.name.chars().count() > 40 {
-                return fail("One of its themes has no name.");
+                return fail(t("plugins.manifest.themeWithoutName"));
             }
             if !theme.colors.iter().all(|(token, color)| THEME_TOKENS.contains(&token.as_str()) && color_ok(color)) {
-                return fail("One of its themes sets an unknown color or an invalid color value.");
+                return fail(t("plugins.manifest.badThemeColor"));
             }
         }
         Ok(())
@@ -446,10 +448,10 @@ impl Manifest {
     pub fn told(&self) -> Vec<(String, bool)> {
         let mut lines = Vec::new();
         if self.can_leak() {
-            lines.push((format!("Can send your messages to {}", self.hosts.join(", ")), true));
+            lines.push((tr!("plugins.canSendTo", hosts = self.hosts.join(", ")), true));
         }
         for permission in self.sorted_permissions() {
-            let line = if permission == Permission::Network { format!("Connects to {}. Each can see your IP address and whatever the plugin sends it", self.hosts.join(", ")) } else { permission.told().to_string() };
+            let line = if permission == Permission::Network { tr!("plugins.connectsTo", hosts = self.hosts.join(", ")) } else { permission.told().to_string() };
             lines.push((line, permission.strong()));
         }
         lines

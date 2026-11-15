@@ -3,6 +3,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// First, so that tr! is there for every module after it.
+#[macro_use]
+mod i18n;
 mod assets;
 mod devices;
 mod emoji_data;
@@ -94,13 +97,17 @@ fn main() {
     // The core starts and boots before GPUI does, as GPUI spends most of its start loading the
     // graphics driver, and the core is ready by the time the window is.
     let dir = host::data_dir();
+    let settings = settings::Settings::load();
+    // Before anything is shown, in the language chosen, or the system's: why the device key
+    // couldn't be read, too.
+    i18n::set_language(settings.language.as_deref());
     // What the last run decrypted or recorded, should it have stopped without quitting.
     host::clear_cache(&dir);
     let device_key = host::device_key::load(&dir);
     // Started with --no-plugins, the app runs no plugin, as it does by itself after two failed starts with them.
     let no_plugins = args.iter().any(|arg| arg == "--no-plugins");
     // Before anything connects, so that with a proxy set nothing ever goes around it.
-    host::net::set(settings::Settings::load().proxy.in_use());
+    host::net::set(settings.proxy.in_use());
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
     // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.

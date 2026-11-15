@@ -166,7 +166,7 @@ impl ChatView {
         let copy = {
             let (picked, list_id, self_id) = (picked.clone(), list_id.clone(), self_id.clone());
             cx.listener(move |view, _, _, cx| {
-                let name = |id: &str| if id == self_id { "You".to_string() } else { names.get(id).cloned().unwrap_or_else(|| "Unknown".into()) };
+                let name = |id: &str| if id == self_id { t("common.you").to_string() } else { names.get(id).cloned().unwrap_or_else(|| t("chat.unknown").into()) };
                 let text = if picked.len() == 1 {
                     picked[0].text.clone()
                 } else {
@@ -182,7 +182,7 @@ impl ChatView {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                 let count = picked.len();
                 view.state.update(cx, |state, cx| {
-                    state.toast(if count == 1 { "Copied".to_string() } else { format!("Copied {count} messages") }, ToastKind::Info, cx);
+                    state.toast(if count == 1 { t("common.copied").to_string() } else { tr!("chat.selection.copied", count = count) }, ToastKind::Info, cx);
                     state.toggle_selected(&list_id, None, cx);
                 });
             })
@@ -220,11 +220,11 @@ impl ChatView {
                     .pr(px(12.))
                     .pb(px(12.))
                     .pl(px(8.))
-                    .child(icon_button("cancel-selection", "x", 18., false, false, cx).tip("Cancel", Side::Top).on_click(stop))
-                    .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(format!("{count} {} selected", if count == 1 { "message" } else { "messages" })))
-                    .child(button("copy-selection", ButtonKind::Default, ButtonSize::Normal, count == 0, cx).child(icon("copy", 15., theme.text1)).child("Copy").on_click(copy))
-                    .child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child("Forward").on_click(forward))
-                    .when(can_delete, |el| el.child(button("delete-selection", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(icon("trash", 15., theme.red)).child("Delete for everyone").on_click(delete))),
+                    .child(icon_button("cancel-selection", "x", 18., false, false, cx).tip(t("common.cancel"), Side::Top).on_click(stop))
+                    .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(tr!("chat.selection.count", count = count)))
+                    .child(button("copy-selection", ButtonKind::Default, ButtonSize::Normal, count == 0, cx).child(icon("copy", 15., theme.text1)).child(t("common.copy")).on_click(copy))
+                    .child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child(t("message.action.forward")).on_click(forward))
+                    .when(can_delete, |el| el.child(button("delete-selection", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(icon("trash", 15., theme.red)).child(t("message.action.deleteForEveryone")).on_click(delete))),
             )
             .into_any_element()
     }

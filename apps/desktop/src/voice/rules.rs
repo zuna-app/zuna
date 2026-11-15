@@ -1,6 +1,7 @@
 //! What a server's rules allow a screen share, once someone's choices meet them
 //! (`screenRefusal` and `screenTerms` in packages/core/src/voice.ts).
 
+use crate::i18n::t;
 use crate::models::ScreenRules;
 
 /// What a share sends, at most, when it's left to the app (`SCREEN_AUTO_KBPS`).
@@ -15,13 +16,13 @@ pub fn screen_refusal(rules: Option<&ScreenRules>, role: &str, channel_limit: f6
     let defaults = ScreenRules::default();
     let rules = rules.unwrap_or(&defaults);
     if rules.who == "nobody" {
-        return Some("Screen sharing is off on this server");
+        return Some(t("voice.screen.offOnServer"));
     }
     if rules.who == "admins" && role != "owner" && role != "admin" {
-        return Some("Only admins can share a screen on this server");
+        return Some(t("voice.screen.adminsOnly"));
     }
     if channel_limit < 0. {
-        return Some("Screen sharing is off in this voice channel");
+        return Some(t("voice.screen.offInChannel"));
     }
     None
 }

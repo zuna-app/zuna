@@ -12,26 +12,26 @@ impl SettingsView {
         let (state_a, state_b, state_c, state_d) = (self.state.clone(), self.state.clone(), self.state.clone(), self.state.clone());
         let hides = me.hides_last_seen;
         let mut parts = vec![
-            Self::heading("Privacy", &theme),
-            Self::lead(format!("These apply to {}. Each server you join has its own settings.", server.entry.name), &theme),
+            Self::heading(t("settings.sections.privacy"), &theme),
+            Self::lead(tr!("settings.privacy.lead", server = server.entry.name), &theme),
             Self::row(
-                "Send read receipts",
-                Some("Others see when you've read their messages. If off, your devices still stay in sync."),
+                t("settings.privacy.readReceipts"),
+                Some(t("settings.privacy.readReceiptsHint")),
                 switch("receipts", receipts, cx).on_click(move |_, _, cx| state_a.update(cx, |state, cx| state.act("updatePreferences", vec![json!({ "sendReadReceipts": !receipts })], cx))),
                 &theme,
             ),
             Self::row(
-                "Show when I'm online",
-                Some("If off, people see “last seen recently” instead of your status."),
+                t("settings.privacy.showOnline"),
+                Some(t("settings.privacy.showOnlineHint")),
                 switch("online", !hides, cx).on_click(move |_, _, cx| state_b.update(cx, |state, cx| state.act("setHideLastSeen", vec![json!(!hides)], cx))),
                 &theme,
             ),
             Self::divider(&theme),
-            Self::subheading("Blocked people"),
+            Self::subheading(t("settings.privacy.blocked")),
         ];
         let blocked: Vec<_> = server.prefs.blocked().iter().filter_map(|id| server.users.get(id).cloned()).collect();
         if blocked.is_empty() {
-            parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("Nobody yet. You can block someone from their details in a chat, or from a group's member list.").into_any_element());
+            parts.push(div().text_size(px(12.5)).text_color(theme.text2).child(t("settings.privacy.blockedEmpty")).into_any_element());
         }
         for user in blocked {
             let state = self.state.clone();
@@ -40,25 +40,25 @@ impl SettingsView {
                 &user.display_name,
                 Some(&format!("@{}", user.username)),
                 button(SharedString::from(format!("unblock-{}", user.id)), ButtonKind::Default, ButtonSize::Small, false, cx)
-                    .child("Unblock")
+                    .child(t("settings.privacy.unblock"))
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(false)], cx))),
                 &theme,
             ));
         }
-        parts.push(div().text_size(px(12.5)).text_color(theme.text2).child("You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.").into_any_element());
+        parts.push(div().text_size(px(12.5)).text_color(theme.text2).child(t("settings.privacy.blockedHint")).into_any_element());
         parts.push(Self::divider(&theme));
-        parts.push(Self::subheading("On this device"));
+        parts.push(Self::subheading(t("settings.privacy.onThisDevice")));
         let link_previews = settings.link_previews;
         parts.push(Self::row(
-            "Link previews",
-            Some("When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it."),
+            t("settings.privacy.linkPreviews"),
+            Some(t("settings.privacy.linkPreviewsHint")),
             switch("link-previews", link_previews, cx).on_click(move |_, _, cx| state_c.update(cx, |state, cx| state.update_settings(|s| s.link_previews = !link_previews, cx))),
             &theme,
         ));
         let remove = settings.remove_metadata;
         parts.push(Self::row(
-            "Remove metadata from files",
-            Some("Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."),
+            t("settings.privacy.removeMetadata"),
+            Some(t("settings.privacy.removeMetadataHint")),
             switch("remove-metadata", remove, cx).on_click(cx.listener(move |view, _, _, cx| {
                 if remove {
                     view.confirming_keep = true;
@@ -72,22 +72,22 @@ impl SettingsView {
         let proxy = settings.proxy.clone();
         let state_p = self.state.clone();
         parts.push(Self::row(
-            "Proxy",
+            t("settings.proxy.title"),
             Some(&if proxy.on {
-                format!("Everything this device sends goes through the SOCKS5 proxy at {}, for every server. Your servers see the proxy's address instead of yours.", crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
+                tr!("settings.privacy.proxyOnHint", address = crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
             } else {
-                "Off. A SOCKS5 proxy can carry everything this device sends, so your servers see the proxy's address instead of yours.".to_string()
+                t("settings.privacy.proxyOffHint").to_string()
             }),
             button("proxy-settings", ButtonKind::Default, ButtonSize::Small, false, cx)
-                .child(if proxy.on { "Change" } else { "Set up" })
+                .child(if proxy.on { t("settings.privacy.proxyChange") } else { t("settings.privacy.proxySetUp") })
                 .on_click(move |_, _, cx| state_p.update(cx, |state, cx| state.set_overlay(Some(Overlay::Proxy { from_settings: true }), cx))),
             &theme,
         ));
         let play_youtube = settings.play_youtube;
         let state_y = self.state.clone();
         parts.push(Self::row(
-            "Play YouTube videos",
-            Some("People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first."),
+            t("settings.privacy.playYouTube"),
+            Some(t("settings.privacy.playYouTubeHint")),
             switch("play-youtube", play_youtube, cx).on_click(move |_, _, cx| state_y.update(cx, |state, cx| state.update_settings(|s| s.play_youtube = !play_youtube, cx))),
             &theme,
         ));
@@ -100,9 +100,9 @@ impl SettingsView {
         let (on_state, sound_state, tray_state) = (self.state.clone(), self.state.clone(), self.state.clone());
         let (on, sound, tray) = (settings.notifications, settings.notification_sound, settings.close_to_tray);
         let preview_label = match settings.notification_preview.as_str() {
-            "sender" => "Sender only",
-            "none" => "Nothing",
-            _ => "Sender and message",
+            "sender" => t("settings.notifications.previewSender"),
+            "none" => t("settings.notifications.previewNone"),
+            _ => t("settings.notifications.previewFull"),
         };
         let preview_state = self.state.clone();
         // As the web's select: the choice, and a menu of the three under it.
@@ -128,35 +128,35 @@ impl SettingsView {
                         state.update(cx, |state, cx| state.update_settings(|settings| settings.notification_preview = value.to_string(), cx))
                     })
                 };
-                let entries = vec![choice("Sender and message", "full"), choice("Sender only", "sender"), choice("Nothing", "none")];
+                let entries = vec![choice(t("settings.notifications.previewFull"), "full"), choice(t("settings.notifications.previewSender"), "sender"), choice(t("settings.notifications.previewNone"), "none")];
                 let at = select_bounds.get();
                 crate::ui::menu::open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
             })
             .child(preview_label)
             .child(icon("chevron-down", 15., theme.text2));
         let mut parts = vec![
-            Self::heading("Notifications", &theme),
-            Self::lead("Previews are decrypted on this device. No notification service ever sees them.".into(), &theme),
+            Self::heading(t("settings.sections.notifications"), &theme),
+            Self::lead(t("settings.notifications.lead").into(), &theme),
             Self::row(
-                "Desktop notifications",
-                Some("If you're using another device, they wait 30 seconds and won't show if you read the chat there."),
+                t("settings.notifications.desktop"),
+                Some(t("settings.notifications.desktopHint")),
                 switch("notifications-on", on, cx).on_click(move |_, _, cx| on_state.update(cx, |state, cx| state.update_settings(|s| s.notifications = !on, cx))),
                 &theme,
             ),
             Self::row(
-                "Sound",
+                t("settings.notifications.sound"),
                 None,
                 switch("notification-sound", sound, cx).on_click(move |_, _, cx| sound_state.update(cx, |state, cx| state.update_settings(|s| s.notification_sound = !sound, cx))),
                 &theme,
             ),
-            Self::row("What notifications show", Some("Choose less if others can see your screen."), select, &theme),
+            Self::row(t("settings.notifications.preview"), Some(t("settings.notifications.previewHint")), select, &theme),
         ];
         // macOS keeps every app running with its window closed, and has no tray, as the
         // Electron app didn't offer this there.
         if cfg!(not(target_os = "macos")) {
             parts.push(Self::row(
-                "Keep running when closed",
-                Some("Zuna stays in the system tray so messages still arrive."),
+                t("settings.notifications.closeToTray"),
+                Some(t("settings.notifications.closeToTrayHint")),
                 switch("close-to-tray", tray, cx).on_click(move |_, _, cx| tray_state.update(cx, |state, cx| state.update_settings(|s| s.close_to_tray = !tray, cx))),
                 &theme,
             ));
@@ -189,13 +189,13 @@ impl SettingsView {
         }));
         let segmented = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.)).children([TextSize::Small, TextSize::Medium, TextSize::Large].into_iter().map(|size| {
             let active = settings.message_size == size;
-            let label = match size {
-                TextSize::Small => "Small",
-                TextSize::Medium => "Medium",
-                TextSize::Large => "Large",
+            let (id, label) = match size {
+                TextSize::Small => ("Small", t("settings.appearance.sizeSmall")),
+                TextSize::Medium => ("Medium", t("settings.appearance.sizeMedium")),
+                TextSize::Large => ("Large", t("settings.appearance.sizeLarge")),
             };
             let state = self.state.clone();
-            named_div(label)
+            named_div(id)
                 .px(px(11.))
                 .py(px(4.))
                 .rounded(RADIUS_S)
@@ -223,31 +223,72 @@ impl SettingsView {
                     state.update(cx, |state, cx| state.update_settings(|s| s.theme = Some(key), cx))
                 })));
             }
-            Self::row("Theme", Some("From your plugins. The accent color above only applies to Zuna's own themes."), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
+            Self::row(t("settings.appearance.theme"), Some(t("settings.appearance.themeHint")), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
         });
+        // The language the app is shown in: the system's, or one of those there are, each by its own name.
+        let same_as_system = t("settings.appearance.languageSystem");
+        let language_label = settings
+            .language
+            .as_deref()
+            .and_then(|tag| crate::i18n::languages().into_iter().find(|(have, _)| *have == tag).map(|(_, name)| name))
+            .unwrap_or_else(|| same_as_system.to_string());
+        let language_state = self.state.clone();
+        // As the notifications' select: the choice, and a menu of them under it.
+        let (language_bounds, language_probe) = bounds_probe();
+        let language = named_div("language")
+            .w(px(180.))
+            .h(px(36.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(8.))
+            .rounded(RADIUS_M)
+            .bg(theme.bg2)
+            .border_1()
+            .border_color(theme.line)
+            .text_size(px(13.5))
+            .cursor_pointer()
+            .child(language_probe)
+            .on_click(move |_, _, cx| {
+                let choice = |label: String, value: Option<String>| {
+                    let state = language_state.clone();
+                    crate::ui::menu::MenuEntry::new(label, "languages", move |_, cx| {
+                        let value = value.clone();
+                        state.update(cx, |state, cx| state.update_settings(|settings| settings.language = value, cx))
+                    })
+                };
+                let mut entries = vec![choice(same_as_system.to_string(), None)];
+                entries.extend(crate::i18n::languages().into_iter().map(|(tag, name)| choice(name, Some(tag.to_string()))));
+                let at = language_bounds.get();
+                crate::ui::menu::open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
+            })
+            .child(div().flex_1().min_w_0().one_line().child(language_label))
+            .child(icon("chevron-down", 15., theme.text2));
         vec![
-            Self::heading("Appearance", &theme),
+            Self::heading(t("settings.sections.appearance"), &theme),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Accent color"))
+                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("settings.appearance.accent")))
                 .child(swatches)
                 .into_any_element(),
         ]
         .into_iter()
         .chain(theme_row)
         .chain([
-            Self::row("Message size", None, segmented, &theme),
+            Self::row(t("settings.appearance.messageSize"), None, segmented, &theme),
+            Self::row(t("settings.appearance.language"), Some(t("settings.appearance.languageHintSystem")), language, &theme),
             Self::row(
-                "Reduce motion",
-                Some("Turns off most animations."),
+                t("settings.appearance.reduceMotion"),
+                Some(t("settings.appearance.reduceMotionHint")),
                 switch("reduce-motion", reduce, cx).on_click(move |_, _, cx| motion_state.update(cx, |state, cx| state.update_settings(|s| s.reduce_motion = !reduce, cx))),
                 &theme,
             ),
             Self::row(
-                "Press Enter to send",
-                Some(if cfg!(target_os = "macos") { "If off, use ⌘Return to send and Return for new lines." } else { "If off, use Ctrl+Enter to send and Enter for new lines." }),
+                t("settings.appearance.enterToSend"),
+                Some(if cfg!(target_os = "macos") { t("settings.appearance.enterToSendHintMac") } else { t("settings.appearance.enterToSendHint") }),
                 switch("enter-to-send", enter, cx).on_click(move |_, _, cx| enter_state.update(cx, |state, cx| state.update_settings(|s| s.enter_to_send = !enter, cx))),
                 &theme,
             ),
@@ -278,7 +319,7 @@ impl SettingsView {
                     .border_color(theme.line_strong)
                     .rounded(px(14.))
                     .shadow(shadow_l())
-                    .child(div().flex().items_center().gap(px(10.)).pt(px(16.)).pr(px(16.)).pb(px(4.)).pl(px(20.)).child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Send files with their metadata?")))
+                    .child(div().flex().items_center().gap(px(10.)).pt(px(16.)).pr(px(16.)).pb(px(4.)).pl(px(20.)).child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(t("settings.privacy.keepMetadataTitle"))))
                     .child(
                         div()
                             .flex()
@@ -288,8 +329,8 @@ impl SettingsView {
                             .pt(px(10.))
                             .pb(px(20.))
                             .text_size(px(13.5))
-                            .child("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.")
-                            .child(div().text_color(theme.text2).child("Your server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.")),
+                            .child(t("settings.privacy.keepMetadataText"))
+                            .child(div().text_color(theme.text2).child(t("settings.privacy.keepMetadataNote"))),
                     )
                     .child(
                         div()
@@ -298,11 +339,11 @@ impl SettingsView {
                             .gap(px(8.))
                             .px(px(20.))
                             .pb(px(16.))
-                            .child(button("keep-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|view, _, _, cx| {
+                            .child(button("keep-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|view, _, _, cx| {
                                 view.confirming_keep = false;
                                 cx.notify();
                             })))
-                            .child(button("keep-confirm", ButtonKind::Danger, ButtonSize::Normal, false, cx).child("Turn off").on_click(cx.listener(move |view, _, _, cx| {
+                            .child(button("keep-confirm", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(t("settings.privacy.keepMetadataAction")).on_click(cx.listener(move |view, _, _, cx| {
                                 view.confirming_keep = false;
                                 state.update(cx, |state, cx| state.update_settings(|s| s.remove_metadata = false, cx));
                                 cx.notify();

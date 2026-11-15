@@ -21,6 +21,7 @@ use super::menu::{MenuEntry, open_menu};
 use super::motion::{Enter, Motion};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::format_list_time;
+use crate::i18n::t;
 use crate::markup::plain_text;
 use crate::models::{ChannelView, ConversationView, MessageView, SearchResult, UserView, VoiceMember};
 use crate::state::{AppState, Overlay, ServerState, ToastKind};
@@ -93,37 +94,32 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
     if let Some(system) = &message.system {
         if system.kind == "timer_changed" {
             let seconds = system.seconds.unwrap_or(0.);
-            return if seconds > 0. { format!("Messages disappear after {}", crate::format::timer_text(seconds)) } else { "Disappearing messages turned off".into() };
+            return if seconds > 0. { tr!("conversations.preview.timer", time = crate::format::timer_text(seconds)) } else { t("conversations.preview.timerOff").into() };
         }
-        return "Membership changed".into();
+        return t("conversations.preview.membership").into();
     }
     match message.status.as_str() {
-        "undecryptable" => return "Waiting for keys".into(),
-        "invalid" | "unverified" => return "A message that couldn't be displayed".into(),
+        "undecryptable" => return t("conversations.preview.waitingForKeys").into(),
+        "invalid" | "unverified" => return t("conversations.preview.unreadable").into(),
         _ => {}
     }
-    let author = if message.sender_id == self_id {
-        Some("You".to_string())
-    } else if kind == "group" {
-        users.get(&message.sender_id).map(|user| user.display_name.split(' ').next().unwrap_or("").to_string())
-    } else {
-        None
-    };
+    let own = message.sender_id == self_id;
+    let author = if !own && kind == "group" { users.get(&message.sender_id).map(|user| user.display_name.split(' ').next().unwrap_or("").to_string()) } else { None };
     let body = if !message.text.is_empty() {
         plain_preview(&message.text)
     } else if message.location.is_some() {
-        "Location".to_string()
+        t("conversations.preview.location").to_string()
     } else if let Some(first) = message.attachments.first() {
         if first.voice == Some(true) {
-            "Voice message".into()
+            t("conversations.preview.voiceMessage").into()
         } else if first.round == Some(true) {
-            "Video message".into()
+            t("conversations.preview.videoMessage").into()
         } else if first.sticker == Some(true) {
-            "Sticker".into()
+            t("conversations.preview.sticker").into()
         } else if first.mime.starts_with("image/") {
-            "Photo".into()
+            t("conversations.preview.photo").into()
         } else if first.mime.starts_with("video/") {
-            "Video".into()
+            t("conversations.preview.video").into()
         } else {
             first.name.clone()
         }
@@ -131,14 +127,15 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
         String::new()
     };
     match author {
-        Some(author) => format!("{author}: {body}"),
+        _ if own => tr!("conversations.preview.fromYou", text = body),
+        Some(author) => tr!("conversations.preview.from", name = author, text = body),
         None => body,
     }
 }
 
 impl ConversationList {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx, "Search"));
+        let search = cx.new(|cx| TextInput::new(cx, t("common.search")));
         let menus = super::menu::menu_layer(cx);
         let mut subscriptions = vec![
             cx.observe(&state, |list, state, cx| {
@@ -250,9 +247,14 @@ pub fn mute_entries(key: String, state: Entity<AppState>) -> Vec<MenuEntry> {
             state.update(cx, |state, cx| state.act("mute", vec![json!(key), until], cx))
         })
     };
-    let mut entries = vec![choice("For 1 hour", Some(1.)), choice("For 8 hours", Some(8.)), choice("For 1 day", Some(24.)), choice("For 1 week", Some(168.))];
+    let mut entries = vec![
+        choice(t("conversations.mute.hour"), Some(1.)),
+        choice(t("conversations.mute.eightHours"), Some(8.)),
+        choice(t("conversations.mute.day"), Some(24.)),
+        choice(t("conversations.mute.week"), Some(168.)),
+    ];
     let (state, key) = (state.clone(), key.clone());
-    entries.push(MenuEntry::new("Until I unmute", "bell-off", move |_, cx| state.update(cx, |state, cx| state.act("mute", vec![json!(key)], cx))));
+    entries.push(MenuEntry::new(t("conversations.mute.forever"), "bell-off", move |_, cx| state.update(cx, |state, cx| state.act("mute", vec![json!(key)], cx))));
     entries
 }
 
@@ -332,32 +334,32 @@ impl Render for ConversationList {
                             let at = title_bounds.get();
                             let (group, join, connections, unlink) = (state.clone(), state.clone(), state.clone(), state.clone());
                             let entries = vec![
-                                MenuEntry::new("New group", "users-round", move |_, cx| group.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx))),
-                                MenuEntry::new("Join a group by link", "link-2", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(Overlay::TelegramJoin), cx))),
+                                MenuEntry::new(t("conversations.newGroup"), "users-round", move |_, cx| group.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx))),
+                                MenuEntry::new(t("servers.menu.joinByLink"), "link-2", move |_, cx| join.update(cx, |state, cx| state.set_overlay(Some(Overlay::TelegramJoin), cx))),
                                 MenuEntry::separator(),
-                                MenuEntry::new("Connections", "link", move |_, cx| connections.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))),
+                                MenuEntry::new(t("servers.menu.connections"), "link", move |_, cx| connections.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))),
                                 MenuEntry::separator(),
-                                MenuEntry::new("Unlink Telegram", "log-out", move |_, cx| unlink.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))).danger(),
+                                MenuEntry::new(t("servers.menu.unlinkTelegram"), "log-out", move |_, cx| unlink.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx))).danger(),
                             ];
                             return super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
                         }
                         let mut entries = vec![
                             {
                                 let state = state.clone();
-                                MenuEntry::new("Invite people", "link", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Invite), cx)))
+                                MenuEntry::new(t("conversations.menu.invite"), "link", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Invite), cx)))
                             },
                             {
                                 let state = state.clone();
-                                MenuEntry::new("New group", "users-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
+                                MenuEntry::new(t("conversations.newGroup"), "users-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
                             },
                         ];
                         if is_admin {
                             let settings = state.clone();
-                            entries.push(MenuEntry::new("Server settings", "settings", move |_, cx| settings.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: None }), cx))));
+                            entries.push(MenuEntry::new(t("conversations.menu.serverSettings"), "settings", move |_, cx| settings.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: None }), cx))));
                         }
                         entries.push(MenuEntry::separator());
                         let leave = state.clone();
-                        entries.push(MenuEntry::new("Leave this server", "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
+                        entries.push(MenuEntry::new(t("conversations.menu.leave"), "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
                         // From the title's left edge, 4 px under it, as the web opens it.
                         let at = title_bounds.get();
                         super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
@@ -382,7 +384,7 @@ impl Render for ConversationList {
             .child({
                 let state = self.state.clone();
                 icon_button("new-group", "square-pen", 17., false, false, cx)
-                    .tip("New group", Side::Bottom)
+                    .tip(t("conversations.newGroup"), Side::Bottom)
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
             });
 
@@ -409,20 +411,21 @@ impl Render for ConversationList {
         );
 
         let shows_channels = !server.channels.is_empty() || server.is_admin();
-        let mut filters = vec![(Filter::All, "All")];
+        // Each tab's id, which stays the same in every language, and its label.
+        let mut filters = vec![(Filter::All, "All", t("conversations.filters.all"))];
         if shows_channels {
-            filters.push((Filter::Channels, "Channels"));
+            filters.push((Filter::Channels, "Channels", t("conversations.filters.channels")));
         }
-        filters.push((Filter::People, "People"));
+        filters.push((Filter::People, "People", t("conversations.filters.people")));
         if server.conversations.iter().any(|item| item.bot) {
-            filters.push((Filter::Bots, "Bots"));
+            filters.push((Filter::Bots, "Bots", t("conversations.filters.bots")));
         }
-        filters.extend([(Filter::Groups, "Groups"), (Filter::Unread, "Unread")]);
+        filters.extend([(Filter::Groups, "Groups", t("conversations.filters.groups")), (Filter::Unread, "Unread", t("conversations.filters.unread"))]);
         // All six only fit the list at the width it starts with when they stand closer (`.is-tight`).
         let (gap, edge) = if filters.len() > 5 { (11., 12.) } else { (16., 14.) };
-        let tabs = div().flex().flex_none().gap(px(gap)).px(px(edge)).border_b_1().border_color(theme.line).children(filters.into_iter().map(|(id, label)| {
+        let tabs = div().flex().flex_none().gap(px(gap)).px(px(edge)).border_b_1().border_color(theme.line).children(filters.into_iter().map(|(id, name, label)| {
             let active = self.filter == id;
-            named_div(label)
+            named_div(name)
                 .relative()
                 .pt(px(5.))
                 .pb(px(8.))
@@ -449,9 +452,9 @@ impl Render for ConversationList {
             rows.push(super::motion::sliding(format!("conv-{}", item.key), list_scroll.clone(), self.row(item, &server, window, cx)).into_any_element());
         }
         if !self.hits.is_empty() {
-            rows.push(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(14.)).py(px(6.)).mt(px(6.)).child("Messages").into_any_element());
+            rows.push(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(14.)).py(px(6.)).mt(px(6.)).child(t("conversations.search.messages")).into_any_element());
             for hit in self.hits.clone() {
-                let conversation = server.find_conversation(&hit.conversation_key).map(|c| c.title.clone()).unwrap_or_else(|| "Conversation".into());
+                let conversation = server.find_conversation(&hit.conversation_key).map(|c| c.title.clone()).unwrap_or_else(|| t("conversations.search.untitled").into());
                 let sender = server.users.get(&hit.message.sender_id).cloned();
                 let picture = sender.as_ref().and_then(|sender| sender.avatar.clone()).and_then(|avatar| {
                     let server_id = server.entry.id.clone();
@@ -512,13 +515,13 @@ impl Render for ConversationList {
         }
         if visible.is_empty() && hidden.is_empty() && self.hits.is_empty() && self.filter != Filter::Channels && !(self.search_pending && !query.is_empty()) {
             let message = if !query.is_empty() {
-                "Nothing matches that search."
+                t("conversations.empty.noMatch")
             } else if self.filter == Filter::Unread {
-                "You're all caught up."
+                t("conversations.empty.caughtUp")
             } else if self.filter == Filter::Groups {
-                "No groups yet."
+                t("conversations.empty.noGroups")
             } else {
-                "It's quiet here."
+                t("conversations.empty.quiet")
             };
             let groups = self.filter == Filter::Groups;
             let state = self.state.clone();
@@ -535,7 +538,7 @@ impl Render for ConversationList {
                     .when(query.is_empty() && self.filter != Filter::Unread && !telegram, |el| {
                         el.child(
                             button("empty-action", ButtonKind::Default, ButtonSize::Small, false, cx)
-                                .child(if groups { "Create a group" } else { "Invite people" })
+                                .child(if groups { t("conversations.empty.createGroup") } else { t("conversations.menu.invite") })
                                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(if groups { Overlay::NewGroup } else { Overlay::Invite }), cx))),
                         )
                     })
@@ -565,7 +568,7 @@ impl Render for ConversationList {
                     // `.hidden-toggle svg`: turned a quarter when open, over 100 ms.
                     .child(super::motion::transition(icon("chevron-right", 14., theme.text3).group_hover("hidden-toggle", move |style| style.text_color(theme.text2)), "hidden-toggle-chevron", if open { 1. } else { 0. }, 100, super::motion::ease(), |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(t * std::f32::consts::FRAC_PI_2)))))
                     // Telegram's archive is its hidden chats.
-                    .child(format!("{} ({})", if telegram { "Archived" } else { "Hidden" }, hidden.len()))
+                    .child(if telegram { tr!("conversations.archived", count = hidden.len()) } else { tr!("conversations.hidden", count = hidden.len()) })
                     .into_any_element(),
             );
             if open {

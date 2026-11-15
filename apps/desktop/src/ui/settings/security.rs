@@ -10,7 +10,7 @@ impl SettingsView {
         let key_protected = self.state.read(cx).key_protected;
         let verify_state = self.state.clone();
         let user_id = me.id.clone();
-        let mut parts = vec![Self::heading("Security", &theme)];
+        let mut parts = vec![Self::heading(t("settings.sections.security"), &theme)];
         if !key_protected {
             parts.push(
                 div()
@@ -23,16 +23,16 @@ impl SettingsView {
                     .text_size(px(13.))
                     .text_color(theme.amber_text)
                     .child(icon("lock", 15., theme.amber))
-                    .child(crate::platform::KEY_WARNING)
+                    .child(crate::platform::key_warning())
                     .into_any_element(),
             );
         }
         parts.push(Self::row(
-            "Your security key",
-            Some("Compare it with friends to make sure nobody is intercepting your messages."),
+            t("settings.security.securityKey"),
+            Some(t("settings.security.securityKeyHint")),
             button("view-key", ButtonKind::Default, ButtonSize::Small, false, cx)
                 .child(icon("key-round", 14., theme.text1))
-                .child("View")
+                .child(t("settings.security.view"))
                 .on_click(move |_, _, cx| verify_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user_id.clone() }), cx))),
             &theme,
         ));
@@ -61,12 +61,12 @@ impl SettingsView {
                                     .flex()
                                     .items_center()
                                     .child(div().font_weight(FontWeight::MEDIUM).child(device.name.clone()))
-                                    .when(device.is_current, |el| el.child(div().ml(px(8.)).px(px(7.)).py(px(1.)).rounded(px(10.)).text_size(px(11.)).bg(theme.bg4).text_color(theme.text2).child("This device"))),
+                                    .when(device.is_current, |el| el.child(div().ml(px(8.)).px(px(7.)).py(px(1.)).rounded(px(10.)).text_size(px(11.)).bg(theme.bg4).text_color(theme.text2).child(t("settings.devices.thisDevice")))),
                             )
-                            .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("Signed in {}", format_full(device.created_at)))),
+                            .child(div().text_size(px(12.)).text_color(theme.text3).child(tr!("settings.security.signedIn", date = format_full(device.created_at)))),
                     )
                     .when(!device.is_current, |el| {
-                        el.child(button(SharedString::from(format!("revoke-{}", device.id)), ButtonKind::Danger, ButtonSize::Small, false, cx).child(icon("trash", 13., theme.red)).child("Remove").on_click(move |_, _, cx| {
+                        el.child(button(SharedString::from(format!("revoke-{}", device.id)), ButtonKind::Danger, ButtonSize::Small, false, cx).child(icon("trash", 13., theme.red)).child(t("common.remove")).on_click(move |_, _, cx| {
                             state.update(cx, |state, cx| state.act("revokeDevice", vec![json!(id)], cx))
                         }))
                     }),
@@ -77,36 +77,36 @@ impl SettingsView {
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Your devices on this server"))
+                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(t("settings.devices.title")))
                 .child(devices)
-                .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("To add a device, sign in on it at {}", server.entry.address)))
+                .child(div().text_size(px(12.)).text_color(theme.text3).child(tr!("settings.devices.addDevice", address = server.entry.address)))
                 .into_any_element(),
         );
         parts.push(Self::divider(&theme));
-        parts.push(Self::subheading("Change password"));
+        parts.push(Self::subheading(t("settings.security.changePassword")));
         let current = self.current.read(cx).text().to_string();
         let next = self.next.read(cx).text().to_string();
         let confirm = self.confirm.read(cx).text().to_string();
         let can_change = !current.is_empty() && next.chars().count() >= MIN_PASSWORD && self.strength.0 >= 2 && confirm == next;
-        parts.push(field(Some("Current password"), self.current.clone(), None, None, self.focused == Some(2), None, cx).into_any_element());
+        parts.push(field(Some(t("settings.security.currentPassword")), self.current.clone(), None, None, self.focused == Some(2), None, cx).into_any_element());
         parts.push(
             field(
-                Some("New password"),
+                Some(t("settings.security.newPassword")),
                 self.next.clone(),
                 None,
-                Some(if next.is_empty() { format!("At least {MIN_PASSWORD} characters.") } else { self.strength.1.clone() }),
+                Some(if next.is_empty() { tr!("settings.security.passwordMinimum", count = MIN_PASSWORD) } else if self.strength.1.is_empty() { String::new() } else { crate::ui::password_strength(self.strength.0).to_string() }),
                 self.focused == Some(3),
                 None,
                 cx,
             )
             .into_any_element(),
         );
-        let confirm_error = if !confirm.is_empty() && !next.starts_with(&confirm) { Some("The passwords don't match.".to_string()) } else { None };
-        parts.push(field(Some("Confirm new password"), self.confirm.clone(), confirm_error, None, self.focused == Some(4), None, cx).into_any_element());
+        let confirm_error = if !confirm.is_empty() && !next.starts_with(&confirm) { Some(t("common.passwordsDontMatch").to_string()) } else { None };
+        parts.push(field(Some(t("settings.security.confirmNewPassword")), self.confirm.clone(), confirm_error, None, self.focused == Some(4), None, cx).into_any_element());
         let state = self.state.clone();
         parts.push(
             div()
-                .child(button("change-password", ButtonKind::Default, ButtonSize::Normal, !can_change, cx).child("Change password").when(can_change, |el| {
+                .child(button("change-password", ButtonKind::Default, ButtonSize::Normal, !can_change, cx).child(t("settings.security.changePassword")).when(can_change, |el| {
                     el.on_click(cx.listener(move |view, _, _, cx| {
                         let (current, next) = (view.current.read(cx).text().to_string(), view.next.read(cx).text().to_string());
                         let inputs = [view.current.clone(), view.next.clone(), view.confirm.clone()];
@@ -117,7 +117,7 @@ impl SettingsView {
                                     for input in &inputs {
                                         input.update(cx, |input, cx| input.set_text("", cx));
                                     }
-                                    state.toast("Password changed", ToastKind::Info, cx)
+                                    state.toast(t("settings.security.passwordChanged"), ToastKind::Info, cx)
                                 }
                                 Err(error) => state.toast(error.message, ToastKind::Error, cx),
                             });
@@ -127,8 +127,8 @@ impl SettingsView {
                 .into_any_element(),
         );
         parts.push(Self::divider(&theme));
-        parts.push(Self::subheading("Recovery key"));
-        parts.push(div().text_size(px(13.5)).text_color(theme.text2).child("Create a new key if you've lost the old one or think someone saw it. The old key stops working immediately.").into_any_element());
+        parts.push(Self::subheading(t("settings.security.recoveryKey")));
+        parts.push(div().text_size(px(13.5)).text_color(theme.text2).child(t("settings.security.recoveryKeyHint")).into_any_element());
         if let Some(key) = self.recovery_key.clone() {
             let copy = key.clone();
             let state = self.state.clone();
@@ -151,20 +151,20 @@ impl SettingsView {
             parts.push(
                 button("copy-new-key", ButtonKind::Default, ButtonSize::Normal, false, cx)
                     .child(icon("copy", 14., theme.text1))
-                    .child("Copy")
+                    .child(t("common.copy"))
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                        state.update(cx, |state, cx| state.toast("Copied", ToastKind::Info, cx));
+                        state.update(cx, |state, cx| state.toast(t("common.copied"), ToastKind::Info, cx));
                     })
                     .into_any_element(),
             );
         } else {
-            parts.push(field(Some("Current password"), self.recovery_password.clone(), None, None, self.focused == Some(5), None, cx).into_any_element());
+            parts.push(field(Some(t("settings.security.currentPassword")), self.recovery_password.clone(), None, None, self.focused == Some(5), None, cx).into_any_element());
             let password = self.recovery_password.read(cx).text().to_string();
             let state = self.state.clone();
             parts.push(
                 div()
-                    .child(button("new-recovery-key", ButtonKind::Default, ButtonSize::Normal, password.is_empty(), cx).child("Create a new recovery key").when(!password.is_empty(), |el| {
+                    .child(button("new-recovery-key", ButtonKind::Default, ButtonSize::Normal, password.is_empty(), cx).child(t("settings.security.createANewRecoveryKey")).when(!password.is_empty(), |el| {
                         el.on_click(cx.listener(move |view, _, _, cx| {
                             let call = {
                                 let state = state.read(cx);

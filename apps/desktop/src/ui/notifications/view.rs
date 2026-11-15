@@ -155,7 +155,7 @@ impl NotificationsView {
                                     }
                                 }
                             })
-                            .child("REPLY"),
+                            .child(crate::i18n::t("notifications.reply.button")),
                     ),
             );
         }
@@ -222,7 +222,7 @@ impl Render for NotificationsView {
                     .cursor_pointer()
                     .hover(move |style| style.bg(theme.bg4))
                     .on_click(move |_, _, cx| center.update(cx, |center, cx| center.hide_everything(cx)))
-                    .child("Hide all"),
+                    .child(crate::i18n::t("notifications.hideAll")),
             );
         }
         let shown: Vec<(u64, f32, f32)> = cards;

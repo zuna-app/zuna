@@ -423,10 +423,12 @@ impl ChatView {
         let first_unread = self.unread_line.clone().flatten().and_then(|id| self.state.read(cx).lists.get(&conversation.list_id()).and_then(|list| list.items.iter().find(|item| item.id == id).map(|item| item.created_at)));
         let text = if unread_below > 0 {
             let count = if unread_below > 99 { "99+".to_string() } else { unread_below.to_string() };
-            let since = first_unread.map(|at| format!(" since {}", crate::format::format_time(at))).unwrap_or_default();
-            format!("{count} new {}{since}", if unread_below == 1 { "message" } else { "messages" })
+            match first_unread {
+                Some(at) => tr!("chat.newMessagesSince", count = count, time = crate::format::format_time(at)),
+                None => tr!("chat.newMessages", count = count),
+            }
         } else {
-            "You're viewing older messages".to_string()
+            t("chat.viewingOlder").to_string()
         };
         let state = self.state.clone();
         let list_id = conversation.list_id();
@@ -459,7 +461,7 @@ impl ChatView {
                 }
             }))
             .child(div().min_w_0().one_line().child(text))
-            .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Jump to present").child(icon("arrow-down", 15., theme.text1)))
+            .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(t("chat.jumpToPresent")).child(icon("arrow-down", 15., theme.text1)))
             .enter("jump-present-in", Enter::Rise(10.), 180)
             .into_any_element()
     }
@@ -639,19 +641,19 @@ impl ChatView {
         // As `EmptyChat` words it. A Telegram chat isn't end-to-end encrypted, and says who keeps it.
         let (title, text) = if telegram {
             let title = if is_saved {
-                "Your saved messages".to_string()
+                t("chat.empty.savedTitle").to_string()
             } else if conversation.kind == "group" {
                 conversation.title.clone()
             } else {
-                format!("Say hello to {}", conversation.title)
+                tr!("chat.empty.dmTitle", name = conversation.title)
             };
-            (title, "Messages here aren't end-to-end encrypted. Telegram keeps them on its servers.".to_string())
+            (title, t("chat.empty.telegramText").to_string())
         } else if is_saved {
-            ("Your saved messages".to_string(), "Keep notes, links and files here. They're encrypted and sync across your devices.".to_string())
+            (t("chat.empty.savedTitle").to_string(), t("chat.empty.savedText").to_string())
         } else if conversation.kind == "group" {
-            (conversation.title.clone(), "Messages here are end-to-end encrypted. Only members can read them.".to_string())
+            (conversation.title.clone(), t("chat.empty.groupText").to_string())
         } else {
-            (format!("Say hello to {}", conversation.title), "Your messages are end-to-end encrypted. Not even this server can read them.".to_string())
+            (tr!("chat.empty.dmTitle", name = conversation.title), t("chat.empty.dmText").to_string())
         };
         // Someone not yet verified can be, from here. Nobody on Telegram can: there are no keys to compare.
         let verify = (!telegram && !is_saved && conversation.kind != "group").then_some(()).and(peer.filter(|peer| peer.trust != "verified"));
@@ -678,7 +680,7 @@ impl ChatView {
                         el.child(
                             button("verify-empty", ButtonKind::Default, ButtonSize::Small, false, cx)
                                 .mt(px(8.))
-                                .child("Verify with emoji")
+                                .child(t("chat.empty.verify"))
                                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: peer.id.clone() }), cx))),
                         )
                     }),

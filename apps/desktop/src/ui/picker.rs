@@ -15,6 +15,7 @@ use super::motion::{Edge, Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::emoji_data::EMOJI_CATEGORIES;
+use crate::i18n::t;
 use crate::models::Emote;
 use crate::state::store;
 use crate::theme::{RADIUS_L, RADIUS_M, RADIUS_S};
@@ -29,6 +30,22 @@ const EMOJI_LABEL: f32 = 30.;
 /// How far past what's seen a grid is built, as `EmotePicker`'s emotes wait until they're this
 /// close to being seen.
 const NEAR: f32 = 300.;
+
+/// An emoji category's name in the person's language. The list is written from the web's
+/// (emoji_data.rs), whose names are English.
+fn category_label(label: &'static str) -> &'static str {
+    match label {
+        "Smileys" => t("emoji.category.smileys"),
+        "People" => t("emoji.category.people"),
+        "Hearts" => t("emoji.category.hearts"),
+        "Nature" => t("emoji.category.nature"),
+        "Food" => t("emoji.category.food"),
+        "Activity" => t("emoji.category.activity"),
+        "Objects" => t("emoji.category.objects"),
+        "Symbols" => t("emoji.category.symbols"),
+        other => other,
+    }
+}
 
 /// The place of rows not built, which keeps the rest where they'd be.
 fn space(height: f32) -> AnyElement {
@@ -141,7 +158,7 @@ impl Render for PickerFooter {
                             .min_w_0()
                             .one_line()
                             .child(div().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(emote.name.clone())).when(!emote.owner.is_empty(), |el| {
-                                el.child(div().text_size(px(12.)).text_color(theme.text3).child(format!("by {}", emote.owner)))
+                                el.child(div().text_size(px(12.)).text_color(theme.text3).child(tr!("message.emote.by", name = emote.owner)))
                             })),
                     )
                     .into_any_element()
@@ -153,7 +170,7 @@ impl Render for PickerFooter {
                 .child(div().text_size(px(22.)).child(*value))
                 .child(div().font_weight(FontWeight::MEDIUM).child(*name))
                 .into_any_element(),
-            None => div().text_size(px(12.)).text_color(theme.text3).child("Hover over one to see its name").into_any_element(),
+            None => div().text_size(px(12.)).text_color(theme.text3).child(t("emoji.hoverHint")).into_any_element(),
         }
     }
 }
@@ -168,7 +185,7 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
         return global.0.clone();
     }
     let layer = cx.new(|cx| {
-        let search = cx.new(|cx| TextInput::new(cx, "Search"));
+        let search = cx.new(|cx| TextInput::new(cx, t("common.search")));
         let subscriptions = vec![cx.subscribe_in(&search, window, |layer: &mut PickerLayer, _, event, _, cx| match event {
             InputEvent::Escape => {
                 layer.close();
@@ -268,7 +285,7 @@ impl PickerLayer {
         let theme = theme(cx);
         let Some(stickers) = self.stickers.clone() else { return Vec::new() };
         if stickers.sets.is_empty() {
-            let message = if stickers.loading { "Loading your stickers…" } else { "You have no stickers. Add some in Telegram's app." };
+            let message = if stickers.loading { t("emoji.loadingStickers") } else { t("emoji.noStickers") };
             return vec![div().p(px(16.)).text_center().text_size(px(13.)).text_color(theme.text2).child(message).into_any_element()];
         }
         let mut sets = div().flex().flex_wrap().gap(px(4.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(theme.line);
@@ -393,7 +410,7 @@ impl PickerLayer {
                         .px(px(4.))
                         .pt(px(8.))
                         .pb(px(4.))
-                        .child(category.label)
+                        .child(category_label(category.label))
                         .into_any_element(),
                 );
             }
@@ -466,7 +483,7 @@ impl PickerLayer {
                 .p(px(30.))
                 .text_color(theme.text2)
                 .child(icon("face-slightly-smiling", 22., theme.text2))
-                .child(if needle.is_empty() { "This server has no emotes yet." } else { "No emotes match that search." })
+                .child(if needle.is_empty() { t("emoji.noEmotes") } else { t("emoji.noMatches") })
                 .into_any_element()];
         }
         let state = store(cx);
@@ -611,8 +628,8 @@ impl Render for PickerLayer {
                     .pt(px(8.))
                     .border_b_1()
                     .border_color(theme.line)
-                    .child(tab("tab-emotes", if telegram { "Stickers".into() } else if set_name.is_empty() { "Server emotes".into() } else { set_name }, emotes_tab, cx))
-                    .child(tab("tab-emoji", "Emoji".into(), !emotes_tab, cx)),
+                    .child(tab("tab-emotes", if telegram { t("emoji.stickers").into() } else if set_name.is_empty() { t("emoji.serverEmotes").into() } else { set_name }, emotes_tab, cx))
+                    .child(tab("tab-emoji", t("emoji.tab").into(), !emotes_tab, cx)),
             )
             .child(
                 div().flex_none().p(px(8.)).child(
