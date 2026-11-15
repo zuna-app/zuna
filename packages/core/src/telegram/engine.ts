@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // The core's end of a linked Telegram account's engine (docs/TELEGRAM_PLAN.md). The host passes
 // an adapter, which reaches TDLib through the app's broker, and this pairs each request with its
 // answer by `@extra`, as TDLib's JSON interface does, and hands everything else on as updates.
@@ -54,7 +55,7 @@ export class Engine {
 
   stop(signOut: boolean): void {
     this.adapter.stop(signOut);
-    this.failAll(new TelegramError("Telegram stopped.", 503));
+    this.failAll(new TelegramError(t("telegram.telegramStopped"), 503));
   }
 
   /** Asks TDLib something, and gives its answer, or its error as a TelegramError. */
@@ -62,7 +63,7 @@ export class Engine {
     const extra = `c${this.next++}`;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this.pending.delete(extra)) reject(new TelegramError("Telegram didn't answer in time.", 504));
+        if (this.pending.delete(extra)) reject(new TelegramError(t("telegram.telegramDidntAnswerInTime"), 504));
       }, ANSWER_WAIT_MS);
       this.pending.set(extra, { resolve: resolve as (value: TdObject) => void, reject, timer });
       this.adapter.send(JSON.stringify({ ...query, "@extra": extra }));
@@ -93,7 +94,7 @@ export class Engine {
       this.pending.delete(extra);
       clearTimeout(waiting.timer);
       if (message["@type"] === "error") {
-        const text = typeof message.message === "string" ? message.message : "Telegram refused that.";
+        const text = typeof message.message === "string" ? message.message : t("telegram.telegramRefusedThat");
         waiting.reject(new TelegramError(text, typeof message.code === "number" ? message.code : 400));
       } else {
         waiting.resolve(message);

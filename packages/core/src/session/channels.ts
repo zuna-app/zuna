@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): channels, voice channels, calls, and watching YouTube together in them.
 
 import { decode, type ApiCall, type ApiChannel, type ApiVoiceState } from "../api";
@@ -106,13 +107,13 @@ export abstract class SessionChannels extends SessionManagement {
 
   /** Comes into a channel. It needs no other member online, though only one can hand over its history. */
   protected async joinChannel(id: string): Promise<void> {
-    if (this.notAChannel(id)) throw new Error("That isn't a channel.");
+    if (this.notAChannel(id)) throw new Error(t("errors.thatIsntAChannel"));
     const self = this.account.userId;
     const held = this.groups.get(id);
     if (!held || held.removedAt || !held.members.some((member) => member.userId === self)) {
       // A bot gets nothing from before it came in.
       const { group } = await this.api.joinChannel(id, channelProof(this.account.core.communityKey, id, self), !this.account.bot);
-      if (group.kind !== "channel" || group.id !== id) throw new Error("The server sent an invalid response about this channel.");
+      if (group.kind !== "channel" || group.id !== id) throw new Error(t("errors.invalidChannelResponse"));
       this.applyGroup(group);
     }
     await this.withLock(id, () => this.ensureReady(id));
@@ -237,7 +238,7 @@ export abstract class SessionChannels extends SessionManagement {
   async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; adminOnly?: boolean; slowMode?: number }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
-    if (!details) throw new Error("A channel needs a name.");
+    if (!details) throw new Error(t("errors.aChannelNeedsAName"));
     const { communityKey } = this.account.core;
     const sealed = sealChannelDetails(communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
     const created = await this.api.createChannel({
@@ -253,7 +254,7 @@ export abstract class SessionChannels extends SessionManagement {
       proof: channelProof(communityKey, id, this.account.userId),
     });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
-      throw new Error("The channel wasn't created because the server sent an invalid response.");
+      throw new Error(t("errors.theChannelWasntCreatedBecause"));
     }
     this.applyGroup(created.group);
     await this.withLock(id, () => this.initGroup(created.group, []));
@@ -269,10 +270,10 @@ export abstract class SessionChannels extends SessionManagement {
    */
   async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; adminOnly?: boolean; slowMode?: number }): Promise<void> {
     const channel = this.channels.get(id);
-    if (!channel) throw new Error("That channel doesn't exist.");
+    if (!channel) throw new Error(t("errors.thatChannelDoesntExist"));
     const { userLimit, screenLimit, sounds, watch, adminOnly, slowMode, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
-    if (!details) throw new Error("A channel needs a name.");
+    if (!details) throw new Error(t("errors.aChannelNeedsAName"));
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
     await this.api.updateChannel(id, sealed, { userLimit, screenLimit, sounds, watch, adminOnly, slowMode });
@@ -389,7 +390,7 @@ export abstract class SessionChannels extends SessionManagement {
   async voiceAccess(channelId: string): Promise<VoiceAccess> {
     await this.readyForVoice(channelId);
     const access = this.isCall(channelId) ? await this.api.callToken(channelId) : await this.api.voiceToken(channelId);
-    if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error("The server sent an invalid response about this voice channel.");
+    if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error(t("errors.invalidVoiceChannelResponse"));
     return { url: access.url, token: access.token, identity: access.identity, serverMuted: access.server_muted };
   }
 
@@ -423,7 +424,7 @@ export abstract class SessionChannels extends SessionManagement {
     return this.withLock(channelId, async () => {
       const kind = this.groups.get(channelId)?.kind;
       if ((kind !== "channel" && !this.isCall(channelId)) || this.groups.get(channelId)?.removedAt || !this.hasMlsGroup(channelId)) {
-        throw new Error(kind === "channel" ? "This device isn't in that channel yet." : "This device isn't in that conversation yet.");
+        throw new Error(kind === "channel" ? t("errors.notInChannelYet") : t("errors.notInConversationYet"));
       }
       await this.pullChanges(channelId);
       await this.ensureTreeClean(channelId);
@@ -546,12 +547,12 @@ export abstract class SessionChannels extends SessionManagement {
    * which group the call is in. Coming into it is up to the room, through `voiceAccess`.
    */
   async prepareCall(key: string): Promise<string> {
-    if (!this.callsOn || !this.info?.calls) throw new Error("This server doesn't support calls.");
-    if (key === `user:${this.account.userId}`) throw new Error("There's nobody to call here.");
-    if (key.startsWith("user:") && this.isBlocked(key.slice(5))) throw new Error("You blocked this person.");
+    if (!this.callsOn || !this.info?.calls) throw new Error(t("errors.thisServerDoesntSupportCalls"));
+    if (key === `user:${this.account.userId}`) throw new Error(t("errors.theresNobodyToCallHere"));
+    if (key.startsWith("user:") && this.isBlocked(key.slice(5))) throw new Error(t("errors.youBlockedThisPerson"));
     const groupId = await this.groupIdForKey(key);
     const group = this.groups.get(groupId);
-    if (!group || group.removedAt || !this.isCall(groupId)) throw new Error("There's nobody to call here.");
+    if (!group || group.removedAt || !this.isCall(groupId)) throw new Error(t("errors.theresNobodyToCallHere"));
     if (!this.hasMlsGroup(groupId)) await this.withLock(groupId, () => this.ensureReady(groupId));
     return groupId;
   }
@@ -612,8 +613,8 @@ export abstract class SessionChannels extends SessionManagement {
   /** Throws with something to tell the person when this device can't change what a room watches. */
   protected watchable(channelId: string): void {
     const call = this.isCall(channelId);
-    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error(call ? "Join the call to watch together." : "Join the voice channel to watch together.");
-    if (!call && this.channels.get(channelId)?.api.watch === false) throw new Error("Watching together is off in this voice channel.");
+    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error(call ? t("errors.joinCallToWatch") : t("errors.joinVoiceToWatch"));
+    if (!call && this.channels.get(channelId)?.api.watch === false) throw new Error(t("errors.watchingTogetherIsOffIn"));
   }
 
   /**
@@ -655,9 +656,9 @@ export abstract class SessionChannels extends SessionManagement {
   async watchControl(channelId: string, change: { playing?: boolean; position?: number; rate?: number }): Promise<void> {
     this.watchable(channelId);
     const held = this.heldWatch(channelId);
-    if (!held?.video) throw new Error("Nothing is playing.");
-    if (change.rate !== undefined && !(WATCH_RATES as readonly number[]).includes(change.rate)) throw new Error("YouTube can't play at that speed.");
-    if (change.position !== undefined && (!Number.isFinite(change.position) || change.position < 0)) throw new Error("That isn't a valid position in the video.");
+    if (!held?.video) throw new Error(t("errors.nothingIsPlaying"));
+    if (change.rate !== undefined && !(WATCH_RATES as readonly number[]).includes(change.rate)) throw new Error(t("errors.youtubeCantPlayAtThat"));
+    if (change.position !== undefined && (!Number.isFinite(change.position) || change.position < 0)) throw new Error(t("errors.thatIsntAValidPosition"));
     const now = this.serverNow();
     await this.changeWatch(channelId, {
       ...held,
@@ -723,7 +724,7 @@ export abstract class SessionChannels extends SessionManagement {
   protected async sendWatch(channelId: string, signal: WatchSignal, to?: string): Promise<void> {
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
-    if (!key) throw new Error("This device isn't ready to watch here yet.");
+    if (!key) throw new Error(t("errors.thisDeviceIsntReadyTo"));
     const sealed = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "watch", channelId, this.account.userId, epoch, signal, this.signer));
     await (this.isCall(channelId) ? this.api.callWatch(channelId, sealed, to) : this.api.watch(channelId, sealed, to));
   }

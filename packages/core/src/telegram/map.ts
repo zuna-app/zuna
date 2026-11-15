@@ -6,6 +6,7 @@
 import type { Attachment, AvatarRef, ConversationView, GroupMemberView, MessageButton, MessageView, ReactionView, ReplyPreview, SystemEvent, UserView } from "../types";
 import type { TdObject } from "./engine";
 import { toMarkup, type TdEntity } from "./markup";
+import { t } from "../i18n";
 
 // --- Checks ---
 
@@ -286,9 +287,9 @@ export function senderOf(sender: unknown): string {
 }
 
 export function displayName(user: TdObject): string {
-  if (kindOf(user.type) === "userTypeDeleted") return "Deleted Account";
+  if (kindOf(user.type) === "userTypeDeleted") return t("telegram.deletedAccount");
   const name = `${str(user.first_name, MAX_NAME)} ${str(user.last_name, MAX_NAME)}`.trim();
-  return name || "Unknown";
+  return name || t("telegram.unknown");
 }
 
 export function usernameOf(user: TdObject): string {
@@ -342,7 +343,7 @@ export function chatSenderView(chatId: number, title: string): UserView {
     id: chatSender(chatId),
     username: "",
     role: "member",
-    displayName: title || "Unknown",
+    displayName: title || t("telegram.unknown"),
     bio: "",
     avatar: null,
     online: false,
@@ -436,7 +437,7 @@ export function conversationView(chat: TdObject, context: ChatContext): Conversa
     groupId: String(id),
     peerId: peer ? String(peer) : null,
     // The chat with oneself is Telegram's Saved Messages, which TDLib titles with the account's own name.
-    title: peer !== null && peer === context.selfId ? "Saved messages" : str(chat.title, MAX_TITLE) || (peerUser ? displayName(peerUser) : "Unknown"),
+    title: peer !== null && peer === context.selfId ? t("telegram.savedMessages") : str(chat.title, MAX_TITLE) || (peerUser ? displayName(peerUser) : t("telegram.unknown")),
     avatar: avatarOf(chat.photo),
     description: "",
     lastMessage: context.lastMessage,
@@ -469,23 +470,23 @@ export function conversationView(chat: TdObject, context: ChatContext): Conversa
 // --- Messages ---
 
 /** What a message holds, in words, for what Zuna can't show yet. */
-const UNSHOWN: Record<string, string> = {
-  messagePhoto: "Photo",
-  messageVideo: "Video",
-  messageAnimation: "GIF",
-  messageDocument: "File",
-  messageAudio: "Audio",
-  messageVoiceNote: "Voice message",
-  messageVideoNote: "Video message",
-  messagePaidMedia: "Paid media",
-  messageVenue: "Place",
-  messagePoll: "Poll",
-  messageDice: "Dice",
-  messageGame: "Game",
-  messageInvoice: "Payment",
-  messageGift: "Gift",
-  messageStory: "Story",
-  messageChecklist: "Checklist",
+const UNSHOWN: Record<string, () => string> = {
+  messagePhoto: () => t("telegram.photo"),
+  messageVideo: () => t("telegram.video"),
+  messageAnimation: () => t("telegram.gif"),
+  messageDocument: () => t("telegram.file"),
+  messageAudio: () => t("telegram.audio"),
+  messageVoiceNote: () => t("telegram.voiceMessage"),
+  messageVideoNote: () => t("telegram.videoMessage"),
+  messagePaidMedia: () => t("telegram.paidMedia"),
+  messageVenue: () => t("telegram.place"),
+  messagePoll: () => t("telegram.poll"),
+  messageDice: () => t("telegram.dice"),
+  messageGame: () => t("telegram.game"),
+  messageInvoice: () => t("telegram.payment"),
+  messageGift: () => t("telegram.gift"),
+  messageStory: () => t("telegram.story"),
+  messageChecklist: () => t("telegram.checklist"),
 };
 
 export interface MessageContext {
@@ -506,16 +507,16 @@ function contentText(content: unknown): { text: string; unshown: string | null; 
   const once = kindOf(field(content, "self_destruct_type")) !== "" || field(content, "is_secret") === true;
   const media = once ? null : attachmentsOf(content);
   if (media) return { text: kind === "messageSticker" ? "" : caption, unshown: null, attachments: media };
-  if (kind === "messageSticker") return { text: str(field(field(content, "sticker"), "emoji"), 16) || "Sticker", unshown: null, attachments: [] };
+  if (kind === "messageSticker") return { text: str(field(field(content, "sticker"), "emoji"), 16) || t("telegram.sticker"), unshown: null, attachments: [] };
   if (kind === "messageContact") {
     const contact = field(content, "contact");
     const name = `${str(field(contact, "first_name"), MAX_NAME)} ${str(field(contact, "last_name"), MAX_NAME)}`.trim();
-    return { text: `Contact: ${name || "someone"}`, unshown: null, attachments: [] };
+    return { text: t("telegram.contactNamed", { name: name || t("chat.someone") }), unshown: null, attachments: [] };
   }
   if (kind === "messageLocation") return { text: "", unshown: null, attachments: [] };
-  const what = UNSHOWN[kind];
-  if (what) return { text: caption, unshown: once ? `${what}, to be seen once` : what, attachments: [] };
-  return { text: "", unshown: "A message Zuna can't show", attachments: [] };
+  const what = UNSHOWN[kind]?.();
+  if (what) return { text: caption, unshown: once ? t("telegram.seenOnce", { what }) : what, attachments: [] };
+  return { text: "", unshown: t("telegram.aMessageZunaCantShow"), attachments: [] };
 }
 
 /** A line about a group, as the app's own system lines, or words where it has none. */
@@ -539,28 +540,28 @@ function serviceLine(content: unknown, senderId: string, context: MessageContext
     case "messageChatSetMessageAutoDeleteTime":
       return { system: { type: "timer_changed", actorId, seconds: int(field(content, "message_auto_delete_time"), 0, 2 ** 31, 0) }, text: "" };
     case "messageChatChangeTitle":
-      return { system: null, text: `_${context.nameOf(senderId)} named the group “${str(field(content, "title"), MAX_TITLE)}”_` };
+      return { system: null, text: `_${t("telegram.namedTheGroup", { name: context.nameOf(senderId), title: str(field(content, "title"), MAX_TITLE) })}_` };
     case "messageChatChangePhoto":
-      return { system: null, text: `_${context.nameOf(senderId)} changed the group's picture_` };
+      return { system: null, text: `_${t("telegram.changedTheGroupsPicture", { name: context.nameOf(senderId) })}_` };
     case "messageChatDeletePhoto":
-      return { system: null, text: `_${context.nameOf(senderId)} removed the group's picture_` };
+      return { system: null, text: `_${t("telegram.removedTheGroupsPicture", { name: context.nameOf(senderId) })}_` };
     case "messagePinMessage":
-      return { system: null, text: `_${context.nameOf(senderId)} pinned a message_` };
+      return { system: null, text: `_${t("telegram.pinnedAMessage", { name: context.nameOf(senderId) })}_` };
     case "messageScreenshotTaken":
-      return { system: null, text: `_${context.nameOf(senderId)} took a screenshot_` };
+      return { system: null, text: `_${t("telegram.tookAScreenshot", { name: context.nameOf(senderId) })}_` };
     case "messageContactRegistered":
-      return { system: null, text: `_${context.nameOf(senderId)} joined Telegram_` };
+      return { system: null, text: `_${t("telegram.joinedTelegram", { name: context.nameOf(senderId) })}_` };
     case "messageChatUpgradeTo":
     case "messageChatUpgradeFrom":
-      return { system: null, text: "_The group was upgraded_" };
+      return { system: null, text: `_${t("telegram.theGroupWasUpgraded")}_` };
     case "messageCall": {
       const missed = kindOf(field(content, "discard_reason")) === "callDiscardReasonMissed";
       const video = field(content, "is_video") === true;
-      return { system: null, text: `_${missed ? "Missed" : video ? "Video" : "Voice"} ${missed && video ? "video " : ""}call, in Telegram's app_` };
+      return { system: null, text: `_${missed ? (video ? t("telegram.missedVideoCallInTelegrams") : t("telegram.missedCallInTelegramsApp")) : video ? t("telegram.videoCallInTelegramsApp") : t("telegram.voiceCallInTelegramsApp")}_` };
     }
     default:
       return kind.startsWith("messageChat") || kind.startsWith("messageSupergroup") || kind.startsWith("messageBasicGroup") || kind === "messageCustomServiceAction"
-        ? { system: null, text: "_Something changed in the group_" }
+        ? { system: null, text: `_${t("telegram.somethingChangedInTheGroup")}_` }
         : null;
   }
 }
@@ -633,7 +634,7 @@ export function messageView(message: TdObject, context: MessageContext): Message
   const edited = int(message.edit_date, 0, 2 ** 31, 0) * 1000;
   const service = serviceLine(message.content, senderId, context);
   const content = service ? { text: service.text, unshown: null, attachments: [] } : contentText(message.content);
-  const unshownLine = content.unshown ? `_${content.unshown}, which Zuna can't show yet. It's in Telegram's app._` : "";
+  const unshownLine = content.unshown ? `_${t("telegram.unshownLine", { what: content.unshown })}_` : "";
   const location = field(message.content, "location");
   const latitude = field(location, "latitude");
   const longitude = field(location, "longitude");

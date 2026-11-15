@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): sending messages, and the files they carry.
 
 import * as wasm from "@zuna/crypto";
@@ -52,8 +53,8 @@ export abstract class SessionSending extends SessionConversations {
     const held = this.groups.get(created.group.id);
     const elsewhere = !!held && (held.kind !== "dm" || held.peerId !== peerId);
     if (created.group.kind !== "dm" || elsewhere || listed.size !== people.size || [...people].some((id) => !listed.has(id))) {
-      this.warnOnce(`dm-reply/${created.group.id}`, "The server returned the wrong people for a new direct message, so nothing was sent.");
-      throw new Error("This message wasn't sent because the server sent an invalid response about this conversation.");
+      this.warnOnce(`dm-reply/${created.group.id}`, t("security.theServerReturnedTheWrong"));
+      throw new Error(t("errors.thisMessageWasntSentBecause"));
     }
     this.applyGroup(created.group);
     return created.group.id;
@@ -78,7 +79,7 @@ export abstract class SessionSending extends SessionConversations {
   forwardable(groupId: string, id: string): MessageBody & { senderId: string } {
     const row = this.messageRow(groupId, id);
     const body = row ? this.storedBody(row) : null;
-    if (!row?.body || !body || row.status !== "sent" || row.deleted_at !== null) throw new Error("That message can't be forwarded.");
+    if (!row?.body || !body || row.status !== "sent" || row.deleted_at !== null) throw new Error(t("errors.thatMessageCantBeForwarded"));
     return {
       text: body.text,
       emotes: body.emotes,
@@ -248,7 +249,7 @@ export abstract class SessionSending extends SessionConversations {
           const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
           const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body, entry.groupId), this.signer);
           const item = this.heldItemSecret("message", entry.groupId, entry.id, row?.item_key ?? null);
-          if (!item) throw new Error("This message can't be edited from this device.");
+          if (!item) throw new Error(t("errors.thisMessageCantBeEdited"));
           this.ingest(await this.api.sealedEdit(entry.groupId, entry.id, await this.seal(entry.groupId, epoch, envelope.length, item), envelope), false);
         }),
       );
@@ -320,7 +321,7 @@ export abstract class SessionSending extends SessionConversations {
    */
   protected async seal(groupId: string, epoch: number, bytes: number | null, item?: Uint8Array): Promise<Seal> {
     const send = this.sendKey(groupId);
-    if (send.epoch !== epoch) throw new ApiError(409, "stale_epoch", "The conversation's keys changed.");
+    if (send.epoch !== epoch) throw new ApiError(409, "stale_epoch", t("errors.theConversationsKeysChanged"));
     return { epoch, secret: send.secret, token: bytes === null ? undefined : await this.takeToken(bytes), item };
   }
 
@@ -343,7 +344,7 @@ export abstract class SessionSending extends SessionConversations {
   async pressButton(groupId: string, messageId: string, row: number, column: number): Promise<void> {
     const stored = this.messageRow(groupId, messageId);
     const button = stored ? this.toMessageView(stored).buttons[row]?.[column] : undefined;
-    if (button?.data === undefined) throw new Error("That button isn't there anymore.");
+    if (button?.data === undefined) throw new Error(t("errors.thatButtonIsntThereAnymore"));
     await this.sendSignal(groupId, { type: "button", message: messageId, data: button.data });
   }
 
@@ -424,12 +425,12 @@ export abstract class SessionSending extends SessionConversations {
           }
           // Nobody to take out, so whoever made the epoch gave a wrong key, or the server changed
           // it. A member puts it right with a commit (`checkSendKey`); this goes once that's in.
-          throw new ApiError(0, "not_sealed", "This conversation's keys are being repaired. This message will go away once they're fixed.");
+          throw new ApiError(0, "not_sealed", t("errors.thisConversationsKeysAreBeing"));
         }
         throw error;
       }
     }
-    throw new Error("Couldn't catch up with this conversation. Please try again.");
+    throw new Error(t("errors.couldntCatchUpWithThis"));
   }
 
   /**
@@ -470,7 +471,7 @@ export abstract class SessionSending extends SessionConversations {
     const body = row ? this.storedBody(row) : null;
     if (!row || row.status !== "failed" || !row.body || !body) return;
     // A file that never went up has nothing on the server for the message to point at.
-    if (body.attachments?.some((item) => !item.fileId)) throw new Error("Its files didn't upload. Attach them again to send this.");
+    if (body.attachments?.some((item) => !item.fileId)) throw new Error(t("errors.itsFilesDidntUpload"));
     const group = this.groups.get(groupId);
     const key = group ? this.conversationKey(group) : groupId.replace(/^pending:/, "");
     this.db.run("UPDATE messages SET status = 'sending' WHERE group_id = ? AND id = ?", [groupId, id]);
@@ -586,14 +587,14 @@ export abstract class SessionSending extends SessionConversations {
         return;
       }
       // How many one person puts on a message is held by each app, as the server can't tell whose they are.
-      if (current.filter((item) => item.userIds.includes(userId)).length >= MAX_REACTIONS_BY_PERSON) throw new Error("You've reached the limit of reactions on this message.");
+      if (current.filter((item) => item.userIds.includes(userId)).length >= MAX_REACTIONS_BY_PERSON) throw new Error(t("errors.youveReachedTheLimitOf"));
       const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
         const sealed = (value: { id: string; key: string; emote?: EmoteRef }) => frameSigned(epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, value, this.signer));
         let data = sealed({ id, key, emote });
         // An emote's owner is only shown beside it, so one with a very long name goes without it rather than not at all.
         if (data.length > MAX_REACTION_BYTES && emote?.owner) data = sealed({ id, key, emote: { ...emote, owner: undefined } });
-        if (data.length > MAX_REACTION_BYTES) throw new Error("That reaction is too long.");
+        if (data.length > MAX_REACTION_BYTES) throw new Error(t("errors.thatReactionIsTooLong"));
         const item_key = wasm.signingPublic(this.itemSecret("reaction", groupId, id));
         // Past the first hundred on a message, the server takes a large token for each, which it says if this device was behind.
         const react = async (large: boolean) => this.api.sealedReact(groupId, messageId, await this.seal(groupId, epoch, large ? TOKEN_SMALL_BYTES + 1 : data.length), { id, data, item_key });
@@ -713,7 +714,7 @@ export abstract class SessionSending extends SessionConversations {
       if (key.size !== "small" && key.size !== "large") continue;
       const before = held[key.period]?.[key.size];
       if (before && before !== key.public) {
-        this.warnOnce(`token-key/${key.period}`, "The server changed its sending keys early, which could let it work out which messages are yours.");
+        this.warnOnce(`token-key/${key.period}`, t("security.theServerChangedItsSending"));
         continue;
       }
       (held[key.period] ??= {})[key.size] = key.public;
@@ -750,7 +751,7 @@ export abstract class SessionSending extends SessionConversations {
     if (!own || own === tag.h) return;
     this.warnOnce(
       `token-keys/${tag.p}`,
-      "The server showed someone in one of your conversations different sending keys than it showed you, which could let it work out which messages are theirs.",
+      t("security.theServerShowedSomeoneIn"),
       from,
     );
   }
@@ -766,12 +767,12 @@ export abstract class SessionSending extends SessionConversations {
   protected async fetchTokens(size: TokenSize): Promise<void> {
     const period = await this.refreshTokenKeys();
     const key = this.heldTokenKeys()[period]?.[size];
-    if (!key) throw new Error("The server didn't send the keys for its tokens.");
+    if (!key) throw new Error(t("errors.theServerDidntSendThe"));
     const count = TOKEN_BATCH[size];
     const blinds = wasm.tokenBlind(count);
     const blinded = Array.from({ length: count }, (_, index) => blinds.slice(index * 96 + 64, index * 96 + 96));
     const answer = await this.api.issueTokens(period, size, blinded);
-    if (!Array.isArray(answer.evaluated) || answer.evaluated.length !== count) throw new Error("The server sent the wrong tokens.");
+    if (!Array.isArray(answer.evaluated) || answer.evaluated.length !== count) throw new Error(t("errors.theServerSentTheWrong"));
     const outputs = wasm.tokenFinalize(blinds, concat(...answer.evaluated.map((element) => fromBase64(element))), fromBase64(answer.proof), fromBase64(key));
     const tag = new Uint8Array([size === "small" ? 1 : 2]);
     this.db.transaction(() => {
@@ -796,7 +797,7 @@ export abstract class SessionSending extends SessionConversations {
       await this.fetchTokens(size);
       row = pick();
     }
-    if (!row) throw new ApiError(0, "no_tokens", "Couldn't get ready to send. Waiting for the server.");
+    if (!row) throw new ApiError(0, "no_tokens", t("errors.couldntGetReadyToSend"));
     this.db.run("DELETE FROM tokens WHERE id = ?", [row.id]);
     this.topUpTokensSoon();
     return this.openLocal("token", row.id, row.token);
@@ -881,14 +882,14 @@ export abstract class SessionSending extends SessionConversations {
    * can be passed off as another, and only the last says it's the last.
    */
   async downloadChunk(ref: { fileId: string; key: string; prefix: string; chunks: number; mime?: string }, index: number): Promise<Blob> {
-    if (!Number.isSafeInteger(index) || index < 0 || index >= ref.chunks) throw new Error("This file is incomplete.");
+    if (!Number.isSafeInteger(index) || index < 0 || index >= ref.chunks) throw new Error(t("errors.thisFileIsIncomplete"));
     return this.files.assemble([await this.openChunk(ref, index)], ref.mime ?? "application/octet-stream");
   }
 
   protected async openChunk(ref: { fileId: string; key: string; prefix: string; chunks: number }, index: number): Promise<Uint8Array> {
     const sealed = await this.api.downloadChunk(ref.fileId, index);
     // The server's limit plus a little: this is all held in memory.
-    if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file is damaged or was changed.");
+    if (sealed.length > CHUNK_SIZE + 256) throw new Error(t("errors.thisFileIsDamagedOr"));
     return wasm.streamOpen(fromBase64(ref.key), fromBase64(ref.prefix), index, index === ref.chunks - 1, sealed);
   }
 
@@ -929,7 +930,7 @@ export abstract class SessionSending extends SessionConversations {
     const tooBig = files.find((file) => this.files.size(file.blob) > limitMb * (1 << 20));
     if (tooBig) {
       this.markFailed(groupKey, id);
-      throw new Error(`${tooBig.name} is larger than this server's ${limitMb} MB limit.`);
+      throw new Error(t("errors.fileTooLarge", { name: tooBig.name, limit: limitMb }));
     }
 
     try {
@@ -984,8 +985,8 @@ export abstract class SessionSending extends SessionConversations {
       // The ID is random and new, wherever the message has moved since, such as into a DM just started.
       const status = this.db.get<{ status: string }>("SELECT status FROM messages WHERE id = ?", [id])?.status;
       if (status === "sent") return;
-      if (status === "failed") throw new Error("This message couldn't be sent.");
-      if (Date.now() > deadline) throw new Error("This message is taking a while to send. It'll go out once Zuna is back online.");
+      if (status === "failed") throw new Error(t("errors.thisMessageCouldntBeSent"));
+      if (Date.now() > deadline) throw new Error(t("errors.thisMessageIsTakingA"));
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }

@@ -5,6 +5,7 @@
 
 import { plainText } from "./plain-text";
 import type { MessageView } from "./types";
+import { t } from "./i18n";
 
 type Preview = Pick<MessageView, "text" | "attachments"> & { location?: MessageView["location"] };
 
@@ -14,16 +15,16 @@ export function previewText(view: Preview): string {
     const plain = plainText(view.text);
     return plain.length > 140 ? `${plain.slice(0, 140)}…` : plain;
   }
-  if (view.location) return "📍 Location";
+  if (view.location) return t("notify.location");
   const first = view.attachments[0];
   if (!first) return "";
-  if (first.sticker) return "🖼️ Sticker";
-  if (first.mime.startsWith("image/")) return "📷 Photo";
-  if (first.round) return "📹 Video message";
-  if (first.mime.startsWith("video/")) return "🎬 Video";
-  if (first.voice) return "🎤 Voice message";
-  if (first.mime.startsWith("audio/")) return "🎵 Audio";
-  return `📎 ${first.name}`;
+  if (first.sticker) return t("notify.sticker");
+  if (first.mime.startsWith("image/")) return t("notify.photo");
+  if (first.round) return t("notify.videoMessage");
+  if (first.mime.startsWith("video/")) return t("notify.video");
+  if (first.voice) return t("notify.voiceMessage");
+  if (first.mime.startsWith("audio/")) return t("notify.audio");
+  return t("notify.file", { name: first.name });
 }
 
 /** Telegram's timings, in ms. Tests shorten them. */
@@ -71,5 +72,5 @@ export function notificationText(
   view: Preview,
 ): { title: string; body: string } {
   if (kind === "dm") return { title: senderName, body: previewText(view) };
-  return { title: groupName || "Group", body: `${senderName}: ${previewText(view)}` };
+  return { title: groupName || t("notify.group"), body: t("notify.senderAndText", { sender: senderName, text: previewText(view) }) };
 }

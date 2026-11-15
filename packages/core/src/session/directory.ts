@@ -27,6 +27,7 @@ import {
 } from "../transparency";
 import type { NewDevice } from "../types";
 import { SessionChains } from "./chains";
+import { mark, t } from "../i18n";
 
 /** Where the devices waiting for the person's answer are kept. */
 const NEW_DEVICES = "new_devices";
@@ -92,18 +93,18 @@ export interface LoggedDevice {
 export type LogStanding = "named" | "gone" | "absent" | "unknown";
 
 const WARNINGS = {
-  proof: "The server showed different people different records of who holds which keys. Someone may be posing as people you talk to. Compare emoji with the people who matter to you.",
-  back: "The server's record of who holds which keys was rolled back, or the server is hiding part of it from this device. Compare emoji with the people who matter to you.",
-  link: "The server's record of who holds which keys doesn't match the one the invite link you joined with saw. Someone may be posing as people on this server. Compare emoji with the people who matter to you.",
-  manifest: "The server's record of who holds which keys doesn't match what your other devices saw. Someone may be posing as people you talk to. Compare emoji with the people who matter to you.",
-  serverKey: "The server signed its record of who holds which keys with a key this device doesn't recognize. Nothing new in it was accepted.",
-  unfit: "The server's record of who holds which keys is inconsistent. Nothing new in it was accepted.",
-  odd: "Part of the server's record of who holds which keys doesn't make sense, and was ignored.",
-  withheld: "The server is hiding part of its record of someone's keys from this device.",
-  era: "The server restarted its record of who holds which keys, as can happen after restoring a backup. Nothing this device trusts has changed.",
-  nameTaken: "The server registered someone else under your username. Apps will ignore that account, but compare emoji with the people who matter to you.",
-  ownLeftOut: "The server left this device out of its record of who holds which keys, so the people you message won't accept messages from it.",
-  ownHistory: "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
+  proof: mark("security.logProof"),
+  back: mark("security.logBack"),
+  link: mark("security.logLink"),
+  manifest: mark("security.logManifest"),
+  serverKey: mark("security.logServerKey"),
+  unfit: mark("security.logUnfit"),
+  odd: mark("security.logOdd"),
+  withheld: mark("security.logWithheld"),
+  era: mark("security.logEra"),
+  nameTaken: mark("security.logNameTaken"),
+  ownLeftOut: mark("security.logOwnLeftOut"),
+  ownHistory: mark("security.logOwnHistory"),
 } as const;
 
 const fromWire = (wire: WireHead | null): LogHead | null => (wire ? fromWireHead(wire) : null);
@@ -210,11 +211,11 @@ export abstract class SessionDirectory extends SessionChains {
       const head: LogHead = { era: page.head.era, size: page.head.size, root: decode(page.head.root), sig: decode(page.head.sig) };
       if (head.era !== page.era || !headSigned(key, head)) {
         this.logRead = false;
-        return this.warnOnce("log/server-key", WARNINGS.serverKey);
+        return this.warnOnce("log/server-key", t(WARNINGS.serverKey));
       }
       if (page.era < state.era || (page.era === state.era && page.size < state.frontier.size)) {
         this.logRead = false;
-        return this.warnOnce(`log/back/${page.era}/${page.size}`, WARNINGS.back);
+        return this.warnOnce(`log/back/${page.era}/${page.size}`, t(WARNINGS.back));
       }
       if (page.era > state.era) this.startLogEra(page.era, page.size);
       // A page with nothing in it that says there's more would be asked for again and again.
@@ -228,7 +229,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.logReadAt = Date.now();
     if (read) this.lookForWithheld();
     this.checkFloor();
-    if (this.logState().own === null && this.logState().frontier.size > 0) this.warnOnce("log/own", WARNINGS.ownLeftOut, this.account.userId);
+    if (this.logState().own === null && this.logState().frontier.size > 0) this.warnOnce("log/own", t(WARNINGS.ownLeftOut), this.account.userId);
   }
 
   /**
@@ -260,7 +261,7 @@ export abstract class SessionDirectory extends SessionChains {
       floor: state.floor && state.floor.era === era ? state.floor : null,
     };
     this.saveLogState();
-    if (!first) this.warnOnce(`log/era/${era}`, WARNINGS.era);
+    if (!first) this.warnOnce(`log/era/${era}`, t(WARNINGS.era));
   }
 
   /**
@@ -295,7 +296,7 @@ export abstract class SessionDirectory extends SessionChains {
     if (frontier.size !== head.size || !equalBytes(frontier.root(), head.root)) return this.refuseLog();
     if (floor && size < floor.size && frontier.size >= size) {
       this.logRead = false;
-      this.warnOnce(`log/floor/${floor.size}`, WARNINGS[floor.from]);
+      this.warnOnce(`log/floor/${floor.size}`, t(WARNINGS[floor.from]));
     }
     this.db.transaction(() => {
       for (const row of rows) {
@@ -314,7 +315,7 @@ export abstract class SessionDirectory extends SessionChains {
 
   protected refuseLog(from?: "link" | "manifest"): false {
     this.logRead = false;
-    this.warnOnce(from ? `log/floor/${from}` : "log/unfit", from ? WARNINGS[from] : WARNINGS.unfit);
+    this.warnOnce(from ? `log/floor/${from}` : "log/unfit", t(from ? WARNINGS[from] : WARNINGS.unfit));
     return false;
   }
 
@@ -327,7 +328,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.saveLogState();
     if (!equalBytes(this.rootAt(floor.size), fromBase64(floor.root))) {
       this.logRead = false;
-      this.warnOnce(`log/floor/${floor.from}`, WARNINGS[floor.from]);
+      this.warnOnce(`log/floor/${floor.from}`, t(WARNINGS[floor.from]));
     }
   }
 
@@ -392,7 +393,7 @@ export abstract class SessionDirectory extends SessionChains {
     const self = this.account.userId;
     const state = this.logState();
     const account = this.loggedAccount(body.user) ?? { account: null, devices: {}, links: {} };
-    const odd = () => this.warnOnce("log/odd", WARNINGS.odd);
+    const odd = () => this.warnOnce("log/odd", t(WARNINGS.odd));
     this.loggedAccounts.set(body.user, account);
     this.unsavedAccounts.add(body.user);
     this.logTouched.add(body.user);
@@ -409,14 +410,14 @@ export abstract class SessionDirectory extends SessionChains {
           const holder = this.nameHolder(body.username);
           if (holder && holder.user !== body.user && holder.deleted === undefined) {
             account.void = true;
-            if (holder.user === self) this.warnOnce(`log/name/${body.user}`, WARNINGS.nameTaken, self);
+            if (holder.user === self) this.warnOnce(`log/name/${body.user}`, t(WARNINGS.nameTaken), self);
           } else {
             this.setNameHolder(body.username, { user: body.user, idx });
           }
         }
         if (body.user === self) {
           if (!equalBytes(body.root, this.account.core.rootPublic) || body.username.toLowerCase() !== this.account.username.toLowerCase()) {
-            this.warnOnce("log/own-account", WARNINGS.ownHistory, self);
+            this.warnOnce("log/own-account", t(WARNINGS.ownHistory), self);
           }
         } else {
           this.takeLoggedRoot(body.user, body.root);
@@ -432,7 +433,7 @@ export abstract class SessionDirectory extends SessionChains {
         if (body.user !== self) break;
         if (body.device === this.account.deviceId) {
           state.own = idx;
-          if (!equalBytes(body.key, this.account.devicePublic)) this.warnOnce("log/own-device", WARNINGS.ownHistory, self);
+          if (!equalBytes(body.key, this.account.devicePublic)) this.warnOnce("log/own-device", t(WARNINGS.ownHistory), self);
         } else if (state.ownBefore && idx < state.quietBelow ? !state.ownBefore.includes(body.device) : state.own !== null && idx > state.own && idx >= state.quietBelow) {
           // From the entry, so the server can't leave a new device of this account unsaid.
           this.noteNewDevice(body.device);
@@ -553,7 +554,7 @@ export abstract class SessionDirectory extends SessionChains {
     const parts = readRecord(record);
     if (!parts) return;
     // Someone hidden from this device, under this account's own name.
-    if (equalBytes(nameTag(this.account.username, parts.nonce), parts.nameTag)) this.warnOnce(`log/name-hidden/${idx}`, WARNINGS.nameTaken, this.account.userId);
+    if (equalBytes(nameTag(this.account.username, parts.nonce), parts.nameTag)) this.warnOnce(`log/name-hidden/${idx}`, t(WARNINGS.nameTaken), this.account.userId);
   }
 
   /** The IDs this device knows, its own first, which a record without its body is tested against. */
@@ -597,13 +598,13 @@ export abstract class SessionDirectory extends SessionChains {
         () => true,
         (failure: unknown) => (failure instanceof ApiError && failure.status === 404 ? false : Promise.reject(failure)),
       );
-      if (listed) this.warnOnce(`log/withheld/${userId}`, WARNINGS.withheld, userId);
+      if (listed) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
       return;
     }
     const state = this.logState();
     if (answer.era !== state.era) return;
     const given = new Map(answer.bodies.map((item) => [item.idx, decode(item.body)]));
-    if (places.some((idx) => !given.has(idx))) this.warnOnce(`log/withheld/${userId}`, WARNINGS.withheld, userId);
+    if (places.some((idx) => !given.has(idx))) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
     const entries: { idx: number; body: LogBody }[] = [];
     for (const [idx, bytes] of [...given].sort((a, b) => a[0] - b[0])) {
       const row = this.db.get<{ record: Uint8Array }>("SELECT record FROM log_records WHERE idx = ?", [idx]);
@@ -611,7 +612,7 @@ export abstract class SessionDirectory extends SessionChains {
       const body = parseBody(bytes);
       // What's past the records held is read with them, later.
       if (!parts) continue;
-      if (!body || body.user !== userId || !bodyFits(parts, bytes, body)) return this.warnOnce("log/unfit", WARNINGS.unfit);
+      if (!body || body.user !== userId || !bodyFits(parts, bytes, body)) return this.warnOnce("log/unfit", t(WARNINGS.unfit));
       entries.push({ idx, body });
     }
     // All of what the log says of this account, in its order, from the start.
@@ -763,7 +764,7 @@ export abstract class SessionDirectory extends SessionChains {
 
   /** Two links for one generation in the log: the server told two stories of someone's keys. */
   protected noteLoggedFork(userId: string): void {
-    if (userId === this.account.userId) this.warnOnce("log/own-fork", WARNINGS.ownHistory, userId);
+    if (userId === this.account.userId) this.warnOnce("log/own-fork", t(WARNINGS.ownHistory), userId);
     else queueMicrotask(() => void this.noteFork(userId).catch(() => undefined));
   }
 
@@ -838,7 +839,7 @@ export abstract class SessionDirectory extends SessionChains {
       state.key = log.key;
       this.saveLogState();
     } else if (state.key !== log.key) {
-      return this.warnOnce("log/manifest-key", WARNINGS.manifest, this.account.userId);
+      return this.warnOnce("log/manifest-key", t(WARNINGS.manifest), this.account.userId);
     }
     if (log.era < state.era) return;
     if (log.era > state.era || log.size > state.frontier.size) {
@@ -851,7 +852,7 @@ export abstract class SessionDirectory extends SessionChains {
     }
     if (!equalBytes(this.rootAt(log.size), fromBase64(log.root))) {
       this.logRead = false;
-      this.warnOnce("log/floor/manifest", WARNINGS.manifest, this.account.userId);
+      this.warnOnce("log/floor/manifest", t(WARNINGS.manifest), this.account.userId);
     }
   }
 
@@ -881,7 +882,7 @@ export abstract class SessionDirectory extends SessionChains {
       await this.syncLog();
       state = this.logState();
       if (head.era < state.era) return;
-      if (head.era > state.era || head.size > state.frontier.size) return this.warnOnce(`log/back/${head.era}/${head.size}`, WARNINGS.back);
+      if (head.era > state.era || head.size > state.frontier.size) return this.warnOnce(`log/back/${head.era}/${head.size}`, t(WARNINGS.back));
     }
     if (equalBytes(this.rootAt(head.size), head.root)) return;
     // The server's own head at that size, signed, which with theirs is the proof.
@@ -891,7 +892,7 @@ export abstract class SessionDirectory extends SessionChains {
       state.proof = [toWireHead(ours), wire];
       this.saveLogState();
     }
-    this.warnOnce("log/proof", WARNINGS.proof, from);
+    this.warnOnce("log/proof", t(WARNINGS.proof), from);
   }
 
   /** The two heads that can't both be true, if this device has found them. */

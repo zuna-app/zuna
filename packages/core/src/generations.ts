@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Generations of an account's keys: what moves an account from one to the next,
 // and how a new account key reaches whoever should have it. The design, and what
 // this can't do, is in docs/ACCOUNT_KEY_ROTATION.md.
@@ -60,7 +61,7 @@ export function createSlot(kind: SlotKind, slotKey: Uint8Array, root: Uint8Array
 
 export function openSlot(kind: SlotKind, slotKey: Uint8Array, sealedSecret: Uint8Array): SlotSecrets {
   const json = JSON.parse(fromUtf8(wasm.aeadOpen(slotKey, sealedSecret, label(`zuna/account-slot/v1/secret|${kind}`))));
-  if (typeof json.root !== "string") throw new Error("That slot doesn't say whose account it's for.");
+  if (typeof json.root !== "string") throw new Error(t("errors.thatSlotDoesntSayWhose"));
   return { seal: fromBase64(json.seal), sign: fromBase64(json.sign), root: fromBase64(json.root) };
 }
 

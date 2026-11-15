@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // A notification for a message a phone heard about through a push, worded as
 // a connected session would word it (maybeNotify in session.ts). It runs in the
 // iOS app's Notification Service Extension, which has too little memory for a
@@ -92,7 +93,7 @@ async function openServer(options: { db: DbProvider; deviceKey: Uint8Array }, se
   const key = serverKeyFor(options.deviceKey, serverId);
   const index = await options.db.open(INDEX_DB);
   const server = index.get<{ account: Uint8Array; name: string }>("SELECT account, name FROM servers WHERE id = ?", [serverId]);
-  if (!server) throw new Error("This device isn't signed in to that server.");
+  if (!server) throw new Error(t("notify.notSignedIn"));
   const account = decodeAccount(fromUtf8(wasm.aeadOpen(key, server.account, label("account"))));
   const db = await options.db.open(serverDbName(serverId));
   // As the session seals it: naming its table and row.
@@ -101,7 +102,7 @@ async function openServer(options: { db: DbProvider; deviceKey: Uint8Array }, se
     const row = id ? db.get<{ data: Uint8Array }>("SELECT data FROM users WHERE id = ?", [id]) : undefined;
     return row ? read<StoredUser>("user", id!, row.data) : null;
   };
-  const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
+  const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || t("notify.someone");
   return { key, server, account, db, read, user, nameOf };
 }
 
@@ -218,16 +219,16 @@ export async function previewPush(
     const signed = channel ? openChannelDetails(account.core.communityKey, groupId, decode(channel.details)) : null;
     const device = signed && user(signed.signer.userId)?.devices.find((item) => item.id === signed.signer.deviceId);
     const name = device && signed.signedBy(fromBase64(device.signatureKey)) ? parseChannelDetails(signed.details)?.name : undefined;
-    return `#${name ?? "channel"}`;
+    return `#${name ?? t("notify.unnamedChannel")}`;
   };
-  const groupName = group?.kind === "channel" ? channelName() : group?.meta.name || "Group";
+  const groupName = group?.kind === "channel" ? channelName() : group?.meta.name || t("notify.group");
   let sentAt: number | undefined;
   const preview = (fields: Partial<PushPreview>): PushPreview => ({
     serverId,
     conversationKey,
     // Without the message, at least the chat; without the chat, the server.
     title: group ? (group.kind === "dm" ? nameOf(user(group.peerId)) : groupName) : server.name,
-    body: "New message",
+    body: t("notify.newMessage"),
     decrypted: false,
     muted: false,
     hidden: false,
@@ -362,7 +363,7 @@ export async function notifiedChats(options: { db: DbProvider; deviceKey: Uint8A
   api.token = account.token;
   const groups: unknown = await api.pushNotified();
   // Anything else would have the phone clear everything it shows.
-  if (!Array.isArray(groups) || groups.some((id) => typeof id !== "string")) throw new Error("The server didn't say which chats this device was notified about.");
+  if (!Array.isArray(groups) || groups.some((id) => typeof id !== "string")) throw new Error(t("notify.notifiedChatsMissing"));
   return groups as string[];
 }
 
@@ -388,15 +389,15 @@ export async function previewCall(options: { db: DbProvider; deviceKey: Uint8Arr
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv", "prefs", prefsRow.v) : {};
   if (!group || group.kind === "channel" || group.removedAt || callerId === account.userId || prefs.blocked?.includes(callerId)) {
-    return { serverId, conversationKey: null, title: server.name, body: "Incoming call", muted: false, hidden: true };
+    return { serverId, conversationKey: null, title: server.name, body: t("notify.incomingCall"), muted: false, hidden: true };
   }
   const conversationKey = group.kind === "dm" ? `user:${group.peerId}` : `group:${group.id}`;
   const caller = nameOf(user(callerId));
   return {
     serverId,
     conversationKey,
-    title: group.kind === "dm" ? nameOf(user(group.peerId)) : group.meta.name || "Group",
-    body: group.kind === "dm" ? "Calling you" : `${caller} started a call`,
+    title: group.kind === "dm" ? nameOf(user(group.peerId)) : group.meta.name || t("notify.group"),
+    body: group.kind === "dm" ? t("notify.callingYou") : t("notify.startedCall", { name: caller }),
     muted: isMuted(prefs, conversationKey),
     hidden: false,
   };

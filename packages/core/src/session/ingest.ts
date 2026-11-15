@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): taking in messages, letting them disappear, and indexing them for search.
 
 import { ApiError, decode, type ApiMessage, type ApiPinChange, type ApiReaction, type ApiReactionChange } from "../api";
@@ -329,7 +330,7 @@ export abstract class SessionIngest extends SessionChanges {
       } else {
         // A message's author never changes. A signature only proves who signed what's arriving now.
         if (author && author.userId !== checked.signer.userId) {
-          this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message wasn't changed.");
+          this.warnOnce(`author/${message.group_id}/${message.id}`, t("security.theServerTriedToChange"));
           return;
         }
         author = checked.signer;
@@ -772,9 +773,9 @@ export abstract class SessionIngest extends SessionChanges {
    * word changes it, and the messages already sent keep the time they had.
    */
   async setDisappearing(groupId: string, seconds: number): Promise<void> {
-    if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > MAX_EXPIRES_IN) throw new Error("Messages can't be set to last that long.");
+    if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > MAX_EXPIRES_IN) throw new Error(t("errors.messagesCantBeSetTo"));
     const group = this.groups.get(groupId);
-    if (!group || group.removedAt) throw new Error("This chat can't be changed right now.");
+    if (!group || group.removedAt) throw new Error(t("errors.thisChatCantBeChanged"));
     if (this.disappearAfter(group) === seconds) return;
     await this.updateGroupMeta(groupId, { disappearAfter: seconds });
   }

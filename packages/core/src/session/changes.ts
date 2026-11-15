@@ -6,6 +6,7 @@ import { equalBytes, utf8 } from "../encoding";
 import { sealedRows } from "../sendable";
 import { RECONCILE_JITTER_MS, KEY_VOIDED, type StoredBody } from "./shared";
 import { SessionJoining } from "./joining";
+import { t } from "../i18n";
 
 export abstract class SessionChanges extends SessionJoining {
   // --- Groups: applying changes ---
@@ -269,7 +270,7 @@ export abstract class SessionChanges extends SessionJoining {
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 403) throw error;
       // Being refused this says nothing about still being in the group. Someone else may yet be able to.
-      this.warnOnce(`stuck/${groupId}/${group.epoch}`, "One of your conversations got a broken update that only its admins can fix. It'll start working again once one of them opens Zuna.");
+      this.warnOnce(`stuck/${groupId}/${group.epoch}`, t("security.oneOfYourConversationsGot"));
       return;
     }
     this.applyGroup(await this.api.group(groupId));
@@ -279,8 +280,8 @@ export abstract class SessionChanges extends SessionJoining {
   protected noteVoidedCommit(event: ApiEvent): void {
     const joined = this.joinedEpoch(event.group_id);
     if (joined === null || joined > event.epoch) return;
-    const name = this.users.get(event.target_user ?? "")?.profile.displayName ?? "someone";
-    this.warnOnce(`voided/${event.group_id}/${event.seq}`, `A broken update from ${name} in one of your conversations was undone, and the conversation carries on.`, event.target_user ?? "");
+    const name = this.users.get(event.target_user ?? "")?.profile.displayName ?? t("chat.someone");
+    this.warnOnce(`voided/${event.group_id}/${event.seq}`, t("security.updateUndone", { name }), event.target_user ?? "");
   }
 
   protected async applyCommit(event: ApiEvent): Promise<void> {

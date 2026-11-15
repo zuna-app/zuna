@@ -37,6 +37,7 @@ export const CLIENT: Record<MethodName<ZunaClient>, Rule> = {
   serverInfo: "never",
   session: "never",
   setActive: "never",
+  setLanguage: "never",
   stop: "never",
   suspend: "never",
   telegramAvailable: "never",

@@ -3,6 +3,7 @@
 // so they're written once, here, and the apps only lay them out.
 
 import type { ApiExport, ApiExportConversation, ApiExportDevice } from "./api";
+import { t } from "./i18n";
 import type { ServerDataExport, ServerDataKind, ServerDataRow, ServerDataSection } from "./types";
 
 /** What this device knows that the server doesn't, to tell the person which row is which. */
@@ -62,24 +63,23 @@ export function stamp(ms: number): string {
 }
 
 export function bytes(n: number): string {
-  if (n < 1024) return n === 1 ? "1 byte" : `${n} bytes`;
-  const units = ["KB", "MB", "GB", "TB"];
+  if (n < 1024) return t("export.bytes", { count: n });
   let value = n / 1024;
   let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
+  while (value >= 1024 && unit < 3) {
     value /= 1024;
     unit++;
   }
-  return `${value < 10 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value)} ${units[unit]}`;
+  const size = value < 10 ? value.toFixed(1).replace(/\.0$/, "") : String(Math.round(value));
+  if (unit === 0) return t("export.kb", { size });
+  if (unit === 1) return t("export.mb", { size });
+  if (unit === 2) return t("export.gb", { size });
+  return t("export.tb", { size });
 }
 
 /** 12,345, as Intl's numbers aren't in every host's engine. */
-function thousands(n: number): string {
+export function thousands(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-export function count(n: number, one: string, many = `${one}s`): string {
-  return `${thousands(n)} ${n === 1 ? one : many}`;
 }
 
 /** How many bytes a base64 string holds. */
@@ -90,46 +90,55 @@ function sizeOf(base64: string | null | undefined): number {
 }
 
 function names(usernames: string[]): string {
-  const shown = usernames.map((name) => (name ? `@${name}` : "a deleted account"));
-  if (shown.length <= 2) return shown.join(" and ");
-  return `${shown.slice(0, 2).join(", ")} and ${count(shown.length - 2, "more", "more")}`;
+  const shown = usernames.map((name) => (name ? `@${name}` : t("export.aDeletedAccount")));
+  if (shown.length <= 1) return shown.join("");
+  const [first, second] = shown as [string, string];
+  if (shown.length === 2) return t("export.twoNames", { first, second });
+  return t("export.namesAndMore", { count: shown.length - 2, first, second });
+}
+
+function roleName(role: string): string {
+  if (role === "owner") return t("export.owner");
+  if (role === "admin") return t("export.admin");
+  if (role === "member") return t("export.member");
+  return role;
 }
 
 function accountSection(raw: ApiExport): ServerDataSection {
   const a = raw.account;
   const rows = [
-    row("Username", `@${a.username}`, "readable"),
-    row("Account ID", a.id, "readable"),
-    row("Role", a.role[0]!.toUpperCase() + a.role.slice(1), "readable"),
-    row("Created", stamp(a.created_at), "readable"),
+    row(t("export.username"), `@${a.username}`, "readable"),
+    row(t("export.accountId"), a.id, "readable"),
+    row(t("export.role"), roleName(a.role), "readable"),
+    row(t("export.created"), stamp(a.created_at), "readable"),
     row(
-      "Last online",
-      a.last_seen_at ? stamp(a.last_seen_at) : "Not yet",
+      t("export.lastOnline"),
+      a.last_seen_at ? stamp(a.last_seen_at) : t("export.notYet"),
       "readable",
-      a.hide_last_seen ? "Kept even if you hide when you're online. That only hides it from other people." : undefined,
+      a.hide_last_seen ? t("export.keptEvenIfYouHide") : undefined,
     ),
   ];
-  if (a.banned_at) rows.push(row("Banned", stamp(a.banned_at), "readable"));
-  rows.push(row("Profile", bytes(sizeOf(a.profile)), "encrypted", "Your display name, bio and the key to your picture, encrypted so only people on this server can read them."));
+  if (a.banned_at) rows.push(row(t("export.banned"), stamp(a.banned_at), "readable"));
+  rows.push(row(t("export.profile"), bytes(sizeOf(a.profile)), "encrypted", t("export.yourDisplayNameBioAnd")));
   if (a.avatar_file) {
     const file = raw.files.find((f) => f.id === a.avatar_file);
-    rows.push(row("Profile picture", file ? bytes(file.size) : "Kept", "encrypted", "Encrypted with a key that's in your profile."));
+    rows.push(row(t("export.profilePicture"), file ? bytes(file.size) : t("export.kept"), "encrypted", t("export.encryptedWithAKeyThats")));
   }
   rows.push(
-    row("Your account's keys", bytes(sizeOf(a.vault_core)), "encrypted", "Encrypted with your account key, which only your password, your recovery key and your devices can unlock."),
+    row(t("export.yourAccountsKeys"), bytes(sizeOf(a.vault_core)), "encrypted", t("export.encryptedWithYourAccountKey")),
     row(
-      "Your public keys",
+      t("export.yourPublicKeys"),
       bytes(sizeOf(a.identity_key) + sizeOf(a.identity_head) + sizeOf(a.hpke_key) + sizeOf(a.hpke_key_sig) + sizeOf(a.profile_sig)),
       "public",
-      "Your identity key, which the emoji people compare come from, and the key others use to encrypt to you, with their signatures.",
+      t("export.yourIdentityKeyWhichThe"),
     ),
-    row("Storage counted", bytes(a.stored_bytes + a.commit_bytes), "readable", "How much space your vault and your changes to conversations' keys take up, which counts toward the server's limits."),
-    row("Reports about you", "Left out", "withheld", "If someone reported you, the reason and time are kept for the server's admins. They're left out here, so nobody can work out from this when they were reported."),
+    row(t("export.storageCounted"), bytes(a.stored_bytes + a.commit_bytes), "readable", t("export.howMuchSpaceYourVault")),
+    row(t("export.reportsAboutYou"), t("export.leftOut"), "withheld", t("export.ifSomeoneReportedYouThe")),
   );
   return {
     id: "account",
-    title: "Your account",
-    about: "Your account's own record. The server can read your username, your role and the times. Your name, bio and picture are in your profile, which it can't read.",
+    title: t("export.yourAccount"),
+    about: t("export.yourAccountsOwnRecord"),
     rows,
   };
 }
@@ -137,44 +146,51 @@ function accountSection(raw: ApiExport): ServerDataSection {
 function signInSection(raw: ApiExport): ServerDataSection {
   const s = raw.sign_in;
   const rows = [
-    row("Password check", bytes(s.auth_hash_size), "withheld", "Made from your password on your device. The server checks sign-ins against it."),
-    row("Recovery key check", bytes(s.recovery_hash_size), "withheld", "The same, for your recovery key."),
+    row(t("export.passwordCheck"), bytes(s.auth_hash_size), "withheld", t("export.madeFromYourPasswordOn")),
+    row(t("export.recoveryKeyCheck"), bytes(s.recovery_hash_size), "withheld", t("export.theSameForYourRecovery")),
   ];
   for (const slot of s.slots) {
     const password = slot.kind === "password";
     rows.push(
       row(
-        password ? "Keys locked with your password" : slot.kind === "recovery" ? "Keys locked with your recovery key" : `Keys locked with “${slot.kind}”`,
+        password ? t("export.keysLockedWithYourPassword") : slot.kind === "recovery" ? t("export.keysLockedWithYourRecovery") : t("export.keysLockedWith", { kind: slot.kind }),
         bytes(slot.size),
         "withheld",
-        `Your account key, encrypted so only your ${password ? "password" : "recovery key"} can unlock it.`,
+        password ? t("export.yourAccountKeyEncryptedSo") : t("export.yourAccountKeyEncryptedSoOnly"),
       ),
     );
   }
   const mib = Math.round(s.kdf.memory / 1024);
   rows.push(
     row(
-      "How your password is hashed",
-      `Argon2id, ${mib} MiB, ${count(s.kdf.iterations, "pass", "passes")}`,
+      t("export.howYourPasswordIsHashed"),
+      t("export.hashSettings", { mib, count: thousands(s.kdf.iterations) }),
       "readable",
-      "Given to anyone who tries to sign in as you, so their app can try. It reveals nothing about your password.",
+      t("export.givenToAnyoneWhoTries"),
     ),
   );
   if (s.attempts) {
-    rows.push(row("Sign-in attempts", `${s.attempts.attempts}, the last ${stamp(s.attempts.seen_at)}`, "readable", "Every attempt to sign in as you is counted, wherever it comes from, so nobody can keep guessing. The count is cleared a day after the last attempt."));
+    rows.push(
+      row(
+        t("export.signInAttempts"),
+        t("export.attemptsAndLast", { count: s.attempts.attempts, when: stamp(s.attempts.seen_at) }),
+        "readable",
+        t("export.everyAttemptToSignIn"),
+      ),
+    );
   }
   return {
     id: "sign-in",
-    title: "Signing in",
-    about: "What the server checks your password and recovery key against. It can't be turned back into them. It's left out of this export, because anyone with a copy could use it to test guesses at your password.",
+    title: t("export.signingIn"),
+    about: t("export.whatTheServerChecksYour"),
     rows,
   };
 }
 
 function deviceLabel(device: ApiExportDevice, context: ExportContext): string {
   const name = context.deviceName(device.id);
-  if (device.id === context.deviceId) return `${name ?? "This device"}${name ? " (this device)" : ""}`;
-  return name ?? (device.revoked_at ? "A removed device" : "A device");
+  if (device.id === context.deviceId) return name ? t("export.thisDeviceNamed", { name }) : t("export.thisDevice");
+  return name ?? (device.revoked_at ? t("export.aRemovedDevice") : t("export.aDevice"));
 }
 
 function hostOf(url: string): string {
@@ -194,18 +210,25 @@ function devicesSection(raw: ApiExport, context: ExportContext): ServerDataSecti
   );
   const rows: ServerDataRow[] = [];
   for (const device of devices) {
-    const parts = [`Signed in ${stamp(device.created_at)}.`];
-    if (device.sessions.length) parts.push(`${count(device.sessions.length, "session")}, the last used ${stamp(Math.max(...device.sessions.map((s) => s.last_used_at)))}.`);
+    const parts = [t("export.signedIn", { when: stamp(device.created_at) })];
+    if (device.sessions.length) {
+      const last = stamp(Math.max(...device.sessions.map((s) => s.last_used_at)));
+      parts.push(t("export.sessionsTheLastUsed", { count: device.sessions.length, when: last }));
+    }
     if (!device.revoked_at) {
-      parts.push("Its public keys, which others use to encrypt to it and to check its signatures.");
-      if (device.key_packages.count) parts.push(`${count(device.key_packages.count, "key")} others can use to add it to conversations, ${bytes(device.key_packages.bytes)}.`);
-      if (device.welcomes.count) parts.push(`${count(device.welcomes.count, "invitation")} to conversations waiting for it, ${bytes(device.welcomes.bytes)}, encrypted.`);
-      if (device.account_key) parts.push(`Your account key, encrypted for it, ${bytes(device.account_key.size)}.`);
+      parts.push(t("export.itsPublicKeysWhichOthers"));
+      if (device.key_packages.count) {
+        parts.push(t("export.keysOthersCanUseTo", { count: thousands(device.key_packages.count), size: bytes(device.key_packages.bytes) }));
+      }
+      if (device.welcomes.count) {
+        parts.push(t("export.invitationsToConversationsWaitingFor", { count: thousands(device.welcomes.count), size: bytes(device.welcomes.bytes) }));
+      }
+      if (device.account_key) parts.push(t("export.yourAccountKeyEncryptedFor", { size: bytes(device.account_key.size) }));
     }
     rows.push(
       row(
         deviceLabel(device, context),
-        device.revoked_at ? `Removed ${stamp(device.revoked_at)}` : `Last used ${stamp(device.last_seen_at)}`,
+        device.revoked_at ? t("export.removed", { when: stamp(device.revoked_at) }) : t("export.lastUsed", { when: stamp(device.last_seen_at) }),
         "readable",
         parts.join(" "),
       ),
@@ -215,19 +238,19 @@ function devicesSection(raw: ApiExport, context: ExportContext): ServerDataSecti
     const push = device.push;
     if (!push) continue;
     const muted = Object.keys(push.muted ?? {}).length;
-    const parts = ["Its push notification handles are left out, since anyone with them could wake it."];
-    if (muted) parts.push(`No notifications for ${count(muted, "muted chat")}.`);
-    if (push.notified.length) parts.push(`Notified about ${count(push.notified.length, "chat")}, unread since.`);
-    if (push.filters) parts.push("It filters notifications itself, so the server notifies it about everything.");
-    rows.push(row(`Notifications for ${deviceLabel(device, context)}`, `Through ${hostOf(push.relay)}`, "readable", parts.join(" ")));
+    const parts = [t("export.itsPushNotificationHandlesAre")];
+    if (muted) parts.push(t("export.noNotificationsForMutedChats", { count: thousands(muted) }));
+    if (push.notified.length) parts.push(t("export.notifiedAboutChatsUnreadSince", { count: thousands(push.notified.length) }));
+    if (push.filters) parts.push(t("export.itFiltersNotificationsItselfSo"));
+    rows.push(row(t("export.notificationsFor", { device: deviceLabel(device, context) }), t("export.through", { host: hostOf(push.relay) }), "readable", parts.join(" ")));
   }
   if (raw.signing_in.length) {
-    rows.push(row("Signing in", count(raw.signing_in.length, "session"), "readable", "Sign-ins that haven't added a device yet."));
+    rows.push(row(t("export.signingIn"), t("export.sessions", { count: thousands(raw.signing_in.length) }), "readable", t("export.signInsThatHaventAdded")));
   }
   return {
     id: "devices",
-    title: "Devices",
-    about: "Each device that has signed in to your account: when, when it was last used, and its public keys. Device names are only stored on your devices.",
+    title: t("export.devices"),
+    about: t("export.eachDeviceThatHasSigned"),
     rows,
   };
 }
@@ -237,12 +260,12 @@ function conversationLabel(chat: ApiExportConversation, selfId: string): string 
   if (chat.kind === "dm") {
     const pair = (chat.dm_key ?? "").split(":");
     const peer = pair[0] === selfId ? pair[1] : pair[0];
-    if (peer === selfId || (!peer && others.length === 0)) return "Your saved messages";
+    if (peer === selfId || (!peer && others.length === 0)) return t("export.yourSavedMessages");
     const username = chat.members.find((member) => member.id === peer)?.username;
-    return username === undefined ? "Direct message with someone who left it" : `Direct message with ${names([username])}`;
+    return username === undefined ? t("export.directMessageWithSomeoneWho") : t("export.directMessageWith", { names: names([username]) });
   }
-  if (chat.kind === "channel") return `Channel with ${count(chat.member_count, "member")}`;
-  return others.length ? `Group with ${names(others.map((member) => member.username))}` : "Group with only you";
+  if (chat.kind === "channel") return t("export.channelWithMembers", { count: thousands(chat.member_count) });
+  return others.length ? t("export.groupWith", { names: names(others.map((member) => member.username)) }) : t("export.groupWithOnlyYou");
 }
 
 function conversationsSection(raw: ApiExport, context: ExportContext): ServerDataSection {
@@ -251,23 +274,29 @@ function conversationsSection(raw: ApiExport, context: ExportContext): ServerDat
   const rows = chats.map((chat) => {
     const parts: string[] = [];
     const name = context.conversationName(chat.id);
-    if (name) parts.push(`On your devices: “${name}”.`);
+    if (name) parts.push(t("export.onYourDevices", { name }));
     parts.push(
       chat.messages.count
-        ? `${count(chat.messages.count, "message")}, ${bytes(chat.messages.bytes)} encrypted, the last ${stamp(chat.messages.last ?? chat.created_at)}.`
-        : "No messages kept.",
+        ? t("export.messagesEncryptedTheLast", {
+            count: thousands(chat.messages.count),
+            size: bytes(chat.messages.bytes),
+            when: stamp(chat.messages.last ?? chat.created_at),
+          })
+        : t("export.noMessagesKept"),
     );
-    if (chat.meta_size) parts.push(`Its name, picture and description: ${bytes(chat.meta_size)}, encrypted.`);
-    if (chat.by_you.count) parts.push(`${count(chat.by_you.count, "change")} you made to its members or keys, the last ${stamp(chat.by_you.last ?? chat.created_at)}.`);
-    if (chat.to_you.count) parts.push(`${count(chat.to_you.count, "change")} about you.`);
-    if (chat.created_by === selfId) parts.push("You started it.");
-    return row(conversationLabel(chat, selfId), chat.membership ? `Joined ${stamp(chat.membership.joined_at)}` : "Left", "readable", parts.join(" "));
+    if (chat.meta_size) parts.push(t("export.itsNamePictureAndDescription", { size: bytes(chat.meta_size) }));
+    if (chat.by_you.count) {
+      parts.push(t("export.changesYouMadeToIts", { count: thousands(chat.by_you.count), when: stamp(chat.by_you.last ?? chat.created_at) }));
+    }
+    if (chat.to_you.count) parts.push(t("export.changesAboutYou", { count: thousands(chat.to_you.count) }));
+    if (chat.created_by === selfId) parts.push(t("export.youStartedIt"));
+    return row(conversationLabel(chat, selfId), chat.membership ? t("export.joined", { when: stamp(chat.membership.joined_at) }) : t("export.left"), "readable", parts.join(" "));
   });
-  if (!rows.length) rows.push(row("Conversations", "None", "readable"));
+  if (!rows.length) rows.push(row(t("export.conversations"), t("export.none"), "readable"));
   return {
     id: "conversations",
-    title: "Conversations",
-    about: "The server knows who's in each conversation, when they joined, and when and how much is sent. What's said, who said it, and group and channel names are encrypted.",
+    title: t("export.conversations"),
+    about: t("export.theServerKnowsWhosIn"),
     rows,
   };
 }
@@ -276,11 +305,16 @@ function vaultSection(raw: ApiExport): ServerDataSection {
   const { items, history_grants: grants } = raw.vault;
   return {
     id: "vault",
-    title: "Your vault",
-    about: "Your settings, your chat list, who you block, the keys to earlier messages and what you've saved, encrypted so only your devices can read it.",
+    title: t("export.yourVault"),
+    about: t("export.yourSettingsYourChatList"),
     rows: [
-      row("Items", items.count ? `${count(items.count, "item")}, ${bytes(items.bytes)}` : "None", "encrypted"),
-      row("History shared with you", grants.count ? `${count(grants.count, "grant")}, ${bytes(grants.bytes)}` : "None", "encrypted", "Keys to messages sent before you joined a group, encrypted for you."),
+      row(t("export.items"), items.count ? t("export.itemsAndSize", { count: thousands(items.count), size: bytes(items.bytes) }) : t("export.none"), "encrypted"),
+      row(
+        t("export.historySharedWithYou"),
+        grants.count ? t("export.grants", { count: thousands(grants.count), size: bytes(grants.bytes) }) : t("export.none"),
+        "encrypted",
+        t("export.keysToMessagesSentBefore"),
+      ),
     ],
   };
 }
@@ -288,23 +322,23 @@ function vaultSection(raw: ApiExport): ServerDataSection {
 function filesSection(raw: ApiExport): ServerDataSection {
   const rows = raw.files.map((file) => {
     const label =
-      file.id === raw.account.avatar_file ? "Your profile picture" : file.standalone ? "A picture" : file.completed_at === null ? "An unfinished upload" : "A file not sent yet";
-    return row(label, bytes(file.size), "encrypted", `Uploaded ${stamp(file.created_at)}.`);
+      file.id === raw.account.avatar_file ? t("export.yourProfilePicture") : file.standalone ? t("export.aPicture") : file.completed_at === null ? t("export.anUnfinishedUpload") : t("export.aFileNotSentYet");
+    return row(label, bytes(file.size), "encrypted", t("export.uploaded", { when: stamp(file.created_at) }));
   });
-  if (!rows.length) rows.push(row("Files that are yours", "None", "readable"));
+  if (!rows.length) rows.push(row(t("export.filesThatAreYours"), t("export.none"), "readable"));
   const mib = raw.uploads.reduce((sum, upload) => sum + upload.mib, 0);
   rows.push(
     row(
-      "Uploaded in the last 30 days",
-      raw.uploads.length ? `${mib} MiB on ${count(raw.uploads.length, "day")}` : "Nothing",
+      t("export.uploadedInTheLast30"),
+      raw.uploads.length ? t("export.mibOnDays", { count: raw.uploads.length, mib }) : t("export.nothing"),
       "readable",
-      "Counted in whole MiB per day, toward your upload limit.",
+      t("export.countedInWholeMibPer"),
     ),
   );
   return {
     id: "files",
-    title: "Files",
-    about: "Files you've uploaded that aren't attached to a message, such as your profile picture. Once a file is attached to a message, the server no longer knows whose it is. Every file is encrypted before it's uploaded.",
+    title: t("export.files"),
+    about: t("export.filesYouveUploadedThatArent"),
     rows,
   };
 }
@@ -315,14 +349,14 @@ function sendingSection(raw: ApiExport): ServerDataSection {
   const last = Math.max(0, ...periods);
   return {
     id: "sending",
-    title: "Sending",
-    about: "Your devices are given tokens that are spent on each message, reaction and edit. Once spent, a token can't be traced back to whoever it was given to, so the server can't tell which messages are yours.",
+    title: t("export.sending"),
+    about: t("export.yourDevicesAreGivenTokens"),
     rows: [
       row(
-        "Tokens given to you",
-        issued ? `${thousands(issued)} in ${count(periods.size, "six-hour span")}` : "None kept",
+        t("export.tokensGivenToYou"),
+        issued ? t("export.inSixHourSpans", { count: periods.size, issued: thousands(issued) }) : t("export.noneKept"),
         "readable",
-        issued ? `The current six-hour period began ${stamp(last)}. Deleted once they expire.` : "Deleted once they expire.",
+        issued ? t("export.theCurrentSixHourPeriod", { when: stamp(last) }) : t("export.deletedOnceTheyExpire"),
       ),
     ],
   };
@@ -331,25 +365,27 @@ function sendingSection(raw: ApiExport): ServerDataSection {
 function madeSection(raw: ApiExport): ServerDataSection | null {
   const rows: ServerDataRow[] = [];
   for (const invite of raw.invites) {
-    const parts = [`Made ${stamp(invite.created_at)}.`];
-    if (invite.expires_at) parts.push(`${invite.expires_at > raw.exported_at ? "Expires" : "Expired"} ${stamp(invite.expires_at)}.`);
-    if (invite.revoked_at) parts.push(`Revoked ${stamp(invite.revoked_at)}.`);
-    parts.push("Its code is left out, since anyone with it could join.");
-    rows.push(row(invite.grants_role === "member" ? "Invite" : `Invite for ${invite.grants_role === "admin" ? "an admin" : invite.grants_role}`, `Used ${invite.uses}${invite.max_uses ? ` of ${invite.max_uses}` : ""}`, "readable", parts.join(" ")));
+    const parts = [t("export.made", { when: stamp(invite.created_at) })];
+    if (invite.expires_at) parts.push(invite.expires_at > raw.exported_at ? t("export.expires", { when: stamp(invite.expires_at) }) : t("export.expired", { when: stamp(invite.expires_at) }));
+    if (invite.revoked_at) parts.push(t("export.revoked", { when: stamp(invite.revoked_at) }));
+    parts.push(t("export.itsCodeIsLeftOut"));
+    const label = invite.grants_role === "member" ? t("export.invite") : invite.grants_role === "admin" ? t("export.inviteForAnAdmin") : t("export.inviteFor", { role: invite.grants_role });
+    const used = invite.max_uses ? t("export.usesOfMax", { uses: invite.uses, max: invite.max_uses }) : t("export.uses", { uses: invite.uses });
+    rows.push(row(label, used, "readable", parts.join(" ")));
   }
   for (const bot of raw.bots) {
-    const parts = [`Made ${stamp(bot.created_at)}.`];
-    if (bot.deleted_at) parts.push(`Deleted ${stamp(bot.deleted_at)}.`);
-    else if (!bot.set_up_at) parts.push("Not set up yet.");
-    if (bot.channels.length) parts.push(`Given ${count(bot.channels.length, "channel")}.`);
-    parts.push("Its name, picture and commands are encrypted in its own profile.");
-    rows.push(row(`@${bot.username}`, bot.listed ? "Listed bot" : "Private bot", "readable", parts.join(" ")));
+    const parts = [t("export.made", { when: stamp(bot.created_at) })];
+    if (bot.deleted_at) parts.push(t("export.deleted", { when: stamp(bot.deleted_at) }));
+    else if (!bot.set_up_at) parts.push(t("export.notSetUpYet"));
+    if (bot.channels.length) parts.push(t("export.givenChannels", { count: bot.channels.length }));
+    parts.push(t("export.itsNamePictureAndCommands"));
+    rows.push(row(`@${bot.username}`, bot.listed ? t("export.listedBot") : t("export.privateBot"), "readable", parts.join(" ")));
   }
-  if (raw.admin.channels.length) rows.push(row("Channels you made", String(raw.admin.channels.length), "readable", "Their names and topics are encrypted."));
-  if (raw.admin.sounds.length) rows.push(row("Sounds you added", String(raw.admin.sounds.length), "readable", "Their names and audio are encrypted."));
-  if (raw.admin.banned.length) rows.push(row("People you banned", names(raw.admin.banned.map((user) => user.username)), "readable"));
+  if (raw.admin.channels.length) rows.push(row(t("export.channelsYouMade"), String(raw.admin.channels.length), "readable", t("export.theirNamesAndTopicsAre")));
+  if (raw.admin.sounds.length) rows.push(row(t("export.soundsYouAdded"), String(raw.admin.sounds.length), "readable", t("export.theirNamesAndAudioAre")));
+  if (raw.admin.banned.length) rows.push(row(t("export.peopleYouBanned"), names(raw.admin.banned.map((user) => user.username)), "readable"));
   if (!rows.length) return null;
-  return { id: "made", title: "What you've made", about: "Invites, bots, channels and sounds you made, and who you banned.", rows };
+  return { id: "made", title: t("export.whatYouveMade"), about: t("export.invitesBotsChannelsAndSounds"), rows };
 }
 
 function keysSection(raw: ApiExport): ServerDataSection {
@@ -357,33 +393,41 @@ function keysSection(raw: ApiExport): ServerDataSection {
   const last = links[links.length - 1];
   return {
     id: "keys",
-    title: "Your keys over time",
-    about: "Each time your account's keys were replaced, and the server's public record of which keys belong to whom, which everyone's apps check.",
+    title: t("export.yourKeysOverTime"),
+    about: t("export.eachTimeYourAccountsKeys"),
     rows: [
       row(
-        "Keys replaced",
-        links.length ? count(links.length, "time") : "Never",
+        t("export.keysReplaced"),
+        links.length ? t("export.times", { count: thousands(links.length) }) : t("export.never"),
         "public",
-        last ? `The last ${stamp(last.created_at)}. Each one is signed by the keys before it. This happens when a device is removed or your password changes.` : "This happens when a device is removed or your password changes.",
+        last
+          ? t("export.theLastEachOneIsSigned", { when: stamp(last.created_at) })
+          : t("export.thisHappensWhenADevice"),
       ),
-      row("Entries in the log of keys", String(raw.key_changes.log_entries), "public", "Your devices and their keys, made public so the server can't show different people different keys."),
+      row(t("export.entriesInTheLogOf"), String(raw.key_changes.log_entries), "public", t("export.yourDevicesAndTheirKeys")),
     ],
   };
 }
 
 function notKeptSection(): ServerDataSection {
+  const notKept = t("export.notKept");
   return {
     id: "not-kept",
-    title: "What it doesn't keep",
-    about: "These never reach the server, or reach it only in a form it can't read or tie to you.",
+    title: t("export.whatItDoesntKeep"),
+    about: t("export.theseNeverReachTheServer"),
     rows: [
-      row("What you write, send and say", "Not kept", "none", "Messages, files, reactions, calls and voice are encrypted on your device for the people in the conversation, and kept only as the sizes above."),
-      row("Who sent each message, reaction or pin", "Not kept", "none", "They're sent without your account attached. Who wrote them is signed inside, where only the people in the conversation can see it."),
-      row("Your password and recovery key", "Not kept", "none", "They never leave your device."),
-      row("Who you block and what you pin", "Not kept", "none", "They're in your vault, encrypted."),
-      row("What you search for", "Not kept", "none", "Search runs on your device."),
-      row("Who reports someone", "Not kept", "none", "A report only records who it's about, why, and when."),
-      row("Your IP address", "Not stored", "none", "The server sees it with each request, and counts requests from each address in memory for up to a day to stop flooding. It never saves it, though a proxy in front of the server might log it, and the voice server also sees it during calls. If you set a SOCKS5 proxy on a device, the server sees the proxy's address instead."),
+      row(t("export.whatYouWriteSendAnd"), notKept, "none", t("export.messagesFilesReactionsCallsAnd")),
+      row(t("export.whoSentEachMessageReaction"), notKept, "none", t("export.theyreSentWithoutYourAccount")),
+      row(t("export.yourPasswordAndRecoveryKey"), notKept, "none", t("export.theyNeverLeaveYourDevice")),
+      row(t("export.whoYouBlockAndWhat"), notKept, "none", t("export.theyreInYourVaultEncrypted")),
+      row(t("export.whatYouSearchFor"), notKept, "none", t("export.searchRunsOnYourDevice")),
+      row(t("export.whoReportsSomeone"), notKept, "none", t("export.aReportOnlyRecordsWho")),
+      row(
+        t("export.yourIpAddress"),
+        t("export.notStored"),
+        "none",
+        t("export.theServerSeesItWith"),
+      ),
     ],
   };
 }

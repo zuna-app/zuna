@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): the person's profile and account, verifying others, and managing groups.
 
 import { decode } from "../api";
@@ -158,7 +159,7 @@ export abstract class SessionManagement extends SessionSending {
     const root = this.pinnedIdentity(userId);
     if (!root || !this.users.has(userId)) return;
     const [scheme, encoded] = covers.split(":");
-    const outdated = new Error("The keys you compared no longer match what the server shows. Compare the emoji again.");
+    const outdated = new Error(t("errors.theKeysYouComparedNo"));
     if (scheme !== "heads") throw outdated;
     const compared = fromBase64(encoded ?? "");
     let pin = root;
@@ -224,7 +225,7 @@ export abstract class SessionManagement extends SessionSending {
     }
     const created = await this.api.createGroup(historyVisible);
     if (created.group.kind !== "group" || created.group.created_by !== this.account.userId) {
-      throw new Error("The group wasn't created because the server sent an invalid response.");
+      throw new Error(t("errors.theGroupWasntCreatedBecause"));
     }
     const groupId = created.group.id;
     this.applyGroup(created.group);
@@ -242,12 +243,12 @@ export abstract class SessionManagement extends SessionSending {
         const group = await this.api.group(groupId);
         const cached = this.applyGroup(group);
         const held = this.rosterOf(cached);
-        if (!held || !held.roster.admins.includes(this.account.userId)) throw new Error("Only an admin of this group can add people.");
+        if (!held || !held.roster.admins.includes(this.account.userId)) throw new Error(t("errors.onlyAdminsAddPeople"));
         // Someone the server lists but the roster doesn't was never let in, so they're added like anyone else.
         const missing = userIds.filter((id) => !group.members.some((member) => member.user_id === id) || !held.roster.members.includes(id));
         const packages: { deviceId: string; data: Uint8Array }[] = [];
         for (const userId of missing) packages.push(...(await this.claimKeyPackages(userId, groupId)));
-        if (packages.length === 0) throw new Error("Those people have no devices available to add.");
+        if (packages.length === 0) throw new Error(t("errors.thosePeopleHaveNoDevices"));
         let grants: { user_id: string; data: Uint8Array }[] | undefined;
         if (this.sharesHistory(cached)) {
           // Hand older epoch keys to each new member, sealed so that only they can read them.
@@ -357,8 +358,8 @@ export abstract class SessionManagement extends SessionSending {
     await this.withLock(groupId, () =>
       this.commitWithRetry(groupId, async () => {
         const held = this.rosterOf(this.groups.get(groupId)!);
-        if (!held?.roster.admins.includes(this.account.userId)) throw new Error("Only an admin of this group can change who its admins are.");
-        if (!held.roster.members.includes(userId)) throw new Error("They aren't in this group.");
+        if (!held?.roster.admins.includes(this.account.userId)) throw new Error(t("errors.onlyAdminsChangeAdmins"));
+        if (!held.roster.members.includes(userId)) throw new Error(t("errors.theyArentInThisGroup"));
         const admins = role === "admin" ? [...new Set([...held.roster.admins, userId])] : held.roster.admins.filter((id) => id !== userId);
         return { kind: "update", roster: { admins, members: held.roster.members } };
       }),

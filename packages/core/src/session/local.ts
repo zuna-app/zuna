@@ -8,8 +8,9 @@ import type { TrustManifest } from "../manifest";
 import { parseProfile } from "../validate";
 import { presenceTiming } from "../presence";
 import type { EmoteSet, Preferences, PushSettings, Role, ServerInfo, TrustState, UserView } from "../types";
-import { DB_LABEL, ROTATION_INTENT, type CachedDevice, type RotationIntent, type CachedUser, type CachedGroup, emptyProfile, DELETED_PROFILE } from "./shared";
+import { DB_LABEL, ROTATION_INTENT, type CachedDevice, type RotationIntent, type CachedUser, type CachedGroup, emptyProfile, deletedProfile } from "./shared";
 import { SessionBase } from "./base";
+import { t } from "../i18n";
 
 export abstract class SessionLocal extends SessionBase {
   // --- Sealing data at rest ---
@@ -40,7 +41,7 @@ export abstract class SessionLocal extends SessionBase {
       if (!(data instanceof Uint8Array)) throw new Error("not sealed");
       return this.openJson<T>(name, row, data);
     } catch {
-      this.warnOnce("local-tampered", "Something outside Zuna changed this device's list of who to trust. Compare emoji with the people who matter to you before trusting them.");
+      this.warnOnce("local-tampered", t("security.somethingOutsideZunaChangedThis"));
       return careful;
     }
   }
@@ -356,7 +357,7 @@ export abstract class SessionLocal extends SessionBase {
       role: api.role,
       identityKey,
       hpkeKey: head?.hpke ?? decode(api.hpke_key),
-      profile: api.deleted ? DELETED_PROFILE : (opened ?? previous?.profile ?? emptyProfile(api.username)),
+      profile: api.deleted ? deletedProfile() : (opened ?? previous?.profile ?? emptyProfile(api.username)),
       // Hidden, or the account gone, it's nothing. Otherwise it only moves on, as in noteLastSeen.
       lastSeenAt: api.last_seen_at === null ? null : Math.max(api.last_seen_at, previous?.lastSeenAt ?? 0),
       hidesLastSeen: api.hide_last_seen,
@@ -382,7 +383,7 @@ export abstract class SessionLocal extends SessionBase {
         type: "security",
         serverId: this.serverId,
         userId: api.id,
-        message: `The security key of ${user.profile.displayName} changed. Their messages can't be trusted until you verify them again.`,
+        message: t("security.keyChanged", { name: user.profile.displayName }),
       });
       const dm = this.dmWith(api.id);
       if (dm) this.addSystemRow(dm.id, Date.now(), api.id, { type: "identity_changed", actorId: api.id, targetIds: [api.id] });

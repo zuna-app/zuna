@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): epoch keys, key packages, and what this device keeps of each group.
 
 import * as wasm from "@zuna/crypto";
@@ -36,7 +37,7 @@ import {
 } from "./shared";
 import { SessionRotation } from "./rotation";
 
-const KIND_NAMES = { group: "a group", dm: "a direct message", channel: "a channel" } as const;
+const kindName = (kind: "group" | "dm" | "channel") => (kind === "group" ? t("security.aGroup") : kind === "dm" ? t("security.aDirectMessage") : t("security.aChannel"));
 
 /**
  * Why a group's roster can't be taken yet: this account's keys for the group say its manifest
@@ -51,6 +52,10 @@ export const ROSTER_UNSAID = "none of this account's devices has said who's in i
  * and nobody is warned: the join that follows takes the group as it is now, and is checked again.
  */
 export const ROSTER_BEHIND = "it's older than the one this account holds";
+
+/** Why a roster can't be taken, in the person's language, for a warning. */
+export const reasonText = (refusal: string): string =>
+  refusal === ROSTER_UNSAID ? t("security.rosterUnsaid") : refusal === ROSTER_BEHIND ? t("security.rosterOlder") : refusal;
 
 export abstract class SessionGroups extends SessionRotation {
   // --- Epoch keys ---
@@ -270,7 +275,7 @@ export abstract class SessionGroups extends SessionRotation {
           type: "security",
           serverId: this.serverId,
           userId,
-          message: `The server offered a device for ${user.profile.displayName} that isn't really theirs. It was not added.`,
+          message: t("security.theServerOfferedADevice", { name: user.profile.displayName }),
         });
         continue;
       }
@@ -312,12 +317,12 @@ export abstract class SessionGroups extends SessionRotation {
    */
   protected refuseRewind(groupId: string): void {
     if (!this.startedHere(groupId)) return;
-    this.warnOnce(`rewind/${groupId}`, "The server claimed one of your conversations never started, which can't be right. Zuna didn't start it over, so that conversation won't work until the server stops claiming this.");
-    throw new Error("This conversation can't be used right now because the server sent an invalid response about it.");
+    this.warnOnce(`rewind/${groupId}`, t("security.theServerClaimedOneOf"));
+    throw new Error(t("errors.conversationInvalidResponse"));
   }
 
   protected refuseDoubtful(groupId: string): void {
-    if (this.groups.get(groupId)?.doubtful) throw new Error("This conversation can't be used: the server listed more than two people in a direct message.");
+    if (this.groups.get(groupId)?.doubtful) throw new Error(t("errors.conversationTooManyPeople"));
   }
 
   protected applyGroup(api: ApiGroup): CachedGroup {
@@ -330,7 +335,7 @@ export abstract class SessionGroups extends SessionRotation {
     const vaulted = this.vaultKind(api.id);
     const known = vaulted && vaulted !== "disputed" ? vaulted : null;
     const kind = previous?.kind ?? known?.kind ?? api.kind;
-    if (kind !== api.kind) this.warnOnce(`kind/${api.id}`, KIND_WARNING);
+    if (kind !== api.kind) this.warnOnce(`kind/${api.id}`, t(KIND_WARNING));
     const others = [...new Set(api.members.map((member) => member.user_id))].filter((id) => id !== selfId);
     let peerId: string | null = null;
     let doubtful = false;
@@ -345,7 +350,7 @@ export abstract class SessionGroups extends SessionRotation {
         doubtful = others.length > 1;
       }
       if (others.some((id) => id !== peerId)) {
-        this.warnOnce(`dm-roster/${api.id}`, "The server listed someone else in one of your direct messages. They were removed, and the conversation's keys are being changed so they can't read it.");
+        this.warnOnce(`dm-roster/${api.id}`, t("security.theServerListedSomeoneElse"));
       }
     }
     let listed = api.members.filter((member) => kind !== "dm" || member.user_id === selfId || member.user_id === peerId);
@@ -353,7 +358,7 @@ export abstract class SessionGroups extends SessionRotation {
       // Nobody without the community key can be on a channel's roster, and leaving them
       // off it means they're taken out of its tree, whatever the server says.
       const held = listed.filter((member) => this.holdsCommunityKey(api.id, member.user_id, member.proof));
-      if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, "The server listed someone in a channel who isn't really part of this server. They were removed, and the conversation's keys are being changed so they can't read it.");
+      if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, t("security.theServerListedSomeoneIn"));
       listed = held;
       // An admin-only channel is for the server's admins alone, whom the server names in its roster as for any
       // channel. Anyone else there, such as someone who just stopped being one, is taken out of its tree.
@@ -474,17 +479,17 @@ export abstract class SessionGroups extends SessionRotation {
     const group = this.groups.get(groupId);
     if (!group) return null;
     const founding = bytes ? readFounding(groupId, bytes) : null;
-    if (founding && founding.kind !== group.kind) return `it's ${KIND_NAMES[founding.kind]} rather than ${KIND_NAMES[group.kind]}`;
+    if (founding && founding.kind !== group.kind) return t("security.rosterWrongKind", { kind: kindName(founding.kind), expected: kindName(group.kind) });
     if (group.kind !== "group") return this.charterRefusal(group, bytes, founding);
     const held = this.rosterOf(group);
     if (!bytes) return held ? "it took the group's roster away" : "the group has no roster";
     if (held && equalBytes(bytes, held.bytes)) return null;
     const next = readRoster(groupId, bytes);
-    if (!next) return "its roster isn't one";
+    if (!next) return t("security.rosterUnreadable");
     const { userId, deviceId } = next.roster.by;
     const device = this.users.get(userId)?.devices.get(deviceId);
-    if (!device || device.revoked || !next.signedBy(device.signatureKey)) return "its roster isn't signed by a device of whoever it names";
-    if (committer && (committer.userId !== userId || committer.deviceId !== deviceId)) return "its roster was signed by someone other than whoever made the change";
+    if (!device || device.revoked || !next.signedBy(device.signatureKey)) return t("security.rosterUnsigned");
+    if (committer && (committer.userId !== userId || committer.deviceId !== deviceId)) return t("security.rosterSignedByOther");
     if (!held) return this.firstRosterRefusal(group, next);
     // A change this device took on may have been undone since, as one nobody else could apply. Going back
     // never lets anyone in again, or makes anyone an admin again: whoever holds an older roster with
@@ -527,12 +532,12 @@ export abstract class SessionGroups extends SessionRotation {
     const held = group.roster ? fromBase64(group.roster) : null;
     if (held) return bytes && equalBytes(bytes, held) ? null : "what it says it is was changed";
     if (!bytes) return null;
-    if (!founding || founding.kind === "group") return "what it says it is can't be read";
+    if (!founding || founding.kind === "group") return t("security.rosterKindUnreadable");
     const { charter } = founding.signed;
     if (group.kind === "dm") {
       const people = this.dmPeople(group);
-      if (charter.people.length !== people.length || people.some((id) => !charter.people.includes(id))) return "it's between other people";
-      if (!charter.people.includes(charter.by.userId)) return "neither of its people started it";
+      if (charter.people.length !== people.length || people.some((id) => !charter.people.includes(id))) return t("security.rosterBetweenOthers");
+      if (!charter.people.includes(charter.by.userId)) return t("security.rosterNotStarted");
     }
     // Whoever started it may have signed out of that device since: it was theirs when it signed, as for a message.
     const key = this.deviceKey(charter.by);
@@ -543,7 +548,7 @@ export abstract class SessionGroups extends SessionRotation {
   protected nextRoster(groupId: string, change: Pick<Roster, "admins" | "members">): Uint8Array {
     const group = this.groups.get(groupId);
     const held = group && this.rosterOf(group);
-    if (!held) throw new Error("Couldn't check who's in this group yet. Please try again.");
+    if (!held) throw new Error(t("errors.couldntCheckGroupMembers"));
     const by = { userId: this.account.userId, deviceId: this.account.deviceId };
     return sealRoster({ group: groupId, version: held.roster.version + 1, admins: change.admins, members: change.members, prev: rosterHash(held.bytes), by }, this.account.deviceSecret);
   }

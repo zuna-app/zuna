@@ -1,3 +1,4 @@
+import { t, translate } from "./i18n";
 // A typed client for the server's REST interface. Binary fields travel as base64.
 
 import * as wasm from "@zuna/crypto";
@@ -479,7 +480,7 @@ const PIN = /^[A-Za-z0-9_-]{43}$/;
 export function pinIn(fragment: string): string | null {
   const pin = new URLSearchParams(fragment.replace(/^#/, "")).get("pin");
   if (pin === null) return null;
-  if (!PIN.test(pin)) throw new Error("That link isn't complete. Copy it again, with everything after the #.");
+  if (!PIN.test(pin)) throw new Error(t("errors.thatLinkIsntComplete"));
   return pin;
 }
 
@@ -491,7 +492,7 @@ export function pinIn(fragment: string): string | null {
 export function checkPinnable(url: string): void {
   const { protocol, hostname } = new URL(url);
   if (protocol !== "https:" || !(hostname.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(hostname))) {
-    throw new Error("Only servers reached over HTTPS by IP address use their own certificate, so only their links can include a pin.");
+    throw new Error(t("errors.onlyServersReachedOverHttps"));
   }
 }
 
@@ -511,7 +512,7 @@ export function normalizeServerUrl(input: string): string {
   const parsed = new URL(url);
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname) || parsed.hostname.endsWith(".localhost");
   if (parsed.protocol !== "https:" && !local) {
-    throw new Error("Zuna servers must use HTTPS. Plain HTTP only works for localhost.");
+    throw new Error(t("errors.zunaServersMustUseHttps"));
   }
   return `${parsed.protocol}//${parsed.host}${withoutSlashes(parsed.pathname)}`;
 }
@@ -602,7 +603,7 @@ export class Api {
           signal: AbortSignal.timeout(timeout),
         });
       } catch {
-        throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
+        throw new ApiError(0, "network", t("errors.network"));
       }
       if (response.status !== 401 || attempt > 0 || !prove) break;
       // A proof this device's clock put too far from the server's: the server says its time.
@@ -615,7 +616,7 @@ export class Api {
       throw new ApiError(
         response.status,
         typeof parsed.error === "string" ? parsed.error : "error",
-        typeof parsed.message === "string" ? parsed.message : `The server responded with status ${response.status}.`,
+        typeof parsed.message === "string" ? translate(parsed.message) : t("errors.serverStatus", { status: response.status }),
         parsed,
       );
     }
@@ -653,7 +654,7 @@ export class Api {
           signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS + Math.ceil(bytes.length * MS_PER_BYTE_SENT), LONGEST_REQUEST_MS)),
         });
       } catch {
-        throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
+        throw new ApiError(0, "network", t("errors.network"));
       }
       if (response.status !== 401 || attempt > 0) break;
       // A time this device's clock put too far from the server's: the server says its time.
@@ -666,7 +667,7 @@ export class Api {
       throw new ApiError(
         response.status,
         typeof parsed.error === "string" ? parsed.error : "error",
-        typeof parsed.message === "string" ? parsed.message : `The server responded with status ${response.status}.`,
+        typeof parsed.message === "string" ? translate(parsed.message) : t("errors.serverStatus", { status: response.status }),
         parsed,
       );
     }
@@ -880,9 +881,9 @@ export class Api {
         signal: AbortSignal.timeout(120_000),
       });
     } catch {
-      throw new ApiError(0, "network", "Couldn't download the file. Check your connection.");
+      throw new ApiError(0, "network", t("errors.downloadNetwork"));
     }
-    if (!response.ok) throw new ApiError(response.status, "download_failed", "This file isn't available anymore.");
+    if (!response.ok) throw new ApiError(response.status, "download_failed", t("errors.downloadGone"));
     return new Uint8Array(await response.arrayBuffer());
   }
 

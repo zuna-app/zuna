@@ -1,0 +1,728 @@
+{
+  "about": "Shared by the runtimes in packages/i18n, apps/desktop/src/i18n.rs and ZunaI18n, so that a catalog means the same in every app. The plural cases are Intl.PluralRules', which the JavaScript test holds them to.",
+  "plural": [
+    {
+      "tag": "en",
+      "rules": {
+        "one": "i = 1 and v = 0"
+      },
+      "cases": {
+        "0": "other",
+        "1": "one",
+        "2": "other",
+        "3": "other",
+        "4": "other",
+        "5": "other",
+        "10": "other",
+        "11": "other",
+        "12": "other",
+        "14": "other",
+        "19": "other",
+        "21": "other",
+        "22": "other",
+        "25": "other",
+        "100": "other",
+        "101": "other",
+        "102": "other",
+        "103": "other",
+        "111": "other",
+        "112": "other",
+        "1000": "other",
+        "1000000": "other",
+        "2000000": "other"
+      }
+    },
+    {
+      "tag": "fr",
+      "rules": {
+        "one": "i = 0,1",
+        "many": "e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5"
+      },
+      "cases": {
+        "0": "one",
+        "1": "one",
+        "2": "other",
+        "3": "other",
+        "4": "other",
+        "5": "other",
+        "10": "other",
+        "11": "other",
+        "12": "other",
+        "14": "other",
+        "19": "other",
+        "21": "other",
+        "22": "other",
+        "25": "other",
+        "100": "other",
+        "101": "other",
+        "102": "other",
+        "103": "other",
+        "111": "other",
+        "112": "other",
+        "1000": "other",
+        "1000000": "many",
+        "2000000": "many"
+      }
+    },
+    {
+      "tag": "pl",
+      "rules": {
+        "one": "i = 1 and v = 0",
+        "few": "v = 0 and i % 10 = 2..4 and i % 100 != 12..14",
+        "many": "v = 0 and i != 1 and i % 10 = 0..1 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 12..14"
+      },
+      "cases": {
+        "0": "many",
+        "1": "one",
+        "2": "few",
+        "3": "few",
+        "4": "few",
+        "5": "many",
+        "10": "many",
+        "11": "many",
+        "12": "many",
+        "14": "many",
+        "19": "many",
+        "21": "many",
+        "22": "few",
+        "25": "many",
+        "100": "many",
+        "101": "many",
+        "102": "few",
+        "103": "few",
+        "111": "many",
+        "112": "many",
+        "1000": "many",
+        "1000000": "many",
+        "2000000": "many"
+      }
+    },
+    {
+      "tag": "ru",
+      "rules": {
+        "one": "v = 0 and i % 10 = 1 and i % 100 != 11",
+        "few": "v = 0 and i % 10 = 2..4 and i % 100 != 12..14",
+        "many": "v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14"
+      },
+      "cases": {
+        "0": "many",
+        "1": "one",
+        "2": "few",
+        "3": "few",
+        "4": "few",
+        "5": "many",
+        "10": "many",
+        "11": "many",
+        "12": "many",
+        "14": "many",
+        "19": "many",
+        "21": "one",
+        "22": "few",
+        "25": "many",
+        "100": "many",
+        "101": "one",
+        "102": "few",
+        "103": "few",
+        "111": "many",
+        "112": "many",
+        "1000": "many",
+        "1000000": "many",
+        "2000000": "many"
+      }
+    },
+    {
+      "tag": "cs",
+      "rules": {
+        "one": "i = 1 and v = 0",
+        "few": "i = 2..4 and v = 0"
+      },
+      "cases": {
+        "0": "other",
+        "1": "one",
+        "2": "few",
+        "3": "few",
+        "4": "few",
+        "5": "other",
+        "10": "other",
+        "11": "other",
+        "12": "other",
+        "14": "other",
+        "19": "other",
+        "21": "other",
+        "22": "other",
+        "25": "other",
+        "100": "other",
+        "101": "other",
+        "102": "other",
+        "103": "other",
+        "111": "other",
+        "112": "other",
+        "1000": "other",
+        "1000000": "other",
+        "2000000": "other"
+      }
+    },
+    {
+      "tag": "ar",
+      "rules": {
+        "zero": "n = 0",
+        "one": "n = 1",
+        "two": "n = 2",
+        "few": "n % 100 = 3..10",
+        "many": "n % 100 = 11..99"
+      },
+      "cases": {
+        "0": "zero",
+        "1": "one",
+        "2": "two",
+        "3": "few",
+        "4": "few",
+        "5": "few",
+        "10": "few",
+        "11": "many",
+        "12": "many",
+        "14": "many",
+        "19": "many",
+        "21": "many",
+        "22": "many",
+        "25": "many",
+        "100": "other",
+        "101": "other",
+        "102": "other",
+        "103": "few",
+        "111": "many",
+        "112": "many",
+        "1000": "other",
+        "1000000": "other",
+        "2000000": "other"
+      }
+    },
+    {
+      "tag": "lv",
+      "rules": {
+        "zero": "n % 10 = 0 or n % 100 = 11..19",
+        "one": "n % 10 = 1 and n % 100 != 11"
+      },
+      "cases": {
+        "0": "zero",
+        "1": "one",
+        "2": "other",
+        "3": "other",
+        "4": "other",
+        "5": "other",
+        "10": "zero",
+        "11": "zero",
+        "12": "zero",
+        "14": "zero",
+        "19": "zero",
+        "21": "one",
+        "22": "other",
+        "25": "other",
+        "100": "zero",
+        "101": "one",
+        "102": "other",
+        "103": "other",
+        "111": "zero",
+        "112": "zero",
+        "1000": "zero",
+        "1000000": "zero",
+        "2000000": "zero"
+      }
+    },
+    {
+      "tag": "sl",
+      "rules": {
+        "one": "v = 0 and i % 100 = 1",
+        "two": "v = 0 and i % 100 = 2",
+        "few": "v = 0 and i % 100 = 3..4"
+      },
+      "cases": {
+        "0": "other",
+        "1": "one",
+        "2": "two",
+        "3": "few",
+        "4": "few",
+        "5": "other",
+        "10": "other",
+        "11": "other",
+        "12": "other",
+        "14": "other",
+        "19": "other",
+        "21": "other",
+        "22": "other",
+        "25": "other",
+        "100": "other",
+        "101": "one",
+        "102": "two",
+        "103": "few",
+        "111": "other",
+        "112": "other",
+        "1000": "other",
+        "1000000": "other",
+        "2000000": "other"
+      }
+    },
+    {
+      "tag": "ja",
+      "rules": {},
+      "cases": {
+        "0": "other",
+        "1": "other",
+        "2": "other",
+        "3": "other",
+        "4": "other",
+        "5": "other",
+        "10": "other",
+        "11": "other",
+        "12": "other",
+        "14": "other",
+        "19": "other",
+        "21": "other",
+        "22": "other",
+        "25": "other",
+        "100": "other",
+        "101": "other",
+        "102": "other",
+        "103": "other",
+        "111": "other",
+        "112": "other",
+        "1000": "other",
+        "1000000": "other",
+        "2000000": "other"
+      }
+    }
+  ],
+  "badRules": [
+    "",
+    "n",
+    "n = ",
+    "x = 1",
+    "n % 0 = 1",
+    "n = 1..2..3",
+    "n = a",
+    "n == 1"
+  ],
+  "fill": [
+    {
+      "text": "Hello",
+      "vars": {},
+      "out": "Hello"
+    },
+    {
+      "text": "{name} joined",
+      "vars": {
+        "name": "Ada"
+      },
+      "out": "Ada joined"
+    },
+    {
+      "text": "{a} and {b} and {a}",
+      "vars": {
+        "a": "1",
+        "b": "2"
+      },
+      "out": "1 and 2 and 1"
+    },
+    {
+      "text": "{missing} stays",
+      "vars": {
+        "other": "x"
+      },
+      "out": "{missing} stays"
+    },
+    {
+      "text": "{ name } and {9} and {} stay",
+      "vars": {
+        "name": "x"
+      },
+      "out": "{ name } and {9} and {} stay"
+    },
+    {
+      "text": "{name}{name}",
+      "vars": {
+        "name": "{name}"
+      },
+      "out": "{name}{name}"
+    },
+    {
+      "text": "Ünïcödé {émoji} 🎉 {x}",
+      "vars": {
+        "x": "✓"
+      },
+      "out": "Ünïcödé {émoji} 🎉 ✓"
+    }
+  ],
+  "counts": [
+    {
+      "vars": {
+        "count": 3
+      },
+      "out": 3
+    },
+    {
+      "vars": {
+        "count": "12,345"
+      },
+      "out": 12345
+    },
+    {
+      "vars": {
+        "count": "1 000"
+      },
+      "out": 1000
+    },
+    {
+      "vars": {
+        "count": "many"
+      },
+      "out": null
+    },
+    {
+      "vars": {
+        "name": "x"
+      },
+      "out": null
+    }
+  ],
+  "match": [
+    {
+      "preferred": [
+        "pl-PL",
+        "en-US"
+      ],
+      "available": [
+        "en",
+        "pl"
+      ],
+      "out": "pl"
+    },
+    {
+      "preferred": [
+        "pl-PL",
+        "en-US"
+      ],
+      "available": [
+        "en",
+        "de"
+      ],
+      "out": "en"
+    },
+    {
+      "preferred": [
+        "fr-CA",
+        "de-DE"
+      ],
+      "available": [
+        "en",
+        "de"
+      ],
+      "out": "de"
+    },
+    {
+      "preferred": [
+        "pt_BR.UTF-8"
+      ],
+      "available": [
+        "en",
+        "pt",
+        "pt-BR"
+      ],
+      "out": "pt-BR"
+    },
+    {
+      "preferred": [
+        "pt-PT"
+      ],
+      "available": [
+        "en",
+        "pt-BR"
+      ],
+      "out": "pt-BR"
+    },
+    {
+      "preferred": [
+        "pt"
+      ],
+      "available": [
+        "en",
+        "pt-PT",
+        "pt"
+      ],
+      "out": "pt"
+    },
+    {
+      "preferred": [
+        "sr-Latn-RS"
+      ],
+      "available": [
+        "en",
+        "sr"
+      ],
+      "out": "sr"
+    },
+    {
+      "preferred": [
+        "C",
+        "POSIX",
+        "de_DE@euro"
+      ],
+      "available": [
+        "en",
+        "de"
+      ],
+      "out": "de"
+    },
+    {
+      "preferred": [
+        "ja-JP"
+      ],
+      "available": [
+        "en"
+      ],
+      "out": null
+    },
+    {
+      "preferred": [],
+      "available": [
+        "en"
+      ],
+      "out": null
+    }
+  ],
+  "english": {
+    "$language": "English",
+    "$plural": {
+      "one": "i = 1 and v = 0"
+    },
+    "common.cancel": "Cancel",
+    "test.notTranslated": "Not translated yet",
+    "test.empty": "Empty is untranslated too",
+    "chat.joined": "{name} joined",
+    "chat.left": "{name} left",
+    "group.members": {
+      "one": "{count} member",
+      "other": "{count} members"
+    },
+    "files.fromName": {
+      "one": "{count} file from {name}",
+      "other": "{count} files from {name}"
+    },
+    "group.days": {
+      "one": "{count} day",
+      "other": "{count} days"
+    },
+    "server.usernameTaken": "That username is already taken.",
+    "server.untranslated": "Not translated on the server."
+  },
+  "catalog": {
+    "tag": "pl",
+    "data": {
+      "$language": "Polski",
+      "$plural": {
+        "one": "i = 1 and v = 0",
+        "few": "v = 0 and i % 10 = 2..4 and i % 100 != 12..14",
+        "many": "v = 0 and i != 1 and i % 10 = 0..1 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 12..14"
+      },
+      "common.cancel": "Anuluj",
+      "test.notTranslated": null,
+      "test.empty": "",
+      "chat.joined": "{name} dołączył(a)",
+      "group.members": {
+        "one": "{count} członek",
+        "few": "{count} członkowie",
+        "many": "{count} członków",
+        "other": "{count} członka"
+      },
+      "files.fromName": {
+        "one": "Plik od {name}",
+        "few": null,
+        "other": "{count} plików od {name}"
+      },
+      "server.usernameTaken": "Ta nazwa jest już zajęta."
+    }
+  },
+  "lookups": [
+    {
+      "call": "t",
+      "key": "common.cancel",
+      "out": "Anuluj"
+    },
+    {
+      "call": "t",
+      "key": "test.notTranslated",
+      "out": "Not translated yet"
+    },
+    {
+      "call": "t",
+      "key": "test.empty",
+      "out": "Empty is untranslated too"
+    },
+    {
+      "call": "t",
+      "key": "nowhere.at.all",
+      "out": "nowhere.at.all"
+    },
+    {
+      "call": "t",
+      "key": "chat.joined",
+      "vars": {
+        "name": "Ada"
+      },
+      "out": "Ada dołączył(a)"
+    },
+    {
+      "call": "t",
+      "key": "chat.left",
+      "vars": {
+        "name": "Ada"
+      },
+      "out": "Ada left"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 1
+      },
+      "out": "1 członek"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 3
+      },
+      "out": "3 członkowie"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 5
+      },
+      "out": "5 członków"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 22
+      },
+      "out": "22 członkowie"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": "1,000"
+      },
+      "out": "1,000 członków"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "out": "{count} członka"
+    },
+    {
+      "call": "t",
+      "key": "files.fromName",
+      "vars": {
+        "count": 1,
+        "name": "Ada"
+      },
+      "out": "Plik od Ada"
+    },
+    {
+      "call": "t",
+      "key": "files.fromName",
+      "vars": {
+        "count": 3,
+        "name": "Ada"
+      },
+      "out": "3 plików od Ada"
+    },
+    {
+      "call": "t",
+      "key": "group.days",
+      "vars": {
+        "count": 1
+      },
+      "out": "1 day"
+    },
+    {
+      "call": "t",
+      "key": "group.days",
+      "vars": {
+        "count": 0
+      },
+      "out": "0 days"
+    },
+    {
+      "call": "t",
+      "key": "group.days",
+      "vars": {
+        "count": 22
+      },
+      "out": "22 days"
+    },
+    {
+      "call": "translate",
+      "text": "That username is already taken.",
+      "out": "Ta nazwa jest już zajęta."
+    },
+    {
+      "call": "translate",
+      "text": "Not translated on the server.",
+      "out": "Not translated on the server."
+    },
+    {
+      "call": "translate",
+      "text": "Something else.",
+      "out": "Something else."
+    }
+  ],
+  "englishLookups": [
+    {
+      "call": "t",
+      "key": "chat.joined",
+      "vars": {
+        "name": "Ada"
+      },
+      "out": "Ada joined"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 1
+      },
+      "out": "1 member"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": 0
+      },
+      "out": "0 members"
+    },
+    {
+      "call": "t",
+      "key": "group.members",
+      "vars": {
+        "count": "1,000"
+      },
+      "out": "1,000 members"
+    },
+    {
+      "call": "t",
+      "key": "nowhere.at.all",
+      "out": "nowhere.at.all"
+    },
+    {
+      "call": "translate",
+      "text": "That username is already taken.",
+      "out": "That username is already taken."
+    }
+  ]
+}

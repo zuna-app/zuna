@@ -5,9 +5,10 @@ import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
 import { equalBytes, u64Bytes, utf8 } from "../encoding";
 import { sealCharter, sealRoster, type Roster } from "../roster";
-import { ROSTER_BEHIND, ROSTER_UNSAID } from "./groups";
+import { reasonText, ROSTER_BEHIND, ROSTER_UNSAID } from "./groups";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
 import { SessionGroups } from "./groups";
+import { t } from "../i18n";
 
 /** A commit's welcome, once, with every device it adds, or nothing for a commit that adds none. */
 const welcomeFor = (welcome: Uint8Array | null, packages: { deviceId: string }[]): Pick<CommitRequest, "welcome" | "welcome_to"> =>
@@ -115,7 +116,7 @@ export abstract class SessionJoining extends SessionGroups {
     const refusal = this.rosterRefusal(groupId, bytes, null);
     if (refusal) {
       // One that only waits for this account's own word, or that's only older than it, is left for the join that follows it.
-      if (refusal !== ROSTER_UNSAID && refusal !== ROSTER_BEHIND) this.warnOnce(`roster/${groupId}/${this.mlsEpoch(groupId)}`, `An invitation to one of your conversations couldn't be trusted: ${refusal}. It wasn't used.`);
+      if (refusal !== ROSTER_UNSAID && refusal !== ROSTER_BEHIND) this.warnOnce(`roster/${groupId}/${this.mlsEpoch(groupId)}`, t("security.untrustedInvitation", { reason: reasonText(refusal) }));
       this.forgetMlsState(groupId);
       return false;
     }
@@ -314,8 +315,8 @@ export abstract class SessionJoining extends SessionGroups {
             await this.ensureUser(signer, true);
             continue;
           }
-          this.warnOnce(`roster/${groupId}/${result.epoch}`, `One of your conversations couldn't be rejoined: ${refusal}.`);
-          throw new Error(`This conversation's state couldn't be trusted: ${refusal}.`);
+          this.warnOnce(`roster/${groupId}/${result.epoch}`, t("security.couldntRejoin", { reason: reasonText(refusal) }));
+          throw new Error(t("errors.untrustedState", { reason: reasonText(refusal) }));
         }
         const groupInfo = this.mls.exportGroupInfo(groupBytes);
         try {
@@ -385,7 +386,7 @@ export abstract class SessionJoining extends SessionGroups {
     if (!this.hasMlsGroup(groupId)) return;
     const cached = this.groups.get(groupId);
     if (cached?.kind === "group" && !this.rosterOf(cached)) {
-      throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation. Please try again.");
+      throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembers"));
     }
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
@@ -393,7 +394,7 @@ export abstract class SessionJoining extends SessionGroups {
       // Nothing goes to a leaf nobody could check. This can wait until the server answers.
       const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
       if (this.treeMembers(groupId).some((member) => member.unchecked && roster.has(member.userId))) {
-        throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation yet. Waiting for the server.");
+        throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
       }
       if ((await this.staleLeaves(groupId)).length === 0) {
         this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));
@@ -404,7 +405,7 @@ export abstract class SessionJoining extends SessionGroups {
       if ((await this.staleLeaves(groupId)).length === 0) continue;
       await this.commitWithRetry(groupId, async () => ({ kind: "update", removeLeaves: await this.staleLeaves(groupId) }));
     }
-    throw new Error("Couldn't secure this conversation right now. Please try again.");
+    throw new Error(t("errors.couldntSecureThisConversationRight"));
   }
 
   /**
@@ -415,11 +416,11 @@ export abstract class SessionJoining extends SessionGroups {
   protected async initGroup(group: ApiGroup, extraUsers: string[], meta?: GroupMeta): Promise<void> {
     const cached = this.groups.get(group.id);
     const selfId = this.account.userId;
-    if (cached?.kind !== "dm" && cached?.kind !== "channel" && group.created_by !== selfId) throw new Error("This conversation hasn't been started yet.");
+    if (cached?.kind !== "dm" && cached?.kind !== "channel" && group.created_by !== selfId) throw new Error(t("errors.thisConversationHasntBeenStarted"));
     const targets = cached?.kind === "dm" ? this.dmPeople(cached) : [...new Set([selfId, ...extraUsers])];
 
     const groupBytes = utf8(group.id);
-    if (!cached) throw new Error("This conversation hasn't been started yet.");
+    if (!cached) throw new Error(t("errors.thisConversationHasntBeenStarted"));
     // A group starts with its creator as its admin, and whoever they asked for let in. A DM or a
     // channel starts with a charter, which says what it is, and a DM's who it's between, for good.
     const by = { userId: selfId, deviceId: this.account.deviceId };
@@ -562,6 +563,6 @@ export abstract class SessionJoining extends SessionGroups {
       this.uploadEpochKeysSoon();
       return;
     }
-    throw new Error("The conversation is very busy right now. Please try again.");
+    throw new Error(t("errors.theConversationIsVeryBusy"));
   }
 }

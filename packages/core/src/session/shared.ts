@@ -1,3 +1,4 @@
+import { mark, t } from "../i18n";
 // What every part of ServerSession shares: its timings and limits, the shapes of what it
 // keeps, and helpers that need nothing of it.
 
@@ -83,7 +84,7 @@ export const MANIFEST_PARTS = "manifest_parts";
 /** A manifest's parts for a rotation, which can't go without it. */
 export function sealedManifest(manifest: TrustManifest): { id: string; data: Uint8Array; version: number }[] {
   const parts = manifestParts(manifest);
-  if (!parts) throw new Error("Your account trusts more people than it can store, so its keys can't be replaced.");
+  if (!parts) throw new Error(t("errors.yourAccountTrustsMorePeople"));
   return parts;
 }
 /** What's sealed at rest names its table and row, so it can't be moved to another row or table. */
@@ -148,7 +149,7 @@ export const KEY_UNPROVEN = 2;
 export const KEY_VOIDED = 3;
 
 /** What a person is told when the server calls a conversation something other than what it is. */
-export const KIND_WARNING = "The server tried to pass one of your conversations off as a different kind of conversation. Zuna didn't go along with it.";
+export const KIND_WARNING = mark("security.kindChanged");
 
 export interface CachedDevice {
   id: string;
@@ -336,7 +337,8 @@ export type Mutex = Promise<unknown>;
 
 export const emptyProfile = (username: string): Profile => ({ displayName: username });
 // What's shown of someone who deleted their account, in place of all that was known of them.
-export const DELETED_PROFILE: Profile = { displayName: "Deleted account" };
+/** The profile of an account that was deleted, in the person's language. */
+export const deletedProfile = (): Profile => ({ displayName: t("chat.deletedAccount") });
 
 export const MESSAGE_ID = /^[0-9a-f]{32}$/;
 /** The longest slow mode a server allows, in seconds. */
@@ -433,7 +435,7 @@ export function expiryOf(createdAt: number, body: MessageBody): number | null {
 }
 
 export function assertSendable(body: MessageBody): void {
-  if ((body.text?.length ?? 0) > MAX_TEXT_LENGTH) throw new Error("That message is too long. Try sending it as a file.");
+  if ((body.text?.length ?? 0) > MAX_TEXT_LENGTH) throw new Error(t("errors.thatMessageIsTooLong"));
 }
 
 export const signedFromApi = (wire: ApiLink): SignedLink => ({

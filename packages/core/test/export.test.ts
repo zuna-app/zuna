@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { ApiExport, ApiExportConversation, ApiExportDevice } from "../src/api";
-import { bytes, count, describeExport, stamp, type ExportContext } from "../src/export";
+import { bytes, describeExport, stamp, thousands, type ExportContext } from "../src/export";
 import type { ServerDataExport } from "../src/types";
 
 /** A moment in this device's time, as stamp() shows it. */
@@ -113,8 +113,7 @@ describe("the server's export, in plain words", () => {
     expect([1024, 1536, 10 * 1024, 5 * 1024 ** 2, 3.25 * 1024 ** 3].map(bytes)).toEqual(["1 KB", "1.5 KB", "10 KB", "5 MB", "3.3 GB"]);
     // Past terabytes it stays in them.
     expect(bytes(2048 * 1024 ** 4)).toBe("2048 TB");
-    expect(count(1, "day")).toBe("1 day");
-    expect(count(1234567, "pass", "passes")).toBe("1,234,567 passes");
+    expect(thousands(1234567)).toBe("1,234,567");
     expect(stamp(at(5, 7, 3))).toBe("2026-11-05 07:03");
   });
 

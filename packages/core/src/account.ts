@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Creating accounts and bringing an account's keys onto a device.
 
 import * as wasm from "@zuna/crypto";
@@ -175,7 +176,7 @@ export function parseServerAddress(input: string): { url: string; pin: string | 
   const invite = parseInviteLink(input);
   if (invite) return { url: invite.url, pin: invite.pin };
   const text = linkIn(input);
-  if (!text) throw new Error("That doesn't look like a server's address.");
+  if (!text) throw new Error(t("errors.notAServerAddress"));
   const url = normalizeServerUrl(text);
   const pin = pinIn(new URL(text).hash);
   if (pin) checkPinnable(url);
@@ -203,14 +204,14 @@ function linkIn(input: string): string | null {
 export async function previewInvite(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
   const parsed = parseInviteLink(link);
   if (!parsed) return previewOpenServer(link, pin);
-  if (parsed.bot) throw new Error(BOT_LINK_ELSEWHERE);
+  if (parsed.bot) throw new Error(botLinkElsewhere());
   if (parsed.pin) await pin(parsed.url, parsed.pin);
   const details = await new Api(parsed.url).inviteInfo(parsed.code);
-  if (details.bot) throw new Error(BOT_LINK_ELSEWHERE);
+  if (details.bot) throw new Error(botLinkElsewhere());
   return { ...parsed, setup: details.setup, server: details.server };
 }
 
-const BOT_LINK_ELSEWHERE = "That link sets up a bot. Give it to zuna-bot on the computer that will run the bot.";
+const botLinkElsewhere = () => t("errors.botLinkElsewhere");
 
 /** A plain server address works too, if that server has open sign-ups. */
 async function previewOpenServer(address: string, trust: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
@@ -219,17 +220,17 @@ async function previewOpenServer(address: string, trust: (url: string, pin: stri
   try {
     ({ url, pin } = parseServerAddress(address));
   } catch {
-    throw new Error("That doesn't look like a Zuna invite link.");
+    throw new Error(t("errors.notAnInviteLink"));
   }
   if (pin) await trust(url, pin);
   let server;
   try {
     server = await new Api(url).info();
   } catch {
-    throw new Error("That doesn't look like a Zuna invite link.");
+    throw new Error(t("errors.notAnInviteLink"));
   }
   if (server.registration !== "open") {
-    throw new Error(`${server.name} only accepts invite links. Ask a member for one.`);
+    throw new Error(t("errors.inviteOnly", { server: server.name }));
   }
   return { url, code: "", communityKey: server.community_key ?? null, pin, setup: false, server };
 }
@@ -320,7 +321,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     communityKey = wasm.randomBytes(32);
   } else {
     const info = await api.info();
-    if (!info.community_key) throw new Error("This invite link is incomplete. Ask for the full link.");
+    if (!info.community_key) throw new Error(t("errors.thisInviteLinkIsIncomplete"));
     communityKey = fromBase64Url(info.community_key);
   }
 
@@ -362,7 +363,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
     bot_proof: input.bot ? wasm.sign(lastingKeyFromSeed(input.bot.seed).secretKey, botProofInput(input.bot.id, core.identityPublic)) : undefined,
   });
-  if (input.bot && created.user_id !== input.bot.id) throw new Error("The server created a different account than this link is for, so Zuna stopped.");
+  if (input.bot && created.user_id !== input.bot.id) throw new Error(t("errors.theServerCreatedADifferent"));
   api.token = created.token;
   // What the link says the log held, which the server never saw, and which this device holds it to.
   // The link names the log's key by its hash, which the key the server gives a session has to have.
@@ -372,7 +373,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     const info = await api.info();
     const key = info.log_key ? fromBase64(info.log_key) : null;
     if (!key || !equalBytes(logKeyHash(key), linked.keyHash)) {
-      throw new Error("This server's record of keys doesn't match the invite link, so Zuna stopped.");
+      throw new Error(t("errors.thisServersRecordOfKeys"));
     }
     head = { key, era: linked.era, size: linked.size, root: linked.root };
   }
@@ -383,7 +384,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   if (input.bot) {
     ownerKey = decode((await api.user(input.bot.ownerId)).identity_key);
     if (!equalBytes(ownerKeyHash(ownerKey), input.bot.ownerKeyHash)) {
-      throw new Error("The server shows a different key for this bot's owner than the setup link does, so Zuna stopped.");
+      throw new Error(t("errors.theServerShowsADifferent"));
     }
   }
   return {
@@ -410,10 +411,10 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
  */
 export async function registerBot(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<RegisterResult & { pin: string | null }> {
   const parsed = parseInviteLink(link);
-  if (!parsed?.bot || !parsed.communityKey) throw new Error("That isn't a bot's setup link. Copy it again from Settings, under Bots, including everything after the #.");
+  if (!parsed?.bot || !parsed.communityKey) throw new Error(t("errors.thatIsntABotsSetup"));
   if (parsed.pin) await pin(parsed.url, parsed.pin);
   const details = await new Api(parsed.url).inviteInfo(parsed.code);
-  if (!details.bot) throw new Error("That link isn't for setting up a bot.");
+  if (!details.bot) throw new Error(t("errors.thatLinkIsntForSetting"));
   const result = await register({
     invite: { ...parsed, setup: false, server: details.server },
     serverUrl: parsed.url,
@@ -440,7 +441,7 @@ const holdsRoot = (core: VaultCore, root: Uint8Array): boolean =>
 
 /** Opens what a sign-in handed over, through the slot for the secret that was used. */
 function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | RecoveryKeys, session: LoginResponse): OpenedAccount {
-  const unfit = new Error("The server sent inconsistent details for this account, so Zuna stopped.");
+  const unfit = new Error(t("errors.theServerSentInconsistentDetails"));
   if (!session.slot) throw unfit;
   const { generation } = session;
   const payload = session.head_link ? decode(session.head_link.payload) : null;
@@ -463,7 +464,7 @@ function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | 
  * is what the device goes by from then on.
  */
 async function checkSignInLog(api: Api, session: LoginResponse): Promise<NonNullable<AccountState["log"]>> {
-  const unfit = new Error("The server sent a version of your account's keys that doesn't match its own record of them, so Zuna stopped.");
+  const unfit = new Error(t("errors.theServerSentAVersion"));
   const info = await api.info();
   if (!info.log_key) throw unfit;
   const key = fromBase64(info.log_key);
@@ -572,7 +573,7 @@ export function recover(
     const serverUrl = normalizeServerUrl(serverUrlInput);
     const recoveryKey = fromRecoveryText(recoveryText);
     if (!recoveryKey || recoveryKey.length !== RECOVERY_KEY_BYTES) {
-      throw new Error("That recovery key isn't complete. Check it and try again.");
+      throw new Error(t("errors.thatRecoveryKeyIsntComplete"));
     }
     const target = { serverUrl, username };
     const recovery = deriveRecoveryKeys(recoveryKey, target);

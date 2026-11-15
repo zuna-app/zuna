@@ -22,6 +22,7 @@ import type {
 import { isMuted, REPORT_REASONS } from "../types";
 import { PAGE_SIZE, LONGEST_WAIT_MS, type CachedGroup, type MessageRow, slowModeOf, eachLimited } from "./shared";
 import { SessionIngest } from "./ingest";
+import { t } from "../i18n";
 
 export abstract class SessionConversations extends SessionIngest {
   // --- Conversations ---
@@ -121,7 +122,7 @@ export abstract class SessionConversations extends SessionIngest {
         kind: "dm",
         groupId: null,
         peerId: user.id,
-        title: user.id === selfId ? "Saved messages" : user.profile.displayName || user.username,
+        title: user.id === selfId ? t("chat.savedMessages") : user.profile.displayName || user.username,
         avatar: user.profile.avatar ?? null,
         description: "",
         lastMessage: null,
@@ -165,7 +166,7 @@ export abstract class SessionConversations extends SessionIngest {
     let avatar: AvatarRef | null = group.meta.avatar ?? null;
     if (group.kind === "dm" && group.peerId) {
       const peer = this.users.get(group.peerId);
-      title = group.peerId === this.account.userId ? "Saved messages" : peer?.profile.displayName || peer?.username || "Unknown";
+      title = group.peerId === this.account.userId ? t("chat.savedMessages") : peer?.profile.displayName || peer?.username || t("chat.unknown");
       avatar = peer?.profile.avatar ?? null;
     } else if (group.kind === "channel") {
       const details = this.channels.get(group.id)?.details;

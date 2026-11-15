@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): what everyone on the server shares: the soundboard, the emotes, and its administration.
 
 import * as wasm from "@zuna/crypto";
@@ -70,12 +71,12 @@ export abstract class SessionServer extends SessionChannels {
    */
   async addSound(file: Blob, name: string, emoji = ""): Promise<string> {
     if (!parseSoundDetails({ name, emoji, durationMs: 1, file: { fileId: "0".repeat(32), key: "", prefix: "", chunks: 1 } })) {
-      throw new Error("A sound needs a name of up to 32 characters.");
+      throw new Error(t("errors.aSoundNeedsAName"));
     }
     const { wav, durationMs } = prepareSound(await this.files.read(file, 0, this.files.size(file)));
     const ref = await this.uploadBlob({ size: wav.length, read: async (start, end) => wav.subarray(start, end) });
     const details = parseSoundDetails({ name, emoji, durationMs, file: { fileId: ref.fileId, key: ref.key, prefix: ref.prefix, chunks: ref.chunks } });
-    if (!details) throw new Error("That sound couldn't be added.");
+    if (!details) throw new Error(t("errors.thatSoundCouldntBeAdded"));
     const id = randomId();
     const sealed = sealSoundDetails(this.account.core.communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
     const { sound } = await this.api.createSound(id, sealed, ref.fileId);
@@ -87,9 +88,9 @@ export abstract class SessionServer extends SessionChannels {
   /** Renames a sound, or gives it another emoji, for a server admin. */
   async updateSound(id: string, changes: { name?: string; emoji?: string }): Promise<void> {
     const sound = this.sounds.get(id);
-    if (!sound?.details) throw new Error("That sound isn't on the soundboard anymore.");
+    if (!sound?.details) throw new Error(t("errors.thatSoundIsntOnThe"));
     const details = parseSoundDetails({ ...sound.details, ...changes });
-    if (!details) throw new Error("A sound needs a name of up to 32 characters.");
+    if (!details) throw new Error(t("errors.aSoundNeedsAName"));
     const version = sound.version + 1;
     const sealed = sealSoundDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
     await this.api.updateSound(id, sealed);
@@ -107,12 +108,12 @@ export abstract class SessionServer extends SessionChannels {
   /** A sound's file, fetched once and checked to be the WAV every sound is, for playing. */
   soundFile(id: string): Promise<Blob> {
     const details = this.sounds.get(id)?.details;
-    if (!details) return Promise.reject(new Error("That sound isn't on the soundboard anymore."));
+    if (!details) return Promise.reject(new Error(t("errors.thatSoundIsntOnThe")));
     const { file } = details;
     let fetched = this.soundFiles.get(file.fileId);
     if (!fetched) {
       fetched = this.downloadFile({ ...file, mime: "audio/wav" }).then(async (blob) => {
-        if (!readWav(await this.files.read(blob, 0, this.files.size(blob)))) throw new Error("That sound's file is damaged.");
+        if (!readWav(await this.files.read(blob, 0, this.files.size(blob)))) throw new Error(t("errors.thatSoundsFileIsDamaged"));
         return blob;
       });
       fetched.catch(() => this.soundFiles.delete(file.fileId));
@@ -126,11 +127,11 @@ export abstract class SessionServer extends SessionChannels {
    * file themselves. What's sent says which sound, under the room's key, and names who played it.
    */
   async playSound(channelId: string, soundId: string): Promise<void> {
-    if (!this.sounds.get(soundId)?.details) throw new Error("That sound isn't on the soundboard anymore.");
-    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error("Join the voice channel to play sounds.");
+    if (!this.sounds.get(soundId)?.details) throw new Error(t("errors.thatSoundIsntOnThe"));
+    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error(t("errors.joinVoiceToPlay"));
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
-    if (!key) throw new Error("This device can't play sounds here yet.");
+    if (!key) throw new Error(t("errors.thisDeviceCantPlaySounds"));
     const play = { sound: soundId, user: this.account.userId, at: Date.now(), nonce: randomId() };
     const sealed = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "play", channelId, this.account.userId, epoch, play, this.signer));
     await (this.isCall(channelId) ? this.api.playCallSound(channelId, sealed) : this.api.playSound(channelId, sealed));
@@ -277,7 +278,7 @@ export abstract class SessionServer extends SessionChannels {
     const listed = input.listed ?? false;
     const created = await this.api.createBot({ username: input.username, listed, add: listed ? (input.add ?? "owner") : "owner", files: input.files ?? true });
     if (created.bot.owner_id !== this.account.userId || created.bot.username.toLowerCase() !== input.username.toLowerCase()) {
-      throw new Error("The bot wasn't created because the server sent an invalid response.");
+      throw new Error(t("errors.theBotWasntCreatedBecause"));
     }
     return { bot: this.botView(created.bot), link: this.setupLinkFor(created.bot, created.code, input.name) };
   }
@@ -343,7 +344,7 @@ export abstract class SessionServer extends SessionChannels {
 
   /** Says something to a bot as its owner, in their direct message, which is started if it has to be. */
   protected async tellBot(botId: string, signal: MessageSignal, files?: FileShare[]): Promise<void> {
-    if (this.users.get(botId)?.bot?.ownerId !== this.account.userId) throw new Error("Only a bot's owner can change it.");
+    if (this.users.get(botId)?.bot?.ownerId !== this.account.userId) throw new Error(t("errors.onlyABotsOwnerCan"));
     await this.sendSignal(await this.groupIdForKey(`user:${botId}`), signal, files);
   }
 

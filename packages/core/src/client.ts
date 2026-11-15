@@ -1,3 +1,4 @@
+import { t, useCatalog } from "./i18n";
 // The top level of the client: the list of joined servers and a session for each.
 
 import * as wasm from "@zuna/crypto";
@@ -118,7 +119,7 @@ class PausableDb implements LocalDb {
   private check(): void {
     if (!this.paused) return;
     this.refused = true;
-    throw new Error("This device's data is busy right now. Please try again.");
+    throw new Error(t("errors.thisDevicesDataIsBusy"));
   }
 
   run(sql: string, params?: SqlValue[]): void {
@@ -285,7 +286,7 @@ export class ZunaClient {
     if (existing) {
       // An account never begins with another key, so what's here isn't given up for a server that says it did.
       if (existing.userId === account.userId && !equalBytes(this.storedAccount(existing.id).core.rootPublic, account.core.rootPublic)) {
-        throw new Error("What the server sent for this account doesn't match what this device knows about it. Nothing here was changed.");
+        throw new Error(t("errors.whatTheServerSentFor"));
       }
       await this.forgetServer(existing.id);
     }
@@ -326,14 +327,14 @@ export class ZunaClient {
    */
   private async pin(url: string, pin: string): Promise<void> {
     if (!this.options.pinServer) {
-      throw new Error("This server uses its own certificate, which browsers can't verify. Use the Zuna app on a computer or phone to connect to it.");
+      throw new Error(t("errors.thisServerUsesItsOwn"));
     }
     // By its address alone, whatever port or path the link adds: the hosts trust a pin for an
     // address, so another one for it would be trusted for the server this device is on there.
     const host = new URL(url).hostname;
     const known = this.listServers().find((server) => server.url && new URL(server.url).hostname === host && (server.address.split("#pin=")[1] ?? null) !== pin);
     if (known) {
-      throw new Error(`This link names another certificate than the one this device trusts for ${known.name}. Ask for a new link, or sign out of the server first.`);
+      throw new Error(t("errors.otherCertificate", { server: known.name }));
     }
     await this.options.pinServer(url, pin);
   }
@@ -431,13 +432,13 @@ export class ZunaClient {
 
   session(serverId: string): ServerSession {
     const session = this.sessions.get(serverId);
-    if (!session) throw new Error("That server isn't connected.");
+    if (!session) throw new Error(t("errors.thatServerIsntConnected"));
     return session;
   }
 
   /** The linked Telegram account's session, which `rpc.ts` reaches under `TELEGRAM_ID`. */
   get telegramSession(): TelegramSession {
-    if (!this.telegram) throw new Error("No Telegram account is linked here.");
+    if (!this.telegram) throw new Error(t("errors.noTelegramAccountIsLinked"));
     return this.telegram;
   }
 
@@ -454,7 +455,7 @@ export class ZunaClient {
    * it's linked. One account at a time, and nothing of it reaches a Zuna server.
    */
   linkTelegram(): void {
-    if (!this.options.telegram) throw new Error("This app can't use Telegram.");
+    if (!this.options.telegram) throw new Error(t("errors.thisAppCantUseTelegram"));
     if (this.telegram) return;
     this.startTelegram(true);
   }
@@ -543,7 +544,7 @@ export class ZunaClient {
     // Telegram's chats aren't end-to-end encrypted, and a Zuna chat's messages never go there, nor
     // Telegram's into one: copying text is the person's own act.
     if (fromServerId === TELEGRAM_ID && toServerId === TELEGRAM_ID) return this.telegramSession.forwardMessages(groupId, ids, toKey);
-    if (fromServerId === TELEGRAM_ID || toServerId === TELEGRAM_ID) throw new Error("Nothing is forwarded between Zuna and Telegram.");
+    if (fromServerId === TELEGRAM_ID || toServerId === TELEGRAM_ID) throw new Error(t("errors.nothingIsForwardedBetweenZuna"));
     const source = this.session(fromServerId);
     // All of them are checked before any is sent.
     const originals = ids.map((id) => ({ id, ...source.forwardable(groupId, id) }));
@@ -593,6 +594,15 @@ export class ZunaClient {
   nudge(): void {
     for (const session of this.sessions.values()) session.nudge();
     this.telegram?.nudge();
+  }
+
+  /**
+   * The language the app shows, by its tag, with its catalog from packages/i18n/locales, so
+   * that what the core words itself, its errors and notifications, and the server's messages
+   * read the same. English needs no catalog.
+   */
+  setLanguage(tag: string, catalog: unknown): void {
+    useCatalog(tag, catalog);
   }
 
   /**

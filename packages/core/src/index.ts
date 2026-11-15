@@ -10,5 +10,6 @@ export { findLink, type WebAdapter } from "./links";
 export { readYouTubeLink, watchPosition, WATCH_RATES } from "./watch";
 export { plainText } from "./plain-text";
 export { notifiedChats, previewCall, previewPush, type CallPreview, type PushPreview } from "./push";
+export { useCatalog } from "./i18n";
 export { parseVoiceIdentity, voiceIdentity, voiceKeyIndex, voiceSenderKey, VOICE_KEY_RING, type VoiceIdentity } from "./voice";
 export * from "./types";

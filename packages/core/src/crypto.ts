@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Key derivation and message framing. The primitives themselves live in Rust;
 // this file decides which keys protect what, and binds ciphertext to its context.
 
@@ -76,7 +77,7 @@ export interface SigningKeyPair {
 
 /** A lasting key from a 32-byte seed, as a bot's setup link carries one. */
 export function lastingKeyFromSeed(seed: Uint8Array): SigningKeyPair {
-  if (seed.length !== 32) throw new Error("A key's seed is 32 bytes.");
+  if (seed.length !== 32) throw new Error(t("errors.aKeysSeedIs32"));
   const secretKey = concat(new Uint8Array([LASTING_KEY]), seed);
   return { publicKey: wasm.signingPublic(secretKey), secretKey };
 }
@@ -116,7 +117,7 @@ export function derivePasswordKeys(password: string, kdf: KdfParams, target: Sig
     kdf.parallelism >= 1 &&
     kdf.parallelism <= MAX_KDF_PARALLELISM &&
     kdf.salt.length === KDF_SALT_BYTES;
-  if (!valid) throw new Error("The server asked for unsafe password settings, so Zuna stopped.");
+  if (!valid) throw new Error(t("errors.theServerAskedForUnsafe"));
   const master = wasm.argon2id(utf8(password.normalize("NFKC")), kdf.salt, kdf.memory, kdf.iterations, kdf.parallelism, 32);
   return {
     authKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/auth/v2|${signInContext(target)}`), 32),
@@ -265,7 +266,7 @@ const CERTIFICATE_LABEL = "zuna/device-cert/v3";
 export function createCertificate(identitySecret: Uint8Array, cert: DeviceCertificate): Uint8Array {
   const user = utf8(cert.userId);
   const device = utf8(cert.deviceId);
-  if (user.length > 255 || device.length > 255 || !isDeviceKey(cert.signatureKey)) throw new Error("That isn't a device a certificate can be made for.");
+  if (user.length > 255 || device.length > 255 || !isDeviceKey(cert.signatureKey)) throw new Error(t("errors.thatIsntADeviceA"));
   const payload = concat(new Uint8Array([CERTIFICATE_VERSION, user.length]), user, new Uint8Array([device.length]), device, u32Bytes(cert.generation ?? 0), cert.signatureKey);
   return concat(payload, wasm.sign(identitySecret, concat(label(CERTIFICATE_LABEL), payload)));
 }
@@ -405,7 +406,7 @@ export function sealEnvelope(
   const body = utf8(JSON.stringify(value));
   const user = utf8(signer.userId);
   const device = utf8(signer.deviceId);
-  if (user.length > 255 || device.length > 255) throw new Error("That account or device ID is too long.");
+  if (user.length > 255 || device.length > 255) throw new Error(t("errors.thatAccountOrDeviceId"));
   const signature = wasm.sign(deviceSecret, signatureInput(aad, keyCommitment(epochKey), body, signer));
   const inner = concat(new Uint8Array([ENVELOPE_VERSION, user.length]), user, new Uint8Array([device.length]), device, signature, body);
   return wasm.aeadSeal(epochKey, pad(inner), aad);
@@ -561,11 +562,11 @@ export interface OpenedHistoryGrant {
 export function openHistoryGrant(hpkeSecret: Uint8Array, groupId: string, recipient: string, sealed: Uint8Array): OpenedHistoryGrant {
   const grant = JSON.parse(fromUtf8(wasm.hpkeOpen(hpkeSecret, label("zuna/history-grant/v3"), label(groupId), sealed)));
   if (grant?.v !== 3 || typeof grant.keys !== "string" || typeof grant.user !== "string" || typeof grant.device !== "string" || typeof grant.signature !== "string") {
-    throw new Error("That history grant isn't valid.");
+    throw new Error(t("errors.thatHistoryGrantIsntValid"));
   }
   const signer = { userId: grant.user, deviceId: grant.device };
   const keys = JSON.parse(grant.keys);
-  if (!keys || typeof keys !== "object") throw new Error("That history grant isn't valid.");
+  if (!keys || typeof keys !== "object") throw new Error(t("errors.thatHistoryGrantIsntValid"));
   return {
     signer,
     keys,
@@ -620,7 +621,7 @@ export function readSignedGroupDetails(groupId: string, value: unknown, kind: De
 // --- Emoji verification ---
 
 const SAFETY_EMOJI_COUNT = 16;
-const safetyCache = new Map<string, { emoji: string; name: string }[]>();
+const safetyCache = new Map<string, (typeof SAFETY_EMOJI)[number][]>();
 
 /**
  * The anti-MITM check. Both people see the same emoji only if each of their
@@ -630,10 +631,12 @@ const safetyCache = new Map<string, { emoji: string; name: string }[]>();
  */
 export function safetyEmoji(ownIdentity: Uint8Array, peerIdentity: Uint8Array): { emoji: string; name: string }[] {
   const cacheKey = `${toHex(ownIdentity)}|${toHex(peerIdentity)}`;
+  // Named in the person's language as they're handed out, which may have changed since.
+  const named = (picked: (typeof SAFETY_EMOJI)[number][]) => picked.map(({ emoji, name }) => ({ emoji, name: t(name) }));
   const cached = safetyCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) return named(cached);
   const digest = wasm.safetyDigest(ownIdentity, peerIdentity);
-  const out: { emoji: string; name: string }[] = [];
+  const out: (typeof SAFETY_EMOJI)[number][] = [];
   let bitOffset = 0;
   for (let i = 0; i < SAFETY_EMOJI_COUNT; i++) {
     const byteIndex = bitOffset >> 3;
@@ -645,7 +648,7 @@ export function safetyEmoji(ownIdentity: Uint8Array, peerIdentity: Uint8Array): 
   // Argon2id takes a moment, and the same pair is asked for again whenever trust is.
   if (safetyCache.size >= 64) safetyCache.delete(safetyCache.keys().next().value!);
   safetyCache.set(cacheKey, out);
-  return out;
+  return named(out);
 }
 
 export { equalBytes };

@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Calls from an interface into the client core, which runs apart from it, in a
 // Worker on the web and on a thread of its own in the desktop and iOS apps, so
 // that cryptography and the database can never block scrolling or animation.
@@ -54,7 +55,7 @@ type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknow
 const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   deleteAccount: true, findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
   previewInvite: true, recover: true, register: true, registerBot: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
-  stop: true, suspend: true, telegramAvailable: true, linkTelegram: true, unlinkTelegram: true,
+  setLanguage: true, stop: true, suspend: true, telegramAvailable: true, linkTelegram: true, unlinkTelegram: true,
 };
 // What a linked Telegram account answers, under the server ID `telegram` (docs/TELEGRAM_PLAN.md).
 const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
@@ -94,7 +95,7 @@ export function serveCore(port: RpcPort, getClient: () => ZunaClient | Promise<Z
       const telegram = call.serverId === TELEGRAM_ID;
       const methods = telegram ? TELEGRAM_METHODS : call.serverId ? SESSION_METHODS : CLIENT_METHODS;
       if (typeof call.method !== "string" || !Object.hasOwn(methods, call.method)) {
-        throw new Error("The core has no such thing to do.");
+        throw new Error(t("errors.theCoreHasNoSuch"));
       }
       const client = await getClient();
       const target: any = telegram ? client.telegramSession : call.serverId ? client.session(call.serverId) : client;

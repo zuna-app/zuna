@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // The sounds on a server's soundboard, as files: WAV in one channel at 48 kHz, which
 // every platform plays, made from what someone picks so that none is much longer or
 // louder than the rest. Nothing here needs a key, so the interface can use it too.
@@ -84,12 +85,12 @@ export function writeWav(samples: Int16Array): Uint8Array<ArrayBuffer> {
  */
 export function prepareSound(wav: Uint8Array): { wav: Uint8Array; durationMs: number } {
   const input = readWav(wav, HEADER_BYTES + (SOUND_RATE * SOUND_INPUT_MAX_MS * 2) / 1000);
-  if (!input) throw new Error("That sound couldn't be read.");
+  if (!input) throw new Error(t("errors.thatSoundCouldntBeRead"));
   let start = 0;
   let end = input.length;
   while (start < end && Math.abs(input[start]! / 32768) < SILENCE) start++;
   while (end > start && Math.abs(input[end - 1]! / 32768) < SILENCE) end--;
-  if (end <= start) throw new Error("That sound is silent.");
+  if (end <= start) throw new Error(t("errors.thatSoundIsSilent"));
   start = Math.max(0, start - SILENCE_KEPT);
   end = Math.min(input.length, end + SILENCE_KEPT, start + (SOUND_RATE * SOUND_MAX_MS) / 1000);
   const samples = new Float32Array(end - start);

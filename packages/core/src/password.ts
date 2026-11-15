@@ -12,6 +12,7 @@ import { ZxcvbnFactory } from "@zxcvbn-ts/core";
 import * as common from "@zxcvbn-ts/language-common";
 import * as en from "@zxcvbn-ts/language-en";
 import * as pl from "@zxcvbn-ts/language-pl";
+import { t } from "./i18n";
 
 export interface PasswordStrength {
   /** 0 for nothing typed, then 1 to 4. Sign-up and changing a password ask for 2 or more. */
@@ -36,8 +37,8 @@ export function passwordStrength(password: string, related: string[] = []): Pass
   const inputs = ["zuna", ...related].flatMap((input) => [input, input.replace(/[^\p{L}\p{N}]+/gu, ""), ...input.split(/[^\p{L}\p{N}]+/u)]).filter((input) => input.length > 1);
   const { guessesLog10 } = estimator.check(password, inputs);
   // A billion guesses of Argon2id at 64 MiB take one graphics card days to weeks.
-  if (guessesLog10 < 9) return { score: 1, label: "Too easy to guess" };
-  if (guessesLog10 < 11) return { score: 2, label: "Could be stronger" };
-  if (guessesLog10 < 14) return { score: 3, label: "Good" };
-  return { score: 4, label: "Strong" };
+  if (guessesLog10 < 9) return { score: 1, label: t("password.tooEasyToGuess") };
+  if (guessesLog10 < 11) return { score: 2, label: t("password.couldBeStronger") };
+  if (guessesLog10 < 14) return { score: 3, label: t("password.good") };
+  return { score: 4, label: t("password.strong") };
 }

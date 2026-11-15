@@ -8,6 +8,7 @@ import { rosterHash } from "../roster";
 import { parsePreferences } from "../validate";
 import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PARTS, KEY_NOT_UPLOADED, KEY_UPLOADED, KIND_WARNING, type CachedGroup, type CachedUser } from "./shared";
 import { SessionLocal } from "./local";
+import { t } from "../i18n";
 
 /**
  * What a group's key in the vault ends with once the account's manifest says who's in the group,
@@ -134,7 +135,7 @@ export abstract class SessionVault extends SessionLocal {
     const disagrees = (group && this.kindTag(group) !== tag) || (held !== undefined && held !== tag);
     if (disagrees) {
       kinds.set(groupId, "disputed");
-      this.warnOnce(`kind/${groupId}`, KIND_WARNING);
+      this.warnOnce(`kind/${groupId}`, t(KIND_WARNING));
       return false;
     }
     kinds.set(groupId, tag);
@@ -150,7 +151,7 @@ export abstract class SessionVault extends SessionLocal {
         type: "security",
         serverId: this.serverId,
         userId,
-        message: `The security key of ${user.profile.displayName} doesn't match the one your account knows. Their messages can't be trusted until you verify them again.`,
+        message: t("security.keyMismatch", { name: user.profile.displayName }),
       });
     }
     user.trust = trust;
@@ -243,7 +244,7 @@ export abstract class SessionVault extends SessionLocal {
     if (!manifest || manifest.v !== v) return;
     const held = this.manifest?.v ?? 0;
     if (manifest.v < held) {
-      this.warnOnce(`manifest/${manifest.v}`, "The server sent an older copy of the keys your account trusts. It was ignored.");
+      this.warnOnce(`manifest/${manifest.v}`, t("security.theServerSentAnOlder"));
       return;
     }
     // Two devices writing at once give the same number, so the same number can still be news.
@@ -274,7 +275,7 @@ export abstract class SessionVault extends SessionLocal {
       // Two devices of one account holding different keys for someone means one was shown a key that isn't theirs.
       if (pinned && !equalBytes(pinned, fromBase64(encoded)) && !(userId in manifest.verified)) {
         const name = this.users.get(userId)?.profile.displayName || "someone";
-        this.warnOnce(`pin/${userId}`, `Another of your devices holds a different security key for ${name}. Compare emoji with them before trusting their messages.`, userId);
+        this.warnOnce(`pin/${userId}`, t("security.anotherOfYourDevicesHolds", { name }), userId);
       }
     }
     for (const [userId, position] of Object.entries(manifest.chains)) this.noteChainPosition(userId, position);
@@ -400,7 +401,7 @@ export abstract class SessionVault extends SessionLocal {
     const manifest = this.nextManifest();
     const parts = manifestParts(manifest);
     if (!parts) {
-      this.warnOnce("manifest/size", "Your account trusts more people than it can store, so people you verify here won't show as verified on your other devices.");
+      this.warnOnce("manifest/size", t("security.yourAccountTrustsMorePeople"));
       return true;
     }
     try {
@@ -441,7 +442,7 @@ export abstract class SessionVault extends SessionLocal {
   protected checkManifestFloor(): void {
     const floor = this.account.core.manifest ?? 0;
     if (floor > (this.manifest?.v ?? 0)) {
-      this.warnOnce("manifest/floor", "Not all of your account's trusted people arrived from the server, so people you've verified may show as unverified here. Compare emoji with them again before trusting them.");
+      this.warnOnce("manifest/floor", t("security.notAllOfYourAccounts"));
     }
   }
 
@@ -542,7 +543,7 @@ export abstract class SessionVault extends SessionLocal {
             type: "security",
             serverId: this.serverId,
             userId: opened.signer.userId,
-            message: "Keys for a conversation's history weren't signed by one of its admins, so they were ignored.",
+            message: t("security.keysForAConversationsHistory"),
           });
         }
       } catch (error) {

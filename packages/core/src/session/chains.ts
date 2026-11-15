@@ -6,6 +6,7 @@ import { carries, rootHash, verifyEnrollment, verifyLink, verifySealProof, type 
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
 import { CONTINUITY_MS, rotationTiming, type IdentityState, type SealedIdentityState, signedFromApi } from "./shared";
 import { SessionVault } from "./vault";
+import { t } from "../i18n";
 
 /** What a certificate counts for (`certificateStanding`). */
 export interface Standing {
@@ -44,7 +45,7 @@ export abstract class SessionChains extends SessionVault {
         this.chains.set(row.user_id, [...this.chainOf(row.user_id), link]);
       } else {
         broken.add(row.user_id);
-        this.warnOnce("local-tampered", "Something outside Zuna changed this device's list of who to trust. Compare emoji with the people who matter to you before trusting them.");
+        this.warnOnce("local-tampered", t("security.somethingOutsideZunaChangedThis"));
       }
     }
   }
@@ -279,7 +280,7 @@ export abstract class SessionChains extends SessionVault {
         type: "security",
         serverId: this.serverId,
         userId,
-        message: "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
+        message: t("security.theServerShowedThisDevice"),
       });
       return;
     }
@@ -352,7 +353,7 @@ export abstract class SessionChains extends SessionVault {
     if (generation == null || !verifySealProof(key, userId, device.id, generation, seal, decode(device.seal_proof))) return null;
     const logged = this.loggedSealKey(device, seal, generation);
     if (logged === "older" || (logged === "unknown" && generation < newest)) {
-      this.warnOnce(`old-seal/${device.id}/${generation}`, "The server offered an old key for one of your devices. It wasn't used.", userId);
+      this.warnOnce(`old-seal/${device.id}/${generation}`, t("security.theServerOfferedAnOld"), userId);
       return null;
     }
     if (logged === "unlogged") return null;

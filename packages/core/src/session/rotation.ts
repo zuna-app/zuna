@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // ServerSession, in part (see base.ts): replacing this account's keys, and catching up when another of its devices did.
 
 import * as wasm from "@zuna/crypto";
@@ -70,7 +71,7 @@ export abstract class SessionRotation extends SessionDirectory {
     // a link to follow. Replacing keys only ever waits a little: it's never skipped.
     const recent = (this.getKv<number[]>("removal_rotations") ?? []).filter((at) => Date.now() - at < REMOVAL_ROTATION_WINDOW_MS);
     if (recent.length >= MAX_REMOVAL_ROTATIONS) {
-      this.warnOnce("removal-rotations", "The server keeps saying devices were removed from your account, so Zuna has slowed down replacing your keys. If you haven't been removing devices, your server may be misbehaving.");
+      this.warnOnce("removal-rotations", t("security.theServerKeepsSayingDevices"));
       this.rotateSoon(REMOVAL_ROTATION_WINDOW_MS / MAX_REMOVAL_ROTATIONS);
       return;
     }
@@ -91,7 +92,7 @@ export abstract class SessionRotation extends SessionDirectory {
           type: "security",
           serverId: this.serverId,
           userId: "",
-          message: "Zuna couldn't finish replacing your account's keys after a device was removed. It'll keep trying.",
+          message: t("security.zunaCouldntFinishReplacingYour"),
         });
       }
       this.rotateSoon(rotationTiming.retryMs);
@@ -125,7 +126,7 @@ export abstract class SessionRotation extends SessionDirectory {
         throw error;
       }
     }
-    throw new Error("This account's keys are changing too often right now. Please try again.");
+    throw new Error(t("errors.thisAccountsKeysAreChanging"));
   }
 
   /** Makes the next generation and writes it down, so a crash from here on carries on with these same keys. */
@@ -158,7 +159,7 @@ export abstract class SessionRotation extends SessionDirectory {
         type: "security",
         serverId: this.serverId,
         userId,
-        message: "The server listed a device for your account that never signed in. It was removed.",
+        message: t("security.theServerListedADevice"),
       });
     }
 
