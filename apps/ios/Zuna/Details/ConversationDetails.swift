@@ -560,7 +560,7 @@ struct ConversationDetails: View {
         case .leave: t("details.group.leaveConfirm", ["name": conversation.title])
         case .delete: t("details.group.deleteConfirm", ["name": conversation.title])
         case let .remove(userId):
-            model.activeServer?.users[userId]?.displayName.map { t("details.member.removeConfirm", ["name": $0, "group": conversation.title]) }
+            (model.activeServer?.users[userId]?.displayName).map { t("details.member.removeConfirm", ["name": $0, "group": conversation.title]) }
                 ?? t("details.member.removeConfirmThem", ["group": conversation.title])
         case nil: ""
         }
