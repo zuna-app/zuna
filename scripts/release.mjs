@@ -54,6 +54,9 @@ export const APP_PATHS = [
   "packages/watch/",
   // The table of core methods plugins may call, which the core bundle's build writes beside it.
   "packages/plugin-sdk/src/",
+  // The interface's languages, which the app is built with, and the lookups the core uses.
+  "packages/i18n/locales/",
+  "packages/i18n/src/",
   "crypto/",
   // The bundler and shims the app's core bundle is made with.
   "apps/ios/core-bundle/",
@@ -85,6 +88,9 @@ export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/", "pack
 export const IOS_PATHS = [
   "apps/ios/",
   "packages/core/",
+  // The interface's languages, which the core bundle's build copies into the app, and the lookups the core uses.
+  "packages/i18n/locales/",
+  "packages/i18n/src/",
   // watch.html, the page a video watched together plays in, which the core bundle's build writes beside it.
   "packages/watch/",
   "crypto/",
