@@ -582,7 +582,7 @@ struct ChannelWelcome: View {
             Text("This is the start of the #\(name) channel.\(channel.topic.isEmpty ? "" : " \(channel.topic)")")
                 .font(.body)
                 .foregroundStyle(Theme.text2)
-            Label("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
+            Label(channel.adminOnly ? "End-to-end encrypted. Only admins can read it, and the server itself can't." : "End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.channelMuted)
                 .padding(.top, 2)

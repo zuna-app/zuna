@@ -127,6 +127,7 @@ enum A11y {
         static let editorFinalName = "channels.editor.finalName"
         static let editorTopic = "channels.editor.topic"
         static let editorHeading = "channels.editor.heading"
+        static let editorAdminOnly = "channels.editor.adminOnly"
         static let editorSlowMode = "channels.editor.slowMode"
         static let editorSlowModeTime = "channels.editor.slowModeTime"
         static let editorSave = "channels.editor.save"

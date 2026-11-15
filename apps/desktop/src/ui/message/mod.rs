@@ -69,6 +69,8 @@ pub struct ChatContext {
     pub channel_description: String,
     /// A voice channel's chat, beside its stage, which a speaker stands for in place of the #.
     pub voice_channel: bool,
+    /// A channel only the server's admins see, which its welcome says only they can read.
+    pub admin_only: bool,
     pub channel_id: Option<String>,
     pub is_server_admin: bool,
     /// The message being edited where it is, in a channel, and the field it's edited in.

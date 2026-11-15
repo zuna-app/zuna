@@ -127,7 +127,8 @@ function BotSettings({ bot, onChanged, onLink, onClose }: { bot: BotView; onChan
   if (!server) return null;
   const own = bot.ownerId === server.self?.userId;
   const isAdmin = server.self?.role === "owner" || server.self?.role === "admin";
-  const textChannels = server.channels.filter((channel) => channel.type === "text" && !channel.unreadable);
+  // A bot is never one of the server's admins, so admin-only channels aren't for it.
+  const textChannels = server.channels.filter((channel) => channel.type === "text" && !channel.unreadable && !channel.adminOnly);
   const change = (changes: Parameters<ReturnType<typeof session>["updateBot"]>[1]) => void run(async () => {
     await session().updateBot(bot.id, changes);
     onChanged();

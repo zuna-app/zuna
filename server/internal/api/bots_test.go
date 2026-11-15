@@ -460,6 +460,25 @@ func TestWhatABotMayNotDo(t *testing.T) {
 		}
 	}
 	bot.joinChannel(voice.ID, false)
+
+	// An admin-only channel isn't for a bot, which is never one of the server's admins:
+	// it can't be given one, and one made admin-only is taken from it.
+	hidden := owner.createAdminOnlyChannel("text")
+	if status, _ := h.do("PUT", "/api/bots/"+bot.userID+"/channels", owner.token, map[string]any{"channels": []string{given.ID, voice.ID, hidden.ID}}, nil); status != http.StatusForbidden {
+		t.Fatalf("giving a bot an admin-only channel gave %d", status)
+	}
+	h.mustDo("PATCH", "/api/channels/"+given.ID, owner.token, map[string]any{"details": []byte("sealed"), "admin_only": true}, nil)
+	h.mustDo("GET", "/api/channels", bot.token, nil, &listed)
+	if len(listed.Channels) != 1 || listed.Channels[0].ID != voice.ID {
+		t.Fatalf("a bot is listed %+v", listed.Channels)
+	}
+	if status, _ := h.do("GET", "/api/groups/"+given.ID, bot.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a channel made admin-only gave the bot %d", status)
+	}
+	h.mustDo("PATCH", "/api/channels/"+given.ID, owner.token, map[string]any{"details": []byte("sealed"), "admin_only": false}, nil)
+	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", owner.token, map[string]any{"channels": []string{given.ID, voice.ID}}, nil)
+	bot.joinChannel(given.ID, false)
+
 	refused("joining a voice channel's room", "POST", "/api/channels/"+voice.ID+"/voice", nil)
 	refused("watching a video in a voice channel", "POST", "/api/channels/"+voice.ID+"/voice/watch", map[string]any{"data": []byte("which")})
 

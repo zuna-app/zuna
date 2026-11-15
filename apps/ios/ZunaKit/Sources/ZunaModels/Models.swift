@@ -466,7 +466,7 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var id: String { key }
 }
 
-/// A channel anyone on the server can see and join. Mirrors `ChannelView`.
+/// A channel anyone on the server can see and join, or only its admins if it's admin-only. Mirrors `ChannelView`.
 public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var type: ChannelType
@@ -488,6 +488,8 @@ public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
     public var sounds: Bool
     /// For a voice channel: whether people may watch YouTube together there.
     public var watch: Bool
+    /// Whether only the server's admins see it and may be in it. Nobody else is told it's there.
+    public var adminOnly: Bool
     /// Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins.
     public var slowMode: Int
     /// The details couldn't be read or checked, so they aren't shown.
@@ -664,10 +666,12 @@ public struct NewChannel: Codable, Sendable, Equatable {
     public var sounds: Bool?
     /// For a voice channel: whether people may watch YouTube together there, which they may unless this says otherwise.
     public var watch: Bool?
+    /// Whether only the server's admins see it and may be in it, which they don't unless this says so.
+    public var adminOnly: Bool?
     /// Slow mode, in seconds, or nil or 0 for off.
     public var slowMode: Int?
 
-    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, slowMode: Int? = nil) {
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, adminOnly: Bool? = nil, slowMode: Int? = nil) {
         self.type = type
         self.name = name
         self.topic = topic
@@ -677,6 +681,7 @@ public struct NewChannel: Codable, Sendable, Equatable {
         self.screenLimit = screenLimit
         self.sounds = sounds
         self.watch = watch
+        self.adminOnly = adminOnly
         self.slowMode = slowMode
     }
 }
@@ -692,10 +697,12 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
     public var screenLimit: Int?
     public var sounds: Bool?
     public var watch: Bool?
+    /// Made admin-only, everyone who isn't one of the server's admins is taken out of it.
+    public var adminOnly: Bool?
     /// Slow mode, in seconds, or 0 to turn it off.
     public var slowMode: Int?
 
-    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, slowMode: Int? = nil) {
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, watch: Bool? = nil, adminOnly: Bool? = nil, slowMode: Int? = nil) {
         self.name = name
         self.topic = topic
         self.category = category
@@ -704,6 +711,7 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
         self.screenLimit = screenLimit
         self.sounds = sounds
         self.watch = watch
+        self.adminOnly = adminOnly
         self.slowMode = slowMode
     }
 }

@@ -200,6 +200,7 @@ impl ConversationList {
             .when(unread, |el| el.child(div().absolute().left(px(-8.)).top(px(13.)).w(px(4.)).h(px(8.)).rounded_r(px(4.)).bg(theme.text1)))
             .child(icon(if channel.kind == "voice" { "volume-2" } else { "hash" }, 20., if connected { theme.green } else { theme.text3 }))
             .child(div().flex_1().min_w_0().one_line().when(unread, |el| el.font_weight(FontWeight::SEMIBOLD)).child(title.clone()))
+            .when(channel.admin_only, |el| el.child(named_div(SharedString::from(format!("admin-only-{}", channel.id))).flex_none().tip("Admins only", Side::Bottom).child(icon("lock", 12., theme.text3))))
             .when(muted, |el| el.child(icon("bell-off", 12., theme.text3)))
             .when(channel.kind == "voice" && channel.user_limit > 0., |el| {
                 el.child(

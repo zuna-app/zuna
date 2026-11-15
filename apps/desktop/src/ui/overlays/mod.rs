@@ -149,6 +149,7 @@ struct ChannelForm {
     screen_limit: f64,
     sounds: bool,
     watch: bool,
+    admin_only: bool,
     slow_on: bool,
     slow_mode: f64,
 }
@@ -270,6 +271,7 @@ impl Dialog {
                 screen_limit: channel.as_ref().map(|c| c.screen_limit).unwrap_or(0.),
                 sounds: channel.as_ref().map(|c| c.sounds).unwrap_or(true),
                 watch: channel.as_ref().map(|c| c.watch).unwrap_or(true),
+                admin_only: channel.as_ref().is_some_and(|c| c.admin_only),
                 slow_on: channel.as_ref().is_some_and(|c| c.slow_mode > 0.),
                 slow_mode: channel.as_ref().map(|c| c.slow_mode).filter(|value| *value > 0.).unwrap_or(30.),
             });

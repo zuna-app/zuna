@@ -355,6 +355,9 @@ export abstract class SessionGroups extends SessionRotation {
       const held = listed.filter((member) => this.holdsCommunityKey(api.id, member.user_id, member.proof));
       if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, "The server listed someone in a channel who isn't really part of this server. They were removed, and the conversation's keys are being changed so they can't read it.");
       listed = held;
+      // An admin-only channel is for the server's admins alone, whom the server names in its roster as for any
+      // channel. Anyone else there, such as someone who just stopped being one, is taken out of its tree.
+      if (this.channels.get(api.id)?.api.admin_only) listed = listed.filter((member) => member.role === "admin");
     }
     const group: CachedGroup = {
       id: api.id,

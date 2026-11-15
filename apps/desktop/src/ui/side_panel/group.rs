@@ -7,6 +7,7 @@ impl SidePanel {
     /// A channel's details: what it's for, and what's been shared there. Who's in it is everyone.
     pub(super) fn channel_info(&mut self, server: &ServerState, conversation: &ConversationView, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
+        let admin_only = server.channels.iter().any(|channel| Some(&channel.id) == conversation.group_id.as_ref() && channel.admin_only);
         let mut parts = Vec::new();
         let mut section = Self::section(cx).child(div().px(px(8.)).py(px(4.)).text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child(format!("#{}", conversation.title)));
         if !conversation.description.is_empty() {
@@ -52,7 +53,7 @@ impl SidePanel {
                         .py(px(7.))
                         .text_size(px(13.5))
                         .child(icon("lock", 17., theme.text2))
-                        .child(div().flex_1().min_w_0().flex().flex_col().child("End-to-end encrypted").child(div().text_size(px(12.)).text_color(theme.text3).child("Everyone on this server can read it, but the server itself can't."))),
+                        .child(div().flex_1().min_w_0().flex().flex_col().child("End-to-end encrypted").child(div().text_size(px(12.)).text_color(theme.text3).child(if admin_only { "Only admins can read it, and the server itself can't." } else { "Everyone on this server can read it, but the server itself can't." }))),
                 )
                 .into_any_element(),
         );

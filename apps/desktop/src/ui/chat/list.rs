@@ -604,6 +604,7 @@ impl ChatView {
             channel_title: conversation.title.clone(),
             channel_description: conversation.description.clone(),
             voice_channel: self.beside_voice.is_some(),
+            admin_only: server.channels.iter().any(|channel| Some(&channel.id) == conversation.group_id.as_ref() && channel.admin_only),
             channel_id: conversation.group_id.clone(),
             is_server_admin: server.is_admin(),
             editing_id: if conversation.kind == "channel" { state.editing.get(&conversation.list_id()).map(|message| message.id.clone()) } else { None },

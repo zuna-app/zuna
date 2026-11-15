@@ -26,6 +26,7 @@
 .channel-row.is-connected .channel-icon { color: var(--green); }
 .channel-row:disabled { opacity: 0.5; cursor: default; }
 .channel-icon { flex: none; color: var(--text-3); }
+.channel-admin-only { flex: none; color: var(--text-3); }
 .channel-name { flex: 1; min-width: 0; }
 /* For admins, on hover and on the open one. */
 .channel-edit { flex: none; display: none; color: var(--text-2); }

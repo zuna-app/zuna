@@ -345,6 +345,50 @@ describe("who can be in a channel", () => {
       dave.client.stop();
     }
   });
+
+  it("is only the server's admins, if it's admin-only, and nobody else is told it's there", async () => {
+    const fern = await makeUser("fern");
+    try {
+      await alice.session.setServerRole(fern.userId, "admin");
+      const id = await alice.session.createChannel({ type: "text", name: "staff", adminOnly: true });
+      expect(channel(alice, "staff")).toMatchObject({ adminOnly: true });
+      const tree = () => (alice.session as unknown as { treeUsers(group: string): string[] }).treeUsers(id);
+      const sees = (app: TestApp) => app.session.getChannels().some((item) => item.id === id);
+      const reads = async (app: TestApp, text: string) => (await app.session.loadMessages(id)).messages.some((item) => item.text === text && item.status === "sent");
+      await waitFor(() => joined(fern, id), "fern, an admin, to come in");
+      await waitFor(() => tree().includes(fern.userId), "alice to see fern in it");
+      alice.session.sendMessage(`group:${id}`, { text: "just us admins" });
+      await waitFor(() => !!received(fern, "just us admins"), "fern to read it");
+
+      // Bob isn't told it's there, and can't come in by asking.
+      await (bob.session as unknown as { syncChannels(): Promise<void> }).syncChannels();
+      expect(sees(bob)).toBe(false);
+      await expect((bob.session as unknown as { joinChannel(group: string): Promise<void> }).joinChannel(id)).rejects.toThrow();
+
+      // No longer an admin, fern is taken out of it, their keys taken back, and their app forgets it was there.
+      await alice.session.setServerRole(fern.userId, "member");
+      await waitFor(() => !tree().includes(fern.userId), "fern's keys to be taken back", 15_000);
+      await waitFor(() => !sees(fern), "fern to stop seeing it");
+      alice.session.sendMessage(`group:${id}`, { text: "after fern" });
+      await waitFor(() => !!received(alice, "after fern"), "alice to send it");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(received(fern, "after fern")).toBeUndefined();
+
+      // Open to everyone, everyone's apps come in by themselves, with what was said before.
+      await alice.session.updateChannel(id, { adminOnly: false });
+      await waitFor(() => joined(bob, id) && joined(fern, id), "bob and fern to come in", 15_000);
+      expect(channel(bob, "staff")).toMatchObject({ adminOnly: false });
+      await waitFor(() => reads(bob, "just us admins"), "bob to read what was said before", 15_000);
+
+      // Made admin-only again, everyone who isn't an admin is taken out.
+      await alice.session.updateChannel(id, { adminOnly: true });
+      await waitFor(() => !tree().includes(bob.userId) && !tree().includes(fern.userId), "their keys to be taken back", 15_000);
+      await waitFor(() => !sees(bob) && !sees(fern), "bob and fern to stop seeing it");
+      await alice.session.deleteChannel(id);
+    } finally {
+      fern.client.stop();
+    }
+  });
 });
 
 describe("what a screen share uses", () => {

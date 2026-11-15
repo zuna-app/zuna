@@ -73,7 +73,7 @@ struct ChannelDetails: View {
             .listRowBackground(Color.clear)
 
             Section {
-                Label("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
+                Label(channel.adminOnly ? "End-to-end encrypted. Only admins can read it, and the server itself can't." : "End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
             }

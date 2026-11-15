@@ -104,7 +104,7 @@ fn welcome(context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
                 .line_height(px(18.))
                 .text_color(theme.channel_muted)
                 .child(div().mt(px(2.)).child(icon("lock", 13., theme.channel_muted)))
-                .child(div().flex_1().min_w_0().child("End-to-end encrypted. Everyone on this server can read it, but the server itself can't.")),
+                .child(div().flex_1().min_w_0().child(if context.admin_only { "End-to-end encrypted. Only admins can read it, and the server itself can't." } else { "End-to-end encrypted. Everyone on this server can read it, but the server itself can't." })),
         );
     if let (true, Some(channel_id)) = (context.is_server_admin, context.channel_id.clone()) {
         let state = context.state.clone();

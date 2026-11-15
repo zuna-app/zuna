@@ -186,6 +186,11 @@ struct ChannelRows: View {
                 Text(channel.title)
                     .font(.body.weight(unread || open ? .semibold : .medium))
                     .lineLimit(1)
+                if channel.adminOnly {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                        .accessibilityLabel("Admins only")
+                }
                 if conversation?.muted == true {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption2)

@@ -1,5 +1,5 @@
 import type { ChannelView, VoiceMember } from "@zuna/core";
-import { BellOff, Camera, ChevronDown, Hash, HeadphoneOff, MicOff, Pencil, Plus, Settings, Trash2, Volume2, VolumeX } from "lucide-react";
+import { BellOff, Camera, ChevronDown, Hash, HeadphoneOff, Lock, MicOff, Pencil, Plus, Settings, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Reorder } from "motion/react";
 import { memo, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
@@ -115,6 +115,7 @@ function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu
       >
         {channel.type === "voice" ? <Volume2 size={20} className="channel-icon" /> : <Hash size={20} className="channel-icon" />}
         <span className="channel-name truncate">{channelTitle(channel)}</span>
+        {channel.adminOnly && <Lock size={12} className="channel-admin-only" aria-label="Admins only" />}
         {conversation?.muted && <BellOff size={12} className="conv-muted" />}
         {channel.type === "voice" && channel.userLimit > 0 && (
           <span className={`channel-limit${full ? " is-full" : ""}`}>

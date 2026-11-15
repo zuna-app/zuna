@@ -31,6 +31,19 @@ func (c *client) createChannel(kind string, limit int) *store.Channel {
 	return out.Channel
 }
 
+// createAdminOnlyChannel makes a channel only the server's admins see.
+func (c *client) createAdminOnlyChannel(kind string) *store.Channel {
+	c.h.t.Helper()
+	var out channelResult
+	c.h.mustDo("POST", "/api/channels", c.token, map[string]any{
+		"id": store.NewID(), "type": kind, "details": []byte("sealed"), "admin_only": true, "proof": []byte("proof-" + c.userID),
+	}, &out)
+	if !out.Channel.AdminOnly {
+		c.h.t.Fatalf("made %+v", out.Channel)
+	}
+	return out.Channel
+}
+
 func (c *client) joinChannel(id string, wantHistory bool) *store.Group {
 	c.h.t.Helper()
 	var out channelResult
@@ -174,6 +187,107 @@ func TestChannelAdminsFollowTheServersRoles(t *testing.T) {
 	h.mustDo("PUT", "/api/admin/users/"+member.userID+"/role", owner.token, map[string]any{"role": "member"}, nil)
 	if role() != "member" {
 		t.Fatalf("no longer a server admin, but %q in a channel", role())
+	}
+}
+
+// An admin-only channel is there for the server's admins alone: nobody else is listed it
+// or who's in its voice channel, or may come in, and whoever stops being an admin, or is
+// in a channel as it's made admin-only, is taken out of it.
+func TestAdminOnlyChannelsAreForAdminsAlone(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	admin := h.register("admin", owner.newInvite())
+	h.mustDo("PUT", "/api/admin/users/"+admin.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
+	member := h.register("member", owner.newInvite())
+	hidden := owner.createAdminOnlyChannel("voice")
+	open := owner.createChannel("text", 0)
+
+	listed := func(c *client) ([]string, []api.VoiceState) {
+		t.Helper()
+		var list struct {
+			Channels []store.Channel `json:"channels"`
+			Voice    []api.VoiceState `json:"voice"`
+		}
+		h.mustDo("GET", "/api/channels", c.token, nil, &list)
+		var ids []string
+		for _, channel := range list.Channels {
+			ids = append(ids, channel.ID)
+		}
+		return ids, list.Voice
+	}
+	if ids, _ := listed(member); len(ids) != 1 || ids[0] != open.ID {
+		t.Fatalf("a member is listed %v", ids)
+	}
+	if ids, _ := listed(admin); len(ids) != 2 {
+		t.Fatalf("an admin is listed %v", ids)
+	}
+	if status, _ := h.do("POST", "/api/channels/"+hidden.ID+"/join", member.token, map[string]any{"proof": []byte("proof-" + member.userID)}, nil); status != http.StatusNotFound {
+		t.Fatalf("a member joining an admin-only channel got %d", status)
+	}
+	if role := admin.joinChannel(hidden.ID, false); role == nil {
+		t.Fatal("an admin couldn't join")
+	}
+	if m, err := h.db.Membership(t.Context(), hidden.ID, admin.userID); err != nil || m.Role != "admin" {
+		t.Fatalf("an admin in an admin-only channel: %+v %v", m, err)
+	}
+
+	// Who's in its voice channel is heard by its members alone.
+	memberSocket := member.connect()
+	adminSocket := admin.connect()
+	ownerSocket := owner.connect()
+	ownerSocket.sendVoice(hidden.ID, map[string]any{})
+	if heard := adminSocket.waitFor("voice"); heard["channel_id"] != hidden.ID {
+		t.Fatalf("an admin heard %+v", heard)
+	}
+	memberSocket.hearsNo("voice")
+	if _, voice := listed(member); len(voice) != 0 {
+		t.Fatalf("a member is listed %+v", voice)
+	}
+	if _, voice := listed(admin); len(voice) != 1 {
+		t.Fatalf("an admin is listed %+v", voice)
+	}
+
+	// No longer an admin, they're taken out of it and out of its voice channel.
+	adminSocket.sendVoice(hidden.ID, map[string]any{})
+	adminSocket.ping()
+	h.mustDo("PUT", "/api/admin/users/"+admin.userID+"/role", owner.token, map[string]any{"role": "member"}, nil)
+	if ended := adminSocket.waitFor("voice_ended"); ended["channel_id"] != hidden.ID || ended["reason"] != "removed" {
+		t.Fatalf("told %+v", ended)
+	}
+	if removed := adminSocket.waitFor("group_removed"); removed["group_id"] != hidden.ID {
+		t.Fatalf("told %+v", removed)
+	}
+	adminSocket.waitFor("channels")
+	if _, err := h.db.Membership(t.Context(), hidden.ID, admin.userID); err == nil {
+		t.Fatal("still on its roster")
+	}
+	if ids, voice := listed(admin); len(ids) != 1 || len(voice) != 0 {
+		t.Fatalf("no longer an admin, listed %v %+v", ids, voice)
+	}
+	if _, voice := listed(owner); len(voice) != 1 || voice[0].UserID != owner.userID {
+		t.Fatalf("still in its voice channel: %+v", voice)
+	}
+
+	// Made admin-only, a channel takes everyone else out, and made open again, they may come back.
+	member.joinChannel(open.ID, false)
+	h.mustDo("PATCH", "/api/channels/"+open.ID, owner.token, map[string]any{"details": []byte("sealed"), "admin_only": true}, nil)
+	if removed := memberSocket.waitFor("group_removed"); removed["group_id"] != open.ID {
+		t.Fatalf("told %+v", removed)
+	}
+	if _, err := h.db.Membership(t.Context(), open.ID, member.userID); err == nil {
+		t.Fatal("still on the roster of a channel made admin-only")
+	}
+	if ids, _ := listed(member); len(ids) != 0 {
+		t.Fatalf("a member is listed %v", ids)
+	}
+	h.mustDo("PATCH", "/api/channels/"+open.ID, owner.token, map[string]any{"details": []byte("sealed"), "admin_only": false}, nil)
+	member.joinChannel(open.ID, false)
+
+	// Its voice channel, made open, is everyone's to hear about again.
+	h.mustDo("PATCH", "/api/channels/"+hidden.ID, owner.token, map[string]any{"details": []byte("sealed"), "admin_only": false}, nil)
+	ownerSocket.sendVoice(hidden.ID, map[string]any{"muted": true})
+	if heard := memberSocket.waitFor("voice"); heard["channel_id"] != hidden.ID {
+		t.Fatalf("a member heard %+v", heard)
 	}
 }
 
@@ -700,6 +814,18 @@ func (s *socket) write(frame map[string]any) {
 	defer cancel()
 	if err := s.ws.Write(ctx, websocket.MessageText, mustJSON(s.t, frame)); err != nil {
 		s.t.Fatal(err)
+	}
+}
+
+// hearsNo waits until the server has dealt with what was sent before, and fails if it
+// said anything of this type meanwhile.
+func (s *socket) hearsNo(eventType string) {
+	s.t.Helper()
+	s.write(map[string]any{"t": "ping"})
+	for got := s.next(); got != "pong"; got = s.next() {
+		if got == eventType {
+			s.t.Fatalf("heard %q", eventType)
+		}
 	}
 }
 

@@ -678,7 +678,9 @@ export abstract class SessionChanges extends SessionJoining {
 
   protected async removeStaleLeaves(groupId: string): Promise<void> {
     if ((await this.staleLeaves(groupId)).length === 0) return;
-    // What's known about the roster may be behind, so ask before removing anyone.
+    // What's known about the roster may be behind, so ask before removing anyone, and about an admin-only
+    // channel too, which may have been opened to everyone since.
+    if (this.channels.get(groupId)?.api.admin_only) this.applyChannels((await this.api.channels()).channels);
     this.applyGroup(await this.api.group(groupId));
     if ((await this.staleLeaves(groupId)).length === 0) return;
     await this.commitWithRetry(groupId, async () => ({

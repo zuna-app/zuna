@@ -305,12 +305,17 @@ func (d *DB) SetBotChannels(ctx context.Context, id string, channels []string) (
 			if slices.Contains(current, channel) {
 				continue
 			}
-			var exists int
-			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM channels WHERE id = ?`, channel).Scan(&exists); err != nil {
+			// A bot is never one of a server's admins, so an admin-only channel isn't for it.
+			var adminOnly bool
+			err := tx.QueryRowContext(ctx, `SELECT admin_only FROM channels WHERE id = ?`, channel).Scan(&adminOnly)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
 				return err
 			}
-			if exists == 0 {
-				return ErrNotFound
+			if adminOnly {
+				return ErrForbidden
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO bot_channels(bot_id, channel_id) VALUES(?, ?)`, id, channel); err != nil {
 				return err

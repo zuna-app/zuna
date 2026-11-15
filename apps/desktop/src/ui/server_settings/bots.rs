@@ -501,7 +501,8 @@ impl ServerBots {
             ));
         }
         // A listed bot joins the channels a server admin gives it, and no others.
-        let channels: Vec<_> = server.channels.iter().filter(|channel| channel.kind == "text" && !channel.unreadable).collect();
+        // A bot is never one of the server's admins, so admin-only channels aren't for it.
+        let channels: Vec<_> = server.channels.iter().filter(|channel| channel.kind == "text" && !channel.unreadable && !channel.admin_only).collect();
         if bot.set_up && bot.listed && is_admin && !channels.is_empty() {
             let mut given = div().flex().flex_wrap().gap(px(12.)).mt(px(8.));
             for channel in channels {

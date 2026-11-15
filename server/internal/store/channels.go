@@ -10,9 +10,10 @@ import (
 // in, so each costs every device some work.
 const maxChannels = 200
 
-// Channel is a conversation everyone on a server can join: a group of kind
-// "channel", with the same ID, that can be listed before joining it. The server
-// can't read its name, which is sealed with the community key in Details.
+// Channel is a conversation everyone on a server can join, or only its admins if
+// AdminOnly: a group of kind "channel", with the same ID, that can be listed before
+// joining it. The server can't read its name, which is sealed with the community key
+// in Details.
 type Channel struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"` // "text" or "voice"
@@ -30,13 +31,16 @@ type Channel struct {
 	SlowMode int `json:"slow_mode"`
 	// Whether people in a voice channel may watch YouTube together there.
 	Watch bool `json:"watch"`
+	// Whether only the server's admins see it and may be in it. Nobody else is
+	// told it's there, or who's in it.
+	AdminOnly bool `json:"admin_only"`
 }
 
-const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds, slow_mode, watch`
+const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds, slow_mode, watch, admin_only`
 
 func scanChannel(row interface{ Scan(...any) error }) (*Channel, error) {
 	var c Channel
-	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds, &c.SlowMode, &c.Watch); err != nil {
+	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds, &c.SlowMode, &c.Watch, &c.AdminOnly); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -70,7 +74,7 @@ func (d *DB) Channel(ctx context.Context, id string) (*Channel, error) {
 
 // CreateChannel makes a channel at the end of the list, with its creator as its
 // first member. Everyone else joins by themselves.
-func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds, watch bool, slowMode int, proof []byte) (*Channel, error) {
+func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds, watch, adminOnly bool, slowMode int, proof []byte) (*Channel, error) {
 	now := Now()
 	err := d.tx(ctx, func(tx handle) error {
 		var count, last int64
@@ -86,8 +90,8 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 			}
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, watch, slow_mode, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-			id, channelType, last+1, userLimit, screenLimit, sounds, watch, slowMode, details, creator, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, watch, admin_only, slow_mode, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, channelType, last+1, userLimit, screenLimit, sounds, watch, adminOnly, slowMode, details, creator, now); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof) VALUES(?, ?, 'admin', ?, ?)`, id, creator, now, proof)
@@ -100,18 +104,37 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 }
 
 // UpdateChannel replaces a channel's sealed details and, if given, its limits, whether
-// the soundboard plays there, whether people may watch together there, and its slow mode.
-func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds, watch *bool, slowMode *int) error {
-	res, err := d.sql.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds), watch = COALESCE(?, watch), slow_mode = COALESCE(?, slow_mode) WHERE id = ?`, details, userLimit, screenLimit, sounds, watch, slowMode, id)
-	if err != nil {
+// the soundboard plays there, whether people may watch together there, its slow mode,
+// and whether only admins see it. Made admin-only, it's taken from the bots given it, as
+// a bot is never one of a server's admins.
+func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds, watch, adminOnly *bool, slowMode *int) error {
+	return d.tx(ctx, func(tx handle) error {
+		res, err := tx.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds), watch = COALESCE(?, watch), admin_only = COALESCE(?, admin_only), slow_mode = COALESCE(?, slow_mode) WHERE id = ?`, details, userLimit, screenLimit, sounds, watch, adminOnly, slowMode, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if adminOnly == nil || !*adminOnly {
+			return nil
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM bot_channels WHERE channel_id = ?`, id)
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	})
 }
 
+// OutsideAdminOnly lists who's on an admin-only channel's roster without being one of
+// the server's admins, which is nobody unless it was only just made admin-only.
+func (d *DB) OutsideAdminOnly(ctx context.Context, id string) ([]string, error) {
+	return collectStrings(ctx, d.sql, `SELECT m.user_id FROM group_members m JOIN channels c ON c.id = m.group_id JOIN users u ON u.id = m.user_id
+		WHERE m.group_id = ? AND c.admin_only = 1 AND u.role NOT IN ('owner', 'admin')`, id)
+}
+
+// AdminOnlyChannelsOf lists the admin-only channels someone is on the roster of.
+func (d *DB) AdminOnlyChannelsOf(ctx context.Context, userID string) ([]string, error) {
+	return collectStrings(ctx, d.sql, `SELECT c.id FROM channels c JOIN group_members m ON m.group_id = c.id WHERE m.user_id = ? AND c.admin_only = 1`, userID)
+}
 
 // OrderChannels puts the listed channels in that order. Those left out, such as
 // one made a moment ago, stay after them.
@@ -130,25 +153,36 @@ func (d *DB) OrderChannels(ctx context.Context, ids []string) error {
 }
 
 // JoinChannel puts someone on a channel's roster, with the proof that they hold the
-// community key, which other members check. All of a channel's history is theirs to
-// read, if a member hands them its keys.
-func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []byte, wantHistory bool) error {
+// community key, which other members check, and their role on the server as their role
+// there. All of a channel's history is theirs to read, if a member hands them its keys.
+// An admin-only channel is for the server's admins alone, and to anyone else it isn't
+// there at all.
+func (d *DB) JoinChannel(ctx context.Context, id, userID string, proof []byte, wantHistory bool) error {
 	return d.tx(ctx, func(tx handle) error {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM channels WHERE id = ?`, id).Scan(&exists); err != nil {
-			return err
-		}
-		if exists == 0 {
+		var adminOnly bool
+		err := tx.QueryRowContext(ctx, `SELECT admin_only FROM channels WHERE id = ?`, id).Scan(&adminOnly)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
+		if err != nil {
+			return err
+		}
 		var banned sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, userID).Scan(&banned); err != nil {
+		var serverRole string
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at), role FROM users WHERE id = ?`, userID).Scan(&banned, &serverRole); err != nil {
 			return err
 		}
 		if banned.Valid {
 			return ErrForbidden
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof, history_wanted)
+		// A channel's admins are the server's.
+		role := "member"
+		if serverRole == "owner" || serverRole == "admin" {
+			role = "admin"
+		} else if adminOnly {
+			return ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof, history_wanted)
 			VALUES(?, ?, ?, ?, ?, ?)
 			ON CONFLICT(group_id, user_id) DO UPDATE SET role = excluded.role, proof = excluded.proof,
 				history_answers = CASE WHEN excluded.history_wanted > group_members.history_wanted THEN 0 ELSE group_members.history_answers END,

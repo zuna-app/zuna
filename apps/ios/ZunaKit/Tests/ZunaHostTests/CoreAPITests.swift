@@ -114,8 +114,8 @@ final class CoreAPITests: XCTestCase {
                                mentions: ["u"], location: SharedLocation(lat: 52.2, lon: 21.0, accuracy: 5))
         let outgoing = OutgoingFile(blob: file, name: "a.png", mime: "image/png", width: 2, height: 2, thumb: "data:,", duration: 1, voice: false, waveform: "AA", round: false)
         let push = PushSettings(relay: "https://relay.example", handle: "h", callHandle: "c", key: Data([1, 2]), registration: "r", sendMuted: true)
-        let channel = NewChannel(type: .voice, name: "Talk", topic: "t", category: "c", bitrate: 64000, userLimit: 5, screenLimit: 1, sounds: true, watch: true, slowMode: 10)
-        let changes = ChannelChanges(name: "Talk", topic: "t", category: "c", bitrate: 64000, userLimit: 5, screenLimit: 1, sounds: false, watch: false, slowMode: 0)
+        let channel = NewChannel(type: .voice, name: "Talk", topic: "t", category: "c", bitrate: 64000, userLimit: 5, screenLimit: 1, sounds: true, watch: true, adminOnly: true, slowMode: 10)
+        let changes = ChannelChanges(name: "Talk", topic: "t", category: "c", bitrate: 64000, userLimit: 5, screenLimit: 1, sounds: false, watch: false, adminOnly: false, slowMode: 0)
         let update = VoiceUpdate(muted: true, deafened: false, camera: false, screen: false)
         let settings = ServerSettingsChanges(name: "Here", registration: "invite", allowMemberInvites: true, maxUploadMb: 20, retentionDays: 30,
                                              screenShare: .defaults, allowMemberBots: false, maxBots: 2)

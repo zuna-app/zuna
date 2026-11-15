@@ -67,6 +67,9 @@ type VoiceState struct {
 	Since       int64  `json:"since"`
 	// Call says the room is a direct message's or a group's, which only its members hear about.
 	Call bool `json:"call,omitempty"`
+	// AdminOnly says the room is an admin-only channel's, which only its members hear
+	// about too. Apps go by the channel itself, so it isn't sent.
+	AdminOnly bool `json:"-"`
 }
 
 // voiceChange is the frame that tells everyone a device's state, or that it left.
@@ -109,6 +112,18 @@ func (v *voiceRooms) inChannels() []VoiceState {
 	}
 	sort.Slice(states, func(i, j int) bool { return states[i].Since < states[j].Since })
 	return states
+}
+
+// setAdminOnly says whether a voice channel's room is for its members' ears alone, as
+// it's made admin-only or open again.
+func (v *voiceRooms) setAdminOnly(channelID string, adminOnly bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, state := range v.states {
+		if !state.Call && state.ChannelID == channelID {
+			state.AdminOnly = adminOnly
+		}
+	}
 }
 
 // takeOut removes the devices it's told to from their rooms, along with their shares, and
@@ -253,14 +268,14 @@ func signLiveKitToken(secret string, claims map[string]any) (string, error) {
 func voiceIdentity(userID, deviceID string) string { return userID + "." + deviceID }
 
 // tellVoice says what a device is doing in a room, or that it left: to everyone for a voice
-// channel, and only to the conversation's members for a call.
+// channel, and only to the conversation's members for a call or an admin-only channel.
 func (s *Server) tellVoice(state VoiceState, left bool) {
 	change := voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, Call: state.Call}
 	if !left {
 		change.State = &state
 	}
 	event := Event{Type: "voice", Data: change}
-	if state.Call {
+	if state.Call || state.AdminOnly {
 		s.toMembers(state.ChannelID, event)
 	} else {
 		s.hub.ToAll(event)
@@ -375,11 +390,13 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 		return
 	}
 	// A conversation that isn't a channel has calls, and a text channel has neither.
-	call := false
+	call, adminOnly := false, false
 	if channel, err := s.db.Channel(ctx, frame.GroupID); errors.Is(err, store.ErrNotFound) {
 		call = true
 	} else if err != nil || channel.Type != "voice" {
 		return
+	} else {
+		adminOnly = channel.AdminOnly
 	}
 	var ring []string
 	if call && frame.Voice.Ring {
@@ -413,6 +430,7 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 		Screen:      frame.Voice.Screen,
 		Since:       store.Now(),
 		Call:        call,
+		AdminOnly:   adminOnly,
 	}
 	if previous != nil {
 		state.Since = previous.Since

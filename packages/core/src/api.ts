@@ -307,6 +307,8 @@ export interface ApiChannel {
   sounds: boolean;
   /** Whether people may watch YouTube together there. */
   watch: boolean;
+  /** Whether only the server's admins see it and may be in it. */
+  admin_only: boolean;
   /** Slow mode: how long each person waits between messages, in seconds, or 0. */
   slow_mode: number;
   details: string;
@@ -792,10 +794,10 @@ export class Api {
 
   // Channels and voice
   channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
-  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; watch?: boolean; slow_mode?: number; proof: Uint8Array }) =>
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; watch?: boolean; admin_only?: boolean; slow_mode?: number; proof: Uint8Array }) =>
     this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
-  updateChannel = (id: string, details: Uint8Array, changes: { userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }) =>
-    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: changes.userLimit, screen_limit: changes.screenLimit, sounds: changes.sounds, watch: changes.watch, slow_mode: changes.slowMode });
+  updateChannel = (id: string, details: Uint8Array, changes: { userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; adminOnly?: boolean; slowMode?: number }) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: changes.userLimit, screen_limit: changes.screenLimit, sounds: changes.sounds, watch: changes.watch, admin_only: changes.adminOnly, slow_mode: changes.slowMode });
   orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
   deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>

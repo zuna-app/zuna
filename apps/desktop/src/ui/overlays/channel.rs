@@ -75,6 +75,22 @@ impl Dialog {
         body.push(field(Some("Name"), self.name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element());
         body.push(field(Some("Topic"), form.topic.clone(), None, None, false, None, cx).into_any_element());
         body.push(field(Some("Heading"), form.category.clone(), None, None, false, None, cx).into_any_element());
+        let admin_only = form.admin_only;
+        let admin_hint = if admin_only && channel.as_ref().is_some_and(|channel| !channel.admin_only) { "Only admins will see it. Anyone else in it now is taken out." } else { "Only admins can see it and join it." };
+        body.push(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Admins only")).child(div().text_size(px(12.5)).text_color(theme.text3).child(admin_hint)))
+                .child(switch("admin-only", admin_only, cx).on_click(cx.listener(|dialog, _, _, cx| {
+                    if let Some(form) = &mut dialog.channel_form {
+                        form.admin_only = !form.admin_only;
+                    }
+                    cx.notify();
+                })))
+                .into_any_element(),
+        );
         let (slow_on, slow_mode) = (form.slow_on, form.slow_mode);
         body.push(
             div()
@@ -193,7 +209,8 @@ impl Dialog {
                     .into_any_element(),
             );
         }
-        body.push(div().text_size(px(12.5)).text_color(theme.text3).child("Everyone on this server can see and join channels. The name and everything said are end-to-end encrypted, so the server can't read them.").into_any_element());
+        let who = if admin_only { "Only the server's admins can see and join this channel." } else { "Everyone on this server can see and join channels." };
+        body.push(div().text_size(px(12.5)).text_color(theme.text3).child(format!("{who} The name and everything said are end-to-end encrypted, so the server can't read them.")).into_any_element());
         let busy = self.busy;
         let ready = !final_name.is_empty() && !busy;
         let editing = channel.is_some();
@@ -250,6 +267,7 @@ impl Dialog {
             "userLimit": if text { 0. } else { form.user_limit },
             "screenLimit": if text { 0. } else { form.screen_limit },
             "slowMode": if form.slow_on { form.slow_mode } else { 0. },
+            "adminOnly": form.admin_only,
         });
         if !text && form.bitrate > 0. {
             details["bitrate"] = json!(form.bitrate);

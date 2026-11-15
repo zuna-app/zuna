@@ -36,6 +36,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [screenLimit, setScreenLimit] = useState(channel?.screenLimit ?? 0);
   const [sounds, setSounds] = useState(channel?.sounds ?? true);
   const [watch, setWatch] = useState(channel?.watch ?? true);
+  const [adminOnly, setAdminOnly] = useState(channel?.adminOnly ?? false);
   const [slowOn, setSlowOn] = useState((channel?.slowMode ?? 0) > 0);
   const [slowMode, setSlowMode] = useState(channel?.slowMode || 30);
   const { busy, run } = useAction();
@@ -47,9 +48,9 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
     run(async () => {
       const details = { name: finalName, topic: topic.trim(), category: category.trim(), bitrate: type === "voice" && bitrate ? bitrate : undefined };
       if (channel) {
-        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, slowMode: slowOn ? slowMode : 0 });
+        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, adminOnly, slowMode: slowOn ? slowMode : 0 });
       } else {
-        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, slowMode: slowOn ? slowMode : 0 });
+        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, watch: type === "voice" ? watch : undefined, adminOnly, slowMode: slowOn ? slowMode : 0 });
         // Opening a voice channel is coming into it, which making one isn't asking for.
         if (type === "text") selectConversation(`group:${id}`);
       }
@@ -127,6 +128,13 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       </datalist>
       <div className="field channel-switch">
         <span className="grow">
+          <span className="field-label">Admins only</span>
+          <span className="setting-hint">{adminOnly && channel && !channel.adminOnly ? "Only admins will see it. Anyone else in it now is taken out." : "Only admins can see it and join it."}</span>
+        </span>
+        <Switch on={adminOnly} onChange={setAdminOnly} label="Admins only" />
+      </div>
+      <div className="field channel-switch">
+        <span className="grow">
           <span className="field-label">Slow mode</span>
           <span className="setting-hint">Everyone except admins has to wait between messages.</span>
         </span>
@@ -189,7 +197,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
         </>
       )}
       <p className="channel-note">
-        Everyone on this server can see and join channels. The name and everything said are end-to-end encrypted, so the server can't read them.
+        {adminOnly ? "Only the server's admins can see and join this channel." : "Everyone on this server can see and join channels."} The name and everything said are end-to-end encrypted, so the server can't read them.
       </p>
     </Modal>
   );

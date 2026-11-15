@@ -673,4 +673,6 @@ CREATE TABLE history_answered (
 	granted_by TEXT COLLATE "C" NOT NULL,
 	PRIMARY KEY (group_id, user_id, granted_by)
 );
+`, `
+ALTER TABLE channels ADD COLUMN admin_only BIGINT NOT NULL DEFAULT 0;
 `}

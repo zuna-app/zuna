@@ -600,4 +600,7 @@ CREATE TABLE history_answered (
 	granted_by TEXT NOT NULL,
 	PRIMARY KEY (group_id, user_id, granted_by)
 );
+`, `
+-- A channel only the server's admins see and join (channels.go).
+ALTER TABLE channels ADD COLUMN admin_only INTEGER NOT NULL DEFAULT 0;
 `}

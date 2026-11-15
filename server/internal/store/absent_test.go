@@ -61,7 +61,7 @@ func TestWhatIsntThere(t *testing.T) {
 	_, err = db.UpdateProfile(ctx, nobody, []byte("p"), nil, nil)
 	refused("someone's profile", err)
 	notFound("reporting someone", db.AddReport(ctx, nobody, "spam"))
-	notFound("joining a channel", db.JoinChannel(ctx, nobody, nobody, "member", []byte("p"), false))
+	notFound("joining a channel", db.JoinChannel(ctx, nobody, nobody, []byte("p"), false))
 	_, err = db.EditMessage(ctx, nobody, nobody, 1, []byte("e"), nil)
 	notFound("editing a message", err)
 	_, _, _, err = db.DeleteMessage(ctx, nobody, nobody, Deletion{Proof: []byte("d"), Epoch: 1}, nil)

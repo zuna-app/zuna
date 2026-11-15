@@ -432,6 +432,21 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 		writeFailure(w, err)
 		return
 	}
+	// Admin-only channels are for admins alone, and their apps find out which they now see.
+	if body.Role == "member" {
+		channels, err := s.db.AdminOnlyChannelsOf(r.Context(), targetID)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		for _, channelID := range channels {
+			if err := s.takeOutOfChannel(r, channelID, sess.UserID, []string{targetID}); err != nil {
+				writeFailure(w, err)
+				return
+			}
+		}
+	}
+	s.hub.ToUsers([]string{targetID}, Event{Type: "channels"})
 	s.enforceScreenRules(r.Context())
 	s.broadcastUser(r, targetID)
 	writeOK(w)

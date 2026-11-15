@@ -412,7 +412,8 @@ struct BotDetailView: View {
 
     @ViewBuilder
     private func channels(_ bot: BotView, _ server: AppModel.ServerState?) -> some View {
-        let text = (server?.channels ?? []).filter { $0.type == .text && !$0.unreadable }
+        // A bot is never one of the server's admins, so admin-only channels aren't for it.
+        let text = (server?.channels ?? []).filter { $0.type == .text && !$0.unreadable && !$0.adminOnly }
         if !text.isEmpty {
             Section {
                 ForEach(text) { channel in

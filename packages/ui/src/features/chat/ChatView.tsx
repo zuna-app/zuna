@@ -247,6 +247,7 @@ function SlowMode({ conversation }: { conversation: ConversationView }) {
 /** The top of a channel's history, as in Discord. */
 function ChannelWelcome({ conversation, voice }: { conversation: ConversationView; voice?: boolean }) {
   const role = useActiveField((server) => server.self?.role, undefined);
+  const adminOnly = useActiveField((server) => !!server.channels.find((channel) => channel.id === conversation.groupId)?.adminOnly, false);
   const setOverlay = useApp((state) => state.setOverlay);
   const isAdmin = role === "owner" || role === "admin";
   return (
@@ -257,7 +258,7 @@ function ChannelWelcome({ conversation, voice }: { conversation: ConversationVie
         This is the start of the #{conversation.title} channel.{conversation.description ? ` ${conversation.description}` : ""}
       </p>
       <p className="channel-welcome-lock">
-        <Lock size={13} /> End-to-end encrypted. Everyone on this server can read it, but the server itself can't.
+        <Lock size={13} /> End-to-end encrypted. {adminOnly ? "Only admins can read it, and the server itself can't." : "Everyone on this server can read it, but the server itself can't."}
       </p>
       {isAdmin && conversation.groupId && (
         <button className="channel-welcome-edit" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>

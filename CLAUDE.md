@@ -136,7 +136,7 @@ Rules the core depends on:
 - `ensureTreeClean` removes anyone who shouldn't hold a group's keys before this device encrypts.
 - Nothing local is erased on the server's word. Being signed out or removed keeps the data, for 30 days or until the person clears it.
 - What arrives decrypted is still untrusted, so it goes through `validate.ts` before anything shows it.
-- A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out.
+- A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out, and in an admin-only one (`admin_only`) only those it names as admins.
 - A voice channel's media key comes straight from the MLS exporter for the current epoch, and is never stored or handed on (`voiceKey`).
 - A bot is an account like any other, whose core keeps its owner's rules itself: it leaves a group it was added to by someone its owner didn't allow (`noteIfUnwanted`), a private one joins no channel, and it only obeys its owner's identity key, pinned from its setup link. Nobody hands a bot a group's history.
 - A message with a `signal`, as an owner's changes to their bot and a button's press are, is shown nowhere and never stored (`noteSignal`). Buttons only show under a bot's messages.
@@ -254,7 +254,7 @@ Rules the core depends on:
 - The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only. A private bot is the one account that isn't there for everyone: only its owner sees it, and whoever is in a chat with it.
 - A bot is a member of its chats with keys of its own, run by `zuna-bot` on a machine its owner chose. It gets nothing from before it was added, shows a badge wherever its name does and is asked about each time one is added, and never shows as online. It can't start a chat, write to someone first, join voice or be one of a server's admins. Only a server's admins make listed bots, and by default only a bot's owner adds it to groups.
 - A press of a bot's button goes to the whole chat, as its messages do, and is shown nowhere.
-- Channels are the open places: everyone on a server can see and join all of them, and only server admins make them. There are no private channels, since a group is that.
+- Channels are the open places: everyone on a server can see and join them, and only server admins make them. The one exception is an admin-only channel, which only the server's admins see and join, kept from everyone else by the server, whose word who's an admin is, and never given to a bot. There are no other private channels, since a group is that.
 - One voice channel at a time, on one device, across all servers.
 - Each server's admins pick one 7TV emote set. People can't add their own.
 - The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own ("The web app" in `SECURITY.md`).

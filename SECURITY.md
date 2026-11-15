@@ -44,7 +44,7 @@ It isn't told who sent each message, but it can often work that out from address
 - **Deleting is best effort.** "Delete for everyone" and disappearing messages remove a message from the server and from everyone's app, but a screenshot or a modified app can keep it.
 - **Bots read the chats they're in,** and so can whoever runs them. A bot always shows a badge.
 - **Plugins read what you let them.** A plugin you allow to read your messages can read them. Plugins Zuna hasn't checked sit behind a warning.
-- **Channels are only as private as the server.** Everyone on it can join them.
+- **Channels are only as private as the server.** Everyone on it can join them, and one for admins only is kept from the others by the server alone.
 - **Linked Telegram chats aren't end-to-end encrypted.** Telegram keeps them, as it does in its own apps. No Zuna server sees them.
 
 [The full list of limits](docs/SECURITY_DETAILS.md#limits) also covers what a malicious server could try.

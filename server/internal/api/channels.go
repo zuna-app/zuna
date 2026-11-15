@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 
@@ -24,13 +25,25 @@ func validUserLimit(limit int) bool { return limit >= 0 && limit <= maxUserLimit
 
 func validSlowMode(seconds int) bool { return seconds >= 0 && seconds <= maxSlowMode }
 
-// handleChannels lists every channel, and who's in the voice channels. A bot is
-// only listed the channels it was given, which are the ones it may join.
+// handleChannels lists every channel, and who's in the voice channels. Nobody but the
+// server's admins is told an admin-only channel is there, or who's in it. A bot is only
+// listed the channels it was given, which are the ones it may join.
 func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	channels, err := s.db.Channels(r.Context())
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	voice := s.voice.inChannels()
+	if !isServerAdmin(sess) {
+		hidden := map[string]bool{}
+		for _, channel := range channels {
+			if channel.AdminOnly {
+				hidden[channel.ID] = true
+			}
+		}
+		channels = slices.DeleteFunc(channels, func(channel *store.Channel) bool { return hidden[channel.ID] })
+		voice = slices.DeleteFunc(voice, func(state VoiceState) bool { return state.AdminOnly || hidden[state.ChannelID] })
 	}
 	if sess.Bot {
 		given, err := s.db.BotChannels(r.Context(), sess.UserID)
@@ -40,7 +53,7 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, sess *st
 		}
 		channels = slices.DeleteFunc(channels, func(channel *store.Channel) bool { return !slices.Contains(given, channel.ID) })
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": s.voice.inChannels()})
+	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": voice})
 }
 
 func (s *Server) broadcastChannels() {
@@ -59,6 +72,8 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		Sounds *bool `json:"sounds"`
 		// Left out, people may watch YouTube together there.
 		Watch *bool `json:"watch"`
+		// Only the server's admins see it and may be in it.
+		AdminOnly bool `json:"admin_only"`
 		// Seconds each person waits between messages, or 0.
 		SlowMode int    `json:"slow_mode"`
 		Proof    []byte `json:"proof"`
@@ -70,7 +85,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.Watch == nil || *body.Watch, body.SlowMode, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.Watch == nil || *body.Watch, body.AdminOnly, body.SlowMode, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -84,13 +99,14 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel, "group": seenBy(group, sess.UserID)})
 }
 
-func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Details     []byte `json:"details"`
 		UserLimit   *int   `json:"user_limit"`
 		ScreenLimit *int   `json:"screen_limit"`
 		Sounds      *bool  `json:"sounds"`
 		Watch       *bool  `json:"watch"`
+		AdminOnly   *bool  `json:"admin_only"`
 		SlowMode    *int   `json:"slow_mode"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
@@ -101,15 +117,54 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds, body.Watch, body.SlowMode); err != nil {
+	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds, body.Watch, body.AdminOnly, body.SlowMode); err != nil {
 		writeFailure(w, err)
 		return
 	}
 	if body.ScreenLimit != nil && *body.ScreenLimit == screenLimitOff {
 		s.endShares(r.Context(), "rules", func(share *screenShare) bool { return share.ChannelID == id })
 	}
+	if body.AdminOnly != nil {
+		// Made admin-only, everyone else in it is taken out, and their apps forget it
+		// was there. Who's in its voice channel is then for its members alone.
+		if *body.AdminOnly {
+			outside, err := s.db.OutsideAdminOnly(r.Context(), id)
+			if err != nil {
+				writeFailure(w, err)
+				return
+			}
+			if err := s.takeOutOfChannel(r, id, sess.UserID, outside); err != nil {
+				writeFailure(w, err)
+				return
+			}
+		}
+		s.voice.setAdminOnly(id, *body.AdminOnly)
+	}
 	s.broadcastChannels()
 	writeOK(w)
+}
+
+// takeOutOfChannel takes people off a channel's roster and out of its voice channel,
+// when it's made admin-only or they stop being admins. The members' apps then take
+// their devices out of its MLS group, as they do for anyone the roster doesn't name.
+func (s *Server) takeOutOfChannel(r *http.Request, channelID, actor string, users []string) error {
+	if len(users) == 0 {
+		return nil
+	}
+	gone, _ := s.voice.takeOut(func(state *VoiceState) bool {
+		return !state.Call && state.ChannelID == channelID && slices.Contains(users, state.UserID)
+	})
+	for _, state := range gone {
+		s.removeFromRoom(r.Context(), &state)
+		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": channelID, "reason": "removed"}})
+		s.tellVoice(state, true)
+	}
+	for _, user := range users {
+		if err := s.removeFromRoster(r, channelID, actor, user); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleOrderChannels(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -182,12 +237,9 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 		// A bot gets nothing from before it came in.
 		body.WantHistory = false
 	}
-	// A channel's admins are the server's.
-	role := "member"
-	if isServerAdmin(sess) {
-		role = "admin"
-	}
-	if err := s.db.JoinChannel(r.Context(), id, sess.UserID, role, body.Proof, body.WantHistory); err != nil {
+	// The store reads their role on the server as it puts them on the roster, which is
+	// their role there, and refuses an admin-only channel to anyone else.
+	if err := s.db.JoinChannel(r.Context(), id, sess.UserID, body.Proof, body.WantHistory); err != nil {
 		writeFailure(w, err)
 		return
 	}

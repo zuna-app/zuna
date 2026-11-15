@@ -225,6 +225,7 @@ export abstract class SessionChannels extends SessionManagement {
           screenLimit: api.screen_limit,
           sounds: api.sounds,
           watch: api.watch !== false,
+          adminOnly: api.admin_only === true,
           slowMode: slowModeOf(api),
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
@@ -232,8 +233,8 @@ export abstract class SessionChannels extends SessionManagement {
       });
   }
 
-  /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
-  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }): Promise<string> {
+  /** Makes a channel, for a server admin. Everyone else's apps join it by themselves, or only the other admins' if it's admin-only. */
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; adminOnly?: boolean; slowMode?: number }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
     if (!details) throw new Error("A channel needs a name.");
@@ -247,6 +248,7 @@ export abstract class SessionChannels extends SessionManagement {
       screen_limit: input.screenLimit ?? 0,
       sounds: input.sounds,
       watch: input.watch,
+      admin_only: input.adminOnly === true,
       slow_mode: input.slowMode ?? 0,
       proof: channelProof(communityKey, id, this.account.userId),
     });
@@ -261,16 +263,19 @@ export abstract class SessionChannels extends SessionManagement {
     return id;
   }
 
-  /** Changes what a channel says about itself, for a server admin. */
-  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; slowMode?: number }): Promise<void> {
+  /**
+   * Changes what a channel says about itself, for a server admin. Made admin-only, everyone who
+   * isn't one of the server's admins is taken out of it, and their apps forget it was there.
+   */
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; watch?: boolean; adminOnly?: boolean; slowMode?: number }): Promise<void> {
     const channel = this.channels.get(id);
     if (!channel) throw new Error("That channel doesn't exist.");
-    const { userLimit, screenLimit, sounds, watch, slowMode, ...text } = changes;
+    const { userLimit, screenLimit, sounds, watch, adminOnly, slowMode, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
     if (!details) throw new Error("A channel needs a name.");
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    await this.api.updateChannel(id, sealed, { userLimit, screenLimit, sounds, watch, slowMode });
+    await this.api.updateChannel(id, sealed, { userLimit, screenLimit, sounds, watch, adminOnly, slowMode });
     this.channels.set(id, {
       api: {
         ...channel.api,
@@ -279,6 +284,7 @@ export abstract class SessionChannels extends SessionManagement {
         screen_limit: screenLimit ?? channel.api.screen_limit,
         sounds: sounds ?? channel.api.sounds,
         watch: watch ?? channel.api.watch,
+        admin_only: adminOnly ?? channel.api.admin_only,
         slow_mode: slowMode ?? channel.api.slow_mode,
       },
       details,

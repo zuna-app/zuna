@@ -80,6 +80,7 @@ impl Voice {
             (false, "elsewhere") => "You joined this voice channel on another device.",
             (false, "disconnected") => "An admin removed you from the voice channel.",
             (false, "deleted") => "That voice channel was deleted.",
+            (false, "removed") => "That voice channel is only for admins now.",
             (_, "banned") => "You were removed from this server.",
             (true, "elsewhere") => "You joined this call on another device.",
             (true, "removed") => "You're no longer in this conversation, so you left the call.",

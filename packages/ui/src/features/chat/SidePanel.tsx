@@ -308,6 +308,7 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
   const setOverlay = useApp((state) => state.setOverlay);
   const [muteMenu, setMuteMenu] = useState<{ x: number; y: number } | null>(null);
   const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  const adminOnly = !!server?.channels.find((channel) => channel.id === conversation.groupId)?.adminOnly;
   return (
     <div className="side-body">
       <div className="side-section">
@@ -344,7 +345,7 @@ function ChannelInfo({ conversation }: { conversation: ConversationView }) {
           <Lock size={17} />
           <span className="grow">
             End-to-end encrypted
-            <span className="side-row-hint">Everyone on this server can read it, but the server itself can't.</span>
+            <span className="side-row-hint">{adminOnly ? "Only admins can read it, and the server itself can't." : "Everyone on this server can read it, but the server itself can't."}</span>
           </span>
         </div>
       </div>

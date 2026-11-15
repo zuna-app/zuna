@@ -1,7 +1,7 @@
 //! The dialogs over the app that make and change things, used as a person uses them: a text
-//! channel and a voice one made with each of their settings, one edited and deleted after the
-//! system's own question; a group made with a bot among its people, asked about first; people
-//! added to one; and messages forwarded to another chat.
+//! channel and a voice one made with each of their settings, one only for admins, one edited
+//! and deleted after the system's own question; a group made with a bot among its people, asked
+//! about first; people added to one; and messages forwarded to another chat.
 
 use gpui::TestAppContext;
 use serde_json::{Value, json};
@@ -63,10 +63,12 @@ fn channels_are_made_edited_and_deleted(cx: &mut TestAppContext) {
     category.update(cx, |input, cx| input.set_text("Talk", cx));
     app.click(cx, "slow-mode");
     pick(&app, cx, "slow-time", 4);
+    app.click(cx, "admin-only");
     app.click(cx, "save-channel");
     let made = app.calls_of("createChannel");
     assert_eq!((made[0][0]["name"].clone(), made[0][0]["type"].clone(), made[0][0]["category"].clone()), (json!("our-plans"), json!("text"), json!("Talk")));
     assert_eq!(made[0][0]["slowMode"], json!(60.0));
+    assert_eq!(made[0][0]["adminOnly"], json!(true), "only admins see it");
     assert_eq!(app.read(cx, |state| (state.overlay.clone(), state.servers[SERVER].active_key.clone())), (None, Some("group:c-new".into())), "a text channel opens once it's made");
 
     // A voice one, with its quality, screens and the switches only it has.
@@ -79,7 +81,7 @@ fn channels_are_made_edited_and_deleted(cx: &mut TestAppContext) {
     app.click(cx, "watch-together");
     app.click(cx, "save-channel");
     let voice = &app.calls_of("createChannel")[1][0];
-    assert_eq!((voice["type"].clone(), voice["name"].clone()), (json!("voice"), json!("Lounge Two")));
+    assert_eq!((voice["type"].clone(), voice["name"].clone(), voice["adminOnly"].clone()), (json!("voice"), json!("Lounge Two"), json!(false)));
     assert!(voice.get("bitrate").is_some() && voice.get("sounds").is_some() && voice.get("watch").is_some());
     assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
     // A refusal says why, and keeps the dialog.

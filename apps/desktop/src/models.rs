@@ -388,6 +388,8 @@ pub struct ChannelView {
     pub screen_limit: f64,
     pub sounds: bool,
     pub watch: bool,
+    /// Whether only the server's admins see it and may be in it. Nobody else is told it's there.
+    pub admin_only: bool,
     pub slow_mode: f64,
     pub unreadable: bool,
     pub conversation: Option<ConversationView>,

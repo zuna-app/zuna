@@ -462,6 +462,8 @@ export interface ChannelView {
   sounds: boolean;
   /** For a voice channel: whether people may watch YouTube together there. */
   watch: boolean;
+  /** Whether only the server's admins see it and may be in it. Nobody else is told it's there. */
+  adminOnly: boolean;
   /** Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins. */
   slowMode: number;
   /** The details couldn't be read or checked, so they aren't shown. */

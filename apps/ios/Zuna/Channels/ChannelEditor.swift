@@ -33,6 +33,7 @@ struct ChannelEditor: View {
     @State private var screenLimit = 0
     @State private var sounds = true
     @State private var watch = true
+    @State private var adminOnly = false
     @State private var slowOn = false
     /// Slow mode's time, in seconds, kept while it's off so turning it on again brings it back.
     @State private var slowMode = 30
@@ -145,6 +146,12 @@ struct ChannelEditor: View {
                     Text("Channels with the same heading are listed together under it.")
                 }
                 Section {
+                    Toggle("Admins only", isOn: $adminOnly)
+                        .accessibilityIdentifier(A11y.Channels.editorAdminOnly)
+                } footer: {
+                    Text(adminOnly && channel?.adminOnly == false ? "Only admins will see it. Anyone else in it now is taken out." : "Only admins can see it and join it.")
+                }
+                Section {
                     Toggle("Slow mode", isOn: $slowOn)
                         .accessibilityIdentifier(A11y.Channels.editorSlowMode)
                     if slowOn {
@@ -252,6 +259,7 @@ struct ChannelEditor: View {
             screenLimit = channel.screenLimit
             sounds = channel.sounds
             watch = channel.watch
+            adminOnly = channel.adminOnly
             slowOn = channel.slowMode > 0
             if channel.slowMode > 0 { slowMode = channel.slowMode }
         }
@@ -270,6 +278,7 @@ struct ChannelEditor: View {
             screenLimit: voice ? screenLimit : nil,
             sounds: voice ? sounds : nil,
             watch: voice ? watch : nil,
+            adminOnly: adminOnly,
             slowMode: slowOn ? slowMode : nil
         )
         let channel = channel
@@ -279,7 +288,7 @@ struct ChannelEditor: View {
             defer { busy = false }
             do {
                 if let channel {
-                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds, watch: made.watch, slowMode: slowOn ? slowMode : 0))
+                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds, watch: made.watch, adminOnly: adminOnly, slowMode: slowOn ? slowMode : 0))
                     dismiss()
                 } else {
                     let id = try await session.createChannel(made)

@@ -397,6 +397,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       elsewhere: "You joined this voice channel on another device.",
       disconnected: "An admin removed you from the voice channel.",
       deleted: "That voice channel was deleted.",
+      removed: "That voice channel is only for admins now.",
       banned: "You were removed from this server.",
     };
     const call: Record<string, string> = {
