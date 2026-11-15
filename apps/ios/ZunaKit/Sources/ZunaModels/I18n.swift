@@ -87,8 +87,8 @@ public struct Catalog: Sendable {
         }
     }
 
-    /// The key English has a text under, for `translate`.
-    fileprivate func key(forEnglish text: String) -> String? {
+    /// The key English has a text under, for `translate` and the vectors' test.
+    func key(forEnglish text: String) -> String? {
         entries.first { if case .text(let english) = $0.value { return english == text } else { return false } }?.key
     }
 }
