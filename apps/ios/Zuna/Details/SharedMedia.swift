@@ -184,10 +184,8 @@ private struct SharedMessages: View {
     private func grid(_ messages: [MessageView]) -> some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 2)], spacing: 2) {
-                ForEach(messages) { message in
-                    ForEach(attachments(of: message), id: \.offset) { _, attachment in
-                        MediaTile(message: message, attachment: attachment, serverId: server.entry.id, others: messages) { show(message) }
-                    }
+                ForEach(items(of: messages)) { item in
+                    MediaTile(message: item.message, attachment: item.attachment, serverId: server.entry.id, others: messages) { show(item.message) }
                 }
             }
             more
@@ -198,13 +196,13 @@ private struct SharedMessages: View {
         List {
             ForEach(months(messages)) { month in
                 Section(month.title) {
-                    ForEach(month.messages) { message in
-                        if kind == .link {
+                    if kind == .link {
+                        ForEach(month.messages) { message in
                             LinkRow(message: message, server: server) { show(message) }
-                        } else {
-                            ForEach(attachments(of: message), id: \.offset) { _, attachment in
-                                AttachmentRow(message: message, attachment: attachment, server: server) { show(message) }
-                            }
+                        }
+                    } else {
+                        ForEach(items(of: month.messages)) { item in
+                            AttachmentRow(message: item.message, attachment: item.attachment, server: server) { show(item.message) }
                         }
                     }
                 }
@@ -237,8 +235,21 @@ private struct SharedMessages: View {
         hasMore = page.hasMore
     }
 
-    private func attachments(of message: MessageView) -> [(offset: Int, element: Attachment)] {
-        message.attachments.enumerated().filter { $0.element.mediaKind == kind }
+    /// One attachment of one message, a tile or a row, known by both. Known by its place in its
+    /// message alone, as it was, every tile of a chat's photos was the first one's, and only it showed.
+    private struct Item: Identifiable {
+        let message: MessageView
+        let attachment: Attachment
+        let id: String
+    }
+
+    /// The attachments of this kind in these messages, in order.
+    private func items(of messages: [MessageView]) -> [Item] {
+        messages.flatMap { message in
+            message.attachments.enumerated()
+                .filter { $0.element.mediaKind == kind }
+                .map { Item(message: message, attachment: $0.element, id: "\(message.id)/\($0.offset)") }
+        }
     }
 
     private struct Month: Identifiable {

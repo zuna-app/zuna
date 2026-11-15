@@ -200,13 +200,18 @@ final class DetailsTests: XCTestCase {
             UIColor.systemOrange.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
         }
-        let photo = "harbour-\(tag).png", file = "route-\(tag).txt"
+        // Two of each, as each was once known by its place in its message alone, which showed only one.
+        let photo = "harbour-\(tag).png", otherPhoto = "pier-\(tag).png"
+        let file = "route-\(tag).txt", otherFile = "tides-\(tag).txt"
+        try alice.sendImage(to: key, png: png, name: otherPhoto, width: 120, height: 90)
         try alice.sendImage(to: key, png: png, name: photo, width: 120, height: 90)
-        _ = try alice.call("sendWithAttachments", [
-            key,
-            [["blob": ["$blob": ["bytes": Data("Up the hill, then left.".utf8).base64EncodedString(), "type": "text/plain"]], "name": file, "mime": "text/plain"]],
-            [:],
-        ])
+        for name in [otherFile, file] {
+            _ = try alice.call("sendWithAttachments", [
+                key,
+                [["blob": ["$blob": ["bytes": Data("Up the hill, then left.".utf8).base64EncodedString(), "type": "text/plain"]], "name": name, "mime": "text/plain"]],
+                [:],
+            ])
+        }
         // The link in code doesn't count.
         let linkId = try alice.send(to: key, ["text": "The route: https://maps.example/walk and `https://not.example`"])
 
@@ -215,13 +220,13 @@ final class DetailsTests: XCTestCase {
         openDetails()
         // The rows say what alice's desktop counts.
         let counts = try XCTUnwrap(try alice.call("mediaCounts", [groupId]) as? [String: Int])
-        XCTAssertEqual(counts, ["photo": 1, "video": 0, "file": 1, "audio": 0, "voice": 0, "link": 1])
+        XCTAssertEqual(counts, ["photo": 2, "video": 0, "file": 2, "audio": 0, "voice": 0, "link": 1])
         let photos = zuna.element(A11y.Details.shared("photo"))
         try waitFor("the counts", timeout: 30) {
             photos.exists && self.zuna.element(A11y.Details.shared("file")).exists && self.zuna.element(A11y.Details.shared("link")).exists
         }
-        XCTAssertEqual(photos.label, "1 photo")
-        XCTAssertEqual(zuna.element(A11y.Details.shared("file")).label, "1 file")
+        XCTAssertEqual(photos.label, "2 photos")
+        XCTAssertEqual(zuna.element(A11y.Details.shared("file")).label, "2 files")
         XCTAssertEqual(zuna.element(A11y.Details.shared("link")).label, "1 shared link")
         XCTAssertFalse(zuna.element(A11y.Details.shared("video")).exists)
         XCTAssertFalse(zuna.element(A11y.Details.shared("groups")).exists)
@@ -231,6 +236,7 @@ final class DetailsTests: XCTestCase {
         photos.tap()
         let tile = zuna.element(A11y.Shared.item(photo))
         XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.element(A11y.Shared.item(otherPhoto)).waitForExistence(timeout: 10))
         try waitFor("the photo to load") { tile.value as? String == "Loaded" }
         zuna.screenshot("86-shared-photos")
         tile.tap()
@@ -243,6 +249,7 @@ final class DetailsTests: XCTestCase {
         zuna.element(A11y.Details.shared("file")).tap()
         let row = zuna.element(A11y.Shared.item(file))
         XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.element(A11y.Shared.item(otherFile)).waitForExistence(timeout: 10))
         XCTAssertTrue(row.label.localizedCaseInsensitiveContains("alice"), row.label)
         zuna.screenshot("87-shared-files")
         zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
