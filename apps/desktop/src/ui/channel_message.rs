@@ -176,7 +176,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
             .text_color(theme.text2)
             .when(highlighted, |el| el.bg(theme.accent_soft))
             .child(div().absolute().left_0().top(px(5.)).w(px(72.)).flex().justify_center().child(icon(if warning { "shield-alert" } else { "arrow-right" }, 16., if warning { theme.amber } else { theme.channel_muted })))
-            .child(div().flex().flex_wrap().items_baseline().child(system_text(message, context)).child(div().ml(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.channel_muted).child(format_stamp(message.created_at))))
+            .child(div().flex().flex_wrap().items_baseline().child(div().min_w_0().child(system_text(message, context))).child(div().ml(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.channel_muted).child(format_stamp(message.created_at))))
             .into_any_element();
     }
     let own = message.sender_id == context.self_id;
@@ -434,7 +434,9 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
         if !message.text.is_empty() {
             let jumbo = if message.attachments.is_empty() { markup::jumbo_size(&message.text, &message.emotes) } else { 0 };
             let text = if jumbo > 0 { jumbo_body(message, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
-            let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(text);
+            // GPUI measures text's narrowest width as its whole line, so without a minimum of
+            // its own the text couldn't shrink to wrap at the row's edge, and ran past it.
+            let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(named_div(SharedString::from(format!("cmsg-text-{}", message.id))).min_w_0().child(text));
             if message.edited_at.is_some() {
                 line = line.child(div().ml(px(4.)).text_size(px(10.)).text_color(theme.channel_muted).child(t("message.editedChannel")));
             }

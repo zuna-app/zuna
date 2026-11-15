@@ -233,6 +233,24 @@ fn a_channel_edits_in_place_and_waits_in_slow_mode(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_long_message_in_a_channel_wraps_inside_its_row(cx: &mut TestAppContext) {
+    let mut world = World::new("channel-long");
+    world.server["getCalls"] = json!([]);
+    let long = "words that go on and on ".repeat(30);
+    world.server.insert("loadMessages".into(), json!({ "messages": [message("c1", GENERAL, 1.0, BOB, long.trim(), json!({}))], "hasMore": false }));
+    let (app, _) = open_chat(cx, &world, &format!("group:{GENERAL}"));
+    app.update(cx, |state, _| state.settings.reduce_motion = true);
+    app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
+    app.run(cx);
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    let text = window.debug_bounds("cmsg-text-c1").expect("drawn");
+    let row = window.debug_bounds("cmsg-row-c1").expect("drawn");
+    // Within the row's padding on the right, on as many lines as that takes.
+    assert!(text.right() <= row.right() - gpui::px(47.), "{text:?} runs past {row:?}");
+    assert!(text.size.height > gpui::px(60.), "it wraps: {text:?}");
+}
+
+#[gpui::test]
 fn picking_messages_by_dragging_across_them(cx: &mut TestAppContext) {
     let (app, chat) = open_chat(cx, &World::new("picking-messages"), &format!("user:{BOB}"));
     app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
