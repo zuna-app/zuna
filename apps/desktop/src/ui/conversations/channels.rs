@@ -387,17 +387,7 @@ impl ConversationList {
             entries.push(MenuEntry::new(t("channels.edit"), "pencil", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))));
             let (state, id, name) = (self.state.clone(), channel.id.clone(), channel.name.clone());
             entries.push(
-                MenuEntry::new(t("channels.delete"), "trash", move |window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &tr!("channels.deleteTitle", name = name), Some(t("channels.delete.text")), &[t("common.delete"), t("common.cancel")], cx);
-                    let (state, id) = (state.clone(), id.clone());
-                    cx.spawn(async move |cx| {
-                        if answer.await == Ok(0) {
-                            state.update(cx, |state, cx| state.act("deleteChannel", vec![json!(id)], cx));
-                        }
-                    })
-                    .detach();
-                })
-                .danger(),
+                MenuEntry::new(t("channels.delete"), "trash", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::DeleteChannel { channel_id: id.clone(), name: name.clone() }), cx))).danger(),
             );
         }
         entries

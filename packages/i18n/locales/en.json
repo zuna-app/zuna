@@ -62,7 +62,6 @@
   "channels.delete.text": "Its messages will be deleted for everyone.",
   "channels.deleteConfirm": "Delete #{name}? Its messages will be deleted for everyone.",
   "channels.deleteTitle": "Delete {name}?",
-  "channels.deleteWarning": "Delete {name}? Its messages will be deleted for everyone.",
   "channels.details.notificationsHint": "Only when someone mentions you or replies to you",
   "channels.details.unavailable": "This channel isn't available",
   "channels.dialog.maxPeople": "Max people: {value}",

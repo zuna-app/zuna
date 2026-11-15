@@ -55,6 +55,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
         Overlay::Channel { channel_id, category } => cx.new(|cx| Dialog::new(state, DialogKind::Channel { channel_id, kind: category }, window, cx)).into(),
+        Overlay::DeleteChannel { channel_id, name } => cx.new(|cx| Dialog::new(state, DialogKind::DeleteChannel { channel_id, name }, window, cx)).into(),
         Overlay::Settings { .. } | Overlay::ServerSettings { .. } => return None,
         Overlay::ScreenPicker => cx.new(|cx| super::screen_picker::ScreenPicker::new(state, window, cx)).into(),
         Overlay::Plugin(handle) => cx.new(|cx| super::plugins::dialog::PluginDialog::new(state, handle, window, cx)).into(),
@@ -133,6 +134,8 @@ enum DialogKind {
     AddMembers(String),
     ShareLocation(String),
     Channel { channel_id: Option<String>, kind: Option<String> },
+    /// Only the question before a channel is deleted, as the channel list's menu asks it.
+    DeleteChannel { channel_id: String, name: String },
     WatchConsent { then_link: bool },
     WatchLink,
     Proxy { from_settings: bool },
@@ -190,6 +193,8 @@ pub struct Dialog {
     history: bool,
     /// Asking what adding the bots picked means, before they're added.
     asking: bool,
+    /// The channel, by its id and name, whose deleting is being asked about.
+    deleting_channel: Option<(String, String)>,
     check: Option<SafetyCheck>,
     invite_link: Option<String>,
     busy: bool,
@@ -295,10 +300,14 @@ impl Dialog {
             people_search.focus_handle(cx).focus(window, cx);
         }
         let focus = cx.focus_handle();
-        if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate | DialogKind::WatchConsent { .. }) {
+        if matches!(kind, DialogKind::MoveVoice(_) | DialogKind::InstallUpdate | DialogKind::WatchConsent { .. } | DialogKind::DeleteChannel { .. }) {
             window.focus(&focus, cx);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, proxy_form, telegram_form, focus, _subscriptions: subscriptions };
+        let deleting_channel = match &kind {
+            DialogKind::DeleteChannel { channel_id, name } => Some((channel_id.clone(), name.clone())),
+            _ => None,
+        };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, asking: false, deleting_channel, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, link_error: None, proxy_form, telegram_form, focus, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
             dialog.locate(cx);
         }
@@ -331,6 +340,10 @@ impl Dialog {
     fn close(&mut self, cx: &mut Context<Self>) {
         if matches!(self.kind, DialogKind::Telegram) {
             return self.telegram_cancel(cx);
+        }
+        // Escape or a click beside it, while deleting a channel is asked about over its editor, says no to that alone.
+        if matches!(self.kind, DialogKind::Channel { .. }) && self.deleting_channel.take().is_some() {
+            return cx.notify();
         }
         let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("privacy".into()) });
         self.state.update(cx, |state, cx| state.set_overlay(back, cx));
@@ -642,12 +655,23 @@ impl Render for Dialog {
                 let channel_id = channel_id.clone();
                 self.channel(channel_id, cx)
             }
+            // Nothing but the question, which this holds focus under, for Escape.
+            DialogKind::DeleteChannel { .. } => div()
+                .absolute()
+                .inset_0()
+                .track_focus(&self.focus)
+                .on_key_down(cx.listener(|dialog, event: &gpui::KeyDownEvent, _, cx| {
+                    if event.keystroke.key == "escape" {
+                        dialog.close(cx);
+                    }
+                }))
+                .into_any_element(),
             DialogKind::Forward { server_id, group_id, ids } => {
                 let (server_id, group_id, ids) = (server_id.clone(), group_id.clone(), ids.clone());
                 self.forward(server_id, group_id, ids, cx)
             }
         };
-        match self.bot_question(cx) {
+        match self.bot_question(cx).or_else(|| self.delete_channel_question(cx)) {
             Some(question) => div().absolute().inset_0().child(dialog).child(question).into_any_element(),
             None => dialog,
         }

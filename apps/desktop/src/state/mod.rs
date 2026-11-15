@@ -157,6 +157,8 @@ pub enum Overlay {
     ServerSettings { section: Option<String> },
     /// Making a channel, or editing one, for server admins.
     Channel { channel_id: Option<String>, category: Option<String> },
+    /// Asking before a channel is deleted, from the channel list's menu.
+    DeleteChannel { channel_id: String, name: String },
     /// Asking before an update restarts the app in the middle of a call.
     InstallUpdate,
     /// Asking before this device first contacts YouTube, for a video its room watches together,

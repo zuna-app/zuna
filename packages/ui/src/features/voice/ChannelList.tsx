@@ -2,7 +2,7 @@ import type { ChannelView, VoiceMember } from "@zuna/core";
 import { BellOff, Camera, ChevronDown, Hash, HeadphoneOff, Lock, MicOff, Pencil, Plus, Settings, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Reorder } from "motion/react";
 import { memo, useMemo, useRef, useState } from "react";
-import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
+import { Avatar, Confirm, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { t } from "@/lib/i18n";
 import { muteEntries } from "@/lib/mute";
 import { activeServerNow, useActiveField, useApp } from "@/state/store";
@@ -169,6 +169,8 @@ export function ChannelSections({ query }: { query: string }) {
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const rowMenu = useContextMenu();
   const [menuChannel, setMenuChannel] = useState<ChannelView | null>(null);
+  // The channel whose deleting is being asked about.
+  const [deleting, setDeleting] = useState<ChannelView | null>(null);
   // While a row is being dragged, this is what's shown; otherwise, what the server says.
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const dragged = useRef(false);
@@ -215,13 +217,7 @@ export function ChannelSections({ query }: { query: string }) {
             label: t("channels.delete"),
             icon: <Trash2 size={15} />,
             danger: true,
-            onSelect: () => {
-              if (window.confirm(t("channels.deleteWarning", { name: channelTitle(channel) }))) {
-                void session()
-                  .deleteChannel(channel.id)
-                  .catch((error: Error) => toast(error.message, "error"));
-              }
-            },
+            onSelect: () => setDeleting(channel),
           },
         ]
       : []),
@@ -310,6 +306,22 @@ export function ChannelSections({ query }: { query: string }) {
         </div>
       )}
       {rowMenu.menu && menuChannel && entries(menuChannel).length > 0 && <PopupMenu key="channel-menu" x={rowMenu.menu.x} y={rowMenu.menu.y} entries={entries(menuChannel)} onClose={rowMenu.close} />}
+      {deleting && (
+        <Confirm
+          title={t("channels.deleteTitle", { name: channelTitle(deleting) })}
+          action={t("common.delete")}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            const id = deleting.id;
+            setDeleting(null);
+            void session()
+              .deleteChannel(id)
+              .catch((error: Error) => toast(error.message, "error"));
+          }}
+        >
+          {t("channels.delete.text")}
+        </Confirm>
+      )}
     </div>
   );
 }

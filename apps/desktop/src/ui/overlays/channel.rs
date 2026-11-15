@@ -220,38 +220,60 @@ impl Dialog {
             .w_full()
             .gap(px(8.))
             .when_some(delete_channel, |el, channel| {
-                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child(t("common.delete")).on_click(cx.listener(move |_, _, window, cx| {
-                    let answer = window.prompt(gpui::PromptLevel::Warning, &tr!("channels.deleteTitle", name = channel.name), Some(t("channels.delete.text")), &[t("common.delete"), t("common.cancel")], cx);
-                    let (id, key) = (channel.id.clone(), channel.key.clone());
-                    cx.spawn(async move |dialog, cx| {
-                        if answer.await != Ok(0) {
-                            return;
-                        }
-                        dialog
-                            .update(cx, |dialog, cx| {
-                                dialog.state.update(cx, |state, cx| {
-                                    let server = state.active_server.clone();
-                                    let open = state.active().and_then(|server| server.active_key.clone()) == Some(key.clone());
-                                    state.call(server.as_deref(), "deleteChannel", vec![json!(id)], cx, move |state, result, cx| match result {
-                                        Ok(_) => {
-                                            if open {
-                                                state.select_conversation(None, cx);
-                                            }
-                                            state.set_overlay(None, cx);
-                                        }
-                                        Err(error) => state.toast(error.message, ToastKind::Error, cx),
-                                    });
-                                })
-                            })
-                            .ok();
-                    })
-                    .detach();
+                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child(t("common.delete")).on_click(cx.listener(move |dialog, _, _, cx| {
+                    dialog.deleting_channel = Some((channel.id.clone(), channel.name.clone()));
+                    cx.notify();
                 })))
                 .child(div().flex_1())
             })
             .child(button("cancel", ButtonKind::Default, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
             .child(button("save-channel", ButtonKind::Primary, ButtonSize::Normal, !ready, cx).child(if busy { t("common.saving") } else if editing { t("common.save") } else { t("channels.form.create") }).when(ready, |el| el.on_click(cx.listener(move |dialog, _, _, cx| dialog.save_channel(cx)))));
         self.modal(Some(if editing { t("channels.edit").into() } else { t("channels.new").into() }), 460., body, Some(footer.into_any_element()), cx)
+    }
+
+    /// Asks before a channel is deleted, with its messages, for everyone: over its editor, or by
+    /// itself from the channel list's menu. No goes back to what was open.
+    pub(super) fn delete_channel_question(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (_, name) = self.deleting_channel.clone()?;
+        let (cancel, delete) = (cx.entity().downgrade(), cx.entity().downgrade());
+        Some(confirm(
+            tr!("channels.deleteTitle", name = name),
+            &t("common.delete"),
+            t("channels.delete.text").into(),
+            move |_, cx| {
+                cancel.update(cx, |dialog, cx| dialog.close(cx)).ok();
+            },
+            move |_, cx| {
+                delete.update(cx, |dialog, cx| dialog.delete_channel(cx)).ok();
+            },
+            cx,
+        ))
+    }
+
+    /// Deletes the channel asked about, closing this once it's gone, and leaving it if it was open.
+    fn delete_channel(&mut self, cx: &mut Context<Self>) {
+        let Some((id, _)) = self.deleting_channel.take() else { return };
+        // Asked from the list's menu, there's nothing else to go back to.
+        let alone = matches!(self.kind, DialogKind::DeleteChannel { .. });
+        self.state.update(cx, |state, cx| {
+            let server = state.active_server.clone();
+            let open = state.active().is_some_and(|server| server.channels.iter().any(|channel| channel.id == id && server.active_key.as_deref() == Some(channel.key.as_str())));
+            if alone {
+                state.set_overlay(None, cx);
+            }
+            state.call(server.as_deref(), "deleteChannel", vec![json!(id)], cx, move |state, result, cx| match result {
+                Ok(_) => {
+                    if open {
+                        state.select_conversation(None, cx);
+                    }
+                    if !alone {
+                        state.set_overlay(None, cx);
+                    }
+                }
+                Err(error) => state.toast(error.message, ToastKind::Error, cx),
+            });
+        });
+        cx.notify();
     }
 
     pub(super) fn save_channel(&mut self, cx: &mut Context<Self>) {

@@ -1,7 +1,7 @@
 import { SLOW_MODE_TIMES } from "@zuna/core";
 import { Hash, Trash2, Volume2 } from "lucide-react";
 import { useState } from "react";
-import { Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
+import { Confirm, Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
 import { timerText } from "@/lib/disappearing";
 import { mark, t, tx, type MessageKey } from "@/lib/i18n";
 import { useActiveServer, useApp } from "@/state/store";
@@ -40,6 +40,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [adminOnly, setAdminOnly] = useState(channel?.adminOnly ?? false);
   const [slowOn, setSlowOn] = useState((channel?.slowMode ?? 0) > 0);
   const [slowMode, setSlowMode] = useState(channel?.slowMode || 30);
+  const [deleting, setDeleting] = useState(false);
   const { busy, run } = useAction();
   const categories = [...new Set((server?.channels ?? []).map((item) => item.category).filter(Boolean))];
   const finalName = type === "text" ? textChannelName(name).replace(/^-|-$/g, "") : name.trim();
@@ -60,7 +61,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
 
   const remove = () =>
     run(async () => {
-      if (!channel || !window.confirm(t("channels.deleteWarning", { name: channel.name }))) return;
+      if (!channel) return;
       await session().deleteChannel(channel.id);
       if (server?.activeKey === channel.key) selectConversation(null);
       onClose();
@@ -74,7 +75,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       footer={
         <>
           {channel && (
-            <button className="btn btn-danger" disabled={busy} onClick={() => void remove()} style={{ marginRight: "auto" }}>
+            <button className="btn btn-danger" disabled={busy} onClick={() => setDeleting(true)} style={{ marginRight: "auto" }}>
               <Trash2 size={14} /> {t("common.delete")}
             </button>
           )}
@@ -198,6 +199,19 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
       <p className="channel-note">
         {adminOnly ? t("channels.dialog.noteAdmins") : t("channels.dialog.noteEveryone")} {t("channels.dialog.noteEncrypted")}
       </p>
+      {deleting && channel && (
+        <Confirm
+          title={t("channels.deleteTitle", { name: channel.name })}
+          action={t("common.delete")}
+          onCancel={() => setDeleting(false)}
+          onConfirm={() => {
+            setDeleting(false);
+            void remove();
+          }}
+        >
+          {t("channels.delete.text")}
+        </Confirm>
+      )}
     </Modal>
   );
 }

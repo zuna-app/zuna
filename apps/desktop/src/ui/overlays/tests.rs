@@ -91,7 +91,7 @@ fn channels_are_made_edited_and_deleted(cx: &mut TestAppContext) {
     assert!(app.toasts(cx).contains(&"That name is taken.".to_string()));
     assert!(app.read(cx, |state| state.overlay.is_some()));
 
-    // An existing one is edited, and deleted only once the system's question says so.
+    // An existing one is edited, and deleted only once the app's own question says so.
     app.answer("updateChannel", |_| Ok(Value::Null));
     app.answer("deleteChannel", |_| Ok(Value::Null));
     app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(LOUNGE.into()), category: None }), cx));
@@ -99,12 +99,19 @@ fn channels_are_made_edited_and_deleted(cx: &mut TestAppContext) {
     assert_eq!(app.calls_of("updateChannel")[0][0], json!(LOUNGE));
     app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(GENERAL.into()), category: None }), cx));
     app.click(cx, "delete-channel");
-    cx.simulate_prompt_answer("Cancel");
-    app.run(cx);
+    assert!(app.drawn(cx, "confirm-action"), "asked over the editor");
+    app.click(cx, "confirm-cancel");
+    assert!(!app.drawn(cx, "confirm-action"));
+    assert!(app.drawn(cx, "delete-channel"), "no goes back to the editor");
     assert!(app.calls_of("deleteChannel").is_empty());
+    // Escape says no to the question alone, from the field that has focus.
     app.click(cx, "delete-channel");
-    cx.simulate_prompt_answer("Delete");
+    let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_keystrokes("escape");
     app.run(cx);
+    assert!(!app.drawn(cx, "confirm-action") && app.drawn(cx, "delete-channel"));
+    app.click(cx, "delete-channel");
+    app.click(cx, "confirm-action");
     assert_eq!(app.calls_of("deleteChannel"), vec![vec![json!(GENERAL)]]);
     assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
 }

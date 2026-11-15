@@ -231,14 +231,16 @@ fn the_channels_fold_open_and_move(cx: &mut TestAppContext) {
     });
     run(cx, &misc[0]);
     assert_eq!(app.calls_of("unmute"), vec![vec![json!("group:c-misc")]]);
+    // Deleting asks first, in the app's own card.
     run(cx, &misc[2]);
-    cx.simulate_prompt_answer("Cancel");
-    app.run(cx);
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::DeleteChannel { channel_id: "c-misc".into(), name: "misc".into() }));
+    app.click(cx, "confirm-cancel");
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
     assert!(app.calls_of("deleteChannel").is_empty());
     run(cx, &misc[2]);
-    cx.simulate_prompt_answer("Delete");
-    app.run(cx);
+    app.click(cx, "confirm-action");
     assert_eq!(app.calls_of("deleteChannel"), vec![vec![json!("c-misc")]]);
+    assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
 
     // Dragged within its heading, past the middle of where it goes; elsewhere it stays.
     let order: Vec<String> = [GENERAL, "c-news", LOUNGE, "c-misc"].iter().map(|id| id.to_string()).collect();
