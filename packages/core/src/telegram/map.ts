@@ -97,6 +97,19 @@ export function lastingFileId(file: unknown): string {
   return /^[A-Za-z0-9_-]+$/.test(unique) ? unique : "";
 }
 
+/** Every one of TDLib's files in what it sent, as deep as a message's link preview holds them. */
+export function filesIn(value: unknown, found: TdObject[] = [], depth = 0): TdObject[] {
+  if (depth > 12 || !value || typeof value !== "object") return found;
+  if (Array.isArray(value)) {
+    for (const each of value.slice(0, 200)) filesIn(each, found, depth + 1);
+  } else if (kindOf(value) === "file") {
+    found.push(value as TdObject);
+  } else {
+    for (const each of Object.values(value)) filesIn(each, found, depth + 1);
+  }
+  return found;
+}
+
 /** How the app refers to one of TDLib's files (`TELEGRAM_FILE`). */
 function fileRef(file: unknown): string | null {
   const id = fileNumber(file);

@@ -33,6 +33,8 @@ import {
   chatSenderView,
   conversationView,
   displayName,
+  fileNumber,
+  filesIn,
   formatted,
   idOf,
   int,
@@ -89,6 +91,8 @@ const MEDIA_PAGE_MOST = 500;
 const MEDIA_ASKS = 10;
 /** How many messages of each chat are kept in memory, newest first, beyond those a chat shows. */
 const KEPT_PER_CHAT = 400;
+/** How many files' sources are kept, the latest shown, for finding each again after the engine starts again. */
+const MOST_SOURCES = 20_000;
 /** How long typing shows for, as Telegram's apps show it, unless it's cancelled. */
 const TYPING_MS = 6000;
 /** How often this device says it's typing, at most. */
@@ -219,6 +223,12 @@ export class TelegramSession {
   private stopped = new Set<string>();
   /** A group's people, as last asked of TDLib, for its details. */
   private members = new Map<number, GroupMemberView[]>();
+  /**
+   * What brings each file shown back from the engine, by Telegram's lasting ID for it: TDLib
+   * numbers its files afresh each time it starts, and what the interfaces show still names the
+   * numbers from before (`renumbered`).
+   */
+  private sources = new Map<string, TdObject>();
 
   constructor(
     private readonly adapter: TelegramAdapter,
@@ -433,6 +443,7 @@ export class TelegramSession {
       const me = await this.engine.request({ "@type": "getMe" });
       this.selfId = idOf(me.id);
       this.users.set(this.selfId ?? 0, me);
+      if (this.selfId) this.note(me.profile_photo, { "@type": "getUser", user_id: this.selfId });
       this.queueUsers();
       if (this.active) this.sayOnline();
       // The list comes as updates, a page at a time, until Telegram says there's no more, and the
@@ -481,6 +492,7 @@ export class TelegramSession {
         const id = idOf((user as TdObject | undefined)?.id);
         if (id && isObject(user)) {
           this.users.set(id, user);
+          this.note(user.profile_photo, { "@type": "getUser", user_id: id });
           this.queueUsers();
         }
         return;
@@ -499,6 +511,7 @@ export class TelegramSession {
         const id = idOf((chat as TdObject | undefined)?.id);
         if (id && isObject(chat)) {
           this.chats.set(id, chat);
+          this.note(chat.photo, { "@type": "getChat", chat_id: id });
           if (isObject(chat.last_message)) this.remember(chat.last_message);
           this.queueConversations();
         }
@@ -645,6 +658,7 @@ export class TelegramSession {
         break;
       case "updateChatPhoto":
         chat.photo = update.photo;
+        this.note(update.photo, { "@type": "getChat", chat_id: idOf(update.chat_id) });
         break;
       case "updateChatLastMessage":
         chat.last_message = update.last_message;
@@ -714,6 +728,7 @@ export class TelegramSession {
     const message = chatId && id ? this.messages.get(chatId)?.get(id) : undefined;
     if (!message) return;
     patch(message);
+    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id });
     this.emitMessage(message, false);
   }
 
@@ -721,6 +736,7 @@ export class TelegramSession {
     const chatId = idOf(message.chat_id);
     const id = idOf(message.id);
     if (!chatId || !id) return;
+    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id });
     let kept = this.messages.get(chatId);
     if (!kept) this.messages.set(chatId, (kept = new Map()));
     kept.set(id, message);
@@ -952,19 +968,49 @@ export class TelegramSession {
     const found = ref.fileId.match(TELEGRAM_FILE);
     if (!found) throw new Error(t("telegram.thatIsntOneOfTelegrams"));
     const [, number, lasting] = found;
+    let fileId = Number(number);
     // A number from before the engine last started may be another file's now, which is never
-    // given in its place: what showed it is listed again with the file's new number.
+    // given in its place: the file is found again by what brought it, under its new number.
     if (lasting) {
-      const known = await this.engine.request({ "@type": "getFile", file_id: Number(number) }).catch(() => null);
-      if (!known || lastingFileId(known) !== lasting) throw new TelegramError(t("telegram.thatFileIsntHereAny"), 404);
+      const known = await this.engine.request({ "@type": "getFile", file_id: fileId }).catch(() => null);
+      if (!known || lastingFileId(known) !== lasting) fileId = await this.renumbered(lasting);
     }
-    const file = await this.engine.request({ "@type": "downloadFile", file_id: Number(number), priority: 16, offset: 0, limit: 0, synchronous: true }).catch((error) => {
+    const file = await this.engine.request({ "@type": "downloadFile", file_id: fileId, priority: 16, offset: 0, limit: 0, synchronous: true }).catch((error) => {
       throw explain(error);
     });
     const local = file.local as TdObject | undefined;
     const path = str(local?.path, 4096);
     if (local?.is_downloading_completed !== true || !path) throw new Error(t("telegram.telegramDidntSendThatFile"));
     return await this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
+  }
+
+  /** Notes what brings back each file in something the engine sent, the latest kept (`sources`). */
+  private note(value: unknown, source: TdObject): void {
+    for (const file of filesIn(value)) {
+      const lasting = lastingFileId(file);
+      if (!lasting) continue;
+      this.sources.delete(lasting);
+      this.sources.set(lasting, source);
+    }
+    for (const oldest of this.sources.keys()) {
+      if (this.sources.size <= MOST_SOURCES) break;
+      this.sources.delete(oldest);
+    }
+  }
+
+  /**
+   * A file's number in the engine running now, which numbered its files afresh as it started,
+   * from asking again for what brought it: a message, a person, a chat or a sticker set. TDLib
+   * then also has where the file came from, which it needs to fetch one whose reference expired.
+   */
+  private async renumbered(lasting: string): Promise<number> {
+    const source = this.sources.get(lasting);
+    const fresh = source ? await this.engine.request(source).catch(() => null) : null;
+    const number = fileNumber(filesIn(fresh).find((file) => lastingFileId(file) === lasting));
+    if (!number) throw new TelegramError(t("telegram.thatFileIsntHereAny"), 404);
+    // The message kept here takes the new numbers, which what it shows from now on names.
+    if (fresh && source!["@type"] === "getMessage") this.remember(fresh);
+    return number;
   }
 
   /** Sends files, each as the kind of message Telegram has for it, with the text on the first. */
@@ -1454,7 +1500,9 @@ export class TelegramSession {
 
   /** The account's own sticker sets, each with a picture of its first sticker. */
   async getStickerSets(): Promise<{ id: string; title: string; cover: string | null }[]> {
-    const found = await this.engine.request({ "@type": "getInstalledStickerSets", sticker_type: { "@type": "stickerTypeRegular" } }).catch(() => null);
+    const asked: TdObject = { "@type": "getInstalledStickerSets", sticker_type: { "@type": "stickerTypeRegular" } };
+    const found = await this.engine.request(asked).catch(() => null);
+    this.note(found, asked);
     return list(found?.sets, 200)
       .filter(isObject)
       .flatMap((set) => {
@@ -1468,7 +1516,9 @@ export class TelegramSession {
   /** A set's stickers, each with the picture the app shows of it and what sending it takes. */
   async getStickers(setId: string): Promise<{ file: number; picture: string; emoji: string; width: number; height: number }[]> {
     if (!/^\d+$/.test(setId)) return [];
-    const set = await this.engine.request({ "@type": "getStickerSet", set_id: setId }).catch(() => null);
+    const asked: TdObject = { "@type": "getStickerSet", set_id: setId };
+    const set = await this.engine.request(asked).catch(() => null);
+    this.note(set, asked);
     return list(set?.stickers, 200)
       .filter(isObject)
       .flatMap((sticker) => {

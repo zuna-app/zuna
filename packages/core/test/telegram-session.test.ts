@@ -609,6 +609,53 @@ describe("history, media and search", () => {
     expect(await session.loadMedia(String(GRACE), "photo")).toEqual({ messages: [], hasMore: false });
   });
 
+  it("finds a file again under the number the engine gave it as it started again", async () => {
+    const { engine, session } = await ready();
+    // TDLib's numbers for its files, which it deals out afresh each time it starts.
+    const files = new Map([
+      [70, "AQADphoto"],
+      [71, "AQADavatar"],
+    ]);
+    const file = (id: number) => ({ "@type": "file", id, size: 10, remote: { "@type": "remoteFile", unique_id: files.get(id) } });
+    const photo = (n: number) => ({
+      ...textMessage(GRACE, serverId(9), GRACE, ""),
+      content: { "@type": "messagePhoto", caption: { text: "", entities: [] }, photo: { "@type": "photo", sizes: [{ "@type": "photoSize", type: "y", photo: file(n), width: 10, height: 10 }] } },
+    });
+    const pictured = (n: number) => ({ "@type": "user", id: BOT, first_name: "Bot", last_name: "", type: { "@type": "userTypeBot" }, profile_photo: { "@type": "profilePhoto", id: "1", small: file(n), big: file(n) } });
+    engine.answer("getFile", (request) => (files.has(request.file_id) ? file(request.file_id) : { "@type": "error", code: 400, message: "FILE_ID_INVALID" }));
+    engine.history.get(GRACE)!.push(photo(70));
+    engine.emit({ "@type": "updateUser", user: pictured(71) });
+    const shown = (await session.loadMessages(String(GRACE))).messages.find((message) => message.id === String(serverId(9)))!;
+    expect(shown.attachments[0]!.fileId).toBe("tg:70:AQADphoto");
+
+    // The engine starts again, as an iPhone's does whenever iOS ends its helper: the photo's old
+    // number is another file's now, and the picture's is nobody's.
+    files.clear();
+    files.set(70, "AQADother");
+    files.set(85, "AQADphoto");
+    files.set(90, "AQADavatar");
+    engine.history.set(GRACE, engine.history.get(GRACE)!.map((message) => (message.id === serverId(9) ? photo(85) : message)));
+    engine.answer("getUser", (request) => (request.user_id === BOT ? pictured(90) : { "@type": "error", code: 404, message: "Not Found" }));
+    engine.emit({ "@type": "zunaRestarted" });
+
+    // What the app still shows by the old numbers comes, by the new ones, and asked again too.
+    for (let again = 0; again < 2; again++) {
+      expect((await session.downloadFile({ fileId: shown.attachments[0]!.fileId })).type).toBe("application/octet-stream");
+      expect(engine.requests("downloadFile").at(-1)).toMatchObject({ file_id: 85 });
+    }
+    await session.downloadFile({ fileId: "tg:71:AQADavatar", mime: "image/jpeg" });
+    expect(engine.requests("downloadFile").at(-1)).toMatchObject({ file_id: 90 });
+
+    // A file nothing here brought, or that what brought it no longer has, is still never another's in its place.
+    const downloads = engine.requests("downloadFile").length;
+    await expect(session.downloadFile({ fileId: "tg:70:AQADunknown" })).rejects.toThrow("That file isn't here any more.");
+    files.delete(90);
+    files.set(91, "AQADnewer");
+    engine.answer("getUser", pictured(91));
+    await expect(session.downloadFile({ fileId: "tg:71:AQADavatar" })).rejects.toThrow("That file isn't here any more.");
+    expect(engine.requests("downloadFile")).toHaveLength(downloads);
+  });
+
   it("lists a chat's pins, and nothing when Telegram can't", async () => {
     const { engine, session } = await ready();
     engine.history.get(GRACE)![0]!.is_pinned = true;
