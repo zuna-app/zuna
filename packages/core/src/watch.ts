@@ -113,6 +113,3 @@ export function readYouTubeLink(text: string): { id: string; start: number } | n
   }
   return id && YOUTUBE_ID.test(id) ? { id, start } : null;
 }
-
-/** Why a link can't be watched, in words for the person who pasted it. */
-export const NOT_A_YOUTUBE_LINK = "That isn't a link to a YouTube video. Paste one from youtube.com or youtu.be.";

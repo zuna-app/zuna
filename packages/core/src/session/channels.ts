@@ -9,7 +9,7 @@ import { equalBytes, toBase64, u64Bytes, utf8 } from "../encoding";
 import { VOICE_LABEL, voiceIdentity } from "../voice";
 import { parseChannelDetails, parseWatch } from "../validate";
 import { decodeFrameData } from "../socket";
-import { NOT_A_YOUTUBE_LINK, readYouTubeLink, sameWatch, WATCH_RATES, watchBeats, watchPosition, type WatchSignal, type WatchState, type WatchVideo } from "../watch";
+import { readYouTubeLink, sameWatch, WATCH_RATES, watchBeats, watchPosition, type WatchSignal, type WatchState, type WatchVideo } from "../watch";
 import type { CallView, ChannelType, ChannelView, ScreenAccess, VoiceAccess, VoiceMember, VoiceUpdate, WatchView } from "../types";
 import { GRANT_JITTER_MS, HISTORY_ASK_AGAIN_MS, voiceTiming, WATCH_ANSWERERS, WATCH_ANSWER_STEP_MS, WATCH_CORRECT_EVERY_MS, WATCH_DETAILS_WAIT_MS, WATCH_FRESH_MS, type CachedChannel, slowModeOf } from "./shared";
 import { SessionManagement } from "./management";
@@ -624,7 +624,7 @@ export abstract class SessionChannels extends SessionManagement {
    */
   async watchStart(channelId: string, url: string): Promise<void> {
     const link = readYouTubeLink(url);
-    if (!link) throw new Error(NOT_A_YOUTUBE_LINK);
+    if (!link) throw new Error(t("voice.watch.notALink"));
     this.watchable(channelId);
     const preview = this.videoPreview;
     let details: Partial<WatchVideo> = {};
