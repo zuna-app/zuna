@@ -347,6 +347,7 @@ export function userView(user: TdObject, selfId: number | null, now = Date.now()
     isSelf: id === selfId,
     bot: bot ? { ownerId: "", listed: true, add: "owner" } : null,
     commands: [],
+    firstName: str(user.first_name, MAX_NAME).trim() || undefined,
   };
 }
 

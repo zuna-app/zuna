@@ -152,6 +152,8 @@ export interface UserView {
   bot: BotInfo | null;
   /** A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any. */
   commands: BotCommand[];
+  /** On a linked Telegram account, their first name, which mentioning them by name writes, as Telegram's apps do. */
+  firstName?: string;
 }
 
 export interface Attachment {

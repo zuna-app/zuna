@@ -265,10 +265,12 @@ pub(in crate::ui) fn mentionable_print(mentionable: &HashMap<String, String>) ->
 }
 
 pub(in crate::ui) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
-    let key = parse_key(message, context.mentionable_print);
+    // Mentions by name are drawn in Telegram's chats alone, so its messages are parsed apart.
+    let telegram = context.server_id == crate::telegram::SERVER_ID;
+    let key = parse_key(message, context.mentionable_print) ^ u64::from(telegram);
     let cached = context.parsed.borrow().get(&message.id).filter(|(parsed_from, _)| *parsed_from == key).map(|(_, blocks)| blocks.clone());
     let blocks = cached.unwrap_or_else(|| {
-        let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
+        let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id, telegram };
         let blocks = Rc::new(markup::parse(&message.text, &markup_context));
         let mut parsed = context.parsed.borrow_mut();
         if parsed.len() > PARSED_KEPT {

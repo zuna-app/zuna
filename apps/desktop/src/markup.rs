@@ -66,6 +66,9 @@ pub struct Context<'a> {
     /// username (lowercase) -> user ID.
     pub mentionable: &'a HashMap<String, String>,
     pub self_id: &'a str,
+    /// A chat of the linked Telegram account, where a mention by name is drawn as the name alone.
+    /// Nowhere else, where its words could make anyone look mentioned.
+    pub telegram: bool,
 }
 
 static URL: LazyLock<Regex> = LazyLock::new(|| {
@@ -77,8 +80,16 @@ static QUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^>\s?").unwrap());
 static EMOJI_ONLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\u{200d}|\u{fe0f}|\s)+$").unwrap());
 static HAS_EMOJI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20e3}").unwrap());
 
+/// A mention of someone on Telegram by name, as the core writes one (telegram/markup.ts): what it
+/// says, and their user ID.
+static NAMED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]\n]{1,100})\]\(tg://user\?id=([1-9][0-9]{0,15})\)").unwrap());
+
+/// JavaScript's largest exact integer, past which a user's number is no one's.
+const MOST_USER_ID: u64 = (1 << 53) - 1;
+
 #[derive(Clone, Copy)]
 enum Rule {
+    Named,
     Code,
     Spoiler,
     Bold,
@@ -89,6 +100,7 @@ enum Rule {
 // JavaScript's \w is ASCII only, so these spell it out.
 static RULES: LazyLock<Vec<(Rule, FancyRegex)>> = LazyLock::new(|| {
     vec![
+        (Rule::Named, FancyRegex::new(NAMED.as_str()).unwrap()),
         (Rule::Code, FancyRegex::new(r"`([^`\n]+)`").unwrap()),
         (Rule::Spoiler, FancyRegex::new(r"\|\|([^\n]+?)\|\|").unwrap()),
         (Rule::Bold, FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap()),
@@ -192,7 +204,11 @@ fn render_inline(out: &mut Rich, text: &str, style: &SpanStyle, context: &Contex
     // For each rule: not looked for yet, nothing further on, or its next match.
     let mut next: Vec<Option<Option<Found>>> = vec![None; RULES.len()];
     loop {
-        for (index, (_, pattern)) in RULES.iter().enumerate() {
+        for (index, (rule, pattern)) in RULES.iter().enumerate() {
+            if matches!(rule, Rule::Named) && !context.telegram {
+                next[index] = Some(None);
+                continue;
+            }
             match &next[index] {
                 Some(Some((start, _, _))) if *start < position => next[index] = Some(find(pattern, text, position)),
                 None => next[index] = Some(find(pattern, text, position)),
@@ -219,6 +235,13 @@ fn render_inline(out: &mut Rich, text: &str, style: &SpanStyle, context: &Contex
         render_links(out, &text[position..start], style, context);
         let inner_text = &text[inner];
         match rule {
+            Rule::Named => match NAMED.captures(&text[start..end]).map(|captures| captures[2].to_string()).filter(|id| id.parse::<u64>().is_ok_and(|id| id <= MOST_USER_ID)) {
+                Some(user_id) => {
+                    let is_self = user_id == context.self_id;
+                    out.push(inner_text, &SpanStyle { mention: Some((user_id, is_self)), ..style.clone() });
+                }
+                None => render_links(out, &text[start..end], style, context),
+            },
             Rule::Code => out.push(inner_text, &SpanStyle { code: true, ..style.clone() }),
             Rule::Spoiler => render_inline(out, inner_text, &SpanStyle { spoiler: true, ..style.clone() }, context, depth + 1),
             Rule::Bold => render_inline(out, inner_text, &SpanStyle { bold: true, ..style.clone() }, context, depth + 1),
@@ -317,6 +340,8 @@ static PLAIN_RULES: LazyLock<Vec<(FancyRegex, Plain)>> = LazyLock::new(|| {
         (FancyRegex::new(r"~~([^\n]+?)~~").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])").unwrap(), Plain::Pattern("$1")),
+        // A mention by name in a Telegram chat, which says the name alone.
+        (FancyRegex::new(r"\[([^\[\]\n]{1,100})\]\(tg://user\?id=[1-9][0-9]{0,15}\)").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"(?m)^>\s?").unwrap(), Plain::Pattern("")),
         (FancyRegex::new(r"\s+").unwrap(), Plain::Pattern(" ")),
     ]
@@ -347,6 +372,88 @@ pub fn shared_links(text: &str) -> Vec<String> {
     URL.find_iter(&visible).map(|found| found.as_str().to_string()).collect()
 }
 
+/// A mention by name in the message box of a Telegram chat: where its words are in what's written,
+/// and whose user ID it is. The box shows the name alone, and what's sent, and kept as the draft,
+/// has it written out as the markup holds it.
+pub type Named = (Range<usize>, String);
+
+/// The most a mention by name says, in UTF-16 code units as the core counts them.
+const MOST_NAMED: usize = 100;
+
+/// Text with its mentions by name as the names alone, for the message box, and where each is.
+pub fn take_named(markup: &str) -> (String, Vec<Named>) {
+    let mut text = String::with_capacity(markup.len());
+    let mut named = Vec::new();
+    let mut last = 0;
+    for captures in NAMED.captures_iter(markup) {
+        let (whole, name, id) = (captures.get(0).unwrap(), &captures[1], &captures[2]);
+        if !id.parse::<u64>().is_ok_and(|id| id <= MOST_USER_ID) {
+            continue;
+        }
+        text.push_str(&markup[last..whole.start()]);
+        named.push((text.len()..text.len() + name.len(), id.to_string()));
+        text.push_str(name);
+        last = whole.end();
+    }
+    text.push_str(&markup[last..]);
+    (text, named)
+}
+
+/// What the message box holds, with each mention by name still there written out again.
+pub fn put_named(text: &str, named: &[Named]) -> String {
+    let mut ordered: Vec<&Named> = named
+        .iter()
+        .filter(|(range, id)| {
+            let words = text.get(range.clone()).unwrap_or_default();
+            !words.is_empty() && words.encode_utf16().count() <= MOST_NAMED && !words.contains(['[', ']', '\n']) && id.parse::<u64>().is_ok_and(|id| id > 0 && id <= MOST_USER_ID)
+        })
+        .collect();
+    ordered.sort_by_key(|(range, _)| range.start);
+    let mut out = String::with_capacity(text.len() + ordered.len() * 32);
+    let mut last = 0;
+    for (range, id) in ordered {
+        if range.start < last {
+            continue;
+        }
+        out.push_str(&text[last..range.start]);
+        out.push_str(&format!("[{}](tg://user?id={id})", &text[range.clone()]));
+        last = range.end;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// Follows the mentions by name through a change to the message box, from `before` to `after`
+/// with the caret at `caret`, which is where what was typed or pasted ends: those before or after
+/// the change move with the text, and one the change reached into is plain words from then on.
+pub fn follow_named(before: &str, after: &str, caret: usize, named: &mut Vec<Named>) {
+    if named.is_empty() || before == after {
+        return;
+    }
+    let caret = caret.min(after.len());
+    // What's the same at the end, up to the caret, then at the start, up to what's left.
+    let mut suffix = before.bytes().rev().zip(after.bytes().rev()).take_while(|(a, b)| a == b).count().min(after.len() - caret);
+    while !before.is_char_boundary(before.len() - suffix) || !after.is_char_boundary(after.len() - suffix) {
+        suffix -= 1;
+    }
+    let most = caret.min(before.len() - suffix).min(after.len() - suffix);
+    let mut prefix = before.bytes().zip(after.bytes()).take_while(|(a, b)| a == b).count().min(most);
+    while !before.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    let changed_end = before.len() - suffix;
+    named.retain_mut(|(range, _)| {
+        if range.end <= prefix {
+            true
+        } else if range.start >= changed_end {
+            *range = range.start + after.len() - before.len()..range.end + after.len() - before.len();
+            true
+        } else {
+            false
+        }
+    });
+}
+
 /// The user IDs a message mentions (Composer.tsx's mentionsIn).
 pub fn mentions_in(text: &str, users: &HashMap<String, String>) -> Vec<String> {
     static PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})").unwrap());
@@ -375,6 +482,9 @@ mod tests {
             let rest = &text[position..];
             let mut earliest: Option<(Rule, usize, usize, Range<usize>)> = None;
             for (rule, pattern) in RULES.iter() {
+                if matches!(rule, Rule::Named) && !context.telegram {
+                    continue;
+                }
                 let Ok(Some(captures)) = pattern.captures(rest) else { continue };
                 let whole = captures.get(0).unwrap();
                 let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
@@ -386,6 +496,10 @@ mod tests {
             render_links(out, &rest[..start], style, context);
             let inner_text = &rest[inner];
             match rule {
+                Rule::Named => {
+                    let id = NAMED.captures(&rest[start..end]).unwrap()[2].to_string();
+                    out.push(inner_text, &SpanStyle { mention: Some((id, false)), ..style.clone() });
+                }
                 Rule::Code => out.push(inner_text, &SpanStyle { code: true, ..style.clone() }),
                 Rule::Spoiler => rescanning(out, inner_text, &SpanStyle { spoiler: true, ..style.clone() }, context, depth + 1),
                 Rule::Bold => rescanning(out, inner_text, &SpanStyle { bold: true, ..style.clone() }, context, depth + 1),
@@ -401,8 +515,9 @@ mod tests {
     fn formats_as_rescanning_does() {
         let emotes = HashMap::new();
         let mentionable = HashMap::new();
-        let context = context(&emotes, &mentionable);
-        let pieces = ["**b**", "_i_", "*i*", "`c`", "||s||", "~~x~~", "a", " ", "_", "*", "**", "`", "|", "~", "w_", "_w", "x*y", "\n", "é", "😀"];
+        let mut context = context(&emotes, &mentionable);
+        context.telegram = true;
+        let pieces = ["**b**", "_i_", "*i*", "`c`", "||s||", "~~x~~", "a", " ", "_", "*", "**", "`", "|", "~", "w_", "_w", "x*y", "\n", "é", "😀", "[Ann](tg://user?id=5)", "[", "]"];
         // Every mix of a few pieces, then long ones built from all of them.
         let mut texts: Vec<String> = Vec::new();
         for a in pieces {
@@ -430,7 +545,53 @@ mod tests {
     }
 
     fn context<'a>(emotes: &'a HashMap<String, EmoteRef>, mentionable: &'a HashMap<String, String>) -> Context<'a> {
-        Context { emotes, mentionable, self_id: "me" }
+        Context { emotes, mentionable, self_id: "me", telegram: false }
+    }
+
+    #[test]
+    fn draws_a_mention_by_name_only_in_telegram_chats() {
+        let (emotes, mentionable) = (HashMap::new(), HashMap::new());
+        let text = "hi **[Łukasz Ż](tg://user?id=42)**, [me](tg://user?id=7) and [no one](tg://user?id=99999999999999999) [x](tg://user?id=9999999999999999)";
+        let mut telegram = context(&emotes, &mentionable);
+        telegram.telegram = true;
+        telegram.self_id = "7";
+        let Block::Text(rich) = &parse(text, &telegram)[0] else { panic!() };
+        assert_eq!(rich.text, "hi Łukasz Ż, me and [no one](tg://user?id=99999999999999999) [x](tg://user?id=9999999999999999)");
+        let mentions: Vec<(&str, &(String, bool), bool)> = rich.spans.iter().filter_map(|(range, style)| style.mention.as_ref().map(|mention| (&rich.text[range.clone()], mention, style.bold))).collect();
+        assert_eq!(mentions, vec![("Łukasz Ż", &("42".to_string(), false), true), ("me", &("7".to_string(), true), false)]);
+        // Elsewhere its words are what was written.
+        let Block::Text(rich) = &parse(text, &context(&emotes, &mentionable))[0] else { panic!() };
+        assert!(rich.text.contains("[me](tg://user?id=7)") && rich.spans.iter().all(|(_, style)| style.mention.is_none()));
+        assert_eq!(plain_text("**hi** [Grace](tg://user?id=2000), [*you*](tg://user?id=7)"), "hi Grace, you");
+    }
+
+    #[test]
+    fn keeps_mentions_by_name_in_the_message_box() {
+        let markup = "hi [Łukasz](tg://user?id=42) and [Ann](tg://user?id=5)!";
+        let (text, named) = take_named(markup);
+        assert_eq!(text, "hi Łukasz and Ann!");
+        assert_eq!(named, vec![(3..10, "42".to_string()), (15..18, "5".to_string())]);
+        assert_eq!(put_named(&text, &named), markup);
+        // Typing before one moves it, even where the letters typed are its own.
+        let mut moved = named.clone();
+        follow_named(&text, "Ahi Łukasz and Ann!", 1, &mut moved);
+        assert_eq!(put_named("Ahi Łukasz and Ann!", &moved), "Ahi [Łukasz](tg://user?id=42) and [Ann](tg://user?id=5)!");
+        let mut ann = vec![(0..3, "5".to_string())];
+        follow_named("Ann", "AAnn", 1, &mut ann);
+        assert_eq!(put_named("AAnn", &ann), "A[Ann](tg://user?id=5)");
+        // Typing right after one leaves it as it was.
+        let mut ann = vec![(0..3, "5".to_string())];
+        follow_named("Ann", "Anna", 4, &mut ann);
+        assert_eq!(put_named("Anna", &ann), "[Ann](tg://user?id=5)a");
+        // Changing its words makes them plain, and taking text out between moves what follows.
+        let mut changed = named.clone();
+        follow_named(&text, "hi Łukaz and Ann!", 8, &mut changed);
+        assert_eq!(put_named("hi Łukaz and Ann!", &changed), "hi Łukaz and [Ann](tg://user?id=5)!");
+        let mut cut = named.clone();
+        follow_named(&text, "hi Łukasz Ann!", 10, &mut cut);
+        assert_eq!(put_named("hi Łukasz Ann!", &cut), "hi [Łukasz](tg://user?id=42) [Ann](tg://user?id=5)!");
+        // What can't be written out stays the words it is.
+        assert_eq!(put_named("a]b c", &[(0..3, "5".to_string()), (4..5, "0".to_string()), (9..12, "5".to_string())]), "a]b c");
     }
 
     #[test]

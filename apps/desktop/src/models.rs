@@ -107,6 +107,8 @@ pub struct UserView {
     pub bot: Option<BotInfo>,
     /// A bot's commands, which typing "/" in a chat it's in offers. Nobody else has any.
     pub commands: Vec<BotCommand>,
+    /// On a linked Telegram account, their first name, which mentioning them by name writes, as Telegram's apps do.
+    pub first_name: String,
 }
 
 /// A command a bot answers to: what's typed after the "/", and what it's for.

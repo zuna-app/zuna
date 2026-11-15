@@ -25,8 +25,9 @@ import {
   type ChatContext,
   type MessageContext,
 } from "../src/telegram/map";
-import { fromMarkup, toMarkup } from "../src/telegram/markup";
+import { fromMarkup, namedMention, toMarkup } from "../src/telegram/markup";
 import type { TdObject } from "../src/telegram/engine";
+import { plainText } from "../src/plain-text";
 
 const SELF = 1000;
 const GRACE = 2000;
@@ -415,6 +416,47 @@ describe("Telegram's messages as the app's", () => {
 
 describe("Telegram's entities and Zuna's markup, at their edges", () => {
   const bold = (offset: number, length: number) => ({ offset, length, type: { "@type": "textEntityTypeBold" } });
+  const named = (offset: number, length: number, user_id: number) => ({ offset, length, type: { "@type": "textEntityTypeMentionName", user_id } });
+
+  it("writes a mention by name as Telegram's Markdown does, and reads it back as that user's", () => {
+    const text = "hi Grace and Łukasz Ż, see you";
+    const entities = [named(3, 5, GRACE), named(13, 8, 4_000_000_000)];
+    const markup = toMarkup({ text, entities });
+    expect(markup).toBe(`hi [Grace](tg://user?id=${GRACE}) and [Łukasz Ż](tg://user?id=4000000000), see you`);
+    expect(fromMarkup(markup)).toEqual({ text, entities });
+    // Inside other marks, and with them inside a line of its own.
+    expect(toMarkup({ text: "ping Grace", entities: [bold(0, 10), named(5, 5, GRACE)] })).toBe(`**ping [Grace](tg://user?id=${GRACE})**`);
+    expect(fromMarkup(`**ping [Grace](tg://user?id=${GRACE})**`)).toEqual({ text: "ping Grace", entities: [bold(0, 10), named(5, 5, GRACE)] });
+    // A mark over the very same words goes around it, whichever Telegram lists first.
+    expect(toMarkup({ text: "Grace", entities: [bold(0, 5), named(0, 5, GRACE)] })).toBe(`**[Grace](tg://user?id=${GRACE})**`);
+    expect(toMarkup({ text: "Grace", entities: [named(0, 5, GRACE), bold(0, 5)] })).toBe(`**[Grace](tg://user?id=${GRACE})**`);
+    // Its words are drawn as they are, so marks in them stay theirs.
+    expect(fromMarkup(`[*Gr_ace*](tg://user?id=${GRACE})`)).toEqual({ text: "*Gr_ace*", entities: [named(0, 8, GRACE)] });
+    // A @username stays the words it is.
+    expect(toMarkup({ text: "hi @grace", entities: [{ offset: 3, length: 6, type: { "@type": "textEntityTypeMention" } }] })).toBe("hi @grace");
+  });
+
+  it("leaves a mention by name as its words where the markup can't hold it", () => {
+    // Space around it stays outside, and brackets or a line inside it can't be written.
+    expect(toMarkup({ text: " Grace ", entities: [named(0, 7, GRACE)] })).toBe(` [Grace](tg://user?id=${GRACE}) `);
+    expect(toMarkup({ text: "[Grace]", entities: [named(0, 7, GRACE)] })).toBe("[Grace]");
+    expect(toMarkup({ text: "Gr\nace", entities: [named(0, 6, GRACE)] })).toBe("Gr\nace");
+    // A mark that begins or ends inside it, or code around it.
+    expect(toMarkup({ text: "Grace Hopper", entities: [named(0, 12, GRACE), bold(6, 6)] })).toBe("Grace **Hopper**");
+    expect(toMarkup({ text: "Grace", entities: [named(0, 5, GRACE), { offset: 0, length: 5, type: { "@type": "textEntityTypeCode" } }] })).toBe("`Grace`");
+    // No user, or one whose number isn't one.
+    expect(toMarkup({ text: "Grace", entities: [{ offset: 0, length: 5, type: { "@type": "textEntityTypeMentionName" } }] })).toBe("Grace");
+    expect(fromMarkup("[Grace](tg://user?id=0) [Grace](tg://user?id=99999999999999999) [](tg://user?id=5)")).toEqual({
+      text: "[Grace](tg://user?id=0) [Grace](tg://user?id=99999999999999999) [](tg://user?id=5)",
+      entities: [],
+    });
+    expect(namedMention("Grace", GRACE)).toBe(`[Grace](tg://user?id=${GRACE})`);
+    expect([namedMention("", GRACE), namedMention("a]b", GRACE), namedMention("x".repeat(101), GRACE), namedMention("Grace", "u-1"), namedMention("Grace", 2 ** 60)]).toEqual([null, null, null, null, null]);
+  });
+
+  it("says a mention by name as its name alone in previews", () => {
+    expect(plainText(`**hi** [Grace](tg://user?id=${GRACE}), [*you*](tg://user?id=7)`)).toBe("hi Grace, you");
+  });
 
   it("leaves out a mark around nothing but space, across a line, or around code's own backticks", () => {
     expect(toMarkup({ text: "a   b", entities: [bold(1, 3)] })).toBe("a   b");

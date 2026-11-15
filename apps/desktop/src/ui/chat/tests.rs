@@ -53,6 +53,76 @@ fn composer_event(app: &App, chat: &Entity<ChatView>, cx: &mut TestAppContext, e
 }
 
 #[gpui::test]
+fn mentions_people_on_telegram_by_name(cx: &mut TestAppContext) {
+    use crate::telegram::SERVER_ID as TELEGRAM;
+    let mut world = World::new("telegram-mentions");
+    world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": TELEGRAM, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "1" }));
+    let person = |id: &str, username: &str, name: &str, first: &str| json!({ "id": id, "username": username, "displayName": name, "firstName": first, "role": "member", "trust": "unverified" });
+    world.telegram = world.server.clone();
+    world.telegram.insert("getSelf".into(), json!({ "userId": "1", "username": "alice", "role": "member", "deviceId": "" }));
+    world.telegram.insert(
+        "getUsers".into(),
+        json!([
+            person("1", "alice", "Alice A", "Alice"),
+            person("2", "", "Grace [the] Hopper", "Grace"),
+            person("3", "linus", "Linus Torvalds", "Linus"),
+            // A chat speaking as itself in the group can't be mentioned.
+            json!({ "id": "chat:9", "username": "", "displayName": "Grapevine", "role": "member", "trust": "unverified" }),
+        ]),
+    );
+    let members: Vec<Value> = ["1", "2", "3", "chat:9"].iter().map(|id| json!({ "userId": id, "role": "member", "joinedAt": NOW })).collect();
+    world.telegram.insert("getConversations".into(), json!([{ "key": "group:77", "kind": "group", "groupId": "77", "title": "Hackers", "ready": true, "lastActivityAt": NOW, "ownRead": 0, "members": members }]));
+    world.telegram.insert("getChannels".into(), json!([]));
+    world.telegram.insert("loadMessages".into(), json!({ "messages": [], "hasMore": false }));
+    world.telegram.insert("getDraft".into(), json!(""));
+    world.telegram.insert("saveDraft".into(), Value::Null);
+    let app = App::open(cx, &world);
+    app.answer("sendMessage", |_| Ok(Value::Null));
+    app.answer("editMessage", |_| Ok(Value::Null));
+    app.update(cx, |state, cx| {
+        state.select_server(TELEGRAM, cx);
+        state.select_conversation(Some("group:77".into()), cx);
+    });
+    let chat = chat_of(&app, cx);
+
+    // Someone with no username is offered, by their name, and the name goes in.
+    type_in(&app, cx, "hey @gr");
+    assert_eq!(labels(&chat, cx), vec!["Grace [the] Hopper"]);
+    assert_eq!(cx.read(|cx| chat.read(cx).suggestions[0].hint.clone()), None);
+    keys(&app, cx, "tab");
+    assert_eq!(typed(&chat, cx), "hey Grace ");
+    // Someone with one is mentioned by name too.
+    type_in(&app, cx, "and @lin");
+    assert_eq!(cx.read(|cx| chat.read(cx).suggestions[0].hint.clone()).as_deref(), Some("@linus"));
+    keys(&app, cx, "tab");
+    assert_eq!(typed(&chat, cx), "hey Grace and Linus ");
+    // What's kept as the draft, and goes to Telegram as one, names whom.
+    let kept = app.read(cx, |state| state.drafts.get("group:77").cloned());
+    assert_eq!(kept.as_deref(), Some("hey [Grace](tg://user?id=2) and [Linus](tg://user?id=3) "));
+
+    // Typing into a name makes it plain words; typing before one moves it.
+    keys(&app, cx, "home");
+    type_in(&app, cx, "Oh ");
+    keys(&app, cx, "end backspace backspace backspace");
+    type_in(&app, cx, "ux ");
+    keys(&app, cx, "enter");
+    let sent = app.calls_of("sendMessage");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0][1]["text"], "Oh hey [Grace](tg://user?id=2) and Linux");
+    assert_eq!(typed(&chat, cx), "");
+
+    // Editing a message puts its mentions in the box as names, and keeps them.
+    let mine = serde_json::from_value(json!({ "id": "m-1", "groupId": "77", "seq": 5.0, "senderId": "1", "createdAt": NOW, "status": "sent", "text": "hi [Grace](tg://user?id=2)" })).unwrap();
+    app.update(cx, |state, cx| state.set_editing("77", Some(mine), cx));
+    app.run(cx);
+    assert_eq!(typed(&chat, cx), "hi Grace");
+    type_in(&app, cx, "!");
+    keys(&app, cx, "enter");
+    let edited = app.calls_of("editMessage");
+    assert_eq!(edited.last().map(|args| args[2].clone()), Some(json!("hi [Grace](tg://user?id=2)!")));
+}
+
+#[gpui::test]
 fn typing_suggesting_and_sending(cx: &mut TestAppContext) {
     let (app, chat) = open_chat(cx, &World::new("typing"), &format!("user:{BOB}"));
     app.forget_calls();

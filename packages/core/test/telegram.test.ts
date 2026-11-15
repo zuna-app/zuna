@@ -241,6 +241,23 @@ describe("a linked account's chats", () => {
     await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Files uploaded to a Zuna server can't be sent to Telegram");
   });
 
+  it("mentions someone by name as Telegram's apps do, with or without a username", async () => {
+    const { engine, session } = await ready();
+    await session.sendMessage(`group:${GROUP}`, { text: `**Hi** [Grace](tg://user?id=${GRACE}), [Ada](tg://user?id=${SELF})!` });
+    const [request] = engine.requests("sendMessage");
+    expect(request.input_message_content.text).toEqual({
+      "@type": "formattedText",
+      text: "Hi Grace, Ada!",
+      entities: [
+        { offset: 0, length: 2, type: { "@type": "textEntityTypeBold" } },
+        { offset: 3, length: 5, type: { "@type": "textEntityTypeMentionName", user_id: GRACE } },
+        { offset: 10, length: 3, type: { "@type": "textEntityTypeMentionName", user_id: SELF } },
+      ],
+    });
+    // What a mention says is someone's first name, which every person Telegram tells of has.
+    expect(session.getUsers().find((user) => user.id === String(GRACE))?.firstName).toBeTruthy();
+  });
+
   it("reads up to a message on every device, and hears when another device read", async () => {
     const { engine, events, session } = await ready();
     await session.markRead(String(GRACE), serverId(3));

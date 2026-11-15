@@ -120,13 +120,15 @@ impl ChatView {
             InputEvent::Changed => {
                 let Some(conversation) = self.conversation(cx) else { return };
                 let text = self.composer.read(cx).text().to_string();
+                // Kept with its mentions by name, which is what goes to Telegram as its draft.
+                let draft = self.composer_markup(cx);
                 let key = conversation.key.clone();
                 let telegram = self.server_id == crate::telegram::SERVER_ID;
                 self.state.update(cx, |state, cx| {
                     if text.is_empty() {
                         state.drafts.remove(&key);
                     } else {
-                        state.drafts.insert(key.clone(), text.clone());
+                        state.drafts.insert(key.clone(), draft);
                     }
                     // Telegram keeps a chat's draft, which the account's other devices show.
                     if telegram {
@@ -266,6 +268,7 @@ impl ChatView {
                         hint: (!emote.owner.is_empty()).then(|| tr!("message.emote.by", name = emote.owner)),
                         insert: format!("{} ", emote.name),
                         what: Suggested::Emote(emote.clone()),
+                        named: None,
                     })
                     .collect()
             }
@@ -286,6 +289,7 @@ impl ChatView {
                         // Whose it is, where more than one bot could answer.
                         insert: if several { format!("/{}@{} ", command.command, bot.username) } else { format!("/{} ", command.command) },
                         what: Suggested::Person(bot.clone()),
+                        named: None,
                     })
                     .chain(plugin_commands.into_iter().filter(|(name, _, _)| name.starts_with(query.as_str())).map(|(name, title, plugin)| Suggestion {
                         key: format!("plugin/{name}"),
@@ -293,6 +297,7 @@ impl ChatView {
                         hint: Some(format!("{title} · {plugin}")),
                         insert: format!("/{name} "),
                         what: Suggested::Plugin,
+                        named: None,
                     }))
                     .take(MAX_SUGGESTIONS)
                     .collect()
@@ -306,17 +311,29 @@ impl ChatView {
                     all.sort_by_cached_key(|user| user.display_name.to_lowercase());
                     all
                 };
-                // Someone on Telegram with no username can't be mentioned by one.
-                people.retain(|user| !user.banned && !user.deleted && !user.username.is_empty() && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
+                // On Telegram someone is mentioned by name, as Telegram's apps do, whether or not
+                // they have a username, and anywhere else by their username.
+                let telegram = server.entry.is_telegram();
+                people.retain(|user| {
+                    let reachable = if telegram { mention_name(user).is_some() } else { !user.username.is_empty() };
+                    !user.banned && !user.deleted && reachable && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str()))
+                });
                 people
                     .into_iter()
                     .take(MAX_SUGGESTIONS)
-                    .map(|user| Suggestion {
-                        key: user.id.clone(),
-                        label: user.display_name.clone(),
-                        hint: Some(format!("@{}", user.username)),
-                        insert: format!("@{} ", user.username),
-                        what: Suggested::Person(user.clone()),
+                    .map(|user| {
+                        let name = if telegram { mention_name(user) } else { None };
+                        Suggestion {
+                            key: user.id.clone(),
+                            label: user.display_name.clone(),
+                            hint: (!user.username.is_empty()).then(|| format!("@{}", user.username)),
+                            insert: match &name {
+                                Some(name) => format!("{name} "),
+                                None => format!("@{} ", user.username),
+                            },
+                            what: Suggested::Person(user.clone()),
+                            named: name.map(|name| (name.len(), user.id.clone())),
+                        }
                     })
                     .collect()
             }
@@ -334,7 +351,46 @@ impl ChatView {
         let trigger = self.current_trigger(cx).filter(|trigger| Some(trigger) == self.trigger.as_ref());
         let (Some((_, _, start)), Some(suggestion)) = (trigger, self.suggestions.get(index).cloned()) else { return };
         let caret = self.composer.read(cx).cursor();
+        // The mentions by name already there move with what's put in, and a new one is among them.
+        self.follow_composer(cx);
+        let text = self.composer.read(cx).text();
+        let (start, caret) = (start.min(caret).min(text.len()), caret.min(text.len()));
+        let after = format!("{}{}{}", &text[..start], suggestion.insert, &text[caret..]);
+        crate::markup::follow_named(&self.named_text, &after, start + suggestion.insert.len(), &mut self.named);
+        if let Some((len, user_id)) = &suggestion.named {
+            self.named.push((start..start + len, user_id.clone()));
+        }
+        self.named_text = after;
         self.composer.update(cx, |input, cx| input.replace_range(start..caret, &suggestion.insert, cx));
+    }
+
+    /// Puts a draft's or a message's text in the message box, a mention by name as the name alone.
+    pub(super) fn set_composer(&mut self, markup: String, cx: &mut Context<Self>) {
+        let (text, named) = if self.server_id == crate::telegram::SERVER_ID { crate::markup::take_named(&markup) } else { (markup, Vec::new()) };
+        self.named = named;
+        self.named_text = text.clone();
+        self.composer.update(cx, |input, cx| input.set_text(text, cx));
+    }
+
+    /// Follows the mentions by name to what the message box holds now.
+    fn follow_composer(&mut self, cx: &mut Context<Self>) {
+        let input = self.composer.read(cx);
+        if input.text() == self.named_text {
+            return;
+        }
+        let (text, caret) = (input.text().to_string(), input.cursor());
+        if text.is_empty() {
+            self.named.clear();
+        } else {
+            crate::markup::follow_named(&self.named_text, &text, caret, &mut self.named);
+        }
+        self.named_text = text;
+    }
+
+    /// What's written in the message box, as it goes out and is kept: with its mentions by name.
+    pub(super) fn composer_markup(&mut self, cx: &mut Context<Self>) -> String {
+        self.follow_composer(cx);
+        crate::markup::put_named(self.composer.read(cx).text(), &self.named)
     }
 
     /// Makes the first link's preview once typing pauses, unless it was taken away.
@@ -425,7 +481,8 @@ impl ChatView {
 
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(conversation) = self.conversation(cx) else { return };
-        let value = self.composer.read(cx).text().trim().to_string();
+        let value = self.composer_markup(cx).trim().to_string();
+        let written = self.composer.read(cx).text().trim().chars().count();
         let list_id = conversation.list_id();
         let waiting = self.slow_wait(&conversation, cx) > 0;
         let state = self.state.read(cx);
@@ -437,7 +494,7 @@ impl ChatView {
         if value.is_empty() && (self.files.is_empty() || editing.is_some()) {
             return;
         }
-        if value.chars().count() > MAX_TEXT_LENGTH {
+        if written > MAX_TEXT_LENGTH {
             self.state.update(cx, |state, cx| state.toast(t("composer.tooLongFile"), ToastKind::Error, cx));
             return;
         }
@@ -631,10 +688,8 @@ impl ChatView {
         match editing {
             Some(message) if self.composer_editing.as_deref() != Some(message.id.as_str()) => {
                 self.composer_editing = Some(message.id.clone());
-                let text = message.text.clone();
-                let composer = self.composer.clone();
-                composer.update(cx, |input, cx| input.set_text(text, cx));
-                composer.focus_handle(cx).focus(window, cx);
+                self.set_composer(message.text.clone(), cx);
+                self.composer.focus_handle(cx).focus(window, cx);
             }
             None if self.composer_editing.is_some() => self.composer_editing = None,
             _ => {}
@@ -661,4 +716,23 @@ impl ChatView {
             _ => {}
         }
     }
+}
+
+/// What mentioning someone on Telegram by name writes: their first name, as Telegram's apps write
+/// it, or their whole name, with nothing the markup couldn't hold, or none for an account that
+/// can't be mentioned, such as a chat speaking as itself.
+pub(super) fn mention_name(user: &UserView) -> Option<String> {
+    if user.id.is_empty() || !user.id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    [&user.first_name, &user.display_name].into_iter().find_map(|name| {
+        let clean: String = name.chars().filter(|ch| !matches!(ch, '[' | ']' | '\n' | '\r')).collect();
+        let mut used = 0;
+        let fitted: String = clean.trim().chars().take_while(|ch| {
+            used += ch.len_utf16();
+            used <= 64
+        }).collect();
+        let fitted = fitted.trim().to_string();
+        (!fitted.is_empty()).then_some(fitted)
+    })
 }

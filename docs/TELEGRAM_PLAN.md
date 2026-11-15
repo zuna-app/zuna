@@ -201,7 +201,7 @@ The list is the chats the account has, not everyone on a server. Someone new is 
 
 | Kind | First version | Later |
 |---|---|---|
-| Text with bold, italic, strike, code, quotes, spoilers, links and mentions | Both ways, through the markup the app has | Custom emoji, shown as the emoji they stand for until then |
+| Text with bold, italic, strike, code, quotes, spoilers, links and mentions | Both ways, through the markup the app has. "@" mentions someone by their first name, as Telegram's apps do, so people with no username can be mentioned too: the markup holds it as Telegram's Markdown does, `[name](tg://user?id=…)`, which only a Telegram chat draws, as the name | Custom emoji, shown as the emoji they stand for until then |
 | Replies, edits, reactions, pins, forwards inside Telegram | Both ways. Pins in the drawer | |
 | Deleting | For everyone where Telegram allows it, otherwise for the person alone, and the menu says which | |
 | Photos, videos, albums, files | Both ways. Nothing downloads until it's on screen, and large files wait for a click | |

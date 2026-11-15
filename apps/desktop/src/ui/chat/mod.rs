@@ -74,6 +74,8 @@ struct Suggestion {
     hint: Option<String>,
     insert: String,
     what: Suggested,
+    /// Someone on Telegram, mentioned by the name it puts in: its length, and their user ID.
+    named: Option<(usize, String)>,
 }
 
 /// A drag across messages that picks them: where it began, what was picked before, and
@@ -154,6 +156,10 @@ pub struct ChatView {
     suggestions: Vec<Suggestion>,
     /// The suggestion Enter would pick, or none until two letters follow a ':', as in ":D".
     selected: Option<usize>,
+    /// Telegram's mentions by name in the message box, which shows the names alone, and the text
+    /// they were placed in, from which they're followed as it changes (`markup::follow_named`).
+    named: Vec<crate::markup::Named>,
+    named_text: String,
     link_draft: Option<LinkDraft>,
     /// The link whose preview is being made or shown.
     link_wanted: Option<String>,
@@ -412,6 +418,8 @@ impl ChatView {
             trigger: None,
             suggestions: Vec::new(),
             selected: None,
+            named: Vec::new(),
+            named_text: String::new(),
             link_draft: None,
             link_wanted: None,
             dismissed_link: None,
@@ -526,10 +534,10 @@ impl ChatView {
         self.composer.update(cx, |input, cx| {
             input.set_newline_on_enter(!enter);
             input.set_placeholder(placeholder, cx);
-            if !draft.is_empty() {
-                input.set_text(draft, cx);
-            }
         });
+        if !draft.is_empty() {
+            self.set_composer(draft, cx);
+        }
         self.state.update(cx, |state, cx| state.load_list(&list_id, conversation.group_id.clone(), cx));
         // What's written in a Telegram chat on another device, if nothing is here.
         if telegram && no_draft {
@@ -539,7 +547,7 @@ impl ChatView {
                 let Some(text) = task.await else { return };
                 view.update_in(cx, |view, window, cx| {
                     if view.conversation(cx).is_some_and(|open| open.key == key) && view.composer.read(cx).text().is_empty() {
-                        view.composer.update(cx, |input, cx| input.set_text(text, cx));
+                        view.set_composer(text, cx);
                         view.composer.focus_handle(cx).focus(window, cx);
                     }
                 })

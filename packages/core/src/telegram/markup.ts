@@ -3,7 +3,9 @@
 // UTF-16 code units as JavaScript counts a string, and Zuna marks them inside the text: **bold**,
 // *italic*, ~~strike~~, ||spoiler||, `code`, fenced code blocks and quoted lines. What Zuna has no
 // mark for, such as underline, stays plain text, and a link under other words keeps its address
-// beside them.
+// beside them. A mention of someone by name, which needs no username, is written as Telegram's own
+// Markdown writes one, `[name](tg://user?id=123)`, which only the apps' Telegram chats draw, as the
+// name alone.
 
 /** A span of Telegram's formatted text, as TDLib's `textEntity` has it. */
 export interface TdEntity {
@@ -34,17 +36,50 @@ interface Insertion {
   rank: number;
 }
 
+/** The longest name a mention by name holds in the markup, in UTF-16 code units. */
+const MAX_MENTION_NAME = 100;
+
+/** A mention of someone by name, as the markup holds it: what it says, and whose user ID. */
+export const NAMED_MENTION = /\[([^[\]\n]{1,100})\]\(tg:\/\/user\?id=([1-9]\d{0,15})\)/;
+
+/** How the markup writes a mention by name of a user, or null where its words can't be held. */
+export function namedMention(name: string, userId: string | number): string | null {
+  const id = String(userId);
+  if (!/^[1-9]\d{0,15}$/.test(id) || !Number.isSafeInteger(Number(id))) return null;
+  if (name.length === 0 || name.length > MAX_MENTION_NAME || /[[\]\n]/.test(name)) return null;
+  return `[${name}](tg://user?id=${id})`;
+}
+
 /** Telegram's formatted text as Zuna's markup. */
 export function toMarkup(formatted: FormattedText): string {
   const { text } = formatted;
   const insertions: Insertion[] = [];
   const add = (at: number, insert: string, closing: boolean, rank: number) => insertions.push({ at, text: insert, closing, rank });
+  const bounds = (entity: TdEntity) => {
+    const start = Math.max(0, Math.min(text.length, entity.offset));
+    return [start, Math.max(start, Math.min(text.length, entity.offset + entity.length))] as const;
+  };
   for (const entity of formatted.entities) {
-    let start = Math.max(0, Math.min(text.length, entity.offset));
-    let end = Math.max(start, Math.min(text.length, entity.offset + entity.length));
+    let [start, end] = bounds(entity);
     const kind = entity.type["@type"];
     const mark = INLINE[kind];
-    if (mark) {
+    if (kind === "textEntityTypeMentionName") {
+      while (start < end && /\s/.test(text[start]!)) start++;
+      while (end > start && /\s/.test(text[end - 1]!)) end--;
+      // Its words are drawn as they are, so no other mark begins or ends inside them, and none is code.
+      const crossed = formatted.entities.some((other) => {
+        if (other === entity) return false;
+        const [from, to] = bounds(other);
+        const code = other.type["@type"] === "textEntityTypeCode" || other.type["@type"] === "textEntityTypePre" || other.type["@type"] === "textEntityTypePreCode";
+        return (code && from < end && to > start) || (from > start && from < end) || (to > start && to < end);
+      });
+      const written = entity.type.user_id && !crossed ? namedMention(text.slice(start, end), entity.type.user_id) : null;
+      if (written) {
+        // Inside any mark over the same words, as nothing goes inside it.
+        add(start, "[", false, end - start - 0.5);
+        add(end, written.slice(end - start + 1), true, start + 0.5);
+      }
+    } else if (mark) {
       // A mark only holds against something that isn't space, and never across a line.
       while (start < end && /\s/.test(text[start]!)) start++;
       while (end > start && /\s/.test(text[end - 1]!)) end--;
@@ -77,8 +112,9 @@ export function toMarkup(formatted: FormattedText): string {
   return out + text.slice(last);
 }
 
-// Zuna's inline marks, as markup.tsx finds them, in its order.
+// Zuna's inline marks, as markup.tsx finds them, in its order, after a mention by name.
 const RULES: { pattern: RegExp; kind: string; plain?: boolean }[] = [
+  { pattern: new RegExp(NAMED_MENTION.source, "y"), kind: "textEntityTypeMentionName", plain: true },
   { pattern: /`([^`\n]+)`/y, kind: "textEntityTypeCode", plain: true },
   { pattern: /\|\|([^\n]+?)\|\|/y, kind: "textEntityTypeSpoiler" },
   { pattern: /\*\*([^\n]+?)\*\*/y, kind: "textEntityTypeBold" },
@@ -146,6 +182,8 @@ function inline(source: string, out: FormattedText): void {
     for (const rule of RULES) {
       rule.pattern.lastIndex = at;
       const match = rule.pattern.exec(source);
+      // A user's number past what JavaScript counts exactly is no one's.
+      if (match && rule.kind === "textEntityTypeMentionName" && !Number.isSafeInteger(Number(match[2]))) continue;
       if (match) {
         matched = { rule, match };
         break;
@@ -160,7 +198,9 @@ function inline(source: string, out: FormattedText): void {
     const inner = matched.match[1]!;
     if (matched.rule.plain) out.text += inner;
     else inline(inner, out);
-    out.entities.push({ offset, length: out.text.length - offset, type: { "@type": matched.rule.kind } });
+    const type: TdEntity["type"] = { "@type": matched.rule.kind };
+    if (matched.rule.kind === "textEntityTypeMentionName") type.user_id = Number(matched.match[2]);
+    out.entities.push({ offset, length: out.text.length - offset, type });
     at += matched.match[0].length;
     plainFrom = at;
   }

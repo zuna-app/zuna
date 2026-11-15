@@ -25,6 +25,8 @@ pub struct World {
     pub client: serde_json::Map<String, Value>,
     pub server: serde_json::Map<String, Value>,
     pub other: serde_json::Map<String, Value>,
+    /// What a linked Telegram account gives, for a test that puts it among `listServers`.
+    pub telegram: serde_json::Map<String, Value>,
 }
 
 fn user(id: &str, username: &str, name: &str, extra: Value) -> Value {
@@ -158,10 +160,10 @@ impl World {
         let mut other = serde_json::Map::new();
         other.insert("getSelf".into(), json!({ "userId": ME, "username": "alice", "role": "member" }));
         other.insert("getConnectionState".into(), json!("signed_out"));
-        World { name: name.to_string(), client, server, other }
+        World { name: name.to_string(), client, server, other, telegram: serde_json::Map::new() }
     }
 
     pub fn fixtures(&self) -> Value {
-        json!({ "": self.client, SERVER: self.server, OTHER: self.other })
+        json!({ "": self.client, SERVER: self.server, OTHER: self.other, crate::telegram::SERVER_ID: self.telegram })
     }
 }
