@@ -386,7 +386,7 @@ describe("only what's in the log counts", () => {
     const latest = await apiOf(dave).groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(latest.group_info)) as { commit: Uint8Array };
     await apiOf(erin).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
-    await waitFor(() => warned(dave, "isn't really"), "the warning");
+    await waitFor(() => warned(dave, "pretending to be"), "the warning");
     await waitFor(() => sessionOf(dave).treeMembers(groupId).every((member: { deviceId: string }) => member.deviceId !== fakeId), "the ghost to be removed", 15_000);
   });
 
@@ -420,7 +420,7 @@ describe("only what's in the log counts", () => {
       await sentAndSeen(erin, [dave], groupId, "after rotating");
       await waitFor(() => session.treeMembers(groupId).some((member: { userId: string; unchecked?: boolean }) => member.userId === erin.userId && member.unchecked), "erin's leaf to wait for its link");
       await sleep(500);
-      expect(warned(dave, "isn't really")).toBe(false);
+      expect(warned(dave, "pretending to be")).toBe(false);
       expect(session.headGeneration(erin.userId)).toBe(0);
     } finally {
       session.api.identityLinks = real;

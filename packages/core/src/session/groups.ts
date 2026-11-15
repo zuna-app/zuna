@@ -134,8 +134,8 @@ export abstract class SessionGroups extends SessionRotation {
       const key = this.openLocal("granted", `${groupId}:${epoch}:${row.signer}`, row.key);
       if (proven && equalBytes(key, proven)) continue;
       const [userId] = row.signer.split("/");
-      const name = this.users.get(userId ?? "")?.profile.displayName ?? "Someone";
-      this.warnOnce(`wrong-grant/${groupId}/${row.signer}`, `${name}'s device handed you a wrong key for a channel's earlier messages. It was set aside for one that works.`, userId ?? "");
+      const name = this.users.get(userId ?? "")?.profile.displayName;
+      this.warnOnce(`wrong-grant/${groupId}/${row.signer}`, name ? t("security.wrongGrant", { name }) : t("security.someoneWrongGrant"), userId ?? "");
     }
     this.historyArrived(groupId, epoch);
   }
@@ -184,7 +184,7 @@ export abstract class SessionGroups extends SessionRotation {
           type: "security",
           serverId: this.serverId,
           userId: "",
-          message: "A wrong key had been planted for one of your conversations. It was replaced with the real one.",
+          message: t("security.plantedKey"),
         });
       }
     }

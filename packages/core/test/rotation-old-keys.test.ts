@@ -318,7 +318,7 @@ describe("someone holding old keys, with the server's help", () => {
     const latest = await apiOf(alice).groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(latest.group_info)) as { commit: Uint8Array };
     await apiOf(dave).commit(groupId, { expected_epoch: latest.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), send_key: sendKeyOf(ghost, groupId), kind: "external" });
-    await waitFor(() => securityEvents(alice).some((event) => event.message.includes("isn't really")), "the warning");
+    await waitFor(() => securityEvents(alice).some((event) => event.message.includes("pretending to be")), "the warning");
     await waitFor(() => sessionOf(alice).treeMembers(groupId).every((member: { deviceId: string }) => member.deviceId !== fakeId), "the ghost to be removed", 10_000);
   });
 

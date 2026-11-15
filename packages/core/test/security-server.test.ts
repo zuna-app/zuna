@@ -252,7 +252,7 @@ describe("a leaf naming someone nobody can check yet (Z-43)", () => {
     await carol.session.flushOutbox();
     await waitFor(() => session.messageRow(groupId, sent.id)?.seq !== null, "the message to go", 20_000);
     expect(session.treeMembers(groupId).some((member: { deviceId: string }) => member.deviceId === device)).toBe(false);
-    expect(securityEvents(carol).slice(before).some((event) => (event as { message: string }).message.includes("isn't really"))).toBe(true);
+    expect(securityEvents(carol).slice(before).some((event) => (event as { message: string }).message.includes("pretending to be"))).toBe(true);
   });
 });
 

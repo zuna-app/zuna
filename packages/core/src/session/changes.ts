@@ -344,8 +344,8 @@ export abstract class SessionChanges extends SessionJoining {
     }
     if (refusal) {
       const sender = parseCertificate(processed.senderCredential);
-      const name = (sender && this.users.get(sender.userId)?.profile.displayName) ?? "Someone";
-      this.warnOnce(`roster/${groupId}/${event.epoch}`, `${name} tried to change who's in one of your conversations, or who runs it, without being allowed to. It wasn't accepted.`, sender?.userId ?? "");
+      const name = sender ? this.users.get(sender.userId)?.profile.displayName : undefined;
+      this.warnOnce(`roster/${groupId}/${event.epoch}`, name ? t("security.triedToChangeMembers", { name }) : t("security.someoneTriedToChangeMembers"), sender?.userId ?? "");
       await this.voidBrokenCommit(groupId, new Error(refusal));
       return;
     }
@@ -391,7 +391,7 @@ export abstract class SessionChanges extends SessionJoining {
       type: "security",
       serverId: this.serverId,
       userId: this.account.userId,
-      message: "A member removed this device from one of your conversations without permission. It has rejoined.",
+      message: t("security.deviceRemovedWithoutPermission"),
     });
     await this.repair(groupId);
   }
@@ -444,12 +444,12 @@ export abstract class SessionChanges extends SessionJoining {
     }
     found = look();
     if (!found.addedWithoutRight && !found.removedWithoutRight) return;
-    const name = sender ? (this.users.get(sender.userId)?.profile.displayName ?? "A member") : "A member";
+    const name = sender ? this.users.get(sender.userId)?.profile.displayName : undefined;
     this.emit({
       type: "security",
       serverId: this.serverId,
       userId: sender?.userId ?? "",
-      message: `${name} changed who's in one of your conversations without permission. Zuna is putting it right.`,
+      message: name ? t("security.changedMembers", { name }) : t("security.someoneChangedMembers"),
     });
     this.scheduleReconcile(groupId);
   }
@@ -659,7 +659,7 @@ export abstract class SessionChanges extends SessionJoining {
             type: "security",
             serverId: this.serverId,
             userId: member.userId,
-            message: "A device claiming to be yours, which never signed in, tried to join one of your conversations. It's being removed.",
+            message: t("security.impostorOwnDevice"),
           });
         }
       }

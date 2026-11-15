@@ -243,7 +243,7 @@ describe("a bot's standing", () => {
     await app.registerBot(`${address}#${parts}`);
     open.push(app);
 
-    await waitFor(() => warned(alice, "signed up with a key its setup link didn't make"), "the owner to be warned");
+    await waitFor(() => warned(alice, "signed up with a key its setup link didn't create"), "the owner to be warned");
     expect(userOf(alice, bot.id)?.trust).toBe("unverified");
     await alice.session.deleteBot(bot.id);
   });

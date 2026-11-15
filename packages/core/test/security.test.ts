@@ -36,7 +36,7 @@ describe("a server joining a group as someone's device (Z-01)", () => {
       kind: "external",
     });
 
-    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /isn't really/.test(event.message)), "alice to be warned");
+    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /pretending to be/.test(event.message)), "alice to be warned");
     expect(alice.session.safetyCheck(dave.userId)).toBeTruthy();
 
     // It's gone from the tree before anything else is encrypted, whoever does it.
@@ -721,8 +721,8 @@ describe("a member handing a newcomer wrong keys for a channel's history (Z-66)"
     await waitFor(() => joined(carol), "carol to come in");
     // The others' keys come too, and the one that opens it wins.
     await waitFor(async () => (await status(carol, sent.id)) === "sent", "carol to read what came before", 30_000);
-    await waitFor(() => warned(carol, "handed you a wrong key"), "carol to be told");
-    expect(securityEvents(carol).find((event) => (event as { message: string }).message.includes("handed you a wrong key"))).toMatchObject({ userId: mal.userId });
+    await waitFor(() => warned(carol, "gave you a wrong key"), "carol to be told");
+    expect(securityEvents(carol).find((event) => (event as { message: string }).message.includes("gave you a wrong key"))).toMatchObject({ userId: mal.userId });
     // Once it opened, she stopped waiting, and nobody else need answer.
     await waitFor(
       () => !(withServerDatabase((db) => db.prepare("SELECT history_wanted AS wanted FROM group_members WHERE group_id = ? AND user_id = ?").get(channelId, carol.userId)) as { wanted: number }).wanted,

@@ -754,7 +754,7 @@ export abstract class SessionDirectory extends SessionChains {
         type: "security",
         serverId: this.serverId,
         userId,
-        message: `The security key of ${user.profile.displayName} changed. Their messages can't be trusted until you verify them again.`,
+        message: t("security.keyChanged", { name: user.profile.displayName }),
       });
       const dm = this.dmWith(userId);
       if (dm) this.addSystemRow(dm.id, Date.now(), userId, { type: "identity_changed", actorId: userId, targetIds: [userId] });
@@ -869,10 +869,10 @@ export abstract class SessionDirectory extends SessionChains {
     if (this.headsCompared.has(seen)) return;
     this.headsCompared.add(seen);
     if (!headSigned(fromBase64(key), head)) {
-      const name = this.users.get(from)?.profile.displayName || "Someone";
+      const name = this.users.get(from)?.profile.displayName;
       return this.warnOnce(
         `log/their-key/${from}`,
-        `${name}'s app holds a record of who holds which keys that this server didn't sign for you. Either the server gave them another key, or their app made it up.`,
+        name ? t("security.logTheirKey", { name }) : t("security.logSomeonesKey"),
         from,
       );
     }

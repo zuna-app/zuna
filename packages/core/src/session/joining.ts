@@ -242,12 +242,12 @@ export abstract class SessionJoining extends SessionGroups {
       const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
       if (this.warnedLeaves.has(warned)) continue;
       this.warnedLeaves.add(warned);
-      const owner = this.users.get(member.userId)?.profile.displayName ?? "Someone";
+      const owner = this.users.get(member.userId)?.profile.displayName;
       this.emit({
         type: "security",
         serverId: this.serverId,
         userId: member.userId,
-        message: `${owner} came into one of your conversations without an admin adding them. They're being removed.`,
+        message: owner ? t("security.joinedWithoutAdmin", { name: owner }) : t("security.someoneJoinedWithoutAdmin"),
       });
       this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
     }
@@ -261,10 +261,12 @@ export abstract class SessionJoining extends SessionGroups {
         serverId: this.serverId,
         userId: member.userId,
         message: member.outsider
-          ? `${owner ?? "Someone"} isn't part of one of your direct messages, but was given its keys. They're being removed.`
+          ? owner
+            ? t("security.outsiderInDirectMessage", { name: owner })
+            : t("security.someoneOutsiderInDirectMessage")
           : owner
-            ? `A device claiming to be ${owner}'s isn't really theirs, and it tried to join one of your conversations. It's being removed.`
-            : "A device with an invalid certificate tried to join one of your conversations. It's being removed.",
+            ? t("security.impostorDevice", { name: owner })
+            : t("security.invalidCertificate"),
       });
       if (member.userId && this.groups.get(groupId)?.kind !== "channel") {
         this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });

@@ -513,7 +513,7 @@ describe("a leaf's certificate", () => {
     expect(session.headGeneration(dave.userId)).toBe(0);
     dave.session.sendMessage(`group:${groupId}`, { text: "a new certificate" });
     await waitFor(() => securityEvents(dave).some((event) => event.message.includes("without permission")), "dave to hear", 15_000);
-    await waitFor(() => securityEvents(alice).some((event) => event.message.includes("isn't really")), "alice to hear", 15_000);
+    await waitFor(() => securityEvents(alice).some((event) => event.message.includes("pretending to be")), "alice to hear", 15_000);
     session.api.identityLinks = realLinks;
     session.syncLogOnce = realLog;
     await session.followChain(dave.userId);

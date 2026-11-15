@@ -378,7 +378,7 @@ export abstract class SessionServer extends SessionChannels {
       const user = this.users.get(botId);
       if (!proof || !user?.bot || user.bot.ownerId !== this.account.userId) continue;
       if (!wasm.verify(fromBase64(setup.key), botProofInput(botId, user.identityKey), fromBase64(proof))) {
-        this.warnOnce(`bot-proof/${botId}`, `${setup.name} signed up with a key its setup link didn't make, so it may not be the bot you set up. Delete it and make it again.`, botId);
+        this.warnOnce(`bot-proof/${botId}`, t("security.botKeyMismatch", { name: setup.name }), botId);
         continue;
       }
       this.db.transaction(() => {

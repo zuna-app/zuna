@@ -599,10 +599,10 @@ export abstract class SessionIngest extends SessionChanges {
         this.ingest(await this.api.message(item.groupId, item.id), false);
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404) continue;
-        const name = this.users.get(item.userId)?.profile.displayName || "Someone";
+        const name = this.users.get(item.userId)?.profile.displayName;
         this.warnOnce(
           `held-back/${item.groupId}/${item.id}`,
-          `${name}'s app says they sent a message in one of your conversations that never reached you, and the server says there's no such message.`,
+          name ? t("security.messageMissing", { name }) : t("security.someonesMessageMissing"),
           item.userId,
         );
       }
