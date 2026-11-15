@@ -1,9 +1,10 @@
 /* Channels, laid out as Discord's: full-width rows under a name and a picture, a
    header with the topic, a rounded message box, and the member list on the right.
-   Sizes are Discord's; colors are the app's own, so accents and sizes still apply. */
+   Sizes are Discord's, but the text is the chats' own size; colors are the app's own, so
+   accents and sizes still apply. */
 
 .chat.is-channel {
-  --channel-text: calc(var(--message-size) + 1.5px);
+  --channel-text: var(--message-size);
   --channel-muted: #8b8b92;
   --spine: #505057;
   container-type: inline-size;

@@ -161,7 +161,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
 
 fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
-    let size = theme.message_size + px(1.5);
+    let size = theme.message_size;
     let highlighted = context.highlight.as_deref() == Some(message.id.as_str());
     let top = if grouped || after_line { 0. } else { 17. };
     if message.system.is_some() {

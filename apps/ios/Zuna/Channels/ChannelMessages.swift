@@ -181,9 +181,9 @@ struct ChannelMessageRow: View {
         .accessibilityIdentifier(A11y.Chat.meta(message.id))
     }
 
-    /// A little larger than in a bubble, as the desktop's channels are.
+    /// The same size as in a bubble, as the desktop's channels are.
     private var textSize: CGFloat {
-        UIFontMetrics(forTextStyle: .body).scaledValue(for: model.settings.messageSize.points + 1)
+        UIFontMetrics(forTextStyle: .body).scaledValue(for: model.settings.messageSize.points)
     }
 
     private var jumbo: Int { context.jumbo }

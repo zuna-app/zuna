@@ -316,7 +316,7 @@ impl ChatView {
             })
             .children(plugin_buttons)
         };
-        let message_size = if is_channel { theme.message_size + px(1.5) } else { theme.message_size };
+        let message_size = theme.message_size;
         let (emoji_bounds, emoji_probe) = bounds_probe();
         let composer_scroll = scroll_handle("composer-scroll");
         area = area.child(
