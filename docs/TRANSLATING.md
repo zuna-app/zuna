@@ -49,7 +49,7 @@ Add or change the key in `en.json` along with the code. Then:
 npm run i18n
 ```
 
-It puts `en.json` in order, writes the server's messages under `server.*`, says which keys the code looks up that `en.json` lacks and which nobody looks up, and brings every other catalog in line: keys gone from English are dropped, and new ones added as `null`, which shows English until someone translates them. `npm run test:i18n`, part of `npm test`, fails until it's been run. The type checks catch a misspelled key in TypeScript; for Rust and Swift, the check does.
+It puts `en.json` in order, writes the server's messages under `server.*`, says which keys the code looks up that `en.json` lacks and which nobody looks up, and brings every other catalog in line: keys gone from English are dropped, and new ones added as `null`, which shows English until someone translates them. Don't leave them so: whoever adds a text, Claude included, writes its words in every catalog in the same commit. `npm run test:i18n`, part of `npm test`, fails until it's been run. The type checks catch a misspelled key in TypeScript; for Rust and Swift, the check does.
 
 Changing a text's English without changing its meaning keeps its key. When the meaning changes, give it a new key, so that no translation of the old meaning is shown for it.
 

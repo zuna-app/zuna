@@ -13,6 +13,8 @@
     <a href="docs/POST_QUANTUM.md"><img alt="MLS, post-quantum" src="https://img.shields.io/badge/encryption-MLS%20%2B%20post--quantum-6f42c1"></a>
   </p>
 
+  <p><a href="docs/TRANSLATING.md">🇬🇧 English · 🇩🇪 Deutsch · 🇪🇸 Español · 🇫🇷 Français · 🇵🇱 Polski · 🇯🇵 日本語 · 🇨🇳 简体中文</a></p>
+
   <p>
     <a href="https://zuna.chat">Website</a> ·
     <a href="https://github.com/zuna-app/zuna/releases">Download</a> ·
