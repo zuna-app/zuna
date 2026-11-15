@@ -1,6 +1,7 @@
 import Foundation
 import os
 import UserNotifications
+import ZunaModels
 
 /// A push Telegram sends the linked account's phone through Apple (docs/TELEGRAM_PLAN.md,
 /// Notifications), told from a server's by its shape: Telegram's, with a kind in `loc-key` and
@@ -25,10 +26,16 @@ struct TelegramPush {
         case quiet
     }
 
-    /// The kind, as Telegram names it: `MESSAGE_TEXT`, `CHAT_MESSAGE_PHOTO`, `READ_HISTORY`…
+    /// The kind, as Telegram names it: `MESSAGE_TEXT`, `CHAT_MESSAGE_PHOTO`, `READ_HISTORY`…; empty
+    /// for a push that names none, which shows its alert's own words.
     let key: String
     /// What its sentence names: who, which group, what they wrote.
     let args: [String]
+    /// The alert's title and text, as Telegram's server wrote them.
+    let alertTitle: String?
+    let alertBody: String?
+    /// Where the kind was found, for the log: beside `aps`, in the alert, under `data`, or nowhere.
+    let keyFrom: String
     let kind: Kind
     /// The chat's key in the core (`chatKey` in packages/core/src/telegram/map.ts) and its group,
     /// which is TDLib's chat ID, if the push names one.
@@ -43,11 +50,37 @@ struct TelegramPush {
         // A server's push is sealed for this device under `zuna`: never Telegram's.
         guard userInfo["zuna"] == nil else { return nil }
         let data = userInfo["data"] as? [AnyHashable: Any] ?? [:]
-        let alert = (userInfo["aps"] as? [AnyHashable: Any])?["alert"] as? [AnyHashable: Any]
-        let key = alert?["loc-key"] as? String ?? userInfo["loc_key"] as? String ?? data["loc_key"] as? String
-        guard let key, (1...64).contains(key.count), key.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "_") }) else { return nil }
-        self.key = key
-        let rawArgs = alert?["loc-args"] as? [Any] ?? userInfo["loc_args"] as? [Any] ?? data["loc_args"] as? [Any] ?? []
+        let aps = userInfo["aps"] as? [AnyHashable: Any]
+        let alert = aps?["alert"] as? [AnyHashable: Any]
+        // The kind and its words: beside `aps`, as Telegram's own app reads them, since a push to an
+        // iPhone carries none in its alert (seen on one on 2026-11-15); in the alert, where Apple's
+        // own sentences go; or under `data`, as Telegram's page on pushes shows them. With a dash or
+        // an underscore, which the page and the app spell differently.
+        func look(_ name: String) -> (place: String, value: Any)? {
+            let spellings = [name, name.replacingOccurrences(of: "-", with: "_")]
+            for (place, fields) in [("root", userInfo), ("alert", alert ?? [:]), ("data", data)] {
+                if let value = spellings.lazy.compactMap({ fields[$0] }).first { return (place, value) }
+            }
+            return nil
+        }
+        func text(_ value: Any?) -> String? {
+            (value as? String).map { String($0.prefix(1024)) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        alertTitle = text(alert?["title"])
+        alertBody = text(alert?["body"]) ?? text(aps?["alert"])
+        let found = look("loc-key")
+        if let found {
+            guard let key = found.value as? String, (1...64).contains(key.count),
+                  key.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "_") }) else { return nil }
+            self.key = key
+            keyFrom = found.place
+        } else {
+            // Nothing else pushes this app unsealed, so an alert with no kind is Telegram's too, worded by its server.
+            guard alertTitle != nil || alertBody != nil else { return nil }
+            key = ""
+            keyFrom = "none"
+        }
+        let rawArgs = look("loc-args")?.value as? [Any] ?? []
         args = rawArgs.prefix(8).map { String(describing: $0).prefix(1024) }.map(String.init)
         let custom = userInfo["custom"] as? [AnyHashable: Any] ?? data["custom"] as? [AnyHashable: Any] ?? [:]
         // What the push names: in `custom`, as Telegram's page on pushes shows it, or beside `aps`,
@@ -96,6 +129,7 @@ struct TelegramPush {
     /// The sentence for this kind, as the app carries it, with its words put in; nil for a kind
     /// the app doesn't know.
     var sentence: String? {
+        guard !key.isEmpty else { return nil }
         let template = Self.texts.localizedString(forKey: key, value: "", table: nil)
         guard !template.isEmpty, template != key else { return nil }
         // Every placeholder is an object, numbered; a missing word is left empty rather than crashing.
@@ -104,9 +138,9 @@ struct TelegramPush {
     }
 
     /// The person's or the group's name: a group's is the second word of its sentences, a
-    /// channel's and a person's the first.
+    /// channel's and a person's the first, and the alert's title for a push with no words.
     var name: String? {
-        let name = inGroup && key.hasPrefix("CHAT_") && args.count >= 2 ? args[1] : args.first
+        let name = inGroup && key.hasPrefix("CHAT_") && args.count >= 2 ? args[1] : args.first ?? alertTitle
         return name?.isEmpty == false ? name : nil
     }
 
@@ -124,7 +158,7 @@ struct TelegramPush {
             if isText, key == "MESSAGE_TEXT", args.count >= 2 { return args[1] }
             if isText, key == "CHAT_MESSAGE_TEXT", args.count >= 3 { return "\(args[0]): \(args[2])" }
             if isText, key == "CHANNEL_MESSAGE_TEXT", args.count >= 2 { return args[1] }
-            return sentence ?? "New message"
+            return sentence ?? alertBody ?? t("notify.newMessage")
         }()
         let title = name.map(Self.titled) ?? "Telegram"
         switch settings.preview {
@@ -133,11 +167,11 @@ struct TelegramPush {
             content.body = text
         case .sender:
             content.title = title
-            content.body = "New message"
+            content.body = t("notify.newMessage")
         case .none:
             content.title = "Zuna"
             content.subtitle = "Telegram"
-            content.body = "New message"
+            content.body = t("notify.newMessage")
         }
         content.sound = silent || !settings.sound ? nil : .default
         content.categoryIdentifier = ""

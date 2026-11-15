@@ -30,10 +30,12 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Telegram's own, for an account linked on this phone (docs/TELEGRAM_PLAN.md): worded here
         // from the push alone, as nothing on the phone can fetch the message.
         if let telegram = TelegramPush(request.content.userInfo) {
-            if telegram.groupId == nil, telegram.kind != .quiet {
-                // Then a tap can't open its chat: the names of what it carries, never what they hold.
-                let names = request.content.userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
-                logger.warning("A Telegram push names no chat; it carries \(names, privacy: .public)")
+            if telegram.kind != .quiet, telegram.groupId == nil || telegram.key.isEmpty {
+                // Then it has no picture, or a tap can't open its chat: the names of what it carries, never what they hold.
+                let shape = Self.shape(request.content.userInfo)
+                logger.warning("A Telegram push names \(telegram.key.isEmpty ? "no kind" : "no chat", privacy: .public); it carries \(shape, privacy: .public)")
+            } else if telegram.kind == .message {
+                logger.notice("A Telegram push, its kind named in \(telegram.keyFrom, privacy: .public)")
             }
             nonisolated(unsafe) let content = mutable
             Task {
@@ -42,6 +44,10 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             return
         }
         let opened = PushStore.open(request.content.userInfo)
+        if opened == nil, request.content.userInfo["zuna"] == nil {
+            // Neither a server's nor one of Telegram's that it knows: what it carries, by name alone.
+            logger.warning("A push that isn't a server's names no kind of Telegram's; it carries \(Self.shape(request.content.userInfo), privacy: .public)")
+        }
         if opened == nil, !PushStore.registrations().isEmpty {
             // Not sealed for a server this device is on, such as one it left, which can push until its handle
             // stops working. Without the filtering entitlement iOS shows it all the same, so it's quiet and
@@ -120,6 +126,15 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         worded.badge = NSNumber(value: PushStore.badge)
         guard let chatId = push.groupId, let name = push.name else { return worded }
         return await MessageNotification.telegram(worded, chatId: chatId, name: name, conversationKey: push.conversationKey, settings: settings)
+    }
+
+    /// The names in a push, two levels down, as `aps{alert{body,title},sound},custom{msg_id}`: never what they hold.
+    private static func shape(_ fields: [AnyHashable: Any], depth: Int = 0) -> String {
+        fields.map { name, value in
+            let named = String(describing: name).prefix(32)
+            guard depth < 2, let inner = value as? [AnyHashable: Any] else { return String(named) }
+            return "\(named){\(shape(inner, depth: depth + 1))}"
+        }.sorted().joined(separator: ",")
     }
 
     override func serviceExtensionTimeWillExpire() {

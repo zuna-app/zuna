@@ -236,16 +236,23 @@ final class NotificationTests: XCTestCase {
         try message(["from_id": "4242", "msg_id": "7"], ["Anna", "See you at 8?"])
         try message(["from_id": "4242", "msg_id": "8"], ["Anna", "Or 9"])
         try message(["channel_id": "99", "msg_id": "3"], ["Weekend trip", "Tickets are out"])
-        try waitFor("the three notifications") { try self.zuna.deliveredNotifications() == 3 }
+        // As Telegram pushes an iPhone: the kind and its words beside `aps`, and the alert worded by its server.
+        try WorldControl.push([
+            "aps": ["alert": ["title": "Ola", "body": "Hi!"], "category": "r"],
+            "loc-key": "MESSAGE_TEXT", "loc-args": ["Ola", "Hi!"], "from_id": "77", "msg_id": "5",
+        ])
+        try waitFor("the four notifications") { try self.zuna.deliveredNotifications() == 4 }
 
         func service(_ key: String, _ custom: [String: Any]) throws -> Int {
             try zuna.telegramPush(["aps": ["content-available": 1], "loc_key": key, "custom": custom])
         }
-        // Read up to the first: the second came after it and stays, as does the other chat's.
+        // Read up to the first: the second came after it and stays, as do the other chats'.
         XCTAssertEqual(try service("READ_HISTORY", ["from_id": "4242", "max_id": "7"]), 1)
-        XCTAssertEqual(try zuna.deliveredNotifications(), 2)
+        XCTAssertEqual(try zuna.deliveredNotifications(), 3)
         XCTAssertEqual(try service("MESSAGE_DELETED", ["channel_id": "99", "messages": "3"]), 1)
         XCTAssertEqual(try service("READ_HISTORY", ["from_id": "4242", "max_id": "8"]), 1)
+        XCTAssertEqual(try zuna.deliveredNotifications(), 1)
+        XCTAssertEqual(try zuna.telegramPush(["aps": ["content-available": 1], "loc-key": "READ_HISTORY", "from_id": "77", "max_id": "5"]), 1)
         XCTAssertEqual(try zuna.deliveredNotifications(), 0)
     }
 
