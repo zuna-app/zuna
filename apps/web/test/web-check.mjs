@@ -856,7 +856,7 @@ async function runIn(name) {
     check("a player that breaks as it starts is loaded again, and plays", loadedAgain?.state === 1, `state ${loadedAgain?.state}`);
     check(
       "putting a video on asks first what Google learns, and refuses what isn't YouTube's",
-      consentText.includes("Google sees this device's IP address") && /isn't a link to a YouTube video/.test(refused),
+      consentText.includes("Google sees this device's IP address") && /Paste a YouTube video link/.test(refused),
       refused,
     );
     // Until Lee presses Watch, their device shows what came inside the room's state and contacts nobody.
