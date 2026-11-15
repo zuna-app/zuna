@@ -71,7 +71,7 @@ final class ShareModel {
         // Picked from the share sheet's suggestions, which notifications' conversations fill.
         preselect = (intent as? INSendMessageIntent)?.conversationIdentifier
         guard let key = DeviceKeyStore.unlockedKey() else {
-            phase = .unavailable("Open Zuna first. After your phone restarts, Zuna needs your password once before you can share anything.")
+            phase = .unavailable(t("share.openAppFirst"))
             return
         }
         deviceKey = key
@@ -93,7 +93,7 @@ final class ShareModel {
                 itemsLoaded = true
             }
         } catch {
-            phase = .unavailable("Zuna couldn't open its data: \(error)")
+            phase = .unavailable(t("share.dataFailed", ["error": error]))
             return
         }
         if settings.appLock {
@@ -108,7 +108,7 @@ final class ShareModel {
     func unlock() async {
         guard phase == .appLocked else { return }
         // A phone without a passcode has nothing to unlock with, so App lock can't hold, as in the app.
-        if await AppLock.authenticate(reason: "Unlock Zuna") != .refused { await listChats() }
+        if await AppLock.authenticate(reason: t("share.unlockReason")) != .refused { await listChats() }
     }
 
     private func listChats() async {
@@ -127,7 +127,7 @@ final class ShareModel {
                     if hostAway { await putAway() }
                 } catch {
                     await putAway()
-                    phase = .unavailable("Zuna couldn't start: \(error)")
+                    phase = .unavailable(t("share.startFailed", ["error": error]))
                 }
                 return
             }
@@ -138,13 +138,13 @@ final class ShareModel {
             }
             try? await Task.sleep(for: .milliseconds(200))
         }
-        phase = .unavailable("Zuna is busy. Please try again in a moment.")
+        phase = .unavailable(t("share.busy"))
     }
 
     private func show(_ servers: [ShareServer]) {
         self.servers = servers
         guard servers.contains(where: { !$0.targets.isEmpty }) else {
-            phase = .unavailable("There's nobody to share with yet. Sign in to a server in Zuna first.")
+            phase = .unavailable(t("share.nobody"))
             return
         }
         let withChats = servers.filter { !$0.targets.isEmpty }.map(\.id)
@@ -266,7 +266,7 @@ final class ShareModel {
             if let moved = lock.tryTake(as: .share) {
                 if try result() { return }
                 guard FileManager.default.fileExists(atPath: requestFile.path) else {
-                    throw ShareFailure(message: "Zuna stopped before it could say whether this was sent. Check the chat in Zuna.")
+                    throw ShareFailure(message: t("share.unknownOutcome"))
                 }
                 try FileManager.default.removeItem(at: requestFile)
                 let core = try await ShareCore.wake(deviceKey: deviceKey, moved: moved)
@@ -276,7 +276,7 @@ final class ShareModel {
             }
             if FileManager.default.fileExists(atPath: requestFile.path), Date().timeIntervalSince(posted) > 10 {
                 try? FileManager.default.removeItem(at: requestFile)
-                throw ShareFailure(message: "Zuna didn't answer. Please try again.")
+                throw ShareFailure(message: t("share.noAnswer"))
             }
             _ = await waitFor(ShareMailbox.sent, seconds: 0.5)
         }

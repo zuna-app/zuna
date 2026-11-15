@@ -8,13 +8,19 @@ enum LocationText {
     static func coordinates(_ location: SharedLocation) -> String {
         let lat = String(format: "%.5f", abs(location.lat))
         let lon = String(format: "%.5f", abs(location.lon))
-        return "\(lat)° \(location.lat >= 0 ? "N" : "S"), \(lon)° \(location.lon >= 0 ? "E" : "W")"
+        let parts: [String: Any] = ["latitude": lat, "longitude": lon]
+        switch (location.lat >= 0, location.lon >= 0) {
+        case (true, true): return t("location.coordinatesNE", parts)
+        case (true, false): return t("location.coordinatesNW", parts)
+        case (false, true): return t("location.coordinatesSE", parts)
+        case (false, false): return t("location.coordinatesSW", parts)
+        }
     }
 
     /// "Within 20 m", or "Within 1.5 km".
     static func accuracy(_ meters: Double) -> String {
-        if meters < 1000 { return "Within \(max(1, Int(meters.rounded()))) m" }
-        return "Within \(String(format: meters < 10_000 ? "%.1f" : "%.0f", meters / 1000)) km"
+        if meters < 1000 { return t("location.withinMeters", ["distance": max(1, Int(meters.rounded()))]) }
+        return t("location.withinKilometers", ["distance": String(format: meters < 10_000 ? "%.1f" : "%.0f", meters / 1000)])
     }
 
     /// Where a place opens: Apple Maps, as the desktop opens OpenStreetMap.
@@ -46,7 +52,7 @@ final class LocationFinder: NSObject, CLLocationManagerDelegate {
     private func start(_ status: CLAuthorizationStatus) {
         switch status {
         case .notDetermined: manager.requestWhenInUseAuthorization()
-        case .denied, .restricted: finish(.failure(Failure(errorDescription: "Zuna isn't allowed to use your location. Allow it in Settings, under Privacy.")))
+        case .denied, .restricted: finish(.failure(Failure(errorDescription: t("location.denied"))))
         default: manager.requestLocation()
         }
     }
@@ -73,8 +79,8 @@ final class LocationFinder: NSObject, CLLocationManagerDelegate {
         let denied = (error as? CLError)?.code == .denied
         Task { @MainActor in
             self.finish(.failure(Failure(errorDescription: denied
-                ? "Zuna isn't allowed to use your location. Allow it in Settings, under Privacy."
-                : "Your location isn't available right now.")))
+                ? t("location.denied")
+                : t("location.unavailable"))))
         }
     }
 }
@@ -99,7 +105,7 @@ struct LocationCard: View {
                     .frame(width: 40, height: 40)
                     .background(model.settings.accent.color, in: .circle)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Location").font(.subheadline.weight(.semibold)).foregroundStyle(own ? Color.white : Theme.text1)
+                    Text(t("location.title")).font(.subheadline.weight(.semibold)).foregroundStyle(own ? Color.white : Theme.text1)
                     Text(LocationText.coordinates(location)).font(.footnote).monospacedDigit().foregroundStyle(own ? Color.white : Theme.text1)
                     if let accuracy = location.accuracy {
                         Text(LocationText.accuracy(accuracy)).font(.caption).foregroundStyle(own ? Color.white.opacity(0.7) : Theme.text2)
@@ -115,7 +121,7 @@ struct LocationCard: View {
         .buttonStyle(.plain)
         .padding(.top, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens in Maps")
+        .accessibilityHint(t("location.card.hint"))
         .accessibilityIdentifier(A11y.Chat.location(messageId))
     }
 }
@@ -147,11 +153,11 @@ struct AttachLocationPage: View {
                         Text(LocationText.coordinates(found)).monospacedDigit().foregroundStyle(Theme.text1).textSelection(.enabled)
                     } else if let error {
                         Text(error).font(.subheadline).multilineTextAlignment(.center).foregroundStyle(Theme.text1)
-                        Button("Try again") { attempt += 1 }.font(.subheadline.weight(.semibold))
+                        Button(t("common.tryAgain")) { attempt += 1 }.font(.subheadline.weight(.semibold))
                     } else {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("Finding where you are…").foregroundStyle(Theme.text2)
+                            Text(t("location.share.finding")).foregroundStyle(Theme.text2)
                         }
                     }
                 }
@@ -167,10 +173,10 @@ struct AttachLocationPage: View {
                             .frame(width: 40, height: 40)
                             .background(model.settings.accent.color, in: .circle)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Send my current location")
+                            Text(t("location.sendCurrent"))
                                 .font(.body.weight(.medium))
                                 .foregroundStyle(found == nil ? Theme.text3 : model.settings.accent.text)
-                            Text(found.map { $0.accuracy.map(LocationText.accuracy) ?? LocationText.coordinates($0) } ?? (error == nil ? "Finding where you are…" : "Not available"))
+                            Text(found.map { $0.accuracy.map(LocationText.accuracy) ?? LocationText.coordinates($0) } ?? (error == nil ? t("location.share.finding") : t("location.notAvailable")))
                                 .font(.footnote)
                                 .foregroundStyle(Theme.text2)
                         }
@@ -185,7 +191,7 @@ struct AttachLocationPage: View {
                 .disabled(found == nil || sending)
                 .accessibilityIdentifier(A11y.Attach.sendLocation)
 
-                Text("It's end-to-end encrypted, like a message. Nobody else sees it unless someone in the chat opens it on a map.")
+                Text(t("location.share.note"))
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.text3)

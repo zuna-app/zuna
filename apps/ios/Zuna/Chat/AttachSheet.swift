@@ -91,7 +91,7 @@ struct AttachSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     // Also while copying from iCloud, which without a network could wait for good.
-                    Button("Cancel") {
+                    Button(t("common.cancel")) {
                         sendTask?.cancel()
                         dismiss()
                     }
@@ -119,7 +119,7 @@ struct AttachSheet: View {
             .ignoresSafeArea()
         }
         .alert(cameraProblem ?? "", isPresented: Binding(get: { cameraProblem != nil }, set: { if !$0 { cameraProblem = nil } })) {
-            Button("OK", role: .cancel) {}
+            Button(t("common.ok"), role: .cancel) {}
         }
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: max(1, room), matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in
@@ -150,24 +150,24 @@ struct AttachSheet: View {
         case .gallery where library.allowed && !library.albums.isEmpty:
             // Which album the grid shows, as Telegram's Recents.
             Menu {
-                Button("Recents") { library.album = nil }
+                Button(t("media.library.recents")) { library.album = nil }
                 ForEach(library.albums) { album in
                     Button(album.title) { library.album = album }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(library.album?.title ?? "Recents").font(.headline).lineLimit(1)
+                    Text(library.album?.title ?? t("media.library.recents")).font(.headline).lineLimit(1)
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                 }
                 .foregroundStyle(Theme.text1)
             }
             .accessibilityIdentifier(A11y.Attach.albums)
         case .gallery:
-            Text("Gallery").font(.headline).foregroundStyle(Theme.text1)
+            Text(t("composer.attach.gallery")).font(.headline).foregroundStyle(Theme.text1)
         case .file:
-            Text("File").font(.headline).foregroundStyle(Theme.text1)
+            Text(t("composer.attach.file")).font(.headline).foregroundStyle(Theme.text1)
         case .location:
-            Text("Location").font(.headline).foregroundStyle(Theme.text1)
+            Text(t("composer.attach.location")).font(.headline).foregroundStyle(Theme.text1)
         }
     }
 
@@ -175,9 +175,9 @@ struct AttachSheet: View {
 
     private var tabBar: some View {
         HStack(spacing: 0) {
-            tab(.gallery, "Gallery", "photo.fill")
-            tab(.file, "File", "doc.fill")
-            tab(.location, "Location", "location.fill")
+            tab(.gallery, t("composer.attach.gallery"), "photo.fill", id: "Gallery")
+            tab(.file, t("composer.attach.file"), "doc.fill", id: "File")
+            tab(.location, t("composer.attach.location"), "location.fill", id: "Location")
         }
         .padding(4)
         .glassCapsule(interactive: false)
@@ -186,7 +186,8 @@ struct AttachSheet: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
-    private func tab(_ which: Page, _ label: String, _ icon: String) -> some View {
+    /// A tab, named in the person's language, and for the tests by its id, which stays in English.
+    private func tab(_ which: Page, _ label: String, _ icon: String, id: String) -> some View {
         let selected = page == which
         return Button {
             withAnimation(.snappy(duration: 0.25)) { page = which }
@@ -206,7 +207,7 @@ struct AttachSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier(A11y.Attach.tab(label))
+        .accessibilityIdentifier(A11y.Attach.tab(id))
     }
 
     // MARK: Caption and Send
@@ -214,7 +215,7 @@ struct AttachSheet: View {
     /// In place of the tabs once something's picked, as in Telegram.
     private var captionBar: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Add a caption…", text: $caption, axis: .vertical)
+            TextField(t("composer.attach.captionPlaceholder"), text: $caption, axis: .vertical)
                 .lineLimit(1...5)
                 .font(.body)
                 .foregroundStyle(Theme.text1)
@@ -222,7 +223,7 @@ struct AttachSheet: View {
                 .padding(.horizontal, 14)
                 .background(Theme.bg2, in: .rect(cornerRadius: 19, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.line))
-                .accessibilityLabel("Caption")
+                .accessibilityLabel(t("composer.attach.caption"))
                 .accessibilityIdentifier(A11y.Attach.caption)
             Button(action: sendPicked) {
                 ZStack {
@@ -251,7 +252,7 @@ struct AttachSheet: View {
             .buttonStyle(.plain)
             .disabled(sending)
             .padding(.bottom, 1)
-            .accessibilityLabel(picked.count == 1 ? "Send 1 item" : "Send \(picked.count) items")
+            .accessibilityLabel(t("composer.attach.send", ["count": picked.count]))
             .accessibilityIdentifier(A11y.Attach.send)
         }
         .padding(.leading, 8)
@@ -275,7 +276,7 @@ struct AttachSheet: View {
                     do {
                         urls.append(try await PhotoLibrary.export(id))
                     } catch {
-                        if !Task.isCancelled { model.toast("Couldn't add a photo or video: \(error.localizedDescription)", .error) }
+                        if !Task.isCancelled { model.toast(t("composer.attach.addFailed", ["error": error.localizedDescription]), .error) }
                     }
                 case let .taken(url):
                     urls.append(url)
@@ -299,7 +300,7 @@ struct AttachSheet: View {
     /// Whether the message can take another file, saying why not when it can't.
     private func roomLeft() -> Bool {
         guard room <= 0 else { return true }
-        model.toast("A message can have up to \(OutgoingFiles.limit) files, and this one is full.")
+        model.toast(t("composer.attach.full", ["count": OutgoingFiles.limit]))
         return false
     }
 
@@ -309,7 +310,7 @@ struct AttachSheet: View {
     private func openCamera() async {
         // A call has the camera and the microphone, as for video messages.
         if model.voice.inCall {
-            cameraProblem = "You can't use the camera during a call."
+            cameraProblem = t("composer.attach.cameraInCall")
             return
         }
         #if DEBUG
@@ -343,14 +344,14 @@ struct AttachSheet: View {
     private var filePage: some View {
         ScrollView {
             VStack(spacing: 0) {
-                fileRow("Choose from Photos", "photo.on.rectangle", A11y.Attach.photos, action: choosePhotos)
+                fileRow(t("composer.attach.choosePhotos"), "photo.on.rectangle", A11y.Attach.photos, action: choosePhotos)
                 Divider().overlay(Theme.line).padding(.leading, 60)
-                fileRow("Choose from Files", "folder", A11y.Attach.files) {
+                fileRow(t("composer.attach.chooseFiles"), "folder", A11y.Attach.files) {
                     if roomLeft() { choosingFiles = true }
                 }
                 if UIPasteboard.general.hasImages {
                     Divider().overlay(Theme.line).padding(.leading, 60)
-                    fileRow("Paste image", "doc.on.clipboard", A11y.Attach.paste) {
+                    fileRow(t("composer.attach.pasteImage"), "doc.on.clipboard", A11y.Attach.paste) {
                         paste()
                         dismiss()
                     }
@@ -419,7 +420,7 @@ private struct GalleryPage: View {
     private var grid: some View {
         ScrollView {
             if room <= 0 {
-                Text("A message can have up to \(OutgoingFiles.limit) files, and this one is full.")
+                Text(t("composer.attach.full", ["count": OutgoingFiles.limit]))
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,11 +429,11 @@ private struct GalleryPage: View {
             }
             if library.status == .limited {
                 HStack(spacing: 12) {
-                    Text("You've only given Zuna access to some of your photos.")
+                    Text(t("composer.attach.limitedAccess"))
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                     Spacer(minLength: 0)
-                    Button("Manage") { library.manage() }
+                    Button(t("composer.attach.manage")) { library.manage() }
                         .font(.footnote.weight(.semibold))
                         .accessibilityIdentifier(A11y.Attach.manage)
                 }
@@ -464,7 +465,7 @@ private struct GalleryPage: View {
             if !library.allowed {
                 denied
             } else if library.assets.count == 0 {
-                Text(library.status == .limited ? "You haven't picked any photos or videos for Zuna yet." : "No photos or videos.")
+                Text(library.status == .limited ? t("composer.attach.nonePicked") : t("composer.attach.empty"))
                     .font(.subheadline)
                     .foregroundStyle(Theme.text3)
                     .padding(.top, 24)
@@ -490,19 +491,19 @@ private struct GalleryPage: View {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 40))
                 .foregroundStyle(Theme.text3)
-            Text("Zuna can't see your photos")
+            Text(t("composer.attach.deniedTitle"))
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
-            Text("Allow access in Settings to pick them here, or use the Photos picker, which doesn't need access.")
+            Text(t("composer.attach.deniedBody"))
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.text2)
-            Button("Open Settings") {
+            Button(t("common.openSettings")) {
                 if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
             }
             .font(.subheadline.weight(.semibold))
             .padding(.top, 4)
-            Button("Choose from Photos", action: choosePhotos)
+            Button(t("composer.attach.choosePhotos"), action: choosePhotos)
                 .font(.subheadline.weight(.semibold))
                 .accessibilityIdentifier(A11y.Attach.photos)
         }
@@ -535,8 +536,8 @@ private struct CameraTile: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Camera")
-        .accessibilityHint("Takes a photo or a video to send")
+        .accessibilityLabel(t("composer.attach.camera"))
+        .accessibilityHint(t("composer.attach.cameraHint"))
         .accessibilityIdentifier(A11y.Attach.camera)
     }
 }
@@ -580,7 +581,7 @@ private struct PickTile: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityValue(number.map { "Picked, number \($0)" } ?? "")
+        .accessibilityValue(number.map { t("composer.attach.pickedNumber", ["number": $0]) } ?? "")
         .accessibilityAddTraits(number != nil ? .isSelected : [])
     }
 
@@ -621,9 +622,10 @@ private struct GalleryTile: View {
     }
 
     private var label: String {
-        let kind = video ? "Video, \(Format.duration(asset.duration))" : "Photo"
-        guard let date = asset.creationDate else { return kind }
-        return "\(kind), \(date.formatted(date: .abbreviated, time: .shortened))"
+        let length = Format.duration(asset.duration)
+        guard let date = asset.creationDate else { return video ? t("composer.attach.video", ["duration": length]) : t("composer.attach.photo") }
+        let when = date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: I18n.locale))
+        return video ? t("composer.attach.videoDated", ["duration": length, "date": when]) : t("composer.attach.photoDated", ["date": when])
     }
 
     /// A blurry picture at once and a sharp one when it's ready, as Photos gives them.
@@ -663,7 +665,8 @@ private struct TakenTile: View {
     }
 
     private var label: String {
-        video ? "Video you took\(duration.map { ", \(Format.duration($0))" } ?? "")" : "Photo you took"
+        guard video else { return t("composer.attach.takenPhoto") }
+        return duration.map { t("composer.attach.takenVideoLength", ["duration": Format.duration($0)]) } ?? t("composer.attach.takenVideo")
     }
 
     nonisolated private static func preview(_ url: URL, video: Bool) async -> (UIImage?, Double?) {
@@ -909,7 +912,7 @@ final class PhotoLibrary: NSObject, PHPhotoLibraryChangeObserver {
         any.fetchLimit = 1
         albums = collections
             .filter { PHAsset.fetchAssets(in: $0, options: any).count > 0 }
-            .map { Album(id: $0.localIdentifier, title: $0.localizedTitle ?? "Album", collection: $0) }
+            .map { Album(id: $0.localIdentifier, title: $0.localizedTitle ?? t("media.library.album"), collection: $0) }
         if let album, !albums.contains(where: { $0.id == album.id }) { self.album = nil }
     }
 

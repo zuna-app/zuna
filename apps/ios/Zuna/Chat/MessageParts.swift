@@ -107,7 +107,7 @@ private struct VideoTile: View {
         }
         .buttonStyle(.plain)
         .disabled(uploading)
-        .accessibilityLabel("Play \(attachment.name)")
+        .accessibilityLabel(t("media.play", ["name": attachment.name]))
         .accessibilityIdentifier(A11y.Chat.attachment(attachment.name))
         .task(id: attachment.fileId) {
             // Only one small enough to download with no tap, as for pictures.
@@ -119,7 +119,7 @@ private struct VideoTile: View {
     private func badge(uploading: Bool) -> String {
         if uploading {
             let done = Int(Double(attachment.size) * (uploadProgress ?? 0))
-            return "\(Format.bytes(done)) of \(Format.bytes(attachment.size))"
+            return t("message.attachment.uploadedOf", ["done": Format.bytes(done), "total": Format.bytes(attachment.size)])
         }
         return [attachment.duration.map(Format.duration), Format.bytes(attachment.size)].compactMap { $0 }.joined(separator: " · ")
     }
@@ -205,7 +205,7 @@ private struct ImageTile: View {
                 if let image = image ?? images.cachedAttachment(attachment) {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else if !wanted && !uploading {
-                    Label(ByteCountFormatter.string(fromByteCount: Int64(attachment.size), countStyle: .file), systemImage: "arrow.down.circle")
+                    Label(Int64(attachment.size).formatted(.byteCount(style: .file).locale(I18n.locale)), systemImage: "arrow.down.circle")
                         .font(.caption)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
@@ -215,7 +215,7 @@ private struct ImageTile: View {
                     UploadRing(progress: uploadProgress ?? 0)
                 } else if failed {
                     // A tap tries again.
-                    Label("Try again", systemImage: "arrow.clockwise")
+                    Label(t("common.tryAgain"), systemImage: "arrow.clockwise")
                         .font(.caption)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
@@ -229,8 +229,8 @@ private struct ImageTile: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(image == nil && !wanted && !uploading ? "Download \(attachment.name)" : "Open \(attachment.name)")
-        .accessibilityValue(image != nil ? "Loaded" : failed ? "Couldn't load. Tap to try again" : wanted ? "Loading" : Format.bytes(attachment.size))
+        .accessibilityLabel(image == nil && !wanted && !uploading ? t("media.download", ["name": attachment.name]) : t("message.attachment.open", ["name": attachment.name]))
+        .accessibilityValue(image != nil ? t("media.state.loaded") : failed ? t("media.state.failed") : wanted ? t("media.state.loading") : Format.bytes(attachment.size))
         .accessibilityIdentifier(A11y.Chat.attachment(attachment.name))
         .task(id: "\(attachment.fileId)/\(wanted)/\(attempt)") {
             guard !uploading, wanted, image == nil else { return }
@@ -267,7 +267,7 @@ private struct FileCard: View {
                             .tint(.white)
                             .frame(maxWidth: 160)
                     }
-                    Text(uploading ? "\(Format.bytes(Int(Double(attachment.size) * (uploadProgress ?? 0)))) of \(Format.bytes(attachment.size))" : details)
+                    Text(uploading ? t("message.attachment.uploadedOf", ["done": Format.bytes(Int(Double(attachment.size) * (uploadProgress ?? 0))), "total": Format.bytes(attachment.size)]) : details)
                         .font(.caption)
                         .monospacedDigit()
                         .opacity(0.6)
@@ -299,7 +299,7 @@ private struct UploadRing: View {
                 .rotationEffect(.degrees(-90)).padding(4)
         }
         .frame(width: 36, height: 36)
-        .accessibilityLabel("Uploading \(Int(progress * 100))%")
+        .accessibilityLabel(t("message.attachment.uploadingPercent", ["percent": Int(progress * 100)]))
     }
 }
 
@@ -349,7 +349,7 @@ struct ReactionsView<Meta: View>: View {
                     .background(mine ? (own && model.settings.accent != .neutral ? Color.white : Theme.text1) : Color.white.opacity(0.08), in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(reaction.key), \(names(reaction, selfId))")
+                .accessibilityLabel(t("message.reaction.label", ["reaction": reaction.key, "names": names(reaction, selfId)]))
                 .accessibilityAddTraits(mine ? .isSelected : [])
                 .accessibilityIdentifier(A11y.Chat.reaction(reaction.key))
             }
@@ -359,7 +359,7 @@ struct ReactionsView<Meta: View>: View {
     }
 
     private func names(_ reaction: ReactionView, _ selfId: String) -> String {
-        reaction.userIds.map { $0 == selfId ? "You" : server.users[$0]?.displayName ?? "Someone" }.joined(separator: ", ")
+        reaction.userIds.map { $0 == selfId ? t("common.you") : server.users[$0]?.displayName ?? t("common.someone") }.joined(separator: ", ")
     }
 }
 
@@ -435,7 +435,7 @@ struct EmoteCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(info.name).font(.title3.weight(.semibold)).foregroundStyle(Theme.text1)
                 if let owner, !owner.isEmpty {
-                    Text("by \(owner)").font(.subheadline).foregroundStyle(Theme.text2)
+                    Text(t("message.emote.by", ["name": owner])).font(.subheadline).foregroundStyle(Theme.text2)
                 }
                 if let note = info.note {
                     Text(note).font(.footnote).italic().foregroundStyle(Theme.text3)
@@ -465,7 +465,7 @@ struct CodeBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language ?? "code")
+                Text(language ?? t("message.code.label"))
                 Spacer()
                 Button {
                     UIPasteboard.general.string = code
@@ -475,7 +475,7 @@ struct CodeBlockView: View {
                         copied = false
                     }
                 } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? t("common.copied") : t("common.copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.plain)
             }

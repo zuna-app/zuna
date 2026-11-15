@@ -117,8 +117,8 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         shade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(shade)
 
-        configure(closeButton, symbol: "xmark", label: "Close", action: #selector(close))
-        configure(shareButton, symbol: "square.and.arrow.up", label: "Share", action: #selector(share))
+        configure(closeButton, symbol: "xmark", label: t("common.close"), action: #selector(close))
+        configure(shareButton, symbol: "square.and.arrow.up", label: t("common.share"), action: #selector(share))
         configureTitle()
         videoControls.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(videoControls)
@@ -190,9 +190,9 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
         nameLabel.text = caption.name
         badge.isHidden = !caption.verified
         // Which of how many, as Telegram's title says, when there's more than one.
-        let place = items.count > 1 ? "\(index + 1) of \(items.count)" : nil
+        let place = items.count > 1 ? t("media.viewer.position", ["index": index + 1, "total": items.count]) : nil
         dateLabel.text = [caption.date, place].compactMap { $0 }.joined(separator: " · ")
-        titleView.accessibilityLabel = [caption.name, caption.verified ? "Verified" : nil, caption.date, place].compactMap { $0 }.joined(separator: ", ")
+        titleView.accessibilityLabel = [caption.name, caption.verified ? t("media.viewer.verified") : nil, caption.date, place].compactMap { $0 }.joined(separator: ", ")
         shareButton.isEnabled = current?.file != nil
         let player = (current as? VideoPage)?.player
         videoControls.attach(player)
@@ -425,7 +425,7 @@ extension PhotoViewer.Caption {
     init(_ message: MessageView, server: AppModel.ServerState?) {
         let own = message.senderId == server?.me?.userId
         let sender = server?.users[message.senderId]
-        name = own ? "You" : sender?.displayName ?? "Unknown"
+        name = own ? t("common.you") : sender?.displayName ?? t("chat.unknown")
         verified = !own && sender?.trust == .verified
         date = Format.stamp(message.createdAt)
     }
@@ -538,7 +538,7 @@ private final class PhotoPage: UIViewController, UIScrollViewDelegate, ViewerPag
                 self.file = file
                 onOpened(file)
                 let sharp = await Task.detached(priority: .userInitiated) { PhotoViewer.downsampled(file, maxPixels: 4096) }.value
-                if let sharp { show(sharp) } else { fail("This picture can't be shown.") }
+                if let sharp { show(sharp) } else { fail(t("media.viewer.cantShow")) }
             } catch {
                 self?.fail(ErrorText.describe(error))
             }

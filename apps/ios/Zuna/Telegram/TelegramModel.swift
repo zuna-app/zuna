@@ -70,7 +70,7 @@ extension AppModel {
             linkingTelegram = false
             telegramLink = nil
             if !signedOut {
-                toast("Telegram is unlinked here. End Zuna's session from Telegram's Devices on another device.")
+                toast(t("telegram.unlink.doneHere"))
             }
         default:
             break
@@ -109,7 +109,7 @@ extension AppModel {
             let unlinked = try await core.unlinkTelegram()
             if telegram != nil { removeServer(ServerEntry.telegram) }
             telegramLink = nil
-            toast(unlinked.signedOut ? "Telegram is unlinked." : "Telegram is unlinked here. End Zuna's session from Telegram's Devices on another device.")
+            toast(unlinked.signedOut ? t("telegram.unlink.done") : t("telegram.unlink.doneHere"))
         } catch {
             toast(ErrorText.describe(error), .error)
         }

@@ -17,7 +17,7 @@ struct VerifyView: View {
         let user = server?.users[userId]
         let isSelf = userId == server?.me?.userId
         let trust = check?.trust ?? user?.trust ?? .unverified
-        let name = user?.displayName ?? "them"
+        let name = user?.displayName ?? t("verify.them")
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
@@ -49,9 +49,9 @@ struct VerifyView: View {
             }
             .background(Theme.bg1)
             // The username goes just under the title, as a long name with it no longer fit the bar.
-            .navigationTitle(isSelf ? "Your security key" : "Verify \(name)")
+            .navigationTitle(isSelf ? t("verify.ownTitle") : t("verify.titleNamed", ["name": name]))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(t("common.close")) { dismiss() } } }
             .task(id: user?.trust) {
                 check = try? await model.core.session(serverId).safetyCheck(userId)
             }
@@ -64,7 +64,8 @@ struct VerifyView: View {
         switch trust {
         case .changed:
             Label {
-                Text("\(Text("\(name)'s security key changed").bold()) in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.")
+                // Markdown's bold, around the first words in English, wherever the language puts them.
+                Text(Self.markdown(t("verify.changedMarkdown", ["name": Self.escaped(name)])))
             } icon: {
                 Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
             }
@@ -73,24 +74,36 @@ struct VerifyView: View {
             .padding(12)
             .background(Theme.amber.opacity(0.12), in: .rect(cornerRadius: 12))
         case .verified:
-            Label("You've verified \(name). Nobody can secretly intercept your messages.", systemImage: "checkmark.shield.fill")
+            Label(t("verify.verified", ["name": name]), systemImage: "checkmark.shield.fill")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text1)
                 .padding(12)
                 .background(Theme.green.opacity(0.12), in: .rect(cornerRadius: 12))
         case .unverified:
             Text(isSelf
-                ? "These are your emoji. Someone verifying you compares them with what they see."
-                : "Compare these emoji with \(name) in person or on a call. If they match exactly, nobody else, not even this server, can read your conversation.")
+                ? t("verify.selfHint")
+                : t("verify.compare", ["name": name]))
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
         }
     }
 
+    /// A sentence written in markdown, as only its bold is.
+    private static func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+    }
+
+    /// A name to put in markdown, which shows it as it's written, whatever marks it has.
+    private static func escaped(_ name: String) -> String {
+        String(name.flatMap { character -> [Character] in
+            character.isASCII && (character.isPunctuation || character.isSymbol) ? ["\\", character] : [character]
+        })
+    }
+
     @ViewBuilder
     private func actions(trust: TrustState, name: String) -> some View {
         if trust == .verified {
-            Button("Remove verification") {
+            Button(t("verify.remove")) {
                 run { try await model.core.session(serverId).clearVerification(userId) }
             }
             .buttonStyle(.bordered)
@@ -98,10 +111,10 @@ struct VerifyView: View {
         } else {
             HStack(spacing: 10) {
                 Button {
-                    model.toast("Don't share anything private with them until you know why the emoji differ.", .security)
+                    model.toast(t("verify.mismatchToast"), .security)
                     dismiss()
                 } label: {
-                    Label("They don't match", systemImage: "exclamationmark.triangle").frame(maxWidth: .infinity, minHeight: 44)
+                    Label(t("verify.noMatch"), systemImage: "exclamationmark.triangle").frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier(A11y.Verify.mismatch)
@@ -115,11 +128,11 @@ struct VerifyView: View {
                             check = try? await model.core.session(serverId).safetyCheck(userId)
                             throw error
                         }
-                        model.toast("\(name) is verified")
+                        model.toast(t("verify.verifiedToast", ["name": name]))
                         dismiss()
                     }
                 } label: {
-                    Label("They match", systemImage: "checkmark.seal.fill").frame(maxWidth: .infinity, minHeight: 44)
+                    Label(t("verify.match"), systemImage: "checkmark.seal.fill").frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(model.settings.accent.color)

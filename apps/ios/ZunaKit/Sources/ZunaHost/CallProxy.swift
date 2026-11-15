@@ -83,13 +83,20 @@ public final class CallProxy: @unchecked Sendable {
         for relay in relays { relay.close() }
     }
 
+    /// Which way the call's media is going through the proxy, for the stream stats, which word it.
+    public enum Way: Sendable {
+        case udp, tcp
+        /// Nothing has gone through it lately.
+        case unsure
+    }
+
     /// Which way the call's media is going, for the stream stats.
-    public var way: String {
-        lock.withLock {
+    public var way: Way {
+        lock.withLock { () -> Way in
             let now = Date()
-            if let lastUDP, now.timeIntervalSince(lastUDP) < 5 { return "Through the proxy, over UDP" }
-            if let lastTCP, now.timeIntervalSince(lastTCP) < 5 { return "Through the proxy, over TCP" }
-            return "Through the proxy"
+            if let lastUDP, now.timeIntervalSince(lastUDP) < 5 { return .udp }
+            if let lastTCP, now.timeIntervalSince(lastTCP) < 5 { return .tcp }
+            return .unsure
         }
     }
 

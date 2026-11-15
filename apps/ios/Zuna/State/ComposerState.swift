@@ -255,7 +255,7 @@ extension AppModel {
             } else {
                 try await core.forwardMessages(from: serverId, groupId: groupId, ids: messages.map(\.id), to: targetServerId, conversationKey: conversation.key)
             }
-            toast("Forwarded to \(conversation.title)")
+            toast(t("conversations.forwardedTo", ["name": conversation.title]))
         } catch {
             toast(ErrorText.describe(error), .error)
         }

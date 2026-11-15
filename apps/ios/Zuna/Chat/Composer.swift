@@ -103,7 +103,7 @@ struct Composer: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Attach files")
+                    .accessibilityLabel(t("composer.attachFiles"))
                     .accessibilityIdentifier(A11y.Composer.attach)
                 }
                 if isRecording {
@@ -117,7 +117,7 @@ struct Composer: View {
                             .focused($focused)
                             .padding(.vertical, 8)
                             .onKeyPress(phases: .down) { press in handleKey(press) }
-                            .accessibilityLabel("Message")
+                            .accessibilityLabel(t("composer.label"))
                             .accessibilityIdentifier(A11y.Composer.input)
                         Button {
                             picking = true
@@ -128,7 +128,7 @@ struct Composer: View {
                                 .frame(width: 30, height: 36)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Emoji and emotes")
+                        .accessibilityLabel(t("composer.emoji"))
                         .accessibilityIdentifier(A11y.Composer.emoji)
                     }
                     .padding(.leading, 14)
@@ -145,7 +145,7 @@ struct Composer: View {
                         .frame(minWidth: 36, minHeight: 36)
                         .background(Theme.bg3, in: .capsule)
                         .padding(.bottom, 1)
-                        .accessibilityLabel("Slow mode: you can send again in \(Format.wait(slowWait))")
+                        .accessibilityLabel(t("composer.slowWait", ["time": Format.wait(slowWait)]))
                         .accessibilityIdentifier(A11y.Composer.slowWait)
                 } else if !state.canSend && state.editing == nil {
                     microphone
@@ -160,7 +160,7 @@ struct Composer: View {
                     .buttonStyle(.plain)
                     .disabled(!state.canSend)
                     .padding(.bottom, 1)
-                    .accessibilityLabel(state.editing != nil ? "Save edit" : "Send")
+                    .accessibilityLabel(state.editing != nil ? t("composer.saveEdit") : t("common.send"))
                     .accessibilityIdentifier(A11y.Composer.send)
                 }
             }
@@ -329,11 +329,11 @@ struct Composer: View {
 
     private var placeholder: String {
         // As Telegram says it, while the countdown is where the send button was. Admins aren't held back.
-        if conversation.slowMode > 0, !exemptFromSlowMode { return "Slow mode: \(Format.timer(conversation.slowMode))" }
-        if conversation.kind == .channel { return "Message #\(conversation.title)" }
+        if conversation.slowMode > 0, !exemptFromSlowMode { return t("composer.placeholderSlowMode", ["time": Format.timer(conversation.slowMode)]) }
+        if conversation.kind == .channel { return t("composer.placeholderChannel", ["name": conversation.title]) }
         // Never taken for one of Zuna's encrypted chats (docs/TELEGRAM_PLAN.md).
-        if server.entry.isTelegram { return "Message on Telegram" }
-        return conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
+        if server.entry.isTelegram { return t("composer.placeholderTelegram") }
+        return conversation.peerId != nil && conversation.peerId == server.me?.userId ? t("composer.placeholderSaved") : t("composer.placeholder", ["name": conversation.title])
     }
 
     private func send() {
@@ -358,17 +358,18 @@ struct Composer: View {
     // MARK: Reply and edit
 
     private func contextBar(_ message: MessageView, editing: Bool) -> some View {
-        let sender = message.senderId == server.me?.userId ? "yourself" : server.users[message.senderId]?.displayName ?? "Unknown"
+        let own = message.senderId == server.me?.userId
+        let sender = server.users[message.senderId]?.displayName ?? t("chat.unknown")
         return HStack(spacing: 10) {
             Image(systemName: editing ? "pencil" : "arrowshape.turn.up.left.fill")
                 .foregroundStyle(model.settings.accent.text)
                 .frame(width: 24)
             Rectangle().fill(model.settings.accent.text).frame(width: 2, height: 32)
             VStack(alignment: .leading, spacing: 1) {
-                Text(editing ? "Editing message" : "Replying to \(sender)")
+                Text(editing ? t("composer.editing") : own ? t("composer.replyingToYourself") : t("composer.replyingTo", ["name": sender]))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(model.settings.accent.text)
-                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? "Attachment" : plainText(message.text))
+                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? t("message.reply.attachment") : plainText(message.text))
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                     .lineLimit(1)
@@ -384,7 +385,7 @@ struct Composer: View {
                 Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text2).frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Cancel")
+            .accessibilityLabel(t("common.cancel"))
             .accessibilityIdentifier(A11y.Composer.cancelContext)
         }
         .padding(.horizontal, 12)
@@ -462,9 +463,9 @@ struct Composer: View {
                         }
                     }
             )
-            .accessibilityLabel(locked ? (recordsVideo ? "Send video message" : "Send voice message") : recordsVideo ? "Record a video message" : "Record a voice message")
-            .accessibilityHint(locked ? "" : "Hold to record, and let go to send. Slide up to keep recording. Tap to switch between voice and video.")
-            .accessibilityAction(named: recordsVideo ? "Switch to voice messages" : "Switch to video messages") { recordsVideo.toggle() }
+            .accessibilityLabel(locked ? (recordsVideo ? t("composer.sendRound") : t("composer.sendVoice")) : recordsVideo ? t("composer.recordRound") : t("composer.recordVoice"))
+            .accessibilityHint(locked ? "" : t("composer.record.hint"))
+            .accessibilityAction(named: recordsVideo ? t("composer.record.switchToVoice") : t("composer.record.switchToVideo")) { recordsVideo.toggle() }
             .accessibilityIdentifier(A11y.Composer.microphone)
     }
 
@@ -482,12 +483,12 @@ struct Composer: View {
                 .foregroundStyle(Theme.text1)
             Spacer(minLength: 0)
             if locked {
-                Button("Cancel", action: cancelRecording)
+                Button(t("common.cancel"), action: cancelRecording)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.red)
                     .buttonStyle(.plain)
             } else {
-                Label("Slide to cancel", systemImage: "chevron.left")
+                Label(t("composer.record.slideToCancel"), systemImage: "chevron.left")
                     .font(.subheadline)
                     .foregroundStyle(slide < -90 ? Theme.red : Theme.text2)
                     .offset(x: slide / 2)
@@ -510,13 +511,13 @@ struct Composer: View {
         // A tap: it switches between voice messages and video messages, as in Telegram.
         guard holding else {
             recordsVideo.toggle()
-            model.toast(recordsVideo ? "Hold to record a video message. Tap for voice." : "Hold to record a voice message. Tap for video.")
+            model.toast(recordsVideo ? t("composer.record.videoTip") : t("composer.record.voiceTip"))
             return
         }
         // A call has the camera and the microphone, as it does in Telegram.
         if recordsVideo, model.voice.inCall {
             holding = false
-            model.toast("You can't record a video message during a call.")
+            model.toast(t("composer.record.videoInCall"))
             return
         }
         do {
@@ -564,7 +565,7 @@ struct Composer: View {
             guard let recording = try recorder.stop() else { return }
             if recording.duration < 0.5 {
                 try? FileManager.default.removeItem(at: recording.url)
-                model.toast("Hold to record, and let go to send.")
+                model.toast(t("composer.record.tooShort"))
                 return
             }
             model.sendVoice(serverId, conversation, recording)
@@ -583,7 +584,7 @@ struct Composer: View {
                 .frame(width: 24)
             Rectangle().fill(model.settings.accent.text).frame(width: 2, height: 32)
             VStack(alignment: .leading, spacing: 1) {
-                Text(link.preview?.title ?? link.preview?.siteName ?? "Loading the link's preview…")
+                Text(link.preview?.title ?? link.preview?.siteName ?? t("composer.linkLoading"))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(model.settings.accent.text)
                     .lineLimit(1)
@@ -605,7 +606,7 @@ struct Composer: View {
                 Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text2).frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove the link's preview")
+            .accessibilityLabel(t("composer.linkRemove"))
             .accessibilityIdentifier(A11y.Composer.removeLinkPreview)
         }
         .padding(.horizontal, 12)
@@ -647,7 +648,7 @@ struct Composer: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.trailing, -6)
-                        .accessibilityLabel("Remove \(staged.file.name)")
+                        .accessibilityLabel(t("composer.removeFile", ["name": staged.file.name]))
                     }
                     .foregroundStyle(Theme.text1)
                     .padding(6)
@@ -670,14 +671,18 @@ struct Composer: View {
             try data.write(to: url)
             Task { await stageFiles([url], scoped: false) }
         } catch {
-            model.toast("Couldn't paste the image: \(error.localizedDescription)", .error)
+            model.toast(t("composer.files.pasteFailed", ["error": error.localizedDescription]), .error)
         }
     }
 
     private func stageFiles(_ urls: [URL], scoped: Bool = true) async {
         var leftOut = 0
         defer {
-            if leftOut > 0 { model.toast("A message can have up to \(OutgoingFiles.limit) files, so \(leftOut == 1 ? "one was" : "\(leftOut) were") left out.") }
+            if leftOut == 1 {
+                model.toast(t("composer.files.leftOutOne", ["limit": OutgoingFiles.limit]))
+            } else if leftOut > 1 {
+                model.toast(t("composer.files.leftOutMany", ["limit": OutgoingFiles.limit, "count": leftOut]))
+            }
         }
         for url in urls {
             let accessing = scoped && url.startAccessingSecurityScopedResource()
@@ -698,7 +703,7 @@ struct Composer: View {
                     OutgoingFiles.discard(staged)
                 }
             } catch {
-                model.toast("Couldn't add \(url.lastPathComponent): \(error.localizedDescription)", .error)
+                model.toast(t("composer.files.addFailed", ["name": url.lastPathComponent, "error": error.localizedDescription]), .error)
             }
         }
     }
@@ -783,13 +788,13 @@ struct Composer: View {
             let all = server.emotes.emotes
             if trigger.query.isEmpty {
                 return all.prefix(Self.maxSuggestions).map {
-                    Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : "by \($0.owner)", insert: "\($0.name) ", emote: $0, user: nil)
+                    Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : t("message.emote.by", ["name": $0.owner]), insert: "\($0.name) ", emote: $0, user: nil)
                 }
             }
             let starts = all.filter { $0.name.lowercased().hasPrefix(trigger.query) }
             let contains = all.filter { !$0.name.lowercased().hasPrefix(trigger.query) && $0.name.lowercased().contains(trigger.query) }
             return (starts + contains).prefix(Self.maxSuggestions).map {
-                Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : "by \($0.owner)", insert: "\($0.name) ", emote: $0, user: nil)
+                Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : t("message.emote.by", ["name": $0.owner]), insert: "\($0.name) ", emote: $0, user: nil)
             }
         }
         let ids = conversation.kind == .group ? conversation.members.map(\.userId) : Array(server.users.keys)

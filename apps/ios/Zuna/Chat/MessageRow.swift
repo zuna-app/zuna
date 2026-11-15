@@ -161,7 +161,7 @@ struct MessageRow: View {
         VStack(spacing: 0) {
             if context.unreadLine {
                 // Across the whole list, as Telegram's.
-                Text("Unread messages")
+                Text(t("chat.unreadSeparator"))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity)
@@ -198,7 +198,7 @@ struct MessageRow: View {
                             .contentShape(.rect)
                             .onTapGesture { if selectable { actions.select(context.message) } }
                             .accessibilityElement()
-                            .accessibilityLabel(context.selected ? "Selected" : "Not selected")
+                            .accessibilityLabel(context.selected ? t("message.selected") : t("message.notSelected"))
                             .accessibilityAddTraits(.isButton)
                             .accessibilityIdentifier(A11y.Chat.selectToggle(context.message.id))
                     }
@@ -257,28 +257,31 @@ private struct SystemRow: View {
     }
 
     private func name(_ id: String?) -> String {
-        guard let id else { return "Someone" }
-        if id == server.me?.userId { return "You" }
-        return server.users[id]?.displayName ?? "Someone"
+        guard let id else { return t("common.someone") }
+        if id == server.me?.userId { return t("common.you") }
+        return server.users[id]?.displayName ?? t("common.someone")
     }
 
     /// The desktop's wording for each kind.
     private func text(_ system: SystemEvent) -> String {
         let targets = (system.targetIds ?? []).map(name).joined(separator: ", ")
+        // What you did is worded on its own, as other languages say it differently.
+        let you = system.actorId != nil && system.actorId == server.me?.userId
+        let actor = name(system.actorId)
         switch system.type {
-        case .groupCreated: return "\(name(system.actorId)) created this group"
+        case .groupCreated: return you ? t("message.system.youCreatedGroup") : t("message.system.groupCreated", ["name": actor])
         case .memberAdded:
             // The line that says a bot was added names it as one.
-            let added = (system.targetIds ?? []).map { id in server.users[id]?.bot != nil ? "the bot " + name(id) : name(id) }.joined(separator: ", ")
-            return "\(name(system.actorId)) added \(added)"
-        case .memberRemoved: return "\(name(system.actorId)) removed \(targets)"
-        case .memberLeft: return "\(name(system.actorId)) left the group"
-        case .memberRejoined: return "\(name(system.actorId)) rejoined this chat"
-        case .unexpectedJoin: return "\(name(system.actorId)) joined without being added by a member. Check that this is expected."
-        case .identityChanged: return "\(name(system.actorId))'s security key changed. Verify it before trusting new messages."
-        case .identityRotated: return "\(name(system.actorId))'s security key changed since you verified it. You can compare keys again if you'd like."
-        case .deviceAdded: return "\(name(system.actorId)) added a device"
-        case .timerChanged: return Format.timerChange(name(system.actorId), seconds: system.seconds ?? 0)
+            let added = (system.targetIds ?? []).map { id in server.users[id]?.bot != nil ? t("message.system.theBot", ["name": name(id)]) : name(id) }.joined(separator: ", ")
+            return you ? t("message.system.youAdded", ["names": added]) : t("message.system.memberAdded", ["name": actor, "names": added])
+        case .memberRemoved: return you ? t("message.system.youRemoved", ["names": targets]) : t("message.system.memberRemoved", ["name": actor, "names": targets])
+        case .memberLeft: return you ? t("message.system.youLeft") : t("message.system.memberLeft", ["name": actor])
+        case .memberRejoined: return you ? t("message.system.youRejoined") : t("message.system.memberRejoined", ["name": actor])
+        case .unexpectedJoin: return t("message.system.unexpectedJoin", ["name": actor])
+        case .identityChanged: return t("message.system.identityChanged", ["name": actor])
+        case .identityRotated: return t("message.system.identityRotated", ["name": actor])
+        case .deviceAdded: return you ? t("message.system.youAddedDevice") : t("message.system.deviceAdded", ["name": actor])
+        case .timerChanged: return Format.timerChange(actor, seconds: system.seconds ?? 0, you: you)
         }
     }
 }
@@ -371,10 +374,10 @@ private struct MessageItem: View {
         if !own && server.isBlocked(message.senderId) && !showBlocked {
             HStack(spacing: 6) {
                 if context.isGroup { Color.clear.frame(width: 32, height: 1) }
-                Label("A message from someone you blocked", systemImage: "nosign")
+                Label(t("message.blocked"), systemImage: "nosign")
                     .font(.footnote)
                     .foregroundStyle(Theme.text3)
-                Button("Show") { showBlocked = true }
+                Button(t("message.showBlocked")) { showBlocked = true }
                     .font(.footnote.weight(.semibold))
                 Spacer(minLength: 0)
             }
@@ -414,7 +417,7 @@ private struct MessageItem: View {
                     Button {
                         actions.retry(message.id)
                     } label: {
-                        Label("Not sent. Try again", systemImage: "exclamationmark.circle")
+                        Label(t("message.notSent"), systemImage: "exclamationmark.circle")
                             .font(.caption)
                             .foregroundStyle(Theme.red)
                     }
@@ -437,7 +440,7 @@ private struct MessageItem: View {
             // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name.
             if !own, context.isGroup, !context.grouped, jumbo == 0, !message.senderId.isEmpty {
                 HStack(spacing: 5) {
-                    Text(server.users[message.senderId]?.displayName ?? "Unknown")
+                    Text(server.users[message.senderId]?.displayName ?? t("chat.unknown"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.nameColor(message.senderId))
                         .lineLimit(1)
@@ -472,23 +475,23 @@ private struct MessageItem: View {
     @ViewBuilder
     private var content: some View {
         if deleted {
-            placeholder("Message deleted", icon: nil)
+            placeholder(t("message.deleted"), icon: nil)
             meta.frame(maxWidth: .infinity, alignment: .trailing)
         } else if message.status == .undecryptable {
             HStack(spacing: 7) {
                 ProgressView().controlSize(.mini)
-                Text("Waiting for this message's keys")
+                Text(t("message.waitingForKeys"))
             }
             .font(.subheadline)
             .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text2)
             meta.frame(maxWidth: .infinity, alignment: .trailing)
         } else if message.status == .unverified {
-            Label("This message couldn't be verified, so it isn't shown.", systemImage: "exclamationmark.shield")
+            Label(t("message.unverified"), systemImage: "exclamationmark.shield")
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
             meta.frame(maxWidth: .infinity, alignment: .trailing)
         } else if message.status == .invalid {
-            Label("This message couldn't be displayed.", systemImage: "exclamationmark.shield")
+            Label(t("message.invalid"), systemImage: "exclamationmark.shield")
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
             meta.frame(maxWidth: .infinity, alignment: .trailing)
@@ -558,15 +561,15 @@ private struct MessageItem: View {
     private var meta: some View {
         HStack(spacing: 3) {
             if message.timeDiffers == true {
-                Image(systemName: "exclamationmark.shield").font(.system(size: metaSize * 9 / 11)).accessibilityLabel("This message's time may be wrong")
+                Image(systemName: "exclamationmark.shield").font(.system(size: metaSize * 9 / 11)).accessibilityLabel(t("message.meta.timeWrong"))
             }
             if message.pinnedAt != nil {
                 Image(systemName: "pin.fill").font(.system(size: metaSize * 9 / 11)).rotationEffect(.degrees(35))
             }
             if message.expiresAt != nil {
-                Image(systemName: "timer").font(.system(size: metaSize * 9 / 11)).accessibilityLabel("Disappears")
+                Image(systemName: "timer").font(.system(size: metaSize * 9 / 11)).accessibilityLabel(t("message.meta.disappearsLabel"))
             }
-            if message.editedAt != nil && !deleted { Text("edited") }
+            if message.editedAt != nil && !deleted { Text(t("message.edited")) }
             Text(Format.time(message.createdAt))
             if own && !deleted { ticks }
         }
@@ -586,7 +589,7 @@ private struct MessageItem: View {
         let font = UIFont.monospacedDigitSystemFont(ofSize: metaSize, weight: .regular)
         let grow = metaSize / 11
         var width = (Format.time(message.createdAt) as NSString).size(withAttributes: [.font: font]).width
-        if message.editedAt != nil { width += ("edited" as NSString).size(withAttributes: [.font: font]).width + 3 }
+        if message.editedAt != nil { width += (t("message.edited") as NSString).size(withAttributes: [.font: font]).width + 3 }
         if message.timeDiffers == true { width += 12 * grow }
         if message.pinnedAt != nil { width += 12 * grow }
         if message.expiresAt != nil { width += 12 * grow }
@@ -620,15 +623,15 @@ struct ReadTicks: View {
         case .sending:
             SendingMark(createdAt: message.createdAt, tick: readUpTo >= 0).id(message.id)
         case .failed:
-            Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(failed).accessibilityLabel("Not sent")
+            Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(failed).accessibilityLabel(t("message.status.notSent"))
         default:
             if let seq = message.seq, readUpTo >= 0 {
                 if readUpTo >= seq {
                     DesktopIcon.read.view()
                         .foregroundStyle(model.settings.accent.text)
-                        .accessibilityLabel("Read")
+                        .accessibilityLabel(t("message.status.read"))
                 } else {
-                    DesktopIcon.sent.view().accessibilityLabel("Sent")
+                    DesktopIcon.sent.view().accessibilityLabel(t("message.status.sent"))
                 }
             }
         }
@@ -681,7 +684,7 @@ private struct SendingMark: View {
                 DesktopIcon.sent.view()
             }
         }
-        .accessibilityLabel("Sending")
+        .accessibilityLabel(t("message.status.sending"))
         .task {
             let waited = Date.now.timeIntervalSince1970 * 1000 - Double(createdAt)
             if waited < 500 { try? await Task.sleep(for: .milliseconds(500 - waited)) }
@@ -704,7 +707,7 @@ struct MessageMenu: View {
         let canAct = message.seq != nil && !deleted && message.status == .sent
         // There's no hovering here, so this is where the mark on the time gets explained.
         if message.timeDiffers == true {
-            Button("The sender's device reported a very different time for this message.", systemImage: "exclamationmark.shield") {}
+            Button(t("message.meta.timeDiffers"), systemImage: "exclamationmark.shield") {}
                 .disabled(true)
             Divider()
         }
@@ -714,33 +717,33 @@ struct MessageMenu: View {
                     Button(emoji) { actions.react(message.id, emoji, nil) }
                         .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
                 }
-                Button("More reactions", systemImage: "plus") { actions.pickReaction(message.id) }
+                Button(t("message.action.moreReactions"), systemImage: "plus") { actions.pickReaction(message.id) }
             }
             .controlGroupStyle(.palette)
             Divider()
-            Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
-            Button("Forward", systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
-            Button("Select", systemImage: "checkmark.circle") { actions.select(message) }
+            Button(t("message.action.reply"), systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
+            Button(t("message.action.forward"), systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
+            Button(t("message.action.select"), systemImage: "checkmark.circle") { actions.select(message) }
         }
         if !message.text.isEmpty && !deleted {
-            Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+            Button(t("message.action.copyText"), systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
         }
         if canAct && own && !message.text.isEmpty && message.forwarded == nil {
-            Button("Edit", systemImage: "pencil") { actions.edit(message) }
+            Button(t("common.edit"), systemImage: "pencil") { actions.edit(message) }
         }
         if canAct {
-            Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
+            Button(message.pinnedAt != nil ? t("message.action.unpin") : t("message.action.pin"), systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
                 actions.pin(message, message.pinnedAt == nil)
             }
         }
         // Who reacted with what, which the desktop shows on hover; an emote's card from it, as a
         // long press on the reaction itself only opens this menu.
         if !message.reactions.isEmpty && !deleted {
-            Menu("Reactions", systemImage: "face.smiling") {
+            Menu(t("message.action.reactions"), systemImage: "face.smiling") {
                 ForEach(message.reactions, id: \.key) { reaction in
                     let names = actions.reactedBy(reaction.userIds)
                     Button {
-                        if let emote = reaction.emote { actions.emoteCard(reaction.key, emote, "Reacted by \(names)") }
+                        if let emote = reaction.emote { actions.emoteCard(reaction.key, emote, t("message.reaction.reactedBy", ["names": names])) }
                     } label: {
                         Text(reaction.emote == nil ? reaction.key : ":\(reaction.key):")
                         Text(names)
@@ -754,7 +757,7 @@ struct MessageMenu: View {
         if canAct && own && context.isGroup {
             let readers = actions.readers(message)
             if !readers.isEmpty {
-                Menu("Read by \(readers.count)", systemImage: "checkmark.message") {
+                Menu(t("message.action.readBy", ["count": readers.count]), systemImage: "checkmark.message") {
                     ForEach(readers) { user in
                         Button(user.displayName) { actions.openChat("user:\(user.id)") }
                     }
@@ -763,13 +766,13 @@ struct MessageMenu: View {
             }
         }
         if message.status == .failed {
-            Button("Try again", systemImage: "arrow.clockwise") { actions.retry(message.id) }
-            Button("Discard", systemImage: "trash", role: .destructive) { actions.discard(message.id) }
+            Button(t("message.action.retry"), systemImage: "arrow.clockwise") { actions.retry(message.id) }
+            Button(t("message.action.discard"), systemImage: "trash", role: .destructive) { actions.discard(message.id) }
         }
         if canAct && (own || (context.isGroup && actions.isGroupAdmin) || actions.deletesAny) {
             Divider()
             // On Telegram, the chat asks how it may go: for everyone, or for this account alone.
-            Button(actions.deletesAny ? "Delete" : "Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
+            Button(actions.deletesAny ? t("common.delete") : t("message.action.deleteForEveryone"), systemImage: "trash", role: .destructive) { actions.delete(message) }
         }
     }
 }
@@ -845,13 +848,13 @@ private struct ReplyQuote: View {
     let jump: () -> Void
 
     var body: some View {
-        let name = reply.senderId == server.me?.userId ? "You" : server.users[reply.senderId]?.displayName ?? "Unknown"
+        let name = reply.senderId == server.me?.userId ? t("common.you") : server.users[reply.senderId]?.displayName ?? t("chat.unknown")
         Button(action: jump) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(own ? Color.white : Theme.nameColor(reply.senderId.isEmpty ? "x" : reply.senderId))
-                Text(reply.deleted ? "Message deleted" : server.isBlocked(reply.senderId) ? "A message from someone you blocked" : plainText(reply.text).isEmpty ? (reply.hasAttachment ? "Attachment" : "Tap to view") : plainText(reply.text))
+                Text(reply.deleted ? t("message.deleted") : server.isBlocked(reply.senderId) ? t("message.blocked") : plainText(reply.text).isEmpty ? (reply.hasAttachment ? t("message.reply.attachment") : t("message.reply.tapToView")) : plainText(reply.text))
                     .font(.footnote)
                     .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text2)
                     .lineLimit(1)

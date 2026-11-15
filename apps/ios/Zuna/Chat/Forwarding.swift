@@ -90,16 +90,16 @@ struct ForwardedLabel: View {
     let open: (_ userId: String) -> Void
 
     var body: some View {
-        let name = forwarded.userId.flatMap { $0 == server.me?.userId ? "You" : server.users[$0]?.displayName }
+        let name = forwarded.userId.flatMap { $0 == server.me?.userId ? t("common.you") : server.users[$0]?.displayName }
         Button {
             if let userId = forwarded.userId, name != nil { open(userId) }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "arrowshape.turn.up.right").font(.system(size: 11, weight: .semibold))
                 if let name {
-                    Text("Forwarded from \(Text(name).fontWeight(.semibold))")
+                    Text(Self.forwardedFrom(name))
                 } else {
-                    Text("Forwarded")
+                    Text(t("message.forwarded"))
                 }
             }
             .font(.footnote)
@@ -108,6 +108,15 @@ struct ForwardedLabel: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(A11y.Chat.forwarded)
+    }
+
+    /// "Forwarded from" and the name in semibold, wherever the language puts the name.
+    private static func forwardedFrom(_ name: String) -> AttributedString {
+        let template = t("message.forwardedFrom")
+        guard let slot = template.range(of: "{name}") else { return AttributedString(t("message.forwardedFrom", ["name": name])) }
+        var bold = AttributedString(name)
+        bold.font = Font.footnote.weight(.semibold)
+        return AttributedString(String(template[..<slot.lowerBound])) + bold + AttributedString(String(template[slot.upperBound...]))
     }
 }
 
@@ -148,10 +157,10 @@ struct ForwardSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
-            .navigationTitle("Forward to")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: t("groups.forward.search"))
+            .navigationTitle(t("groups.forward.title"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } } }
         }
         .accessibilityIdentifier(A11y.Forward.sheet)
     }

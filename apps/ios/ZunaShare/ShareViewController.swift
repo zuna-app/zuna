@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ZunaModels
 
 /// Zuna in the share sheet: what another app shares goes to the chats picked
 /// here, sent before the sheet closes. See `ShareModel` for how it's sent.
@@ -8,6 +9,8 @@ final class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // The language the app shows, kept in the App Group, read again for each share as it may have changed.
+        I18n.useAppGroup(SharedStorage.appGroup)
         view.backgroundColor = UIColor(Theme.bg1)
         // Swiping the sheet away would leave the core's data held; Cancel lets go of it first.
         isModalInPresentation = true

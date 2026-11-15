@@ -130,7 +130,7 @@ public final class CoreConnection: @unchecked Sendable {
                 continuation.resume(returning: data)
             } else {
                 continuation.resume(throwing: CoreCallError(
-                    message: envelope.error?.message ?? "Something went wrong.",
+                    message: envelope.error?.message ?? t("common.somethingWrong"),
                     code: envelope.error?.code,
                     status: envelope.error?.status
                 ))

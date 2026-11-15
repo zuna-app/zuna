@@ -13,10 +13,10 @@ private struct ResultRow<Action: View>: View {
             AvatarView(name: sender?.displayName ?? "?", seed: message.senderId, source: sender?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 34)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(sender?.displayName ?? "Unknown").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.nameColor(message.senderId))
+                    Text(sender?.displayName ?? t("chat.unknown")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.nameColor(message.senderId))
                     Text(Format.listTime(message.createdAt)).font(.caption).foregroundStyle(Theme.text3)
                 }
-                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? "Attachment" : plainText(message.text))
+                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? t("message.reply.attachment") : plainText(message.text))
                     .font(.subheadline)
                     .foregroundStyle(Theme.text1)
                     .lineLimit(3)
@@ -47,14 +47,14 @@ struct ChatSearchSheet: View {
         NavigationStack {
             List {
                 if let coverage, coverage.total > 0, coverage.done < coverage.total {
-                    Text("Still downloading your history. Older messages will appear in results soon.")
+                    Text(t("details.search.partial"))
                         .font(.footnote).foregroundStyle(Theme.text3).listRowBackground(Color.clear)
                 }
                 if needle.count < 2 {
-                    Text("Search happens on this device. The server never sees what you search for.")
+                    Text(t("details.search.private"))
                         .font(.footnote).foregroundStyle(Theme.text3).frame(maxWidth: .infinity).listRowBackground(Color.clear)
                 } else if results.isEmpty, !searching {
-                    Text("No messages found.").foregroundStyle(Theme.text2).frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                    Text(t("details.search.none")).foregroundStyle(Theme.text2).frame(maxWidth: .infinity).listRowBackground(Color.clear)
                 }
                 ForEach(results, id: \.message.id) { result in
                     Button {
@@ -69,10 +69,10 @@ struct ChatSearchSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search messages")
-            .navigationTitle("Search this chat")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: t("details.search.placeholder"))
+            .navigationTitle(t("chat.header.search"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(t("common.close")) { dismiss() } } }
             .task(id: needle) {
                 guard needle.count >= 2, let groupId = conversation.groupId else {
                     results = []
@@ -117,11 +117,11 @@ struct PinnedMessagesView: View {
             if let server = model.activeServer, let conversation = server.conversation(conversationKey) {
                 list(server, conversation)
             } else {
-                ContentUnavailableView("This chat isn't available", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                ContentUnavailableView(t("chat.unavailable"), systemImage: "bubble.left.and.exclamationmark.bubble.right")
             }
         }
         .background(Theme.bg0)
-        .navigationTitle("Pinned messages")
+        .navigationTitle(t("chat.pinned"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg0, for: .navigationBar)
         .accessibilityElement(children: .contain)
@@ -135,11 +135,11 @@ struct PinnedMessagesView: View {
         return List {
             if let failed {
                 ContentUnavailableView {
-                    Label("Couldn't load the pins", systemImage: "pin.slash")
+                    Label(t("chat.pins.loadFailed"), systemImage: "pin.slash")
                 } description: {
                     Text(failed)
                 } actions: {
-                    Button("Try again") { attempt += 1 }
+                    Button(t("common.tryAgain")) { attempt += 1 }
                 }
                 .listRowBackground(Color.clear)
             } else if pins == nil {
@@ -147,7 +147,7 @@ struct PinnedMessagesView: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
             } else if pins?.isEmpty == true {
-                ContentUnavailableView("Nothing is pinned yet.", systemImage: "pin", description: Text("Press and hold a message to pin it."))
+                ContentUnavailableView(t("chat.pins.empty"), systemImage: "pin", description: Text(t("chat.pins.emptyHint")))
                     .listRowBackground(Color.clear)
             }
             ForEach(pins ?? []) { message in
@@ -174,7 +174,7 @@ struct PinnedMessagesView: View {
                             Image(systemName: "pin.slash").foregroundStyle(Theme.text2).frame(width: 32, height: 32)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Unpin")
+                        .accessibilityLabel(t("message.action.unpin"))
                     }
                 }
                 .buttonStyle(.plain)

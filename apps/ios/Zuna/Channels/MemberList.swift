@@ -31,15 +31,15 @@ struct ChannelMemberList: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
                 if !bots.isEmpty {
-                    heading("Bots — \(bots.count)")
+                    heading(t("channels.members.bots", ["count": bots.count]))
                     ForEach(bots) { row($0, online: false, faded: false) }
                 }
                 if !members.online.isEmpty {
-                    heading("Online — \(members.online.count)")
+                    heading(t("channels.members.online", ["count": members.online.count]))
                     ForEach(members.online) { row($0, online: true) }
                 }
                 if !members.offline.isEmpty {
-                    heading("Offline — \(members.offline.count)")
+                    heading(t("channels.members.offline", ["count": members.offline.count]))
                     ForEach(members.offline) { row($0, online: false) }
                 }
             }
@@ -49,7 +49,7 @@ struct ChannelMemberList: View {
         .background(Theme.bg1)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.line).frame(width: 1) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Members")
+        .accessibilityLabel(t("channels.members.title"))
         .accessibilityIdentifier(A11y.Channels.memberList)
     }
 
@@ -81,7 +81,7 @@ struct ChannelMemberList: View {
                     Image(systemName: "crown.fill")
                         .font(.caption)
                         .foregroundStyle(Color(hex: 0xF0B232))
-                        .accessibilityLabel("Owner")
+                        .accessibilityLabel(t("channels.members.ownerLabel"))
                 }
                 Spacer(minLength: 0)
             }
@@ -94,8 +94,8 @@ struct ChannelMemberList: View {
         .padding(.horizontal, 8)
         .contextMenu {
             if !user.isSelf {
-                Button("Profile", systemImage: "person.crop.circle") { profile(user.id) }
-                Button("Message", systemImage: "bubble.left") { model.openChat("user:\(user.id)") }
+                Button(t("details.member.profile"), systemImage: "person.crop.circle") { profile(user.id) }
+                Button(t("details.member.message"), systemImage: "bubble.left") { model.openChat("user:\(user.id)") }
             }
         }
         .accessibilityIdentifier(A11y.Channels.listedMember(user.id))

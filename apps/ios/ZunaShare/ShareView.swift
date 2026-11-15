@@ -29,8 +29,8 @@ struct ShareView: View {
                 .environment(model)
                 .environment(model.images)
         }
-        .alert("Not sent", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
-            Button("OK", role: .cancel) {}
+        .alert(t("share.notSent"), isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            Button(t("common.ok"), role: .cancel) {}
         } message: {
             Text(model.failure ?? "")
         }
@@ -52,7 +52,7 @@ struct ShareView: View {
                 }
                 .buttonStyle(.plain)
                 .allowsHitTesting(manyServers)
-                .accessibilityLabel("Servers, \(server.name)")
+                .accessibilityLabel(t("share.serversLabel", ["name": server.name]))
                 .accessibilityIdentifier(A11y.Share.servers)
             }
             .withoutSharedBackground()
@@ -79,7 +79,7 @@ struct ShareView: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Cancel") { model.cancel() }
+            Button(t("common.cancel")) { model.cancel() }
                 .disabled(model.phase == .sending || model.phase == .sent)
         }
     }
@@ -103,7 +103,7 @@ struct ShareView: View {
                 Button {
                     Task { await model.unlock() }
                 } label: {
-                    Label("Unlock with \(AppLock.methodName)", systemImage: "lock.open.fill")
+                    Label(unlockLabel, systemImage: "lock.open.fill")
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
                 }
@@ -115,6 +115,12 @@ struct ShareView: View {
         }
     }
 
+    /// Face ID, Touch ID or Optic ID by its name, which no language translates, or the passcode in words.
+    private var unlockLabel: String {
+        let method = AppLock.methodName
+        return ["Face ID", "Touch ID", "Optic ID"].contains(method) ? t("share.unlockWith", ["method": method]) : t("share.unlockWithPasscode")
+    }
+
     private func notice(_ text: String) -> some View {
         VStack(spacing: 16) {
             Text(text)
@@ -122,7 +128,7 @@ struct ShareView: View {
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier(A11y.Share.notice)
-            Button("Close") { model.cancel() }
+            Button(t("common.close")) { model.cancel() }
                 .buttonStyle(.bordered)
                 .foregroundStyle(Theme.text1)
         }
@@ -136,7 +142,7 @@ struct ShareView: View {
         let targets = model.targets
         let chats = targets.filter { $0.kind != .textChannel && $0.kind != .voiceChannel }
         let channels = targets.filter { $0.kind == .textChannel || $0.kind == .voiceChannel }
-        return PullSearchList(query: $model.query, prompt: "Search", resetKey: model.serverId) {
+        return PullSearchList(query: $model.query, prompt: t("common.search"), resetKey: model.serverId) {
             Section {
                 ForEach(chats) { row($0) }
             }
@@ -145,14 +151,14 @@ struct ShareView: View {
                 Section {
                     ForEach(channels) { row($0) }
                 } header: {
-                    Text("Channels")
+                    Text(t("share.channels"))
                         .font(.footnote.weight(.semibold))
                         .textCase(.uppercase)
                         .foregroundStyle(Theme.text3)
                 }
             }
             if targets.isEmpty {
-                Text(model.query.isEmpty ? "No chats on this server yet." : "No chats match \u{201C}\(model.query)\u{201D}.")
+                Text(model.query.isEmpty ? t("share.noChats") : t("share.noMatch", ["query": model.query]))
                     .font(.subheadline)
                     .foregroundStyle(Theme.text3)
                     .frame(maxWidth: .infinity)
@@ -269,7 +275,7 @@ struct ShareView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 14)
                 HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Add a comment…", text: $model.text, axis: .vertical)
+                    TextField(t("share.commentPlaceholder"), text: $model.text, axis: .vertical)
                         .lineLimit(1...5)
                         .font(.body)
                         .foregroundStyle(Theme.text1)
@@ -290,7 +296,7 @@ struct ShareView: View {
                     .buttonStyle(.plain)
                     .disabled(!model.canSend)
                     .padding(.bottom, 1)
-                    .accessibilityLabel("Send")
+                    .accessibilityLabel(t("common.send"))
                     .accessibilityIdentifier(A11y.Share.send)
                 }
                 .padding(.horizontal, 8)
@@ -331,14 +337,14 @@ struct ShareView: View {
                         .foregroundStyle(model.settings.accent.onAccent)
                         .frame(width: 48, height: 48)
                         .background(model.settings.accent.color, in: .circle)
-                    Text("Sent").foregroundStyle(Theme.text1)
+                    Text(t("share.sent")).foregroundStyle(Theme.text1)
                 } else {
                     if let progress = model.progress {
                         ProgressView(value: progress).frame(width: 160).tint(model.settings.accent.color)
                     } else {
                         ProgressView().tint(Theme.text1)
                     }
-                    Text("Sending…").foregroundStyle(Theme.text1)
+                    Text(t("share.sending")).foregroundStyle(Theme.text1)
                 }
             }
             .padding(24)
@@ -396,7 +402,7 @@ private struct ServerChoice: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.bg1)
-        .navigationTitle("Servers")
+        .navigationTitle(t("share.servers"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg1, for: .navigationBar)
     }

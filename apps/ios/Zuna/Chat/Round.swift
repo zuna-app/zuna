@@ -65,11 +65,11 @@ final class RoundRecorder {
         case camera, microphone, unavailable, unrecorded, unreadable
         var errorDescription: String? {
             switch self {
-            case .camera: "Zuna can't use the camera. Allow it in Settings, under Zuna."
-            case .microphone: "Zuna can't use the microphone. Allow it in Settings, under Zuna."
-            case .unavailable: "The camera isn't available right now."
-            case .unrecorded: "The camera stopped recording. Try again."
-            case .unreadable: "The video message couldn't be created."
+            case .camera: t("composer.record.cameraDenied")
+            case .microphone: t("composer.record.microphoneDenied")
+            case .unavailable: t("composer.record.cameraUnavailable")
+            case .unrecorded: t("composer.record.cameraStopped")
+            case .unreadable: t("composer.record.roundFailed")
             }
         }
     }
@@ -453,8 +453,8 @@ struct RoundVideoCard: View {
             looping?.pause()
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Video message, \(Format.duration(duration))")
-        .accessibilityValue(mine && player.isPlaying ? "Playing" : "")
+        .accessibilityLabel(t("message.round.label", ["duration": Format.duration(duration)]))
+        .accessibilityValue(mine && player.isPlaying ? t("media.playing") : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(A11y.Chat.round(messageId))
     }
@@ -488,7 +488,7 @@ struct RoundVideoCard: View {
                 try await player.play(file, id: attachment.fileId, from: 0, video: true)
                 if serverId == ServerEntry.telegram { model.markTelegramListened(messageId) }
             } catch {
-                model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)
+                model.toast(t("media.playFailed", ["error": ErrorText.describe(error)]), .error)
             }
         }
     }

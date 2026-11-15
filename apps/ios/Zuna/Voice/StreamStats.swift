@@ -23,9 +23,20 @@ struct StatSection: Equatable, Identifiable {
     /// The frame rate to look at first, with how it's been lately.
     struct Headline: Equatable {
         let fps: Double?
-        let label: String
+        /// The rate frames are sent at, rather than decoded at.
+        let sent: Bool
         let wanted: Int?
         let history: [Double]
+
+        /// What the rate is, after the number: "fps sent of 60".
+        var caption: String {
+            switch (sent, wanted) {
+            case let (true, wanted?): t("voice.stats.fpsSentOf", ["wanted": wanted])
+            case (true, nil): t("voice.stats.fpsSent")
+            case let (false, wanted?): t("voice.stats.fpsDecodedOf", ["wanted": wanted])
+            case (false, nil): t("voice.stats.fpsDecoded")
+            }
+        }
     }
 
     let id: String
@@ -78,11 +89,13 @@ private func row(_ label: String, _ value: String?, warn: Bool = false) -> StatR
 }
 
 private func decimal(_ value: Double, _ digits: Int) -> String { String(format: "%.\(digits)f", value) }
-private func fps(_ value: Double?) -> String? { value.map { "\(decimal($0, 1)) fps" } }
-private func ms(_ seconds: Double?, digits: Int = 1) -> String? { seconds.map { "\(decimal($0 * 1000, digits)) ms" } }
+private func fps(_ value: Double?) -> String? { value.map { t("voice.units.fps", ["value": decimal($0, 1)]) } }
+private func ms(_ seconds: Double?, digits: Int = 1) -> String? { seconds.map { t("voice.units.ms", ["value": decimal($0 * 1000, digits)]) } }
 private func bits(_ perSecond: Double?) -> String? {
     guard let perSecond else { return nil }
-    return perSecond >= 1_000_000 ? "\(decimal(perSecond / 1_000_000, 1)) Mbit/s" : "\(Int((perSecond / 1000).rounded())) kbit/s"
+    return perSecond >= 1_000_000
+        ? t("voice.units.mbitps", ["value": decimal(perSecond / 1_000_000, 1)])
+        : t("voice.units.kbitps", ["value": Int((perSecond / 1000).rounded())])
 }
 
 private func size(_ width: UInt?, _ height: UInt?) -> String? {
@@ -94,18 +107,18 @@ private func count(_ value: (some BinaryInteger)?) -> String? {
     value.map { Int64($0).formatted(.number.locale(Locale(identifier: "en_US"))) }
 }
 
-private func seconds(_ value: Double?) -> String? { value.map { "\(decimal($0, 1)) s" } }
+private func seconds(_ value: Double?) -> String? { value.map { t("voice.units.seconds", ["value": decimal($0, 1)]) } }
 private func percent(_ value: Double?) -> String? {
     value.map { "\(decimal($0 * 100, $0 > 0 && $0 < 0.1 ? 2 : 1))%" }
 }
 
 private func joined(_ parts: String?...) -> String { parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ") }
-private func hardware(_ efficient: Bool?) -> String? { efficient.map { $0 ? "hardware" : "software" } }
+private func hardware(_ efficient: Bool?) -> String? { efficient.map { $0 ? t("voice.stats.hardware") : t("voice.stats.software") } }
 /// Hardware decoders report nothing here, which comes through as zero.
 private func quantizer(_ value: Double?) -> String? { value.flatMap { $0 > 0 ? decimal($0, 1) : nil } }
 private func encryption(_ publication: TrackPublication) -> StatRow? {
     let encrypted = publication.encryptionType != .none
-    return row("Encryption", encrypted ? "End-to-end" : "Off", warn: !encrypted)
+    return row(t("voice.stats.encryption"), encrypted ? t("voice.stats.endToEnd") : t("common.off"), warn: !encrypted)
 }
 
 /// How much each total has moved since the reading before.
@@ -159,21 +172,21 @@ private func codecOf(_ statistics: TrackStatistics, _ codecId: String?) -> Strin
 
 private func titleOf(_ stream: StatsRoom.Stream, nameOf: (String) -> String) -> String {
     let (mine, theirs): (String, String) = switch stream.source {
-    case .microphone: ("Your microphone", "microphone")
-    case .camera: ("Your camera", "camera")
-    case .screenShareVideo: ("Your screen", "screen")
-    case .screenShareAudio: ("Your computer's sound", "shared sound")
-    default: ("Your stream", "stream")
+    case .microphone: (mark("voice.stats.yourMicrophone"), mark("voice.stats.theirMicrophone"))
+    case .camera: (mark("voice.stats.yourCamera"), mark("voice.stats.theirCamera"))
+    case .screenShareVideo: (mark("voice.stage.yourScreen"), mark("voice.stage.theirScreen"))
+    case .screenShareAudio: (mark("voice.stats.yourSound"), mark("voice.stats.theirSound"))
+    default: (mark("voice.stats.yourStream"), mark("voice.stats.theirStream"))
     }
-    return stream.local ? mine : "\(nameOf(stream.userId))'s \(theirs)"
+    return stream.local ? t(mine) : t(theirs, ["name": nameOf(stream.userId)])
 }
 
 /// How the microphone's sound is cleaned up before it goes out: by the system, which the desktop does itself.
 @MainActor
 private var micFilters: String {
     let audio = AudioManager.shared
-    guard audio.isPlatformVoiceProcessingAllowed, !audio.isVoiceProcessingBypassed else { return "Nothing" }
-    return AVCaptureDevice.activeMicrophoneMode == .voiceIsolation ? "Apple's voice processing, with Voice Isolation" : "Apple's voice processing"
+    guard audio.isPlatformVoiceProcessingAllowed, !audio.isVoiceProcessingBypassed else { return t("voice.stats.nothing") }
+    return AVCaptureDevice.activeMicrophoneMode == .voiceIsolation ? t("voice.stats.appleVoiceIsolation") : t("voice.stats.appleVoice")
 }
 
 /// Reads every stream while the stats are open, asking LiveKit for each track's statistics until it's closed.
@@ -200,7 +213,8 @@ final class StreamStats {
         asked = [:]
     }
 
-    func read(_ room: StatsRoom, status: String, share: StatsShare?, nameOf: (String) -> String) -> [StatSection] {
+    /// `status` is how the connection is, in words, and `connected` whether that's as it should be.
+    func read(_ room: StatsRoom, status: String, connected: Bool, share: StatsShare?, nameOf: (String) -> String) -> [StatSection] {
         guard !closed else { return [] }
         var fresh: [(stream: StatsRoom.Stream, statistics: TrackStatistics)] = []
         for stream in room.streams {
@@ -226,7 +240,7 @@ final class StreamStats {
         let here = Set(room.streams.map(\.key))
         readings = readings.filter { here.contains($0.key) }
         histories = histories.filter { here.contains($0.key) }
-        return videos + [connection(room, status: status, sending: sending, receiving: receiving)] + sounds
+        return videos + [connection(room, status: status, connected: connected, sending: sending, receiving: receiving)] + sounds
     }
 
     /// A stream's section from a reading it hasn't had before, or as it was if nothing new has come in since.
@@ -256,7 +270,7 @@ final class StreamStats {
     // MARK: The connection
 
     /// How one direction's packets travel. This device's own address is left out, for pasting this somewhere.
-    private func path(_ statistics: TrackStatistics?, word: String, allows: KeyPath<IceCandidatePairStatistics, Double?>) -> [StatRow] {
+    private func path(_ statistics: TrackStatistics?, sending: Bool, allows: KeyPath<IceCandidatePairStatistics, Double?>) -> [StatRow] {
         guard let statistics else { return [] }
         let transport = statistics.transportStats
         let pair = statistics.iceCandidatePair.first { $0.id == transport?.selectedCandidatePairId } ?? statistics.iceCandidatePair.first { $0.nominated == true }
@@ -265,33 +279,33 @@ final class StreamStats {
         let port = remote?.port
         // WebRTC doesn't always say the address, and then says it's empty.
         let host = remote?.address.flatMap { $0.isEmpty ? nil : $0 }
-        let address = host.map { "\($0):\(port.map(String.init) ?? "?")" } ?? port.map { "port \($0)" }
+        let address = host.map { "\($0):\(port.map(String.init) ?? "?")" } ?? port.map { t("voice.stats.port", ["port": $0]) }
         let kind = local?.candidateType
-        let how = kind == .relay ? "relayed over \(local?.relayProtocol?.rawValue ?? "TURN")" : kind?.rawValue
+        let how = kind == .relay ? t("voice.stats.relayedOver", ["protocol": local?.relayProtocol?.rawValue ?? "TURN"]) : kind?.rawValue
         return [
-            row("\(word) path", address.map { joined(local?.protocol?.uppercased(), how, "to \($0)") }, warn: kind == .relay),
-            row("\(word) round trip", ms(pair?.currentRoundTripTime, digits: 0)),
-            row("\(word) network allows", bits(pair?[keyPath: allows])),
-            row("\(word) cipher", transport?.srtpCipher),
+            row(sending ? t("voice.stats.sendingPath") : t("voice.stats.receivingPath"), address.map { joined(local?.protocol?.uppercased(), how, t("voice.stats.to", ["address": $0])) }, warn: kind == .relay),
+            row(sending ? t("voice.stats.sendingRoundTrip") : t("voice.stats.receivingRoundTrip"), ms(pair?.currentRoundTripTime, digits: 0)),
+            row(sending ? t("voice.stats.sendingAllows") : t("voice.stats.receivingAllows"), bits(pair?[keyPath: allows])),
+            row(sending ? t("voice.stats.sendingCipher") : t("voice.stats.receivingCipher"), transport?.srtpCipher),
         ].compactMap { $0 }
     }
 
-    private func connection(_ room: StatsRoom, status: String, sending: TrackStatistics?, receiving: TrackStatistics?) -> StatSection {
+    private func connection(_ room: StatsRoom, status: String, connected: Bool, sending: TrackStatistics?, receiving: TrackStatistics?) -> StatSection {
         let host = URL(string: room.url).flatMap { url in url.host.map { host in url.port.map { "\(host):\($0)" } ?? host } } ?? room.url
-        let key = room.keyIndex.map { index in ", key \(index) from epoch \(room.keyEpoch.map(String.init) ?? "?")" } ?? ""
+        let endToEnd = room.keyIndex.map { index in t("voice.stats.endToEndKey", ["key": index, "epoch": room.keyEpoch.map(String.init) ?? "?"]) } ?? t("voice.stats.endToEnd")
         let rows: [StatRow?] = [
-            row("Status", status, warn: status != "connected"),
-            row("Media server", host),
+            row(t("voice.stats.status"), status, warn: !connected),
+            row(t("voice.stats.mediaServer"), host),
             row("LiveKit", joined(room.serverVersion, room.serverRegion, room.serverNode)),
-            row("In the room", String(room.people)),
-            row("Encryption", room.encrypted ? "End-to-end\(key)" : "Off", warn: !room.encrypted),
-            room.proxy.flatMap { row("Proxy", $0) },
+            row(t("voice.stats.inRoom"), String(room.people)),
+            row(t("voice.stats.encryption"), room.encrypted ? endToEnd : t("common.off"), warn: !room.encrypted),
+            room.proxy.flatMap { row(t("voice.stats.proxy"), $0) },
         ]
         return StatSection(
             id: "connection",
-            title: "Connection",
+            title: t("voice.stats.connection"),
             kind: .connection,
-            rows: rows.compactMap { $0 } + path(sending, word: "Sending", allows: \.availableOutgoingBitrate) + path(receiving, word: "Receiving", allows: \.availableIncomingBitrate)
+            rows: rows.compactMap { $0 } + path(sending, sending: true, allows: \.availableOutgoingBitrate) + path(receiving, sending: false, allows: \.availableIncomingBitrate)
         )
     }
 
@@ -310,49 +324,53 @@ final class StreamStats {
         let reason = rtp.qualityLimitationReason
         let durations = rtp.qualityLimitationDurations
         let limitedFor = [("cpu", durations?.cpu), ("bandwidth", durations?.bandwidth), ("other", durations?.other)]
-            .compactMap { name, time in time.flatMap { $0 > 0.5 ? "\(name) \(decimal($0, 0)) s" : nil } }
+            .compactMap { name, time in time.flatMap { $0 > 0.5 ? "\(name) \(t("voice.units.seconds", ["value": decimal($0, 0)]))" : nil } }
             .joined(separator: ", ")
         let lost = remote?.fractionLost
         let held: [String] = share.map { share in
             share.terms.held.map { limit -> String in
                 switch limit {
                 case .height: VoiceSettingsView.heightName(share.terms.height)
-                case .fps: "\(share.terms.fps) fps"
+                case .fps: t("voice.units.fps", ["value": share.terms.fps])
                 case .kbps: VoiceSettingsView.bitrateName(share.terms.kbps)
                 }
             }
         } ?? []
         let rows: [StatRow?] = [
-            row("Encoded by", share?.through),
-            row("Requested from capture", share.map { "\($0.terms.fps) fps\($0.terms.height > 0 ? ", up to \($0.terms.height) lines" : "")" }),
-            row("Limited by the server", held.isEmpty ? nil : held.joined(separator: ", ")),
-            row("Capturing", fps(capture?.framesPerSecond)),
-            row("Encoding", fps(moved.perSecond(\.framesEncoded))),
-            row("Sending", fps(sentFps)),
-            row("Picture", joined(size(capture?.width, capture?.height), layers.count > 1 ? size(rtp.frameWidth, rtp.frameHeight).map { "sending \($0) of \(layers.count) layers" } : nil)),
-            row("Sent as", layers.count > 1 ? nil : size(rtp.frameWidth, rtp.frameHeight)),
-            row("Codec", codecOf(statistics, rtp.codecId)),
-            row("Encoder", joined(rtp.encoderImplementation, hardware(rtp.powerEfficientEncoder), rtp.scalabilityMode)),
-            row("Bitrate", bits(moved.bitsPerSecond(bytes, before: bytesBefore))),
-            row("Max bitrate", share.flatMap { bits(Double($0.terms.kbps) * 1000) }),
-            row("Target bitrate", bits(rtp.targetBitrate)),
-            row("Encode time", ms(moved.each(\.totalEncodeTime, of: \.framesEncoded))),
-            row("Quantizer", quantizer(moved.each(\.qpSum, of: \.framesEncoded))),
-            row("Limited by", reason.map { $0 == .none ? "Nothing" : $0.rawValue }, warn: reason != nil && reason != QualityLimitationReason.none),
-            row("Limited so far", limitedFor),
-            row("Lower sizes", (rtp.qualityLimitationResolutionChanges ?? 0) > 0 ? count(rtp.qualityLimitationResolutionChanges) : nil),
-            row("Keyframes", joined(count(rtp.keyFramesEncoded), "\(count(rtp.pliCount) ?? "0") asked for", (moved.change(\.firCount) ?? 0) != 0 ? "\(count(rtp.firCount) ?? "0") FIR" : nil)),
-            row("Huge frames", (rtp.hugeFramesSent ?? 0) > 0 ? count(rtp.hugeFramesSent) : nil),
-            row("Packets", joined(count(rtp.packetsSent), "\(count(rtp.retransmittedPacketsSent) ?? "0") sent again", "\(count(rtp.nackCount) ?? "0") NACK")),
-            row("Packet loss", percent(lost), warn: (lost ?? 0) > noticeableLoss),
-            row("Round trip", ms(remote?.roundTripTime, digits: 0)),
+            row(t("voice.stats.encodedBy"), share?.through),
+            row(t("voice.stats.requestedFromCapture"), share.map { share in
+                share.terms.height > 0
+                    ? t("voice.stats.fpsUpToLines", ["fps": share.terms.fps, "lines": share.terms.height])
+                    : t("voice.units.fps", ["value": share.terms.fps])
+            }),
+            row(t("voice.stats.limitedByServer"), held.isEmpty ? nil : held.joined(separator: ", ")),
+            row(t("voice.stats.capturing"), fps(capture?.framesPerSecond)),
+            row(t("voice.stats.encoding"), fps(moved.perSecond(\.framesEncoded))),
+            row(t("voice.stats.sending"), fps(sentFps)),
+            row(t("voice.stats.picture"), joined(size(capture?.width, capture?.height), layers.count > 1 ? size(rtp.frameWidth, rtp.frameHeight).map { t("voice.stats.layers", ["size": $0, "layers": layers.count]) } : nil)),
+            row(t("voice.stats.sentAs"), layers.count > 1 ? nil : size(rtp.frameWidth, rtp.frameHeight)),
+            row(t("voice.stats.codec"), codecOf(statistics, rtp.codecId)),
+            row(t("voice.stats.encoder"), joined(rtp.encoderImplementation, hardware(rtp.powerEfficientEncoder), rtp.scalabilityMode)),
+            row(t("voice.stats.bitrate"), bits(moved.bitsPerSecond(bytes, before: bytesBefore))),
+            row(t("voice.stats.maxBitrate"), share.flatMap { bits(Double($0.terms.kbps) * 1000) }),
+            row(t("voice.stats.targetBitrate"), bits(rtp.targetBitrate)),
+            row(t("voice.stats.encodeTime"), ms(moved.each(\.totalEncodeTime, of: \.framesEncoded))),
+            row(t("voice.stats.quantizer"), quantizer(moved.each(\.qpSum, of: \.framesEncoded))),
+            row(t("voice.stats.limitedBy"), reason.map { $0 == .none ? t("voice.stats.nothing") : $0.rawValue }, warn: reason != nil && reason != QualityLimitationReason.none),
+            row(t("voice.stats.limitedSoFar"), limitedFor),
+            row(t("voice.stats.lowerSizes"), (rtp.qualityLimitationResolutionChanges ?? 0) > 0 ? count(rtp.qualityLimitationResolutionChanges) : nil),
+            row(t("voice.stats.keyframes"), joined(count(rtp.keyFramesEncoded), t("voice.stats.askedFor", ["count": count(rtp.pliCount) ?? "0"]), (moved.change(\.firCount) ?? 0) != 0 ? "\(count(rtp.firCount) ?? "0") FIR" : nil)),
+            row(t("voice.stats.hugeFrames"), (rtp.hugeFramesSent ?? 0) > 0 ? count(rtp.hugeFramesSent) : nil),
+            row(t("voice.stats.packets"), joined(count(rtp.packetsSent), t("voice.stats.sentAgain", ["count": count(rtp.retransmittedPacketsSent) ?? "0"]), "\(count(rtp.nackCount) ?? "0") NACK")),
+            row(t("voice.stats.packetLoss"), percent(lost), warn: (lost ?? 0) > noticeableLoss),
+            row(t("voice.stats.roundTrip"), ms(remote?.roundTripTime, digits: 0)),
             encryption(stream.publication),
         ]
         return StatSection(
             id: stream.key,
             title: title,
             kind: .video,
-            headline: .init(fps: sentFps, label: "sent", wanted: share?.terms.fps, history: history(stream.key, sentFps)),
+            headline: .init(fps: sentFps, sent: true, wanted: share?.terms.fps, history: history(stream.key, sentFps)),
             rows: rows.compactMap { $0 }
         )
     }
@@ -368,38 +386,38 @@ final class StreamStats {
                   let total = moved.change(\.totalInterFrameDelay), let squares = moved.change(\.totalSquaredInterFrameDelay) else { return nil }
             let mean = total / frames
             let spread = (max(0, (squares - total * total / frames) / frames)).squareRoot()
-            return "\(decimal(mean * 1000, 1)) ms, ±\(decimal(spread * 1000, 1)) ms"
+            return t("voice.stats.spacing", ["mean": ms(mean) ?? "", "spread": ms(spread) ?? ""])
         }()
         let dropping = moved.perSecond(\.framesDropped) ?? 0
         let loss = lossOf(moved.change(\.packetsLost), moved.change(\.packetsReceived))
         let rows: [StatRow?] = [
-            row("Encoded by", stream.source == .screenShareVideo && stream.native ? "Their desktop app, on their graphics card" : nil),
-            row("Receiving", fps(moved.perSecond(\.framesReceived))),
-            row("Decoding", fps(decoded)),
-            row("Frames dropped", joined(count(rtp.framesDropped), dropping > 0 ? "\(decimal(dropping, 1)) a second" : nil), warn: dropping > 0),
-            row("Picture", size(rtp.frameWidth, rtp.frameHeight)),
-            row("Codec", codecOf(statistics, rtp.codecId)),
-            row("Decoder", joined(rtp.decoderImplementation, hardware(rtp.powerEfficientDecoder))),
-            row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
-            row("Decode time", ms(moved.each(\.totalDecodeTime, of: \.framesDecoded))),
-            row("Display delay", ms(moved.each(\.totalProcessingDelay, of: \.framesDecoded))),
-            row("Quantizer", quantizer(moved.each(\.qpSum, of: \.framesDecoded))),
-            row("Jitter buffer", ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
-            row("Target buffer", ms(moved.each(\.jitterBufferTargetDelay, of: \.jitterBufferEmittedCount))),
-            row("Network jitter", ms(rtp.jitter)),
-            row("Frame spacing", spacing),
-            row("Freezes", joined(count(rtp.freezeCount), seconds(rtp.totalFreezesDuration)), warn: (moved.change(\.freezeCount) ?? 0) > 0),
-            row("Pauses", joined(count(rtp.pauseCount), seconds(rtp.totalPausesDuration))),
-            row("Keyframes", joined(count(rtp.keyFramesDecoded), "\(count(rtp.pliCount) ?? "0") asked for", (moved.change(\.firCount) ?? 0) != 0 ? "\(count(rtp.firCount) ?? "0") FIR" : nil)),
-            row("Packets", joined(count(rtp.packetsReceived), "\(count(rtp.nackCount) ?? "0") NACK", "\(count(rtp.retransmittedPacketsReceived) ?? "0") resent")),
-            row("Lost", joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
+            row(t("voice.stats.encodedBy"), stream.source == .screenShareVideo && stream.native ? t("voice.stats.theirDesktopApp") : nil),
+            row(t("voice.stats.receiving"), fps(moved.perSecond(\.framesReceived))),
+            row(t("voice.stats.decoding"), fps(decoded)),
+            row(t("voice.stats.framesDropped"), joined(count(rtp.framesDropped), dropping > 0 ? t("voice.stats.perSecond", ["count": decimal(dropping, 1)]) : nil), warn: dropping > 0),
+            row(t("voice.stats.picture"), size(rtp.frameWidth, rtp.frameHeight)),
+            row(t("voice.stats.codec"), codecOf(statistics, rtp.codecId)),
+            row(t("voice.stats.decoder"), joined(rtp.decoderImplementation, hardware(rtp.powerEfficientDecoder))),
+            row(t("voice.stats.bitrate"), bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
+            row(t("voice.stats.decodeTime"), ms(moved.each(\.totalDecodeTime, of: \.framesDecoded))),
+            row(t("voice.stats.displayDelay"), ms(moved.each(\.totalProcessingDelay, of: \.framesDecoded))),
+            row(t("voice.stats.quantizer"), quantizer(moved.each(\.qpSum, of: \.framesDecoded))),
+            row(t("voice.stats.jitterBuffer"), ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
+            row(t("voice.stats.targetBuffer"), ms(moved.each(\.jitterBufferTargetDelay, of: \.jitterBufferEmittedCount))),
+            row(t("voice.stats.networkJitter"), ms(rtp.jitter)),
+            row(t("voice.stats.frameSpacing"), spacing),
+            row(t("voice.stats.freezes"), joined(count(rtp.freezeCount), seconds(rtp.totalFreezesDuration)), warn: (moved.change(\.freezeCount) ?? 0) > 0),
+            row(t("voice.stats.pauses"), joined(count(rtp.pauseCount), seconds(rtp.totalPausesDuration))),
+            row(t("voice.stats.keyframes"), joined(count(rtp.keyFramesDecoded), t("voice.stats.askedFor", ["count": count(rtp.pliCount) ?? "0"]), (moved.change(\.firCount) ?? 0) != 0 ? "\(count(rtp.firCount) ?? "0") FIR" : nil)),
+            row(t("voice.stats.packets"), joined(count(rtp.packetsReceived), "\(count(rtp.nackCount) ?? "0") NACK", t("voice.stats.resent", ["count": count(rtp.retransmittedPacketsReceived) ?? "0"]))),
+            row(t("voice.stats.lost"), joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
             encryption(stream.publication),
         ]
         return StatSection(
             id: stream.key,
             title: title,
             kind: .video,
-            headline: .init(fps: decoded, label: "decoded", wanted: nil, history: history(stream.key, decoded)),
+            headline: .init(fps: decoded, sent: false, wanted: nil, history: history(stream.key, decoded)),
             rows: rows.compactMap { $0 }
         )
     }
@@ -412,14 +430,14 @@ final class StreamStats {
         let remote = statistics.remoteInboundRtpStream.first
         let lost = remote?.fractionLost
         let rows: [StatRow?] = [
-            row("Muted", stream.publication.isMuted ? "Yes" : nil),
-            row("Processing", stream.source == .microphone ? micFilters : nil),
-            row("Codec", codecOf(statistics, rtp.codecId)),
-            row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesSent ?? 0, before: moved.before?.bytesSent))),
-            row("Target bitrate", bits(rtp.targetBitrate)),
-            row("Packets", count(rtp.packetsSent)),
-            row("Packet loss", percent(lost), warn: (lost ?? 0) > noticeableLoss),
-            row("Round trip", ms(remote?.roundTripTime, digits: 0)),
+            row(t("voice.stats.muted"), stream.publication.isMuted ? t("voice.stats.yes") : nil),
+            row(t("voice.stats.processing"), stream.source == .microphone ? micFilters : nil),
+            row(t("voice.stats.codec"), codecOf(statistics, rtp.codecId)),
+            row(t("voice.stats.bitrate"), bits(moved.bitsPerSecond(rtp.bytesSent ?? 0, before: moved.before?.bytesSent))),
+            row(t("voice.stats.targetBitrate"), bits(rtp.targetBitrate)),
+            row(t("voice.stats.packets"), count(rtp.packetsSent)),
+            row(t("voice.stats.packetLoss"), percent(lost), warn: (lost ?? 0) > noticeableLoss),
+            row(t("voice.stats.roundTrip"), ms(remote?.roundTripTime, digits: 0)),
             encryption(stream.publication),
         ]
         return StatSection(id: stream.key, title: title, kind: .audio, rows: rows.compactMap { $0 })
@@ -435,23 +453,34 @@ final class StreamStats {
         let muted = stream.publication.isMuted
         let loss = lossOf(moved.change(\.packetsLost), moved.change(\.packetsReceived))
         let rows: [StatRow?] = [
-            row("Muted", muted ? "Yes" : nil),
-            row("Codec", codecOf(statistics, rtp.codecId)),
-            row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
-            row("Jitter buffer", ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
-            row("Network jitter", ms(rtp.jitter)),
-            row("Concealed", percent(concealed), warn: !muted && (concealed ?? 0) > noticeableLoss),
-            row("Packets", count(rtp.packetsReceived)),
-            row("Lost", joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
+            row(t("voice.stats.muted"), muted ? t("voice.stats.yes") : nil),
+            row(t("voice.stats.codec"), codecOf(statistics, rtp.codecId)),
+            row(t("voice.stats.bitrate"), bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
+            row(t("voice.stats.jitterBuffer"), ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
+            row(t("voice.stats.networkJitter"), ms(rtp.jitter)),
+            row(t("voice.stats.concealed"), percent(concealed), warn: !muted && (concealed ?? 0) > noticeableLoss),
+            row(t("voice.stats.packets"), count(rtp.packetsReceived)),
+            row(t("voice.stats.lost"), joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
             encryption(stream.publication),
         ]
         return StatSection(id: stream.key, title: title, kind: .audio, rows: rows.compactMap { $0 })
     }
 
+    /// The headline as a line of text: "sent: 59.8 fps (wanted 60)".
+    private static func headlineText(_ headline: StatSection.Headline) -> String {
+        let rate = fps(headline.fps) ?? "?"
+        return switch (headline.sent, headline.wanted) {
+        case let (true, wanted?): t("voice.stats.copySentOf", ["fps": rate, "wanted": wanted])
+        case (true, nil): t("voice.stats.copySent", ["fps": rate])
+        case let (false, wanted?): t("voice.stats.copyDecodedOf", ["fps": rate, "wanted": wanted])
+        case (false, nil): t("voice.stats.copyDecoded", ["fps": rate])
+        }
+    }
+
     /// All of it as text, for pasting somewhere.
     static func asText(_ sections: [StatSection]) -> String {
         sections.map { section in
-            let headline = section.headline.map { ["\($0.label): \(fps($0.fps) ?? "?")\($0.wanted.map { " (wanted \($0))" } ?? "")"] } ?? []
+            let headline = section.headline.map { [headlineText($0)] } ?? []
             return (["# \(section.title)"] + headline + section.rows.map { "\($0.label): \($0.value)\($0.warn ? "  (!)" : "")" }).joined(separator: "\n")
         }
         .joined(separator: "\n\n")

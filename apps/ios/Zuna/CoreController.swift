@@ -42,6 +42,9 @@ final class CoreController {
             runtime?.setTelegramPushToken(pushToken)
         }
     }
+    /// The language the interface is in, by its tag, which the whole of it is made again for when it
+    /// changes (`RootView`). Read as the app starts, once the language kept is shown.
+    private(set) var languageTag = ""
     /// A link opened before the app was ready, such as while it waits to be unlocked.
     private var pendingLink: String?
     private var directory: URL?
@@ -81,6 +84,7 @@ final class CoreController {
     }
 
     func start() async {
+        languageTag = I18n.tag
         do {
             let directory = try SharedStorage.dataDirectory()
             self.directory = directory
@@ -167,6 +171,9 @@ final class CoreController {
         options.logToStandardError = true
         #endif
         let runtime = try CoreRuntime(options: options)
+        // The core words its errors and notifications, and the server's messages, in the app's language.
+        let language = I18n.forCore
+        runtime.setLanguage(language.tag, catalog: language.catalog)
         // Launched in the background, as for a push, the Telegram helper waits for the app to come on screen.
         runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         // The share extension may be sending with a core of its own: this one starts once it's done.
@@ -252,6 +259,18 @@ final class CoreController {
         phase = .ready
         // Launched in the background, as for a push: it goes to sleep as it would on leaving the screen.
         if UIApplication.shared.applicationState == .background { didEnterBackground() }
+    }
+
+    /// Shows the app in a language chosen in Settings, or in the system's (nil): keeps the choice where
+    /// the extensions read it too, tells the core, which words its errors and notifications in it, and
+    /// has the whole interface made again in it.
+    func chooseLanguage(_ choice: String?) {
+        let tag = I18n.choose(choice)
+        let language = I18n.forCore
+        runtime?.setLanguage(language.tag, catalog: language.catalog)
+        // The notifications' actions, which iOS keeps as they were registered, in the new language too.
+        UNUserNotificationCenter.current().setNotificationCategories(Notifications.categories)
+        languageTag = tag
     }
 
     /// An invite link opened from outside the app (`zuna://join?link=…`).

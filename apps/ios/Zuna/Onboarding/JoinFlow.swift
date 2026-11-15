@@ -43,7 +43,7 @@ struct JoinFlow: View {
             .toolbar {
                 if embedded {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { model.joining = false }
+                        Button(t("common.cancel")) { model.joining = false }
                             .accessibilityIdentifier(A11y.Onboarding.cancel)
                     }
                 }

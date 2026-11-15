@@ -1,6 +1,7 @@
 import os
 import SwiftUI
 import UserNotifications
+import ZunaModels
 
 @main
 struct ZunaApp: App {
@@ -36,6 +37,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     let core = CoreController()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Before anything is shown, in the language chosen, or the system's, kept where the extensions read it.
+        I18n.useAppGroup(SharedStorage.appGroup)
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.setNotificationCategories(Notifications.categories)
@@ -142,6 +145,8 @@ struct RootView: View {
                 status
             }
         }
+        // Made again, every view of it, when the language changes in Settings, as each looks its words up as it's made.
+        .id(core.languageTag)
     }
 
     /// Starting up, or failing to.
@@ -156,7 +161,7 @@ struct RootView: View {
             case .locked, .ready:
                 EmptyView()
             case let .failed(message):
-                Text("Zuna couldn't start")
+                Text(t("onboarding.couldntStart"))
                     .font(.headline)
                     .foregroundStyle(Theme.text1)
                     .accessibilityIdentifier(A11y.Root.failed)
@@ -191,7 +196,7 @@ private struct AppLockGate: View {
                             Button {
                                 unlock()
                             } label: {
-                                Label("Unlock with \(AppLock.methodName)", systemImage: "lock.fill")
+                                Label(AppLock.biometryName.map { t("settings.appLock.unlockWith", ["method": $0]) } ?? t("settings.appLock.unlockWithPasscode"), systemImage: "lock.fill")
                                     .padding(.horizontal, 18)
                                     .frame(minHeight: 44)
                             }
@@ -219,14 +224,14 @@ private struct AppLockGate: View {
         guard !asking else { return }
         asking = true
         Task {
-            switch await AppLock.authenticate(reason: "Unlock Zuna") {
+            switch await AppLock.authenticate(reason: t("settings.appLock.unlockReason")) {
             case .unlocked:
                 model.appLocked = false
             case .unavailable:
                 // The passcode was turned off, so nothing could ever unlock it: App lock goes with it.
                 model.settings.appLock = false
                 model.appLocked = false
-                model.toast("App lock is off because this iPhone has no passcode.", .security)
+                model.toast(t("settings.appLock.offNoPasscode"), .security)
             case .refused:
                 break
             }

@@ -40,29 +40,29 @@ struct BotsSettingsView: View {
             }
             Section {
                 if mayMake {
-                    Button("New bot", systemImage: "plus") { creating = true }
+                    Button(t("serverSettings.bots.new"), systemImage: "plus") { creating = true }
                         .disabled(full)
                 } else {
-                    Label("On this server, only admins can create bots.", systemImage: "info.circle")
+                    Label(t("serverSettings.bots.onlyAdmins"), systemImage: "info.circle")
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                 }
             } footer: {
-                Text(full ? "You've reached this server's limit of bots per person." : "A bot is an account run by a program, on a computer its owner chooses. It can read everything said in its chats after it's added, and always shows a bot badge next to its name.")
+                Text(full ? t("serverSettings.bots.limitReached") : t("serverSettings.bots.about"))
             }
             .listRowBackground(Theme.bg2)
             Section {
                 if bots == nil {
                     ProgressView()
                 } else if (bots ?? []).isEmpty {
-                    Text("No bots yet.").foregroundStyle(Theme.text2)
+                    Text(t("serverSettings.bots.empty")).foregroundStyle(Theme.text2)
                 }
                 ForEach(bots ?? []) { bot in
                     let user = server?.users[bot.id]
                     let name = user?.displayName ?? bot.username
                     // Whose it is, for a bot that isn't this person's own.
                     let owner = bot.ownerId == selfId ? nil : server?.users[bot.ownerId]?.displayName
-                    let whose = owner.map { " · \($0)'s" } ?? ""
+                    let handle = "@\(bot.username)"
                     NavigationLink {
                         BotDetailView(serverId: serverId, botId: bot.id)
                     } label: {
@@ -70,12 +70,12 @@ struct BotsSettingsView: View {
                             AvatarView(name: name, seed: bot.id, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(name).foregroundStyle(Theme.text1)
-                                Text("@\(bot.username)\(whose)")
+                                Text(owner.map { t("serverSettings.bots.usernameAndOwner", ["username": handle, "owner": $0]) } ?? handle)
                                     .font(.caption)
                                     .foregroundStyle(Theme.text3)
                             }
                             Spacer()
-                            Text(!bot.setUp ? "Waiting to be set up" : bot.listed ? "Listed" : "Private")
+                            Text(!bot.setUp ? t("serverSettings.bots.waitingSetup") : bot.listed ? t("serverSettings.bots.listed") : t("serverSettings.bots.private"))
                                 .font(.caption)
                                 .foregroundStyle(Theme.text2)
                         }
@@ -85,10 +85,10 @@ struct BotsSettingsView: View {
             .listRowBackground(Theme.bg2)
             if isAdmin {
                 Section {
-                    SavingToggle("Let members create private bots", value: server?.info?.allowMemberBots ?? false) { value in
+                    SavingToggle(t("serverSettings.bots.letMembersCreate"), value: server?.info?.allowMemberBots ?? false) { value in
                         try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(allowMemberBots: value))
                     }
-                    Picker("Bots per person", selection: Binding(get: { most }, set: { value in
+                    Picker(t("serverSettings.bots.perPerson"), selection: Binding(get: { most }, set: { value in
                         run { try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(maxBots: value)) }
                     })) {
                         ForEach(Self.limits.contains(most) ? Self.limits : (Self.limits + [most]).sorted(), id: \.self) { value in
@@ -96,14 +96,14 @@ struct BotsSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("If off, only admins can create bots. Listed bots can only ever be created by admins.")
+                    Text(t("serverSettings.bots.letMembersCreateHint"))
                 }
                 .listRowBackground(Theme.bg2)
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Bots")
+        .navigationTitle(t("serverSettings.sections.bots"))
         .navigationBarTitleDisplayMode(.inline)
         // Read again whenever a bot is set up, changed or gone, from here or anywhere else.
         .task(id: known(server)) { await load() }
@@ -148,15 +148,15 @@ struct BotSetupCommand: View {
                 .font(.system(.footnote, design: .monospaced))
                 .lineLimit(3)
                 .textSelection(.enabled)
-            Button("Copy the command", systemImage: "doc.on.doc") {
+            Button(t("serverSettings.bots.copyCommand"), systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = command
-                model.toast("Command copied")
+                model.toast(t("serverSettings.bots.commandCopied"))
             }
-            Button("Done") { done() }
+            Button(t("common.done")) { done() }
         } header: {
-            Text("Set it up")
+            Text(t("serverSettings.bots.setUp"))
         } footer: {
-            Text("Set up the bot on the computer that will run it within the next hour, then start it with zuna-bot run. Its keys are created there, so not even you have them. This link works once and won't be shown again. Whoever controls the computer running a bot can read its chats.")
+            Text(t("serverSettings.bots.setUpHint"))
         }
         .listRowBackground(Theme.bg2)
     }
@@ -167,10 +167,10 @@ struct BotAddPicker: View {
     @Binding var add: BotAdd
 
     var body: some View {
-        Picker("Who can add it to groups", selection: $add) {
-            Text("Only its owner").tag(BotAdd.owner)
-            Text("Its owner and the server's admins").tag(BotAdd.admins)
-            Text("Anyone on the server").tag(BotAdd.anyone)
+        Picker(t("serverSettings.bots.whoCanAdd"), selection: $add) {
+            Text(t("serverSettings.bots.addOwner")).tag(BotAdd.owner)
+            Text(t("serverSettings.bots.addAdmins")).tag(BotAdd.admins)
+            Text(t("serverSettings.bots.addAnyone")).tag(BotAdd.anyone)
         }
     }
 }
@@ -206,44 +206,44 @@ struct NewBotSheet: View {
         NavigationStack {
             List {
                 Section {
-                    TextField("Name", text: $name)
+                    TextField(t("common.name"), text: $name)
                         .onChange(of: name) { if name.count > 64 { name = String(name.prefix(64)) } }
-                    TextField("Username", text: $username)
+                    TextField(t("common.username"), text: $username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onChange(of: username) { if username.count > 32 { username = String(username.prefix(32)) } }
                 } footer: {
                     if !username.isEmpty, !Self.usernameOK(username) {
-                        Text("2 to 32 letters, numbers, dots, dashes and underscores.").foregroundStyle(Theme.red)
+                        Text(t("serverSettings.bots.usernameRule")).foregroundStyle(Theme.red)
                     }
                 }
                 .listRowBackground(Theme.bg2)
                 Section {
                     if canList {
-                        Toggle("List it for everyone", isOn: $listed)
+                        Toggle(t("serverSettings.bots.listForEveryone"), isOn: $listed)
                             .tint(model.settings.accent.switchTint)
                     }
                     if listed {
                         BotAddPicker(add: $add)
                     }
-                    Toggle("Let it send files", isOn: $files)
+                    Toggle(t("serverSettings.bots.letSendFiles"), isOn: $files)
                         .tint(model.settings.accent.switchTint)
                 } footer: {
-                    Text(canList ? "If it isn't listed, the bot is private: only you and people in chats with it can see it. Other admins can't." : "It's private: only you and people in chats with it can see it.")
+                    Text(canList ? t("serverSettings.bots.newListHint") : t("serverSettings.bots.newPrivateHint"))
                 }
                 .listRowBackground(Theme.bg2)
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle("New bot")
+            .navigationTitle(t("serverSettings.bots.new"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Make") { create() }
+                        Button(t("serverSettings.bots.make")) { create() }
                             .disabled(!valid)
                     }
                 }
@@ -286,14 +286,13 @@ struct BotDetailView: View {
     @State private var confirmingDelete = false
 
     /// What an owner is told once a change to a bot's profile is on its way.
-    private static let sent = "Sent to the bot. It'll update the next time it's running"
+    private static let sent = mark("serverSettings.bots.sentToBot")
 
     var body: some View {
         let server = model.servers[serverId]
         let user = server?.users[botId]
         let isAdmin = server?.isAdmin ?? false
-        let title = user?.displayName ?? bot?.username ?? "this bot"
-        let warning = bot?.setUp == true ? "It'll be signed out and removed from all its chats. Messages it sent will stay. This can't be undone." : "Its setup link will stop working."
+        let warning = Self.deleteWarning(user?.displayName ?? bot?.username, setUp: bot?.setUp == true)
         List {
             if let command = link {
                 BotSetupCommand(link: command) { link = nil }
@@ -302,12 +301,12 @@ struct BotDetailView: View {
                 let own = bot.ownerId == server?.me?.userId
                 if !bot.setUp {
                     Section {
-                        Button("New setup link", systemImage: "arrow.clockwise") {
+                        Button(t("serverSettings.bots.newSetupLink"), systemImage: "arrow.clockwise") {
                             run { link = try await model.core.session(serverId).newBotLink(bot.id) }
                         }
                         .disabled(!own)
                     } footer: {
-                        Text("The bot hasn't been set up yet. If the link expired or got lost, make a new one. The old link will stop working.")
+                        Text(t("serverSettings.bots.notSetUpHint"))
                     }
                     .listRowBackground(Theme.bg2)
                 } else if own {
@@ -319,7 +318,7 @@ struct BotDetailView: View {
                     channels(bot, server)
                 }
                 Section {
-                    Button("Delete bot", role: .destructive) { confirmingDelete = true }
+                    Button(t("serverSettings.bots.delete"), role: .destructive) { confirmingDelete = true }
                 }
                 .listRowBackground(Theme.bg2)
             } else {
@@ -328,7 +327,7 @@ struct BotDetailView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle(user?.displayName ?? bot?.username ?? "Bot")
+        .navigationTitle(user?.displayName ?? bot?.username ?? t("serverSettings.bots.bot"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .onChange(of: user) { _, user in
@@ -346,11 +345,11 @@ struct BotDetailView: View {
                 let url = media.url
                 let file = try await Task.detached(priority: .userInitiated) { try OutgoingFiles.avatar(from: url) }.value
                 try await model.core.session(serverId).updateBotProfile(botId, ProfileChanges(), avatar: .set(file))
-                model.toast(Self.sent)
+                model.toast(t(Self.sent))
             }
         }
-        .confirmationDialog("Delete \(title)? \(warning)", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete bot", role: .destructive) {
+        .confirmationDialog(warning, isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button(t("serverSettings.bots.delete"), role: .destructive) {
                 run {
                     try await model.core.session(serverId).deleteBot(botId)
                     dismiss()
@@ -359,32 +358,41 @@ struct BotDetailView: View {
         }
     }
 
+    /// What deleting a bot does, asked before it's done: one that's set up leaves its chats, and one
+    /// that isn't only loses its setup link.
+    private static func deleteWarning(_ name: String?, setUp: Bool) -> String {
+        if let name {
+            return setUp ? t("serverSettings.bots.deleteConfirm", ["bot": name]) : t("serverSettings.bots.deleteConfirmNotSetUp", ["bot": name])
+        }
+        return setUp ? t("serverSettings.bots.deleteThisConfirm") : t("serverSettings.bots.deleteThisConfirmNotSetUp")
+    }
+
     private func profile(_ bot: BotView, _ user: UserView?) -> some View {
         Section {
             HStack(spacing: 14) {
                 // Made here, as the picker's label isn't on the main actor.
                 let face = AvatarView(name: user?.displayName ?? bot.username, seed: bot.id, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 56)
                 PhotosPicker(selection: $picture, matching: .images) { face }
-                    .accessibilityLabel("Change the bot's picture")
+                    .accessibilityLabel(t("serverSettings.bots.changePicture"))
                 VStack(spacing: 8) {
-                    TextField("Name", text: $name)
+                    TextField(t("common.name"), text: $name)
                         .onChange(of: name) { if name.count > 64 { name = String(name.prefix(64)) } }
-                    TextField("What it does", text: $about, axis: .vertical)
+                    TextField(t("serverSettings.bots.whatItDoes"), text: $about, axis: .vertical)
                         .lineLimit(1...4)
                         .onChange(of: about) { if about.count > 300 { about = String(about.prefix(300)) } }
                 }
             }
-            Button("Save") {
+            Button(t("common.save")) {
                 let changes = ProfileChanges(displayName: name.trimmingCharacters(in: .whitespaces), bio: about.trimmingCharacters(in: .whitespaces))
                 run {
                     try await model.core.session(serverId).updateBotProfile(bot.id, changes)
-                    model.toast(Self.sent)
+                    model.toast(t(Self.sent))
                 }
             }
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (name == user?.displayName && about == user?.bio))
-            Button("Message", systemImage: "bubble.left") { model.openChat("user:\(bot.id)") }
+            Button(t("serverSettings.bots.message"), systemImage: "bubble.left") { model.openChat("user:\(bot.id)") }
         } footer: {
-            Text("A bot sets its own profile, so this sends it a request in your chat with it. It'll update the next time it's running.")
+            Text(t("serverSettings.bots.profileHint"))
         }
         .listRowBackground(Theme.bg2)
     }
@@ -394,18 +402,18 @@ struct BotDetailView: View {
         let mayList = isAdmin || bot.listed
         return Section {
             if mayList {
-                SavingToggle("List it for everyone", value: bot.listed) { value in
+                SavingToggle(t("serverSettings.bots.listForEveryone"), value: bot.listed) { value in
                     try await change(BotChanges(listed: value))
                 }
             }
             if bot.listed {
                 BotAddPicker(add: Binding(get: { bot.add }, set: { value in run { try await change(BotChanges(add: value)) } }))
             }
-            SavingToggle("Let it send files", value: bot.files) { value in
+            SavingToggle(t("serverSettings.bots.letSendFiles"), value: bot.files) { value in
                 try await change(BotChanges(files: value))
             }
         } footer: {
-            Text(mayList ? "If it isn't listed, the bot is private: only you and people in chats with it can see it. It will leave its channels." : "It's private: only you and people in chats with it can see it. Only the server's admins can list a bot.")
+            Text(mayList ? t("serverSettings.bots.listHint") : t("serverSettings.bots.privateHint"))
         }
         .listRowBackground(Theme.bg2)
     }
@@ -436,9 +444,9 @@ struct BotDetailView: View {
                     .buttonStyle(.plain)
                 }
             } header: {
-                Text("Channels")
+                Text(t("serverSettings.channels.title"))
             } footer: {
-                Text("It joins the channels you pick and reads what's said there from then on.")
+                Text(t("serverSettings.bots.channelsHint"))
             }
             .listRowBackground(Theme.bg2)
         }

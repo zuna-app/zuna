@@ -4,6 +4,7 @@ import os
 import UIKit
 @preconcurrency import XPC
 import ZunaHost
+import ZunaModels
 
 /// Where the Telegram helper binds (`ZunaTelegram`), which iOS runs as a process of its own in an
 /// extension's sandbox, apart from the app (docs/TELEGRAM_PLAN.md, "On the iPhone and iPad"). Only
@@ -64,12 +65,12 @@ private struct XPCLauncher: TelegramHelperLauncher {
         // A helper still closing from the run before turns a new session away, until it's gone.
         // And iOS may not list the helper yet, as the app starts or wakes: this build has it
         // (`TelegramHelper.configuration`), so that's asked again too, rather than failing at once.
-        var lastError: Error = CoreError(description: "Telegram's engine didn't start.")
+        var lastError: Error = CoreError(description: t("telegram.engine.didntStart"))
         for _ in 0..<20 {
             do {
                 let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: .telegram)
                 guard let identity = monitor.identities.first(where: { $0.bundleIdentifier == TelegramHelper.bundle }) else {
-                    throw CoreError(description: "iOS didn't list Telegram's engine.")
+                    throw CoreError(description: t("telegram.engine.notListed"))
                 }
                 return try await XPCLink.connect(identity, handlers)
             } catch {
@@ -102,7 +103,7 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
         let interrupted = Interrupted()
         let process = try await AppExtensionProcess(configuration: .init(appExtensionIdentity: identity, onInterruption: {
             // Off the system's own callback, as ending invalidates the process it's about.
-            DispatchQueue.global().async { interrupted.link?.end("Telegram's engine stopped.") }
+            DispatchQueue.global().async { interrupted.link?.end(t("telegram.engine.stopped")) }
         }))
         let session: XPCSession
         do {
@@ -121,7 +122,7 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
             var hello = XPCDictionary()
             hello["hello"] = true
             let reply = try session.sendSync(message: hello)
-            guard reply["ok"] == true else { throw CoreError(description: "Telegram's engine turned the app away.") }
+            guard reply["ok"] == true else { throw CoreError(description: t("telegram.engine.turnedAway")) }
         } catch {
             session.cancel(reason: "not started")
             process.invalidate()
@@ -164,7 +165,7 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
     }
 
     func send(json: String) {
-        do { try session.send(message: TelegramWire.message(json: json)) } catch { end("Telegram's engine can't be reached: \(error.localizedDescription)") }
+        do { try session.send(message: TelegramWire.message(json: json)) } catch { end(t("telegram.engine.unreachable", ["error": error.localizedDescription])) }
     }
 
     func send(stream: UInt32, bytes: Data, taken: @escaping @Sendable (Bool) -> Void) {
@@ -182,7 +183,7 @@ private final class XPCLink: TelegramHelperLink, @unchecked Sendable {
                 if let descriptor = TelegramWire.descriptor(in: reply) {
                     done(.success(FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)))
                 } else {
-                    done(.failure(CoreError(description: reply[TelegramWire.error] ?? "Telegram's file couldn't be read.")))
+                    done(.failure(CoreError(description: reply[TelegramWire.error] ?? t("telegram.engine.fileUnreadable"))))
                 }
             case .failure(let error):
                 done(.failure(error))

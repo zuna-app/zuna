@@ -5,14 +5,14 @@ import ZunaModels
 /// it's in (the web's `BotBadge`).
 struct BotBadge: View {
     var body: some View {
-        Text("BOT")
+        Text(t("bots.badgeText"))
             .font(.system(size: 9.5, weight: .semibold))
             .foregroundStyle(Theme.text2)
             .padding(.horizontal, 5)
             .padding(.vertical, 1.5)
             .background(Theme.bg4, in: .rect(cornerRadius: 4))
             .fixedSize()
-            .accessibilityLabel("Bot")
+            .accessibilityLabel(t("bots.badge"))
     }
 }
 
@@ -20,7 +20,7 @@ struct BotBadge: View {
 /// the words it says before one is added (the web's `lib/bots.ts`).
 enum Bots {
     /// What someone is told before they add a bot to a group.
-    static let reads = "A bot is a program. From now on it can read everything said here, on whatever computer runs it, but it can't see anything from before."
+    static var reads: String { t("bots.reads") }
 
     /// Whether this person may add someone to a group, which only a bot may say no to: its
     /// owner always may, and for a listed bot whoever its owner chose. The server holds
@@ -64,14 +64,7 @@ enum Bots {
     /// How the question before bots are added is headed, and what its button says.
     static func question(_ bots: [UserView]) -> (title: String, action: String) {
         let names = bots.map(\.displayName).joined(separator: ", ")
-        return bots.count == 1 ? ("Add the bot \(names)?", "Add the bot") : ("Add the bots \(names)?", "Add the bots")
-    }
-
-    /// Whose a bot is, for its details: "Your bot", or its owner's by name.
-    static func whose(_ bot: BotInfo, _ server: AppModel.ServerState) -> String {
-        if bot.ownerId == server.me?.userId { return "Your bot" }
-        let owner = server.users[bot.ownerId]?.displayName ?? "Someone"
-        return "\(owner)'s bot"
+        return (t("groups.addBot.title", ["names": names, "count": bots.count]), t("groups.addBot.action", ["count": bots.count]))
     }
 }
 

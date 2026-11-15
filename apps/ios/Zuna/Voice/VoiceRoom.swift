@@ -78,7 +78,7 @@ final class VoiceRoom {
     private(set) var identity = ""
     /// An admin has muted this person, so the media server wouldn't take a microphone anyway.
     private(set) var serverMuted = false
-    /// Why there's no microphone, if there isn't one. Nothing about voice needs one: someone without one can still listen.
+    /// Why there's no microphone, if there isn't one, as the person is told. Nothing about voice needs one: someone without one can still listen.
     private(set) var micProblem: String?
     /// How loud each person is, by user and what they're sending, which also covers being deafened.
     var volumes: (String, Track.Source) -> Double = { _, _ in 1 } {
@@ -189,9 +189,9 @@ final class VoiceRoom {
         #endif
         switch AVAudioApplication.shared.recordPermission {
         case .granted: return nil
-        case .denied: return "Zuna can't use the microphone. Allow it in Settings."
+        case .denied: return t("voice.mic.notAllowedListen")
         default:
-            return await AVAudioApplication.requestRecordPermission() ? nil : "Zuna can't use the microphone. Allow it in Settings."
+            return await AVAudioApplication.requestRecordPermission() ? nil : t("voice.mic.notAllowedListen")
         }
     }
 
@@ -207,7 +207,7 @@ final class VoiceRoom {
             if muted { try await (micPublication?.track as? LocalAudioTrack)?.mute() }
         } catch {
             logger.error("Couldn't publish the microphone: \(String(describing: error), privacy: .public)")
-            micProblem = "The microphone couldn't be used."
+            micProblem = t("voice.mic.failedListen")
         }
     }
 
@@ -404,7 +404,7 @@ final class VoiceRoom {
         #if DEBUG
         if VoiceTesting.fakeScreen { return "Moving bars, in place of the screen" }
         #endif
-        return sharingByBroadcast ? "The broadcast extension" : "ScreenCaptureKit"
+        return sharingByBroadcast ? t("voice.stats.broadcast") : "ScreenCaptureKit"
     }
 
     /// Shares this device's screen once the media server lets it, with what the person picks in the system's picker,
@@ -463,7 +463,7 @@ final class VoiceRoom {
         do {
             broadcastPublication = try await room.localParticipant.publish(videoTrack: track, options: publish)
         } catch {
-            BroadcastSignal.refuse("Zuna couldn't share your screen.")
+            BroadcastSignal.refuse(t("voice.share.extensionFailed"))
             throw error
         }
         BroadcastSignal.post(BroadcastSignal.taken)
@@ -533,7 +533,13 @@ final class VoiceRoom {
             keyIndex: currentKey?.index,
             keyEpoch: currentKey?.epoch,
             streams: streams,
-            proxy: callProxy?.way
+            proxy: callProxy.map { proxy -> String in
+                switch proxy.way {
+                case .udp: t("voice.stats.proxyUdp")
+                case .tcp: t("voice.stats.proxyTcp")
+                case .unsure: t("voice.stats.proxyThrough")
+                }
+            }
         )
     }
 

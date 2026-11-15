@@ -44,10 +44,10 @@ struct ProfileView: View {
                                         .overlay(Circle().stroke(Theme.bg0, lineWidth: 2))
                                 }
                         }
-                        .accessibilityLabel("Change profile picture")
+                        .accessibilityLabel(t("settings.profile.changePicture"))
                         Text("@\(me.username)").font(.subheadline).foregroundStyle(Theme.text2)
                         if me.avatar != nil {
-                            Button("Remove picture") {
+                            Button(t("settings.profile.removePicture")) {
                                 run { try await model.core.session(serverId).updateProfile(ProfileChanges(), avatar: .removed) }
                             }
                             .font(.footnote)
@@ -58,36 +58,36 @@ struct ProfileView: View {
             }
             .listRowBackground(Color.clear)
             Section {
-                TextField("Display name", text: $displayName)
+                TextField(t("settings.profile.displayName"), text: $displayName)
                     .textContentType(.name)
                     .onChange(of: displayName) { if displayName.count > 64 { displayName = String(displayName.prefix(64)) } }
                     .accessibilityIdentifier(A11y.Settings.displayName)
             } header: {
-                Text("Display name")
+                Text(t("settings.profile.displayName"))
             }
             .listRowBackground(Theme.bg2)
             Section {
-                TextField("A few words about you", text: $bio, axis: .vertical)
+                TextField(t("settings.profile.bioPlaceholder"), text: $bio, axis: .vertical)
                     .lineLimit(2...6)
                     .onChange(of: bio) { if bio.count > 300 { bio = String(bio.prefix(300)) } }
                     .accessibilityIdentifier(A11y.Settings.bio)
             } header: {
-                Text("Bio")
+                Text(t("settings.profile.bio"))
             } footer: {
-                Text("Only members of \(server?.entry.name ?? "this server") can see this. Your server stores it encrypted.")
+                Text(server.map { t("settings.profile.lead", ["server": $0.entry.name]) } ?? t("settings.profile.bioHintNoServer"))
             }
             .listRowBackground(Theme.bg2)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Profile")
+        .navigationTitle(t("settings.sections.profile"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                Button(t("common.save")) {
                     run {
                         try await model.core.session(serverId).updateProfile(ProfileChanges(displayName: displayName.trimmingCharacters(in: .whitespaces), bio: bio))
-                        model.toast("Profile saved")
+                        model.toast(t("settings.profile.saved"))
                     }
                 }
                 .disabled(!dirty || displayName.trimmingCharacters(in: .whitespaces).isEmpty || busy)
@@ -139,26 +139,26 @@ struct PrivacyView: View {
         let me = server?.selfUser
         List {
             Section {
-                SavingToggle("Send read receipts", value: server?.prefs.sendReadReceipts ?? true) { value in
+                SavingToggle(t("settings.privacy.readReceipts"), value: server?.prefs.sendReadReceipts ?? true) { value in
                     try await model.core.session(serverId).updatePreferences(PreferenceChanges(sendReadReceipts: value))
                 }
                 .accessibilityIdentifier(A11y.Settings.readReceipts)
             } footer: {
-                Text("Others see when you've read their messages. If off, your devices still stay in sync.")
+                Text(t("settings.privacy.readReceiptsHint"))
             }
             Section {
-                SavingToggle("Show when I'm online", value: !(me?.hidesLastSeen ?? false)) { value in
+                SavingToggle(t("settings.privacy.showOnline"), value: !(me?.hidesLastSeen ?? false)) { value in
                     try await model.core.session(serverId).setHideLastSeen(!value)
                 }
                 .accessibilityIdentifier(A11y.Settings.showOnline)
             } footer: {
-                Text("If off, people see \u{201C}last seen recently\u{201D} instead of your status.")
+                Text(t("settings.privacy.showOnlineHint"))
             }
             Section {
                 let blocked = (server?.prefs.blocked ?? []).compactMap { server?.users[$0] }
                     .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
                 if blocked.isEmpty {
-                    Text("Nobody yet. You can block someone from their details in a chat, or from a group's member list.")
+                    Text(t("settings.privacy.blockedEmpty"))
                         .foregroundStyle(Theme.text2)
                 }
                 ForEach(blocked) { user in
@@ -169,63 +169,63 @@ struct PrivacyView: View {
                             Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)
                         }
                         Spacer()
-                        Button("Unblock") { model.setBlocked(user.id, false, on: serverId) }
+                        Button(t("settings.privacy.unblock")) { model.setBlocked(user.id, false, on: serverId) }
                             .buttonStyle(.borderless)
                     }
                 }
             } header: {
-                Text("Blocked people")
+                Text(t("settings.privacy.blocked"))
             } footer: {
-                Text("You won't see messages from people you block or get notified about them. They aren't told, and your server can't see who you block.")
+                Text(t("settings.privacy.blockedHint"))
             }
             .accessibilityIdentifier(A11y.Settings.blocked)
             Section {
                 NavigationLink { ProxySettingsView() } label: {
-                    LabeledContent("Proxy", value: proxy.on ? proxy.host : "Off")
+                    LabeledContent(t("settings.proxy.title"), value: proxy.on ? proxy.host : t("settings.privacy.proxyOff"))
                 }
                 .accessibilityIdentifier(A11y.Settings.proxy)
                 .onAppear { proxy = ProxyStore.load() }
             } header: {
-                Text("On this device")
+                Text(t("settings.privacy.onThisDevice"))
             } footer: {
-                Text("Everything this device sends, for every server, can go through a SOCKS5 proxy, so servers see the proxy's address instead of yours.")
+                Text(t("settings.privacy.proxyHint"))
             }
             Section {
-                Toggle("Link previews", isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
+                Toggle(t("settings.privacy.linkPreviews"), isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.linkPreviews)
             } footer: {
-                Text("When you type a link, this device loads the page to get its title and picture, and sends them encrypted with your message. The site sees your IP address, just as when you open a link. Your server never sees it.")
+                Text(t("settings.privacy.linkPreviewsHint"))
             }
             Section {
                 // Turning it off waits for a yes, so the switch only follows the setting.
-                Toggle("Remove metadata from files", isOn: Binding(get: { model.settings.removeMetadata }, set: { value in
+                Toggle(t("settings.privacy.removeMetadata"), isOn: Binding(get: { model.settings.removeMetadata }, set: { value in
                     if value { model.settings.removeMetadata = true } else { confirmingKeep = true }
                 }))
                 .tint(model.settings.accent.switchTint)
                 .accessibilityIdentifier(A11y.Settings.removeMetadata)
             } footer: {
-                Text("Before a file is sent, this device removes where and when it was made, the camera or phone and its serial number, the software used, and its editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are.")
+                Text(t("settings.privacy.removeMetadataHint"))
             }
             Section {
                 @Bindable var voice = voice
-                Toggle("Play YouTube videos", isOn: $voice.playYouTube)
+                Toggle(t("settings.privacy.playYouTube"), isOn: $voice.playYouTube)
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.playYouTube)
             } footer: {
-                Text("People in a voice channel or call can watch YouTube videos together. When you watch one, it plays from YouTube, which sees your IP address and which video it is. Nothing is loaded from YouTube until you press Watch. If this is off, Zuna asks you first.")
+                Text(t("settings.privacy.playYouTubeHint"))
             }
         }
-        .alert("Send files with their metadata?", isPresented: $confirmingKeep) {
-            Button("Cancel", role: .cancel) {}
-            Button("Turn Off", role: .destructive) { model.settings.removeMetadata = false }
+        .alert(t("settings.privacy.keepMetadataTitle"), isPresented: $confirmingKeep) {
+            Button(t("common.cancel"), role: .cancel) {}
+            Button(t("settings.privacy.keepMetadataTurnOff"), role: .destructive) { model.settings.removeMetadata = false }
         } message: {
-            Text("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the software used, and how it was edited. So can anyone they forward the files to.\n\nYour server still can't see any of it, since files are encrypted. This only applies to this device, and to files you send from now on.")
+            Text(t("settings.privacy.keepMetadataMessage"))
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Privacy")
+        .navigationTitle(t("settings.sections.privacy"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -259,10 +259,10 @@ struct SecurityView: View {
                 Button {
                     verifying = true
                 } label: {
-                    Label("Your security key", systemImage: "key")
+                    Label(t("settings.security.securityKey"), systemImage: "key")
                 }
             } footer: {
-                Text("Compare it with friends to make sure nobody is intercepting your messages.")
+                Text(t("settings.security.securityKeyHint"))
             }
             Section {
                 ForEach(devices) { device in
@@ -274,14 +274,14 @@ struct SecurityView: View {
                             HStack(spacing: 6) {
                                 Text(device.name).foregroundStyle(Theme.text1)
                                 if device.isCurrent {
-                                    Text("This device").font(.caption2.weight(.semibold)).foregroundStyle(Theme.green)
+                                    Text(t("settings.devices.thisDevice")).font(.caption2.weight(.semibold)).foregroundStyle(Theme.green)
                                 }
                             }
-                            Text("Signed in \(Format.full(device.createdAt))").font(.caption).foregroundStyle(Theme.text3)
+                            Text(t("settings.security.signedIn", ["date": Format.full(device.createdAt)])).font(.caption).foregroundStyle(Theme.text3)
                         }
                         Spacer()
                         if !device.isCurrent {
-                            Button("Remove", role: .destructive) { removing = device }
+                            Button(t("common.remove"), role: .destructive) { removing = device }
                                 .buttonStyle(.borderless)
                                 .font(.footnote)
                         }
@@ -290,38 +290,38 @@ struct SecurityView: View {
                     .accessibilityIdentifier(A11y.Settings.device(device.id))
                 }
             } header: {
-                Text("Your devices on this server")
+                Text(t("settings.devices.title"))
             } footer: {
                 // A server that makes its own certificate needs its pin too, which only its links carry.
                 if let address = model.servers[serverId]?.entry.address {
-                    Text("To add a device, sign in on it at \(Text(address).font(.system(.footnote, design: .monospaced)))")
+                    Text(sentence: t("settings.devices.addDevice"), drawing: ["address": Text(verbatim: address).font(.system(.footnote, design: .monospaced))])
                         .textSelection(.enabled)
                 }
             }
             Section {
-                SecureField("Current password", text: $current)
+                SecureField(t("settings.security.currentPassword"), text: $current)
                     .textContentType(.password)
                     .accessibilityIdentifier(A11y.Settings.currentPassword)
-                SecureField("New password", text: $next)
+                SecureField(t("settings.security.newPassword"), text: $next)
                     .textContentType(.newPassword)
                     .accessibilityIdentifier(A11y.Settings.newPassword)
                     .task(id: next) {
                         let me = model.servers[serverId]?.me
                         await rating.rate(next, related: [me?.username ?? "", me.flatMap { model.servers[serverId]?.users[$0.userId]?.displayName } ?? ""])
                     }
-                SecureField("Confirm new password", text: $confirm)
+                SecureField(t("settings.security.confirmNewPassword"), text: $confirm)
                     .textContentType(.newPassword)
                     .accessibilityIdentifier(A11y.Settings.confirmPassword)
-                Button("Change password") { changePassword() }
+                Button(t("settings.security.changePassword")) { changePassword() }
                     .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.strongEnough || confirm != next || busy)
                     .accessibilityIdentifier(A11y.Settings.changePassword)
             } header: {
-                Text("Change password")
+                Text(t("settings.security.changePassword"))
             } footer: {
-                if let mismatch = AccountRules.confirmationError(next, confirmation: confirm) {
-                    Text(mismatch).foregroundStyle(Theme.red)
+                if AccountRules.confirmationError(next, confirmation: confirm) != nil {
+                    Text(t("onboarding.password.mismatch")).foregroundStyle(Theme.red)
                 } else {
-                    Text(next.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters." : strength.label)
+                    Text(next.isEmpty ? t("settings.security.passwordMinimum", ["count": AccountRules.minimumPasswordLength]) : I18n.translate(strength.label))
                 }
             }
             Section {
@@ -330,35 +330,35 @@ struct SecurityView: View {
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
                         .accessibilityIdentifier(A11y.Settings.recoveryKey)
-                    Button("Copy", systemImage: "doc.on.doc") {
+                    Button(t("common.copy"), systemImage: "doc.on.doc") {
                         UIPasteboard.general.setItems([[UTType.plainText.identifier: recoveryKey]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
-                        model.toast("Copied")
+                        model.toast(t("common.copied"))
                     }
                 } else {
-                    SecureField("Current password", text: $recoveryPassword)
+                    SecureField(t("settings.security.currentPassword"), text: $recoveryPassword)
                         .textContentType(.password)
                         .accessibilityIdentifier(A11y.Settings.recoveryPassword)
-                    Button("Create new recovery key") { newRecoveryKey() }
+                    Button(t("settings.security.newRecoveryKey")) { newRecoveryKey() }
                         .disabled(recoveryPassword.isEmpty || busy)
                         .accessibilityIdentifier(A11y.Settings.newRecoveryKey)
                 }
             } header: {
-                Text("Recovery key")
+                Text(t("settings.security.recoveryKey"))
             } footer: {
-                Text("Create a new key if you've lost the old one or think someone saw it. The old key stops working immediately.")
+                Text(t("settings.security.recoveryKeyHint"))
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Security")
+        .navigationTitle(t("settings.sections.security"))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.servers[serverId]?.users.count) { await refresh() }
         .sheet(isPresented: $verifying) {
             if let me = model.servers[serverId]?.me { VerifyView(serverId: serverId, userId: me.userId) }
         }
-        .confirmationDialog("Remove \(removing?.name ?? "this device")? It'll be signed out and won't be able to read new messages.", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { device in
-            Button("Remove device", role: .destructive) {
+        .confirmationDialog(removing.map { t("settings.security.removeDeviceConfirm", ["device": $0.name]) } ?? t("settings.security.removeThisDeviceConfirm"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { device in
+            Button(t("settings.security.removeDevice"), role: .destructive) {
                 run {
                     try await model.core.session(serverId).revokeDevice(device.id)
                     await refresh()
@@ -380,7 +380,7 @@ struct SecurityView: View {
             self.current = ""
             self.next = ""
             confirm = ""
-            model.toast("Password changed")
+            model.toast(t("settings.security.passwordChanged"))
         }
     }
 
@@ -415,33 +415,33 @@ struct DeleteAccountView: View {
 
     var body: some View {
         let server = model.servers[serverId]
-        let name = server?.entry.name ?? "this server"
+        let name = server?.entry.name
         List {
-            if server?.me?.role == .owner {
+            if let name, server?.me?.role == .owner {
                 Section {
-                    Text("You own \(name), and a server can't exist without its owner, so you can't delete your account there. To remove everything, shut down the server and delete its data.")
+                    Text(t("settings.deleteAccount.owner", ["server": name]))
                         .foregroundStyle(Theme.text2)
                 }
             } else {
                 Section {
-                    SecureField("Password", text: $password)
+                    SecureField(t("common.password"), text: $password)
                         .textContentType(.password)
                         .accessibilityIdentifier(A11y.Settings.deleteAccountPassword)
-                    Button("Delete my account", role: .destructive) { confirming = true }
+                    Button(t("settings.deleteAccount.button"), role: .destructive) { confirming = true }
                         .disabled(password.isEmpty || busy)
                         .accessibilityIdentifier(A11y.Settings.deleteAccountButton)
                 } footer: {
-                    Text("This deletes your account on \(name), with your profile and keys, signs out your other devices, and erases this device's copy of your messages. Messages you sent stay with the people you sent them to, shown as from \u{201C}Deleted account\u{201D}. Someone else will be able to take your username. It can't be undone.")
+                    Text(name.map { t("settings.deleteAccount.hint", ["server": $0]) } ?? t("settings.deleteAccount.hintNoServer"))
                 }
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Delete account")
+        .navigationTitle(t("settings.account.delete"))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Delete your account on \(name)? This can't be undone.", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Delete account", role: .destructive) { delete() }
+        .confirmationDialog(name.map { t("settings.deleteAccount.confirm", ["server": $0]) } ?? t("settings.deleteAccount.confirmNoServer"), isPresented: $confirming, titleVisibility: .visible) {
+            Button(t("settings.account.delete"), role: .destructive) { delete() }
         }
     }
 
@@ -465,20 +465,21 @@ struct AppLockView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let method = AppLock.methodName
+        // Face ID, Touch ID or Optic ID by its name, or the passcode, which is said in words of its own.
+        let method = AppLock.biometryName
         let available = AppLock.available
         List {
             Section {
-                Toggle("Lock with \(method)", isOn: Binding(get: { model.settings.appLock }, set: { value in
+                Toggle(method.map { t("settings.appLock.lockWith", ["method": $0]) } ?? t("settings.appLock.lockWithPasscode"), isOn: Binding(get: { model.settings.appLock }, set: { value in
                     guard value else {
                         model.settings.appLock = false
                         return
                     }
                     Task {
                         // Turning it on proves the person can unlock, so nobody locks themselves out.
-                        switch await AppLock.authenticate(reason: "Turn on App lock") {
+                        switch await AppLock.authenticate(reason: t("settings.appLock.turnOnReason")) {
                         case .unlocked: model.settings.appLock = true
-                        case .unavailable: model.toast("Set a passcode for this iPhone in its Settings first.")
+                        case .unavailable: model.toast(t("settings.appLock.setPasscodeFirst"))
                         case .refused: break
                         }
                     }
@@ -487,16 +488,24 @@ struct AppLockView: View {
                 .disabled(!available && !model.settings.appLock)
                 .accessibilityIdentifier(A11y.Settings.lockToggle)
             } footer: {
-                Text(available
-                    ? "Zuna asks for \(method) each time it opens, and hides your chats in the app switcher. After your phone restarts, you'll need your Zuna password once."
-                    : "App lock needs a passcode on this iPhone. Set one in the iPhone's Settings, under Face ID & Passcode.")
+                Text(!available ? t("settings.appLock.needsPasscode")
+                    : method.map { t("settings.appLock.hint", ["method": $0]) } ?? t("settings.appLock.hintPasscode"))
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("App lock")
+        .navigationTitle(t("settings.appLock.title"))
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+extension AppLock {
+    /// Face ID, Touch ID or Optic ID, by its name, which no language translates, or nil where the
+    /// app unlocks with the passcode alone, which each text says in words of its own.
+    static var biometryName: String? {
+        let name = methodName
+        return ["Face ID", "Touch ID", "Optic ID"].contains(name) ? name : nil
     }
 }
 
@@ -511,7 +520,7 @@ struct AboutView: View {
                 VStack(spacing: 10) {
                     ZunaLogo(size: 64)
                     Text("Zuna").font(.title.weight(.bold)).foregroundStyle(Theme.text1)
-                    Text("Version \(SettingsView.version) · Free software under the AGPL-3.0 license")
+                    Text(t("settings.about.version", ["version": SettingsView.version]))
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.center)
@@ -521,7 +530,7 @@ struct AboutView: View {
             .listRowBackground(Color.clear)
             Section {
                 Label {
-                    Text("Messages use MLS (RFC 9420) through the independently audited OpenMLS library. Your server stores only ciphertext." + (server.map { " Connected to \($0.entry.name)" + ($0.info.map { ", running server version \($0.version)." } ?? ".") } ?? ""))
+                    Text(Self.encryption(server))
                 } icon: {
                     Image(systemName: "checkmark.shield.fill").foregroundStyle(Theme.green)
                 }
@@ -530,15 +539,22 @@ struct AboutView: View {
             }
             .listRowBackground(Theme.bg2)
             Section {
-                Link(destination: OnboardingText.projectURL) { Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right") }
-                Link(destination: OnboardingText.projectURL.appending(path: "blob/main/SECURITY.md")) { Label("Security model", systemImage: "lock.shield") }
-                Link(destination: OnboardingText.termsURL) { Label("Terms of Use", systemImage: "doc.text") }
+                Link(destination: OnboardingText.projectURL) { Label(t("settings.about.sourceCode"), systemImage: "chevron.left.forwardslash.chevron.right") }
+                Link(destination: OnboardingText.projectURL.appending(path: "blob/main/SECURITY.md")) { Label(t("settings.about.securityModel"), systemImage: "lock.shield") }
+                Link(destination: OnboardingText.termsURL) { Label(t("settings.about.terms"), systemImage: "doc.text") }
             }
             .listRowBackground(Theme.bg2)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("About")
+        .navigationTitle(t("settings.sections.about"))
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// How messages are encrypted, and which server this is, with its version once it's known.
+    private static func encryption(_ server: AppModel.ServerState?) -> String {
+        guard let server else { return t("settings.about.encryption") }
+        guard let info = server.info else { return t("settings.about.encryptionConnected", ["server": server.entry.name]) }
+        return t("settings.about.encryptionConnectedVersion", ["server": server.entry.name, "version": info.version])
     }
 }

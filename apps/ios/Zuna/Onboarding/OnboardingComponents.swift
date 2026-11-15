@@ -90,12 +90,12 @@ struct FormField<Field: View>: View {
 
 /// A new password typed again, which says when it stops matching.
 struct ConfirmPasswordField: View {
-    var label = "Confirm password"
+    var label = t("onboarding.password.confirm")
     let password: String
     @Binding var confirmation: String
 
     var body: some View {
-        FormField(label: label, error: AccountRules.confirmationError(password, confirmation: confirmation)) {
+        FormField(label: label, error: AccountRules.confirmationError(password, confirmation: confirmation) == nil ? nil : t("onboarding.password.mismatch")) {
             SecureField("", text: $confirmation)
                 .textContentType(.newPassword)
                 .accessibilityLabel(label)
@@ -150,16 +150,21 @@ struct StrengthMeter: View {
                 }
             }
             .frame(width: 120)
-            Text(strength.label.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters" : strength.label)
+            Text(Self.words(strength))
                 .font(.footnote)
                 .foregroundStyle(strength.score > 0 ? colors[strength.score] : Theme.text3)
         }
         .padding(.leading, 4)
         .animation(.easeOut(duration: 0.15), value: strength.score)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Password strength")
-        .accessibilityValue(strength.label.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters" : strength.label)
+        .accessibilityLabel(t("onboarding.password.strength"))
+        .accessibilityValue(Self.words(strength))
         .accessibilityIdentifier(A11y.Onboarding.strength)
+    }
+
+    /// The meter's word, in the person's language, or how long a password has to be before there's one.
+    private static func words(_ strength: PasswordMeter.Strength) -> String {
+        strength.label.isEmpty ? t("onboarding.passwordMinimum", ["count": AccountRules.minimumPasswordLength]) : I18n.translate(strength.label)
     }
 }
 
@@ -253,10 +258,30 @@ enum ErrorText {
     /// core gives it rather than by its wording.
     static func describe(_ error: Error) -> String {
         if let error = error as? CoreCallError, error.code == "network" {
-            return "Couldn't reach that server. Check the address and your connection."
+            return t("common.couldntReachServer")
         }
         let message = (error as? CoreCallError)?.message ?? error.localizedDescription
-        return message.isEmpty ? "Something went wrong. Please try again." : message
+        return message.isEmpty ? t("common.somethingWentWrong") : message
+    }
+}
+
+extension Text {
+    /// A looked-up text with some of its {name}s drawn as Text of their own, styled apart, wherever the
+    /// language puts them, so the sentence stays one text to translate. The rest is drawn as it is.
+    init(sentence: String, drawing parts: [String: Text]) {
+        var drawn = Text(verbatim: "")
+        var rest = Substring(sentence)
+        while let open = rest.firstIndex(of: "{") {
+            let after = rest[rest.index(after: open)...]
+            guard let close = after.firstIndex(of: "}"), let part = parts[String(after[..<close])] else {
+                drawn = Text("\(drawn)\(String(rest[...open]))")
+                rest = after
+                continue
+            }
+            drawn = Text("\(drawn)\(String(rest[..<open]))\(part)")
+            rest = after[after.index(after: close)...]
+        }
+        self = Text("\(drawn)\(String(rest))")
     }
 }
 

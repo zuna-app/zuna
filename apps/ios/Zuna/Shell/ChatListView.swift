@@ -14,20 +14,18 @@ struct SignedOutView: View {
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
                 .multilineTextAlignment(.center)
-            Text(reason == "account_deleted"
-                ? "\(explanation) What's on this device stays here for 30 days, or until you remove it."
-                : "\(explanation) What's on this device stays here for 30 days, or until you sign in again or remove it.")
+            Text(explanation)
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
             if reason != "banned" && reason != "account_deleted" {
-                Button("Sign in again") {
+                Button(t("conversations.signedOut.signInAgain")) {
                     model.signInAgain = server.entry.address
                     model.joining = true
                 }
                 .buttonStyle(.borderedProminent)
             }
-            Button("Remove from this device", role: .destructive) {
+            Button(t("conversations.signedOut.remove"), role: .destructive) {
                 Task { await model.signOut(server.entry.id) }
             }
         }
@@ -37,18 +35,19 @@ struct SignedOutView: View {
 
     private var title: String {
         switch reason {
-        case "banned": "You were removed from \(server.entry.name)"
-        case "account_deleted": "Your account on \(server.entry.name) was deleted"
-        default: "You're signed out of \(server.entry.name)"
+        case "banned": t("conversations.signedOut.removedTitle", ["server": server.entry.name])
+        case "account_deleted": t("conversations.signedOut.deletedTitle", ["server": server.entry.name])
+        default: t("conversations.signedOut.title", ["server": server.entry.name])
         }
     }
 
+    /// Why, and that what's here stays.
     private var explanation: String {
         switch reason {
-        case "device_revoked": "This device was removed from your account."
-        case "banned": "Its admins ended your access."
-        case "account_deleted": "It was deleted from another of your devices."
-        default: "The server ended this device's session."
+        case "device_revoked": t("conversations.signedOut.revokedBody")
+        case "banned": t("conversations.signedOut.bannedBody")
+        case "account_deleted": t("conversations.signedOut.deletedBody")
+        default: t("conversations.signedOut.body")
         }
     }
 }
@@ -61,6 +60,17 @@ struct ChatListView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", channels = "Channels", people = "People", bots = "Bots", groups = "Groups", unread = "Unread"
         var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .all: t("conversations.filters.all")
+            case .channels: t("conversations.filters.channels")
+            case .people: t("conversations.filters.people")
+            case .bots: t("conversations.filters.bots")
+            case .groups: t("conversations.filters.groups")
+            case .unread: t("conversations.filters.unread")
+            }
+        }
     }
 
     @Environment(AppModel.self) private var model
@@ -127,7 +137,7 @@ struct ChatListView: View {
                     Button(action: onSettings) {
                         Image(systemName: "gearshape")
                     }
-                    .accessibilityLabel("Settings")
+                    .accessibilityLabel(t("settings.title"))
                     .accessibilityIdentifier(A11y.Shell.settingsTab)
                 }
             }
@@ -136,9 +146,9 @@ struct ChatListView: View {
                 if model.showsTelegram {
                     // A Telegram group is made here, or joined by the link its people give out.
                     Menu {
-                        Button("New group", systemImage: "person.3") { sheet = .newGroup }
+                        Button(t("groups.new.title"), systemImage: "person.3") { sheet = .newGroup }
                             .accessibilityIdentifier(A11y.Shell.newGroup)
-                        Button("Join a group by link", systemImage: "link") {
+                        Button(t("telegram.joinByLink.action"), systemImage: "link") {
                             telegramLink = ""
                             joiningTelegram = true
                         }
@@ -146,23 +156,23 @@ struct ChatListView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                     }
-                    .accessibilityLabel("New group or join one")
+                    .accessibilityLabel(t("telegram.joinByLink.menu"))
                 } else {
                     Button {
                         sheet = .newGroup
                     } label: {
                         Image(systemName: "square.and.pencil")
                     }
-                    .accessibilityLabel("New group")
+                    .accessibilityLabel(t("groups.new.title"))
                     .accessibilityIdentifier(A11y.Shell.newGroup)
                 }
             }
         }
-        .alert("Join a Telegram group", isPresented: $joiningTelegram) {
+        .alert(t("telegram.join.title"), isPresented: $joiningTelegram) {
             TextField("t.me/+…", text: $telegramLink)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            Button("Join") {
+            Button(t("telegram.join.join")) {
                 let link = telegramLink
                 Task {
                     do {
@@ -173,9 +183,9 @@ struct ChatListView: View {
                     }
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("Paste a link to a Telegram group. Channels are only in Telegram's own app.")
+            Text(t("telegram.join.intro"))
         }
         .sheet(item: $sheet) { sheet in
             if let serverId = model.activeServerId {
@@ -186,11 +196,11 @@ struct ChatListView: View {
                 }
             }
         }
-        .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
+        .confirmationDialog(muting.map { t("conversations.muteTitle", ["name": $0.title]) } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
-        .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages will be deleted for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
-            Button("Delete channel", role: .destructive) {
+        .confirmationDialog(deletingChannel.map { t("conversations.deleteChannelConfirm", ["channel": $0.title]) } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
+            Button(t("conversations.deleteChannel"), role: .destructive) {
                 if let serverId = model.activeServerId { model.deleteChannel(channel, on: serverId) }
             }
         }
@@ -217,7 +227,7 @@ struct ChatListView: View {
         let channelHits = !needle.isEmpty && server.showsChannels && server.channels.contains { $0.name.lowercased().contains(needle.lowercased()) }
         let channels = (showsChannels(server) || channelHits) && (filter == .all || filter == .channels)
         let hits = messageHits.filter { passes($0, server) }
-        return PullSearchList(query: $query, prompt: "Search", identifier: A11y.ChatList.search, resetKey: model.activeServerId) {
+        return PullSearchList(query: $query, prompt: t("common.search"), identifier: A11y.ChatList.search, resetKey: model.activeServerId) {
             Section {
                 // The server's channels first, as on the desktop.
                 if channels {
@@ -248,7 +258,7 @@ struct ChatListView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "chevron.right")
                                 .rotationEffect(.degrees(showHidden ? 90 : 0))
-                            Text("Hidden (\(hidden.count))")
+                            Text(t("conversations.hidden", ["count": hidden.count]))
                         }
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.text3)
@@ -273,7 +283,7 @@ struct ChatListView: View {
                             .listRowSeparatorTint(Theme.line)
                     }
                 } header: {
-                    Text("Messages")
+                    Text(t("conversations.search.messages"))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.text3)
                 }
@@ -316,21 +326,21 @@ struct ChatListView: View {
                     Button {
                         model.markChatRead(conversation.key, on: server.entry.id)
                     } label: {
-                        Label("Read", systemImage: "message.fill")
+                        Label(t("conversations.swipeRead"), systemImage: "message.fill")
                     }
                     .tint(model.settings.accent.color)
                 } else if conversation.groupId != nil {
                     Button {
                         model.setMarkedUnread(conversation.key, true, on: server.entry.id)
                     } label: {
-                        Label("Unread", systemImage: "message.badge.fill")
+                        Label(t("conversations.filters.unread"), systemImage: "message.badge.fill")
                     }
                     .tint(model.settings.accent.color)
                 }
                 Button {
                     model.toggle(.pinned, conversation.key, on: server.entry.id)
                 } label: {
-                    Label(conversation.pinned ? "Unpin" : "Pin", systemImage: conversation.pinned ? "pin.slash.fill" : "pin.fill")
+                    Label(conversation.pinned ? t("conversations.menu.unpin") : t("conversations.pin"), systemImage: conversation.pinned ? "pin.slash.fill" : "pin.fill")
                 }
                 .tint(Theme.green)
             }
@@ -338,7 +348,7 @@ struct ChatListView: View {
                 Button {
                     model.toggle(.hidden, conversation.key, on: server.entry.id)
                 } label: {
-                    Label(conversation.hidden ? "Show" : "Hide", systemImage: conversation.hidden ? "eye.fill" : "eye.slash.fill")
+                    Label(conversation.hidden ? t("conversations.show") : t("conversations.hide"), systemImage: conversation.hidden ? "eye.fill" : "eye.slash.fill")
                 }
                 .tint(Theme.bg5)
                 Button {
@@ -348,7 +358,7 @@ struct ChatListView: View {
                         muting = MutingTarget(key: conversation.key, title: conversation.title, serverId: server.entry.id)
                     }
                 } label: {
-                    Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    Label(conversation.muted ? t("conversations.menu.unmute") : t("conversations.menu.mute"), systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
                 }
                 .tint(Theme.amber)
             }
@@ -357,37 +367,37 @@ struct ChatListView: View {
                     Button {
                         model.markChatRead(conversation.key, on: server.entry.id)
                     } label: {
-                        Label("Mark as read", systemImage: "checkmark.message")
+                        Label(t("conversations.menu.markRead"), systemImage: "checkmark.message")
                     }
                 } else if conversation.groupId != nil {
                     Button {
                         model.setMarkedUnread(conversation.key, true, on: server.entry.id)
                     } label: {
-                        Label("Mark as unread", systemImage: "message.badge")
+                        Label(t("conversations.menu.markUnread"), systemImage: "message.badge")
                     }
                 }
                 Button {
                     model.toggle(.pinned, conversation.key, on: server.entry.id)
                 } label: {
-                    Label(conversation.pinned ? "Unpin" : "Pin to top", systemImage: conversation.pinned ? "pin.slash" : "pin")
+                    Label(conversation.pinned ? t("conversations.menu.unpin") : t("conversations.menu.pin"), systemImage: conversation.pinned ? "pin.slash" : "pin")
                 }
                 if conversation.muted {
                     Button {
                         model.unmute(conversation.key, on: server.entry.id)
                     } label: {
-                        Label("Unmute", systemImage: "speaker.wave.2")
+                        Label(t("conversations.menu.unmute"), systemImage: "speaker.wave.2")
                     }
                 } else {
                     Menu {
                         MuteButtons(conversationKey: conversation.key, serverId: server.entry.id)
                     } label: {
-                        Label("Mute", systemImage: "speaker.slash")
+                        Label(t("conversations.menu.mute"), systemImage: "speaker.slash")
                     }
                 }
                 Button {
                     model.toggle(.hidden, conversation.key, on: server.entry.id)
                 } label: {
-                    Label(conversation.hidden ? "Show in list" : "Hide from list", systemImage: conversation.hidden ? "eye" : "eye.slash")
+                    Label(conversation.hidden ? t("conversations.menu.show") : t("conversations.menu.hide"), systemImage: conversation.hidden ? "eye" : "eye.slash")
                 }
             }
     }
@@ -432,10 +442,10 @@ struct ChatListView: View {
     }
 
     private func filterBar(_ server: AppModel.ServerState) -> some View {
-        Picker("Show", selection: $filter) {
+        Picker(t("conversations.show"), selection: $filter) {
             // Channels, when the server has some, as the desktop's tab, and Bots when it has any.
             ForEach(Filter.allCases.filter { ($0 != .channels || showsChannels(server)) && ($0 != .bots || showsBots(server)) }) { item in
-                Text(item.rawValue).tag(item)
+                Text(item.title).tag(item)
             }
         }
         .pickerStyle(.segmented)
@@ -447,12 +457,12 @@ struct ChatListView: View {
     @ViewBuilder
     private func emptyState(searching: Bool) -> some View {
         let (title, image): (String, String) = if searching {
-            ("Nothing matches that search.", "magnifyingglass")
+            (t("conversations.empty.noMatch"), "magnifyingglass")
         } else {
             switch filter {
-            case .unread: ("You're all caught up.", "checkmark.circle")
-            case .groups: ("No groups yet.", "person.3")
-            default: ("It's quiet here.", "bubble.left.and.bubble.right")
+            case .unread: (t("conversations.empty.caughtUp"), "checkmark.circle")
+            case .groups: (t("conversations.empty.noGroups"), "person.3")
+            default: (t("conversations.empty.quiet"), "bubble.left.and.bubble.right")
             }
         }
         ContentUnavailableView(title, systemImage: image)
@@ -524,14 +534,14 @@ struct ChatListView: View {
     /// server, joining another starts here; otherwise, from the list of servers.
     private var serverMenu: some View {
         Menu {
-            Button("Invite people", systemImage: "link") { sheet = .invite }
-            Button("New group", systemImage: "person.2") { sheet = .newGroup }
+            Button(t("invites.title"), systemImage: "link") { sheet = .invite }
+            Button(t("groups.new.title"), systemImage: "person.2") { sheet = .newGroup }
             if sidebar, model.activeServer?.isAdmin ?? false {
-                Button("New channel", systemImage: "number") { sheet = .channel(.new(.text, category: "")) }
+                Button(t("conversations.newChannel"), systemImage: "number") { sheet = .channel(.new(.text, category: "")) }
             }
             if sidebar, !model.hasServerList {
                 Divider()
-                Button("Join a server", systemImage: "plus") { model.joining = true }
+                Button(t("servers.rail.join"), systemImage: "plus") { model.joining = true }
             }
         } label: {
             HStack(spacing: 4) {
@@ -560,7 +570,7 @@ struct ChatListView: View {
     private func titleText(_ connection: ConnectionState) -> String {
         switch connection {
         case .online: model.activeServer?.entry.name ?? "Zuna"
-        case .syncing: "Updating…"
+        case .syncing: t("conversations.updating")
         case .connecting, .offline: model.waitingText(connection)
         }
     }
@@ -645,24 +655,24 @@ private struct ChatRow: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.caption)
                 .foregroundStyle(Theme.text2)
-                .accessibilityLabel("Verified")
+                .accessibilityLabel(t("conversations.verified"))
         } else if peer?.trust == .changed {
             Image(systemName: "exclamationmark.shield.fill")
                 .font(.caption)
                 .foregroundStyle(Theme.amber)
-                .accessibilityLabel("Security key changed")
+                .accessibilityLabel(t("conversations.keyChanged"))
         }
         if conversation.muted {
             Image(systemName: "speaker.slash.fill")
                 .font(.caption2)
                 .foregroundStyle(Theme.text3)
-                .accessibilityLabel("Muted")
+                .accessibilityLabel(t("conversations.muted"))
         }
         if conversation.blocked {
             Image(systemName: "nosign")
                 .font(.caption2)
                 .foregroundStyle(Theme.text3)
-                .accessibilityLabel("Blocked")
+                .accessibilityLabel(t("conversations.blocked"))
         }
     }
 
@@ -686,12 +696,12 @@ private struct ChatRow: View {
                 }
                 .foregroundStyle(Theme.link)
             } else if conversation.groupId.flatMap({ server.calls[$0] }) != nil {
-                Label("In a call", systemImage: "phone.fill").foregroundStyle(Theme.green)
+                Label(t("conversations.row.inCall"), systemImage: "phone.fill").foregroundStyle(Theme.green)
             } else if body.isEmpty, author == nil {
-                Text(isSaved ? "Notes to yourself" : peer.map { "@\($0.username)" } ?? "")
+                Text(isSaved ? t("conversations.row.saved") : peer.map { "@\($0.username)" } ?? "")
                     .foregroundStyle(Theme.text3)
             } else if let author {
-                Text("\(Text(author + ": ").foregroundStyle(Theme.text1))\(Text(body).foregroundStyle(Theme.text2))")
+                Text(sentence: t("conversations.preview.authorAndText"), drawing: ["author": Text(author).foregroundStyle(Theme.text1), "text": Text(body).foregroundStyle(Theme.text2)])
             } else {
                 Text(body).foregroundStyle(Theme.text2)
             }
@@ -702,12 +712,12 @@ private struct ChatRow: View {
 
     /// "typing" in a direct message; in a group, who, as its title says it. The dots follow.
     private func typing(_ typists: [String]) -> String {
-        guard conversation.kind != .dm else { return "typing" }
-        let names = typists.sorted().map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
+        guard conversation.kind != .dm else { return t("conversations.row.typing") }
+        let names = typists.sorted().map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? t("conversations.typing.someone") }
         switch names.count {
-        case 1: return "\(names[0]) is typing"
-        case 2: return "\(names[0]) and \(names[1]) are typing"
-        default: return "\(names.count) people are typing"
+        case 1: return t("conversations.typing.one", ["name": names[0]])
+        case 2: return t("conversations.typing.two", ["first": names[0], "second": names[1]])
+        default: return t("conversations.typing.many", ["count": names.count])
         }
     }
 
@@ -721,7 +731,7 @@ private struct ChatRow: View {
                 .frame(width: 22, height: 22)
                 .background(model.settings.accent.color, in: .circle)
                 .padding(.top, 2)
-                .accessibilityLabel("Mentions you")
+                .accessibilityLabel(t("conversations.mentionsYou"))
         }
         if conversation.unread > 0 {
             let accent = model.settings.accent
@@ -733,20 +743,20 @@ private struct ChatRow: View {
                 .frame(minWidth: 22, minHeight: 22)
                 .background(conversation.muted ? Theme.bg5 : accent.color, in: .capsule)
                 .padding(.top, 2)
-                .accessibilityLabel("\(conversation.unread) unread")
+                .accessibilityLabel(t("conversations.unreadCount", ["count": conversation.unread]))
         } else if conversation.markedUnread {
             Circle()
                 .fill(conversation.muted ? Theme.bg5 : model.settings.accent.color)
                 .frame(width: 22, height: 22)
                 .padding(.top, 2)
-                .accessibilityLabel("Marked as unread")
+                .accessibilityLabel(t("conversations.markedUnread"))
         } else if conversation.pinned {
             Image(systemName: "pin.fill")
                 .font(.caption)
                 .foregroundStyle(Theme.text3)
                 .rotationEffect(.degrees(45))
                 .padding(.top, 4)
-                .accessibilityLabel("Pinned")
+                .accessibilityLabel(t("conversations.pinned"))
         }
     }
 }
@@ -769,7 +779,7 @@ private struct MessageHitRow: View {
             )
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(channel.map { "#\($0.title)" } ?? conversation?.title ?? "Conversation")
+                    Text(channel.map { "#\($0.title)" } ?? conversation?.title ?? t("conversations.search.untitled"))
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.text1)
                         .lineLimit(1)

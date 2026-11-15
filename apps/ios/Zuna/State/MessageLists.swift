@@ -205,7 +205,7 @@ extension AppModel {
                 target = (try? await core.session(serverId).messageById(groupId, id: messageId))?.seq
             }
             guard let target else {
-                toast("That message isn't available.")
+                toast(t("conversations.messageUnavailable"))
                 return
             }
             do {

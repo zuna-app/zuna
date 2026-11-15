@@ -63,14 +63,14 @@ final class Notifications {
     static var categories: Set<UNNotificationCategory> {
         let reply = UNTextInputNotificationAction(
             identifier: replyAction,
-            title: "Reply",
+            title: t("notifications.action.reply"),
             options: [.authenticationRequired],
-            textInputButtonTitle: "Send",
-            textInputPlaceholder: "Message"
+            textInputButtonTitle: t("common.send"),
+            textInputPlaceholder: t("notifications.action.replyPlaceholder")
         )
-        let read = UNNotificationAction(identifier: markReadAction, title: "Mark as read", options: [.authenticationRequired])
-        let answer = UNNotificationAction(identifier: answerCallAction, title: "Answer", options: [.foreground])
-        let decline = UNNotificationAction(identifier: declineCallAction, title: "Decline", options: [.destructive, .authenticationRequired])
+        let read = UNNotificationAction(identifier: markReadAction, title: t("notifications.action.markRead"), options: [.authenticationRequired])
+        let answer = UNNotificationAction(identifier: answerCallAction, title: t("notifications.action.answer"), options: [.foreground])
+        let decline = UNNotificationAction(identifier: declineCallAction, title: t("notifications.action.decline"), options: [.destructive, .authenticationRequired])
         return [
             UNNotificationCategory(identifier: messageCategory, actions: [reply, read], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: callCategory, actions: [answer, decline], intentIdentifiers: [], options: []),
@@ -357,7 +357,7 @@ final class Notifications {
             guard !message.hidden, !message.muted else { return false }
             let base = UNMutableNotificationContent()
             base.title = "Zuna"
-            base.body = "New message"
+            base.body = t("notify.newMessage")
             base.sound = settings.sound ? .default : nil
             base.categoryIdentifier = Self.messageCategory
             base.userInfo["groupId"] = groupId
@@ -388,11 +388,11 @@ final class Notifications {
             content.body = body
         case .sender:
             content.title = TelegramPush.titled(title)
-            content.body = "New message"
+            content.body = t("notify.newMessage")
         case .none:
             content.title = "Zuna"
             content.subtitle = "Telegram"
-            content.body = "New message"
+            content.body = t("notify.newMessage")
         }
         content.sound = settings.sound ? .default : nil
         content.categoryIdentifier = Self.messageCategory

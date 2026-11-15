@@ -4,7 +4,7 @@
 // (packages/ui/src/core/serve.ts).
 
 import "./polyfills";
-import { ZunaClient, notifiedChats, previewCall, previewPush } from "@zuna/core";
+import { ZunaClient, notifiedChats, previewCall, previewPush, useCatalog } from "@zuna/core";
 import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
@@ -140,6 +140,12 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
 //
 // The notification extension loads this bundle too, but never boots a client:
 // it asks about one pushed message at a time (push.ts in the core).
+
+// The language the app shows, for what the core words itself, a push's preview included: a tag,
+// and its catalog's JSON, or null for English. The notification extension sets it too.
+g.__zunaLanguage = (tag: string, catalog: string | null) => {
+  useCatalog(tag, catalog);
+};
 
 g.__zunaPreviewCall = (deviceKey: Uint8Array, serverId: string, groupId: string, callerId: string, done: (error: string | null, json: string | null) => void) => {
   previewCall({ db: nativeDbProvider, deviceKey }, serverId, groupId, callerId).then(

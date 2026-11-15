@@ -23,35 +23,35 @@ struct TelegramConnectionsView: View {
                 }
                 .padding(.vertical, 4)
                 if model.telegram != nil {
-                    Button("Unlink Telegram", role: .destructive) { unlinking = true }
+                    Button(t("telegram.unlink.action"), role: .destructive) { unlinking = true }
                         .accessibilityIdentifier(A11y.Telegram.unlink)
                 } else {
-                    Button("Connect Telegram") { model.startLinkingTelegram() }
+                    Button(t("telegram.connect")) { model.startLinkingTelegram() }
                         .accessibilityIdentifier(A11y.Servers.linkTelegram)
                 }
             } footer: {
-                Text("Zuna signs in to your own Telegram account as another device, using Telegram's API. Zuna isn't made by Telegram, these chats aren't end-to-end encrypted, and no Zuna server hears of them.")
+                Text(t("telegram.connections.hint"))
             }
             .listRowBackground(Theme.bg2)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Connections")
+        .navigationTitle(t("settings.connections.title"))
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
-            "This signs Zuna out of your Telegram account and erases what it kept of it on this device. Your chats stay on Telegram.",
+            t("telegram.unlink.confirm"),
             isPresented: $unlinking,
             titleVisibility: .visible
         ) {
-            Button("Unlink Telegram", role: .destructive) {
+            Button(t("telegram.unlink.action"), role: .destructive) {
                 Task { await model.unlinkTelegram() }
             }
         }
     }
 
     private var status: String {
-        guard let telegram = model.telegram else { return "Not linked" }
+        guard let telegram = model.telegram else { return t("telegram.connections.notLinked") }
         let me = telegram.selfUser
-        return me.map { $0.username.isEmpty ? "Linked as \($0.displayName)" : "Linked as @\($0.username)" } ?? "Linked"
+        return me.map { t("telegram.connections.linkedAs", ["name": $0.username.isEmpty ? $0.displayName : "@\($0.username)"]) } ?? t("telegram.connections.linked")
     }
 }

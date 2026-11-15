@@ -15,7 +15,7 @@ public enum AccountRules {
     /// account, as nobody can reset a password, but while the second one is still being
     /// typed, it's only wrong once it stops matching.
     public static func confirmationError(_ password: String, confirmation: String) -> String? {
-        !confirmation.isEmpty && !password.hasPrefix(confirmation) ? "The passwords don't match." : nil
+        !confirmation.isEmpty && !password.hasPrefix(confirmation) ? t("onboarding.password.mismatch") : nil
     }
 
     /// A username made from a display name: accents dropped, everything else

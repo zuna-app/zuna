@@ -350,7 +350,7 @@ final class VoiceModel {
         ringOnAnnounce = ring && isCall
         cameraOnJoin = camera
         refreshIncoming()
-        let title = channel?.title ?? server?.conversation(groupId: channelId)?.title ?? "Voice channel"
+        let title = channel?.title ?? server?.conversation(groupId: channelId)?.title ?? t("voice.panel.voiceChannel")
         let actions = SystemCall.Actions(
             mute: { [weak self] muted in self?.mutedBySystem(muted) ?? false },
             end: { [weak self] in self?.leave() }
@@ -370,13 +370,14 @@ final class VoiceModel {
     }
 
     /// Where the other device is, for the question about a move, in words that follow "You're in".
-    func place(of move: VoiceMove) -> String {
+    /// Where the other device is, for the question about a move, as the whole sentence asking it.
+    func moveQuestion(_ move: VoiceMove) -> String {
         let server = app?.servers[move.serverId]
         let channel = server?.channels.first { $0.id == move.from }
-        if move.from == move.channelId { return channel != nil ? "this voice channel" : "this call" }
-        if let channel { return channel.name.isEmpty ? "a voice channel" : channel.name }
-        guard let conversation = server?.conversation(groupId: move.from) else { return "a call" }
-        return conversation.kind == .dm ? "a call with \(conversation.title)" : "a call in \(conversation.title)"
+        if move.from == move.channelId { return channel != nil ? t("voice.moveHere.thisChannel") : t("voice.moveHere.thisCall") }
+        if let channel { return channel.name.isEmpty ? t("voice.moveHere.unnamedChannel") : t("voice.moveHere.channel", ["channel": channel.name]) }
+        guard let conversation = server?.conversation(groupId: move.from) else { return t("voice.moveHere.call") }
+        return conversation.kind == .dm ? t("voice.moveHere.callWith", ["name": conversation.title]) : t("voice.moveHere.callIn", ["chat": conversation.title])
     }
 
     /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.
@@ -386,7 +387,7 @@ final class VoiceModel {
         do {
             groupId = try await app.core.session(serverId).prepareCall(key)
         } catch {
-            app.toast((error as? CoreCallError)?.message ?? "Couldn't start the call.", .error)
+            app.toast((error as? CoreCallError)?.message ?? t("voice.call.couldntStart"), .error)
             return
         }
         // Someone else may have called meanwhile, which this joins rather than ringing anyone.
@@ -469,7 +470,7 @@ final class VoiceModel {
             applyVolumes()
             noMic = !room.hasMic
             serverMuted = room.serverMuted
-            if let problem = room.micProblem { app.toast("\(problem) You can still listen.") }
+            if let problem = room.micProblem { app.toast(problem) }
             await room.setMuted(micOff)
             status = .connected
             keyEpoch = room.currentKey?.epoch
@@ -484,7 +485,7 @@ final class VoiceModel {
             }
         } catch {
             guard mine == attempt else { return }
-            app.toast((error as? CoreCallError).map { ErrorText.describe($0) } ?? "Couldn't connect to voice.", .error)
+            app.toast((error as? CoreCallError).map { ErrorText.describe($0) } ?? t("voice.couldntConnect"), .error)
             // A server that hasn't set this up, or a channel that's full, won't change in a moment.
             let session = app.core.session(serverId)
             reset(status: .idle)
@@ -509,7 +510,7 @@ final class VoiceModel {
             break
         }
         if reconnects >= Self.reconnectAttempts {
-            app?.toast("Lost the connection to voice.", .error)
+            app?.toast(t("voice.connectionLost"), .error)
             leave()
             return
         }
@@ -562,18 +563,18 @@ final class VoiceModel {
         stageShown = false
         let wasCall = app?.servers[serverId]?.channels.contains { $0.id == channelId } == false
         let messages = wasCall ? [
-            "elsewhere": "You joined this call on another device.",
-            "removed": "You're no longer in this conversation, so you left the call.",
-            "deleted": "That conversation was deleted.",
-            "banned": "You were removed from this server.",
+            "elsewhere": mark("voice.call.endedElsewhere"),
+            "removed": mark("voice.call.endedRemoved"),
+            "deleted": mark("voice.call.endedDeleted"),
+            "banned": mark("voice.ended.banned"),
         ] : [
-            "elsewhere": "You joined this voice channel on another device.",
-            "disconnected": "An admin removed you from the voice channel.",
-            "deleted": "That voice channel was deleted.",
-            "removed": "That voice channel is only for admins now.",
-            "banned": "You were removed from this server.",
+            "elsewhere": mark("voice.ended.elsewhere"),
+            "disconnected": mark("voice.ended.disconnected"),
+            "deleted": mark("voice.ended.deleted"),
+            "removed": mark("voice.ended.adminsOnly"),
+            "banned": mark("voice.ended.banned"),
         ]
-        app?.toast(messages[reason] ?? (wasCall ? "You left the call." : "You left the voice channel."))
+        app?.toast(t(messages[reason] ?? (wasCall ? mark("voice.call.left") : mark("voice.ended.left"))))
         sound(.selfLeave)
         refreshIncoming()
         onEnded?()
@@ -595,7 +596,7 @@ final class VoiceModel {
               !server.inRoom(groupId).contains(where: { $0 != me }) else { return }
         let name = conversation.peerId.flatMap { server.users[$0]?.displayName } ?? conversation.title
         leave()
-        app?.toast(conversation.peerId.map { call.declined.contains($0) } == true ? "\(name) declined the call." : "\(name) didn't answer.")
+        app?.toast(conversation.peerId.map { call.declined.contains($0) } == true ? t("voice.call.declined", ["name": name]) : t("voice.call.noAnswer", ["name": name]))
     }
 
     /// The calls going on were caught up on.
@@ -738,7 +739,7 @@ final class VoiceModel {
             do {
                 try await session.declineCall(call.groupId)
             } catch {
-                app.toast((error as? CoreCallError)?.message ?? "Couldn't decline the call.", .error)
+                app.toast((error as? CoreCallError)?.message ?? t("voice.errors.decline"), .error)
             }
         }
     }
@@ -828,14 +829,14 @@ final class VoiceModel {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call:\(call.id)"])
         guard !here, !elsewhere, !declined, !call.quiet else { return }
         if UIApplication.shared.applicationState == .active {
-            app?.toast(call.kind == .dm ? "Missed call from \(call.title)." : "Missed call from \(name(call.serverId, call.startedBy)) in \(call.title).")
+            app?.toast(call.kind == .dm ? t("voice.call.missedFrom", ["name": call.title]) : t("voice.missed.fromInGroup", ["name": name(call.serverId, call.startedBy), "group": call.title]))
         } else {
             Task { await notify(call, missed: true) }
         }
     }
 
     private func name(_ serverId: String, _ userId: String) -> String {
-        app?.servers[serverId]?.users[userId]?.displayName ?? "Someone"
+        app?.servers[serverId]?.users[userId]?.displayName ?? t("notify.someone")
     }
 
     /// A call ringing, or missed, as a notification, where the system doesn't ring and the app isn't in front.
@@ -845,9 +846,9 @@ final class VoiceModel {
         let content = UNMutableNotificationContent()
         let caller = name(call.serverId, call.startedBy)
         content.title = settings.preview == .none ? "Zuna" : call.title
-        content.body = settings.preview == .none ? (missed ? "Missed call" : "Incoming call")
-            : missed ? (call.kind == .dm ? "Missed call" : "Missed call from \(caller)")
-            : call.kind == .dm ? "Calling you" : "\(caller) started a call"
+        content.body = settings.preview == .none ? (missed ? t("voice.missed.title") : t("notify.incomingCall"))
+            : missed ? (call.kind == .dm ? t("voice.missed.title") : t("voice.missed.from", ["name": caller]))
+            : call.kind == .dm ? t("notify.callingYou") : t("notify.startedCall", ["name": caller])
         content.sound = settings.sound ? (missed ? .default : .defaultRingtone) : nil
         content.categoryIdentifier = missed ? "" : Notifications.callCategory
         content.userInfo = ["serverId": call.serverId, "groupId": call.groupId, "conversationKey": call.key, "call": call.id]
@@ -880,7 +881,7 @@ final class VoiceModel {
         guard screen || screenStarting || vanished else { return }
         shareVanishedAt = nil
         Task { await stopScreen() }
-        app?.toast(reason == "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.")
+        app?.toast(reason == "stopped" ? t("voice.screen.stoppedByAdmin") : t("voice.screen.stoppedByRules"))
     }
 
     /// Being muted by an admin, or no longer, comes with the rest of what's said about this device.
@@ -890,7 +891,7 @@ final class VoiceModel {
         serverMuted = member.serverMuted
         Task { await room?.setMuted(micOff) }
         systemCall.setMuted(micOff)
-        app?.toast(member.serverMuted ? "An admin muted you." : "An admin unmuted you.")
+        app?.toast(member.serverMuted ? t("voice.adminMuted") : t("voice.adminUnmuted"))
         sound(member.serverMuted ? .mute : .unmute)
     }
 
@@ -955,7 +956,7 @@ final class VoiceModel {
         guard let room else { return }
         let on = !camera
         if on, !(await Self.cameraAllowed()) {
-            app?.toast("Zuna can't use the camera. Allow it in Settings.", .error)
+            app?.toast(t("voice.camera.notAllowed"), .error)
             return
         }
         do {
@@ -965,7 +966,7 @@ final class VoiceModel {
             systemCall.video(on)
             announce()
         } catch {
-            app?.toast("There's no camera Zuna can use.", .error)
+            app?.toast(t("voice.camera.none"), .error)
         }
     }
 
@@ -990,7 +991,7 @@ final class VoiceModel {
     func startScreen() async {
         guard let app, let room, let channelId, let serverId, let session, !screen, !screenStarting, canShareScreen else { return }
         if let refusal = shareRefusal {
-            refuseShare("\(refusal).")
+            refuseShare(refusal)
             return
         }
         let server = app.servers[serverId]
@@ -1003,7 +1004,7 @@ final class VoiceModel {
             _ = try await session.voiceScreenAccess(channelId, ScreenRequest(sound: false))
         } catch {
             if current() { screenStarting = false }
-            refuseShare((error as? CoreCallError)?.message ?? "Couldn't share your screen.")
+            refuseShare((error as? CoreCallError)?.message ?? t("voice.share.failed"))
             return
         }
         do {
@@ -1022,7 +1023,7 @@ final class VoiceModel {
             if current() { screenStarting = false }
             Task { try? await session.voiceScreenStop(channelId) }
             // Choosing not to share after all is not a failure.
-            if (error as? LiveKitError)?.type != .cancelled { refuseShare("Couldn't share your screen.") }
+            if (error as? LiveKitError)?.type != .cancelled { refuseShare(t("voice.share.failed")) }
         }
     }
 
@@ -1053,7 +1054,7 @@ final class VoiceModel {
             // One the call asked for is taken where it's waited for.
             guard !screen, !screenStarting else { return }
             guard status == .connected else {
-                BroadcastSignal.refuse("Join a voice channel in Zuna, then share your screen from the call.")
+                BroadcastSignal.refuse(t("voice.share.joinFirst"))
                 return
             }
             Task { await startScreen() }
@@ -1107,11 +1108,11 @@ final class VoiceModel {
     /// Why this person can't play a sound in the room they're in, if they can't, as the desktop's soundboard says.
     var soundRefusal: String? {
         guard let serverId, let server = app?.servers[serverId] else { return nil }
-        if !isCall, server.channels.first(where: { $0.id == channelId })?.sounds == false { return "The soundboard is off in this voice channel." }
-        if serverMuted { return "An admin muted you, so you can't play sounds." }
-        if deafened { return "Undeafen to play sounds." }
+        if !isCall, server.channels.first(where: { $0.id == channelId })?.sounds == false { return t("server.theSoundboardIsOffIn") }
+        if serverMuted { return t("server.anAdminMutedYouSo") }
+        if deafened { return t("server.undeafenToPlaySounds") }
         // Without a microphone, someone can only listen, and so they're muted.
-        if muted || noMic { return "Unmute to play sounds." }
+        if muted || noMic { return t("server.unmuteToPlaySounds") }
         return nil
     }
 
@@ -1149,7 +1150,7 @@ final class VoiceModel {
 
     /// Puts a YouTube video on for everyone in the room, from a link, and watches it here. Throws with words for the person.
     func watchStart(_ url: String) async throws {
-        guard let channelId, let session else { throw WatchFailure(errorDescription: "Join the voice channel to watch together.") }
+        guard let channelId, let session else { throw WatchFailure(errorDescription: t("server.joinTheVoiceChannelToWatch")) }
         try await session.watchStart(channelId, url: url)
         let now = try? await session.getWatch(channelId)
         guard channelId == self.channelId else { return }
@@ -1258,11 +1259,11 @@ final class VoiceModel {
         let share = screen ? screenTerms.map { StatsShare(through: room.shareRoute, terms: $0) } : nil
         let users = serverId.flatMap { app?.servers[$0]?.users } ?? [:]
         let words: String = switch status {
-        case .idle: "closed"
-        case .connecting: "connecting"
-        case .connected: "connected"
-        case .reconnecting: "reconnecting"
+        case .idle: t("voice.stats.statusClosed")
+        case .connecting: t("voice.stats.statusConnecting")
+        case .connected: t("voice.stats.statusConnected")
+        case .reconnecting: t("voice.stats.statusReconnecting")
         }
-        return reader.read(room.statsRoom(), status: words, share: share) { users[$0]?.displayName ?? "Someone" }
+        return reader.read(room.statsRoom(), status: words, connected: status == .connected, share: share) { users[$0]?.displayName ?? t("notify.someone") }
     }
 }

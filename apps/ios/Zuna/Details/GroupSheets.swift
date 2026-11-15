@@ -12,12 +12,12 @@ struct PeoplePicker: View {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         let shown = users.filter { needle.isEmpty || $0.displayName.lowercased().contains(needle) || $0.username.lowercased().contains(needle) }
         Section {
-            TextField("Search people", text: $query)
+            TextField(t("groups.people.search"), text: $query)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityIdentifier(A11y.Groups.search)
             if shown.isEmpty {
-                Text("Nobody matches that search.").foregroundStyle(Theme.text2)
+                Text(t("groups.people.noMatch")).foregroundStyle(Theme.text2)
             }
             ForEach(shown) { user in
                 Button {
@@ -74,8 +74,8 @@ struct NewGroupSheet: View {
         let question = Bots.question(bots)
         NavigationStack {
             List {
-                Section("Group name") {
-                    TextField("Weekend trip", text: $name)
+                Section(t("groups.new.name")) {
+                    TextField(t("groups.new.namePlaceholder"), text: $name)
                         .onChange(of: name) { if name.count > 80 { name = String(name.prefix(80)) } }
                         .accessibilityIdentifier(A11y.Groups.name)
                 }
@@ -84,8 +84,8 @@ struct NewGroupSheet: View {
                 Section {
                     Toggle(isOn: $history) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("New members can read earlier messages")
-                            Text("If off, people only see what's sent after they join.").font(.caption).foregroundStyle(Theme.text3)
+                            Text(t("groups.new.history"))
+                            Text(t("groups.new.historyHint")).font(.caption).foregroundStyle(Theme.text3)
                         }
                     }
                     .tint(model.settings.accent.switchTint)
@@ -94,16 +94,16 @@ struct NewGroupSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle("New group")
+            .navigationTitle(t("groups.new.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
                         // A bot among them is asked about first, each time.
-                        Button(selected.isEmpty ? "Create" : "Create with \(selected.count + 1) people") { if bots.isEmpty { create() } else { asking = true } }
+                        Button(selected.isEmpty ? t("common.create") : t("groups.new.createWith", ["count": selected.count + 1])) { if bots.isEmpty { create() } else { asking = true } }
                             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier(A11y.Groups.create)
                     }
@@ -158,30 +158,30 @@ struct AddMembersSheet: View {
             List {
                 if conversation.historyVisible {
                     Section {
-                        Label("This group shares its history, so they'll be able to read earlier messages.", systemImage: "person.2")
+                        Label(t("groups.add.historyShared"), systemImage: "person.2")
                             .font(.footnote)
                             .foregroundStyle(Theme.text2)
                     }
                     .listRowBackground(Theme.bg2)
                 }
                 if users.isEmpty {
-                    Text("Everyone on this server is already here.").foregroundStyle(Theme.text2).listRowBackground(Color.clear)
+                    Text(t("groups.add.everyoneHere")).foregroundStyle(Theme.text2).listRowBackground(Color.clear)
                 } else {
                     PeoplePicker(users: users, serverId: serverId, selected: $selected)
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle("Add people")
+            .navigationTitle(t("groups.add.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
                         // A bot among them is asked about first, each time.
-                        Button("Add") { if bots.isEmpty { add() } else { asking = true } }
+                        Button(t("common.add")) { if bots.isEmpty { add() } else { asking = true } }
                             .disabled(selected.isEmpty)
                             .accessibilityIdentifier(A11y.Groups.add)
                     }
@@ -224,13 +224,13 @@ struct EditGroupSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Name") {
-                    TextField("Name", text: $name)
+                Section(t("common.name")) {
+                    TextField(t("common.name"), text: $name)
                         .onChange(of: name) { if name.count > 80 { name = String(name.prefix(80)) } }
                         .accessibilityIdentifier(A11y.Groups.name)
                 }
-                Section("Description") {
-                    TextField("Description", text: $description, axis: .vertical)
+                Section(t("groups.edit.description")) {
+                    TextField(t("groups.edit.description"), text: $description, axis: .vertical)
                         .lineLimit(2...6)
                         .onChange(of: description) { if description.count > 300 { description = String(description.prefix(300)) } }
                         .accessibilityIdentifier(A11y.Groups.description)
@@ -239,15 +239,15 @@ struct EditGroupSheet: View {
             .listRowBackground(Theme.bg2)
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle("Edit group")
+            .navigationTitle(t("groups.edit.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Save") { save() }
+                        Button(t("common.save")) { save() }
                             .disabled(name.trimmingCharacters(in: .whitespaces) == conversation.title && description == conversation.description)
                             .accessibilityIdentifier(A11y.Groups.save)
                     }

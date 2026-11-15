@@ -1,5 +1,6 @@
 import SwiftUI
 import ZunaHost
+import ZunaModels
 
 /// Shown once after every restart of the phone: the device key stays locked
 /// until someone enters the Zuna password of an account on this device.
@@ -18,29 +19,29 @@ struct UnlockView: View {
             Image(systemName: "lock.fill")
                 .font(.system(size: 30))
                 .foregroundStyle(.white)
-            Text("Unlock Zuna")
+            Text(t("onboarding.unlock.title"))
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
-            Text("Your phone restarted. Enter your password to unlock your messages.")
+            Text(t("onboarding.unlock.lead"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             if accounts.count > 1 {
-                Picker("Account", selection: $selected) {
+                Picker(t("onboarding.unlock.account"), selection: $selected) {
                     ForEach(accounts.indices, id: \.self) { index in
-                        Text("\(accounts[index].username) on \(accounts[index].serverName)").tag(index)
+                        Text(t("onboarding.unlock.accountOn", ["username": accounts[index].username, "server": accounts[index].serverName])).tag(index)
                     }
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier(A11y.Unlock.account)
             } else if let account = accounts.first {
-                Text("\(account.username) on \(account.serverName)")
+                Text(t("onboarding.unlock.accountOn", ["username": account.username, "server": account.serverName]))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            SecureField("Password", text: $password)
+            SecureField(t("common.password"), text: $password)
                 .textContentType(.password)
                 .submitLabel(.go)
                 .focused($focused)
@@ -51,7 +52,7 @@ struct UnlockView: View {
                 .accessibilityIdentifier(A11y.Unlock.password)
 
             if wrong {
-                Text("That password isn't right.")
+                Text(t("onboarding.unlock.wrongPassword"))
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .accessibilityIdentifier(A11y.Unlock.error)
@@ -62,7 +63,7 @@ struct UnlockView: View {
                     if busy {
                         ProgressView().tint(.black)
                     } else {
-                        Text("Unlock").fontWeight(.semibold)
+                        Text(t("onboarding.unlock.button")).fontWeight(.semibold)
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 22)
@@ -73,7 +74,7 @@ struct UnlockView: View {
             .disabled(password.isEmpty || busy)
             .accessibilityIdentifier(A11y.Unlock.submit)
 
-            Button("Forgot your password?") { confirmErase = true }
+            Button(t("onboarding.signIn.forgot")) { confirmErase = true }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier(A11y.Unlock.forgot)
@@ -83,13 +84,13 @@ struct UnlockView: View {
         .accessibilityIdentifier(A11y.Unlock.screen)
         .frame(maxWidth: 420)
         .onAppear { focused = true }
-        .alert("Sign in again?", isPresented: $confirmErase) {
-            Button("Erase and sign in", role: .destructive) {
+        .alert(t("onboarding.unlock.eraseTitle"), isPresented: $confirmErase) {
+            Button(t("onboarding.unlock.erase"), role: .destructive) {
                 Task { await core.eraseAndStartOver() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("Nobody can reset your password from this phone. Erasing removes what's stored here. Your messages stay on your server and come back when you sign in with a new password or your recovery key.")
+            Text(t("onboarding.unlock.eraseMessage"))
         }
     }
 

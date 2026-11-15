@@ -211,7 +211,7 @@ final class MessageTextLabel: UIView {
     override var accessibilityLabel: String? {
         get {
             let spoken = NSMutableString(string: attributedText.string)
-            for range in hiddenSpoilers().map(\.range).reversed() { spoken.replaceCharacters(in: range, with: "spoiler") }
+            for range in hiddenSpoilers().map(\.range).reversed() { spoken.replaceCharacters(in: range, with: t("message.text.spoiler")) }
             return (spoken as String).replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces)
         }
         set {}
@@ -227,7 +227,7 @@ final class MessageTextLabel: UIView {
             var actions: [UIAccessibilityCustomAction] = []
             attributedText.enumerateAttribute(.zunaLink, in: whole) { value, range, _ in
                 guard let text = value as? String, let url = URL(string: text), !covered(range) else { return }
-                actions.append(UIAccessibilityCustomAction(name: "Open \(text)") { [weak self] _ in
+                actions.append(UIAccessibilityCustomAction(name: t("message.text.openLink", ["link": text])) { [weak self] _ in
                     self?.onLink?(url)
                     return true
                 })
@@ -235,13 +235,13 @@ final class MessageTextLabel: UIView {
             attributedText.enumerateAttribute(.zunaMention, in: whole) { value, range, _ in
                 guard let userId = value as? String, !covered(range) else { return }
                 let name = (attributedText.string as NSString).substring(with: range)
-                actions.append(UIAccessibilityCustomAction(name: "Show \(name)") { [weak self] _ in
+                actions.append(UIAccessibilityCustomAction(name: t("message.text.showMention", ["name": name])) { [weak self] _ in
                     self?.onMention?(userId)
                     return true
                 })
             }
             for spoiler in hidden {
-                actions.append(UIAccessibilityCustomAction(name: "Show spoiler") { [weak self] _ in
+                actions.append(UIAccessibilityCustomAction(name: t("message.text.showSpoiler")) { [weak self] _ in
                     self?.onSpoiler?(spoiler.index)
                     return true
                 })

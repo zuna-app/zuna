@@ -14,7 +14,7 @@ struct TelegramStickers: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let sets, sets.isEmpty {
-                ContentUnavailableView("No sticker sets", systemImage: "face.smiling", description: Text("Add sticker sets in Telegram's own app."))
+                ContentUnavailableView(t("telegram.stickers.none"), systemImage: "face.smiling", description: Text(t("telegram.stickers.noneHint")))
                     .padding(.top, 40)
             } else if let sets {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -38,7 +38,7 @@ struct TelegramStickers: View {
                                         .contentShape(.rect)
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel(sticker.emoji.isEmpty ? "Sticker" : "\(sticker.emoji) sticker")
+                                .accessibilityLabel(sticker.emoji.isEmpty ? t("telegram.sticker") : t("telegram.stickers.emoji", ["emoji": sticker.emoji]))
                             }
                         }
                         .padding(.horizontal)

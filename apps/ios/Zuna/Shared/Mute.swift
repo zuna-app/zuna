@@ -9,10 +9,10 @@ enum MuteDuration: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .hour: "For 1 hour"
-        case .eightHours: "For 8 hours"
-        case .day: "For 1 day"
-        case .forever: "Until I turn it back on"
+        case .hour: t("conversations.mute.hour")
+        case .eightHours: t("conversations.mute.eightHours")
+        case .day: t("conversations.mute.day")
+        case .forever: t("conversations.mute.untilUnmuted")
         }
     }
 
@@ -45,6 +45,6 @@ extension Format {
     static func mutedUntil(_ ms: Double) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
         let style: Date.FormatStyle = Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute()
-        return "Muted until \(date.formatted(style))"
+        return t("conversations.mute.mutedUntil", ["time": date.formatted(style.locale(I18n.locale))])
     }
 }

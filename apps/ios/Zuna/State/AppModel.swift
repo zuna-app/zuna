@@ -308,7 +308,8 @@ final class AppModel {
     /// By server: the set last fetched ahead, so it's fetched again only when it changes.
     @ObservationIgnored private var prefetchedEmotes: [String: String] = [:]
 
-    /// What's wrong with the proxy set in Privacy while it can't be had, said where "Connecting…" would be.
+    /// What's wrong with the proxy set in Privacy while it can't be had, said where "Connecting…" would be:
+    /// its key, looked up as it's shown.
     private(set) var proxyTrouble: String?
     @ObservationIgnored private var proxyProbe: Task<Void, Never>?
     /// Tells the core the proxy changed, so it closes everything and opens it again the new way.
@@ -394,7 +395,7 @@ final class AppModel {
                 onboarding = false
             }
         } catch {
-            toast("Couldn't load your servers. \(ErrorText.describe(error))", .error)
+            toast(t("servers.couldntLoad", ["error": ErrorText.describe(error)]), .error)
         }
     }
 
@@ -430,7 +431,7 @@ final class AppModel {
             server.newDevices = try await newDevices
             return server
         } catch {
-            toast("Couldn't load \(entry.name). \(ErrorText.describe(error))", .error)
+            toast(t("servers.couldntLoadOne", ["server": entry.name, "error": ErrorText.describe(error)]), .error)
             return nil
         }
     }
@@ -566,8 +567,8 @@ final class AppModel {
 
     /// What a server that isn't online shows: the proxy's trouble, when there is some.
     func waitingText(_ connection: ConnectionState) -> String {
-        if let proxyTrouble, connection == .connecting || connection == .offline { return proxyTrouble }
-        return connection == .offline ? "Waiting for network…" : "Connecting…"
+        if let proxyTrouble, connection == .connecting || connection == .offline { return t(proxyTrouble) }
+        return connection == .offline ? t("servers.waitingForNetwork") : t("servers.connecting")
     }
 
     /// Takes up the proxy setting as it's now kept: everything closes and opens again the new
@@ -594,8 +595,8 @@ final class AppModel {
             // Only for the proxy that's still set, and while something still can't be reached.
             guard NetworkProxy.current == proxy, servers.values.contains(where: { $0.connection != .online }) else { return }
             switch failure {
-            case .refused: proxyTrouble = "The proxy refused the password"
-            case .unreachable: proxyTrouble = "Can't reach the proxy"
+            case .refused: proxyTrouble = mark("settings.proxy.refused")
+            case .unreachable: proxyTrouble = mark("settings.proxy.unreachable")
             default: proxyTrouble = nil
             }
         }
@@ -683,14 +684,10 @@ final class AppModel {
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):
             voice.serverGone(serverId)
-            let name = servers[serverId]?.entry.name ?? "a server"
+            let name = servers[serverId]?.entry.name
             // Nothing is erased on the server's word: what's here stays until the person decides.
             servers[serverId]?.entry.signedOut = reason
-            toast(
-                reason == "banned" ? "You were removed from \(name) by its admins."
-                    : reason == "account_deleted" ? "Your account on \(name) was deleted from another device."
-                    : "You've been signed out of \(name)."
-            )
+            toast(Self.signedOutText(reason, name))
         case let .signedIn(serverId):
             servers[serverId]?.entry.signedOut = nil
         case let .security(_, _, message):
@@ -708,6 +705,22 @@ final class AppModel {
             break
         case .telegram:
             break
+        }
+    }
+
+    /// What a toast says when a server ended this device's session, and why.
+    private static func signedOutText(_ reason: String, _ name: String?) -> String {
+        guard let name else {
+            switch reason {
+            case "banned": return t("servers.signedOut.banned")
+            case "account_deleted": return t("servers.signedOut.accountDeleted")
+            default: return t("servers.signedOut.other")
+            }
+        }
+        switch reason {
+        case "banned": return t("servers.signedOut.bannedFrom", ["server": name])
+        case "account_deleted": return t("servers.signedOut.deleted", ["server": name])
+        default: return t("servers.signedOut.default", ["server": name])
         }
     }
 
@@ -846,14 +859,15 @@ final class AppModel {
         perform(serverId) { try await $0.updatePreferences(changes) }
     }
 
-    /// Runs a call on a server's session in the background, saying in a toast if it failed.
-    private func perform(_ serverId: String, failure: String = "Couldn't save that.", _ call: @escaping @MainActor (SessionCalls) async throws -> Void) {
+    /// Runs a call on a server's session in the background, saying in a toast if it failed: `failure`
+    /// is the key of what it says, with the error as {error}.
+    private func perform(_ serverId: String, failure: String = mark("common.saveFailed"), _ call: @escaping @MainActor (SessionCalls) async throws -> Void) {
         let session = core.session(serverId)
         Task {
             do {
                 try await call(session)
             } catch {
-                toast("\(failure) \(ErrorText.describe(error))", .error)
+                toast(t(failure, ["error": ErrorText.describe(error)]), .error)
             }
         }
     }
@@ -875,7 +889,7 @@ final class AppModel {
 
     /// Reads a chat to its newest message from the list, without opening it.
     func markChatRead(_ key: String, on serverId: String) {
-        perform(serverId, failure: "Couldn't mark it as read.") { try await $0.markChatRead(key) }
+        perform(serverId, failure: mark("conversations.couldntMarkRead")) { try await $0.markChatRead(key) }
     }
 
     /// Mutes a chat until a time, or (nil) until it's unmuted. Synced like the other preferences.

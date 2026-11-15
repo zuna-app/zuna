@@ -33,11 +33,11 @@ struct MainView: View {
             CallScreen()
         }
         // Coming into voice here ends it on another of this person's devices, which is asked first.
-        .alert("Join on this device?", isPresented: Binding(get: { voice.moving != nil }, set: { if !$0 { voice.moving = nil } }), presenting: voice.moving) { move in
-            Button("Join here") { Task { await voice.move(move) } }
-            Button("Cancel", role: .cancel) {}
+        .alert(t("voice.moveHere.title"), isPresented: Binding(get: { voice.moving != nil }, set: { if !$0 { voice.moving = nil } }), presenting: voice.moving) { move in
+            Button(t("voice.moveHere.join")) { Task { await voice.move(move) } }
+            Button(t("common.cancel"), role: .cancel) {}
         } message: { move in
-            Text("You're in \(voice.place(of: move)) on another device. Joining here disconnects that device.")
+            Text(voice.moveQuestion(move))
         }
         .task { await notifications.askOnce() }
         // Linking a Telegram account, from the list of servers or from Settings.
@@ -50,14 +50,14 @@ struct MainView: View {
         @Bindable var model = model
         return TabView(selection: $model.tab) {
             if model.hasServers {
-                Tab("Channels", systemImage: "number", value: AppModel.Tab.channels) {
+                Tab(t("conversations.filters.channels"), systemImage: "number", value: AppModel.Tab.channels) {
                     ChannelsTab()
                 }
                 // The open server's alone, as the server button carries the others'.
                 .badge(model.chatsServer?.channelMentions ?? 0)
                 .accessibilityIdentifier(A11y.Shell.channelsTab)
 
-                Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
+                Tab(t("conversations.tab.chats"), systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
                     ChatsTab()
                 }
                 .badge(model.chatsServer?.chatsUnread ?? 0)
@@ -73,7 +73,7 @@ struct MainView: View {
                 .accessibilityIdentifier(A11y.Shell.telegramTab)
             }
 
-            Tab("Settings", systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
+            Tab(t("settings.title"), systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
                 SettingsView()
             }
             .accessibilityIdentifier(A11y.Shell.settingsTab)
@@ -179,7 +179,7 @@ private struct WideLayout: View {
             }
             .id(first)
         } else {
-            ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text(model.showsTelegram ? "Telegram's chats aren't end-to-end encrypted." : "Messages are end-to-end encrypted."))
+            ContentUnavailableView(t("conversations.chooseChat"), systemImage: "bubble.left.and.bubble.right", description: Text(model.showsTelegram ? t("conversations.chooseChatTelegram") : t("conversations.chooseChatEncrypted")))
                 .foregroundStyle(Theme.text2)
                 .background(Theme.bg0)
         }

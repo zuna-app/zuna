@@ -27,8 +27,8 @@ private struct IncomingCallCard: View {
     var body: some View {
         let server = model.servers[call.serverId]
         let conversation = server?.conversation(call.key)
-        let caller = server?.users[call.startedBy]?.displayName ?? "Someone"
-        let what = call.kind == .dm ? "Calling you" : "\(caller) started a call"
+        let caller = server?.users[call.startedBy]?.displayName ?? t("notify.someone")
+        let what = call.kind == .dm ? t("notify.callingYou") : t("notify.startedCall", ["name": caller])
         HStack(spacing: 10) {
             AvatarView(name: call.title, seed: conversation?.peerId ?? call.groupId, source: conversation?.avatar.map { .avatar($0, serverId: call.serverId) } ?? .none, size: 46)
                 .scaleEffect(pulsing ? 0.94 : 1)
@@ -47,13 +47,13 @@ private struct IncomingCallCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
-            button("phone.down.fill", background: Theme.red, label: "Decline", id: A11y.Voice.decline) {
+            button("phone.down.fill", background: Theme.red, label: t("voice.incoming.decline"), id: A11y.Voice.decline) {
                 voice.decline(call)
             }
-            button("video.fill", background: Theme.bg5, label: "Answer with video", id: A11y.Voice.answerWithVideo) {
+            button("video.fill", background: Theme.bg5, label: t("voice.incoming.answerVideo"), id: A11y.Voice.answerWithVideo) {
                 Task { await voice.answer(call, camera: true) }
             }
-            button("phone.fill", background: Theme.green, label: "Answer", id: A11y.Voice.answer) {
+            button("phone.fill", background: Theme.green, label: t("voice.incoming.answer"), id: A11y.Voice.answer) {
                 Task { await voice.answer(call, camera: false) }
             }
         }

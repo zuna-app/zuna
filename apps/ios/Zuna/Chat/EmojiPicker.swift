@@ -49,14 +49,14 @@ struct EmojiPicker: View {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         NavigationStack {
             VStack(spacing: 10) {
-                Picker("Show", selection: $tab) {
+                Picker(t("emoji.picker.show"), selection: $tab) {
                     // A Telegram account has its own sticker sets, and no server's emotes.
                     if server.entry.isTelegram {
-                        if !reacting { Text("Stickers").tag(Tab.stickers) }
+                        if !reacting { Text(t("emoji.stickers")).tag(Tab.stickers) }
                     } else {
-                        Text(server.emotes.setName.isEmpty ? "Server emotes" : server.emotes.setName).tag(Tab.emotes)
+                        Text(server.emotes.setName.isEmpty ? t("emoji.serverEmotes") : server.emotes.setName).tag(Tab.emotes)
                     }
-                    Text("Emoji").tag(Tab.emoji)
+                    Text(t("emoji.tab")).tag(Tab.emoji)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
@@ -68,12 +68,12 @@ struct EmojiPicker: View {
                     }
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
-            .navigationTitle("Emoji and emotes")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: t("common.search"))
+            .navigationTitle(t("composer.emoji"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button(t("common.close")) { dismiss() }
                 }
             }
             .background(Theme.bg1)
@@ -85,7 +85,7 @@ struct EmojiPicker: View {
     private func emotes(_ needle: String) -> some View {
         let shown = needle.isEmpty ? server.emotes.emotes : server.emotes.emotes.filter { $0.name.lowercased().contains(needle) }
         if shown.isEmpty {
-            ContentUnavailableView(needle.isEmpty ? "This server has no emotes yet." : "No emotes match that search.", systemImage: "face.smiling")
+            ContentUnavailableView(needle.isEmpty ? t("emoji.noEmotes") : t("emoji.noMatches"), systemImage: "face.smiling")
                 .padding(.top, 40)
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 56), spacing: 6)], spacing: 6) {
@@ -99,7 +99,7 @@ struct EmojiPicker: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(emote.owner.isEmpty ? emote.name : "\(emote.name) by \(emote.owner)")
+                    .accessibilityLabel(emote.owner.isEmpty ? emote.name : t("emoji.emoteBy", ["name": emote.name, "owner": emote.owner]))
                     .accessibilityIdentifier(A11y.Composer.pickerEmote(emote.name))
                 }
             }

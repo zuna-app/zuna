@@ -50,7 +50,7 @@ struct ConversationDetails: View {
             if let server = model.activeServer, let conversation = server.conversations.first(where: { $0.key == conversationKey }) {
                 content(server, conversation)
             } else {
-                ContentUnavailableView("This chat isn't available", systemImage: "person.crop.circle.badge.questionmark")
+                ContentUnavailableView(t("details.unavailable"), systemImage: "person.crop.circle.badge.questionmark")
             }
         }
         .background(Theme.bg0)
@@ -74,7 +74,7 @@ struct ConversationDetails: View {
 
             if conversation.kind == .group {
                 Section {
-                    Label("The server can see who is in this group, but not its name, picture or messages.", systemImage: "lock.fill")
+                    Label(t("details.group.serverSees"), systemImage: "lock.fill")
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                 }
@@ -87,8 +87,8 @@ struct ConversationDetails: View {
                             try await model.core.session(serverId).updateGroupMeta(conversation.groupId ?? "", GroupMetaChanges(), historyVisible: value)
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("New members can read earlier messages")
-                                Text("Applies to people added after this is turned on.").font(.caption).foregroundStyle(Theme.text3)
+                                Text(t("groups.new.history"))
+                                Text(t("details.group.historyHint")).font(.caption).foregroundStyle(Theme.text3)
                             }
                         }
                         .accessibilityIdentifier(A11y.Details.history)
@@ -96,7 +96,7 @@ struct ConversationDetails: View {
                     .listRowBackground(Theme.bg2)
                 }
             } else if let peer, !isSelf {
-                Section("Encryption") {
+                Section(t("details.encryption.title")) {
                     Button {
                         sheet = .verify(peer.id)
                     } label: {
@@ -105,10 +105,10 @@ struct ConversationDetails: View {
                                 .font(.title2)
                                 .foregroundStyle(peer.trust == .verified ? Theme.green : peer.trust == .changed ? Theme.amber : Theme.text2)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(peer.trust == .verified ? "Verified" : peer.trust == .changed ? "Security key changed" : "Not verified yet")
+                                Text(peer.trust == .verified ? t("details.encryption.verified") : peer.trust == .changed ? t("details.encryption.changed") : t("details.encryption.notVerified"))
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(Theme.text1)
-                                Text(peer.trust == .verified ? "You've confirmed this is really them." : "Compare emoji to make sure nobody is intercepting your messages.")
+                                Text(peer.trust == .verified ? t("details.encryption.verifiedHint") : t("details.encryption.compareHint"))
                                     .font(.footnote)
                                     .foregroundStyle(Theme.text2)
                             }
@@ -132,7 +132,7 @@ struct ConversationDetails: View {
                     if on { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
                 })) {
                     Label {
-                        Text("Notifications")
+                        Text(t("details.notifications"))
                         if let until = conversation.mutedUntil { Text(Format.mutedUntil(until)) }
                     } icon: {
                         Image(systemName: conversation.muted ? "bell.slash" : "bell")
@@ -145,8 +145,8 @@ struct ConversationDetails: View {
                         try await model.core.session(serverId).setMentionsOnly(conversation.key, on: value)
                     } label: {
                         Label {
-                            Text("Only mentions")
-                            Text("Notify only when someone mentions you or replies to you")
+                            Text(t("details.mentionsOnly"))
+                            Text(t("details.mentionsOnlyHint"))
                         } icon: {
                             Image(systemName: "at")
                         }
@@ -156,12 +156,12 @@ struct ConversationDetails: View {
                 Button {
                     model.toggle(.pinned, conversation.key, on: serverId)
                 } label: {
-                    Label(conversation.pinned ? "Unpin from top" : "Pin to top", systemImage: conversation.pinned ? "pin.slash" : "pin")
+                    Label(conversation.pinned ? t("details.unpinFromTop") : t("details.pinToTop"), systemImage: conversation.pinned ? "pin.slash" : "pin")
                 }
                 Button {
                     model.toggle(.hidden, conversation.key, on: serverId)
                 } label: {
-                    Label(conversation.hidden ? "Show in list" : "Hide from list", systemImage: conversation.hidden ? "eye" : "eye.slash")
+                    Label(conversation.hidden ? t("details.showInList") : t("details.hideFromList"), systemImage: conversation.hidden ? "eye" : "eye.slash")
                 }
             }
             .foregroundStyle(Theme.text1)
@@ -172,17 +172,17 @@ struct ConversationDetails: View {
                 Section {
                     if server.isBlocked(peer.id) {
                         Button { model.setBlocked(peer.id, false, on: serverId) } label: {
-                            Label("Unblock \(peer.displayName)", systemImage: "nosign")
+                            Label(t("details.block.unblock", ["name": peer.displayName]), systemImage: "nosign")
                         }
                         .foregroundStyle(Theme.text1)
                     } else {
                         Button(role: .destructive) { model.setBlocked(peer.id, true, on: serverId) } label: {
-                            Label("Block \(peer.displayName)", systemImage: "nosign")
+                            Label(t("details.block.block", ["name": peer.displayName]), systemImage: "nosign")
                         }
                     }
                 } footer: {
                     if !server.isBlocked(peer.id) {
-                        Text("You won't see their messages or get notified about them. They won't be told.")
+                        Text(t("details.block.hint"))
                     }
                 }
                 .listRowBackground(Theme.bg2)
@@ -192,15 +192,15 @@ struct ConversationDetails: View {
             if let peer, !isSelf, !peer.deleted, !peer.banned {
                 Section {
                     if server.prefs.reported?.contains(peer.id) == true {
-                        Label("Reported to the server's admins", systemImage: "flag")
+                        Label(t("details.report.done"), systemImage: "flag")
                             .foregroundStyle(Theme.text3)
                     } else {
                         Button(role: .destructive) { reporting = peer } label: {
-                            Label("Report \(peer.displayName)", systemImage: "flag")
+                            Label(t("details.report.title", ["name": peer.displayName]), systemImage: "flag")
                         }
                     }
                 } footer: {
-                    Text("The server's admins will see who you reported and why, but not what was said or who reported them.")
+                    Text(t("details.report.hint"))
                 }
                 .listRowBackground(Theme.bg2)
                 .accessibilityIdentifier(A11y.Details.report)
@@ -215,13 +215,13 @@ struct ConversationDetails: View {
                             do {
                                 let link = try await model.core.session(ServerEntry.telegram).groupInviteLink(groupId)
                                 UIPasteboard.general.string = link
-                                model.toast("Copied a link to join \(conversation.title).")
+                                model.toast(t("telegram.inviteLink.copied", ["name": conversation.title]))
                             } catch {
                                 model.toast(ErrorText.describe(error), .error)
                             }
                         }
                     } label: {
-                        Label("Copy a link to join", systemImage: "link")
+                        Label(t("telegram.inviteLink.copy"), systemImage: "link")
                     }
                     .accessibilityIdentifier(A11y.Telegram.inviteLink)
                 }
@@ -231,13 +231,13 @@ struct ConversationDetails: View {
             if conversation.kind == .group {
                 Section {
                     Button(role: .destructive) { confirming = .leave } label: {
-                        Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right")
+                        Label(t("details.group.leave"), systemImage: "rectangle.portrait.and.arrow.right")
                     }
                     .accessibilityIdentifier(A11y.Details.leave)
                     // Telegram's groups are deleted in Telegram's own app.
                     if isAdmin, serverId != ServerEntry.telegram {
                         Button(role: .destructive) { confirming = .delete } label: {
-                            Label("Delete group for everyone", systemImage: "trash")
+                            Label(t("details.group.delete"), systemImage: "trash")
                         }
                     }
                 }
@@ -257,7 +257,7 @@ struct ConversationDetails: View {
             mediaCounts = counts
         }
         // On the list, not the switch: a list leaves out rows off screen, and the row under the name asks too.
-        .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
+        .confirmationDialog(t("details.mute.title"), isPresented: $choosingMute, titleVisibility: .visible) {
             MuteButtons(conversationKey: conversation.key, serverId: serverId)
         }
         .sheet(item: $sheet) { sheet in
@@ -275,12 +275,12 @@ struct ConversationDetails: View {
         .confirmationDialog(confirmTitle(conversation), isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible, presenting: confirming) { confirmation in
             Button(confirmAction(confirmation), role: .destructive) { perform(confirmation, serverId, conversation) }
         }
-        .confirmationDialog("Report \(reporting?.displayName ?? "them") for", isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }), titleVisibility: .visible, presenting: reporting) { user in
+        .confirmationDialog(reporting.map { t("details.report.reasonTitle", ["name": $0.displayName]) } ?? t("details.report.reasonTitleThem"), isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }), titleVisibility: .visible, presenting: reporting) { user in
             ForEach(ReportReason.allCases, id: \.self) { reason in
                 Button(reason.label) {
                     run {
                         try await model.core.session(serverId).reportUser(user.id, reason: reason)
-                        model.toast("Reported to the server's admins")
+                        model.toast(t("details.report.done"))
                     }
                 }
             }
@@ -324,7 +324,7 @@ struct ConversationDetails: View {
                             .overlay(Circle().stroke(Theme.bg0, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Change group picture")
+                    .accessibilityLabel(t("details.group.changePicture"))
                 }
             }
             .padding(.bottom, 6)
@@ -340,7 +340,7 @@ struct ConversationDetails: View {
                         Image(systemName: "pencil").foregroundStyle(Theme.text2)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Edit group details")
+                    .accessibilityLabel(t("details.group.edit"))
                     .accessibilityIdentifier(A11y.Details.edit)
                 }
             }
@@ -348,7 +348,9 @@ struct ConversationDetails: View {
                 // Nobody is using a bot, so it's never online and was never last seen. Whose it is
                 // and what it reads stand there instead.
                 BotBadge()
-                Text(Bots.whose(bot, server) + ". It's run by a program, which can read everything said in the chats it's in.")
+                Text(bot.ownerId == server.me?.userId
+                    ? t("details.bot.yours")
+                    : t("details.bot.owned", ["owner": server.users[bot.ownerId]?.displayName ?? t("notify.someone")]))
                     .font(.footnote)
                     .foregroundStyle(Theme.text3)
                     .multilineTextAlignment(.center)
@@ -358,7 +360,7 @@ struct ConversationDetails: View {
                     let lastSeen = model.live(server.entry.id).lastSeenAt(peer)
                     // Drawn again as the minutes pass, so a last seen stays true.
                     TimelineView(.periodic(from: Format.lastSeenTurn(lastSeen), by: 60)) { _ in
-                        Text(online ? "online" : Format.lastSeen(lastSeen, hidden: peer.hidesLastSeen, full: true))
+                        Text(online ? t("details.online") : Format.lastSeen(lastSeen, hidden: peer.hidesLastSeen, full: true))
                             .font(.footnote)
                             .foregroundStyle(online ? Theme.green : Theme.text3)
                     }
@@ -381,14 +383,14 @@ struct ConversationDetails: View {
         if let peer, !isSelf, !peer.deleted {
             Section {
                 if !peer.bio.isEmpty {
-                    aboutRow("bio", peer.bio).accessibilityIdentifier(A11y.Details.bio)
+                    aboutRow(t("details.about.bio"), peer.bio).accessibilityIdentifier(A11y.Details.bio)
                 }
-                aboutRow("username", "@\(peer.username)", color: Theme.link).accessibilityIdentifier(A11y.Details.username)
+                aboutRow(t("details.about.username"), "@\(peer.username)", color: Theme.link).accessibilityIdentifier(A11y.Details.username)
             }
             .listRowBackground(Theme.bg2)
         } else if conversation.kind == .group, !conversation.description.isEmpty {
             Section {
-                aboutRow("description", conversation.description).accessibilityIdentifier(A11y.Details.description)
+                aboutRow(t("details.about.description"), conversation.description).accessibilityIdentifier(A11y.Details.description)
             }
             .listRowBackground(Theme.bg2)
         }
@@ -415,27 +417,27 @@ struct ConversationDetails: View {
         var actions: [DetailsActions.Action] = []
         if ChatScreen.canCall(server, conversation, peer: peer, isSaved: isSelf) {
             if let groupId = conversation.groupId, voice.inCall, voice.serverId == serverId, voice.channelId == groupId {
-                actions.append(.init(id: "call", title: "In call", icon: "phone.fill", tint: Theme.green) { voice.stageShown = true })
+                actions.append(.init(id: "call", title: t("details.actions.inCall"), icon: "phone.fill", tint: Theme.green) { voice.stageShown = true })
             } else if let groupId = conversation.groupId, !server.inRoom(groupId).isEmpty {
-                actions.append(.init(id: "join", title: "Join", icon: "phone.fill", tint: Theme.green) {
+                actions.append(.init(id: "join", title: t("details.actions.join"), icon: "phone.fill", tint: Theme.green) {
                     Task { await voice.join(serverId: serverId, channelId: groupId) }
                 })
             } else {
-                actions.append(.init(id: "call", title: "Call", icon: "phone.fill") {
+                actions.append(.init(id: "call", title: t("details.actions.call"), icon: "phone.fill") {
                     Task { await voice.startCall(serverId: serverId, key: key, camera: false) }
                 })
-                actions.append(.init(id: "video", title: "Video", icon: "video.fill") {
+                actions.append(.init(id: "video", title: t("details.actions.video"), icon: "video.fill") {
                     Task { await voice.startCall(serverId: serverId, key: key, camera: true) }
                 })
             }
         }
         if !isSelf {
-            actions.append(.init(id: "mute", title: conversation.muted ? "Unmute" : "Mute", icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
+            actions.append(.init(id: "mute", title: conversation.muted ? t("common.unmute") : t("common.mute"), icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
                 if conversation.muted { model.unmute(key, on: serverId) } else { choosingMute = true }
             })
         }
-        actions.append(.init(id: "search", title: "Search", icon: "magnifyingglass", disabled: conversation.groupId == nil) { sheet = .search })
-        actions.append(.init(id: "pins", title: "Pins", icon: "pin.fill", disabled: conversation.groupId == nil) {
+        actions.append(.init(id: "search", title: t("common.search"), icon: "magnifyingglass", disabled: conversation.groupId == nil) { sheet = .search })
+        actions.append(.init(id: "pins", title: t("details.actions.pins"), icon: "pin.fill", disabled: conversation.groupId == nil) {
             model.chatPath.append(.pins(key))
         })
         return actions
@@ -482,42 +484,42 @@ struct ConversationDetails: View {
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
-                                Text(user?.displayName ?? "Unknown").foregroundStyle(Theme.text1)
+                                Text(user?.displayName ?? t("chat.unknown")).foregroundStyle(Theme.text1)
                                 if user?.bot != nil { BotBadge() }
-                                if member.userId == selfId { Text("(you)").foregroundStyle(Theme.text3) }
+                                if member.userId == selfId { Text(t("details.group.you")).foregroundStyle(Theme.text3) }
                             }
-                            Text(member.notOnRoster == true ? "Can read this chat, but isn't listed as a member" : member.noKeys == true ? "No device in this chat yet" : "@\(user?.username ?? "")")
+                            Text(member.notOnRoster == true ? t("details.group.notOnRoster") : member.noKeys == true ? t("details.group.noKeys") : "@\(user?.username ?? "")")
                                 .font(.caption)
                                 .foregroundStyle(Theme.text3)
                         }
                         Spacer()
                         if member.notOnRoster == true {
-                            Image(systemName: "exclamationmark.shield").font(.caption).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not listed as a member")
+                            Image(systemName: "exclamationmark.shield").font(.caption).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel(t("details.group.notListed"))
                         }
                         if member.role == .admin {
-                            Image(systemName: "crown.fill").font(.caption).foregroundStyle(Theme.text3).accessibilityLabel("Admin")
+                            Image(systemName: "crown.fill").font(.caption).foregroundStyle(Theme.text3).accessibilityLabel(t("details.group.admin"))
                         }
                         if user?.trust == .verified {
-                            Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel("Verified")
+                            Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel(t("details.encryption.verified"))
                         }
                     }
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(A11y.Details.member(member.userId))
-                .confirmationDialog(user?.displayName ?? "Member", isPresented: Binding(get: { memberMenu == member.userId }, set: { if !$0 { memberMenu = nil } })) {
+                .confirmationDialog(user?.displayName ?? t("details.members.member"), isPresented: Binding(get: { memberMenu == member.userId }, set: { if !$0 { memberMenu = nil } })) {
                     memberActions(server, conversation, member: member, isAdmin: isAdmin)
                 }
             }
         } header: {
             HStack {
-                Text("\(conversation.members.count) \(conversation.members.count == 1 ? "member" : "members")")
+                Text(t("details.group.members", ["count": conversation.members.count]))
                 Spacer()
                 if isAdmin {
                     Button {
                         sheet = .addMembers
                     } label: {
-                        Label("Add people", systemImage: "person.badge.plus")
+                        Label(t("groups.add.title"), systemImage: "person.badge.plus")
                     }
                     .font(.footnote)
                     .accessibilityIdentifier(A11y.Details.addMembers)
@@ -530,18 +532,18 @@ struct ConversationDetails: View {
     @ViewBuilder
     private func memberActions(_ server: AppModel.ServerState, _ conversation: ConversationView, member: GroupMemberView, isAdmin: Bool) -> some View {
         let serverId = server.entry.id
-        Button("Message") { model.openChat("user:\(member.userId)") }
-        Button("Verify security key") { sheet = .verify(member.userId) }
+        Button(t("details.member.message")) { model.openChat("user:\(member.userId)") }
+        Button(t("details.member.verify")) { sheet = .verify(member.userId) }
         if server.isBlocked(member.userId) {
-            Button("Unblock") { model.setBlocked(member.userId, false, on: serverId) }
+            Button(t("details.member.unblock")) { model.setBlocked(member.userId, false, on: serverId) }
         } else {
-            Button("Block") { model.setBlocked(member.userId, true, on: serverId) }
+            Button(t("details.member.block")) { model.setBlocked(member.userId, true, on: serverId) }
         }
         if isAdmin, let groupId = conversation.groupId {
-            Button(member.role == .admin ? "Remove admin" : "Make admin") {
+            Button(member.role == .admin ? t("details.member.removeAdmin") : t("details.member.makeAdmin")) {
                 run { try await model.core.session(serverId).setGroupRole(groupId, userId: member.userId, role: member.role == .admin ? .member : .admin) }
             }
-            Button("Remove from group", role: .destructive) {
+            Button(t("details.member.remove"), role: .destructive) {
                 // A second dialog can't open while this one is still closing.
                 Task {
                     try? await Task.sleep(for: .milliseconds(400))
@@ -555,18 +557,20 @@ struct ConversationDetails: View {
 
     private func confirmTitle(_ conversation: ConversationView) -> String {
         switch confirming {
-        case .leave: "Leave \(conversation.title)? You won't see new messages unless someone adds you again."
-        case .delete: "Delete \(conversation.title) for everyone? Its messages will be deleted for all members."
-        case let .remove(userId): "Remove \(model.activeServer?.users[userId]?.displayName ?? "them") from \(conversation.title)?"
+        case .leave: t("details.group.leaveConfirm", ["name": conversation.title])
+        case .delete: t("details.group.deleteConfirm", ["name": conversation.title])
+        case let .remove(userId):
+            model.activeServer?.users[userId]?.displayName.map { t("details.member.removeConfirm", ["name": $0, "group": conversation.title]) }
+                ?? t("details.member.removeConfirmThem", ["group": conversation.title])
         case nil: ""
         }
     }
 
     private func confirmAction(_ confirmation: Confirmation) -> String {
         switch confirmation {
-        case .leave: "Leave group"
-        case .delete: "Delete group for everyone"
-        case .remove: "Remove from group"
+        case .leave: t("details.group.leave")
+        case .delete: t("details.group.delete")
+        case .remove: t("details.member.remove")
         }
     }
 
@@ -605,7 +609,7 @@ struct ConversationDetails: View {
                             Text(Format.timer(seconds)).tag(seconds)
                         }
                     } label: {
-                        Label("Disappearing messages", systemImage: "timer")
+                        Label(t("details.disappearing.title"), systemImage: "timer")
                     }
                     .pickerStyle(.menu)
                     .tint(Theme.text2)
@@ -614,12 +618,12 @@ struct ConversationDetails: View {
                     LabeledContent {
                         Text(Format.timer(current))
                     } label: {
-                        Label("Disappearing messages", systemImage: "timer")
+                        Label(t("details.disappearing.title"), systemImage: "timer")
                     }
                     .accessibilityIdentifier(A11y.Details.disappearing)
                 }
             } footer: {
-                Text(current > 0 ? "New messages disappear \(Format.timer(current)) after they're sent." : "New messages stay until they're deleted.")
+                Text(current > 0 ? t("details.disappearing.on", ["time": Format.timer(current)]) : t("details.disappearing.off"))
             }
             .listRowBackground(Theme.bg2)
         }

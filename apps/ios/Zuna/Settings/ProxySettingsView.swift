@@ -29,42 +29,42 @@ struct ProxySettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Connect through a proxy", isOn: $on)
+                Toggle(t("settings.proxy.connectThrough"), isOn: $on)
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.proxyOn)
             } footer: {
-                Text("You can send everything from this device through a SOCKS5 proxy of your choice, for every server you've joined: messages, files, calls, link previews, emotes and YouTube. Your servers and their media servers will see the proxy's address instead of yours. The proxy can see which servers you connect to, when, and how much you send, but not what you send, since that stays encrypted.")
+                Text(t("settings.proxy.hint"))
             }
             if on {
                 Section {
-                    TextField("Address", text: $host, prompt: Text("A name or an IP address"))
+                    TextField(t("settings.proxy.address"), text: $host, prompt: Text(t("settings.proxy.addressPrompt")))
                         .textContentType(.URL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier(A11y.Settings.proxyHost)
-                    TextField("Port", text: $port, prompt: Text("Port"))
+                    TextField(t("settings.proxy.port"), text: $port, prompt: Text(t("settings.proxy.port")))
                         .keyboardType(.numberPad)
                         .accessibilityIdentifier(A11y.Settings.proxyPort)
                     // Not a username and password as the system knows them: it would offer to keep the proxy's
                     // password in Passwords, which syncs it, and it stays on this device. A field that's a
                     // one-time code is the only one it doesn't offer that for.
-                    TextField("Username", text: $username, prompt: Text("Username, optional"))
+                    TextField(t("common.username"), text: $username, prompt: Text(t("settings.proxy.usernamePrompt")))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier(A11y.Settings.proxyUsername)
-                    SecureField("Password", text: $password, prompt: Text(keptPassword ? "Password, kept on this device" : "Password, optional"))
+                    SecureField(t("common.password"), text: $password, prompt: Text(keptPassword ? t("settings.proxy.passwordKept") : t("settings.proxy.passwordPrompt")))
                         .textContentType(.oneTimeCode)
                         .accessibilityIdentifier(A11y.Settings.proxyPassword)
                 } footer: {
-                    Text("If the proxy can't be reached, Zuna won't connect at all. It never bypasses the proxy. SOCKS5 itself isn't encrypted, so the proxy's password and your servers' names travel to the proxy unencrypted. A server running on this phone can't be reached through a proxy.")
+                    Text(t("settings.proxy.serversHint"))
                 }
                 Section {
                     Button {
                         Task { await check() }
                     } label: {
                         HStack {
-                            Text("Check")
+                            Text(t("settings.proxy.check"))
                             Spacer()
                             if checking { ProgressView() }
                         }
@@ -84,11 +84,11 @@ struct ProxySettingsView: View {
                 }
             }
         }
-        .navigationTitle("Proxy")
+        .navigationTitle(t("settings.proxy.title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save", action: save)
+                Button(t("common.save"), action: save)
                     .disabled(checking)
                     .accessibilityIdentifier(A11y.Settings.proxySave)
             }
@@ -98,10 +98,10 @@ struct ProxySettingsView: View {
     /// The proxy as the form has it, or why it can't be read.
     private func proxy() -> Result<NetworkProxy, ProxyFormProblem> {
         let host = host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty, !host.contains("/"), !host.contains(" ") else { return .failure(ProxyFormProblem("Enter the proxy's address: a host name or an IP address.")) }
-        guard let port = UInt16(port.trimmingCharacters(in: .whitespaces)), port > 0 else { return .failure(ProxyFormProblem("The port must be a number from 1 to 65535.")) }
+        guard !host.isEmpty, !host.contains("/"), !host.contains(" ") else { return .failure(ProxyFormProblem(t("settings.proxy.addressMissing"))) }
+        guard let port = UInt16(port.trimmingCharacters(in: .whitespaces)), port > 0 else { return .failure(ProxyFormProblem(t("settings.proxy.badPort"))) }
         let password = password.isEmpty ? (ProxyStore.password() ?? "") : password
-        guard username.utf8.count <= 255, password.utf8.count <= 255 else { return .failure(ProxyFormProblem("SOCKS5 usernames and passwords can be at most 255 bytes each.")) }
+        guard username.utf8.count <= 255, password.utf8.count <= 255 else { return .failure(ProxyFormProblem(t("settings.proxy.tooLong"))) }
         return .success(NetworkProxy(host: host, port: port, username: username, password: password))
     }
 
@@ -140,7 +140,7 @@ struct ProxySettingsView: View {
         do {
             try ProxyStore.save(setting, password: newPassword)
         } catch {
-            problem = "Couldn't save the password: \(error.localizedDescription)"
+            problem = t("settings.proxy.couldntSavePassword", ["error": error.localizedDescription])
             return
         }
         model.proxyChanged()
@@ -161,15 +161,15 @@ private struct ReportLines: View {
         VStack(alignment: .leading, spacing: 8) {
             switch report.signedIn {
             case let .success(took):
-                line(true, "Connected to the proxy in \(milliseconds(took)).")
-                line(report.udp, report.udp ? "It supports UDP, which calls use." : "It doesn't support UDP, so calls will use TCP instead and may sound worse.")
+                line(true, t("settings.proxy.connectedIn", ["time": milliseconds(took)]))
+                line(report.udp, report.udp ? t("settings.proxy.udp") : t("settings.proxy.noUdp"))
             case let .failure(failure):
                 line(false, failure.description)
             }
             ForEach(Array(report.servers.enumerated()), id: \.offset) { _, server in
                 switch server.reached {
-                case let .reached(took): line(true, "Reached \(server.name) through the proxy in \(milliseconds(took)).")
-                case let .failed(why): line(false, "\(server.name): \(why)")
+                case let .reached(took): line(true, t("settings.proxy.reached", ["server": server.name, "time": milliseconds(took)]))
+                case let .failed(why): line(false, t("settings.proxy.serverFailed", ["server": server.name, "reason": why]))
                 }
             }
         }
@@ -187,6 +187,6 @@ private struct ReportLines: View {
     }
 
     private func milliseconds(_ seconds: TimeInterval) -> String {
-        "\(Int((seconds * 1000).rounded())) ms"
+        t("settings.proxy.milliseconds", ["count": Int((seconds * 1000).rounded())])
     }
 }

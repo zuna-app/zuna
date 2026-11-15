@@ -31,7 +31,7 @@ struct ChannelDetails: View {
             if let server = model.activeServer, let channel = server.channel(conversationKey) {
                 content(server, channel)
             } else {
-                ContentUnavailableView("This channel isn't available", systemImage: "number")
+                ContentUnavailableView(t("channels.details.unavailable"), systemImage: "number")
             }
         }
         .background(Theme.bg0)
@@ -57,11 +57,11 @@ struct ChannelDetails: View {
                     }
                     if let conversation {
                         DetailsActions(actions: [
-                            .init(id: "mute", title: conversation.muted ? "Unmute" : "Mute", icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
+                            .init(id: "mute", title: conversation.muted ? t("common.unmute") : t("common.mute"), icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
                                 if conversation.muted { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
                             },
-                            .init(id: "search", title: "Search", icon: "magnifyingglass") { sheet = .search },
-                            .init(id: "pins", title: "Pins", icon: "pin.fill") { model.chatPath.append(.pins(conversation.key)) },
+                            .init(id: "search", title: t("common.search"), icon: "magnifyingglass") { sheet = .search },
+                            .init(id: "pins", title: t("details.actions.pins"), icon: "pin.fill") { model.chatPath.append(.pins(conversation.key)) },
                         ])
                         .padding(.top, 18)
                     }
@@ -73,7 +73,7 @@ struct ChannelDetails: View {
             .listRowBackground(Color.clear)
 
             Section {
-                Label(channel.adminOnly ? "End-to-end encrypted. Only admins can read it, and the server itself can't." : "End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
+                Label(channel.adminOnly ? t("channels.welcome.encryptedAdmins") : t("channels.welcome.encryptedEveryone"), systemImage: "lock.fill")
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
             }
@@ -85,8 +85,8 @@ struct ChannelDetails: View {
                         if on { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
                     })) {
                         Label {
-                            Text("Notifications")
-                            Text(conversation.mutedUntil.map(Format.mutedUntil) ?? "Only when someone mentions you or replies to you")
+                            Text(t("details.notifications"))
+                            Text(conversation.mutedUntil.map(Format.mutedUntil) ?? t("channels.details.notificationsHint"))
                         } icon: {
                             Image(systemName: conversation.muted ? "bell.slash" : "bell")
                         }
@@ -101,10 +101,10 @@ struct ChannelDetails: View {
 
             if server.isAdmin {
                 Section {
-                    Button("Edit channel", systemImage: "pencil") { sheet = .edit(channel.id) }
+                    Button(t("channels.edit"), systemImage: "pencil") { sheet = .edit(channel.id) }
                         .foregroundStyle(Theme.text1)
                         .accessibilityIdentifier(A11y.Channels.edit)
-                    Button("Delete channel", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+                    Button(t("channels.delete"), systemImage: "trash", role: .destructive) { confirmingDelete = true }
                         .accessibilityIdentifier(A11y.Channels.delete)
                 }
                 .listRowBackground(Theme.bg2)
@@ -122,7 +122,7 @@ struct ChannelDetails: View {
             mediaCounts = counts
         }
         // On the list, not the switch: a list leaves out rows off screen, and the row under the name asks too.
-        .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
+        .confirmationDialog(t("details.mute.title"), isPresented: $choosingMute, titleVisibility: .visible) {
             if let conversation { MuteButtons(conversationKey: conversation.key, serverId: serverId) }
         }
         .sheet(item: $sheet) { sheet in
@@ -135,8 +135,8 @@ struct ChannelDetails: View {
                 VerifyView(serverId: serverId, userId: userId)
             }
         }
-        .confirmationDialog("Delete #\(channel.title)? Its messages will be deleted for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete channel", role: .destructive) {
+        .confirmationDialog(t("channels.deleteConfirm", ["name": channel.title]), isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button(t("channels.delete"), role: .destructive) {
                 Task {
                     do {
                         try await model.core.session(serverId).deleteChannel(channel.id)
@@ -172,19 +172,19 @@ struct ChannelDetails: View {
         let (online, offline) = server.channelMembers(model.live(server.entry.id))
         // A bot only reads the channels it was given, so the ones here stand by themselves.
         if !bots.isEmpty {
-            Section("Bots — \(bots.count)") {
+            Section(t("channels.members.bots", ["count": bots.count])) {
                 ForEach(bots) { member($0, server: server) }
             }
             .listRowBackground(Theme.bg2)
         }
         if !online.isEmpty {
-            Section("Online — \(online.count)") {
+            Section(t("channels.members.online", ["count": online.count])) {
                 ForEach(online) { member($0, server: server) }
             }
             .listRowBackground(Theme.bg2)
         }
         if !offline.isEmpty {
-            Section("Offline — \(offline.count)") {
+            Section(t("channels.members.offline", ["count": offline.count])) {
                 ForEach(offline) { member($0, server: server).opacity(0.45) }
             }
             .listRowBackground(Theme.bg2)
@@ -208,10 +208,10 @@ struct ChannelDetails: View {
                     Image(systemName: "crown.fill")
                         .font(.caption)
                         .foregroundStyle(Color(hex: 0xF0B232))
-                        .accessibilityLabel("Owner")
+                        .accessibilityLabel(t("channels.members.ownerLabel"))
                 }
                 if user.isSelf {
-                    Text("(you)").foregroundStyle(Theme.text3)
+                    Text(t("details.group.you")).foregroundStyle(Theme.text3)
                 }
                 Spacer(minLength: 0)
             }

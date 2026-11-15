@@ -74,8 +74,8 @@ final class VoiceRecorder {
         case denied, unavailable
         var errorDescription: String? {
             switch self {
-            case .denied: "Zuna can't use the microphone. Allow it in Settings, under Zuna."
-            case .unavailable: "The microphone isn't available right now."
+            case .denied: t("composer.record.microphoneDenied")
+            case .unavailable: t("composer.record.microphoneUnavailable")
             }
         }
     }
@@ -219,7 +219,7 @@ final class VoicePlayer {
 
     enum Failure: LocalizedError {
         case unavailable
-        var errorDescription: String? { "Sound isn't available right now." }
+        var errorDescription: String? { t("media.soundUnavailable") }
     }
 
     func play(_ url: URL, id: String, from time: TimeInterval, video: Bool = false) async throws {
@@ -361,7 +361,7 @@ struct VoiceCard: View {
             }
             .buttonStyle(.plain)
             .disabled(attachment.fileId.isEmpty)
-            .accessibilityLabel(mine && player.isPlaying ? "Pause" : "Play voice message")
+            .accessibilityLabel(mine && player.isPlaying ? t("message.voice.pause") : t("message.voice.play"))
             VStack(alignment: .leading, spacing: 4) {
                 GeometryReader { geometry in
                     // Each bar's share of the width, as a narrow bubble narrows the whole wave.
@@ -402,7 +402,7 @@ struct VoiceCard: View {
                                 .contentShape(.rect.inset(by: -8))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Playback speed, \(Self.label(player.speed))")
+                        .accessibilityLabel(t("message.voice.speedValue", ["speed": Self.label(player.speed)]))
                         .accessibilityIdentifier(A11y.Chat.voiceSpeed(messageId))
                     }
                 }
@@ -415,7 +415,7 @@ struct VoiceCard: View {
 
     /// "1×", "1.5×" or "2×".
     static func label(_ speed: Double) -> String {
-        "\(speed.formatted(.number.precision(.fractionLength(0...1))))×"
+        "\(speed.formatted(.number.precision(.fractionLength(0...1)).locale(I18n.locale)))×"
     }
 
     private func toggle(from time: TimeInterval, seeking: Bool = false) {
@@ -434,7 +434,7 @@ struct VoiceCard: View {
                 if serverId == ServerEntry.telegram { model.markTelegramListened(messageId) }
             } catch {
                 loading = false
-                model.toast("Couldn't play it: \(ErrorText.describe(error))", .error)
+                model.toast(t("media.playFailed", ["error": ErrorText.describe(error)]), .error)
             }
         }
     }

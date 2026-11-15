@@ -18,7 +18,7 @@ struct SettingsView: View {
             List {
                 if model.hasServerList {
                     Section {
-                        Picker("Server", selection: Binding(get: { model.activeServerId ?? "" }, set: { model.selectServer($0) })) {
+                        Picker(t("settings.server"), selection: Binding(get: { model.activeServerId ?? "" }, set: { model.selectServer($0) })) {
                             ForEach(model.order, id: \.self) { id in
                                 Text(model.servers[id]?.entry.name ?? "").tag(id)
                             }
@@ -33,7 +33,7 @@ struct SettingsView: View {
                     Section {
                         header(server)
                     } footer: {
-                        Text("Your Telegram account's name, privacy and devices are set in Telegram's own app.")
+                        Text(t("settings.telegramAccountHint"))
                             .frame(maxWidth: .infinity)
                             .multilineTextAlignment(.center)
                     }
@@ -50,42 +50,42 @@ struct SettingsView: View {
                     .listRowBackground(Color.clear)
                     Section {
                         NavigationLink { PrivacyView(serverId: server.entry.id) } label: {
-                            SettingsLabel("Privacy", systemImage: "hand.raised.fill", color: Color(hex: 0x6B6470))
+                            SettingsLabel(t("settings.sections.privacy"), systemImage: "hand.raised.fill", color: Color(hex: 0x6B6470))
                         }
                         .accessibilityIdentifier(A11y.Settings.privacy)
                         NavigationLink { SecurityView(serverId: server.entry.id) } label: {
-                            SettingsLabel("Security", systemImage: "key.fill", color: Color(hex: 0x3FA772))
+                            SettingsLabel(t("settings.sections.security"), systemImage: "key.fill", color: Color(hex: 0x3FA772))
                         }
                         .accessibilityIdentifier(A11y.Settings.security)
                         NavigationLink { ServerDataView(serverId: server.entry.id) } label: {
-                            SettingsLabel("Your data", systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
+                            SettingsLabel(t("settings.sections.data"), systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
                         }
                         .accessibilityIdentifier(A11y.Settings.serverData)
                     } footer: {
-                        Text("These apply to \(server.entry.name). Each server you join has its own.")
+                        Text(t("settings.accountFooter", ["server": server.entry.name]))
                     }
                     .listRowBackground(Theme.bg2)
                 }
                 Section {
                     NavigationLink { NotificationSettingsView() } label: {
-                        SettingsLabel("Notifications", systemImage: "bell.badge.fill", color: Color(hex: 0xD9534A))
+                        SettingsLabel(t("settings.sections.notifications"), systemImage: "bell.badge.fill", color: Color(hex: 0xD9534A))
                     }
                     .accessibilityIdentifier(A11y.Settings.notifications)
                     NavigationLink { VoiceSettingsView() } label: {
-                        SettingsLabel("Voice and video", systemImage: "waveform", color: Color(hex: 0x3FA66B))
+                        SettingsLabel(t("settings.sections.voice"), systemImage: "waveform", color: Color(hex: 0x3FA66B))
                     }
                     .accessibilityIdentifier(A11y.Settings.voice)
                     NavigationLink { AppearanceView() } label: {
-                        SettingsLabel("Appearance", systemImage: "paintpalette.fill", color: Color(hex: 0x4B8FE0))
+                        SettingsLabel(t("settings.sections.appearance"), systemImage: "paintpalette.fill", color: Color(hex: 0x4B8FE0))
                     }
                     .accessibilityIdentifier(A11y.Settings.appearance)
                     NavigationLink { AppLockView() } label: {
-                        SettingsLabel("App lock", systemImage: "faceid", color: Color(hex: 0xD9962A))
+                        SettingsLabel(t("settings.appLock.title"), systemImage: "faceid", color: Color(hex: 0xD9962A))
                     }
                     .accessibilityIdentifier(A11y.Settings.appLock)
                     if model.telegramAvailable || model.telegram != nil {
                         NavigationLink { TelegramConnectionsView() } label: {
-                            SettingsLabel("Connections", systemImage: "bubble.left.and.bubble.right.fill", color: Color(hex: 0x3D8FD9))
+                            SettingsLabel(t("settings.connections.title"), systemImage: "bubble.left.and.bubble.right.fill", color: Color(hex: 0x3D8FD9))
                         }
                         .accessibilityIdentifier(A11y.Telegram.connections)
                     }
@@ -96,17 +96,17 @@ struct SettingsView: View {
                         Button(role: .destructive) {
                             confirmingUnlink = true
                         } label: {
-                            SettingsLabel("Unlink Telegram", systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
+                            SettingsLabel(t("telegram.unlink.action"), systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
                         }
                         .accessibilityIdentifier(A11y.Telegram.unlink)
                     }
                     .listRowBackground(Theme.bg2)
                     .confirmationDialog(
-                        "This signs Zuna out of your Telegram account and erases what it kept of it on this device. Your chats stay on Telegram.",
+                        t("telegram.unlink.confirm"),
                         isPresented: $confirmingUnlink,
                         titleVisibility: .visible
                     ) {
-                        Button("Unlink Telegram", role: .destructive) {
+                        Button(t("telegram.unlink.action"), role: .destructive) {
                             Task { await model.unlinkTelegram() }
                         }
                     }
@@ -114,23 +114,23 @@ struct SettingsView: View {
                     Section {
                         if server.me?.role != .member {
                             NavigationLink { ServerSettingsView(serverId: server.entry.id) } label: {
-                                SettingsLabel("Server settings", systemImage: "server.rack", color: Color(hex: 0x5F6775))
+                                SettingsLabel(t("settings.serverSettings"), systemImage: "server.rack", color: Color(hex: 0x5F6775))
                             }
                             .accessibilityIdentifier(A11y.Settings.server)
                         } else if BotsSettingsView.shows(server) {
                             // Someone who isn't an admin has their own bots here, where the server lets them make any.
                             NavigationLink { BotsSettingsView(serverId: server.entry.id) } label: {
-                                SettingsLabel("Bots", systemImage: "cpu", color: Color(hex: 0x5F6775))
+                                SettingsLabel(t("serverSettings.sections.bots"), systemImage: "cpu", color: Color(hex: 0x5F6775))
                             }
                         }
                         Button(role: .destructive) {
                             confirmingSignOut = true
                         } label: {
-                            SettingsLabel("Sign out of \(server.entry.name)", systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
+                            SettingsLabel(t("settings.signOut.action", ["server": server.entry.name]), systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
                         }
                         .accessibilityIdentifier(A11y.Settings.signOut)
                         NavigationLink { DeleteAccountView(serverId: server.entry.id) } label: {
-                            SettingsLabel("Delete account", systemImage: "trash.fill", color: Theme.red)
+                            SettingsLabel(t("settings.account.delete"), systemImage: "trash.fill", color: Theme.red)
                         }
                         .accessibilityIdentifier(A11y.Settings.deleteAccount)
                     }
@@ -140,22 +140,22 @@ struct SettingsView: View {
                         isPresented: $confirmingSignOut,
                         titleVisibility: .visible
                     ) {
-                        Button("Sign out and erase local data", role: .destructive) {
+                        Button(t("settings.signOut.confirm"), role: .destructive) {
                             Task { await model.signOut(server.entry.id) }
                         }
                     }
                 }
                 Section {
                     NavigationLink { AboutView() } label: {
-                        SettingsLabel("About Zuna", systemImage: "info.circle.fill", color: Color(hex: 0x5B6B7A))
+                        SettingsLabel(t("settings.about.row"), systemImage: "info.circle.fill", color: Color(hex: 0x5B6B7A))
                     }
                     .accessibilityIdentifier(A11y.Settings.about)
                 } footer: {
                     if model.showsTelegram {
-                        Label("Telegram's chats aren't end-to-end encrypted. Zuna's are.", systemImage: "lock.open")
+                        Label(t("settings.encryptedTelegram"), systemImage: "lock.open")
                             .font(.footnote)
                     } else {
-                        Label("Messages and files are end-to-end encrypted.", systemImage: "lock.fill")
+                        Label(t("settings.encrypted"), systemImage: "lock.fill")
                             .font(.footnote)
                     }
                 }
@@ -163,12 +163,12 @@ struct SettingsView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg0)
-            .navigationTitle("Settings")
+            .navigationTitle(t("settings.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg0, for: .navigationBar)
             .toolbar {
                 if let onDone {
-                    ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
+                    ToolbarItem(placement: .confirmationAction) { Button(t("common.done"), action: onDone) }
                 }
             }
             .accessibilityIdentifier(A11y.Settings.screen)
@@ -198,7 +198,7 @@ struct SettingsView: View {
 
     /// What signing out of a server does, before it's confirmed.
     static func signOutWarning(_ serverName: String) -> String {
-        "This signs you out of \(serverName) on this device and erases its local copy of your messages. Your account and history stay on the server, and you can sign back in with your password."
+        t("settings.signOut.warning", ["server": serverName])
     }
 
     static var version: String {
@@ -231,14 +231,33 @@ struct SettingsLabel: View {
     }
 }
 
-/// The accent, message size and motion, kept on this device as on the desktop.
+/// The language, accent, message size and motion, kept on this device as on the desktop.
 struct AppearanceView: View {
     @Environment(AppModel.self) private var model
+    @Environment(CoreController.self) private var core
+    /// The language chosen here, or nil for the system's.
+    @State private var language = I18n.choice
 
     var body: some View {
         @Bindable var model = model
+        // Each language by its own name, which is never translated.
+        let languages = I18n.languages
         List {
-            Section("Accent") {
+            Section {
+                Picker(t("settings.appearance.language"), selection: Binding(get: { language }, set: { choice in
+                    language = choice
+                    core.chooseLanguage(choice)
+                })) {
+                    Text(t("settings.appearance.languageSystem")).tag(String?.none)
+                    ForEach(languages.indices, id: \.self) { index in
+                        Text(verbatim: languages[index].name).tag(languages[index].tag as String?)
+                    }
+                }
+                .tint(Theme.text2)
+            } footer: {
+                Text(t("settings.appearance.languageHint"))
+            }
+            Section(t("settings.appearance.accentSection")) {
                 HStack(spacing: 0) {
                     ForEach(Accent.allCases, id: \.self) { accent in
                         Button {
@@ -257,40 +276,51 @@ struct AppearanceView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(accent.rawValue.capitalized)
+                        .accessibilityLabel(Self.name(accent))
                         .accessibilityAddTraits(model.settings.accent == accent ? .isSelected : [])
                         .accessibilityIdentifier(A11y.Settings.accent(accent.rawValue))
                     }
                 }
                 .padding(.vertical, 6)
             }
-            Section("Message size") {
-                Picker("Message size", selection: $model.settings.messageSize) {
-                    Text("Small").tag(MessageSize.small)
-                    Text("Medium").tag(MessageSize.medium)
-                    Text("Large").tag(MessageSize.large)
+            Section(t("settings.appearance.messageSize")) {
+                Picker(t("settings.appearance.messageSize"), selection: $model.settings.messageSize) {
+                    Text(t("settings.appearance.sizeSmall")).tag(MessageSize.small)
+                    Text(t("settings.appearance.sizeMedium")).tag(MessageSize.medium)
+                    Text(t("settings.appearance.sizeLarge")).tag(MessageSize.large)
                 }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             }
             Section {
-                Toggle("Reduce motion", isOn: $model.settings.reduceMotion)
+                Toggle(t("settings.appearance.reduceMotion"), isOn: $model.settings.reduceMotion)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("Turns off most animations. It's also on when Reduce Motion is on in the system's settings.")
+                Text(t("settings.appearance.reduceMotionHintSystem"))
             }
             Section {
-                Toggle("Return sends", isOn: $model.settings.enterToSend)
+                Toggle(t("settings.appearance.returnSends"), isOn: $model.settings.enterToSend)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("On a hardware keyboard: Return sends and Shift-Return makes a new line. If off, Return makes a new line and Command-Return sends. The on-screen keyboard's Return always makes a new line.")
+                Text(t("settings.appearance.returnSendsHint"))
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Appearance")
+        .navigationTitle(t("settings.sections.appearance"))
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// What an accent is called, for VoiceOver.
+    private static func name(_ accent: Accent) -> String {
+        switch accent {
+        case .neutral: t("settings.appearance.accentNeutral")
+        case .blue: t("settings.appearance.accentBlue")
+        case .green: t("settings.appearance.accentGreen")
+        case .red: t("settings.appearance.accentRed")
+        case .amber: t("settings.appearance.accentAmber")
+        }
     }
 }

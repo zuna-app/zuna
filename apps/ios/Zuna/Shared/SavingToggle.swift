@@ -1,4 +1,5 @@
 import SwiftUI
+import ZunaModels
 
 /// A switch for something kept on the server: it moves at once, rather than springing back
 /// until the server says so, and goes back only if saving fails.
@@ -18,7 +19,7 @@ struct SavingToggle<Label: View>: View {
                     try await save(next)
                 } catch {
                     pending = nil
-                    model.toast("Couldn't save that. \(ErrorText.describe(error))", .error)
+                    model.toast(t("common.saveFailed", ["error": ErrorText.describe(error)]), .error)
                 }
             }
         })) {

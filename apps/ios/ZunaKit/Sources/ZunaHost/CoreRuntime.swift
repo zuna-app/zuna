@@ -474,6 +474,15 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
+    /// The language the app shows, for what the core words itself, a push's preview included
+    /// (`ZunaI18n`): a tag, and its catalog's JSON, or nil for English.
+    public func setLanguage(_ tag: String, catalog: String?) {
+        queue.async { [self] in
+            if context == nil { try? load() }
+            call("__zunaLanguage", [tag, catalog as Any? ?? NSNull()])
+        }
+    }
+
     /// Closes every request and socket after the proxy changed (`NetworkProxy.use`), so that the
     /// core opens them again the new way. A runtime that hasn't loaded has nothing open.
     public func networkChanged() {

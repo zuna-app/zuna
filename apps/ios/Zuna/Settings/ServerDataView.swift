@@ -13,10 +13,10 @@ struct ServerDataView: View {
     @State private var busy = false
 
     var body: some View {
-        let name = model.servers[serverId]?.entry.name ?? "The server"
+        let name = model.servers[serverId]?.entry.name
         List {
             Section {
-                Text("Everything \(name) says it keeps about your account. Your messages, name, picture and files are encrypted on your devices before they're sent, so only their sizes appear here.")
+                Text(name.map { t("settings.data.lead", ["server": $0]) } ?? t("settings.data.leadNoServer"))
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                 if busy && exported == nil {
@@ -43,13 +43,13 @@ struct ServerDataView: View {
                 }
                 Section {
                 } footer: {
-                    Text("This is what \(name) says it keeps. A modified server could keep more than it says, which is why everything that matters is encrypted on your devices before it's sent.")
+                    Text(name.map { t("settings.data.footnote", ["server": $0]) } ?? t("settings.data.caveatNoServer"))
                 }
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Your data")
+        .navigationTitle(t("settings.sections.data"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let exported {
@@ -57,7 +57,7 @@ struct ServerDataView: View {
                     ShareLink(item: ServerDataFile(name: exported.fileName, json: exported.json), preview: SharePreview(exported.fileName, image: Image(systemName: "doc.text"))) {
                         Image(systemName: "square.and.arrow.up")
                     }
-                    .accessibilityLabel("Save as file")
+                    .accessibilityLabel(t("common.saveAsFile"))
                 }
             }
         }
@@ -113,11 +113,11 @@ private struct ServerDataRowView: View {
 
     private var tagLabel: String {
         switch row.kind {
-        case .readable: return "Readable"
-        case .encrypted: return "Encrypted"
-        case .publicKey: return "Public"
-        case .withheld: return "Left out"
-        case .notKept: return "Not kept"
+        case .readable: return t("settings.data.tagReadable")
+        case .encrypted: return t("settings.data.tagEncrypted")
+        case .publicKey: return t("settings.data.tagPublic")
+        case .withheld: return t("settings.data.tagWithheld")
+        case .notKept: return t("settings.data.tagNone")
         }
     }
 

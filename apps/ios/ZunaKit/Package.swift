@@ -47,7 +47,8 @@ let package = Package(
             resources: [.copy("Resources/zuna-core.js"), .copy("Resources/zuna-highlight.js"), .copy("Resources/zuna-password.js"), .copy("Resources/zuna-relay.js"), .copy("Resources/watch.html"), .copy("Resources/telegram-functions.json")]
         ),
         // The core's types in Swift, and the RPC client the UI uses.
-        .target(name: "ZunaModels", dependencies: ["ZunaHost"]),
+        // With every language's catalog, which apps/ios/core-bundle/build.mjs copies in (I18n.swift).
+        .target(name: "ZunaModels", dependencies: ["ZunaHost"], resources: [.copy("Resources/locales")]),
         // Test builds only: drives a host over a local WebSocket.
         .target(
             name: "ZunaControl",

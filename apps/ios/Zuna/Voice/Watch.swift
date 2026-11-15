@@ -20,13 +20,13 @@ struct WatchPlayerStatus: Equatable {
     var error: String?
 }
 
-/// What each of YouTube's errors is, in words, so people know it isn't Zuna (WATCH_ERRORS in packages/watch).
+/// What each of YouTube's errors is, in words, so people know it isn't Zuna (WATCH_ERRORS in packages/watch), by its key.
 private let watchErrors: [String: String] = [
-    "gone": "This video was removed or is private.",
-    "not-embeddable": "Its owner only allows it to play on YouTube.",
-    "unplayable": "YouTube won't play this video here.",
-    "no-referrer": "YouTube refused to play it here. That's a bug in Zuna.",
-    "unknown": "YouTube couldn't play this video.",
+    "gone": mark("voice.watch.errorGone"),
+    "not-embeddable": mark("voice.watch.errorNotEmbeddable"),
+    "unplayable": mark("voice.watch.wontPlayHere"),
+    "no-referrer": mark("voice.watch.errorNoReferrer"),
+    "unknown": mark("voice.watch.errorOther"),
 ]
 
 /// The address the page is loaded under, which YouTube's player is told as the Referer: `https://` and the app's ID.
@@ -80,7 +80,7 @@ struct WatchPlayer: UIViewRepresentable {
         if let page = WatchPage.html(player: watchPlayerHost) {
             view.loadHTMLString(page, baseURL: watchPageOrigin)
         } else {
-            onStatus(WatchPlayerStatus(phase: "idle", error: "The player is missing from this build of Zuna."))
+            onStatus(WatchPlayerStatus(phase: "idle", error: t("voice.watch.playerMissing")))
         }
         return view
     }
@@ -145,7 +145,7 @@ struct WatchPlayer: UIViewRepresentable {
                 parent.onIntent(WatchChange(playing: playing, position: position.map { max(0, $0) }, rate: rate))
             case "status":
                 guard let status = object["status"] as? [String: Any] else { return }
-                let error = (status["error"] as? String).flatMap { watchErrors[$0] ?? watchErrors["unknown"] }
+                let error = (status["error"] as? String).flatMap { watchErrors[$0] ?? watchErrors["unknown"] }.map { t($0) }
                 parent.onStatus(WatchPlayerStatus(phase: status["phase"] as? String ?? "loading", error: error))
             case "blocked":
                 parent.onBlocked()
@@ -221,19 +221,28 @@ struct WatchStage: View {
     }
 
     private var watchingHere: Bool { voice.watching == watch.session }
-    private var title: String { watch.video.title.isEmpty ? "A YouTube video" : watch.video.title }
+    private var title: String { watch.video.title.isEmpty ? t("voice.watch.untitled") : watch.video.title }
 
-    private func name(_ userId: String) -> String {
-        if userId == voice.serverId.flatMap({ model.servers[$0]?.me?.userId }) { return "you" }
-        return voice.serverId.flatMap { model.servers[$0]?.users[userId]?.displayName } ?? "someone"
+    /// Someone's name, or nil for this person, whose sentences are worded apart.
+    private func name(_ userId: String) -> String? {
+        if userId == voice.serverId.flatMap({ model.servers[$0]?.me?.userId }) { return nil }
+        return voice.serverId.flatMap { model.servers[$0]?.users[userId]?.displayName } ?? t("chat.someone")
     }
 
     private var note: String {
         if let error = status.error { return error }
-        if blocked { return "It didn't start automatically. Press play in the video." }
-        if watchingHere, status.phase == "catching-up" { return "Catching up…" }
-        if !watch.playing { return "Paused by \(name(watch.changedBy))" }
-        return "Shared by \(name(watch.video.startedBy))\(watch.video.author.isEmpty ? "" : " · \(watch.video.author)")"
+        if blocked { return t("voice.watch.blocked") }
+        if watchingHere, status.phase == "catching-up" { return t("voice.watch.catchingUp") }
+        if !watch.playing {
+            return name(watch.changedBy).map { t("voice.watch.pausedBy", ["name": $0]) } ?? t("voice.watch.pausedByYou")
+        }
+        let author = watch.video.author
+        switch (name(watch.video.startedBy), author.isEmpty) {
+        case let (name?, true): return t("voice.watch.sharedBy", ["name": name])
+        case let (name?, false): return t("voice.watch.sharedByAuthor", ["name": name, "author": author])
+        case (nil, true): return t("voice.watch.sharedByYou")
+        case (nil, false): return t("voice.watch.sharedByYouAuthor", ["author": author])
+        }
     }
 
     var body: some View {
@@ -266,7 +275,7 @@ struct WatchStage: View {
         .accessibilityIdentifier(A11y.Voice.watchStage)
         .onChange(of: watch.video.id) { status = WatchPlayerStatus(); blocked = false }
         .sheet(item: $asking) { asked in
-            WatchConsent(action: asked == .watch ? "Watch" : "Continue") {
+            WatchConsent(action: asked == .watch ? t("voice.watch.watch") : t("common.continue")) {
                 asking = nil
                 if asked == .watch { voice.setWatching(true) } else { linking = true }
             }
@@ -291,14 +300,14 @@ struct WatchStage: View {
                 if !watch.video.author.isEmpty {
                     Text(watch.video.author).font(.subheadline)
                 }
-                Text("Shared by \(name(watch.video.startedBy)). It plays from YouTube when you press Watch.")
+                Text(name(watch.video.startedBy).map { t("voice.watch.coverBy", ["name": $0]) } ?? t("voice.watch.coverByYou"))
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
                 Button {
                     if voice.playYouTube { voice.setWatching(true) } else { asking = .watch }
                 } label: {
-                    Label("Watch", systemImage: "play.rectangle.fill")
+                    Label(t("voice.watch.watch"), systemImage: "play.rectangle.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.white)
@@ -328,20 +337,20 @@ struct WatchStage: View {
                     Image(systemName: voice.watchMuted || voice.deafened ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
                 .disabled(voice.deafened)
-                .accessibilityLabel(voice.watchMuted || voice.deafened ? "Unmute video" : "Mute video")
+                .accessibilityLabel(voice.watchMuted || voice.deafened ? t("voice.watch.unmute") : t("voice.watch.mute"))
             }
             Menu {
-                Button("Another video", systemImage: "link") {
+                Button(t("voice.watch.another"), systemImage: "link") {
                     if voice.playYouTube { linking = true } else { asking = .another }
                 }
-                Button("Stop for everyone", systemImage: "stop.fill", role: .destructive) { voice.watchStop() }
+                Button(t("voice.watch.stopAll"), systemImage: "stop.fill", role: .destructive) { voice.watchStop() }
                 if watchingHere {
-                    Button("Stop watching here", systemImage: "xmark") { voice.setWatching(false) }
+                    Button(t("voice.watch.stopHere"), systemImage: "xmark") { voice.setWatching(false) }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
-            .accessibilityLabel("Video options")
+            .accessibilityLabel(t("voice.watch.options"))
             .accessibilityIdentifier(A11y.Voice.watchMenu)
         }
         .foregroundStyle(Theme.text1)
@@ -362,7 +371,7 @@ struct WatchThumb: View {
             } else {
                 Theme.bg2.overlay(Image(systemName: "play.rectangle").font(.title2).foregroundStyle(Theme.text2))
             }
-            Label(watch.video.title.isEmpty ? "A YouTube video" : watch.video.title, systemImage: "play.rectangle")
+            Label(watch.video.title.isEmpty ? t("voice.watch.untitled") : watch.video.title, systemImage: "play.rectangle")
                 .font(.caption2)
                 .lineLimit(1)
                 .padding(.horizontal, 6)
@@ -375,7 +384,7 @@ struct WatchThumb: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Fills the stage")
+        .accessibilityHint(t("voice.stage.focusHint"))
     }
 }
 
@@ -390,19 +399,19 @@ struct WatchConsent: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Videos play in YouTube's own player. When you watch one, Google sees this device's IP address and which video it is, just as if you'd opened it on YouTube. You aren't signed in to YouTube here, so you may see ads.")
-                    Text("Your server only sees that something was shared in the room, not which video. Nothing is loaded from YouTube until you press Watch. You can turn this off in Settings, under Privacy.")
+                    Text(t("voice.watchConsent.text"))
+                    Text(t("voice.watch.consentNote"))
                         .foregroundStyle(Theme.text2)
-                    Link("YouTube's Terms of Service", destination: URL(string: "https://www.youtube.com/t/terms")!)
-                    Link("Google's Privacy Policy", destination: URL(string: "https://policies.google.com/privacy")!)
+                    Link(t("voice.watch.terms"), destination: URL(string: "https://www.youtube.com/t/terms")!)
+                    Link(t("voice.watch.privacy"), destination: URL(string: "https://policies.google.com/privacy")!)
                 }
                 .font(.subheadline)
                 .padding(20)
             }
-            .navigationTitle("Play YouTube videos?")
+            .navigationTitle(t("voice.watch.consentTitle"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(action) {
                         voice.playYouTube = true
@@ -433,25 +442,25 @@ struct WatchLinkSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit { Task { await submit() } }
-                        .accessibilityLabel("YouTube link")
+                        .accessibilityLabel(t("voice.watch.link"))
                         .accessibilityIdentifier(A11y.Voice.watchLink)
                 } footer: {
                     if let error {
                         Text(error).foregroundStyle(Theme.red)
                     } else {
-                        Text("It plays in sync for everyone here who presses Watch. Anyone in the room can pause, skip, change the speed or stop it.")
+                        Text(t("voice.watch.linkHint"))
                     }
                 }
             }
-            .navigationTitle("Watch together")
+            .navigationTitle(t("voice.watch.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
-                        Button("Share video") { Task { await submit() } }
+                        Button(t("voice.watch.share")) { Task { await submit() } }
                             .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                             .accessibilityIdentifier(A11y.Voice.watchPutOn)
                     }

@@ -36,7 +36,10 @@ final class ShareCore {
     static func wake(deviceKey: Data, moved: Bool) async throws -> ShareCore {
         // The proxy set in Privacy, before anything connects, and again each time, as it may have changed.
         if ProxyStore.apply() { current?.runtime.networkChanged() }
+        // And the language the app shows, which the core words its errors in.
+        let language = I18n.forCore
         if let current {
+            current.runtime.setLanguage(language.tag, catalog: language.catalog)
             if moved {
                 try await current.connection.reload()
             } else {
@@ -51,6 +54,7 @@ final class ShareCore {
             deviceKey: deviceKey,
             deviceName: UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
         ))
+        runtime.setLanguage(language.tag, catalog: language.catalog)
         try await runtime.start()
         let core = ShareCore(runtime: runtime)
         current = core

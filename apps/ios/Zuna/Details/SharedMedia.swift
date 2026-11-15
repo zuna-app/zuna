@@ -23,28 +23,27 @@ enum SharedKind: String, Hashable, CaseIterable {
 
     var title: String {
         switch self {
-        case .photo: "Photos"
-        case .video: "Videos"
-        case .file: "Files"
-        case .audio: "Audio files"
-        case .link: "Shared links"
-        case .voice: "Voice messages"
-        case .groups: "Groups in common"
+        case .photo: t("details.media.photos")
+        case .video: t("details.media.videos")
+        case .file: t("details.media.files")
+        case .audio: t("details.media.audio")
+        case .link: t("details.media.links")
+        case .voice: t("details.media.voice")
+        case .groups: t("details.media.groups")
         }
     }
 
     /// "2 photos", "1 shared link".
     func counted(_ count: Int) -> String {
-        let (one, many) = switch self {
-        case .photo: ("photo", "photos")
-        case .video: ("video", "videos")
-        case .file: ("file", "files")
-        case .audio: ("audio file", "audio files")
-        case .link: ("shared link", "shared links")
-        case .voice: ("voice message", "voice messages")
-        case .groups: ("group in common", "groups in common")
+        switch self {
+        case .photo: t("details.media.photoCount", ["count": count])
+        case .video: t("details.media.videoCount", ["count": count])
+        case .file: t("details.media.fileCount", ["count": count])
+        case .audio: t("details.media.audioCount", ["count": count])
+        case .link: t("details.media.linkCount", ["count": count])
+        case .voice: t("details.media.voiceCount", ["count": count])
+        case .groups: t("details.media.groupCount", ["count": count])
         }
-        return "\(count) \(count == 1 ? one : many)"
     }
 
     func count(in counts: MediaCounts?, groups: Int) -> Int {
@@ -102,7 +101,7 @@ struct SharedMediaView: View {
                     GroupsInCommon(server: server, conversation: conversation)
                 }
             } else {
-                ContentUnavailableView("This chat isn't available", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                ContentUnavailableView(t("details.unavailable"), systemImage: "bubble.left.and.exclamationmark.bubble.right")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -118,7 +117,7 @@ private struct NothingShared: View {
     let kind: SharedKind
 
     var body: some View {
-        ContentUnavailableView("Nothing here anymore.", systemImage: kind.icon)
+        ContentUnavailableView(t("details.media.nothing"), systemImage: kind.icon)
             .foregroundStyle(Theme.text2)
     }
 }
@@ -147,11 +146,11 @@ private struct SharedMessages: View {
                 if kind == .photo || kind == .video { grid(messages) } else { list(messages) }
             } else if let failed {
                 ContentUnavailableView {
-                    Label("Couldn't load these", systemImage: "exclamationmark.circle")
+                    Label(t("details.shared.loadFailed"), systemImage: "exclamationmark.circle")
                 } description: {
                     Text(failed)
                 } actions: {
-                    Button("Try again") {
+                    Button(t("common.tryAgain")) {
                         self.failed = nil
                         attempt += 1
                     }
@@ -278,7 +277,7 @@ private struct ShowInChat: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            Button("Show in chat", systemImage: "text.bubble", action: show)
+            Button(t("details.media.showInChat"), systemImage: "text.bubble", action: show)
         }
     }
 }
@@ -364,8 +363,8 @@ private struct MediaTile: View {
         }
         .buttonStyle(.plain)
         .modifier(ShowInChat(show: show))
-        .accessibilityLabel(video ? "Show \(attachment.name) in the chat" : wanted ? "Open \(attachment.name)" : "Load \(attachment.name)")
-        .accessibilityValue(video ? "" : shown != nil ? "Loaded" : failed ? "Couldn't load. Tap to try again" : wanted ? "Loading" : Format.bytes(attachment.size))
+        .accessibilityLabel(video ? t("details.shared.showFile", ["name": attachment.name]) : wanted ? t("details.shared.openFile", ["name": attachment.name]) : t("details.media.load", ["name": attachment.name]))
+        .accessibilityValue(video ? "" : shown != nil ? t("details.shared.loaded") : failed ? t("details.shared.loadFailedTap") : wanted ? t("details.shared.loading") : Format.bytes(attachment.size))
         .accessibilityHint(Format.full(message.createdAt))
         .accessibilityIdentifier(A11y.Shared.item(attachment.name))
         // Only once it's on screen, since the grid makes its tiles as they scroll in.
@@ -393,7 +392,7 @@ private struct SentBy: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(message.senderId == server.me?.userId ? "You" : server.users[message.senderId]?.displayName ?? "Unknown")
+            Text(message.senderId == server.me?.userId ? t("common.you") : server.users[message.senderId]?.displayName ?? t("chat.unknown"))
                 .foregroundStyle(Theme.nameColor(message.senderId))
             Text(" · \(Format.full(message.createdAt))")
                 .foregroundStyle(Theme.text3)
@@ -468,7 +467,7 @@ private struct AttachmentRow: View {
                 let file = try await images.openable(attachment, serverId: server.entry.id)
                 FilePreview.show(file)
             } catch {
-                model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
+                model.toast(t("details.shared.openFailed", ["name": attachment.name, "error": ErrorText.describe(error)]), .error)
             }
         }
     }
@@ -555,7 +554,7 @@ private struct GroupsInCommon: View {
                             AvatarView(name: group.title, seed: group.groupId ?? group.key, source: group.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 40)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(group.title).foregroundStyle(Theme.text1).lineLimit(1)
-                                Text("\(group.members.count) \(group.members.count == 1 ? "member" : "members")")
+                                Text(t("details.group.members", ["count": group.members.count]))
                                     .font(.caption)
                                     .foregroundStyle(Theme.text3)
                             }

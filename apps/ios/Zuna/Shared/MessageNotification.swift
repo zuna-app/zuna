@@ -25,7 +25,7 @@ enum MessageNotification {
             return base
         case .sender:
             base.title = preview.title
-            base.body = "New message"
+            base.body = t("notify.newMessage")
         case .full:
             base.title = preview.title
             base.body = preview.body

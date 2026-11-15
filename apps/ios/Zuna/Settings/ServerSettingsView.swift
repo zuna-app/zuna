@@ -38,86 +38,86 @@ struct ServerSettingsView: View {
                                         .frame(width: 24, height: 24).background(Theme.bg4, in: .circle)
                                 }
                         }
-                        .accessibilityLabel("Change server picture")
-                        TextField("Server name", text: $name)
+                        .accessibilityLabel(t("serverSettings.changePicture"))
+                        TextField(t("serverSettings.overview.name"), text: $name)
                             .font(.headline)
                             .onChange(of: name) { if name.count > 64 { name = String(name.prefix(64)) } }
                             .accessibilityIdentifier(A11y.Settings.serverName)
                     }
-                    Button("Save name") {
+                    Button(t("serverSettings.saveName")) {
                         let value = name.trimmingCharacters(in: .whitespaces)
                         run {
                             try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(name: value))
-                            model.toast("Saved")
+                            model.toast(t("common.saved"))
                         }
                     }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || name == server.entry.name)
                     .accessibilityIdentifier(A11y.Settings.save)
-                    LabeledContent("Address") { Text(server.entry.address).font(.system(.footnote, design: .monospaced)).textSelection(.enabled) }
-                    LabeledContent("Version") { Text(server.info?.version ?? "").font(.system(.footnote, design: .monospaced)) }
+                    LabeledContent(t("serverSettings.overview.address")) { Text(server.entry.address).font(.system(.footnote, design: .monospaced)).textSelection(.enabled) }
+                    LabeledContent(t("serverSettings.overview.version")) { Text(server.info?.version ?? "").font(.system(.footnote, design: .monospaced)) }
                 } header: {
-                    Text("Server")
+                    Text(t("serverSettings.overview.title"))
                 } footer: {
-                    Text("The name and picture are public: they appear on invite pages before anyone signs in.")
+                    Text(t("serverSettings.overview.lead"))
                 }
 
                 Section {
-                    Button("Invite people", systemImage: "link") { inviting = true }
-                    SavingToggle("Let members create invite links", value: server.info?.allowMemberInvites ?? false) { value in
+                    Button(t("invites.title"), systemImage: "link") { inviting = true }
+                    SavingToggle(t("serverSettings.invites.memberInvites"), value: server.info?.allowMemberInvites ?? false) { value in
                         try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(allowMemberInvites: value))
                     }
                     .accessibilityIdentifier(A11y.Settings.memberInvites)
-                    SavingToggle("Open sign-ups", value: server.info?.registration == "open") { value in
+                    SavingToggle(t("serverSettings.invites.openSignUps"), value: server.info?.registration == "open") { value in
                         try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(registration: value ? "open" : "invite"))
                     }
                     .accessibilityIdentifier(A11y.Settings.openSignUps)
                 } header: {
-                    Text("Invites")
+                    Text(t("serverSettings.sections.invites"))
                 } footer: {
-                    Text("Invite links are the safest way for people to join. Open sign-ups let anyone who knows the address join, and give the server the key that protects profiles, so it can read display names and pictures. Messages stay encrypted.")
+                    Text(t("serverSettings.invitesHint"))
                 }
 
-                Section("Members") {
-                    NavigationLink("\(server.users.values.filter { !$0.deleted && !$0.banned }.count) members") { ServerMembersView(serverId: serverId) }
-                    NavigationLink("Reports") { ReportsView(serverId: serverId) }
+                Section(t("serverSettings.sections.members")) {
+                    NavigationLink(t("serverSettings.members.count", ["count": server.users.values.filter { !$0.deleted && !$0.banned }.count])) { ServerMembersView(serverId: serverId) }
+                    NavigationLink(t("serverSettings.sections.reports")) { ReportsView(serverId: serverId) }
                         .accessibilityIdentifier(A11y.Settings.reports)
                     NavigationLink { BansView(serverId: serverId) } label: {
-                        LabeledContent("Bans", value: "\(server.users.values.filter { $0.banned && !$0.deleted }.count)")
+                        LabeledContent(t("serverSettings.sections.bans"), value: "\(server.users.values.filter { $0.banned && !$0.deleted }.count)")
                     }
                     .accessibilityIdentifier(A11y.Settings.bans)
                 }
-                Section("Channels") {
-                    NavigationLink(server.channels.count == 1 ? "1 channel" : "\(server.channels.count) channels") { ChannelsSettingsView(serverId: serverId) }
+                Section(t("serverSettings.channels.title")) {
+                    NavigationLink(t("serverSettings.channels.count", ["count": server.channels.count])) { ChannelsSettingsView(serverId: serverId) }
                 }
-                Section("Voice") {
+                Section(t("serverSettings.voice")) {
                     // The rules come with what a member is told about the server.
                     if server.info?.screenShare != nil {
-                        NavigationLink("Screen sharing") { ScreenRulesView(serverId: serverId) }
+                        NavigationLink(t("serverSettings.sections.screen")) { ScreenRulesView(serverId: serverId) }
                             .accessibilityIdentifier(A11y.Settings.screenRules)
                     }
                     NavigationLink { SoundboardSettingsView(serverId: serverId) } label: {
-                        LabeledContent("Soundboard", value: server.sounds.count == 1 ? "1 sound" : "\(server.sounds.count) sounds")
+                        LabeledContent(t("serverSettings.sections.soundboard"), value: t("serverSettings.sounds", ["count": server.sounds.count]))
                     }
                     .accessibilityIdentifier(A11y.Settings.soundboard)
                 }
-                Section("Emotes") {
+                Section(t("serverSettings.sections.emotes")) {
                     NavigationLink { EmoteSetView(serverId: serverId) } label: {
-                        LabeledContent(server.emotes.setName.isEmpty ? "No emote set" : server.emotes.setName, value: "\(server.emotes.emotes.count) emotes")
+                        LabeledContent(server.emotes.setName.isEmpty ? t("serverSettings.emotes.noSet") : server.emotes.setName, value: t("serverSettings.emotes.count", ["count": server.emotes.emotes.count]))
                     }
                     .accessibilityIdentifier(A11y.Settings.emotes)
                 }
-                Section("Storage") {
-                    NavigationLink("Files and retention") { StorageView(serverId: serverId) }
+                Section(t("serverSettings.sections.storage")) {
+                    NavigationLink(t("serverSettings.storage.filesAndRetention")) { StorageView(serverId: serverId) }
                 }
-                Section("Bots") {
-                    NavigationLink("Bots") { BotsSettingsView(serverId: serverId) }
+                Section(t("serverSettings.sections.bots")) {
+                    NavigationLink(t("serverSettings.sections.bots")) { BotsSettingsView(serverId: serverId) }
                 }
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle(server?.entry.name ?? "Server")
+        .navigationTitle(server?.entry.name ?? t("serverSettings.overview.title"))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $inviting) { InviteSheet(serverId: serverId) }
         .onAppear {
@@ -173,7 +173,7 @@ struct ServerMembersView: View {
                 if canAct {
                     target = user
                 } else if user.id != server?.me?.userId {
-                    model.toast(user.role == .owner ? "Nobody can change the server's owner." : "Only the server's owner can change its admins.")
+                    model.toast(user.role == .owner ? t("serverSettings.members.ownerFixed") : t("serverSettings.members.onlyOwnerAdmins"))
                 }
             } label: {
                 HStack(spacing: 12) {
@@ -189,7 +189,7 @@ struct ServerMembersView: View {
                     }
                     Spacer()
                     if user.role != .member {
-                        Label(user.role == .owner ? "Owner" : "Admin", systemImage: "crown.fill").font(.caption).foregroundStyle(Theme.text2)
+                        Label(user.role == .owner ? t("serverSettings.members.owner") : t("serverSettings.members.admin"), systemImage: "crown.fill").font(.caption).foregroundStyle(Theme.text2)
                     }
                 }
                 .contentShape(.rect)
@@ -200,21 +200,26 @@ struct ServerMembersView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .searchable(text: $query, prompt: "Search \(members.count) members")
-        .navigationTitle("Members")
+        .searchable(text: $query, prompt: t("serverSettings.members.search", ["count": members.count]))
+        .navigationTitle(t("serverSettings.sections.members"))
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(target?.displayName ?? "", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }), presenting: target) { user in
             // A bot is never one of the server's admins.
             if selfRole == .owner, user.bot == nil {
-                Button(user.role == .admin ? "Remove admin" : "Make admin") {
+                Button(user.role == .admin ? t("serverSettings.members.removeAdmin") : t("serverSettings.members.makeAdmin")) {
                     run { try await model.core.session(serverId).setServerRole(user.id, role: user.role == .admin ? .member : .admin) }
                 }
             }
-            Button("Ban from server", role: .destructive) { banning = user }
+            Button(t("serverSettings.ban.action"), role: .destructive) { banning = user }
         }
-        .confirmationDialog("Ban \(banning?.displayName ?? "them")? They're signed out everywhere and removed from every group.", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
-            Button("Ban from server", role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
+        .confirmationDialog(ServerMembersView.banWarning(banning), isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
+            Button(t("serverSettings.ban.action"), role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
         }
+    }
+
+    /// What banning someone does, asked before it's done.
+    static func banWarning(_ user: UserView?) -> String {
+        user.map { t("serverSettings.members.banConfirm", ["name": $0.displayName]) } ?? t("serverSettings.members.banConfirmUnnamed")
     }
 
     private func run(_ action: @escaping () async throws -> Void) {
@@ -239,40 +244,40 @@ struct ReportsView: View {
         List {
             Section {
                 if let reports, reports.isEmpty {
-                    Text("Nobody has been reported.").foregroundStyle(Theme.text2)
+                    Text(t("serverSettings.reports.empty")).foregroundStyle(Theme.text2)
                 }
                 ForEach(reports ?? []) { report in
                     let user = server?.users[report.userId]
-                    let name = user?.displayName ?? "Unknown"
+                    let name = user?.displayName ?? t("chat.unknown")
                     let canBan = user.map { !$0.banned && !$0.deleted && $0.role != .owner && (selfRole == .owner || $0.role == .member) } ?? false
                     HStack(spacing: 12) {
                         AvatarView(name: name, seed: report.userId, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(name).foregroundStyle(Theme.text1)
-                            Text("\(report.count == 1 ? "1 report" : "\(report.count) reports") · \(report.reasons.map(\.label).joined(separator: ", "))")
+                            Text(t("serverSettings.reports.summary", ["count": report.count, "reasons": report.reasons.map(\.label).joined(separator: ", ")]))
                                 .font(.caption)
                                 .foregroundStyle(Theme.text3)
                         }
                     }
                     .swipeActions {
-                        Button("Dismiss") { run { try await model.core.session(serverId).dismissReports(report.userId) } }
+                        Button(t("serverSettings.reports.dismiss")) { run { try await model.core.session(serverId).dismissReports(report.userId) } }
                         if canBan, let user {
-                            Button("Ban", role: .destructive) { banning = user }
+                            Button(t("serverSettings.reports.ban"), role: .destructive) { banning = user }
                         }
                     }
                 }
             } footer: {
-                Text("Swipe to dismiss a report, or to ban. Messages are encrypted, so nobody here can see what was said, and who made each report isn't kept.")
+                Text(t("serverSettings.reports.hint"))
             }
             .listRowBackground(Theme.bg2)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Reports")
+        .navigationTitle(t("serverSettings.sections.reports"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .confirmationDialog("Ban \(banning?.displayName ?? "them")? They're signed out everywhere and removed from every group.", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
-            Button("Ban from server", role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
+        .confirmationDialog(ServerMembersView.banWarning(banning), isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
+            Button(t("serverSettings.ban.action"), role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
         }
     }
 
@@ -307,24 +312,24 @@ struct BansView: View {
         List {
             Section {
                 if bans != nil, shown.isEmpty {
-                    Text("Nobody is banned.").foregroundStyle(Theme.text2)
+                    Text(t("serverSettings.bans.empty")).foregroundStyle(Theme.text2)
                 }
                 ForEach(shown) { ban in
                     let user = server?.users[ban.userId]
-                    let name = user?.displayName ?? "Unknown"
-                    let by = ban.bannedBy == server?.me?.userId ? "you" : server?.users[ban.bannedBy]?.displayName
+                    let name = user?.displayName ?? t("chat.unknown")
+                    let banned = bannedText(ban, server)
                     Button {
                         if canUnban(ban) {
                             target = ban
                         } else {
-                            model.toast("Only the server's owner can unban an admin.")
+                            model.toast(t("serverSettings.bans.ownerOnly"))
                         }
                     } label: {
                         HStack(spacing: 12) {
                             AvatarView(name: name, seed: ban.userId, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(name).foregroundStyle(Theme.text1)
-                                Text("\(user.map { "@\($0.username) · " } ?? "")Banned \(by.map { "by \($0) " } ?? "")on \(Format.full(ban.bannedAt))")
+                                Text(user.map { "@\($0.username) · \(banned)" } ?? banned)
                                     .font(.caption)
                                     .foregroundStyle(Theme.text3)
                             }
@@ -335,25 +340,33 @@ struct BansView: View {
                     .buttonStyle(.plain)
                     .swipeActions {
                         if canUnban(ban) {
-                            Button("Unban") { unban(ban) }.tint(Theme.green)
+                            Button(t("serverSettings.bans.unban")) { unban(ban) }.tint(Theme.green)
                         }
                     }
                     .accessibilityIdentifier(A11y.Settings.ban(user?.username ?? ban.userId))
                 }
             } footer: {
-                Text("Once unbanned, people can sign in again and get their direct messages and channels back. Groups will have to add them again.")
+                Text(t("serverSettings.bans.hint"))
             }
             .listRowBackground(Theme.bg2)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Bans")
+        .navigationTitle(t("serverSettings.sections.bans"))
         .navigationBarTitleDisplayMode(.inline)
         // Read again whenever someone is banned or unbanned, from here or anywhere else.
         .task(id: (server?.users.values.filter { $0.banned && !$0.deleted }.map(\.id) ?? []).sorted()) { await load() }
         .confirmationDialog(target.flatMap { server?.users[$0.userId]?.displayName } ?? "", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }), presenting: target) { ban in
-            Button("Unban") { unban(ban) }
+            Button(t("serverSettings.bans.unban")) { unban(ban) }
         }
+    }
+
+    /// When someone was banned, and by whom, where that's known.
+    private func bannedText(_ ban: BanView, _ server: AppModel.ServerState?) -> String {
+        let date = Format.full(ban.bannedAt)
+        if ban.bannedBy == server?.me?.userId { return t("serverSettings.bans.bannedByYou", ["date": date]) }
+        if let by = server?.users[ban.bannedBy]?.displayName { return t("serverSettings.bans.bannedBy", ["name": by, "date": date]) }
+        return t("serverSettings.bans.bannedOn", ["date": date])
     }
 
     /// The owner can unban anyone, and admins only members, as with banning.
@@ -383,10 +396,10 @@ extension ReportReason {
     /// What the reason is called, as on the desktop.
     var label: String {
         switch self {
-        case .spam: "Spam"
-        case .harassment: "Harassment"
-        case .inappropriate: "Inappropriate content"
-        case .other: "Something else"
+        case .spam: t("serverSettings.reports.reasonSpam")
+        case .harassment: t("serverSettings.reports.reasonHarassment")
+        case .inappropriate: t("serverSettings.reports.reasonInappropriate")
+        case .other: t("serverSettings.reports.reasonOther")
         }
     }
 }
@@ -404,13 +417,13 @@ struct EmoteSetView: View {
         List {
             if let server, !server.emotes.setId.isEmpty {
                 Section {
-                    Button("Refresh", systemImage: "arrow.clockwise") {
-                        use(server.emotes.setId) { "Updated \($0.setName) (\($0.count) emotes)" }
+                    Button(t("serverSettings.emotes.refresh"), systemImage: "arrow.clockwise") {
+                        use(server.emotes.setId) { t("serverSettings.emotes.updated", ["name": $0.setName, "count": $0.count]) }
                     }
                     .disabled(busy)
                     .accessibilityIdentifier(A11y.Settings.refreshEmotes)
                 } footer: {
-                    Text("Your server checks 7TV for changes to the set every few hours.")
+                    Text(t("serverSettings.emotes.refreshHint"))
                 }
                 .listRowBackground(Theme.bg2)
             }
@@ -420,18 +433,18 @@ struct EmoteSetView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier(A11y.Settings.emoteLink)
-                Button("Use this set") {
+                Button(t("serverSettings.emotes.useSet")) {
                     use(link.trimmingCharacters(in: .whitespaces)) {
                         link = ""
-                        return "Now using \($0.setName) (\($0.count) emotes)"
+                        return t("serverSettings.emotes.nowUsing", ["name": $0.setName, "count": $0.count])
                     }
                 }
                 .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || busy)
                 .accessibilityIdentifier(A11y.Settings.useEmotes)
             } header: {
-                Text("Use a different set")
+                Text(t("serverSettings.emotes.useDifferent"))
             } footer: {
-                Text("Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' IP addresses. Paste a link to any emote set on 7TV.")
+                Text(t("serverSettings.emotes.differentHint"))
             }
             .listRowBackground(Theme.bg2)
             if let server, !server.emotes.emotes.isEmpty {
@@ -450,7 +463,7 @@ struct EmoteSetView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Emotes")
+        .navigationTitle(t("serverSettings.sections.emotes"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -483,34 +496,34 @@ struct StorageView: View {
             Section {
                 HStack {
                     TextField("100", text: $maxUpload).keyboardType(.numberPad).accessibilityIdentifier(A11y.Settings.maxUpload)
-                    Text("MB").foregroundStyle(Theme.text2)
+                    Text(t("serverSettings.storage.megabytes")).foregroundStyle(Theme.text2)
                 }
             } header: {
-                Text("Largest file members can send")
+                Text(t("serverSettings.storage.maxUpload"))
             }
             Section {
                 HStack {
                     TextField("0", text: $retention).keyboardType(.numberPad).accessibilityIdentifier(A11y.Settings.retention)
-                    Text("days").foregroundStyle(Theme.text2)
+                    Text(t("serverSettings.storage.days")).foregroundStyle(Theme.text2)
                 }
             } header: {
-                Text("Delete messages after")
+                Text(t("serverSettings.storage.retention"))
             } footer: {
-                Text("0 keeps messages forever. Pinned messages are kept. This is enforced by the server, so it only removes the server's copy.")
+                Text(t("serverSettings.storage.retentionHint"))
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Storage")
+        .navigationTitle(t("serverSettings.sections.storage"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                Button(t("common.save")) {
                     Task {
                         do {
                             try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(maxUploadMb: upload, retentionDays: days))
-                            model.toast("Saved")
+                            model.toast(t("common.saved"))
                         } catch {
                             model.toast(ErrorText.describe(error), .error)
                         }
@@ -542,57 +555,55 @@ struct ScreenRulesView: View {
     private static let heights = [2160, 1440, 1080, 720, 480]
     private static let rates = [15, 30, 60, 90, 120, 144, 165, 240]
 
-    private static func rateName(_ fps: Int) -> String { "\(fps) fps" }
+    private static func rateName(_ fps: Int) -> String { t("serverSettings.screen.fps", ["fps": fps]) }
 
     var body: some View {
         let voice = (model.servers[serverId]?.info?.voice ?? 0) > 0
         Form {
             Section {
-                Picker("Who can share", selection: $rules.who) {
-                    Text("Everyone").tag("everyone")
-                    Text("Admins").tag("admins")
-                    Text("Nobody").tag("nobody")
+                Picker(t("serverSettings.screen.whoCanShare"), selection: $rules.who) {
+                    Text(t("serverSettings.screen.everyone")).tag("everyone")
+                    Text(t("serverSettings.screen.admins")).tag("admins")
+                    Text(t("serverSettings.screen.nobody")).tag("nobody")
                 }
                 .pickerStyle(.segmented)
-                Toggle("Allow audio", isOn: $rules.sound)
+                Toggle(t("serverSettings.screen.allowAudio"), isOn: $rules.sound)
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.screenSound)
                 Stepper(value: $rules.maxPerChannel, in: 0...99) {
-                    LabeledContent("Max shares per voice channel", value: Self.count(rules.maxPerChannel))
+                    LabeledContent(t("serverSettings.screen.maxPerChannel"), value: Self.count(rules.maxPerChannel))
                 }
                 Stepper(value: $rules.maxPerServer, in: 0...1000) {
-                    LabeledContent("Max shares on the server", value: Self.count(rules.maxPerServer))
+                    LabeledContent(t("serverSettings.screen.maxPerServer"), value: Self.count(rules.maxPerServer))
                 }
             } header: {
-                Text("Permissions")
+                Text(t("serverSettings.screen.permissions"))
             } footer: {
-                Text("Changing who can share, or turning audio off, stops any shares it no longer allows. Each voice channel can set its own limit.")
+                Text(t("serverSettings.screen.permissionsHint"))
             }
             Section {
-                limit("Max resolution", $rules.maxHeight, Self.heights, name: VoiceSettingsView.heightName)
-                limit("Max frame rate", $rules.maxFps, Self.rates, name: Self.rateName)
-                limit("Max bitrate", $rules.maxKbps, VoiceSettingsView.limitBitrates, name: VoiceSettingsView.bitrateName)
+                limit(t("serverSettings.screen.maxResolution"), $rules.maxHeight, Self.heights, name: VoiceSettingsView.heightName)
+                limit(t("serverSettings.screen.maxFrameRate"), $rules.maxFps, Self.rates, name: Self.rateName)
+                limit(t("serverSettings.screen.maxBitrate"), $rules.maxKbps, VoiceSettingsView.limitBitrates, name: VoiceSettingsView.bitrateName)
                     .accessibilityIdentifier(A11y.Settings.screenMaxKbps)
-                Toggle("Admins bypass limits", isOn: $rules.adminsExempt)
+                Toggle(t("serverSettings.screen.adminsBypass"), isOn: $rules.adminsExempt)
                     .tint(model.settings.accent.switchTint)
             } header: {
-                Text("Quality limits")
+                Text(t("serverSettings.screen.qualityLimits"))
             } footer: {
-                Text(voice
-                    ? "Each viewer can use up to the max bitrate of your media server's bandwidth. Quality limits and share counts don't apply to admins who bypass them. Each app applies the quality limits itself, since the media server can't see encrypted video."
-                    : "Each viewer can use up to the max bitrate of your media server's bandwidth. Quality limits and share counts don't apply to admins who bypass them. This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit.")
+                Text(voice ? t("serverSettings.screen.qualityHint") : t("serverSettings.screen.qualityHintNoVoice"))
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Screen sharing")
+        .navigationTitle(t("serverSettings.sections.screen"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if busy {
                     ProgressView()
                 } else {
-                    Button("Save", action: save)
+                    Button(t("common.save"), action: save)
                         .accessibilityIdentifier(A11y.Settings.save)
                 }
             }
@@ -604,12 +615,12 @@ struct ScreenRulesView: View {
         }
     }
 
-    private static func count(_ value: Int) -> String { value == 0 ? "No limit" : "\(value)" }
+    private static func count(_ value: Int) -> String { value == 0 ? t("serverSettings.screen.noLimit") : "\(value)" }
 
     /// The most a share may use, or no limit.
     private func limit(_ title: String, _ value: Binding<Int>, _ options: [Int], name: @escaping (Int) -> String) -> some View {
         Picker(title, selection: value) {
-            Text("No limit").tag(0)
+            Text(t("serverSettings.screen.noLimit")).tag(0)
             ForEach(options.contains(value.wrappedValue) || value.wrappedValue == 0 ? options : options + [value.wrappedValue], id: \.self) { option in
                 Text(name(option)).tag(option)
             }
@@ -623,7 +634,7 @@ struct ScreenRulesView: View {
             defer { busy = false }
             do {
                 try await model.core.session(serverId).updateServerSettings(changes)
-                model.toast("Saved")
+                model.toast(t("common.saved"))
             } catch {
                 model.toast(ErrorText.describe(error), .error)
             }

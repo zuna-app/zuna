@@ -52,8 +52,8 @@ struct ServerButton: View {
                 }
             }
         }
-        .accessibilityLabel(model.activeServer.map { "Servers, \($0.entry.name)" } ?? "Servers")
-        .accessibilityValue(unread > 0 ? "\(unread) unread on other servers" : dot ? "New messages on other servers" : "")
+        .accessibilityLabel(model.activeServer.map { t("servers.buttonNamed", ["server": $0.entry.name]) } ?? t("servers.title"))
+        .accessibilityValue(unread > 0 ? t("servers.unreadElsewhere", ["count": unread]) : dot ? t("servers.newElsewhere") : "")
         .accessibilityIdentifier(A11y.Shell.servers)
         // The join screens are a sheet of the app's, so they wait for this one to go.
         .sheet(isPresented: $choosing, onDismiss: {
@@ -103,7 +103,7 @@ struct ServerListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(background)
-        .navigationTitle("Servers")
+        .navigationTitle(t("servers.title"))
         .navigationBarTitleDisplayMode(onPick == nil ? .large : .inline)
         .toolbarBackground(background, for: .navigationBar)
         .toolbar {
@@ -112,9 +112,9 @@ struct ServerListView: View {
                 if model.canLinkTelegram {
                     // Joining a server, or linking the one Telegram account this device may have.
                     Menu {
-                        Button("Join a server", systemImage: "server.rack") { join() }
+                        Button(t("servers.rail.join"), systemImage: "server.rack") { join() }
                             .accessibilityIdentifier(A11y.Servers.join)
-                        Button("Connect Telegram", systemImage: "bubble.left.and.bubble.right") {
+                        Button(t("telegram.connect"), systemImage: "bubble.left.and.bubble.right") {
                             onPick?()
                             model.startLinkingTelegram()
                         }
@@ -122,12 +122,12 @@ struct ServerListView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Join a server or connect Telegram")
+                    .accessibilityLabel(t("servers.joinOrTelegram"))
                 } else {
                     Button(action: join) {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Join a server")
+                    .accessibilityLabel(t("servers.rail.join"))
                     .accessibilityIdentifier(A11y.Servers.join)
                 }
             }
@@ -139,16 +139,16 @@ struct ServerListView: View {
             titleVisibility: .visible,
             presenting: signingOut
         ) { serverId in
-            Button("Sign out and erase local data", role: .destructive) {
+            Button(t("settings.signOut.confirm"), role: .destructive) {
                 Task { await model.signOut(serverId) }
             }
         }
         .confirmationDialog(
-            "This signs Zuna out of your Telegram account and erases what it kept of it on this device. Your chats stay on Telegram.",
+            t("telegram.unlink.confirm"),
             isPresented: $unlinkingTelegram,
             titleVisibility: .visible
         ) {
-            Button("Unlink Telegram", role: .destructive) {
+            Button(t("telegram.unlink.action"), role: .destructive) {
                 Task { await model.unlinkTelegram() }
             }
         }
@@ -185,12 +185,12 @@ struct ServerListView: View {
         .accessibilityAddTraits(open ? .isSelected : [])
         .contextMenu {
             if server.entry.isTelegram {
-                Button("Unlink Telegram", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button(t("telegram.unlink.action"), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     unlinkingTelegram = true
                 }
             } else {
-                Button("Invite people", systemImage: "link") { inviting = id }
-                Button("Sign out of \(server.entry.name)", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button(t("invites.title"), systemImage: "link") { inviting = id }
+                Button(t("settings.signOut.action", ["server": server.entry.name]), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     signingOut = id
                 }
             }
@@ -236,14 +236,14 @@ private struct ServerRow: View {
                             .frame(minWidth: 22, minHeight: 22)
                             .background(model.settings.accent.color, in: .capsule)
                             .padding(.top, 2)
-                            .accessibilityLabel("\(server.unread) unread")
+                            .accessibilityLabel(t("conversations.unreadCount", ["count": server.unread]))
                     } else if server.hasNew {
                         // New in channels, but nothing for you: the desktop rail's pill.
                         Circle()
                             .fill(Theme.text1)
                             .frame(width: 10, height: 10)
                             .padding(.top, 8)
-                            .accessibilityLabel("New messages")
+                            .accessibilityLabel(t("servers.newMessages"))
                     }
                 }
             }
@@ -263,9 +263,9 @@ private struct ServerRow: View {
             if let latest, latest.lastMessage != nil {
                 let (author, body) = Format.preview(latest.lastMessage, users: server.users, selfId: server.me?.userId ?? "", kind: latest.kind)
                 let lead = author.map { "\(latest.title) · \($0)" } ?? latest.title
-                Text("\(Text(lead + ": ").foregroundStyle(Theme.text1))\(Text(body).foregroundStyle(Theme.text2))")
+                Text(sentence: t("conversations.preview.authorAndText"), drawing: ["author": Text(lead).foregroundStyle(Theme.text1), "text": Text(body).foregroundStyle(Theme.text2)])
             } else if server.entry.isTelegram {
-                Text("Not end-to-end encrypted").foregroundStyle(Theme.text3)
+                Text(t("servers.notEncrypted")).foregroundStyle(Theme.text3)
             } else {
                 Text(URL(string: server.entry.url)?.host() ?? server.entry.url).foregroundStyle(Theme.text3)
             }

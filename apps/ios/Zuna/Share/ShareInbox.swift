@@ -61,7 +61,7 @@ final class ShareInbox {
             // Renaming it is what takes it, so the extension can tell it was.
             guard (try? FileManager.default.moveItem(at: folder.appendingPathComponent("request"), to: taken)) != nil else { continue }
             guard let request = try? ShareMailbox.read(ShareRequest.self, from: taken, deviceKey: deviceKey) else {
-                try? ShareMailbox.write(ShareResult(error: "Zuna couldn't read what was shared."), to: folder.appendingPathComponent("result"), deviceKey: deviceKey)
+                try? ShareMailbox.write(ShareResult(error: t("share.unreadable")), to: folder.appendingPathComponent("result"), deviceKey: deviceKey)
                 ShareMailbox.post(ShareMailbox.sent)
                 continue
             }

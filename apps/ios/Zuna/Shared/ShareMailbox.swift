@@ -40,7 +40,7 @@ struct ShareServer: Codable, Identifiable, Sendable {
         let open = { (chat: ConversationView) in !chat.removed && !chat.blocked && !hidden.contains(chat.key) }
         let latest = { (chat: ConversationView) -> String in
             let (author, body) = Format.preview(chat.lastMessage, users: users, selfId: selfId ?? "", kind: chat.kind)
-            return author.map { "\($0): \(body)" } ?? body
+            return author.map { t("notify.senderAndText", ["sender": $0, "text": body]) } ?? body
         }
         var targets = conversations.filter(open).map { chat in
             let saved = chat.peerId != nil && chat.peerId == selfId
@@ -51,7 +51,7 @@ struct ShareServer: Codable, Identifiable, Sendable {
                 kind: saved ? .saved : chat.kind == .dm ? .person : .group,
                 seed: chat.peerId ?? chat.groupId ?? chat.key,
                 avatar: chat.avatar,
-                subtitle: saved && chat.lastMessage == nil ? "Notes to yourself" : latest(chat)
+                subtitle: saved && chat.lastMessage == nil ? t("conversations.row.saved") : latest(chat)
             )
         }
         for channel in channels where !channel.unreadable {
@@ -199,7 +199,7 @@ enum ShareSender {
                     try await session.sendNow(target.key, files: files, body: body, previewUrl: index == 0 ? previewUrl : nil, keepMetadata: !settings.removeMetadata)
                 }
             } catch {
-                failed.append("\(target.title): \(error)")
+                failed.append(t("share.failedChat", ["chat": target.title, "error": error]))
             }
         }
         if !failed.isEmpty { throw ShareFailure(message: failed.joined(separator: "\n")) }

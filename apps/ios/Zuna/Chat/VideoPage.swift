@@ -1,5 +1,6 @@
 import AVFoundation
 import UIKit
+import ZunaModels
 
 /// One video in the viewer, fitted to the screen. It plays while it's on screen, as it comes,
 /// showing its placeholder until its first frame, and stops at its end, back at the start. Its
@@ -146,7 +147,7 @@ final class VideoPage: UIViewController, ViewerPage {
             let status = playerItem.status
             Task { @MainActor in
                 if status == .readyToPlay { self?.fetchWhole() }
-                if status == .failed { self?.fail("This video can't be played.") }
+                if status == .failed { self?.fail(t("media.viewer.cantPlay")) }
             }
         }
         // At its end it stops, back at the start, as in Telegram. Only one item ever plays here.
@@ -230,7 +231,7 @@ final class VideoControls: UIView {
         slider.minimumTrackTintColor = .white
         slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
         slider.setThumbImage(Self.thumb, for: .normal)
-        slider.accessibilityLabel = "Position"
+        slider.accessibilityLabel = t("media.video.position")
         slider.accessibilityIdentifier = A11y.Chat.videoPosition
         slider.addTarget(self, action: #selector(beganScrubbing), for: .touchDown)
         slider.addTarget(self, action: #selector(scrubbed), for: .valueChanged)
@@ -282,7 +283,7 @@ final class VideoControls: UIView {
         // Waiting for what comes next counts as playing: the button would stop it.
         let playing = player.timeControlStatus != .paused || (scrubbing && wasPlaying)
         button.configuration?.image = UIImage(systemName: playing ? "pause.fill" : "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
-        button.accessibilityLabel = playing ? "Pause" : "Play"
+        button.accessibilityLabel = playing ? t("media.video.pause") : t("media.video.play")
         let current = player.currentTime().seconds
         let now = current.isFinite ? max(0, current) : 0
         slider.isEnabled = duration != nil
@@ -298,7 +299,7 @@ final class VideoControls: UIView {
     private func show(_ now: Double, of duration: Double) {
         elapsed.text = Format.duration(now)
         remaining.text = "-\(Format.duration(max(0, duration - now)))"
-        slider.accessibilityValue = "\(Format.duration(now)) of \(Format.duration(duration))"
+        slider.accessibilityValue = t("media.video.progress", ["position": Format.duration(now), "duration": Format.duration(duration)])
     }
 
     @objc private func toggle() {

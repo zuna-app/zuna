@@ -8,7 +8,7 @@ extension ChannelType {
 
 extension ChannelView {
     /// What it's called, or why it can't be said.
-    var title: String { name.isEmpty ? (unreadable ? "Unreadable channel" : "Channel") : name }
+    var title: String { name.isEmpty ? (unreadable ? t("channels.unreadable") : t("channels.untitled")) : name }
 }
 
 extension AppModel {
@@ -66,6 +66,8 @@ struct ChannelRows: View {
 
     private struct Heading: Identifiable {
         let name: String
+        /// The heading its channels give themselves, or empty for the one their type goes under.
+        let category: String
         /// What its add button makes.
         let type: ChannelType
         var channels: [ChannelView]
@@ -91,7 +93,7 @@ struct ChannelRows: View {
             Button {
                 actions.create(.text, "")
             } label: {
-                Label("New channel", systemImage: "plus")
+                Label(t("channels.new"), systemImage: "plus")
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -112,11 +114,11 @@ struct ChannelRows: View {
     private func headings(_ channels: [ChannelView]) -> [Heading] {
         var headings: [Heading] = []
         for channel in channels {
-            let name = channel.category.isEmpty ? (channel.type == .voice ? "Voice channels" : "Text channels") : channel.category
+            let name = channel.category.isEmpty ? (channel.type == .voice ? t("channels.voiceChannels") : t("channels.textChannels")) : channel.category
             if let index = headings.firstIndex(where: { $0.name == name }) {
                 headings[index].channels.append(channel)
             } else {
-                headings.append(Heading(name: name, type: channel.type, channels: [channel]))
+                headings.append(Heading(name: name, category: channel.category, type: channel.type, channels: [channel]))
             }
         }
         return headings
@@ -145,18 +147,18 @@ struct ChannelRows: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.borderless)
-            .accessibilityValue(folded ? "Folded" : "Open")
+            .accessibilityValue(folded ? t("channels.list.folded") : t("channels.list.open"))
             .accessibilityIdentifier(A11y.Channels.heading(heading.name))
             if server.isAdmin {
                 Button {
-                    actions.create(heading.type, heading.name == "Text channels" || heading.name == "Voice channels" ? "" : heading.name)
+                    actions.create(heading.type, heading.category)
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 30, height: 26)
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("New channel in \(heading.name)")
+                .accessibilityLabel(t("channels.newIn", ["heading": heading.name]))
                 .accessibilityIdentifier(A11y.Channels.add(heading.name))
             }
         }
@@ -189,12 +191,12 @@ struct ChannelRows: View {
                 if channel.adminOnly {
                     Image(systemName: "lock.fill")
                         .font(.caption2)
-                        .accessibilityLabel("Admins only")
+                        .accessibilityLabel(t("channels.adminsOnly"))
                 }
                 if conversation?.muted == true {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption2)
-                        .accessibilityLabel("Muted")
+                        .accessibilityLabel(t("channels.list.muted"))
                 }
                 Spacer(minLength: 6)
                 if channel.type == .voice, channel.userLimit > 0 {
@@ -213,7 +215,7 @@ struct ChannelRows: View {
                         .padding(.horizontal, 6)
                         .frame(minWidth: 20, minHeight: 20)
                         .background(Theme.red, in: .capsule)
-                        .accessibilityLabel("\(mentions) mentioning you")
+                        .accessibilityLabel(t("channels.mentions", ["count": mentions]))
                 }
             }
             .foregroundStyle(connected ? Theme.green : unread || open ? Theme.text1 : conversation?.muted == true ? Theme.text3 : Theme.channelMuted)
@@ -238,14 +240,14 @@ struct ChannelRows: View {
         .listRowSeparator(.hidden)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(open || connected ? .isSelected : [])
-        .accessibilityValue(connected ? "Connected" : unread ? "Unread" : "")
+        .accessibilityValue(connected ? t("channels.list.connected") : unread ? t("channels.list.unread") : "")
         .accessibilityIdentifier(A11y.Channels.row(channel.id))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if let conversation, conversation.unread > 0 {
                 Button {
                     model.markChatRead(channel.key, on: server.entry.id)
                 } label: {
-                    Label("Read", systemImage: "message.fill")
+                    Label(t("channels.list.read"), systemImage: "message.fill")
                 }
                 .tint(model.settings.accent.color)
             }
@@ -255,18 +257,18 @@ struct ChannelRows: View {
                 Button {
                     if conversation.muted { model.unmute(channel.key, on: server.entry.id) } else { actions.mute(channel) }
                 } label: {
-                    Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    Label(conversation.muted ? t("common.unmute") : t("common.mute"), systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
                 }
                 .tint(Theme.amber)
             }
         }
         .contextMenu { menu(channel) }
         .confirmationDialog(
-            "Leave the call to join \(channel.title)?",
+            t("channels.list.leaveCallConfirm", ["name": channel.title]),
             isPresented: Binding(get: { leavingCallFor?.id == channel.id }, set: { if !$0 { leavingCallFor = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Leave the call") { join(channel) }
+            Button(t("channels.list.leaveCall")) { join(channel) }
         }
     }
 
@@ -274,22 +276,22 @@ struct ChannelRows: View {
     private func menu(_ channel: ChannelView) -> some View {
         if let conversation = channel.conversation {
             if conversation.unread > 0 {
-                Button("Mark as read", systemImage: "checkmark.message") { model.markChatRead(channel.key, on: server.entry.id) }
+                Button(t("channels.list.markAsRead"), systemImage: "checkmark.message") { model.markChatRead(channel.key, on: server.entry.id) }
             }
             if conversation.muted {
-                Button("Unmute", systemImage: "speaker.wave.2") { model.unmute(channel.key, on: server.entry.id) }
+                Button(t("common.unmute"), systemImage: "speaker.wave.2") { model.unmute(channel.key, on: server.entry.id) }
             } else {
                 Menu {
                     MuteButtons(conversationKey: channel.key, serverId: server.entry.id)
                 } label: {
-                    Label("Mute", systemImage: "speaker.slash")
+                    Label(t("common.mute"), systemImage: "speaker.slash")
                 }
             }
         }
         if server.isAdmin {
             Divider()
-            Button("Edit channel", systemImage: "pencil") { actions.edit(channel) }
-            Button("Delete channel", systemImage: "trash", role: .destructive) { actions.delete(channel) }
+            Button(t("channels.edit"), systemImage: "pencil") { actions.edit(channel) }
+            Button(t("channels.delete"), systemImage: "trash", role: .destructive) { actions.delete(channel) }
         }
     }
 
@@ -301,7 +303,7 @@ struct ChannelRows: View {
 
     private func occupantRow(_ member: VoiceMember) -> some View {
         let user = server.users[member.userId]
-        let name = user?.displayName ?? "Someone"
+        let name = user?.displayName ?? t("notify.someone")
         // Who's talking shows only to those in the same call, as only they hear it.
         let inThisCall = voice.status == .connected && voice.serverId == server.entry.id && voice.channelId == member.channelId
         let speaking = inThisCall && voice.speaking.contains(member.userId) && !(member.userId == server.me?.userId && voice.micOff)
@@ -316,7 +318,7 @@ struct ChannelRows: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             if member.screen {
-                Text("LIVE")
+                Text(t("voice.live"))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
@@ -324,15 +326,15 @@ struct ChannelRows: View {
                     .background(Theme.red, in: .rect(cornerRadius: 4))
             }
             if member.camera {
-                Image(systemName: "video.fill").font(.caption2).accessibilityLabel("Camera on")
+                Image(systemName: "video.fill").font(.caption2).accessibilityLabel(t("voice.status.cameraOn"))
             }
             if member.serverMuted {
-                Image(systemName: "mic.slash.fill").font(.caption2).foregroundStyle(Theme.red).accessibilityLabel("Muted by an admin")
+                Image(systemName: "mic.slash.fill").font(.caption2).foregroundStyle(Theme.red).accessibilityLabel(t("voice.panel.adminMuted"))
             } else if member.muted && !member.deafened {
-                Image(systemName: "mic.slash.fill").font(.caption2).accessibilityLabel("Muted")
+                Image(systemName: "mic.slash.fill").font(.caption2).accessibilityLabel(t("voice.stats.muted"))
             }
             if member.deafened {
-                Image(systemName: "speaker.slash.fill").font(.caption2).accessibilityLabel("Deafened")
+                Image(systemName: "speaker.slash.fill").font(.caption2).accessibilityLabel(t("voice.status.deafened"))
             }
         }
         .foregroundStyle(Theme.channelMuted)
@@ -349,7 +351,7 @@ struct ChannelRows: View {
         guard channel.type == .text else {
             // Tapping a voice channel is coming into it, as in Discord, or opening the call already there.
             guard (server.info?.voice ?? 0) > 0 else {
-                model.toast("This server doesn't have a media server yet, so you can't join its voice channels.")
+                model.toast(t("channels.noMediaServerJoin"))
                 return
             }
             // A call with someone ends for good, unlike moving between voice channels, so that's asked.

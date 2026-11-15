@@ -35,9 +35,9 @@ private struct ChannelsScreen: View {
                     list(server)
                 } else {
                     ContentUnavailableView(
-                        "No channels",
+                        t("channels.empty.title"),
                         systemImage: "number",
-                        description: Text("Nobody has made a channel on \(server.entry.name) yet.")
+                        description: Text(t("channels.empty.description", ["server": server.entry.name]))
                     )
                     .foregroundStyle(Theme.text2)
                     .accessibilityIdentifier(A11y.Channels.empty)
@@ -59,7 +59,7 @@ private struct ChannelsScreen: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("New channel")
+                    .accessibilityLabel(t("channels.new"))
                     .accessibilityIdentifier(A11y.Channels.newChannel)
                 }
             }
@@ -74,11 +74,11 @@ private struct ChannelsScreen: View {
         .sheet(isPresented: $inviting) {
             if let serverId = model.activeServerId { InviteSheet(serverId: serverId) }
         }
-        .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
+        .confirmationDialog(muting.map { t("details.mute.named", ["name": $0.title]) } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
-        .confirmationDialog(deleting.map { "Delete #\($0.title)? Its messages will be deleted for everyone." } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { channel in
-            Button("Delete channel", role: .destructive) {
+        .confirmationDialog(deleting.map { t("channels.deleteConfirm", ["name": $0.title]) } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { channel in
+            Button(t("channels.delete"), role: .destructive) {
                 if let serverId = model.activeServerId { model.deleteChannel(channel, on: serverId) }
             }
         }
@@ -87,7 +87,7 @@ private struct ChannelsScreen: View {
     private func list(_ server: AppModel.ServerState) -> some View {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         let nothingFound = !needle.isEmpty && !server.channels.contains { $0.name.lowercased().contains(needle) }
-        return PullSearchList(query: $query, prompt: "Search channels", identifier: A11y.Channels.listSearch, resetKey: model.activeServerId) {
+        return PullSearchList(query: $query, prompt: t("channels.list.search"), identifier: A11y.Channels.listSearch, resetKey: model.activeServerId) {
             ChannelRows(server: server, query: query, sidebar: false, actions: actions(server))
             if nothingFound {
                 ContentUnavailableView.search(text: query)
@@ -120,9 +120,9 @@ private struct ChannelsScreen: View {
     /// The server's name, or how it's connecting, with the server's menu under it, as the chats have.
     private var title: some View {
         Menu {
-            Button("Invite people", systemImage: "link") { inviting = true }
+            Button(t("invites.title"), systemImage: "link") { inviting = true }
             if model.activeServer?.isAdmin ?? false {
-                Button("New channel", systemImage: "number") { editing = .new(.text, category: "") }
+                Button(t("channels.new"), systemImage: "number") { editing = .new(.text, category: "") }
             }
         } label: {
             HStack(spacing: 4) {
@@ -148,8 +148,8 @@ private struct ChannelsScreen: View {
 
     private var titleText: String {
         switch model.activeServer?.connection ?? .online {
-        case .online: model.activeServer?.entry.name ?? "Channels"
-        case .syncing: "Updating…"
+        case .online: model.activeServer?.entry.name ?? t("channels.title")
+        case .syncing: t("servers.status.updating")
         case .connecting, .offline: model.waitingText(model.activeServer?.connection ?? .online)
         }
     }

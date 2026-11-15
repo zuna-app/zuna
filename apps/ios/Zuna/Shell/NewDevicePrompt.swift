@@ -58,7 +58,7 @@ struct NewDevicePrompt: View {
                 SecurityView(serverId: serverId)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") {
+                            Button(t("common.done")) {
                                 securing = nil
                                 model.deviceRemoved = nil
                             }
@@ -82,31 +82,31 @@ struct NewDevicePrompt: View {
         if let removed = model.deviceRemoved {
             let recovery = removed.secret == "recovery"
             prompt(
-                title: "The device was removed",
+                title: t("settings.newDevice.removedTitle"),
                 text: recovery
-                    ? "Whoever signed in on it has your recovery key and can sign in again until you make a new one. Make a new one now."
+                    ? t("settings.newDevice.removedRecovery")
                     : removed.secret == "password"
-                        ? "Whoever signed in on it knows your password and can sign in again until you change it. Change it now."
-                        : "Whoever signed in on it may know your password or your recovery key. Change your password and make a new recovery key now."
+                        ? t("settings.newDevice.removedPassword")
+                        : t("settings.newDevice.removedEither")
             ) {
-                PrimaryButton(title: recovery ? "Make a new recovery key" : "Change password") { securing = removed.serverId }
+                PrimaryButton(title: recovery ? t("settings.newDevice.makeRecoveryKey") : t("settings.security.changePassword")) { securing = removed.serverId }
                     .accessibilityIdentifier(A11y.NewDevice.secure)
-                SecondaryButton(title: "Later") { model.deviceRemoved = nil }
+                SecondaryButton(title: t("settings.newDevice.later")) { model.deviceRemoved = nil }
                     .accessibilityIdentifier(A11y.NewDevice.later)
             }
         } else if let (serverId, device) = model.askedDevice {
             let server = model.servers[serverId]
             let place = server?.info?.name.isEmpty == false ? server?.info?.name ?? "" : server?.entry.name ?? ""
-            let secret = device.secret == "recovery" ? "your recovery key" : "your password"
+            let words: [String: Any] = ["device": device.name, "server": place, "date": Format.full(device.createdAt)]
             let busy = model.answeringDevice != nil
             prompt(
-                title: "Was this you?",
-                text: "\u{201c}\(device.name)\u{201d} signed in to your account on \(place) on \(Format.full(device.createdAt)). If it wasn't you, someone else has \(secret) and is signed in as you."
+                title: t("settings.newDevice.title"),
+                text: device.secret == "recovery" ? t("settings.newDevice.askRecovery", words) : t("settings.newDevice.askPassword", words)
             ) {
-                PrimaryButton(title: "Yes, it was me") { answer(device.id, on: serverId, mine: true) }
+                PrimaryButton(title: t("settings.newDevice.mine")) { answer(device.id, on: serverId, mine: true) }
                     .disabled(busy)
                     .accessibilityIdentifier(A11y.NewDevice.mine)
-                RemoveButton(title: "No, remove it") { answer(device.id, on: serverId, mine: false) }
+                RemoveButton(title: t("settings.newDevice.notMine")) { answer(device.id, on: serverId, mine: false) }
                     .disabled(busy)
                     .accessibilityIdentifier(A11y.NewDevice.notMine)
             }

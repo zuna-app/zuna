@@ -190,9 +190,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     private static func makeRuntime() -> CoreRuntime? {
         // The proxy set in Privacy, read again for each push, as it may have changed since the last.
         if ProxyStore.apply() { runtime?.networkChanged() }
-        if let runtime { return runtime }
+        // And the language the app shows, which a preview is worded in.
+        I18n.useAppGroup(SharedStorage.appGroup)
+        let language = I18n.forCore
+        if let runtime {
+            runtime.setLanguage(language.tag, catalog: language.catalog)
+            return runtime
+        }
         guard let key = DeviceKeyStore.unlockedKey(), let directory = try? SharedStorage.dataDirectory() else { return nil }
         let created = try? CoreRuntime(options: CoreRuntime.Options(dataDirectory: directory, deviceKey: key, deviceName: ""))
+        created?.setLanguage(language.tag, catalog: language.catalog)
         runtime = created
         return created
     }

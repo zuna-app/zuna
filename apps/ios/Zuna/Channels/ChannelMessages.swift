@@ -40,10 +40,10 @@ struct ChannelMessageRow: View {
 
     private var blockedLine: some View {
         HStack(spacing: 6) {
-            Label("A message from someone you blocked", systemImage: "nosign")
+            Label(t("message.blocked"), systemImage: "nosign")
                 .font(.footnote)
                 .foregroundStyle(Theme.channelMuted)
-            Button("Show") { showBlocked = true }
+            Button(t("message.showBlocked")) { showBlocked = true }
                 .font(.footnote.weight(.semibold))
             Spacer(minLength: 0)
         }
@@ -113,7 +113,7 @@ struct ChannelMessageRow: View {
                     .contentShape(.rect)
                     .onTapGesture { if selectable { actions.select(message) } }
                     .accessibilityElement()
-                    .accessibilityLabel(context.selected ? "Selected" : "Not selected")
+                    .accessibilityLabel(context.selected ? t("message.selected") : t("message.notSelected"))
                     .accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier(A11y.Chat.selectToggle(message.id))
             }
@@ -149,7 +149,7 @@ struct ChannelMessageRow: View {
     /// The name and when, over a run.
     private var head: some View {
         let known = !message.senderId.isEmpty
-        let name = known ? server.users[message.senderId]?.displayName ?? "Unknown" : "Not known yet"
+        let name = known ? server.users[message.senderId]?.displayName ?? t("chat.unknown") : t("message.senderNotKnown")
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Button {
                 if known { actions.mention(message.senderId) }
@@ -168,13 +168,13 @@ struct ChannelMessageRow: View {
                 .layoutPriority(-1)
             if message.timeDiffers == true {
                 Image(systemName: "exclamationmark.shield").font(.caption2).foregroundStyle(Theme.channelMuted)
-                    .accessibilityLabel("This message's time may be wrong")
+                    .accessibilityLabel(t("message.meta.timeWrong"))
             }
             if message.expiresAt != nil {
-                Image(systemName: "timer").font(.caption2).foregroundStyle(Theme.channelMuted).accessibilityLabel("Disappears")
+                Image(systemName: "timer").font(.caption2).foregroundStyle(Theme.channelMuted).accessibilityLabel(t("message.meta.disappearsLabel"))
             }
             if message.pinnedAt != nil {
-                Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.channelMuted).rotationEffect(.degrees(35)).accessibilityLabel("Pinned")
+                Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.channelMuted).rotationEffect(.degrees(35)).accessibilityLabel(t("message.pinned"))
             }
         }
         .accessibilityElement(children: .combine)
@@ -195,26 +195,26 @@ struct ChannelMessageRow: View {
     /// "(edited)" after the text, small and faint, as in Discord.
     private var edited: NSAttributedString? {
         guard message.editedAt != nil, !deleted else { return nil }
-        return NSAttributedString(string: " (edited)", attributes: [.font: UIFont.systemFont(ofSize: UIFontMetrics(forTextStyle: .caption2).scaledValue(for: 11)), .foregroundColor: UIColor(Theme.channelMuted)])
+        return NSAttributedString(string: " " + t("message.editedChannel"), attributes: [.font: UIFont.systemFont(ofSize: UIFontMetrics(forTextStyle: .caption2).scaledValue(for: 11)), .foregroundColor: UIColor(Theme.channelMuted)])
     }
 
     @ViewBuilder
     private var content: some View {
         if deleted {
-            placeholder("Message deleted")
+            placeholder(t("message.deleted"))
         } else if message.status == .undecryptable {
             HStack(spacing: 7) {
                 ProgressView().controlSize(.mini)
-                Text("Waiting for this message's keys")
+                Text(t("message.waitingForKeys"))
             }
             .font(.subheadline)
             .foregroundStyle(Theme.channelMuted)
         } else if message.status == .unverified {
-            Label("This message couldn't be verified, so it isn't shown.", systemImage: "exclamationmark.shield")
+            Label(t("message.unverified"), systemImage: "exclamationmark.shield")
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
         } else if message.status == .invalid {
-            Label("This message couldn't be displayed.", systemImage: "exclamationmark.shield")
+            Label(t("message.invalid"), systemImage: "exclamationmark.shield")
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
         } else {
@@ -233,7 +233,7 @@ struct ChannelMessageRow: View {
                 Button {
                     actions.retry(message.id)
                 } label: {
-                    Label("Not sent. Try again", systemImage: "exclamationmark.circle")
+                    Label(t("message.notSent"), systemImage: "exclamationmark.circle")
                         .font(.caption)
                         .foregroundStyle(Theme.red)
                 }
@@ -298,7 +298,7 @@ private struct InPlaceEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            TextField("Edit message", text: text, axis: .vertical)
+            TextField(t("message.edit.label"), text: text, axis: .vertical)
                 .lineLimit(1...12)
                 .font(.system(size: size))
                 .foregroundStyle(Theme.text1)
@@ -309,10 +309,10 @@ private struct InPlaceEditor: View {
                 .onKeyPress(phases: .down) { press in handleKey(press) }
                 .accessibilityIdentifier(A11y.Channels.inPlaceInput)
             HStack(spacing: 5) {
-                Button("Cancel", action: cancel)
+                Button(t("common.cancel"), action: cancel)
                     .accessibilityIdentifier(A11y.Channels.inPlaceCancel)
                 Text("•").foregroundStyle(Theme.channelMuted).accessibilityHidden(true)
-                Button("Save", action: save)
+                Button(t("common.save"), action: save)
                     .accessibilityIdentifier(A11y.Channels.inPlaceSave)
             }
             .font(.footnote.weight(.medium))
@@ -359,8 +359,8 @@ private struct ChannelReplyLine: View {
 
     var body: some View {
         let user = server.users[reply.senderId]
-        let name = user?.displayName ?? "Unknown"
-        let text = reply.deleted ? "Original message was deleted" : server.isBlocked(reply.senderId) ? "Message from someone you blocked" : plainText(reply.text)
+        let name = user?.displayName ?? t("chat.unknown")
+        let text = reply.deleted ? t("message.reply.deleted") : server.isBlocked(reply.senderId) ? t("message.reply.blocked") : plainText(reply.text)
         Button(action: jump) {
             HStack(spacing: 4) {
                 ReplySpine()
@@ -380,7 +380,7 @@ private struct ChannelReplyLine: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
-                Text(text.isEmpty ? (reply.hasAttachment ? "Tap to see attachment" : "Tap to see message") : text)
+                Text(text.isEmpty ? (reply.hasAttachment ? t("message.reply.tapAttachment") : t("message.reply.tapMessage")) : text)
                     .italic(text.isEmpty)
                     .foregroundStyle(Theme.text2)
                     .lineLimit(1)
@@ -448,7 +448,7 @@ private struct ChannelReactions: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(mine ? accent.color : .clear))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(reaction.key), \(names(reaction, selfId))")
+                .accessibilityLabel(t("message.reaction.label", ["reaction": reaction.key, "names": names(reaction, selfId)]))
                 .accessibilityAddTraits(mine ? .isSelected : [])
                 .accessibilityIdentifier(A11y.Chat.reaction(reaction.key))
             }
@@ -462,14 +462,14 @@ private struct ChannelReactions: View {
                         .background(Theme.bg2, in: .rect(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Add reaction")
+                .accessibilityLabel(t("message.action.addReaction"))
             }
         }
         .padding(.top, 3)
     }
 
     private func names(_ reaction: ReactionView, _ selfId: String) -> String {
-        reaction.userIds.map { $0 == selfId ? "You" : server.users[$0]?.displayName ?? "Someone" }.joined(separator: ", ")
+        reaction.userIds.map { $0 == selfId ? t("common.you") : server.users[$0]?.displayName ?? t("notify.someone") }.joined(separator: ", ")
     }
 }
 
@@ -491,7 +491,7 @@ private struct ChannelDivider: View {
                 Rectangle().fill(color).frame(height: 1)
             }
             if unread {
-                Text("NEW")
+                Text(t("chat.unreadTag"))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.leading, 9)
@@ -532,7 +532,7 @@ private struct ChannelSystemLine: View {
     var body: some View {
         let system = message.system!
         let warning = system.type == .unexpectedJoin || system.type == .identityChanged
-        let actor = system.actorId.map { $0 == server.me?.userId ? "You" : server.users[$0]?.displayName ?? "Someone" } ?? "Someone"
+        let actor = system.actorId.map { $0 == server.me?.userId ? t("common.you") : server.users[$0]?.displayName ?? t("notify.someone") } ?? t("notify.someone")
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Image(systemName: warning ? "exclamationmark.shield.fill" : "arrow.right")
                 .font(.footnote)
@@ -550,13 +550,15 @@ private struct ChannelSystemLine: View {
     }
 
     private func text(_ system: SystemEvent, actor: String) -> String {
-        switch system.type {
-        case .timerChanged: Format.timerChange(actor, seconds: system.seconds ?? 0)
-        case .unexpectedJoin: "\(actor) joined without being added by a member. Check that this is expected."
-        case .identityChanged: "\(actor)'s security key changed. Verify it before trusting new messages."
-        case .identityRotated: "\(actor)'s security key changed since you verified it."
-        case .deviceAdded: "\(actor) added a device"
-        default: "\(actor) changed who's here"
+        // What you did is worded on its own, as other languages say it differently.
+        let you = system.actorId != nil && system.actorId == server.me?.userId
+        return switch system.type {
+        case .timerChanged: Format.timerChange(actor, seconds: system.seconds ?? 0, you: you)
+        case .unexpectedJoin: t("message.system.unexpectedJoin", ["name": actor])
+        case .identityChanged: t("message.system.identityChanged", ["name": actor])
+        case .identityRotated: t("message.system.identityRotatedShort", ["name": actor])
+        case .deviceAdded: you ? t("message.system.youAddedDevice") : t("message.system.deviceAdded", ["name": actor])
+        default: you ? t("message.system.youChangedMembers") : t("message.system.membersChanged", ["name": actor])
         }
     }
 }
@@ -575,20 +577,20 @@ struct ChannelWelcome: View {
                 .foregroundStyle(Theme.text1)
                 .frame(width: 68, height: 68)
                 .background(Theme.bg3, in: .circle)
-            Text("Welcome to #\(name)!")
+            Text(t("channels.welcome.title", ["name": name]))
                 .font(.title.weight(.bold))
                 .foregroundStyle(Theme.text1)
                 .padding(.top, 4)
-            Text("This is the start of the #\(name) channel.\(channel.topic.isEmpty ? "" : " \(channel.topic)")")
+            Text(channel.topic.isEmpty ? t("channels.welcome.start", ["name": name]) : t("channels.welcome.startWithTopic", ["name": name, "topic": channel.topic]))
                 .font(.body)
                 .foregroundStyle(Theme.text2)
-            Label(channel.adminOnly ? "End-to-end encrypted. Only admins can read it, and the server itself can't." : "End-to-end encrypted. Everyone on this server can read it, but the server itself can't.", systemImage: "lock.fill")
+            Label(channel.adminOnly ? t("channels.welcome.encryptedAdmins") : t("channels.welcome.encryptedEveryone"), systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.channelMuted)
                 .padding(.top, 2)
             if let edit {
                 Button(action: edit) {
-                    Label("Edit channel", systemImage: "pencil")
+                    Label(t("channels.edit"), systemImage: "pencil")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Theme.link)
                 }
@@ -629,12 +631,28 @@ struct ChannelTyping: View {
     }
 
     private var sentence: AttributedString {
-        let bold = { (name: String) in AttributedString(name, attributes: AttributeContainer().font(.footnote.weight(.bold))) }
         switch names.count {
-        case 1: return bold(names[0]) + AttributedString(" is typing…")
-        case 2: return bold(names[0]) + AttributedString(" and ") + bold(names[1]) + AttributedString(" are typing…")
-        case 3: return bold(names[0]) + AttributedString(", ") + bold(names[1]) + AttributedString(" and ") + bold(names[2]) + AttributedString(" are typing…")
-        default: return AttributedString("Several people are typing…")
+        case 1: return Self.bolding(t("channels.typing.one"), ["name": names[0]])
+        case 2: return Self.bolding(t("channels.typing.two"), ["first": names[0], "second": names[1]])
+        case 3: return Self.bolding(t("channels.typing.three"), ["first": names[0], "second": names[1], "third": names[2]])
+        default: return AttributedString(t("channels.typing.several"))
         }
+    }
+
+    /// A sentence with its {name}s filled in, each name in bold, wherever the language puts it.
+    private static func bolding(_ template: String, _ names: [String: String]) -> AttributedString {
+        var out = AttributedString()
+        var rest = Substring(template)
+        while let open = rest.firstIndex(of: "{"), let close = rest[open...].firstIndex(of: "}") {
+            out += AttributedString(String(rest[..<open]))
+            let key = String(rest[rest.index(after: open)..<close])
+            if let name = names[key] {
+                out += AttributedString(name, attributes: AttributeContainer().font(.footnote.weight(.bold)))
+            } else {
+                out += AttributedString(String(rest[open...close]))
+            }
+            rest = rest[rest.index(after: close)...]
+        }
+        return out + AttributedString(String(rest))
     }
 }

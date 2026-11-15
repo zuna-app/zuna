@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ZunaModels
 
 /// Everything there is to know about what's going out and coming in, over the call, from
 /// tapping its connection. A sheet the call goes on behind at half height, rather than the
@@ -36,15 +37,15 @@ struct StreamStatsSheet: View {
             }
             .listStyle(.sidebar)
             .environment(\.defaultMinListRowHeight, 34)
-            .navigationTitle("Stream stats")
+            .navigationTitle(t("voice.statsPanel.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(copied ? "Copied" : "Copy all", systemImage: copied ? "checkmark" : "doc.on.doc") { copy() }
+                    Button(copied ? t("voice.stats.copied") : t("voice.statsPanel.copyAll"), systemImage: copied ? "checkmark" : "doc.on.doc") { copy() }
                         .disabled(sections.isEmpty)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(t("common.done")) { dismiss() }
                 }
             }
         }
@@ -88,18 +89,17 @@ private struct HeadlineRow: View {
 
     var body: some View {
         let rate = headline.fps.map { String(format: "%.1f", $0) } ?? "…"
-        let wanted = headline.wanted.map { " of \($0)" } ?? ""
         HStack(alignment: .center, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(rate).font(.title2.weight(.semibold)).monospacedDigit()
-                Text("fps \(headline.label)\(wanted)").font(.footnote).foregroundStyle(Theme.text2)
+                Text(headline.caption).font(.footnote).foregroundStyle(Theme.text2)
             }
             Spacer(minLength: 8)
             FpsGraph(history: headline.history, wanted: headline.wanted)
                 .frame(width: 120, height: 28)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title): \(rate) fps \(headline.label)\(wanted)")
+        .accessibilityLabel(t("voice.stats.headline", ["title": title, "rate": rate, "caption": headline.caption]))
         .accessibilityIdentifier(A11y.Voice.statsHeadline)
     }
 }

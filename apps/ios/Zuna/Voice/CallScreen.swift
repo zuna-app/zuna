@@ -18,7 +18,12 @@ struct CallScreen: View {
     private var channel: ChannelView? { server?.channels.first { $0.id == voice.channelId } }
     /// The conversation whose call it is.
     private var conversation: ConversationView? { voice.isCall ? voice.channelId.flatMap { server?.conversation(groupId: $0) } : nil }
-    private var title: String { voice.isCall ? conversation?.title ?? "Call" : channel?.title ?? "Voice channel" }
+    private var title: String { voice.isCall ? conversation?.title ?? t("voice.panel.call") : channel?.title ?? t("voice.panel.voiceChannel") }
+
+    private var connectingText: String {
+        if voice.isCall { return t("voice.stage.connectingCall") }
+        return channel.map { t("voice.stage.joining", ["channel": $0.title]) } ?? t("voice.stage.joiningChannel")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,7 +31,7 @@ struct CallScreen: View {
             if voice.status == .connecting {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text(voice.isCall ? "Connecting the call…" : "Joining \(channel?.title ?? "the channel")…")
+                    Text(connectingText)
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
                 }
@@ -34,7 +39,7 @@ struct CallScreen: View {
                 .accessibilityIdentifier(A11y.Voice.connecting)
             } else {
                 if voice.status == .reconnecting {
-                    Text("Reconnecting…")
+                    Text(t("voice.stage.reconnecting"))
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(Theme.text1)
                         .frame(maxWidth: .infinity)
@@ -61,10 +66,10 @@ struct CallScreen: View {
         .fullScreenCover(item: Binding(get: { watching.map(Watching.init) }, set: { watching = $0?.id })) { item in
             VideoViewer(tileId: item.id)
         }
-        .alert("End-to-end encrypted", isPresented: $explaining) {
-            Button("OK", role: .cancel) {}
+        .alert(t("voice.encrypted.title"), isPresented: $explaining) {
+            Button(t("common.ok"), role: .cancel) {}
         } message: {
-            Text(voice.isCall ? "With keys only this conversation's members have. Neither the server nor the media server can listen in or watch." : "With keys only this channel's members have. Neither the server nor the media server can listen in or watch.")
+            Text(voice.isCall ? t("voice.encrypted.call") : t("voice.encrypted.channel"))
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Voice.stage)
@@ -82,7 +87,7 @@ struct CallScreen: View {
                     .frame(width: 40, height: 40)
                     .background(Theme.bg3, in: .circle)
             }
-            .accessibilityLabel("Minimize")
+            .accessibilityLabel(t("voice.stage.minimize"))
             .accessibilityIdentifier(A11y.Voice.minimize)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -116,7 +121,7 @@ struct CallScreen: View {
                         .frame(width: 40, height: 40)
                         .background(Theme.bg3, in: .circle)
                 }
-                .accessibilityLabel("Ring everyone who isn't here")
+                .accessibilityLabel(t("voice.stage.ringAgain"))
                 .accessibilityIdentifier(A11y.Voice.ringAgain)
             }
             Button {
@@ -126,7 +131,7 @@ struct CallScreen: View {
                     .frame(width: 40, height: 40)
                     .background(Theme.bg3, in: .circle)
             }
-            .accessibilityLabel("Stream stats")
+            .accessibilityLabel(t("voice.statsPanel.title"))
             .accessibilityValue(QualityIcon.describe(voice.quality).words)
             .accessibilityIdentifier(A11y.Voice.stats)
         }
@@ -143,9 +148,9 @@ struct CallScreen: View {
     }
 
     private var subtitle: String {
-        if voice.isCall { return "Encrypted · \(server?.entry.name ?? "")" }
+        if voice.isCall { return t("voice.stage.encryptedOn", ["detail": server?.entry.name ?? ""]) }
         let topic = channel?.topic ?? ""
-        return topic.isEmpty ? "Encrypted · \(server?.entry.name ?? "")" : "Encrypted · \(topic)"
+        return t("voice.stage.encryptedOn", ["detail": topic.isEmpty ? server?.entry.name ?? "" : topic])
     }
 
     // MARK: The stage
@@ -273,7 +278,7 @@ struct CallScreen: View {
                     if focusedTile { voice.focus = nil } else if let camera { voice.focus = camera.id }
                 }
                 .onLongPressGesture { openMember(member) }
-                .accessibilityAction(named: "Options") { openMember(member) }
+                .accessibilityAction(named: t("voice.stage.options")) { openMember(member) }
                 .overlay(alignment: .topTrailing) {
                     // On the picture it turns, as FaceTime's is, which leaves the controls room on a phone.
                     if camera?.local == true {
@@ -287,7 +292,7 @@ struct CallScreen: View {
                                 .background(.black.opacity(0.45), in: .circle)
                         }
                         .padding(8)
-                        .accessibilityLabel("Switch camera")
+                        .accessibilityLabel(t("voice.stage.flipCamera"))
                         .accessibilityIdentifier(A11y.Voice.flip)
                     }
                 }
@@ -307,7 +312,7 @@ struct CallScreen: View {
     }
 
     private func name(of userId: String) -> String {
-        server?.users[userId]?.displayName ?? "Someone"
+        server?.users[userId]?.displayName ?? t("notify.someone")
     }
 
     /// Only others have anything to choose: how loud they are, and what an admin can do.
@@ -327,11 +332,11 @@ struct QualityIcon: View {
 
     static func describe(_ quality: ConnectionQuality) -> (value: Double, words: String) {
         switch quality {
-        case .excellent: (1, "Great connection")
-        case .good: (0.66, "Good connection")
-        case .poor: (0.33, "Weak connection")
-        case .lost: (0, "Connection lost")
-        default: (1, "Connected")
+        case .excellent: (1, t("voice.quality.great"))
+        case .good: (0.66, t("voice.quality.good"))
+        case .poor: (0.33, t("voice.quality.weak"))
+        case .lost: (0, t("voice.quality.lost"))
+        default: (1, t("voice.quality.connected"))
         }
     }
 
@@ -352,7 +357,7 @@ private struct RingingTile: View {
 
     var body: some View {
         let user = server?.users[userId]
-        let name = user?.displayName ?? "Someone"
+        let name = user?.displayName ?? t("notify.someone")
         ZStack(alignment: .bottomLeading) {
             Theme.avatarColor(userId).opacity(0.12)
             AvatarView(name: name, seed: userId, source: user?.avatar.map { .avatar($0, serverId: server?.entry.id ?? "") } ?? .none, size: 72)
@@ -361,7 +366,7 @@ private struct RingingTile: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack(spacing: 4) {
                 Text(name).lineLimit(1)
-                Text("Calling…").foregroundStyle(.white.opacity(0.7))
+                Text(t("voice.stage.calling")).foregroundStyle(.white.opacity(0.7))
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.white)
@@ -375,7 +380,7 @@ private struct RingingTile: View {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulsing = true }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), calling")
+        .accessibilityLabel(t("voice.stage.callingLabel", ["name": name]))
         .accessibilityIdentifier(A11y.Voice.ringing(userId))
     }
 }
@@ -391,7 +396,7 @@ private struct PersonTile: View {
         let isSelf = member.userId == server?.me?.userId
         let speaking = isSelf ? voice.speaking.contains(member.userId) && !voice.micOff : voice.speaking.contains(member.userId)
         let user = server?.users[member.userId]
-        let name = user?.displayName ?? "Someone"
+        let name = user?.displayName ?? t("notify.someone")
         ZStack(alignment: .bottomLeading) {
             if let camera {
                 SwiftUIVideoView(camera.track, layoutMode: .fill, mirrorMode: camera.local && voice.cameraFront ? .mirror : .off)
@@ -419,7 +424,7 @@ private struct PersonTile: View {
                 }
                 if member.deafened { Image(systemName: "speaker.slash.fill") }
                 if voice.localMutes.contains(member.userId) { Image(systemName: "speaker.zzz.fill") }
-                Text(isSelf ? "\(name) (you)" : name).lineLimit(1)
+                Text(isSelf ? t("voice.stage.you", ["name": name]) : name).lineLimit(1)
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.white)
@@ -440,13 +445,13 @@ private struct PersonTile: View {
     }
 
     private func accessibilityText(name: String, isSelf: Bool, speaking: Bool) -> String {
-        var parts = [isSelf ? "\(name) (you)" : name]
-        if member.serverMuted { parts.append("muted by an admin") } else if member.muted { parts.append("muted") }
-        if member.deafened { parts.append("deafened") }
-        if voice.localMutes.contains(member.userId) { parts.append("muted for you") }
-        if camera != nil { parts.append("camera on") }
-        if speaking { parts.append("speaking") }
-        if voice.sounding[member.userId] != nil { parts.append("playing a sound") }
+        var parts = [isSelf ? t("voice.stage.you", ["name": name]) : name]
+        if member.serverMuted { parts.append(t("voice.tile.mutedByAdmin")) } else if member.muted { parts.append(t("voice.tile.muted")) }
+        if member.deafened { parts.append(t("voice.tile.deafened")) }
+        if voice.localMutes.contains(member.userId) { parts.append(t("voice.tile.mutedForYou")) }
+        if camera != nil { parts.append(t("voice.tile.cameraOn")) }
+        if speaking { parts.append(t("voice.tile.speaking")) }
+        if voice.sounding[member.userId] != nil { parts.append(t("voice.tile.playingSound")) }
         return parts.joined(separator: ", ")
     }
 }
@@ -465,7 +470,7 @@ private struct ScreenTile: View {
             HStack(spacing: 8) {
                 HStack(spacing: 5) {
                     Image(systemName: "display")
-                    Text(video.local ? "Your screen" : "\(name)'s screen").lineLimit(1)
+                    Text(video.local ? t("voice.stage.yourScreen") : t("voice.stage.theirScreen", ["name": name])).lineLimit(1)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white)
@@ -490,14 +495,14 @@ private struct ScreenTile: View {
                     .background(.black.opacity(0.45), in: .circle)
             }
             .padding(8)
-            .accessibilityLabel("Full screen")
+            .accessibilityLabel(t("voice.stage.fullScreen"))
             .accessibilityIdentifier(A11y.Voice.fullScreen(video.id))
         }
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(video.local ? "Your screen" : "\(name)'s screen")
-        .accessibilityHint(focused ? "Goes back to everyone" : "Fills the stage")
+        .accessibilityLabel(video.local ? t("voice.stage.yourScreen") : t("voice.stage.theirScreen", ["name": name]))
+        .accessibilityHint(focused ? t("voice.stage.unfocusHint") : t("voice.stage.focusHint"))
         .accessibilityIdentifier(A11y.Voice.screen(video.id))
     }
 }
@@ -531,7 +536,7 @@ private struct CallControls: View {
         .sheet(isPresented: $soundboard) { SoundboardSheet() }
         .sheet(item: $watchStep) { step in
             switch step {
-            case .consent: WatchConsent(action: "Continue") { watchStep = .link }
+            case .consent: WatchConsent(action: t("common.continue")) { watchStep = .link }
             case .link: WatchLinkSheet()
             }
         }
@@ -546,31 +551,31 @@ private struct CallControls: View {
         HStack(spacing: spacing) {
             control(
                 voice.micOff ? "mic.slash.fill" : "mic.fill",
-                label: voice.serverMuted ? "An admin muted you" : voice.noMic ? "No microphone" : voice.micOff ? "Unmute" : "Mute",
+                label: voice.serverMuted ? t("voice.controls.adminMuted") : voice.noMic ? t("voice.controls.noMic") : voice.micOff ? t("voice.controls.unmute") : t("voice.controls.mute"),
                 off: voice.micOff,
                 size: size,
                 id: A11y.Voice.mute
             ) { voice.toggleMute() }
                 .disabled(voice.serverMuted || voice.noMic)
-            control(voice.deafened ? "speaker.slash.fill" : "speaker.wave.2.fill", label: voice.deafened ? "Undeafen" : "Deafen", off: voice.deafened, size: size, id: A11y.Voice.deafen) {
+            control(voice.deafened ? "speaker.slash.fill" : "speaker.wave.2.fill", label: voice.deafened ? t("voice.controls.undeafen") : t("voice.controls.deafen"), off: voice.deafened, size: size, id: A11y.Voice.deafen) {
                 voice.toggleDeafen()
             }
-            control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? "Turn off camera" : "Turn on camera", on: voice.camera, size: size, id: A11y.Voice.camera) {
+            control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn"), on: voice.camera, size: size, id: A11y.Voice.camera) {
                 Task { await voice.toggleCamera() }
             }
             if voice.canShareScreen {
                 let sharing = voice.screen || voice.screenStarting
                 // Tapping it while the server says no says why, as the desktop's tooltip does.
-                control(sharing ? "rectangle.fill.on.rectangle.fill" : "rectangle.on.rectangle", label: sharing ? "Stop sharing" : "Share your screen", on: sharing, size: size, id: A11y.Voice.shareScreen) {
+                control(sharing ? "rectangle.fill.on.rectangle.fill" : "rectangle.on.rectangle", label: sharing ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen"), on: sharing, size: size, id: A11y.Voice.shareScreen) {
                     Task { await voice.toggleScreen() }
                 }
                 .opacity(!sharing && voice.shareRefusal != nil ? 0.45 : 1)
                 .accessibilityHint(sharing ? "" : voice.shareRefusal ?? "")
             }
             if hasSoundboard {
-                control("waveform", label: "Soundboard", size: size, id: A11y.Voice.soundboardButton) { soundboard = true }
+                control("waveform", label: t("voice.soundboard.title"), size: size, id: A11y.Voice.soundboardButton) { soundboard = true }
             }
-            control("play.rectangle", label: voice.watchAllowed ? (voice.watch == nil ? "Watch together" : "Another video") : "Watching together is off in this channel", on: voice.watch != nil, size: size, id: A11y.Voice.watchButton) {
+            control("play.rectangle", label: voice.watchAllowed ? (voice.watch == nil ? t("voice.watch.title") : t("voice.watch.another")) : t("voice.watch.off"), on: voice.watch != nil, size: size, id: A11y.Voice.watchButton) {
                 watchStep = voice.playYouTube ? .link : .consent
             }
             .disabled(!voice.watchAllowed)
@@ -578,8 +583,8 @@ private struct CallControls: View {
             SwiftUIAudioRoutePickerButton()
                 .frame(width: size, height: size)
                 .background(Theme.bg3, in: .circle)
-                .accessibilityLabel("Where sound plays")
-            control("bubble.left.fill", label: "Show chat", dot: (chat?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
+                .accessibilityLabel(t("voice.controls.audioRoute"))
+            control("bubble.left.fill", label: t("voice.controls.showChat"), dot: (chat?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
                 guard let chatKey, let serverId = voice.serverId else { return }
                 voice.stageShown = false
                 model.selectServer(serverId)
@@ -594,7 +599,7 @@ private struct CallControls: View {
                     .frame(width: size, height: size)
                     .background(Theme.red, in: .circle)
             }
-            .accessibilityLabel("Disconnect")
+            .accessibilityLabel(t("voice.controls.disconnect"))
             .accessibilityIdentifier(A11y.Voice.leave)
         }
         .padding(.horizontal, 12)

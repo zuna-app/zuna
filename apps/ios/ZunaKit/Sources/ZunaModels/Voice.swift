@@ -122,12 +122,12 @@ extension Voice {
         return ScreenTerms(height: height, fps: fps, kbps: kbps, soundKbps: screenSoundKbps, sound: rules.sound, held: held)
     }
 
-    /// Why someone can't share a screen at all right now, or nil if they may try. As `screenRefusal`.
+    /// Why someone can't share a screen at all right now, as a sentence, or nil if they may try. As `screenRefusal`.
     public static func screenRefusal(rules: ScreenRules?, role: Role?, channelLimit: Int = 0) -> String? {
         let rules = rules ?? .defaults
-        if rules.who == "nobody" { return "Screen sharing is off on this server" }
-        if rules.who == "admins", role != .owner, role != .admin { return "Only admins can share a screen on this server" }
-        if channelLimit < 0 { return "Screen sharing is off in this voice channel" }
+        if rules.who == "nobody" { return t("server.screenSharingIsOffOn") }
+        if rules.who == "admins", role != .owner, role != .admin { return t("server.onlyAdminsCanShareA") }
+        if channelLimit < 0 { return t("server.screenSharingIsOffIn") }
         return nil
     }
 }

@@ -20,7 +20,7 @@ struct SoundboardSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if sounds.isEmpty {
-                        Text(isAdmin ? "This server has no sounds yet. Add some below." : "This server has no sounds yet. Admins can add them.")
+                        Text(isAdmin ? t("voice.soundboard.emptyAdmin") : t("voice.soundboard.emptyMember"))
                             .foregroundStyle(Theme.text2)
                     } else {
                         if let refusal {
@@ -56,12 +56,12 @@ struct SoundboardSheet: View {
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("Volume")
+                            Text(t("voice.soundboard.volume"))
                             Spacer()
-                            Text(voice.settings.soundboardVolume == 0 ? "Off" : "\(Int((voice.settings.soundboardVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+                            Text(voice.settings.soundboardVolume == 0 ? t("common.off") : "\(Int((voice.settings.soundboardVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
                         }
                         Slider(value: $voice.settings.soundboardVolume, in: 0...1)
-                            .accessibilityLabel("Soundboard volume")
+                            .accessibilityLabel(t("voice.settings.soundboardVolume"))
                     }
                     .padding(14)
                     .background(Theme.bg2, in: .rect(cornerRadius: 14, style: .continuous))
@@ -70,7 +70,7 @@ struct SoundboardSheet: View {
                             SoundboardSettingsView(serverId: serverId)
                         } label: {
                             HStack {
-                                Text("Add and change sounds")
+                                Text(t("voice.soundboard.manage"))
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(Theme.text3)
                             }
@@ -83,11 +83,11 @@ struct SoundboardSheet: View {
                 .padding(16)
             }
             .background(Theme.bg1)
-            .navigationTitle("Soundboard")
+            .navigationTitle(t("voice.soundboard.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(t("common.done")) { dismiss() }
                 }
             }
         }
@@ -119,44 +119,44 @@ struct SoundboardSettingsView: View {
         let sounds = model.servers[serverId]?.sounds ?? []
         List {
             Section {
-                TextField("Emoji", text: $emoji, prompt: Text("🔊"))
+                TextField(t("voice.soundboard.emoji"), text: $emoji, prompt: Text("🔊"))
                     .accessibilityIdentifier(A11y.Settings.soundEmoji)
-                TextField("Name", text: $name, prompt: Text("Airhorn"))
+                TextField(t("common.name"), text: $name, prompt: Text(t("voice.soundboard.namePlaceholder")))
                     .accessibilityIdentifier(A11y.Settings.soundName)
-                Button(picked.map { "Sound: \($0.lastPathComponent)" } ?? "Choose a sound") { choosing = true }
+                Button(picked.map { t("voice.soundboard.picked", ["file": $0.lastPathComponent]) } ?? t("voice.soundboard.choose")) { choosing = true }
                     .accessibilityIdentifier(A11y.Settings.chooseSound)
-                Button("Add sound") { add() }
+                Button(t("voice.soundboard.add")) { add() }
                     .disabled(picked == nil || name.trimmingCharacters(in: .whitespaces).isEmpty || busy || sounds.count >= Self.most)
                     .accessibilityIdentifier(A11y.Settings.addSound)
             } header: {
-                Text("Add a sound")
+                Text(t("voice.soundboard.addTitle"))
             } footer: {
-                Text(sounds.count >= Self.most ? "The soundboard is full. Delete a sound to add another." : "Sounds that anyone in a voice channel or call can play for everyone there. Each one is trimmed to five seconds and leveled to match the others. Their names and audio are encrypted, so the server can't hear them.")
+                Text(sounds.count >= Self.most ? t("server.theSoundboardIsFullDelete") : t("voice.soundboard.lead"))
             }
             if !sounds.isEmpty {
-                Section("\(sounds.count) of \(Self.most) sounds") {
+                Section(t("voice.soundboard.countOf", ["count": sounds.count, "most": Self.most])) {
                     ForEach(sounds) { sound in
                         HStack(spacing: 10) {
                             Text(sound.emoji.isEmpty ? "🔊" : sound.emoji)
                             Text(sound.name).lineLimit(1)
                             Spacer()
-                            Text(String(format: "%.1f s", Double(sound.durationMs) / 1000)).foregroundStyle(Theme.text2).monospacedDigit()
+                            Text(t("voice.units.seconds", ["value": String(format: "%.1f", Double(sound.durationMs) / 1000)])).foregroundStyle(Theme.text2).monospacedDigit()
                             Button {
                                 listen(sound)
                             } label: {
                                 Image(systemName: "play.fill")
                             }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel("Listen to \(sound.name)")
+                            .accessibilityLabel(t("voice.soundboard.listenTo", ["name": sound.name]))
                         }
                         .accessibilityIdentifier(A11y.Settings.sound(sound.name))
                         .swipeActions {
-                            Button("Delete", role: .destructive) { remove(sound) }
-                            Button("Rename") { renaming = sound }
+                            Button(t("common.delete"), role: .destructive) { remove(sound) }
+                            Button(t("common.rename")) { renaming = sound }
                         }
                         .contextMenu {
-                            Button("Rename", systemImage: "pencil") { renaming = sound }
-                            Button("Delete", systemImage: "trash", role: .destructive) { remove(sound) }
+                            Button(t("common.rename"), systemImage: "pencil") { renaming = sound }
+                            Button(t("common.delete"), systemImage: "trash", role: .destructive) { remove(sound) }
                         }
                     }
                 }
@@ -165,7 +165,7 @@ struct SoundboardSettingsView: View {
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Soundboard")
+        .navigationTitle(t("voice.soundboard.title"))
         .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: $choosing, allowedContentTypes: [.audio]) { result in
             guard case let .success(url) = result else { return }
@@ -188,7 +188,7 @@ struct SoundboardSettingsView: View {
                 let wav = try SoundFile.wav(from: picked)
                 defer { try? FileManager.default.removeItem(atPath: wav.path) }
                 _ = try await session.addSound(wav, name: name, emoji: emoji)
-                model.toast("Added \(name)")
+                model.toast(t("voice.soundboard.added", ["name": name]))
                 self.picked = nil
                 self.name = ""
                 self.emoji = ""
@@ -232,17 +232,17 @@ private struct SoundRename: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Emoji", text: $emoji, prompt: Text("🔊"))
-                TextField("Name", text: $name)
+                TextField(t("voice.soundboard.emoji"), text: $emoji, prompt: Text("🔊"))
+                TextField(t("common.name"), text: $name)
             }
-            .navigationTitle("Rename sound")
+            .navigationTitle(t("voice.soundboard.renameTitle"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(t("common.cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(t("common.save")) { save() }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || busy)
                 }
             }
@@ -336,6 +336,6 @@ enum SoundFile {
 
     enum SoundError: LocalizedError {
         case unreadable
-        var errorDescription: String? { "That file isn't a sound Zuna can read." }
+        var errorDescription: String? { t("voice.soundboard.unreadable") }
     }
 }

@@ -30,7 +30,7 @@ struct LinkTelegramView: View {
             .toolbarBackground(Theme.bg0, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { model.cancelLinkingTelegram() }
+                    Button(t("common.cancel")) { model.cancelLinkingTelegram() }
                         .accessibilityIdentifier(A11y.Telegram.cancel)
                 }
             }
@@ -61,20 +61,20 @@ struct LinkTelegramView: View {
         case let .code(number, length, via, canResend)?:
             codeStep(Self.whereCodeWent(via: via, phone: number), length: length, canResend: canResend)
         case let .email(pattern, length)?:
-            codeStep("Telegram sent a code to \(pattern.isEmpty ? "your login email" : pattern).", length: length, canResend: false)
+            codeStep(pattern.isEmpty ? t("telegram.link.codeToLoginEmail") : t("telegram.link.codeToEmail", ["email": pattern]), length: length, canResend: false)
         case let .password(hint)?:
             passwordStep(hint)
         case .signup?:
-            StepHeader("No Telegram account", message: Text("There's no Telegram account with that number. Zuna can't create one, so sign up in Telegram's own app first, then link it here."), systemImage: "person.crop.circle.badge.questionmark")
-            SecondaryButton(title: "Use another number") {
+            StepHeader(t("telegram.link.noAccount"), message: Text(t("telegram.link.signUpFirst")), systemImage: "person.crop.circle.badge.questionmark")
+            SecondaryButton(title: t("telegram.link.anotherNumber")) {
                 phone = ""
                 restart()
             }
         case .ready?:
             waiting
         case let .failed(reason)?:
-            StepHeader("Telegram couldn't be linked", message: Text(reason), systemImage: "exclamationmark.triangle")
-            PrimaryButton(title: "Try again") { restart() }
+            StepHeader(t("telegram.link.failed"), message: Text(reason), systemImage: "exclamationmark.triangle")
+            PrimaryButton(title: t("common.tryAgain")) { restart() }
         case .unlinked?:
             intro
         }
@@ -91,16 +91,16 @@ struct LinkTelegramView: View {
 
     private var intro: some View {
         VStack(spacing: 18) {
-            StepHeader("Use Telegram in Zuna", message: Text("Zuna will sign in to your Telegram account as another device, using Telegram's API. Zuna isn't made by Telegram."), systemImage: "bubble.left.and.bubble.right.fill")
+            StepHeader(t("telegram.link.title"), message: Text(t("telegram.link.intro")), systemImage: "bubble.left.and.bubble.right.fill")
             VStack(alignment: .leading, spacing: 14) {
-                point("These chats aren't end-to-end encrypted.", "Telegram keeps them on its servers, as it does for its own apps. Zuna's servers never see them.")
-                point("Telegram will see", "that you use Zuna, this device's IP address and operating system, and when you're online.")
-                point("Telegram monitors accounts that use other apps,", "and sometimes restricts them by mistake. It's safest to link an account you've had for a while.")
-                point("Notifications come from Telegram through Apple,", "with names and text Apple can read, as Telegram doesn't encrypt them for apps like Zuna. With Telegram's own app on this phone too, each comes twice: turn one off in iOS Settings.")
-                point("Channels, calls and secret chats", "are only in Telegram's own app.")
+                point(t("telegram.link.pointEncryption"))
+                point(t("telegram.link.pointSees"))
+                point(t("telegram.link.pointMonitors"))
+                point(t("telegram.link.pointNotifications"))
+                point(t("telegram.link.pointChannels"))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            PrimaryButton(title: "Continue", busy: busy) {
+            PrimaryButton(title: t("common.continue"), busy: busy) {
                 ask { try await model.beginLinkingTelegram() }
             }
             .accessibilityIdentifier(A11y.Telegram.begin)
@@ -110,7 +110,7 @@ struct LinkTelegramView: View {
     private var waiting: some View {
         VStack(spacing: 14) {
             ProgressView().tint(Theme.text2)
-            Text("Reaching Telegram…")
+            Text(t("telegram.link.reaching"))
                 .font(.callout)
                 .foregroundStyle(Theme.text2)
         }
@@ -120,7 +120,7 @@ struct LinkTelegramView: View {
 
     private func qr(_ link: String) -> some View {
         VStack(spacing: 18) {
-            StepHeader("Link with Telegram", message: Text("On another device, open Telegram, then Settings, Devices, Link Desktop Device, and scan this."), systemImage: "qrcode")
+            StepHeader(t("telegram.link.qrTitle"), message: Text(t("telegram.link.qrLead")), systemImage: "qrcode")
             if let image = Self.qrImage(link) {
                 Image(uiImage: image)
                     .interpolation(.none)
@@ -129,19 +129,19 @@ struct LinkTelegramView: View {
                     .frame(width: 240, height: 240)
                     .padding(12)
                     .background(.white, in: .rect(cornerRadius: 16, style: .continuous))
-                    .accessibilityLabel("QR code to link Telegram")
+                    .accessibilityLabel(t("telegram.link.qrLabel"))
                     .accessibilityIdentifier(A11y.Telegram.qr)
             }
             // A phone can't scan its own screen: Telegram here asks whether to let this device in.
-            PrimaryButton(title: "Confirm in Telegram", systemImage: "paperplane") {
+            PrimaryButton(title: t("telegram.link.confirm"), systemImage: "paperplane") {
                 if let url = URL(string: link) { openURL(url) }
             }
             .accessibilityIdentifier(A11y.Telegram.confirm)
-            Text("The code refreshes about every 30 seconds. You don't need to type anything, and no code is sent by text message.")
+            Text(t("telegram.link.qrHint"))
                 .font(.footnote)
                 .foregroundStyle(Theme.text3)
                 .multilineTextAlignment(.center)
-            SecondaryButton(title: "Use a phone number instead") {
+            SecondaryButton(title: t("telegram.link.usePhone")) {
                 byPhone = true
                 restart()
             }
@@ -151,20 +151,20 @@ struct LinkTelegramView: View {
 
     private var phoneStep: some View {
         VStack(spacing: 18) {
-            StepHeader("Your phone number", message: Text("Telegram will send a code to its app on this phone or your other devices, or by email. It doesn't send codes by text message to apps like Zuna."), systemImage: "phone")
-            FormField(label: "Phone number", hint: "Include the country code.") {
+            StepHeader(t("telegram.link.phoneTitle"), message: Text(t("telegram.link.phoneLead")), systemImage: "phone")
+            FormField(label: t("telegram.link.phone"), hint: t("telegram.link.phoneHint")) {
                 TextField("+1 555 010 0000", text: $phone)
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
                     .accessibilityIdentifier(A11y.Telegram.phone)
             }
-            PrimaryButton(title: "Next", busy: busy) {
+            PrimaryButton(title: t("common.next"), busy: busy) {
                 let number = phone
                 ask { try await model.core.session(ServerEntry.telegram).linkWithPhone(number) }
             }
             .disabled(phone.filter(\.isNumber).count < 5)
             // From another device's Telegram, by its camera, or Telegram on this phone confirming it.
-            SecondaryButton(title: "Link with a QR code instead") {
+            SecondaryButton(title: t("telegram.link.useQr")) {
                 byPhone = false
                 askedQr = true
                 ask { try await model.core.session(ServerEntry.telegram).linkWithQr() }
@@ -175,14 +175,14 @@ struct LinkTelegramView: View {
 
     private func codeStep(_ said: String, length: Int, canResend: Bool) -> some View {
         VStack(spacing: 18) {
-            StepHeader("Enter the code", message: Text(said), systemImage: "number")
-            FormField(label: "Code", hint: length > 0 ? "\(length) digits." : nil) {
+            StepHeader(t("telegram.link.codeTitle"), message: Text(said), systemImage: "number")
+            FormField(label: t("telegram.link.code"), hint: length > 0 ? t("telegram.link.digits", ["count": length]) : nil) {
                 TextField("12345", text: $code)
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
                     .accessibilityIdentifier(A11y.Telegram.code)
             }
-            PrimaryButton(title: "Next", busy: busy) {
+            PrimaryButton(title: t("common.next"), busy: busy) {
                 let typed = code
                 ask {
                     try await model.core.session(ServerEntry.telegram).enterCode(typed)
@@ -191,7 +191,7 @@ struct LinkTelegramView: View {
             }
             .disabled(code.filter(\.isNumber).isEmpty)
             if canResend {
-                SecondaryButton(title: "Send another") {
+                SecondaryButton(title: t("telegram.link.resend")) {
                     ask { try await model.core.session(ServerEntry.telegram).resendCode() }
                 }
             }
@@ -200,13 +200,13 @@ struct LinkTelegramView: View {
 
     private func passwordStep(_ hint: String) -> some View {
         VStack(spacing: 18) {
-            StepHeader("Your Telegram password", message: Text("Your account has two-step verification. Your password is checked without ever being sent to Telegram."), systemImage: "lock")
-            FormField(label: "Password", hint: hint.isEmpty ? nil : "Hint: \(hint)") {
-                SecureField("Your Telegram password", text: $password)
+            StepHeader(t("telegram.link.passwordTitle"), message: Text(t("telegram.link.passwordLead")), systemImage: "lock")
+            FormField(label: t("common.password"), hint: hint.isEmpty ? nil : t("telegram.link.passwordHint", ["hint": hint])) {
+                SecureField(t("telegram.link.passwordTitle"), text: $password)
                     .textContentType(.password)
                     .accessibilityIdentifier(A11y.Telegram.password)
             }
-            PrimaryButton(title: "Link", busy: busy) {
+            PrimaryButton(title: t("telegram.link.link"), busy: busy) {
                 let typed = password
                 ask {
                     try await model.core.session(ServerEntry.telegram).enterPassword(typed)
@@ -219,10 +219,15 @@ struct LinkTelegramView: View {
 
     // MARK: Helpers
 
-    private func point(_ lead: String, _ rest: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+    /// One thing to know, its lead in bold: the part of the sentence between ** and **.
+    private func point(_ sentence: String) -> some View {
+        var text = (try? AttributedString(markdown: sentence)) ?? AttributedString(sentence)
+        for run in text.runs {
+            text[run.range].foregroundColor = run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true ? Theme.text1 : Theme.text2
+        }
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Circle().fill(Theme.text3).frame(width: 5, height: 5).offset(y: -3)
-            Text("\(Text(lead).bold().foregroundStyle(Theme.text1)) \(Text(rest).foregroundStyle(Theme.text2))")
+            Text(text)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -244,11 +249,11 @@ struct LinkTelegramView: View {
 
     static func whereCodeWent(via: String, phone: String) -> String {
         switch via {
-        case "telegram": "Telegram sent a code to the Telegram app on your other devices."
-        case "call": "Telegram is calling \(phone) with a code."
-        case "fragment": "Telegram sent a code to your number on Fragment."
-        case "sms": "Telegram sent a code to \(phone)."
-        default: "Telegram sent you a code."
+        case "telegram": t("telegram.link.sentToApp")
+        case "call": t("telegram.link.codeViaCall", ["phone": phone])
+        case "fragment": t("telegram.link.sentToFragment")
+        case "sms": t("telegram.link.codeViaSms", ["phone": phone])
+        default: t("telegram.link.sent")
         }
     }
 

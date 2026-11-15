@@ -16,7 +16,7 @@ struct MemberSheet: View {
 
     var body: some View {
         let user = server.users[member.userId]
-        let name = user?.displayName ?? "Someone"
+        let name = user?.displayName ?? t("notify.someone")
         NavigationStack {
             List {
                 Section {
@@ -30,26 +30,26 @@ struct MemberSheet: View {
                     .listRowBackground(Color.clear)
                 }
                 Section {
-                    slider("Volume", value: voice.volumes[member.userId] ?? 1, id: A11y.Voice.volume) { voice.setVolume($0, for: member.userId) }
+                    slider(t("voice.soundboard.volume"), value: voice.volumes[member.userId] ?? 1, id: A11y.Voice.volume) { voice.setVolume($0, for: member.userId) }
                     if streamSound {
-                        slider("Stream volume", value: voice.streamVolumes[member.userId] ?? 1, id: A11y.Voice.streamVolume) { voice.setStreamVolume($0, for: member.userId) }
+                        slider(t("voice.stage.streamVolume"), value: voice.streamVolumes[member.userId] ?? 1, id: A11y.Voice.streamVolume) { voice.setStreamVolume($0, for: member.userId) }
                     }
-                    Toggle("Mute for me", isOn: Binding(get: { voice.localMutes.contains(member.userId) }, set: { _ in voice.toggleLocalMute(member.userId) }))
+                    Toggle(t("voice.stage.muteForMe"), isOn: Binding(get: { voice.localMutes.contains(member.userId) }, set: { _ in voice.toggleLocalMute(member.userId) }))
                         .accessibilityIdentifier(A11y.Voice.muteForMe)
-                    Button("Verify with emoji", systemImage: "lock") { verifying = true }
+                    Button(t("voice.stage.verify"), systemImage: "lock") { verifying = true }
                 }
                 if canModerate {
                     Section {
-                        Button(member.serverMuted ? "Let them talk" : "Mute for everyone", systemImage: "mic.slash") {
+                        Button(member.serverMuted ? t("voice.stage.letTalk") : t("voice.stage.muteForEveryone"), systemImage: "mic.slash") {
                             moderate { try await $0.voiceMute($1, userId: member.userId, muted: !member.serverMuted) }
                         }
                         .accessibilityIdentifier(A11y.Voice.muteForEveryone)
                         if member.screen {
-                            Button("Stop their screen share", systemImage: "rectangle.slash") {
+                            Button(t("voice.stage.stopTheirShare"), systemImage: "rectangle.slash") {
                                 moderate { try await $0.voiceScreenStopOf($1, userId: member.userId) }
                             }
                         }
-                        Button("Disconnect", systemImage: "person.fill.xmark", role: .destructive) {
+                        Button(t("voice.controls.disconnect"), systemImage: "person.fill.xmark", role: .destructive) {
                             moderate { try await $0.voiceDisconnect($1, userId: member.userId) }
                         }
                         .accessibilityIdentifier(A11y.Voice.disconnect)
@@ -60,7 +60,7 @@ struct MemberSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(t("common.done")) { dismiss() }
                 }
             }
             // A sheet of its own: VerifyView has its own navigation stack, which one pushed here would nest.
@@ -124,7 +124,7 @@ struct StreamSoundButton: View {
                 .frame(width: 32, height: 32)
                 .background(.black.opacity(0.45), in: .circle)
         }
-        .accessibilityLabel(silent ? "Unmute stream" : "Mute stream")
+        .accessibilityLabel(silent ? t("voice.stage.unmuteStream") : t("voice.stage.muteStream"))
     }
 }
 
@@ -153,7 +153,7 @@ struct VideoViewer: View {
                     .background(.black.opacity(0.5), in: .circle)
             }
             .padding(16)
-            .accessibilityLabel("Close")
+            .accessibilityLabel(t("common.close"))
             .accessibilityIdentifier(A11y.Voice.closeViewer)
         }
         .overlay(alignment: .bottomTrailing) {
@@ -215,7 +215,7 @@ struct CallBar: View {
     var body: some View {
         let server = voice.serverId.flatMap { model.servers[$0] }
         let channel = server?.channels.first { $0.id == voice.channelId }
-        let title = voice.isCall ? voice.channelId.flatMap { server?.conversation(groupId: $0)?.title } ?? "Call" : channel?.title ?? "Voice channel"
+        let title = voice.isCall ? voice.channelId.flatMap { server?.conversation(groupId: $0)?.title } ?? t("voice.panel.call") : channel?.title ?? t("voice.panel.voiceChannel")
         HStack(spacing: 10) {
             Button {
                 voice.stageShown = true
@@ -227,7 +227,7 @@ struct CallBar: View {
                         ProgressView().controlSize(.mini).tint(Theme.text1)
                     }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(voice.status == .connected ? (voice.isCall ? "Call connected" : "Voice connected") : voice.status == .reconnecting ? "Reconnecting" : "Connecting")
+                        Text(voice.status == .connected ? (voice.isCall ? t("voice.panel.callConnected") : t("voice.panel.voiceConnected")) : voice.status == .reconnecting ? t("voice.panel.reconnecting") : t("voice.panel.connecting"))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(voice.status == .connected ? Theme.green : Theme.text2)
                         Text("\(title) / \(server?.entry.name ?? "")")
@@ -240,7 +240,7 @@ struct CallBar: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Opens the call")
+            .accessibilityHint(t("voice.bar.opensHint"))
             .accessibilityIdentifier(A11y.Voice.bar)
             Button {
                 voice.toggleMute()
@@ -252,7 +252,7 @@ struct CallBar: View {
                     .background(Theme.bg4, in: .circle)
             }
             .disabled(voice.serverMuted || voice.noMic)
-            .accessibilityLabel(voice.micOff ? "Unmute" : "Mute")
+            .accessibilityLabel(voice.micOff ? t("voice.controls.unmute") : t("voice.controls.mute"))
             .accessibilityIdentifier(A11y.Voice.barMute)
             Button {
                 voice.leave()
@@ -263,7 +263,7 @@ struct CallBar: View {
                     .frame(width: 36, height: 36)
                     .background(Theme.red, in: .circle)
             }
-            .accessibilityLabel("Disconnect from voice")
+            .accessibilityLabel(t("voice.bar.disconnect"))
             .accessibilityIdentifier(A11y.Voice.barLeave)
         }
         .padding(.horizontal, 14)
@@ -285,78 +285,80 @@ struct VoiceSettingsView: View {
     static let limitBitrates = bitrates + [100_000]
 
     static func bitrateName(_ kbps: Int) -> String {
-        kbps < 1000 ? "\(kbps) kbps" : "\((Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))) Mbps"
+        kbps < 1000
+            ? t("voice.units.kbps", ["value": kbps])
+            : t("voice.units.mbps", ["value": (Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))])
     }
 
     static func heightName(_ height: Int) -> String {
-        height == 0 ? "Native" : height == 2160 ? "4K" : "\(height)p"
+        height == 0 ? t("voice.screen.native") : height == 2160 ? "4K" : "\(height)p"
     }
 
     /// What a server holds someone's shares to, in words, or nil if it doesn't (screenLimitsText).
     static func limitsText(_ rules: ScreenRules?, role: Role?) -> String? {
         guard let rules, !(rules.adminsExempt && (role == .owner || role == .admin)) else { return nil }
-        let limits = [rules.maxHeight > 0 ? heightName(rules.maxHeight) : nil, rules.maxFps > 0 ? "\(rules.maxFps) fps" : nil, rules.maxKbps > 0 ? bitrateName(rules.maxKbps) : nil].compactMap { $0 }
-        return limits.isEmpty ? nil : "This server limits screen shares to \(limits.joined(separator: ", "))."
+        let limits = [rules.maxHeight > 0 ? heightName(rules.maxHeight) : nil, rules.maxFps > 0 ? t("voice.units.fps", ["value": rules.maxFps]) : nil, rules.maxKbps > 0 ? bitrateName(rules.maxKbps) : nil].compactMap { $0 }
+        return limits.isEmpty ? nil : t("voice.screen.serverLimits", ["limits": limits.joined(separator: ", ")])
     }
 
     var body: some View {
         @Bindable var voice = voice
         List {
             Section {
-                Toggle("Join muted", isOn: $voice.settings.startMuted)
+                Toggle(t("voice.settings.joinMuted"), isOn: $voice.settings.startMuted)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("Your microphone starts off in every voice channel.")
+                Text(t("voice.settings.joinMutedHint"))
             }
             Section {
-                Toggle("Sound effects", isOn: $voice.settings.sounds)
+                Toggle(t("voice.settings.soundEffects"), isOn: $voice.settings.sounds)
                     .tint(model.settings.accent.switchTint)
             } footer: {
-                Text("When people join or leave, and when you mute.")
+                Text(t("voice.settings.soundEffectsHint"))
             }
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Soundboard volume")
+                        Text(t("voice.settings.soundboardVolume"))
                         Spacer()
-                        Text(voice.settings.soundboardVolume == 0 ? "Off" : "\(Int((voice.settings.soundboardVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+                        Text(voice.settings.soundboardVolume == 0 ? t("common.off") : "\(Int((voice.settings.soundboardVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
                     }
                     Slider(value: $voice.settings.soundboardVolume, in: 0...1)
-                        .accessibilityLabel("Soundboard volume")
+                        .accessibilityLabel(t("voice.settings.soundboardVolume"))
                 }
             } footer: {
-                Text("At 0, soundboard sounds don't play for you.")
+                Text(t("voice.settings.soundboardVolumeHint"))
             }
             Section {
-                Toggle("Open screen shares automatically", isOn: $voice.settings.screenFocus)
+                Toggle(t("voice.screenSettings.autoOpen"), isOn: $voice.settings.screenFocus)
                     .tint(model.settings.accent.switchTint)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Screen share volume")
+                        Text(t("voice.screenSettings.volume"))
                         Spacer()
                         Text("\(Int((voice.settings.screenVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
                     }
                     Slider(value: $voice.settings.screenVolume, in: 0...2)
-                        .accessibilityLabel("Screen share volume")
+                        .accessibilityLabel(t("voice.screenSettings.volume"))
                 }
             } header: {
-                Text("Watching")
+                Text(t("voice.screenSettings.watching"))
             } footer: {
-                Text("A screen share fills the call when it starts, unless you're watching something else.")
+                Text(t("voice.settings.screenFocusHint"))
             }
             if voice.canShareScreen {
                 sharing($voice.settings.screenBitrate)
             }
             Section {
             } footer: {
-                Text("Your iPhone handles echo and noise cancellation itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
+                Text(t("voice.settings.noiseHint"))
             }
         }
         // As the other settings look.
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Voice and video")
+        .navigationTitle(t("voice.settings.title"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -370,17 +372,17 @@ struct VoiceSettingsView: View {
         var automatic = voice.settings
         automatic.screenBitrate = nil
         let auto = VoiceModel.shareTerms(automatic, server: server).kbps
-        let hint = "This is the most it sends. It sends less when the picture is simple or your connection can't keep up. Lower it if your upload is slow."
+        let hint = t("voice.screenSettings.maxBitrateHint")
         return Section {
-            Picker("Max bitrate", selection: bitrate) {
-                Text("Automatic (\(Self.bitrateName(auto)))").tag(Int?.none)
+            Picker(t("voice.stats.maxBitrate"), selection: bitrate) {
+                Text(t("voice.screenSettings.automaticBitrate", ["bitrate": Self.bitrateName(auto)])).tag(Int?.none)
                 ForEach(Self.bitrates.filter { limit <= 0 || $0 <= limit }, id: \.self) { kbps in
                     Text(Self.bitrateName(kbps)).tag(Int?.some(kbps))
                 }
             }
             .accessibilityIdentifier(A11y.Settings.screenBitrate)
         } header: {
-            Text("Screen sharing")
+            Text(t("voice.settings.screenSharing"))
         } footer: {
             Text([hint, Self.limitsText(rules, role: role)].compactMap { $0 }.joined(separator: " "))
         }

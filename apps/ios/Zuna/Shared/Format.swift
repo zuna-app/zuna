@@ -1,25 +1,37 @@
 import Foundation
 import ZunaModels
 
-/// Formatting shared by the screens, matching the desktop's lib/format.ts.
+/// Formatting shared by the screens, matching the desktop's lib/format.ts, in the language shown:
+/// its words from the catalogs, and dates and times for I18n.locale, read each time, so a change
+/// of language reaches them.
 enum Format {
+    /// A time of day, as "14:32" or "2:32 PM".
+    private static func clock(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: I18n.locale))
+    }
+
+    /// A date in numbers, as "02/11/2026".
+    private static func numericDay(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .numeric, time: .omitted, locale: I18n.locale))
+    }
+
     /// The compact time in the conversation list: the time today, the weekday within a week, else the date.
     static func listTime(_ milliseconds: Int, now: Date = .now) -> String {
         guard milliseconds > 0 else { return "" }
         let date = Date(milliseconds: milliseconds)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
-        if days < 7 { return date.formatted(.dateTime.weekday(.abbreviated)) }
-        return date.formatted(.dateTime.month(.abbreviated).day())
+        if days <= 0 { return clock(date) }
+        if days < 7 { return date.formatted(.dateTime.weekday(.abbreviated).locale(I18n.locale)) }
+        return date.formatted(.dateTime.month(.abbreviated).day().locale(I18n.locale))
     }
 
     static func time(_ milliseconds: Int) -> String {
-        Date(milliseconds: milliseconds).formatted(date: .omitted, time: .shortened)
+        clock(Date(milliseconds: milliseconds))
     }
 
     static func full(_ milliseconds: Int) -> String {
-        Date(milliseconds: milliseconds).formatted(date: .abbreviated, time: .shortened)
+        Date(milliseconds: milliseconds).formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: I18n.locale))
     }
 
     /// The pill between days: "Today", "Yesterday", or the date.
@@ -27,12 +39,12 @@ enum Format {
         let date = Date(milliseconds: milliseconds)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        if days == 0 { return "Today" }
-        if days == 1 { return "Yesterday" }
+        if days == 0 { return t("date.today") }
+        if days == 1 { return t("date.yesterday") }
         if calendar.isDate(date, equalTo: now, toGranularity: .year) {
-            return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
+            return date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(I18n.locale))
         }
-        return date.formatted(.dateTime.month(.wide).day().year())
+        return date.formatted(.dateTime.month(.wide).day().year().locale(I18n.locale))
     }
 
     /// Beside a name in a channel, as the desktop's `formatStamp`: "Today at 14:32", "Yesterday at 9:05", or the date and time.
@@ -40,26 +52,28 @@ enum Format {
         let date = Date(milliseconds: milliseconds)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        let time = date.formatted(date: .omitted, time: .shortened)
-        if days == 0 { return "Today at \(time)" }
-        if days == 1 { return "Yesterday at \(time)" }
-        return "\(date.formatted(date: .numeric, time: .omitted)) \(time)"
+        let time = clock(date)
+        if days == 0 { return t("date.todayAt", ["time": time]) }
+        if days == 1 { return t("date.yesterdayAt", ["time": time]) }
+        return t("date.dateTime", ["date": numericDay(date), "time": time])
     }
 
-    /// When something began, after "since": "14:32" today, "yesterday at 9:05", or the date and time.
-    static func since(_ milliseconds: Int, now: Date = .now) -> String {
+    /// When something began, for a sentence that says "since": the time and whether it was
+    /// yesterday, which the sentence words, as "since yesterday at 9:05"; else "14:32" today, or
+    /// the date and time.
+    static func since(_ milliseconds: Int, now: Date = .now) -> (yesterday: Bool, time: String) {
         let date = Date(milliseconds: milliseconds)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        let time = date.formatted(date: .omitted, time: .shortened)
-        if days <= 0 { return time }
-        if days == 1 { return "yesterday at \(time)" }
-        return "\(date.formatted(date: .numeric, time: .omitted)) \(time)"
+        let time = clock(date)
+        if days <= 0 { return (false, time) }
+        if days == 1 { return (true, time) }
+        return (false, t("date.dateTime", ["date": numericDay(date), "time": time]))
     }
 
     /// A day in full, on the line between days in a channel: "November 2, 2026".
     static func fullDay(_ milliseconds: Int) -> String {
-        Date(milliseconds: milliseconds).formatted(.dateTime.month(.wide).day().year())
+        Date(milliseconds: milliseconds).formatted(.dateTime.month(.wide).day().year().locale(I18n.locale))
     }
 
     static func sameDay(_ a: Int, _ b: Int) -> Bool {
@@ -77,23 +91,23 @@ enum Format {
     /// chat's header the minutes, or the hours under 12, and in their details (`full`) the time.
     /// Someone hiding it was seen "recently", and someone never seen "a long time ago".
     static func lastSeen(_ milliseconds: Int?, hidden: Bool, full: Bool = false, now: Date = .now) -> String {
-        if hidden { return "last seen recently" }
-        guard let milliseconds else { return "last seen a long time ago" }
+        if hidden { return t("lastSeen.recently") }
+        guard let milliseconds else { return t("lastSeen.longAgo") }
         let date = Date(milliseconds: milliseconds)
         if !full {
             let minutes = Int(max(0, now.timeIntervalSince(date)) / 60)
-            if minutes == 0 { return "last seen just now" }
-            if minutes < 60 { return "last seen \(minutes) minute\(minutes == 1 ? "" : "s") ago" }
+            if minutes == 0 { return t("lastSeen.justNow") }
+            if minutes < 60 { return t("lastSeen.minutesAgo", ["count": minutes]) }
             let hours = minutes / 60
-            if hours < 12 { return "last seen \(hours) hour\(hours == 1 ? "" : "s") ago" }
+            if hours < 12 { return t("lastSeen.hoursAgo", ["count": hours]) }
         }
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        let time = date.formatted(date: .omitted, time: .shortened)
-        if days <= 0 { return "last seen today at \(time)" }
-        if days == 1 { return "last seen yesterday at \(time)" }
-        let day = date.formatted(date: .numeric, time: .omitted)
-        return full ? "last seen \(day) at \(time)" : "last seen \(day)"
+        let time = clock(date)
+        if days <= 0 { return t("lastSeen.todayAt", ["time": time]) }
+        if days == 1 { return t("lastSeen.yesterdayAt", ["time": time]) }
+        let day = numericDay(date)
+        return full ? t("lastSeen.dateAt", ["date": day, "time": time]) : t("lastSeen.date", ["date": day])
     }
 
     /// The last turn of a minute since someone was last seen, from which `lastSeen`'s words can
@@ -107,15 +121,15 @@ enum Format {
     }
 
     static func bytes(_ count: Int) -> String {
-        if count < 1024 { return "\(count) B" }
-        let units = ["KB", "MB", "GB", "TB"]
+        if count < 1024 { return t("common.size.bytes", ["size": count]) }
+        let units = [mark("common.size.kb"), mark("common.size.mb"), mark("common.size.gb"), mark("common.size.tb")]
         var value = Double(count)
         var unit = -1
         repeat {
             value /= 1024
             unit += 1
         } while value >= 1024 && unit < units.count - 1
-        return value >= 100 ? "\(Int(value.rounded())) \(units[unit])" : String(format: "%.1f %@", value, units[unit])
+        return t(units[unit], ["size": value >= 100 ? "\(Int(value.rounded()))" : String(format: "%.1f", value)])
     }
 
     static func duration(_ seconds: Double) -> String {
@@ -145,16 +159,20 @@ enum Format {
 
     /// How long a chat's messages last, in the desktop's words: "1 day", "2 weeks", or "Off" for 0.
     static func timer(_ seconds: Int) -> String {
-        guard seconds > 0 else { return "Off" }
-        let units: [(Int, String)] = [(30 * 86400, "month"), (7 * 86400, "week"), (86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")]
-        let (size, name) = units.first { seconds % $0.0 == 0 }!
-        let count = seconds / size
-        return "\(count) \(name)\(count == 1 ? "" : "s")"
+        guard seconds > 0 else { return t("common.off") }
+        let units: [(Int, String)] = [
+            (30 * 86400, mark("date.duration.months")), (7 * 86400, mark("date.duration.weeks")), (86400, mark("date.duration.days")),
+            (3600, mark("date.duration.hours")), (60, mark("date.duration.minutes")), (1, mark("date.duration.seconds")),
+        ]
+        let (size, key) = units.first { seconds % $0.0 == 0 }!
+        return t(key, ["count": seconds / size])
     }
 
-    /// The line in a chat when someone changes how long its messages last.
-    static func timerChange(_ who: String, seconds: Int) -> String {
-        seconds > 0 ? "\(who) set messages to disappear after \(timer(seconds))" : "\(who) turned off disappearing messages"
+    /// The line in a chat when someone changes how long its messages last, worded on its own when
+    /// it was you, as other languages say that differently.
+    static func timerChange(_ who: String, seconds: Int, you: Bool = false) -> String {
+        if you { return seconds > 0 ? t("message.system.youSetTimer", ["time": timer(seconds)]) : t("message.system.youTurnedOffTimer") }
+        return seconds > 0 ? t("message.system.timerSet", ["name": who, "time": timer(seconds)]) : t("message.system.timerOff", ["name": who])
     }
 
     /// How long a chat's messages can be set to last, as the core offers: an hour, a day, a week and a month.
@@ -174,13 +192,13 @@ enum Format {
         guard let message else { return (nil, "") }
         if let system = message.system, system.type == .timerChanged {
             let seconds = system.seconds ?? 0
-            return (nil, seconds > 0 ? "Messages disappear after \(timer(seconds))" : "Disappearing messages turned off")
+            return (nil, seconds > 0 ? t("conversations.preview.timer", ["time": timer(seconds)]) : t("conversations.preview.timerOff"))
         }
-        if message.system != nil { return (nil, "Membership changed") }
-        if message.status == .undecryptable { return (nil, "Waiting for keys") }
-        if message.status == .invalid || message.status == .unverified { return (nil, "A message that couldn't be displayed") }
+        if message.system != nil { return (nil, t("conversations.preview.membership")) }
+        if message.status == .undecryptable { return (nil, t("conversations.preview.waitingForKeys")) }
+        if message.status == .invalid || message.status == .unverified { return (nil, t("conversations.preview.unreadable")) }
         let author: String? = if message.senderId == selfId {
-            "You"
+            t("common.you")
         } else if kind != .dm {
             users[message.senderId]?.displayName.split(separator: " ").first.map(String.init)
         } else {
@@ -191,10 +209,10 @@ enum Format {
             // By characters, so an emoji at the cut isn't split into half of one.
             body = String(plainText(message.text).prefix(80))
         } else if message.location != nil {
-            body = "Location"
+            body = t("conversations.preview.location")
         } else if let attachment = message.attachments.first {
-            body = attachment.voice == true ? "Voice message" : attachment.round == true ? "Video message"
-                : attachment.mime.hasPrefix("image/") ? "Photo" : attachment.mime.hasPrefix("video/") ? "Video" : attachment.name
+            body = attachment.voice == true ? t("conversations.preview.voiceMessage") : attachment.round == true ? t("conversations.preview.videoMessage")
+                : attachment.mime.hasPrefix("image/") ? t("conversations.preview.photo") : attachment.mime.hasPrefix("video/") ? t("conversations.preview.video") : attachment.name
         } else {
             body = ""
         }

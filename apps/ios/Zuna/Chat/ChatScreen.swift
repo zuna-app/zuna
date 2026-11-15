@@ -52,7 +52,7 @@ struct ChatScreen: View {
             } else if let channel = model.activeServer?.channel(conversationKey) {
                 JoiningChannel(channel: channel)
             } else {
-                ContentUnavailableView("This chat isn't available", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                ContentUnavailableView(t("chat.unavailable"), systemImage: "bubble.left.and.exclamationmark.bubble.right")
             }
         }
         .background(Theme.bg0)
@@ -108,7 +108,7 @@ struct ChatScreen: View {
                         } label: {
                             Image(systemName: memberListHidden ? "person.2" : "person.2.fill")
                         }
-                        .accessibilityLabel(memberListHidden ? "Show member list" : "Hide member list")
+                        .accessibilityLabel(memberListHidden ? t("channels.header.showMembers") : t("channels.header.hideMembers"))
                         .accessibilityIdentifier(A11y.Channels.memberListToggle)
                     }
                 }
@@ -118,7 +118,7 @@ struct ChatScreen: View {
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
-                    .accessibilityLabel("Search this channel")
+                    .accessibilityLabel(t("channels.header.search"))
                     .accessibilityIdentifier(A11y.Channels.search)
                 }
             } else {
@@ -138,7 +138,7 @@ struct ChatScreen: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(conversation.kind == .group ? "Group details" : "Details")
+                    .accessibilityLabel(conversation.kind == .group ? t("details.groupTitle") : t("chat.header.details"))
                     .accessibilityIdentifier(A11y.Chat.menu)
                 }
                 // The avatar is a picture of its own, without the bar's gray glass behind it.
@@ -193,7 +193,7 @@ struct ChatScreen: View {
             }
         }
         .confirmationDialog(
-            server.entry.isTelegram ? "Delete this message?" : "Delete this message for everyone?",
+            server.entry.isTelegram ? t("message.delete.confirmTelegram") : t("message.delete.confirm"),
             isPresented: Binding(get: { deletingOne != nil && (!server.entry.isTelegram || deleteChoices != nil) }, set: { if !$0 { deletingOne = nil; deleteChoices = nil } }),
             titleVisibility: .visible,
             presenting: deletingOne
@@ -201,17 +201,17 @@ struct ChatScreen: View {
             if server.entry.isTelegram {
                 // As Telegram allows it: for everyone, or for this account alone, saying which.
                 if deleteChoices?.forEveryone == true {
-                    Button("Delete for everyone", role: .destructive) {
+                    Button(t("message.action.deleteForEveryone"), role: .destructive) {
                         run { try await model.core.session(serverId).deleteMessages(message.groupId, ids: [message.id], forEveryone: true) }
                     }
                 }
                 if deleteChoices?.forSelf == true || deleteChoices?.forEveryone == false {
-                    Button("Delete for me", role: .destructive) {
+                    Button(t("message.delete.forMe"), role: .destructive) {
                         run { try await model.core.session(serverId).deleteMessages(message.groupId, ids: [message.id], forEveryone: false) }
                     }
                 }
             } else {
-                Button("Delete for everyone", role: .destructive) {
+                Button(t("message.action.deleteForEveryone"), role: .destructive) {
                     run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) }
                 }
             }
@@ -255,11 +255,11 @@ struct ChatScreen: View {
             if let peer, peer.trust == .changed, !isSaved {
                 HStack(spacing: 10) {
                     Label {
-                        Text("\(Text("\(conversation.title)'s security key changed.").bold()) This can mean someone is intercepting this chat. Compare keys before sharing anything private.")
+                        Text("\(Text(t("chat.keyChanged.title", ["name": conversation.title])).bold()) \(t("chat.keyChanged.text"))")
                     } icon: {
                         Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
                     }
-                    Button("Verify") { sheet = .verify(userId: peer.id) }
+                    Button(t("chat.keyChanged.verify")) { sheet = .verify(userId: peer.id) }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier(A11y.Chat.bannerVerify)
                 }
@@ -285,14 +285,14 @@ struct ChatScreen: View {
                 } else if let failed = list?.failed {
                     // Opening it again would be the only way otherwise.
                     VStack(spacing: 10) {
-                        Text("Couldn't load this chat")
+                        Text(t("chat.loadFailed"))
                             .font(.headline)
                             .foregroundStyle(Theme.text1)
                         Text(failed)
                             .font(.subheadline)
                             .foregroundStyle(Theme.text2)
                             .multilineTextAlignment(.center)
-                        Button("Try again") {
+                        Button(t("common.tryAgain")) {
                             Task { await model.loadList(serverId, listId, groupId: conversation.groupId) }
                         }
                         .buttonStyle(.bordered)
@@ -330,11 +330,11 @@ struct ChatScreen: View {
             }
             if conversation.removed {
                 VStack(spacing: 8) {
-                    Text("You're no longer in this conversation. Its messages stay on this device for 30 days.")
+                    Text(t("composer.disabled.left"))
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.center)
-                    Button("Remove now", role: .destructive) {
+                    Button(t("composer.disabled.removeNow"), role: .destructive) {
                         guard let groupId = conversation.groupId else { return }
                         model.chatPath = []
                         Task { try? await model.core.session(serverId).forgetConversation(groupId) }
@@ -345,7 +345,7 @@ struct ChatScreen: View {
                 .background(Theme.bg0)
                 .accessibilityIdentifier(A11y.Composer.disabled)
             } else if peer?.banned == true || peer?.deleted == true, !isSaved {
-                Label(peer?.deleted == true ? "This account was deleted." : "This person was removed from the server.", systemImage: "xmark")
+                Label(peer?.deleted == true ? t("composer.disabled.deleted") : t("composer.disabled.removed"), systemImage: "xmark")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity)
@@ -354,10 +354,10 @@ struct ChatScreen: View {
                     .accessibilityIdentifier(A11y.Composer.disabled)
             } else if conversation.blocked, let peer {
                 HStack(spacing: 10) {
-                    Label("You blocked \(peer.displayName).", systemImage: "nosign")
+                    Label(t("composer.disabled.blocked", ["name": peer.displayName]), systemImage: "nosign")
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
-                    Button("Unblock") { model.setBlocked(peer.id, false, on: serverId) }
+                    Button(t("composer.disabled.unblock")) { model.setBlocked(peer.id, false, on: serverId) }
                         .font(.subheadline.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity)
@@ -389,7 +389,7 @@ struct ChatScreen: View {
                     do {
                         try await FilePreview.open { try await images.openable(attachment, serverId: serverId) }
                     } catch {
-                        model.toast("Couldn't open \(attachment.name): \(ErrorText.describe(error))", .error)
+                        model.toast(t("media.openFailed", ["name": attachment.name, "error": ErrorText.describe(error)]), .error)
                     }
                 }
             },
@@ -435,7 +435,7 @@ struct ChatScreen: View {
                     .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
             },
             reactedBy: { ids in
-                ids.map { $0 == server.me?.userId ? "You" : server.users[$0]?.displayName ?? "Someone" }.joined(separator: ", ")
+                ids.map { $0 == server.me?.userId ? t("common.you") : server.users[$0]?.displayName ?? t("common.someone") }.joined(separator: ", ")
             },
             openChat: { model.openChat($0) },
             isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin,
@@ -490,9 +490,9 @@ struct ChatScreen: View {
         // Telegram lets anything go for this account alone, and decides what goes for everyone.
         let canDelete = !picked.isEmpty && (server.entry.isTelegram || picked.allSatisfy { $0.senderId == selfId || (conversation.kind != .dm && isAdmin) })
         return HStack(spacing: 4) {
-            Button("Cancel") { selection = nil }
+            Button(t("common.cancel")) { selection = nil }
                 .padding(.horizontal, 8)
-            Text("\(picked.count) selected")
+            Text(t("chat.selection.selected", ["count": picked.count]))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.text1)
                 .frame(maxWidth: .infinity)
@@ -503,14 +503,14 @@ struct ChatScreen: View {
                 Image(systemName: "doc.on.doc").frame(width: 40, height: 40)
             }
             .disabled(picked.isEmpty)
-            .accessibilityLabel("Copy")
+            .accessibilityLabel(t("common.copy"))
             Button {
                 sheet = .forward(picked)
             } label: {
                 Image(systemName: "arrowshape.turn.up.right").frame(width: 40, height: 40)
             }
             .disabled(picked.isEmpty)
-            .accessibilityLabel("Forward")
+            .accessibilityLabel(t("message.action.forward"))
             if canDelete {
                 Button(role: .destructive) {
                     confirmingDelete = true
@@ -518,7 +518,7 @@ struct ChatScreen: View {
                     Image(systemName: "trash").frame(width: 40, height: 40)
                 }
                 .tint(Theme.red)
-                .accessibilityLabel("Delete")
+                .accessibilityLabel(t("common.delete"))
             }
         }
         .padding(.horizontal, 8)
@@ -532,21 +532,21 @@ struct ChatScreen: View {
         .onChange(of: picked.isEmpty) { _, empty in
             if empty { selection = nil }
         }
-        .confirmationDialog("Delete \(picked.count == 1 ? "this message" : "\(picked.count) messages")\(server.entry.isTelegram ? "" : " for everyone")?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .confirmationDialog(deleteQuestion(picked.count, telegram: server.entry.isTelegram), isPresented: $confirmingDelete, titleVisibility: .visible) {
             if server.entry.isTelegram {
                 // What Telegram lets go for everyone does; the rest goes for this account alone.
-                Button("Delete for everyone", role: .destructive) {
+                Button(t("message.action.deleteForEveryone"), role: .destructive) {
                     guard let groupId = conversation.groupId else { return }
                     selection = nil
                     run { try await model.core.session(ServerEntry.telegram).deleteMessages(groupId, ids: picked.map(\.id), forEveryone: true) }
                 }
-                Button("Delete for me", role: .destructive) {
+                Button(t("message.delete.forMe"), role: .destructive) {
                     guard let groupId = conversation.groupId else { return }
                     selection = nil
                     run { try await model.core.session(ServerEntry.telegram).deleteMessages(groupId, ids: picked.map(\.id), forEveryone: false) }
                 }
             } else {
-                Button("Delete for everyone", role: .destructive) {
+                Button(t("message.action.deleteForEveryone"), role: .destructive) {
                     guard let groupId = conversation.groupId else { return }
                     let serverId = server.entry.id
                     selection = nil
@@ -556,15 +556,21 @@ struct ChatScreen: View {
         }
     }
 
+    /// Whether to delete the picked messages, for everyone outside Telegram.
+    private func deleteQuestion(_ count: Int, telegram: Bool) -> String {
+        if telegram { return count == 1 ? t("message.delete.confirmTelegram") : t("message.delete.confirmManyTelegram", ["count": count]) }
+        return count == 1 ? t("message.delete.confirm") : t("message.delete.confirmMany", ["count": count])
+    }
+
     /// One message's text, or several with who wrote each and when, as Telegram copies them.
     private func copy(_ picked: [MessageView], server: AppModel.ServerState) {
-        let name = { (id: String) in id == server.me?.userId ? "You" : server.users[id]?.displayName ?? "Unknown" }
+        let name = { (id: String) in id == server.me?.userId ? t("common.you") : server.users[id]?.displayName ?? t("chat.unknown") }
         // A message of only files is copied as their names, rather than as nothing.
         let text = { (message: MessageView) in message.text.isEmpty ? message.attachments.map(\.name).joined(separator: ", ") : message.text }
         UIPasteboard.general.string = picked.count == 1
             ? text(picked[0])
             : picked.map { "\(name($0.senderId)), [\(Format.full($0.createdAt))]\n\(text($0))" }.joined(separator: "\n\n")
-        model.toast(picked.count == 1 ? "Copied" : "Copied \(picked.count) messages")
+        model.toast(picked.count == 1 ? t("common.copied") : t("chat.selection.copied", ["count": picked.count]))
         selection = nil
     }
 
@@ -606,7 +612,7 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
         .padding(12)
-        .accessibilityLabel("Go to the newest messages")
+        .accessibilityLabel(t("chat.toNewest"))
         .accessibilityIdentifier(A11y.Chat.toBottom)
     }
 
@@ -616,9 +622,17 @@ struct ChatScreen: View {
         let since = unread > 0
             ? list.items.first { AppModel.isUnread($0, ownRead: conversation.ownRead, selfId: server.me?.userId, blocked: server.prefs.blocked ?? []) }?.createdAt
             : nil
-        let what = unread > 0
-            ? "\(unread > 99 ? "99+" : "\(unread)") new \(unread == 1 ? "message" : "messages")\(since.map { " since \(Format.since($0))" } ?? "")"
-            : "You're viewing older messages"
+        // Over 99 as "99+", which takes the form many do.
+        let count: Any = unread > 99 ? "99+" : unread
+        let what: String
+        if unread <= 0 {
+            what = t("chat.viewingOlder")
+        } else if let since {
+            let (yesterday, time) = Format.since(since)
+            what = yesterday ? t("chat.newMessagesSinceYesterday", ["count": count, "time": time]) : t("chat.newMessagesSince", ["count": count, "time": time])
+        } else {
+            what = t("chat.newMessages", ["count": count])
+        }
         return Button(action: action) {
             HStack(spacing: 12) {
                 Text(what)
@@ -626,7 +640,7 @@ struct ChatScreen: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 HStack(spacing: 4) {
-                    Text("Jump to present")
+                    Text(t("chat.jumpToPresent"))
                     Image(systemName: "arrow.down").font(.footnote.weight(.bold))
                 }
                 .fontWeight(.semibold)
@@ -644,7 +658,7 @@ struct ChatScreen: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(what). Jump to present")
+        .accessibilityLabel(t("chat.jumpToPresentLabel", ["what": what]))
         .accessibilityIdentifier(A11y.Channels.jumpToPresent)
     }
 
@@ -703,7 +717,7 @@ private struct MentionButton: View {
                 }
                 .buttonStyle(.plain)
                 .padding([.horizontal, .top], 12)
-                .accessibilityLabel("Go to the next message that mentions you, \(mentions.count) left")
+                .accessibilityLabel(t("chat.nextMention", ["count": mentions.count]))
                 .accessibilityIdentifier(A11y.Chat.toMention)
             }
         }
@@ -727,16 +741,15 @@ private struct CallBanner: View {
         let here = voice.serverId == server.entry.id && voice.channelId == groupId && voice.inCall
         if !here, !people.isEmpty {
             let elsewhere = people.contains { $0 == me }
-            let names = people.filter { $0 != me }.map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
-            let who = names.count <= 2 ? names.joined(separator: " and ") : "\(names[0]), \(names[1]) and \(names.count - 2) more"
+            let names = people.filter { $0 != me }.map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? t("common.someone") }
             HStack(spacing: 10) {
                 Image(systemName: "phone.fill").foregroundStyle(Theme.green)
-                Text(elsewhere ? "You're in this call on another device" : "\(who) \(names.count == 1 ? "is" : "are") in a call")
+                Text(elsewhere ? t("voice.call.elsewhere") : Self.inCall(names))
                     .font(.footnote)
                     .foregroundStyle(Theme.text1)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button(elsewhere ? "Move here" : "Join") {
+                Button(elsewhere ? t("voice.call.moveHere") : t("voice.call.join")) {
                     let serverId = server.entry.id
                     Task { await voice.join(serverId: serverId, channelId: groupId) }
                 }
@@ -751,6 +764,16 @@ private struct CallBanner: View {
             .accessibilityIdentifier(A11y.Chat.callBanner)
         }
     }
+
+    /// Who's in the call: one or two by name, or the first two and how many more.
+    private static func inCall(_ names: [String]) -> String {
+        switch names.count {
+        case 0: ""
+        case 1: t("voice.call.bannerOne", ["name": names[0]])
+        case 2: t("voice.call.bannerTwo", ["first": names[0], "second": names[1]])
+        default: t("voice.call.bannerMany", ["first": names[0], "second": names[1], "count": names.count - 2])
+        }
+    }
 }
 
 /// Who's typing in a channel, by name, apart from you: a view of its own, so that only it
@@ -762,7 +785,7 @@ private struct ChannelTypingLine: View {
 
     var body: some View {
         let ids = model.live(server.entry.id).typists(in: groupId)
-        ChannelTyping(names: ids.filter { $0 != server.me?.userId }.sorted().map { server.users[$0]?.displayName ?? "Someone" })
+        ChannelTyping(names: ids.filter { $0 != server.me?.userId }.sorted().map { server.users[$0]?.displayName ?? t("common.someone") })
     }
 }
 
@@ -782,11 +805,11 @@ private struct ChatHeader: View {
                     .lineLimit(1)
                 if peer?.bot != nil, !isSaved { BotBadge() }
                 if peer?.trust == .verified, !isSaved {
-                    Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel("Verified")
+                    Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel(t("chat.header.verifiedMark"))
                 }
                 if conversation.disappearAfter > 0 {
                     Image(systemName: "timer").font(.caption).foregroundStyle(Theme.text2)
-                        .accessibilityLabel("Messages disappear after \(Format.timer(conversation.disappearAfter))")
+                        .accessibilityLabel(t("chat.header.disappearAfter", ["time": Format.timer(conversation.disappearAfter)]))
                 }
             }
             .accessibilityIdentifier(A11y.Chat.title)
@@ -799,10 +822,10 @@ private struct ChatHeader: View {
                             .font(.system(size: 9, weight: .semibold))
                             .accessibilityHidden(true)
                     }
-                    Text(server.entry.isTelegram ? "Telegram · \(status)" : status)
+                    Text(server.entry.isTelegram ? t("chat.header.telegramStatus", ["status": status]) : status)
                         .font(.caption)
                         .lineLimit(1)
-                        .accessibilityLabel(server.entry.isTelegram ? "Telegram, not end-to-end encrypted, \(status)" : status)
+                        .accessibilityLabel(server.entry.isTelegram ? t("chat.header.telegramStatusLabel", ["status": status]) : status)
                         .accessibilityIdentifier(A11y.Chat.status)
                     if !typingNames.isEmpty {
                         TypingDots()
@@ -820,7 +843,7 @@ private struct ChatHeader: View {
     }
 
     private var typingNames: [String] {
-        live.typists(in: conversation.groupId).map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
+        live.typists(in: conversation.groupId).map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? t("common.someone") }
     }
 
     private var online: Bool {
@@ -830,20 +853,20 @@ private struct ChatHeader: View {
     private var status: String {
         let typing = typingNames
         if !typing.isEmpty {
-            if conversation.kind == .dm { return "typing" }
-            return typing.count == 1 ? "\(typing[0]) is typing" : "\(typing.count) people are typing"
+            if conversation.kind == .dm { return t("chat.typing.dm") }
+            return typing.count == 1 ? t("chat.typing.one", ["name": typing[0]]) : t("chat.typing.many", ["count": typing.count])
         }
         if conversation.kind == .group {
             let count = conversation.members.count
             let online = conversation.members.filter { live.isOnline($0.userId, in: server) }.count
-            return "\(count) \(count == 1 ? "member" : "members")" + (online > 0 ? ", \(online) online" : "")
+            return online > 0 ? t("chat.header.membersOnline", ["count": count, "online": online]) : t("details.group.members", ["count": count])
         }
-        if isSaved { return "Notes to yourself" }
-        if peer?.deleted == true { return "Deleted their account" }
-        if peer?.banned == true { return "Removed from this server" }
+        if isSaved { return t("chat.header.notesToSelf") }
+        if peer?.deleted == true { return t("chat.header.deleted") }
+        if peer?.banned == true { return t("chat.header.removed") }
         // Nobody is using a bot, so it's never online, and was never last seen.
-        if peer?.bot != nil { return "bot" }
-        if peerOnline { return "online" }
+        if peer?.bot != nil { return t("chat.header.bot") }
+        if peerOnline { return t("chat.header.online") }
         return Format.lastSeen(peer.flatMap { live.lastSeenAt($0) }, hidden: peer?.hidesLastSeen ?? false)
     }
 }
@@ -865,7 +888,7 @@ private struct ChannelHeader: View {
                     .foregroundStyle(Theme.text1)
                     .lineLimit(1)
                 if muted {
-                    Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(Theme.text3).accessibilityLabel("Muted")
+                    Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(Theme.text3).accessibilityLabel(t("chat.header.muted"))
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .bold))
@@ -892,10 +915,10 @@ private struct JoiningChannel: View {
     var body: some View {
         VStack(spacing: 10) {
             ProgressView()
-            Text("Joining #\(channel.title)…")
+            Text(t("channels.joining.title", ["name": channel.title]))
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
-            Text("This device joins every channel on the server automatically. Its messages will appear in a moment.")
+            Text(t("channels.joining.body"))
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
@@ -930,15 +953,13 @@ private struct EmptyChat: View {
     }
 
     private var title: String {
-        if isSaved { return "Your saved messages" }
-        return conversation.kind == .group ? conversation.title : "Say hello to \(conversation.title)"
+        if isSaved { return t("chat.empty.savedTitle") }
+        return conversation.kind == .group ? conversation.title : t("chat.empty.dmTitle", ["name": conversation.title])
     }
 
     private var message: String {
-        if telegram { return "This chat is on Telegram, which keeps its messages on its servers. It isn't end-to-end encrypted." }
-        if isSaved { return "Keep notes, links and files here. They're encrypted and sync across your devices." }
-        return conversation.kind == .group
-            ? "Messages here are end-to-end encrypted. Only members can read them."
-            : "Your messages are end-to-end encrypted. Not even this server can read them."
+        if telegram { return t("chat.empty.onTelegram") }
+        if isSaved { return t("chat.empty.savedText") }
+        return conversation.kind == .group ? t("chat.empty.groupText") : t("chat.empty.dmText")
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import ZunaModels
 
 /// A list with its search field above the first row, out of sight until the
 /// list is pulled down, as Telegram's chat list has it. The field waits above
@@ -75,7 +76,7 @@ struct PullSearchList<Content: View>: View {
                         .frame(width: 28, height: 44)
                         .contentShape(.rect)
                         .onTapGesture { query = "" }
-                        .accessibilityLabel("Clear")
+                        .accessibilityLabel(t("common.clear"))
                         .accessibilityAddTraits(.isButton)
                 }
             }
@@ -83,7 +84,7 @@ struct PullSearchList<Content: View>: View {
             .frame(height: 44)
             .glassCapsule(interactive: false)
             if active {
-                Text("Cancel")
+                Text(t("common.cancel"))
                     .foregroundStyle(Theme.text1)
                     .frame(height: 44)
                     .contentShape(.rect)

@@ -55,18 +55,19 @@ struct ChannelEditor: View {
         if case .new = target { true } else { false }
     }
 
-    /// As the desktop offers them (AUDIO_QUALITIES in ChannelDialog.tsx), in kbit/s, 0 being the usual.
+    /// As the desktop offers them (AUDIO_QUALITIES in ChannelDialog.tsx), in kbit/s, 0 being the usual, each with its name's key.
     private static let audioQualities: [(kbps: Int, label: String)] = [
-        (0, "Standard (64 kbit/s)"), (96, "Better (96 kbit/s)"), (128, "Great (128 kbit/s)"), (256, "Best (256 kbit/s)"),
+        (0, mark("channels.audio.standard")), (96, mark("channels.audio.better")),
+        (128, mark("channels.audio.great")), (256, mark("channels.audio.best")),
     ]
 
     /// How many may share a screen at once (SCREEN_LIMITS in ChannelDialog.tsx): 0 is the server's rules, -1 nobody.
     private static func screenLimitName(_ limit: Int) -> String {
         switch limit {
-        case 0: "Server default"
-        case -1: "Off"
-        case 1: "1 at a time"
-        default: "Up to \(limit) at once"
+        case 0: t("channels.dialog.screenDefault")
+        case -1: t("common.off")
+        case 1: t("channels.dialog.screenOne")
+        default: t("channels.editor.screenUpTo", ["count": limit])
         }
     }
 
@@ -98,64 +99,64 @@ struct ChannelEditor: View {
             Form {
                 if isNew {
                     Section {
-                        Picker("Type", selection: $type) {
-                            Label("Text", systemImage: ChannelType.text.symbol).tag(ChannelType.text)
-                            Label("Voice", systemImage: ChannelType.voice.symbol).tag(ChannelType.voice)
+                        Picker(t("channels.form.type"), selection: $type) {
+                            Label(t("channels.form.text"), systemImage: ChannelType.text.symbol).tag(ChannelType.text)
+                            Label(t("channels.form.voice"), systemImage: ChannelType.voice.symbol).tag(ChannelType.voice)
                         }
                         .pickerStyle(.segmented)
                         .accessibilityIdentifier(A11y.Channels.editorType)
                     } footer: {
-                        Text(type == .text ? "Messages, pictures and files." : (server?.info?.voice ?? 0) > 0
-                            ? "Talk, and share your camera or screen."
-                            : "This server doesn't have a media server yet, so nobody can join voice channels. Whoever runs the server can set up LiveKit.")
+                        Text(type == .text ? t("channels.editor.textHint") : (server?.info?.voice ?? 0) > 0
+                            ? t("channels.editor.voiceHint")
+                            : t("channels.editor.noMediaServer"))
                     }
                 }
                 Section {
-                    TextField(type == .text ? "new-channel" : "Lounge", text: Binding(get: { name }, set: { name = String($0.prefix(100)) }))
+                    TextField(type == .text ? t("channels.dialog.textPlaceholder") : t("channels.dialog.voicePlaceholder"), text: Binding(get: { name }, set: { name = String($0.prefix(100)) }))
                         .textInputAutocapitalization(type == .text ? .never : .sentences)
                         .autocorrectionDisabled(type == .text)
                         .accessibilityIdentifier(A11y.Channels.editorName)
                 } header: {
-                    Text("Name")
+                    Text(t("common.name"))
                 } footer: {
                     // Rewriting the field as it's typed would move the cursor, so it says what the name becomes instead.
                     if type == .text, !finalName.isEmpty, finalName != name {
-                        Text("It'll be #\(finalName)")
+                        Text(t("channels.editor.finalName", ["name": finalName]))
                             .accessibilityIdentifier(A11y.Channels.editorFinalName)
                     }
                 }
-                Section("Topic") {
-                    TextField("What it's for", text: Binding(get: { topic }, set: { topic = String($0.prefix(1024)) }), axis: .vertical)
+                Section(t("channels.form.topic")) {
+                    TextField(t("channels.form.topicPlaceholder"), text: Binding(get: { topic }, set: { topic = String($0.prefix(1024)) }), axis: .vertical)
                         .lineLimit(1...4)
                         .accessibilityIdentifier(A11y.Channels.editorTopic)
                 }
                 Section {
-                    TextField(type == .text ? "Text channels" : "Voice channels", text: Binding(get: { category }, set: { category = String($0.prefix(100)) }))
+                    TextField(type == .text ? t("channels.textChannels") : t("channels.voiceChannels"), text: Binding(get: { category }, set: { category = String($0.prefix(100)) }))
                         .accessibilityIdentifier(A11y.Channels.editorHeading)
                     let headings = Array(Set((server?.channels ?? []).map(\.category).filter { !$0.isEmpty })).sorted()
                     if !headings.isEmpty {
-                        Menu("Use an existing heading") {
+                        Menu(t("channels.editor.useHeading")) {
                             ForEach(headings, id: \.self) { heading in
                                 Button(heading) { category = heading }
                             }
                         }
                     }
                 } header: {
-                    Text("Heading")
+                    Text(t("channels.form.heading"))
                 } footer: {
-                    Text("Channels with the same heading are listed together under it.")
+                    Text(t("channels.editor.headingHint"))
                 }
                 Section {
-                    Toggle("Admins only", isOn: $adminOnly)
+                    Toggle(t("channels.adminsOnly"), isOn: $adminOnly)
                         .accessibilityIdentifier(A11y.Channels.editorAdminOnly)
                 } footer: {
-                    Text(adminOnly && channel?.adminOnly == false ? "Only admins will see it. Anyone else in it now is taken out." : "Only admins can see it and join it.")
+                    Text(adminOnly && channel?.adminOnly == false ? t("channels.editor.adminOnlyNow") : t("channels.form.adminOnlyHint"))
                 }
                 Section {
-                    Toggle("Slow mode", isOn: $slowOn)
+                    Toggle(t("channels.form.slowMode"), isOn: $slowOn)
                         .accessibilityIdentifier(A11y.Channels.editorSlowMode)
                     if slowOn {
-                        Picker("Time between messages", selection: $slowMode) {
+                        Picker(t("channels.form.slowModeTime"), selection: $slowMode) {
                             ForEach(slowModes, id: \.self) { seconds in
                                 Text(Format.timer(seconds)).tag(seconds)
                             }
@@ -163,36 +164,36 @@ struct ChannelEditor: View {
                         .accessibilityIdentifier(A11y.Channels.editorSlowModeTime)
                     }
                 } footer: {
-                    Text("Everyone except admins has to wait between messages.")
+                    Text(t("channels.form.slowModeHint"))
                 }
                 if type == .voice {
                     voiceSection
                 }
                 if !isNew {
                     Section {
-                        Button("Delete channel", role: .destructive) { confirmingDelete = true }
+                        Button(t("channels.delete"), role: .destructive) { confirmingDelete = true }
                             .accessibilityIdentifier(A11y.Channels.delete)
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg1)
-            .navigationTitle(isNew ? "New channel" : "Edit channel")
+            .navigationTitle(isNew ? t("channels.new") : t("channels.edit"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView()
                     } else {
-                        Button(isNew ? "Create" : "Save", action: save)
+                        Button(isNew ? t("common.create") : t("common.save"), action: save)
                             .disabled(finalName.isEmpty)
                             .accessibilityIdentifier(A11y.Channels.editorSave)
                     }
                 }
             }
-            .confirmationDialog("Delete #\(channel?.title ?? "")? Its messages will be deleted for everyone.", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                Button("Delete channel", role: .destructive, action: remove)
+            .confirmationDialog(t("channels.deleteConfirm", ["name": channel?.title ?? ""]), isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button(t("channels.delete"), role: .destructive, action: remove)
             }
         }
         .accessibilityIdentifier(A11y.Channels.editor)
@@ -200,44 +201,44 @@ struct ChannelEditor: View {
         // Deleted by another admin meanwhile: there's nothing left to change.
         .onChange(of: !isNew && loaded && channel == nil) { _, gone in
             guard gone, !busy, !removed else { return }
-            model.toast("That channel was deleted.")
+            model.toast(t("channels.editor.deletedMeanwhile"))
             dismiss()
         }
     }
 
     private var voiceSection: some View {
         Section {
-            Picker("Audio quality", selection: $bitrate) {
+            Picker(t("channels.form.audioQuality"), selection: $bitrate) {
                 ForEach(Self.audioQualities, id: \.kbps) { quality in
-                    Text(quality.label).tag(quality.kbps)
+                    Text(t(quality.label)).tag(quality.kbps)
                 }
             }
             .accessibilityIdentifier(A11y.Channels.editorBitrate)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Max people")
+                    Text(t("channels.editor.maxPeople"))
                     Spacer()
-                    Text(userLimit == 0 ? "No limit" : "\(userLimit)").foregroundStyle(Theme.text2).monospacedDigit()
+                    Text(userLimit == 0 ? t("common.noLimit") : "\(userLimit)").foregroundStyle(Theme.text2).monospacedDigit()
                 }
                 Slider(value: Binding(get: { Double(userLimit) }, set: { userLimit = Int($0.rounded()) }), in: 0...99, step: 1)
-                    .accessibilityLabel("Max people")
-                    .accessibilityValue(userLimit == 0 ? "No limit" : "\(userLimit)")
+                    .accessibilityLabel(t("channels.editor.maxPeople"))
+                    .accessibilityValue(userLimit == 0 ? t("common.noLimit") : "\(userLimit)")
                     .accessibilityIdentifier(A11y.Channels.editorUserLimit)
             }
-            Picker("Screen sharing", selection: $screenLimit) {
+            Picker(t("channels.form.screenSharing"), selection: $screenLimit) {
                 ForEach(screenLimits, id: \.self) { limit in
                     Text(Self.screenLimitName(limit)).tag(limit)
                 }
             }
             .accessibilityIdentifier(A11y.Channels.editorScreenLimit)
-            Toggle("Soundboard", isOn: $sounds)
+            Toggle(t("channels.form.soundboard"), isOn: $sounds)
                 .accessibilityIdentifier(A11y.Channels.editorSounds)
-            Toggle("Watch together", isOn: $watch)
+            Toggle(t("channels.form.watch"), isOn: $watch)
                 .accessibilityIdentifier(A11y.Channels.editorWatch)
         } header: {
-            Text("Voice")
+            Text(t("channels.form.voice"))
         } footer: {
-            Text("You can allow fewer screen shares at once than the server does, or turn screen sharing off here. With the soundboard on, anyone in the channel can play the server's sounds. With watching together on, anyone in the channel can start a YouTube video for everyone, which only plays for people who press Watch.")
+            Text(t("channels.editor.voiceFooter"))
         }
     }
 
@@ -346,7 +347,7 @@ struct ChannelsSettingsView: View {
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(channel.title).foregroundStyle(Theme.text1)
-                                Text(channel.category.isEmpty ? (channel.type == .voice ? "Voice channels" : "Text channels") : channel.category)
+                                Text(channel.category.isEmpty ? (channel.type == .voice ? t("channels.voiceChannels") : t("channels.textChannels")) : channel.category)
                                     .font(.caption)
                                     .foregroundStyle(Theme.text3)
                             }
@@ -372,18 +373,18 @@ struct ChannelsSettingsView: View {
                     }
                 }
                 if channels.isEmpty {
-                    Text("No channels yet. Everyone on the server can see and join the ones you make.")
+                    Text(t("channels.settings.empty"))
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
                 }
             } footer: {
-                Text("Everyone on the server can see and join every channel. Names and topics are encrypted, so the server can't read them. Tap Edit to change the order.")
+                Text(t("channels.settings.footer"))
             }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle("Channels")
+        .navigationTitle(t("channels.title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -392,7 +393,7 @@ struct ChannelsSettingsView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("New channel")
+                .accessibilityLabel(t("channels.new"))
                 .accessibilityIdentifier(A11y.Channels.newChannel)
             }
             if !channels.isEmpty {

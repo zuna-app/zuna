@@ -21,21 +21,21 @@ struct WelcomeStep: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 24)
                     VStack(spacing: 18) {
-                        StepHeader("Welcome to Zuna", message: Text("Private chat on servers you and your friends run.")) {
+                        StepHeader(t("onboarding.welcome.title"), message: Text(t("onboarding.welcome.tagline"))) {
                             ZunaLogo(size: 88)
                         }
                         TrustRow()
                     }
                     Spacer(minLength: 40)
                     VStack(spacing: 10) {
-                        PrimaryButton(title: "Join with an invite", systemImage: "link", action: onJoin)
+                        PrimaryButton(title: t("onboarding.welcome.join"), systemImage: "link", action: onJoin)
                             .accessibilityIdentifier(A11y.Onboarding.joinWithInvite)
-                        SecondaryButton(title: "Sign in", action: onSignIn)
+                        SecondaryButton(title: t("onboarding.signIn.title"), action: onSignIn)
                             .accessibilityIdentifier(A11y.Onboarding.signIn)
                         Link(destination: OnboardingText.selfHostingURL) {
                             HStack(spacing: 6) {
                                 Image(systemName: "server.rack")
-                                Text("Host your own server")
+                                Text(t("onboarding.welcome.host"))
                                 Image(systemName: "arrow.up.right")
                                     .font(.caption.weight(.semibold))
                             }
@@ -47,7 +47,7 @@ struct WelcomeStep: View {
                         Button { settingProxy = true } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "network.badge.shield.half.filled")
-                                Text(proxyOn ? "Connecting through a proxy" : "Connect through a proxy")
+                                Text(proxyOn ? t("settings.proxy.connectingThrough") : t("settings.proxy.connectThrough"))
                             }
                             .font(.callout.weight(.medium))
                             .foregroundStyle(Theme.text2)
@@ -72,7 +72,7 @@ struct WelcomeStep: View {
                 ProxySettingsView()
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { settingProxy = false }
+                            Button(t("common.cancel")) { settingProxy = false }
                         }
                     }
             }
@@ -95,9 +95,9 @@ private struct TrustRow: View {
         .foregroundStyle(Theme.text2)
     }
 
-    private var encrypted: some View { chip(Label("End-to-end encrypted", systemImage: "lock.fill")) }
-    private var openSource: some View { chip(Label("Open source", systemImage: "checkmark.shield.fill")) }
-    private var selfHosted: some View { chip(Label("Self-hosted", systemImage: "server.rack")) }
+    private var encrypted: some View { chip(Label(t("onboarding.welcome.encrypted"), systemImage: "lock.fill")) }
+    private var openSource: some View { chip(Label(t("onboarding.welcome.openSource"), systemImage: "checkmark.shield.fill")) }
+    private var selfHosted: some View { chip(Label(t("onboarding.welcome.selfHosted"), systemImage: "server.rack")) }
 
     private func chip(_ label: some View) -> some View {
         label
@@ -122,7 +122,7 @@ struct InviteLinkStep: View {
 
     var body: some View {
         StepScreen {
-            StepHeader("Join a server", message: Text("Paste the invite link someone sent you."), systemImage: "link")
+            StepHeader(t("onboarding.link.title"), message: Text(t("onboarding.link.lead")), systemImage: "link")
 
             FormField(label: nil, error: error) {
                 HStack(spacing: 8) {
@@ -134,7 +134,7 @@ struct InviteLinkStep: View {
                         .submitLabel(.continue)
                         .onSubmit(submit)
                         .onChange(of: link) { error = nil }
-                        .accessibilityLabel("Invite link")
+                        .accessibilityLabel(t("onboarding.link.label"))
                         .accessibilityIdentifier(A11y.Onboarding.link)
                     if link.isEmpty {
                         PasteButton(payloadType: String.self) { strings in
@@ -160,13 +160,13 @@ struct InviteLinkStep: View {
                 }
             }
 
-            PrimaryButton(title: "Continue", busy: busy, action: submit)
+            PrimaryButton(title: t("common.continue"), busy: busy, action: submit)
                 .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                 .accessibilityIdentifier(A11y.Onboarding.continue)
 
             // On the first run the welcome screen offers signing in, one step back.
             if embedded {
-                SecondaryButton(title: "I already have an account", action: onSignIn)
+                SecondaryButton(title: t("onboarding.link.haveAccount"), action: onSignIn)
                     .accessibilityIdentifier(A11y.Onboarding.signIn)
             }
         }
@@ -224,7 +224,7 @@ struct InviteStep: View {
 
     private var usernameError: String? {
         if let error, error.localizedCaseInsensitiveContains("username") { return error }
-        if !username.isEmpty, !AccountRules.isValidUsername(username) { return "Usernames need at least 2 valid characters." }
+        if !username.isEmpty, !AccountRules.isValidUsername(username) { return t("onboarding.invite.usernameInvalid") }
         return nil
     }
 
@@ -232,19 +232,19 @@ struct InviteStep: View {
         let server = preview.server
         StepScreen {
             StepHeader(
-                preview.setup ? "Set up your server" : "Join \(server.name)",
+                preview.setup ? t("onboarding.invite.setUpTitle") : t("onboarding.invite.joinTitle", ["server": server.name]),
                 message: preview.setup
-                    ? Text("You're creating the owner account.")
+                    ? Text(t("onboarding.invite.owner"))
                     : server.userCount > 0
-                        ? Text("\(Image(systemName: "person.2.fill")) \(server.userCount) \(server.userCount == 1 ? "member" : "members")")
-                        : Text("Open sign-ups")
+                        ? Text("\(Image(systemName: "person.2.fill")) \(t("onboarding.invite.members", ["count": server.userCount]))")
+                        : Text(t("onboarding.invite.openSignUps"))
             ) {
                 AvatarView(name: server.name, seed: preview.url, source: .serverAt(url: preview.url, hasIcon: server.hasIcon), size: 72, rounded: true)
             }
             .accessibilityIdentifier(A11y.Onboarding.joinScreen)
 
-            FormField(label: "Your name") {
-                TextField("How people will see you", text: $displayName)
+            FormField(label: t("onboarding.invite.yourName")) {
+                TextField(t("onboarding.invite.yourNamePlaceholder"), text: $displayName)
                     .textContentType(.name)
                     .textInputAutocapitalization(.words)
                     .onChange(of: displayName) { _, name in
@@ -253,7 +253,7 @@ struct InviteStep: View {
                     }
                     .accessibilityIdentifier(A11y.Onboarding.displayName)
             }
-            FormField(label: "Username", hint: "Letters, numbers, dots, dashes and underscores.", error: usernameError) {
+            FormField(label: t("common.username"), hint: t("onboarding.invite.usernameHint"), error: usernameError) {
                 TextField("alex", text: Binding(get: { username }, set: { value in
                     username = String(value.prefix(32))
                     usernameEdited = true
@@ -266,10 +266,10 @@ struct InviteStep: View {
                 .accessibilityIdentifier(A11y.Onboarding.username)
             }
             VStack(alignment: .leading, spacing: 8) {
-                FormField(label: "Password") {
+                FormField(label: t("common.password")) {
                     SecureField("", text: $password)
                         .textContentType(.newPassword)
-                        .accessibilityLabel("Password")
+                        .accessibilityLabel(t("common.password"))
                         .accessibilityIdentifier(A11y.Onboarding.password)
                 }
                 StrengthMeter(rating: rating)
@@ -278,7 +278,7 @@ struct InviteStep: View {
                     }
             }
             ConfirmPasswordField(password: password, confirmation: $confirm)
-            Label("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.", systemImage: "lock.fill")
+            Label(t("onboarding.invite.passwordNote"), systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.text2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -290,10 +290,10 @@ struct InviteStep: View {
                     .foregroundStyle(Theme.red)
                     .accessibilityIdentifier(A11y.Onboarding.error)
             }
-            PrimaryButton(title: "Agree and create account", busyTitle: "Securing your account", busy: busy, action: submit)
+            PrimaryButton(title: t("onboarding.invite.create"), busyTitle: t("onboarding.invite.securing"), busy: busy, action: submit)
                 .disabled(!canSubmit)
                 .accessibilityIdentifier(A11y.Onboarding.create)
-            Text("By creating an account, you agree to the [Terms of Use](https://zuna.chat/terms/).")
+            Text(LocalizedStringKey(t("onboarding.join.terms")))
                 .font(.footnote)
                 .foregroundStyle(Theme.text2)
                 .tint(Theme.link)
@@ -339,8 +339,8 @@ struct RecoveryKeyStep: View {
     var body: some View {
         StepScreen {
             StepHeader(
-                "Save your recovery key",
-                message: Text("If you forget your password, this key is the only way back in. Nobody can reset it for you, not even your server's admin."),
+                t("onboarding.recovery.title"),
+                message: Text(t("onboarding.recovery.lead")),
                 systemImage: "key.fill"
             )
 
@@ -358,18 +358,18 @@ struct RecoveryKeyStep: View {
             .background(Theme.bg2, in: .rect(cornerRadius: 14, style: .continuous))
             .textSelection(.enabled)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Recovery key")
+            .accessibilityLabel(t("onboarding.recover.key"))
             .accessibilityValue(recoveryKey)
             .accessibilityIdentifier(A11y.Onboarding.recoveryKey)
 
             HStack(spacing: 10) {
                 Button(action: copy) {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? t("common.copied") : t("common.copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
                         .frame(maxWidth: .infinity, minHeight: 46)
                 }
                 .accessibilityIdentifier(A11y.Onboarding.copyKey)
                 ShareLink(item: RecoveryKeyFile(key: recoveryKey), preview: SharePreview("zuna-recovery-key.txt", image: Image(systemName: "key.fill"))) {
-                    Label("Save as file", systemImage: "square.and.arrow.down")
+                    Label(t("common.saveAsFile"), systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity, minHeight: 46)
                 }
                 .accessibilityIdentifier(A11y.Onboarding.saveKey)
@@ -384,14 +384,14 @@ struct RecoveryKeyStep: View {
                 }
             }
 
-            Toggle("I've stored it somewhere safe", isOn: $stored)
+            Toggle(t("onboarding.recovery.stored"), isOn: $stored)
                 .tint(model.settings.accent.switchTint)
                 .font(.callout)
                 .foregroundStyle(Theme.text1)
                 .padding(.horizontal, 4)
                 .accessibilityIdentifier(A11y.Onboarding.keyStored)
 
-            PrimaryButton(title: "Continue", action: onDone)
+            PrimaryButton(title: t("common.continue"), action: onDone)
                 .disabled(!stored)
                 .accessibilityIdentifier(A11y.Onboarding.keyContinue)
         }
@@ -418,7 +418,7 @@ struct RecoveryKeyFile: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .plainText) { file in
-            Data("Zuna recovery key\n\n\(file.key)\n\nKeep this somewhere safe. It's the only way back into your account if you forget your password.\n".utf8)
+            Data(t("onboarding.recoveryKey.file", ["key": file.key]).utf8)
         }
         .suggestedFileName("zuna-recovery-key.txt")
     }
@@ -435,18 +435,18 @@ struct NameServerStep: View {
 
     var body: some View {
         StepScreen {
-            StepHeader("Name your server", message: Text("People see this name when you invite them. You can change it later."), systemImage: "server.rack")
+            StepHeader(t("onboarding.nameServer.title"), message: Text(t("onboarding.nameServer.lead")), systemImage: "server.rack")
             FormField(label: nil) {
-                TextField("Our corner of the internet", text: $name)
+                TextField(t("onboarding.nameServer.placeholder"), text: $name)
                     .textInputAutocapitalization(.words)
                     .submitLabel(.done)
                     .onSubmit(submit)
                     .onChange(of: name) { if name.count > 64 { name = String(name.prefix(64)) } }
-                    .accessibilityLabel("Server name")
+                    .accessibilityLabel(t("serverSettings.overview.name"))
                     .accessibilityIdentifier(A11y.Onboarding.serverName)
             }
             let trimmed = name.trimmingCharacters(in: .whitespaces)
-            PrimaryButton(title: trimmed.isEmpty ? "Skip for now" : "Finish", busy: busy, action: submit)
+            PrimaryButton(title: trimmed.isEmpty ? t("onboarding.nameServer.skip") : t("onboarding.nameServer.finish"), busy: busy, action: submit)
                 .accessibilityIdentifier(A11y.Onboarding.nameDone)
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -461,7 +461,7 @@ struct NameServerStep: View {
                 do {
                     try await model.core.session(serverId).updateServerSettings(ServerSettingsChanges(name: trimmed))
                 } catch {
-                    model.toast("Couldn't rename the server: \(ErrorText.describe(error))", .error)
+                    model.toast(t("onboarding.nameServer.renameFailed", ["error": ErrorText.describe(error)]), .error)
                 }
             }
             onDone()
@@ -484,8 +484,8 @@ struct SignInStep: View {
 
     var body: some View {
         StepScreen {
-            StepHeader("Sign in", message: Text("Your history will load on this device after you sign in."), systemImage: "person.crop.circle")
-            FormField(label: "Server address", hint: "Or paste any link to the server.") {
+            StepHeader(t("onboarding.signIn.title"), message: Text(t("onboarding.signIn.lead")), systemImage: "person.crop.circle")
+            FormField(label: t("onboarding.signIn.address"), hint: t("onboarding.signIn.addressHint")) {
                 TextField("chat.example.com", text: $url)
                     .textContentType(.URL)
                     .keyboardType(.URL)
@@ -493,21 +493,21 @@ struct SignInStep: View {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier(A11y.Onboarding.serverAddress)
             }
-            FormField(label: "Username") {
+            FormField(label: t("common.username")) {
                 TextField("", text: $username)
                     .textContentType(.username)
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .accessibilityLabel("Username")
+                    .accessibilityLabel(t("common.username"))
                     .accessibilityIdentifier(A11y.Onboarding.username)
             }
-            FormField(label: "Password") {
+            FormField(label: t("common.password")) {
                 SecureField("", text: $password)
                     .textContentType(.password)
                     .submitLabel(.go)
                     .onSubmit(submit)
-                    .accessibilityLabel("Password")
+                    .accessibilityLabel(t("common.password"))
                     .accessibilityIdentifier(A11y.Onboarding.password)
             }
             if let error {
@@ -517,13 +517,13 @@ struct SignInStep: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(A11y.Onboarding.error)
             }
-            PrimaryButton(title: "Sign in", busyTitle: "Unlocking your keys", busy: busy, action: submit)
+            PrimaryButton(title: t("onboarding.signIn.title"), busyTitle: t("onboarding.signIn.unlocking"), busy: busy, action: submit)
                 .disabled(url.isEmpty || username.isEmpty || password.isEmpty)
                 .accessibilityIdentifier(A11y.Onboarding.signInSubmit)
-            Button("Forgot your password?") {
+            Button(t("onboarding.signIn.forgot")) {
                 // Recovery needs to know whose account, and where, so it says so rather than doing nothing.
                 if url.isEmpty || username.isEmpty {
-                    error = "Enter the server's address and your username first."
+                    error = t("onboarding.signIn.needAddress")
                 } else {
                     onForgot(url, username)
                 }
@@ -576,25 +576,25 @@ struct RecoverStep: View {
     var body: some View {
         StepScreen {
             StepHeader(
-                "Use your recovery key",
-                message: Text("Enter the key you saved when you created your account, then choose a new password for \(Text(username).bold())."),
+                t("onboarding.recover.title"),
+                message: Text(sentence: t("onboarding.recover.lead"), drawing: ["username": Text(verbatim: username).bold()]),
                 systemImage: "key.fill"
             )
-            FormField(label: "Recovery key") {
+            FormField(label: t("onboarding.recover.key")) {
                 TextField("", text: $key, axis: .vertical)
                     .font(.system(.body, design: .monospaced))
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .lineLimit(1...3)
                     .padding(.vertical, 12)
-                    .accessibilityLabel("Recovery key")
+                    .accessibilityLabel(t("onboarding.recover.key"))
                     .accessibilityIdentifier(A11y.Onboarding.recoveryInput)
             }
             VStack(alignment: .leading, spacing: 8) {
-                FormField(label: "New password") {
+                FormField(label: t("settings.security.newPassword")) {
                     SecureField("", text: $password)
                         .textContentType(.newPassword)
-                        .accessibilityLabel("New password")
+                        .accessibilityLabel(t("settings.security.newPassword"))
                         .accessibilityIdentifier(A11y.Onboarding.newPassword)
                 }
                 StrengthMeter(rating: rating)
@@ -602,7 +602,7 @@ struct RecoverStep: View {
                         await rating.rate(password, related: [username])
                     }
             }
-            ConfirmPasswordField(label: "Confirm new password", password: password, confirmation: $confirm)
+            ConfirmPasswordField(label: t("settings.security.confirmNewPassword"), password: password, confirmation: $confirm)
             if let error {
                 Text(error)
                     .font(.footnote)
@@ -610,7 +610,7 @@ struct RecoverStep: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(A11y.Onboarding.error)
             }
-            PrimaryButton(title: "Recover account", busy: busy, action: submit)
+            PrimaryButton(title: t("onboarding.recover.button"), busy: busy, action: submit)
                 .disabled(!canSubmit)
                 .accessibilityIdentifier(A11y.Onboarding.recover)
         }
