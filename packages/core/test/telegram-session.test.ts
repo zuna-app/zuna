@@ -108,7 +108,7 @@ describe("the engine's answers", () => {
       file: () => new Blob(),
     };
     const paired = new Engine(adapter, (update) => updates.push(update as Td));
-    paired.start();
+    paired.start(false);
     return { paired, sent, updates, hear: (value: unknown) => hear(typeof value === "string" ? value : JSON.stringify(value)) };
   }
 

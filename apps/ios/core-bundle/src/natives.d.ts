@@ -38,8 +38,11 @@ declare const __zunaHost: {
    * the native desktop app and the iPhone give. What it says comes back through __zunaTelegram.
    */
   telegramAvailable?: boolean;
-  /** Starts the engine, and says why it can't, or "". */
-  telegramStart?(): string;
+  /**
+   * Starts the engine, and says why it can't, or "". `linked` says an account was signed in here
+   * before, whose database the iPhone's helper then has to find in its folder to start at all.
+   */
+  telegramStart?(linked: boolean): string;
   telegramSend?(json: string): void;
   telegramStop?(signOut: boolean): void;
   /**

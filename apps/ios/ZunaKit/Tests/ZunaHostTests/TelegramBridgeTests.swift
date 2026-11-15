@@ -54,7 +54,33 @@ final class TelegramBridgeTests: XCTestCase {
         let sealed = try Data(contentsOf: bridge(Data(repeating: 7, count: 32)).keyFile)
         XCTAssertNil(sealed.range(of: first), "the key is kept sealed")
         // Another device key opens nothing.
-        XCTAssertThrowsError(try bridge(Data(repeating: 8, count: 32)).databaseKey())
+        XCTAssertThrowsError(try bridge(Data(repeating: 8, count: 32)).databaseKey()) { XCTAssertEqual($0 as? TelegramBridge.KeyProblem, .unopenable) }
+    }
+
+    func testAKeyThatCantBeReadNowIsNeitherReplacedNorWhatWasLinkedErased() throws {
+        let launcher = ParameterHelper()
+        let heard = Heard()
+        let (bridge, directory) = try bridge(launcher, heard) { _ in }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try bridge.databaseKey()
+        // There, and not to be read, as a file kept from an app until its phone is unlocked.
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: bridge.keyFile.path)
+        XCTAssertThrowsError(try bridge.databaseKey()) { error in
+            guard case .unreadable = error as? TelegramBridge.KeyProblem else { return XCTFail("\(error)") }
+        }
+        // The core is told why, and nothing starts: not the helper, nor one to erase its folder.
+        XCTAssertTrue(bridge.start(linked: true)?.contains("couldn't be read") == true)
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launcher.launches, 0)
+        // Readable again, it's the key it was, and the helper starts with it.
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: bridge.keyFile.path)
+        XCTAssertEqual(try bridge.databaseKey(), key)
+        XCTAssertNil(bridge.start(linked: true))
+        launcher.wait(starts: 1)
+        XCTAssertEqual(launcher.keys, [key.base64EncodedString()])
+        XCTAssertEqual(launcher.erases, 0)
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 1)
     }
 
     func testCredentialsAreOnlyWhatTelegramGives() {
@@ -188,6 +214,101 @@ final class TelegramBridgeTests: XCTestCase {
         heard.wait(for: "zunaStopped", times: 1)
     }
 
+    func testADatabaseNoKeyOpensIsErasedToLinkFromNothing() throws {
+        // What an account unlinked while its folder couldn't be erased leaves: its database, and no key to it.
+        let launcher = ParameterHelper()
+        launcher.refusal = "Wrong database encryption key"
+        launcher.untilErased = true
+        let heard = Heard()
+        let (bridge, directory) = try bridge(launcher, heard) { $0.retryDelays = [0, 600] }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNil(bridge.start(linked: false))
+        // TDLib refuses the key, the folder is erased with the key, and the next start is from nothing.
+        launcher.wait(starts: 2)
+        XCTAssertEqual(launcher.erases, 1)
+        XCTAssertEqual(launcher.linked, [false, false])
+        XCTAssertNotEqual(launcher.keys[0], launcher.keys[1], "a new key, for a new database")
+        heard.wait(for: "zunaRestarted", times: 1)
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launcher.starts, 2, "which TDLib takes, so it's left running")
+        XCTAssertEqual(heard.count("zunaFailed"), 0)
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 1)
+    }
+
+    func testALinkedAccountsDatabaseIsNeverErasedForNotOpening() throws {
+        // The folder iOS gave the helper holds a database the account's key doesn't open: it isn't the account's.
+        let launcher = ParameterHelper()
+        launcher.refusal = "Wrong database encryption key"
+        let heard = Heard()
+        let (bridge, directory) = try bridge(launcher, heard) { $0.retryDelays = [0, 0.01, 0.02] }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try bridge.databaseKey()
+        XCTAssertNil(bridge.start(linked: true))
+        // It's ended each time rather than left on a TDLib that never starts, tried again, and the core told why.
+        heard.wait(for: "zunaFailed", times: 2)
+        let failed = try XCTUnwrap(heard.first("zunaFailed"))
+        XCTAssertTrue(failed.contains("doesn't open it"), failed)
+        XCTAssertTrue(failed.contains(#""retrying":true"#))
+        XCTAssertGreaterThanOrEqual(launcher.starts, TelegramBridge.mostRestarts + 2)
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 1)
+        XCTAssertEqual(launcher.erases, 0, "nothing of a linked account is erased")
+        XCTAssertEqual(Set(launcher.keys), [key.base64EncodedString()], "and its key is the one it had")
+        XCTAssertEqual(Set(launcher.linked), [true])
+        XCTAssertEqual(try bridge.databaseKey(), key)
+    }
+
+    func testAnEngineThatCantOpenItsDataIsEndedAndTriedAgainWithNothingErased() throws {
+        let launcher = ParameterHelper()
+        launcher.refusal = "Can't open binlog: Operation not permitted"
+        let heard = Heard()
+        let (bridge, directory) = try bridge(launcher, heard) { $0.retryDelays = [0, 0.01, 0.02] }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNil(bridge.start(linked: false))
+        heard.wait(for: "zunaFailed", times: 1)
+        XCTAssertTrue(try XCTUnwrap(heard.first("zunaFailed")).contains("couldn't open its data: Can't open binlog"))
+        // Once it opens, the run is left alone.
+        launcher.refusal = nil
+        let settled = launcher.waitUntilTaken()
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launcher.starts, settled)
+        XCTAssertEqual(launcher.erases, 0)
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 1)
+    }
+
+    func testTheHelperIsToldWhetherAnAccountIsSignedInWhichSigningInMakesIt() throws {
+        let launcher = ParameterHelper()
+        let heard = Heard()
+        let (bridge, directory) = try bridge(launcher, heard) { $0.retryDelays = [0] }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Being linked: the helper may start from nothing.
+        XCTAssertNil(bridge.start(linked: false))
+        launcher.wait(starts: 1)
+        XCTAssertEqual(launcher.linked, [false])
+        // Telegram lets the account in. A helper started after that has to find its database.
+        launcher.say(#"{"@type":"updateAuthorizationState","authorization_state":{"@type":"authorizationStateReady"}}"#)
+        Thread.sleep(forTimeInterval: 0.1)
+        launcher.die()
+        launcher.wait(starts: 2)
+        XCTAssertEqual(launcher.linked, [false, true])
+        // Stopped and started by the core, it's as the core says.
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 1)
+        XCTAssertNil(bridge.start(linked: true))
+        launcher.wait(starts: 3)
+        XCTAssertEqual(launcher.linked, [false, true, true])
+        // Unlinked, nothing is expected of the folder again.
+        bridge.stop(signOut: true)
+        heard.wait(for: "zunaStopped", times: 2)
+        XCTAssertNil(bridge.start(linked: false))
+        launcher.wait(starts: 4)
+        XCTAssertEqual(launcher.linked.last, false)
+        bridge.stop(signOut: false)
+        heard.wait(for: "zunaStopped", times: 3)
+    }
+
     private func bridge(_ launcher: any TelegramHelperLauncher, _ heard: Heard, _ change: (inout TelegramBridge.Configuration) -> Void) throws -> (TelegramBridge, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("zuna-telegram-runs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -232,6 +353,124 @@ final class TelegramBridgeTests: XCTestCase {
         }
 
         func close() { handlers.ended("stopped") }
+    }
+
+    /// A helper whose TDLib answers its parameters, as it opens its database or can't, and that
+    /// erases its folder when asked. What each start was given is kept: its key, and whether an
+    /// account is signed in.
+    private final class ParameterHelper: TelegramHelperLauncher, @unchecked Sendable {
+        private let condition = NSCondition()
+        private var state = (keys: [String](), linked: [Bool](), taken: 0, erases: 0, launches: 0, refusal: String?.none, untilErased: false)
+        private var current: ParameterLink?
+
+        /// What TDLib says of its parameters instead of taking them.
+        var refusal: String? {
+            get { condition.withLock { state.refusal } }
+            set { condition.withLock { state.refusal = newValue } }
+        }
+        /// It refuses only until its folder is erased.
+        var untilErased: Bool {
+            get { condition.withLock { state.untilErased } }
+            set { condition.withLock { state.untilErased = newValue } }
+        }
+        var launches: Int { condition.withLock { state.launches } }
+        var starts: Int { condition.withLock { state.keys.count } }
+        var keys: [String] { condition.withLock { state.keys } }
+        var linked: [Bool] { condition.withLock { state.linked } }
+        var erases: Int { condition.withLock { state.erases } }
+
+        func launch(_ handlers: TelegramHelperHandlers) async throws -> any TelegramHelperLink {
+            let link = ParameterLink(handlers, self)
+            condition.withLock {
+                state.launches += 1
+                current = link
+            }
+            return link
+        }
+
+        func wait(starts: Int, file: StaticString = #filePath, line: UInt = #line) {
+            let deadline = Date().addingTimeInterval(15)
+            condition.lock()
+            while state.keys.count < starts, condition.wait(until: deadline) {}
+            let count = state.keys.count
+            condition.unlock()
+            XCTAssertGreaterThanOrEqual(count, starts, "waited for a start", file: file, line: line)
+        }
+
+        /// Waits for a start whose parameters TDLib took, and says how many starts there were by then.
+        func waitUntilTaken(file: StaticString = #filePath, line: UInt = #line) -> Int {
+            let deadline = Date().addingTimeInterval(15)
+            condition.lock()
+            while state.taken == 0, condition.wait(until: deadline) {}
+            let (taken, count) = (state.taken, state.keys.count)
+            condition.unlock()
+            XCTAssertGreaterThan(taken, 0, "TDLib never took its parameters", file: file, line: line)
+            return count
+        }
+
+        /// The running helper says something, as TDLib's updates come.
+        func say(_ json: String) { condition.withLock { current }?.say(json) }
+        /// The running helper goes, with nobody asking it to.
+        func die() { condition.withLock { current }?.end("Telegram's engine stopped.") }
+
+        fileprivate func heard(_ json: String, _ link: ParameterLink) {
+            guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return }
+            // Signing out closes TDLib, which the broker waits for before it erases.
+            if value["@type"] as? String == "logOut" {
+                return link.say(#"{"@type":"updateAuthorizationState","authorization_state":{"@type":"authorizationStateClosed"}}"#)
+            }
+            switch value["zuna"] as? String {
+            case "start":
+                let refusal = condition.withLock { () -> String? in
+                    state.keys.append(value["key"] as? String ?? "")
+                    state.linked.append(value["linked"] as? Bool ?? false)
+                    if state.refusal == nil { state.taken += 1 }
+                    condition.broadcast()
+                    return state.refusal
+                }
+                if let refusal {
+                    link.say(#"{"@type":"error","code":401,"message":"\#(refusal)","@extra":"zuna:parameters"}"#)
+                } else {
+                    link.say(#"{"@type":"ok","@extra":"zuna:parameters"}"#)
+                }
+            case "erase":
+                condition.withLock {
+                    state.erases += 1
+                    if state.untilErased { state.refusal = nil }
+                }
+                link.say(#"{"zuna":"erased","erased":true}"#)
+            default:
+                break
+            }
+        }
+    }
+
+    private final class ParameterLink: TelegramHelperLink, @unchecked Sendable {
+        private let handlers: TelegramHelperHandlers
+        private unowned let helper: ParameterHelper
+        private let lock = NSLock()
+        private var over = false
+        init(_ handlers: TelegramHelperHandlers, _ helper: ParameterHelper) {
+            self.handlers = handlers
+            self.helper = helper
+        }
+
+        func say(_ json: String) { handlers.json(json) }
+
+        func end(_ why: String) {
+            let first = lock.withLock { () -> Bool in
+                defer { over = true }
+                return !over
+            }
+            if first { handlers.ended(why) }
+        }
+
+        func send(json: String) { helper.heard(json, self) }
+        func send(stream: UInt32, bytes: Data, taken: @escaping @Sendable (Bool) -> Void) { taken(false) }
+        func open(path: String, done: @escaping @Sendable (Result<FileHandle, Error>) -> Void) {
+            done(.failure(CoreError(description: "No files in tests.")))
+        }
+        func close() { end("stopped") }
     }
 
     /// A helper that starts and stays, answering the broker's watchdog, until the test ends it, as iOS does.

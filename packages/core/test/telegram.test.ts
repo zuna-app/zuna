@@ -160,6 +160,8 @@ describe("linking a Telegram account", () => {
     engine.emit({ "@type": "zunaFailed", reason: "Telegram's engine stopped.", retrying: true });
     client.nudge();
     expect(engine.started).toBe(2);
+    // Linked by then, which the host is told: it starts nothing where the account's database isn't.
+    expect(engine.startedLinked).toEqual([false, true]);
     await until(() => link()?.step === "ready", "being back");
     await until(() => connection() === "online", "being online again");
     expect(engine.stops).toEqual([]);
@@ -174,6 +176,9 @@ describe("linking a Telegram account", () => {
     const again = new ZunaClient({ db, deviceKey: new Uint8Array(32).fill(3), deviceName: "Test", onEvent: () => undefined, telegram: engine });
     await again.open();
     expect(engine.started).toBe(2);
+    // The host is told which start is of an account signed in before: its database has to be
+    // there, where one being linked starts from nothing.
+    expect(engine.startedLinked).toEqual([false, true]);
     await until(() => again.telegramSession.getConversations().length > 0, "the list after starting again");
     // A host without the engine has no Telegram, though this device linked one.
     const web = new ZunaClient({ db, deviceKey: new Uint8Array(32).fill(3), deviceName: "Test", onEvent: () => undefined });

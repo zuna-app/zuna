@@ -22,6 +22,15 @@ struct TelegramConnectionsView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                // Why the linked account's engine isn't running, while it's tried again: its
+                // chats only say they're connecting.
+                if let problem {
+                    Text(problem)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier(A11y.Telegram.problem)
+                }
                 if model.telegram != nil {
                     Button(t("telegram.unlink.action"), role: .destructive) { unlinking = true }
                         .accessibilityIdentifier(A11y.Telegram.unlink)
@@ -47,6 +56,12 @@ struct TelegramConnectionsView: View {
                 Task { await model.unlinkTelegram() }
             }
         }
+    }
+
+    /// What the core last said stopped the linked account's engine, until it starts again.
+    private var problem: String? {
+        guard model.telegram != nil, case let .failed(reason)? = model.telegramLink else { return nil }
+        return reason
     }
 
     private var status: String {

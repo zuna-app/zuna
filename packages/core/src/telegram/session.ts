@@ -233,7 +233,7 @@ export class TelegramSession {
   start(): void {
     this.ended = false;
     this.stalled = false;
-    const why = this.engine.start();
+    const why = this.engine.start(!this.linking);
     if (why) {
       this.stalled = true;
       this.setLink({ step: "failed", reason: why });

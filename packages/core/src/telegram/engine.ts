@@ -5,8 +5,13 @@ import { t } from "../i18n";
 
 /** What a host gives the core for Telegram. A host without it, as the web app and zuna-bot, has none. */
 export interface TelegramAdapter {
-  /** Starts the engine, or says why it can't. Every update and answer comes to `onMessage`, as JSON. */
-  start(onMessage: (json: string) => void): string | null;
+  /**
+   * Starts the engine, or says why it can't. Every update and answer comes to `onMessage`, as JSON.
+   * `linked` says an account was signed in here before, so its database is there to be opened: a
+   * host that finds none, as an iPhone that handed the engine another folder, starts nothing
+   * rather than a new one, which the account would be taken to have been let go by.
+   */
+  start(onMessage: (json: string) => void, linked: boolean): string | null;
   /** One TDLib request, as JSON. The broker answers one it won't pass on with an error. */
   send(json: string): void;
   /**
@@ -48,9 +53,9 @@ export class Engine {
     private readonly onUpdate: (update: TdObject) => void,
   ) {}
 
-  /** Starts the engine, or says why it couldn't. */
-  start(): string | null {
-    return this.adapter.start((json) => this.heard(json));
+  /** Starts the engine, for an account signed in here before or one being linked, or says why it couldn't. */
+  start(linked: boolean): string | null {
+    return this.adapter.start((json) => this.heard(json), linked);
   }
 
   stop(signOut: boolean): void {

@@ -44,6 +44,8 @@ struct Start: Decodable {
     var apiHash: String
     /// Telegram's test servers, for development and the checks.
     var testDc: Bool?
+    /// An account is signed in on this device, as the app knows: its database has to be here.
+    var linked: Bool?
     /// What Telegram is told this is: the app's version, the system's name and the kind of
     /// device, an iPhone or an iPad, and nothing more.
     var version: String
@@ -73,6 +75,52 @@ final class Helper: @unchecked Sendable {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("telegram", isDirectory: true).resolvingSymlinksInPath()
     }()
+
+    /// Whose container iOS started this process in, by the container's own record, when it's
+    /// another part of Zuna's: the app's, or another of its extensions'. After an update of the app,
+    /// iOS has started the helper in another of its extensions' containers: the notification
+    /// extension's, on an iPhone on 2026-11-15, until the update after it. TDLib found no database
+    /// there and made a new one, which a linked account was taken to have been let go by, and the
+    /// key to its real database was erased. Nil where the record says it's this helper's, says
+    /// nothing that can be read, as in the simulator, or names something that isn't Zuna's, which
+    /// is a record this doesn't understand and no reason to keep an account from starting.
+    static func strangersContainer() -> String? {
+        let record = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
+        guard let data = try? Data(contentsOf: record),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let owner = plist["MCMMetadataIdentifier"] as? String, !owner.isEmpty,
+              let own = Bundle.main.bundleIdentifier, owner != own else { return nil }
+        // The app's identifier is this helper's without its last part.
+        let app = own.split(separator: ".").dropLast().joined(separator: ".")
+        guard !app.isEmpty, owner == app || owner.hasPrefix(app + ".") else {
+            log.notice("this container's record names \(owner, privacy: .public), which nothing is made of")
+            return nil
+        }
+        return owner
+    }
+
+    /// Whether TDLib has a database in the folder: its binlog, where the account's session is kept,
+    /// or the copy TDLib was writing in its place when it last stopped.
+    static func hasDatabase(testDc: Bool) -> Bool {
+        let binlog = folder.appendingPathComponent("db/td\(testDc ? "_test" : "").binlog").path
+        return FileManager.default.fileExists(atPath: binlog) || FileManager.default.fileExists(atPath: binlog + ".new")
+    }
+
+    /// Why TDLib isn't started here, if it isn't: in a folder that isn't this helper's, where it
+    /// would keep an account's session among another extension's files, and, for an account signed
+    /// in before, where its database isn't. Started there it would make a new one and ask to sign
+    /// in, which says the account is gone, when all that's gone is the folder iOS gave. The app
+    /// tries again, and nothing is erased or made meanwhile. Each reason fits in the 200 characters
+    /// the core keeps of one.
+    static func cantStart(_ start: Start) -> String? {
+        if let owner = strangersContainer() {
+            return "iOS started Telegram's engine in a folder that isn't its own (\(owner)), so nothing was started. Nothing was changed, and it starts once it has its own folder again."
+        }
+        if start.linked == true, !hasDatabase(testDc: start.testDc ?? false) {
+            return "This account's data isn't in the folder iOS gave Telegram's engine, so nothing was started. The account stays linked. To start over, unlink Telegram and link it again."
+        }
+        return nil
+    }
 
     /// The app's session, and only one at a time: the app that started this is the one it serves.
     func accept(_ request: XPCListener.IncomingSessionRequest) -> XPCListener.IncomingSessionRequest.Decision {
@@ -203,6 +251,12 @@ final class Helper: @unchecked Sendable {
         lock.lock()
         if engine != nil || closing {
             lock.unlock()
+            return
+        }
+        if let why = Self.cantStart(start) {
+            lock.unlock()
+            log.error("not started: \(why, privacy: .public)")
+            send(["zuna": "failed", "reason": why])
             return
         }
         let door: Door

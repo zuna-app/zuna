@@ -89,6 +89,8 @@ export class FakeTdlib implements TelegramAdapter {
   /** Every request the adapter made, in order. */
   readonly asked: Td[] = [];
   started = 0;
+  /** Whether each start was for an account signed in here before, as the core said. */
+  startedLinked: boolean[] = [];
   stops: boolean[] = [];
   authorized = false;
   /** The account has two-step verification, with this password. */
@@ -124,9 +126,10 @@ export class FakeTdlib implements TelegramAdapter {
     for (const [chatId, messages] of this.history) this.chats.get(chatId)!.last_message = messages.at(-1);
   }
 
-  start(onMessage: (json: string) => void): string | null {
+  start(onMessage: (json: string) => void, linked: boolean): string | null {
     this.listener = onMessage;
     this.started++;
+    this.startedLinked.push(linked);
     // TDLib tells each run of the chats in its database again, as it's asked for the list.
     this.loaded = false;
     setTimeout(() => {

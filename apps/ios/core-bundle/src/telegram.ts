@@ -22,9 +22,9 @@ g.__zunaTelegramFile = (id: number, error: string | null, path: string | null) =
 export const nativeTelegram: TelegramAdapter | undefined =
   __zunaHost.telegramAvailable && __zunaHost.telegramStart && __zunaHost.telegramSend && __zunaHost.telegramStop
     ? {
-        start(onMessage) {
+        start(onMessage, linked) {
           listener = onMessage;
-          return __zunaHost.telegramStart!() || null;
+          return __zunaHost.telegramStart!(linked) || null;
         },
         send: (json) => __zunaHost.telegramSend!(json),
         stop: (signOut) => __zunaHost.telegramStop!(signOut),

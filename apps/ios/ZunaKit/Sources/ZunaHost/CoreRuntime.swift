@@ -387,8 +387,8 @@ public final class CoreRuntime: @unchecked Sendable {
             return made
         }
 
-        let start: @convention(block) () -> String = {
-            bridge().start() ?? ""
+        let start: @convention(block) (Bool) -> String = { linked in
+            bridge().start(linked: linked) ?? ""
         }
         host.setObject(start, forKeyedSubscript: "telegramStart" as NSString)
 

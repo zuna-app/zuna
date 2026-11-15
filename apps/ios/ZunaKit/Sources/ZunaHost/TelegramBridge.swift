@@ -131,6 +131,8 @@ public final class TelegramBridge: @unchecked Sendable {
         var ready = false
         /// Why the helper said it couldn't start TDLib, which is why the run ended.
         var failure: String?
+        /// Its database is one no key here opens, with no account linked: it's erased as the run ends.
+        var wipe = false
         init(generation: Int) { self.generation = generation }
     }
 
@@ -139,6 +141,9 @@ public final class TelegramBridge: @unchecked Sendable {
     private var generation = 0
     /// The core asked for it to run, and hasn't asked for it to stop.
     private var wanted = false
+    /// An account is signed in here, as the core said when it asked, or TDLib since: its database
+    /// has to be in the helper's folder, and nothing of it is erased for not being found or opened.
+    private var linked = false
     private var failures = 0
     /// The app is out of sight: iOS has suspended it, or is about to, and the helper with it (`sleep`).
     private var asleep = false
@@ -172,15 +177,38 @@ public final class TelegramBridge: @unchecked Sendable {
     /// app's container, which the helper can't read.
     var keyFile: URL { dataDirectory.appendingPathComponent("telegram-key.sealed") }
 
+    /// Why the key can't be had.
+    enum KeyProblem: Error, LocalizedError, Equatable {
+        /// Sealed with another device key, or damaged: nothing opens it, nor the database it was for.
+        case unopenable
+        /// There, and not to be read now: it may be later, so nothing is made in its place.
+        case unreadable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unopenable: "The key to Telegram's database couldn't be opened."
+            case .unreadable(let why): "The key to Telegram's database couldn't be read: \(why)"
+            }
+        }
+    }
+
     /// The key, made the first time and sealed with the device key. One that won't open, as after
-    /// the device key changed, means the database can't be read either: an error, and the caller starts over.
+    /// the device key changed, means the database can't be read either: an error, and the caller
+    /// starts over. One that's there and can't be read is another error, which nothing is erased
+    /// for, and no new key takes its place, which would leave the account's database with none.
     func databaseKey() throws -> Data {
         let sealing = try hkdfSha256(ikm: deviceKey, salt: Data(), info: Self.keyInfo, len: 32)
-        if let sealed = try? Data(contentsOf: keyFile) {
+        if FileManager.default.fileExists(atPath: keyFile.path) {
+            let sealed: Data
+            do {
+                sealed = try Data(contentsOf: keyFile)
+            } catch {
+                throw KeyProblem.unreadable(error.localizedDescription)
+            }
             do {
                 return try aeadOpen(key: sealing, data: sealed, aad: Self.keyInfo)
             } catch {
-                throw CoreError(description: "The key to Telegram's database couldn't be opened.")
+                throw KeyProblem.unopenable
             }
         }
         let key = try randomBytes(len: 32)
@@ -193,9 +221,12 @@ public final class TelegramBridge: @unchecked Sendable {
 
     /// Starts the helper, if it isn't running. Requests made while it starts wait for it. With the
     /// app out of sight, as when iOS started it for a push, it starts once the app is on screen (`wake`).
-    public func start() -> String? {
+    /// `linked` says an account is signed in here, as the core knows: the helper then starts TDLib
+    /// only on that account's database, and none of it is erased because it wasn't found or opened.
+    public func start(linked: Bool = false) -> String? {
         queue.sync {
             wanted = true
+            self.linked = linked
             failures = 0
             // Whatever waited to start it again is overtaken.
             waiting += 1
@@ -271,6 +302,7 @@ public final class TelegramBridge: @unchecked Sendable {
     public func stop(signOut: Bool) {
         queue.async { [self] in
             wanted = false
+            if signOut { linked = false }
             generation += 1
             waiting += 1
             let stopping = run
@@ -369,12 +401,16 @@ public final class TelegramBridge: @unchecked Sendable {
         let key: Data
         do {
             key = try databaseKey()
-        } catch {
+        } catch KeyProblem.unopenable {
             // A database nobody can open is no account: it's erased, and Telegram's own apps still
             // list the session until it's ended there.
-            logger.warning("\(error.localizedDescription, privacy: .public), so what was linked is erased")
+            logger.warning("\(KeyProblem.unopenable.localizedDescription, privacy: .public), so what was linked is erased")
             eraseAll()
             do { key = try databaseKey() } catch { return error.localizedDescription }
+        } catch {
+            // Not to be had now, which may pass: nothing is erased, and the next start asks again.
+            logger.warning("\(error.localizedDescription, privacy: .public)")
+            return error.localizedDescription
         }
         generation += 1
         let run = Run(generation: generation)
@@ -397,6 +433,7 @@ public final class TelegramBridge: @unchecked Sendable {
         )
         let start = Self.encode([
             "zuna": "start",
+            "linked": linked,
             "key": key.base64EncodedString(),
             "apiId": configuration.credentials.apiId,
             "apiHash": configuration.credentials.apiHash,
@@ -462,13 +499,20 @@ public final class TelegramBridge: @unchecked Sendable {
         let closing = state == "authorizationStateClosed"
         if closing { run.closed.signal() }
         guard self.run === run else { return }
-        if state == "authorizationStateReady", !run.ready {
-            run.ready = true
-            register(run)
+        if state == "authorizationStateReady" {
+            // Signed in, as a start after this one has to find it.
+            linked = true
+            if !run.ready {
+                run.ready = true
+                register(run)
+            }
         }
         switch value["@extra"] as? String {
         case "zuna:watchdog":
             asked = nil
+            return
+        case "zuna:parameters":
+            if value["@type"] as? String == "error" { refused(run, value["message"] as? String ?? "") }
             return
         case "zuna:push":
             if value["@type"] as? String == "error" {
@@ -492,6 +536,24 @@ public final class TelegramBridge: @unchecked Sendable {
         deliver(json)
     }
 
+    /// TDLib didn't take its parameters, which is where it opens its database. It does nothing
+    /// until it has and says nothing more, so the run is ended with why, as one that stopped is,
+    /// where it used to be left running: linking then stayed on "Reaching Telegram…" for good.
+    ///
+    /// A database that the key kept here doesn't open is nobody's while no account is linked: its
+    /// key went with an account unlinked while its folder couldn't be erased. It's erased as the
+    /// run ends, and the next start makes another. For a linked account nothing is erased: the
+    /// folder may not be the helper's own, which iOS has been seen to hand it after an update of
+    /// the app, and the account's database is then still where iOS finds it again.
+    private func refused(_ run: Run, _ message: String) {
+        logger.warning("the engine couldn't open its database: \(message, privacy: .public)")
+        guard run.failure == nil else { return }
+        let wrongKey = message.localizedCaseInsensitiveContains("encryption key")
+        run.wipe = wrongKey && !linked
+        run.failure = wrongKey ? "The key kept for Telegram's data on this device doesn't open it." : "Telegram's engine couldn't open its data: \(message)"
+        run.link?.close()
+    }
+
     /// The helper went. If nobody stopped it, it's started again: at once the first time, and after
     /// a wait that grows with each failure in a row, for as long as it's wanted. It's never given
     /// up on, as iOS ends a helper for reasons that are no fault of its own, and an account left
@@ -506,6 +568,10 @@ public final class TelegramBridge: @unchecked Sendable {
         if asleep {
             logger.notice("the engine stopped (\(why, privacy: .public)) with the app out of sight, and starts again as it comes back")
             return
+        }
+        if run.wipe {
+            logger.warning("a database no key here opens, with no account linked, is erased, to link from nothing")
+            eraseAll()
         }
         if Date().timeIntervalSince(run.started) > Self.ranWell { failures = 0 }
         failures += 1
