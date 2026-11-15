@@ -690,7 +690,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 y={attachAt.y}
                 onClose={() => setAttachAt(null)}
                 entries={[
-                  { label: t("composer.attachFile"), icon: <FileIcon size={15} />, onSelect: () => fileInput.current?.click() },
+                  { label: t("composer.attach.photoOrFile"), icon: <FileIcon size={15} />, onSelect: () => fileInput.current?.click() },
                   { label: t("location.title"), icon: <MapPin size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "share-location", conversationKey: conversation.key }) },
                 ]}
               />

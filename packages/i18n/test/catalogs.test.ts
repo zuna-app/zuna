@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import { find, ordered, SERVER_PREFIX } from "../src/extract.ts";
 import { CATEGORIES, KEY, parseCatalog, placeholders, pluralCategory, type PluralForms } from "../src/index.ts";
 import { withServerMessages } from "../scripts/i18n.ts";
+// @ts-expect-error: a script of the repository's, with no types.
+import { forbidden } from "../../../scripts/check-ios-release.mjs";
 
 const root = join(import.meta.dirname, "..", "..", "..");
 const locales = join(import.meta.dirname, "..", "locales");
@@ -30,6 +32,10 @@ describe("English", () => {
   it("has every key the code looks up", () => {
     expect(found.problems).toEqual([]);
     expect([...found.keys].filter(([key]) => !(key in english)).map(([key, at]) => `${at}: ${key}`)).toEqual([]);
+  });
+
+  it("has no key that says what only test-only code says, which the iPhone's release check would take for that code", () => {
+    expect(keys.filter((key) => (forbidden as string[]).some((word) => key.includes(word)))).toEqual([]);
   });
 
   it("has nothing nobody looks up", () => {

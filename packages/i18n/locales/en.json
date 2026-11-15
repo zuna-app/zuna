@@ -334,6 +334,7 @@
   "composer.attach.deniedTitle": "Zuna can't see your photos",
   "composer.attach.empty": "No photos or videos.",
   "composer.attach.file": "File",
+  "composer.attach.files": "Attach files",
   "composer.attach.full": {
     "one": "A message can have up to {count} file, and this one is full.",
     "other": "A message can have up to {count} files, and this one is full."
@@ -346,6 +347,7 @@
   "composer.attach.pasteImage": "Paste image",
   "composer.attach.photo": "Photo",
   "composer.attach.photoDated": "Photo, {date}",
+  "composer.attach.photoOrFile": "Photo or file",
   "composer.attach.pickedNumber": "Picked, number {number}",
   "composer.attach.send": {
     "one": "Send {count} item",
@@ -356,8 +358,6 @@
   "composer.attach.takenVideoLength": "Video you took, {duration}",
   "composer.attach.video": "Video, {duration}",
   "composer.attach.videoDated": "Video, {duration}, {date}",
-  "composer.attachFile": "Photo or file",
-  "composer.attachFiles": "Attach files",
   "composer.deleteRecording": "Delete recording",
   "composer.disabled.blocked": "You blocked {name}.",
   "composer.disabled.deleted": "This account was deleted.",

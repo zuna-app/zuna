@@ -10,7 +10,8 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { root, run } from "./lib.mjs";
 
-const forbidden = [
+/** What only the test-only code says, which a key the app names must never contain either (packages/i18n's check). */
+export const forbidden = [
   "chat.zuna.control",
   "Control server listening",
   "ZunaControlPort",

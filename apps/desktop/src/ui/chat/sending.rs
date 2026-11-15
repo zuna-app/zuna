@@ -585,7 +585,7 @@ impl ChatView {
         let state = self.state.clone();
         let key = conversation.key.clone();
         let entries = vec![
-            crate::ui::menu::MenuEntry::new(t("composer.attachFile"), "file", move |window, cx| {
+            crate::ui::menu::MenuEntry::new(t("composer.attach.photoOrFile"), "file", move |window, cx| {
                 view.update(cx, |view, cx| view.attach(window, cx)).ok();
             }),
             crate::ui::menu::MenuEntry::new(t("composer.attach.location"), "map-pin", move |_, cx| {

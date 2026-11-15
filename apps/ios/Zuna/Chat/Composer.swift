@@ -103,7 +103,7 @@ struct Composer: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(t("composer.attachFiles"))
+                    .accessibilityLabel(t("composer.attach.files"))
                     .accessibilityIdentifier(A11y.Composer.attach)
                 }
                 if isRecording {
