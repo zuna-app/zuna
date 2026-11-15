@@ -14,14 +14,13 @@
 //                              The first build takes a while, and TDLib's largest files take a
 //                              couple of gigabytes of memory each to compile.
 //   node scripts/tdlib.mjs --ios
-//                              on a Mac, builds it for the iPhone's helper extension instead
-//                              (apps/ios/ZunaTelegram), into apps/ios/.deps/tdlib: `iphoneos`, for
-//                              arm64 and arm64e, and `iphonesimulator`, for arm64, each with
-//                              `include` and `lib`, and each built again only when it changes, as
-//                              an archive builds `iphoneos` alone. Compiled as Xcode compiles an
-//                              enhanced security extension (`ENABLE_ENHANCED_SECURITY`): typed
-//                              allocation, stack variables set to zero and libc++'s checks, and
-//                              pointer authentication in the arm64e slice. zlib is the system's.
+//                              on a Mac, builds it for the iPhone app instead, which links it
+//                              (apps/ios/telegram.yml), into apps/ios/.deps/tdlib: `iphoneos` and
+//                              `iphonesimulator`, for arm64, each with `include` and `lib`, and
+//                              each built again only when it changes, as an archive builds
+//                              `iphoneos` alone. For the app's own deployment target, with typed
+//                              allocation, stack variables set to zero and libc++'s checks
+//                              (`HARDENING_C`). zlib is the system's.
 //   node scripts/tdlib.mjs [--ios] --stamp
 //                              says what a build here is stamped with, building nothing: what CI
 //                              finds its saved build by (.github/actions/tdlib), so that a change
@@ -74,16 +73,24 @@ const windowsTools = {
 const RECIPE = 1;
 
 /** Changed by hand when how the iPhone's is built changes. */
-const IOS_RECIPE = 1;
+const IOS_RECIPE = 2;
 
 /** Where zuna-telegram's build finds TDLib: `include` and `lib`, with OpenSSL's and zlib's. */
 export const tdlibDir = join(nativeAppDeps, "tdlib");
 
-/** Where the iPhone's helper extension finds TDLib (apps/ios/project.yml): one folder for each SDK. */
+/** Where the iPhone app finds TDLib (apps/ios/telegram.yml): one folder for each SDK. */
 export const iosDeps = resolve(import.meta.dirname, "..", "apps", "ios", ".deps");
 
-/** The first iOS that has the helper extension, which is what Telegram on an iPhone needs. */
-export const IOS_TELEGRAM_MINIMUM = "26.0";
+/**
+ * The iOS TDLib is built for: the app's own deployment target, read from apps/ios/project.yml so
+ * that the two stay the same, as what the app links has to run wherever the app does.
+ */
+export const IOS_TELEGRAM_MINIMUM = (() => {
+  const spec = readFileSync(resolve(import.meta.dirname, "..", "apps", "ios", "project.yml"), "utf8");
+  const found = /^\s*deploymentTarget:\s*\n\s*iOS:\s*"([\d.]+)"/m.exec(spec);
+  if (!found) throw new Error("apps/ios/project.yml names no deployment target for iOS.");
+  return found[1];
+})();
 
 /**
  * The app's `api_id` and `api_hash` from Telegram (docs/TELEGRAM_PLAN.md, The api_id), which are
@@ -371,7 +378,8 @@ export async function ensureTdlib(depsDir = nativeAppDeps) {
 /**
  * What a build of the iPhone app needs for Telegram, where it's given the app's api_id
  * (`telegramCredentials`): TDLib built for it, and an environment for XcodeGen and Xcode with
- * `ZUNA_TELEGRAM`, which takes in apps/ios/telegram.yml and its helper, and the api_id, which
+ * `ZUNA_TELEGRAM`, which takes in apps/ios/telegram.yml and the settings that link TDLib into the
+ * app, and the api_id, which
  * Xcode reads as build settings into the app's Info.plist, off any command line a log would show.
  * Without one, or with `ZUNA_TELEGRAM=0`, none of it: that build has no Telegram and needs no
  * TDLib, as the desktop's builds without its engine. `sdks` are the SDKs it's built for, both
@@ -385,16 +393,18 @@ export async function iosTelegram({ sdks } = {}) {
 }
 
 /**
- * The flags Xcode 27 compiles an enhanced security extension's own code with (read from its build
- * log), and two more of the hardening Apple lists beside them: stack variables set to zero, and
- * libc++'s cheap checks of bounds. Pointer authentication is the arm64e slice itself.
+ * Hardening of TDLib's own code, which runs in the app's process: typed allocation of what C
+ * allocates (`malloc_type_*`, which Apple's headers bring back to iOS 17), stack variables set to
+ * zero, and libc++'s cheap checks of bounds. Not C++'s typed `new` and `delete`
+ * (`-ftyped-cxx-new-delete`): the compiler calls libc++'s typed operators for them whatever the
+ * deployment target, nothing says which iOS first has those, and one the app's oldest iOS lacks
+ * would keep the whole app from starting there.
  */
 const HARDENING_C = ["-ftyped-memory-operations", "-ftrivial-auto-var-init=zero"];
-const HARDENING_CXX = [...HARDENING_C, "-ftyped-cxx-new-delete", "-ftyped-cxx-delete", "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST"];
+const HARDENING_CXX = [...HARDENING_C, "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST"];
 
-/** The slices the helper is built in, as Xcode builds it: arm64e and arm64 for phones, arm64 for the simulator. */
+/** The slices it's built in, as Xcode builds the app: arm64 for phones and for the simulator. */
 const IOS_SLICES = [
-  { sdk: "iphoneos", arch: "arm64e" },
   { sdk: "iphoneos", arch: "arm64" },
   { sdk: "iphonesimulator", arch: "arm64" },
 ];
@@ -435,11 +445,12 @@ const OPENSSL_IOS_CONFIG = `my %targets = (
 `;
 
 /**
- * Makes sure TDLib is built for the iPhone's helper extension in `<depsDir>/tdlib`, and says where
- * that is: a folder for each of `sdks`, `iphoneos` and `iphonesimulator` unless it names fewer,
- * each with `include`, `lib`, every library holding the SDK's slices, and a stamp of its own, so
- * that one is built without the other. OpenSSL goes without its assembly, which isn't written for
- * arm64e's signed pointers. TDLib's sources are written once by a build for this Mac, as a cross
+ * Makes sure TDLib is built for the iPhone app in `<depsDir>/tdlib`, and says where that is: a
+ * folder for each of `sdks`, `iphoneos` and `iphonesimulator` unless it names fewer, each with
+ * `include`, `lib`, every library holding the SDK's slices, and a stamp of its own, so that one is
+ * built without the other. OpenSSL goes without its assembly, as it has since it was first built
+ * for a slice whose signed pointers that assembly isn't written for: arm64 alone could take it,
+ * which hasn't been tried. TDLib's sources are written once by a build for this Mac, as a cross
  * build needs.
  */
 export async function ensureTdlibIos(depsDir = iosDeps, sdks = IOS_SDKS) {

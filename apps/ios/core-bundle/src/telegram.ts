@@ -1,6 +1,6 @@
-// A linked Telegram account's engine, which the host runs apart from the core behind its broker
-// (docs/TELEGRAM_PLAN.md), for a host that has one: the native desktop app, and the iPhone, where
-// the engine is a helper extension whose folder the app can't read, so a file is copied out first.
+// A linked Telegram account's engine, which the host runs behind its broker (docs/TELEGRAM_PLAN.md),
+// for a host that has one: the native desktop app, and the iPhone, whose broker checks that a file
+// is one of TDLib's before the interface reads it, and answers later.
 
 import type { TelegramAdapter } from "@zuna/core";
 import { NativeFile } from "./files";

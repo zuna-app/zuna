@@ -40,15 +40,15 @@ declare const __zunaHost: {
   telegramAvailable?: boolean;
   /**
    * Starts the engine, and says why it can't, or "". `linked` says an account was signed in here
-   * before, whose database the iPhone's helper then has to find in its folder to start at all.
+   * before, whose database the iPhone's broker then has to find in TDLib's folder to start at all.
    */
   telegramStart?(linked: boolean): string;
   telegramSend?(json: string): void;
   telegramStop?(signOut: boolean): void;
   /**
-   * A file the engine downloaded, copied where the interface can read it, for a host whose
-   * engine keeps its folder where the app can't, as the iPhone's helper does. The copy's path,
-   * or why there's none, comes back through __zunaTelegramFile with the same id.
+   * A file the engine downloaded, by the path TDLib gave, for a host that checks it's a file of
+   * the engine's folder before the interface reads it, as the iPhone's broker does. Its path, or
+   * why it isn't one, comes back through __zunaTelegramFile with the same id.
    */
   telegramFile?(id: number, path: string): void;
 };

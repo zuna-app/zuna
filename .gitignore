@@ -40,7 +40,7 @@ apps/ios/ZunaKit/.swiftpm/
 apps/ios/*.xcodeproj/
 apps/ios/build/
 apps/ios/.e2e/
-# TDLib for the Telegram helper, built by scripts/tdlib.mjs --ios
+# TDLib for the iPhone app, built by scripts/tdlib.mjs --ios
 apps/ios/.deps/
 
 # Local data

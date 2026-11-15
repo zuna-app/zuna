@@ -88,10 +88,11 @@ jobs:
   ios:
     if: ${{ !inputs.jobs || inputs.jobs == 'all' || contains(inputs.jobs, 'ios') }}
     runs-on: xcode-27
-    # Building TDLib for the Telegram helper, when its cache misses, took 92 of the
-    # job's 151 minutes on 2026-11-14; from the cache the job takes about an hour.
+    # Building TDLib for the iPhone, when its cache misses, took 92 of the job's 151
+    # minutes on 2026-11-14, with a slice more than it has now; from the cache the
+    # job takes about an hour.
     timeout-minutes: 210
-    # With the app's api_id, the app's builds here have the Telegram helper (apps/ios/telegram.yml).
+    # With the app's api_id, the app's builds here link TDLib and have Telegram (apps/ios/telegram.yml).
     env:
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -115,7 +116,7 @@ jobs:
       - uses: ./.github/actions/wasm-bindgen
       - name: Install XcodeGen
         run: brew install xcodegen
-      # TDLib for the Telegram helper as tdlib.yml saved it on main, or built here from its pinned
+      # TDLib for the iPhone app as tdlib.yml saved it on main, or built here from its pinned
       # source where there's an api_id.
       - uses: ./.github/actions/tdlib
         with:

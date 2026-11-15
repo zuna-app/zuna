@@ -1,0 +1,6 @@
+// TDLib's C functions as a module of their own, which only Zuna/Telegram/TDLibEngine.swift imports,
+// found through SWIFT_INCLUDE_PATHS in apps/ios/telegram.yml.
+module TDLib {
+    header "TDLib.h"
+    export *
+}

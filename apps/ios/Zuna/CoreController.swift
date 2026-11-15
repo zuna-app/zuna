@@ -165,8 +165,8 @@ final class CoreController {
         }
         // The chat list has a tab for bots, where one nobody has written to yet is found.
         options.listsBots = true
-        // A Telegram account linked on this device, in a helper of the app's own (docs/TELEGRAM_PLAN.md).
-        options.telegram = TelegramHelper.configuration()
+        // A Telegram account linked on this device, its TDLib in the app's own process (docs/TELEGRAM_PLAN.md).
+        options.telegram = TelegramSetup.configuration()
         #if DEBUG
         options.logToStandardError = true
         #endif
@@ -174,7 +174,7 @@ final class CoreController {
         // The core words its errors and notifications, and the server's messages, in the app's language.
         let language = I18n.forCore
         runtime.setLanguage(language.tag, catalog: language.catalog)
-        // Launched in the background, as for a push, the Telegram helper waits for the app to come on screen.
+        // Launched in the background, as for a push, Telegram's TDLib waits for the app to come on screen.
         runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         // The share extension may be sending with a core of its own: this one starts once it's done.
         let lock = try self.lock ?? CoreLock(directory: directory)
@@ -293,7 +293,7 @@ final class CoreController {
     /// connection had gone. Nor while sending what the share extension handed over.
     func didEnterBackground() {
         reportActivity()
-        // iOS suspends the Telegram helper with the app, and starts none for an app out of sight.
+        // iOS suspends Telegram's TDLib with the app, which starts nothing for it while out of sight.
         runtime?.setTelegramOutOfSight(true)
         guard connection != nil, suspendTask == nil, !keptAwake else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
@@ -567,14 +567,8 @@ final class CoreController {
             model.selectServer(server.entry.id)
             model.openChat(channel)
             return "opened"
-        case "telegramProbe":
-            // What the Telegram helper's box lets it do, tried from inside it (ZunaTelegram/Probe.swift), as JSON.
-            guard let runtime else { return "{}" }
-            let results = await withCheckedContinuation { continuation in runtime.probeTelegram { continuation.resume(returning: $0) } }
-            let data = (try? JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])) ?? Data("{}".utf8)
-            return String(decoding: data, as: UTF8.self)
         case "telegramReclaim":
-            // The Telegram helper's door loses its sockets, as iOS takes back a suspended process's.
+            // Telegram's door loses its sockets, as iOS takes back a suspended process's.
             guard let runtime else { return "not-running" }
             let asked = await withCheckedContinuation { continuation in runtime.reclaimTelegram { continuation.resume(returning: $0) } }
             return asked ? "reclaimed" : "not-running"

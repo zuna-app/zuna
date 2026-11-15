@@ -48,8 +48,8 @@ public final class CoreRuntime: @unchecked Sendable {
         public var onAccountEvent: (@Sendable (AccountEvent) -> Void)?
         /// The app lists a server's bots itself, so the core gives it a chat with a bot nobody has written to yet.
         public var listsBots = false
-        /// A linked Telegram account's engine, in a helper of the app's own (docs/TELEGRAM_PLAN.md),
-        /// where the app has one: from iOS 26, in a build given Telegram's api_id. Without it, no Telegram.
+        /// A linked Telegram account's engine, TDLib in the app's own process (docs/TELEGRAM_PLAN.md),
+        /// where the app has one: in a build given Telegram's api_id. Without it, no Telegram.
         public var telegram: TelegramBridge.Configuration?
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
@@ -377,7 +377,7 @@ public final class CoreRuntime: @unchecked Sendable {
 
         let bridge: () -> TelegramBridge = { [unowned self] in
             if let telegram { return telegram }
-            let made = TelegramBridge(configuration: configuration, dataDirectory: options.dataDirectory, cacheDirectory: options.cacheDirectory, deviceKey: options.deviceKey) { [weak self] json in
+            let made = TelegramBridge(configuration: configuration, dataDirectory: options.dataDirectory, deviceKey: options.deviceKey) { [weak self] json in
                 guard let self else { return }
                 queue.async { self.call("__zunaTelegram", [json]) }
             }
@@ -399,7 +399,7 @@ public final class CoreRuntime: @unchecked Sendable {
 
         let stop: @convention(block) (Bool) -> Void = { signOut in
             // With nothing running, nothing at Telegram can be ended from here: what's on this
-            // device goes all the same, which the broker does by starting the helper to erase it.
+            // device goes all the same.
             bridge().stop(signOut: signOut)
         }
         host.setObject(stop, forKeyedSubscript: "telegramStop" as NSString)
@@ -413,7 +413,7 @@ public final class CoreRuntime: @unchecked Sendable {
                 guard let self else { return }
                 queue.async {
                     switch result {
-                    case .success(let copied): self.call("__zunaTelegramFile", [id, NSNull(), copied])
+                    case .success(let found): self.call("__zunaTelegramFile", [id, NSNull(), found])
                     case .failure(let error): self.call("__zunaTelegramFile", [id, error.localizedDescription, NSNull()])
                     }
                 }
@@ -430,9 +430,9 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
-    /// The app left the screen, or is back on it: iOS suspends a linked Telegram account's helper
-    /// with the app, so its broker expects nothing of it meanwhile and starts none, and starts
-    /// one that's owed as the app comes back (`TelegramBridge.sleep`).
+    /// The app left the screen, or is back on it: iOS suspends a linked Telegram account's TDLib
+    /// with the app, so its broker starts nothing meanwhile, and as the app comes back has TDLib
+    /// connect again at once, or starts what's owed (`TelegramBridge.sleep`, `wake`).
     public func setTelegramOutOfSight(_ away: Bool) {
         queue.async { [self] in
             telegramOutOfSight = away
@@ -441,15 +441,7 @@ public final class CoreRuntime: @unchecked Sendable {
     }
 
     #if DEBUG
-    /// What the Telegram helper's box lets it do, tried from inside it, for the checks.
-    public func probeTelegram(done: @escaping @Sendable ([String: String]) -> Void) {
-        queue.async { [self] in
-            guard let telegram else { return done(["error": "Telegram isn't running."]) }
-            telegram.probe(appDirectory: options.dataDirectory.path, done: done)
-        }
-    }
-
-    /// Has the Telegram helper's door lose its sockets, as iOS takes a suspended process's back.
+    /// Has the Telegram door lose its sockets, as iOS takes a suspended process's back.
     public func reclaimTelegram(done: @escaping @Sendable (Bool) -> Void) {
         queue.async { [self] in done(telegram?.reclaim() ?? false) }
     }

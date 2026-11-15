@@ -1,51 +1,42 @@
+import Darwin
 import Foundation
-import Network
 import os
 import ZunaCrypto
 
-// The broker: the app's end of ZunaTelegram, the helper extension a linked Telegram account's
-// TDLib runs in (docs/TELEGRAM_PLAN.md, "On the iPhone and iPad"), as `apps/desktop/src/telegram`
-// is the desktop's. It starts and stops the helper, keeps the door, holds the key to the engine's
-// database, and stands between the core and the engine: only the functions on the list go to it
-// (`functions.json`), no faster than a limit, and what comes back is handed to the core as it came,
-// for the adapter there to check.
+// The broker for a Telegram account linked on this iPhone or iPad (docs/TELEGRAM_PLAN.md, "On the
+// iPhone and iPad"), as `apps/desktop/src/telegram` is the desktop's. TDLib runs in the app's own
+// process here, through an engine the app gives (`TelegramEngine`), and the broker stands between
+// it and the core: it starts and stops it, keeps the door (`TelegramDoor`), holds the key to its
+// database, and passes on only the functions on the list (`functions.json`), no faster than a
+// limit. What comes back is handed to the core as it came, for the adapter there to check.
 //
 // Nothing here reaches a Zuna server, and nothing of Telegram's goes anywhere but the core's
-// adapter, which keeps none of it, and the files the interface shows, copied out of the helper's
-// folder into the cache that's emptied whenever the core starts.
+// adapter, which keeps none of it, and the interface, which reads the files TDLib downloaded where
+// TDLib keeps them.
 
-/// Starts the helper, which only the app can do: it's the app that defines the extension point
-/// (`Zuna/Telegram/TelegramHelper.swift`). Each launch is a process of its own.
-public protocol TelegramHelperLauncher: Sendable {
-    func launch(_ handlers: TelegramHelperHandlers) async throws -> any TelegramHelperLink
+/// TDLib, as the broker needs it: the app gives the one over TDLib's JSON client
+/// (`Zuna/Telegram/TDLibEngine.swift`), and the tests a fake, so that this builds and is tested
+/// without TDLib.
+public protocol TelegramEngine: Sendable {
+    /// A new client. Its answers and updates come to `heard` as JSON, from a thread of the
+    /// engine's, until it says it closed (`authorizationStateClosed`), after which `closed` is
+    /// called once and nothing more comes.
+    func makeClient(heard: @escaping @Sendable (String) -> Void, closed: @escaping @Sendable () -> Void) -> any TelegramClient
+    /// One of TDLib's synchronous requests, such as its log's settings.
+    @discardableResult func execute(_ json: String) -> String?
+    /// What TDLib says as it ends the process on purpose, its own checks having failed, handed to
+    /// `said` on TDLib's thread just before it does, so what's kept of it is kept before `said` returns.
+    func onLastWords(_ said: @escaping @Sendable (String) -> Void)
 }
 
-/// What the helper says, as it says it.
-public struct TelegramHelperHandlers: Sendable {
-    /// One of TDLib's answers or updates, or one of the helper's own messages, as JSON.
-    public var json: @Sendable (String) -> Void
-    /// A part of a connection through the door, and what to call once it's been taken.
-    public var data: @Sendable (_ stream: UInt32, _ bytes: Data, _ taken: @escaping @Sendable () -> Void) -> Void
-    /// The helper went: ended, killed by the system, or never there.
-    public var ended: @Sendable (String) -> Void
-
-    public init(json: @escaping @Sendable (String) -> Void, data: @escaping @Sendable (UInt32, Data, @escaping @Sendable () -> Void) -> Void, ended: @escaping @Sendable (String) -> Void) {
-        self.json = json
-        self.data = data
-        self.ended = ended
-    }
+/// One of TDLib's clients.
+public protocol TelegramClient: AnyObject, Sendable {
+    /// A request, whose answer comes back with the same `@extra`.
+    func send(_ json: String)
 }
 
-/// One run of the helper.
-public protocol TelegramHelperLink: AnyObject, Sendable {
-    func send(json: String)
-    /// A part of a connection through the door, and `taken` once the helper has written it, or false if it's gone.
-    func send(stream: UInt32, bytes: Data, taken: @escaping @Sendable (Bool) -> Void)
-    /// A file of the helper's folder, by the path TDLib gave, opened for reading.
-    func open(path: String, done: @escaping @Sendable (Result<FileHandle, Error>) -> Void)
-    /// Ends the session, which the helper takes as the app going: TDLib closes, saving what it has, and the process ends.
-    func close()
-}
+/// A key the app words, named here so that `npm run i18n` finds it.
+private func mark(_ key: String) -> String { key }
 
 public final class TelegramBridge: @unchecked Sendable {
     /// The app's own `api_id` and `api_hash` from Telegram (docs/TELEGRAM_PLAN.md, The api_id),
@@ -68,7 +59,11 @@ public final class TelegramBridge: @unchecked Sendable {
 
     public struct Configuration: Sendable {
         public var credentials: Credentials
-        public var launcher: any TelegramHelperLauncher
+        public var engine: any TelegramEngine
+        /// TDLib's folder, its database in `db` and its files in `files`, which the broker makes:
+        /// in the app's own container, where a lock may be held while the app is suspended, never
+        /// in the app group, which the extensions read and where it may not.
+        public var folder: URL
         /// What Telegram is told this is: the app's version, the system's name, and an iPhone or an iPad.
         public var version: String
         public var system: String
@@ -78,19 +73,14 @@ public final class TelegramBridge: @unchecked Sendable {
         /// Whether the app's push token is for Apple's sandbox, as a development build's is, which
         /// Telegram has to know to push to it.
         public var pushSandbox = false
-        /// How long after each failure in a row the helper is started again: at once after the
-        /// first, then less and less often, and as often as the last of these for as long as it's
-        /// wanted. It's never given up on, as iOS ends a helper whenever it likes.
-        public var retryDelays: [TimeInterval] = [0, 1, 2, 5, 10, 20, 40, 60]
-        /// How often the helper is asked whether it's still there, and how long it has to answer.
-        public var watchdogEvery: TimeInterval = 30
-        public var watchdogWait: TimeInterval = 20
-        /// How late a look may come before the app is taken to have been suspended since the last.
-        public var watchdogLate: TimeInterval = 5
+        /// What the person is told, in the app's language: a key of `packages/i18n/locales` and
+        /// what fills it in, as the app's `t` words it.
+        public var words: @Sendable (_ key: String, _ values: [String: String]) -> String = { key, _ in key }
 
-        public init(credentials: Credentials, launcher: any TelegramHelperLauncher, version: String, system: String, device: String) {
+        public init(credentials: Credentials, engine: any TelegramEngine, folder: URL, version: String, system: String, device: String) {
             self.credentials = credentials
-            self.launcher = launcher
+            self.engine = engine
+            self.folder = folder
             self.version = version
             self.system = system
             self.device = device
@@ -101,80 +91,86 @@ public final class TelegramBridge: @unchecked Sendable {
     /// `burst`: a fault in the adapter can't become a flood, which is what Telegram bans for.
     static let rate = 100.0
     static let burst = 500.0
-    /// How many failures in a row the core isn't told of. Past them it's told why, each time
-    /// (`zunaFailed`), which the linking screens show, and the helper is started again all the same.
-    static let mostRestarts = 3
-    /// How long it must run before a failure counts as a new one rather than one more in a row.
-    static let ranWell: TimeInterval = 120
+    /// How many starts in a row may leave their mark, ending the app before TDLib opened its
+    /// database or ending it on purpose later, before the next isn't made (`StartMarks`).
+    static let mostMarks = 2
+    /// How long signing out may take at Telegram, and closing TDLib after it.
+    static let signOutWait: TimeInterval = 15
+    static let closeWait: TimeInterval = 10
 
     static let keyInfo = Data("zuna/telegram/key/v1".utf8)
 
     private let configuration: Configuration
     private let dataDirectory: URL
-    private let filesDirectory: URL
+    /// TDLib's folder.
+    let folder: URL
     private let deviceKey: Data
     private let deliver: @Sendable (String) -> Void
     private let queue = DispatchQueue(label: "chat.zuna.telegram.broker")
     private let logger = Logger(subsystem: "chat.zuna", category: "telegram")
+    let marks: StartMarks
 
-    /// One run of the helper, from its launch to its end.
+    /// One of TDLib's clients, from its start to its close, with the door it was given.
     private final class Run: @unchecked Sendable {
-        let generation: Int
-        var link: (any TelegramHelperLink)?
-        var door: TelegramDoor?
-        var pending: [String] = []
-        let started = Date()
-        let ended = DispatchSemaphore(value: 0)
-        /// TDLib said it closed, as after signing out.
+        var client: (any TelegramClient)?
+        let door: TelegramDoor
+        /// Its start came after erasing a database no key here opened, and isn't followed by another.
+        let afterWipe: Bool
+        /// TDLib said it closed.
         let closed = DispatchSemaphore(value: 0)
-        /// The account is signed in, so its push token can be given.
+        var hasClosed = false
+        /// TDLib opened its database and said where the account stands: the start's mark is taken back.
+        var opened = false
+        /// The account is signed in, so its push token can be given and signing out means something.
         var ready = false
-        /// Why the helper said it couldn't start TDLib, which is why the run ended.
+        /// Why TDLib didn't take its parameters, which is why the run ends.
         var failure: String?
         /// Its database is one no key here opens, with no account linked: it's erased as the run ends.
         var wipe = false
-        init(generation: Int) { self.generation = generation }
+        /// It was stopped, and it closed after its stop stopped waiting: the stop finishes as it does.
+        var lateStop = false
+        init(door: TelegramDoor, afterWipe: Bool) {
+            self.door = door
+            self.afterWipe = afterWipe
+        }
     }
 
     private var run: Run?
-    /// Which run is the current one: what an older one says is ignored.
-    private var generation = 0
-    /// The core asked for it to run, and hasn't asked for it to stop.
+    /// Stops whose client hasn't closed yet: no client is made until there are none, as two on one
+    /// folder fight over its database's lock.
+    private var stopping = 0
+    /// Unlinking asked for TDLib's folder to go, which it does once no client holds it.
+    private var eraseOwed = false
+    /// The core asked for it to run, and hasn't asked for it to stop, nor been told it can't.
     private var wanted = false
     /// An account is signed in here, as the core said when it asked, or TDLib since: its database
-    /// has to be in the helper's folder, and nothing of it is erased for not being found or opened.
+    /// has to be in the folder, and nothing of it is erased for not being found or opened.
     private var linked = false
-    private var failures = 0
-    /// The app is out of sight: iOS has suspended it, or is about to, and the helper with it (`sleep`).
+    /// The app is out of sight: iOS has suspended it, or is about to, and TDLib with it (`sleep`).
     private var asleep = false
-    /// Which wait to start the helper again is the current one: an older one does nothing.
-    private var waiting = 0
     private var tokens = TelegramBridge.burst
     private var filled = Date()
-    /// When the watchdog last asked, while it waits for the answer, and when it last looked.
-    private var asked: Date?
-    private var looked = Date()
-    /// Files copied out of the helper's folder, by TDLib's path.
-    private var copies: [String: URL] = [:]
     /// The app's push token from Apple, as hex, which Telegram pushes the account's messages to.
     private var pushToken: String?
-    #if DEBUG
-    /// What a probe of the box found, for the checks.
-    private var probed: (@Sendable ([String: String]) -> Void)?
-    #endif
 
-    public init(configuration: Configuration, dataDirectory: URL, cacheDirectory: URL, deviceKey: Data, deliver: @escaping @Sendable (String) -> Void) {
+    public init(configuration: Configuration, dataDirectory: URL, deviceKey: Data, deliver: @escaping @Sendable (String) -> Void) {
         self.configuration = configuration
         self.dataDirectory = dataDirectory
-        filesDirectory = cacheDirectory.appendingPathComponent("telegram", isDirectory: true)
+        folder = configuration.folder.standardizedFileURL
         self.deviceKey = deviceKey
         self.deliver = deliver
+        let marks = StartMarks(file: folder.appendingPathComponent("start-marks.json"))
+        self.marks = marks
+        configuration.engine.onLastWords { said in marks.lastWords(said) }
+    }
+
+    private func say(_ key: String, _ values: [String: String] = [:]) -> String {
+        configuration.words(key, values)
     }
 
     // MARK: The key to the engine's database
 
-    /// Where the key is kept, sealed with the device key: beside the app's other secrets, in the
-    /// app's container, which the helper can't read.
+    /// Where the key is kept, sealed with the device key: beside the app's other secrets.
     var keyFile: URL { dataDirectory.appendingPathComponent("telegram-key.sealed") }
 
     /// Why the key can't be had.
@@ -219,48 +215,52 @@ public final class TelegramBridge: @unchecked Sendable {
 
     // MARK: What the core asks
 
-    /// Starts the helper, if it isn't running. Requests made while it starts wait for it. With the
-    /// app out of sight, as when iOS started it for a push, it starts once the app is on screen (`wake`).
-    /// `linked` says an account is signed in here, as the core knows: the helper then starts TDLib
-    /// only on that account's database, and none of it is erased because it wasn't found or opened.
+    /// Starts TDLib, if it isn't running, and says why it can't, if it can't say so later. With the
+    /// app out of sight, as when iOS started it for a push, it starts once the app is on screen
+    /// (`wake`), and after a stop, once that stop's client has closed. `linked` says an account is
+    /// signed in here, as the core knows: TDLib is then started only on that account's database,
+    /// and none of it is erased because it wasn't found or opened.
     public func start(linked: Bool = false) -> String? {
         queue.sync {
             wanted = true
             self.linked = linked
-            failures = 0
-            // Whatever waited to start it again is overtaken.
-            waiting += 1
-            if run != nil || asleep { return nil }
-            return launch()
+            if run != nil || asleep || stopping > 0 { return nil }
+            return begin(afterWipe: false)
         }
     }
 
-    /// The app left the screen, where iOS soon suspends it and the helper with it, and may hold
-    /// the helper while the app still runs. A helper that answers nothing then hasn't failed. One
-    /// that goes meanwhile, as iOS ends those it has suspended when it wants their memory, isn't
-    /// started until the app is back, and nor is any other: a start iOS holds, or doesn't let
-    /// through, for an app in the background is what the broker used to give up after.
+    /// The app left the screen, where iOS soon suspends it, and TDLib with it. Nothing is told to
+    /// TDLib, and nothing is started until the app is back: a start iOS suspends halfway is one
+    /// that's taken longer for no reason.
     public func sleep() {
-        queue.async { [self] in
-            asleep = true
-            asked = nil
-        }
+        queue.async { [self] in asleep = true }
     }
 
-    /// The app is back on screen. The helper is asked afresh whether it's there, and started now
-    /// if it went while the app was away, or was waiting to be started.
+    /// The app is back on screen, from a suspension that every connection TDLib had may not have
+    /// lived through. The door looks at its listener at once, which iOS may have taken back, and
+    /// then TDLib is told the network changed, which has it open every connection again at once
+    /// rather than when it next notices: what makes the account online a second after the app is
+    /// back. Or TDLib is started now, if a start waited for the app.
     public func wake() {
         queue.async { [self] in
             guard asleep else { return }
             asleep = false
-            asked = nil
-            looked = Date()
-            if wanted, run == nil { again() }
+            if let run {
+                run.door.look { [weak self, run] in
+                    guard let self else { return }
+                    queue.async {
+                        guard self.run === run else { return }
+                        run.client?.send(Self.setNetworkType)
+                    }
+                }
+            } else {
+                resume()
+            }
         }
     }
 
-    /// Hands the engine one of the core's requests, if it's on the list and within the limit,
-    /// and otherwise answers it with an error, as TDLib answers what it won't do.
+    /// Hands TDLib one of the core's requests, if it's on the list and within the limit, and
+    /// otherwise answers it with an error, as TDLib answers what it won't do.
     public func send(_ json: String) {
         guard let data = json.data(using: .utf8), let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         // The core's own labels, which are text (`Engine` in packages/core/src/telegram/engine.ts).
@@ -284,86 +284,86 @@ public final class TelegramBridge: @unchecked Sendable {
             filled = now
             guard tokens >= 1 else {
                 logger.warning("too many requests, one refused")
-                return refuse(429, "Too many requests at once.")
+                return refuse(429, say(mark("telegram.engine.tooMany")))
             }
             tokens -= 1
-            guard let run else { return refuse(503, "Telegram isn't running.") }
-            if let link = run.link {
-                link.send(json: json)
-            } else {
-                run.pending.append(json)
-            }
+            guard let client = run?.client else { return refuse(503, say(mark("telegram.engine.notRunning"))) }
+            client.send(json)
         }
     }
 
-    /// Stops the helper. With `signOut`, the session is ended at Telegram first, if it can be in a
-    /// few seconds, and then everything of the account's on this device is erased all the same.
-    /// The core is told how it went (`zunaStopped`).
+    /// Stops TDLib. With `signOut`, the session is ended at Telegram first, if it can be in a few
+    /// seconds, and then everything of the account's on this device is erased all the same: the
+    /// key at once, and TDLib's folder once its client has closed. The core is told how it went
+    /// (`zunaStopped`).
     public func stop(signOut: Bool) {
         queue.async { [self] in
             wanted = false
-            if signOut { linked = false }
-            generation += 1
-            waiting += 1
-            let stopping = run
+            if signOut {
+                linked = false
+                eraseKey()
+                eraseOwed = true
+            }
+            guard let stopping = run else {
+                if self.stopping == 0 { stopsDone() }
+                deliver(Self.encode(["@type": "zunaStopped", "erased": signOut, "signedOut": false]))
+                return
+            }
             run = nil
-            copies.removeAll()
+            self.stopping += 1
+            let signedIn = stopping.ready
             Thread.detachNewThread { [self] in
                 var signedOut = false
-                if let stopping {
-                    if signOut, let link = stopping.link {
-                        // The engine's answers go to nobody now, so its end of signing out is seen
-                        // as the helper going: TDLib closes once it's done.
-                        link.send(json: Self.encode(["@type": "logOut", "@extra": "zuna:logout"]))
-                        signedOut = stopping.closed.wait(timeout: .now() + 15) == .success
-                    }
-                    stopping.door?.closeAll(tell: false)
-                    stopping.link?.close()
-                    _ = stopping.ended.wait(timeout: .now() + 10)
+                if signOut, signedIn, let client = stopping.client {
+                    // TDLib closes once it has signed out, and its answers go to nobody now.
+                    client.send(Self.encode(["@type": "logOut", "@extra": "zuna:logout"]))
+                    signedOut = stopping.closed.wait(timeout: .now() + Self.signOutWait) == .success
                 }
-                if signOut { eraseAll() }
-                deliver(Self.encode(["@type": "zunaStopped", "erased": signOut, "signedOut": signedOut]))
+                if !signedOut {
+                    stopping.client?.send(Self.encode(["@type": "close", "@extra": "zuna:close"]))
+                    _ = stopping.closed.wait(timeout: .now() + Self.closeWait)
+                }
+                let said = signedOut
+                queue.async { [self] in
+                    if stopping.hasClosed {
+                        stopDone()
+                    } else {
+                        // Its folder goes, and another client is made, only once it has.
+                        logger.warning("TDLib didn't close in time, so nothing more is started until it does")
+                        stopping.lateStop = true
+                    }
+                    deliver(Self.encode(["@type": "zunaStopped", "erased": signOut, "signedOut": said]))
+                }
             }
         }
     }
 
     /// The proxy changed: every connection through the door ends, and TDLib makes them again,
-    /// through the new one or none.
+    /// through the new one or none, at once as it's told the network changed.
     public func networkChanged() {
-        queue.async { [self] in run?.door?.closeAll(tell: true) }
-    }
-
-    /// A file TDLib downloaded, copied out of the helper's folder into the app's cache, where the
-    /// interface reads it, and its path there.
-    public func file(path: String, done: @escaping @Sendable (Result<String, Error>) -> Void) {
         queue.async { [self] in
-            if let copied = copies[path], FileManager.default.fileExists(atPath: copied.path) {
-                return done(.success(copied.path))
-            }
-            guard let link = run?.link else { return done(.failure(CoreError(description: "Telegram isn't running."))) }
-            let generation = self.generation
-            let destination = filesDirectory.appendingPathComponent(UUID().uuidString + Self.fileExtension(of: path))
-            link.open(path: path) { [self] opened in
-                switch opened {
-                case .failure(let error):
-                    done(.failure(error))
-                case .success(let handle):
-                    do {
-                        try Self.copy(handle, to: destination)
-                        queue.async { [self] in
-                            if self.generation == generation { copies[path] = destination }
-                            done(.success(destination.path))
-                        }
-                    } catch {
-                        done(.failure(error))
-                    }
-                }
-            }
+            guard let run else { return }
+            run.door.closeAll()
+            run.client?.send(Self.setNetworkType)
         }
     }
 
+    /// A file TDLib downloaded, by the path it gave, for the interface to read where it is: only a
+    /// regular file inside TDLib's folder, once every link on the way is followed.
+    public func file(path: String, done: @escaping @Sendable (Result<String, Error>) -> Void) {
+        // Both by their real names, found now, when both are there to be found.
+        let real = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        let root = folder.resolvingSymlinksInPath().path
+        var status = stat()
+        guard real.hasPrefix(root + "/"), lstat(real, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
+            logger.warning("refused a file outside TDLib's folder, or not a file")
+            return done(.failure(CoreError(description: say(mark("telegram.engine.fileUnreadable")))))
+        }
+        done(.success(real))
+    }
+
     /// The app's push token from Apple, given to Telegram once the account is signed in and again
-    /// each time the helper starts, as Telegram asks, so that its messages are pushed to this phone
+    /// each time TDLib starts, as Telegram asks, so that its messages are pushed to this phone
     /// while the app is closed (docs/TELEGRAM_PLAN.md, Notifications). Signing out takes it back.
     public func setPushToken(_ token: String?) {
         queue.async { [self] in
@@ -374,8 +374,8 @@ public final class TelegramBridge: @unchecked Sendable {
     }
 
     private func register(_ run: Run) {
-        guard let token = pushToken, !token.isEmpty, let link = run.link else { return }
-        link.send(json: Self.encode([
+        guard let token = pushToken, !token.isEmpty, let client = run.client else { return }
+        client.send(Self.encode([
             "@type": "registerDevice",
             "device_token": ["@type": "deviceTokenApplePush", "device_token": token, "is_app_sandbox": configuration.pushSandbox],
             "other_user_ids": [Int](),
@@ -384,21 +384,12 @@ public final class TelegramBridge: @unchecked Sendable {
     }
 
     #if DEBUG
-    /// Asks the helper what its box lets it do (`Probe.swift`), for the checks.
-    public func probe(appDirectory: String, done: @escaping @Sendable ([String: String]) -> Void) {
-        queue.async { [self] in
-            probed = done
-            let ask = Self.encode(["zuna": "probe", "app": appDirectory])
-            if let link = run?.link { link.send(json: ask) } else { done(["error": "Telegram isn't running."]) }
-        }
-    }
-
-    /// Has the helper's door lose its sockets as iOS takes back a suspended process's, which the
-    /// simulator never does, for the checks. Says whether there was a helper to ask.
+    /// Has the door lose its sockets as iOS takes back a suspended process's, which the simulator
+    /// never does, for the checks. Says whether TDLib was running.
     public func reclaim() -> Bool {
         queue.sync {
-            guard let link = run?.link else { return false }
-            link.send(json: Self.encode(["zuna": "reclaim"]))
+            guard let run else { return false }
+            run.door.reclaim()
             return true
         }
     }
@@ -406,8 +397,10 @@ public final class TelegramBridge: @unchecked Sendable {
 
     // MARK: Runs
 
-    /// Launches the helper. Its start goes first once it's there, then whatever waited.
-    private func launch() -> String? {
+    /// Starts a client, with the door given to it first and then its parameters, and says why it
+    /// can't when that's the core's to show at once. When nothing it could do by itself would
+    /// change it, the core is told so instead (`refuse`).
+    private func begin(afterWipe: Bool) -> String? {
         let key: Data
         do {
             key = try databaseKey()
@@ -416,99 +409,107 @@ public final class TelegramBridge: @unchecked Sendable {
             // list the session until it's ended there.
             logger.warning("\(KeyProblem.unopenable.localizedDescription, privacy: .public), so what was linked is erased")
             eraseAll()
-            do { key = try databaseKey() } catch { return error.localizedDescription }
-        } catch {
+            do { key = try databaseKey() } catch { return say(mark("telegram.engine.cantStart"), ["error": error.localizedDescription]) }
+        } catch KeyProblem.unreadable(let why) {
             // Not to be had now, which may pass: nothing is erased, and the next start asks again.
-            logger.warning("\(error.localizedDescription, privacy: .public)")
-            return error.localizedDescription
+            logger.warning("the key to TDLib's database couldn't be read: \(why, privacy: .public)")
+            return say(mark("telegram.engine.keyNotReadable"), ["error": why])
+        } catch {
+            return say(mark("telegram.engine.cantStart"), ["error": error.localizedDescription])
         }
-        generation += 1
-        let run = Run(generation: generation)
+        // An account signed in here before has its database here, or it's gone: started without
+        // it, TDLib would make a new one and ask to sign in, which the core takes for the account
+        // let go. So nothing is started or erased, and the person is told what to do.
+        if linked, !hasDatabase() {
+            logger.warning("a linked account with no database here, so TDLib isn't started")
+            return refuse(say(mark("telegram.engine.noDatabase")))
+        }
+        let left = marks.read()
+        if left.starts >= Self.mostMarks {
+            logger.error("TDLib's last \(left.starts) starts ended the app, so it isn't started again. It last said: \(left.said ?? "nothing", privacy: .public)")
+            if let said = left.said {
+                return refuse(say(mark("telegram.engine.endedTheAppSaying"), ["said": String(said.prefix(80))]))
+            }
+            return refuse(say(mark("telegram.engine.endedTheApp")))
+        }
+        if let said = left.said { logger.notice("TDLib last said, as it ended the app: \(said, privacy: .public)") }
+        let door: TelegramDoor
+        do {
+            try makeFolder()
+            door = try TelegramDoor(moved: { [weak self] door in
+                guard let self else { return }
+                queue.async { self.doorMoved(door) }
+            })
+        } catch {
+            return refuse(say(mark("telegram.engine.cantStart"), ["error": error.localizedDescription]))
+        }
+        // Left before TDLib opens its database, and taken back once it has, so that a database it
+        // ends the app over can't end it at every start.
+        marks.leave(left.starts + 1, said: left.said)
+        let run = Run(door: door, afterWipe: afterWipe)
         self.run = run
-        asked = nil
-        let handlers = TelegramHelperHandlers(
-            json: { [weak self, run] json in
+        configuration.engine.execute(Self.encode(["@type": "setLogVerbosityLevel", "new_verbosity_level": min(max(configuration.verbosity, 0), 5)]))
+        let client = configuration.engine.makeClient(
+            heard: { [weak self, run] json in
                 guard let self else { return }
                 queue.async { self.heard(run, json) }
             },
-            data: { [run] stream, bytes, taken in
-                guard let door = run.door else { return taken() }
-                door.data(stream: stream, bytes: bytes, taken: taken)
-            },
-            ended: { [weak self, run] why in
-                run.ended.signal()
+            closed: { [weak self, run] in
                 guard let self else { return }
-                queue.async { self.ended(run, why) }
+                queue.async { self.closed(run) }
             }
         )
-        let start = Self.encode([
-            "zuna": "start",
-            "linked": linked,
-            "key": key.base64EncodedString(),
-            "apiId": configuration.credentials.apiId,
-            "apiHash": configuration.credentials.apiHash,
-            "testDc": configuration.credentials.testDc,
-            "version": configuration.version,
-            "system": configuration.system,
-            "device": configuration.device,
-            "verbosity": configuration.verbosity,
-        ])
-        let launcher = configuration.launcher
-        Task { [weak self] in
-            do {
-                let link = try await launcher.launch(handlers)
-                guard let self else { return link.close() }
-                queue.async {
-                    guard self.run === run else { return link.close() }
-                    run.door = TelegramDoor(link: link)
-                    link.send(json: start)
-                    for request in run.pending { link.send(json: request) }
-                    run.pending.removeAll()
-                    run.link = link
-                    self.watch(run)
-                }
-            } catch {
-                run.ended.signal()
-                guard let self else { return }
-                queue.async { self.ended(run, "Telegram's engine couldn't start: \(error.localizedDescription)") }
-            }
-        }
+        run.client = client
+        // The way out first: a proxy added before the parameters takes effect as TDLib starts,
+        // before it first connects, as on the desktop.
+        client.send(Self.useDoor(door))
+        client.send(Self.encode([
+            "@type": "setTdlibParameters",
+            "use_test_dc": configuration.credentials.testDc,
+            "database_directory": folder.appendingPathComponent("db").path,
+            "files_directory": folder.appendingPathComponent("files").path,
+            "database_encryption_key": key.base64EncodedString(),
+            "use_file_database": true,
+            "use_chat_info_database": true,
+            "use_message_database": true,
+            "use_secret_chats": false,
+            "api_id": configuration.credentials.apiId,
+            "api_hash": configuration.credentials.apiHash,
+            "system_language_code": "en",
+            // Not the phone's model, nor the system's version, which TDLib would find out for
+            // itself if these were empty.
+            "device_model": configuration.device,
+            "system_version": configuration.system,
+            "application_version": configuration.version,
+            "@extra": "zuna:parameters",
+        ]))
         return nil
     }
 
+    /// Tells the core TDLib wasn't started, and why, which nothing will change by itself: it's
+    /// started again only when the core asks, as when the app comes back (`TelegramSession.nudge`).
+    private func refuse(_ why: String) -> String? {
+        wanted = false
+        deliver(Self.encode(["@type": "zunaFailed", "reason": why]))
+        return nil
+    }
+
+    /// Starts a client that's owed, once nothing stands in its way.
+    private func resume() {
+        guard wanted, run == nil, stopping == 0, !asleep else { return }
+        if let why = begin(afterWipe: false) { _ = refuse(why) }
+    }
+
     private func heard(_ run: Run, _ json: String) {
-        guard let data = json.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        // The door's and the helper's own messages, whatever run they're of: a run being stopped
-        // still opens connections, so it can sign out.
-        if let kind = value["zuna"] as? String {
-            let id = (value["id"] as? NSNumber).map(\.uint32Value)
-            switch (kind, id) {
-            case ("open", let id?):
-                run.door?.open(stream: id, host: value["host"] as? String ?? "", port: (value["port"] as? NSNumber)?.intValue ?? 0)
-            case ("closed", let id?):
-                run.door?.closed(stream: id)
-            case ("failed", _):
-                // The helper couldn't start TDLib: it's ended, and started again as one that
-                // stopped is, rather than left running with nothing in it.
-                if self.run === run, run.failure == nil {
-                    run.failure = value["reason"] as? String ?? "Telegram's engine failed."
-                    run.link?.close()
-                }
-            #if DEBUG
-            case ("probed", _):
-                let results = (value["results"] as? [String: String]) ?? [:]
-                probed?(results)
-                probed = nil
-            #endif
-            default:
-                break
-            }
-            return
-        }
+        // A run that's been stopped says nothing more to anyone, nor one being closed for why it
+        // failed, whose closing the core would take for the account's session ended elsewhere.
+        guard self.run === run, run.failure == nil, let data = json.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         let state = value["@type"] as? String == "updateAuthorizationState" ? (value["authorization_state"] as? [String: Any])?["@type"] as? String : nil
-        let closing = state == "authorizationStateClosed"
-        if closing { run.closed.signal() }
-        guard self.run === run else { return }
+        if let state, state != "authorizationStateWaitTdlibParameters", !run.opened {
+            // TDLib opened its database and said where the account stands: this start got through.
+            run.opened = true
+            marks.takeBack()
+        }
         if state == "authorizationStateReady" {
             // Signed in, as a start after this one has to find it.
             linked = true
@@ -518,9 +519,6 @@ public final class TelegramBridge: @unchecked Sendable {
             }
         }
         switch value["@extra"] as? String {
-        case "zuna:watchdog":
-            asked = nil
-            return
         case "zuna:parameters":
             if value["@type"] as? String == "error" { refused(run, value["message"] as? String ?? "") }
             return
@@ -534,7 +532,7 @@ public final class TelegramBridge: @unchecked Sendable {
         // The broker's own requests, whose answers are nobody else's.
         case let extra? where extra.hasPrefix("zuna:"):
             if value["@type"] as? String == "error" {
-                logger.warning("the engine refused \(extra, privacy: .public): \(value["message"] as? String ?? "", privacy: .public)")
+                logger.warning("TDLib refused \(extra, privacy: .public): \(value["message"] as? String ?? "", privacy: .public)")
             }
             return
         default:
@@ -542,159 +540,203 @@ public final class TelegramBridge: @unchecked Sendable {
         }
         // TDLib closed, as when its session was ended from another device: it isn't started
         // again, and the core decides what happens to what it held.
-        if closing { wanted = false }
+        if state == "authorizationStateClosed" { wanted = false }
         deliver(json)
     }
 
     /// TDLib didn't take its parameters, which is where it opens its database. It does nothing
-    /// until it has and says nothing more, so the run is ended with why, as one that stopped is,
-    /// where it used to be left running: linking then stayed on "Reaching Telegram…" for good.
+    /// until it has and says nothing more, so its client is closed, and the core told why as it is.
     ///
     /// A database that the key kept here doesn't open is nobody's while no account is linked: its
-    /// key went with an account unlinked while its folder couldn't be erased. It's erased as the
-    /// run ends, and the next start makes another. For a linked account nothing is erased: the
-    /// folder may not be the helper's own, which iOS has been seen to hand it after an update of
-    /// the app, and the account's database is then still where iOS finds it again.
+    /// key went with an account unlinked while its folder couldn't be erased. It's erased once the
+    /// client has closed, and one more start makes another. For a linked account nothing is erased.
     private func refused(_ run: Run, _ message: String) {
-        logger.warning("the engine couldn't open its database: \(message, privacy: .public)")
+        logger.warning("TDLib couldn't open its database: \(message, privacy: .public)")
         guard run.failure == nil else { return }
         let wrongKey = message.localizedCaseInsensitiveContains("encryption key")
-        run.wipe = wrongKey && !linked
-        run.failure = wrongKey ? "The key kept for Telegram's data on this device doesn't open it." : "Telegram's engine couldn't open its data: \(message)"
-        run.link?.close()
+        run.wipe = wrongKey && !linked && !run.afterWipe
+        run.failure = wrongKey ? say(mark("telegram.engine.wrongKey")) : say(mark("telegram.engine.cantOpenData"), ["error": message])
+        run.client?.send(Self.encode(["@type": "close", "@extra": "zuna:close"]))
     }
 
-    /// The helper went. If nobody stopped it, it's started again: at once the first time, and after
-    /// a wait that grows with each failure in a row, for as long as it's wanted. It's never given
-    /// up on, as iOS ends a helper for reasons that are no fault of its own, and an account left
-    /// off until the app started again showed as "Waiting for network…".
-    private func ended(_ run: Run, _ why: String) {
-        let why = run.failure ?? why
-        run.door?.closeAll(tell: false)
-        guard self.run === run else { return }
-        self.run = nil
-        copies.removeAll()
-        guard wanted else { return }
-        if asleep {
-            logger.notice("the engine stopped (\(why, privacy: .public)) with the app out of sight, and starts again as it comes back")
+    /// TDLib said a client closed: the process lived through its start, so its mark is taken back.
+    private func closed(_ run: Run) {
+        run.hasClosed = true
+        run.closed.signal()
+        run.door.close()
+        marks.takeBack()
+        if run.lateStop {
+            run.lateStop = false
+            stopDone()
             return
         }
-        if run.wipe {
+        // A run that's been stopped goes on in its stop.
+        guard self.run === run else { return }
+        self.run = nil
+        guard let failure = run.failure else {
+            // It closed by itself, as when its session was ended from another device, which the
+            // core heard of with its last update and decides about.
+            return
+        }
+        if run.wipe, wanted {
             logger.warning("a database no key here opens, with no account linked, is erased, to link from nothing")
             eraseAll()
+            if let why = begin(afterWipe: true) { _ = refuse(why) }
+            return
         }
-        if Date().timeIntervalSince(run.started) > Self.ranWell { failures = 0 }
-        failures += 1
-        logger.warning("the engine stopped (\(why, privacy: .public)), failure \(self.failures) in a row")
-        if failures > Self.mostRestarts {
-            deliver(Self.encode(["@type": "zunaFailed", "reason": why, "retrying": true]))
-        }
-        let delays = configuration.retryDelays
-        let delay = delays.isEmpty ? 0 : delays[min(failures, delays.count) - 1]
-        waiting += 1
-        guard delay > 0 else { return again() }
-        let mine = waiting
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            // Started or stopped meanwhile, or the app is out of sight, where `wake` starts it.
-            guard let self, mine == waiting, wanted, self.run == nil, !asleep else { return }
-            again()
-        }
+        _ = refuse(failure)
     }
 
-    /// Starts the helper again, and tells the core, whose requests of the one before go unanswered.
-    private func again() {
-        waiting += 1
-        if let why = launch() {
-            // The key to its database can't be kept: nothing a new start would change.
-            deliver(Self.encode(["@type": "zunaFailed", "reason": why]))
-        } else {
-            deliver(Self.encode(["@type": "zunaRestarted"]))
-        }
+    /// One stop's client has closed.
+    private func stopDone() {
+        stopping -= 1
+        if stopping == 0 { stopsDone() }
     }
 
-    /// Asks the helper now and then whether it's still there, and ends one that doesn't answer.
-    /// Not while the app is out of sight, when iOS holds the helper suspended and it can't. And a
-    /// wait that spans the app's being suspended, when nothing runs, counts for nothing: a look that
-    /// comes late came after the app was, as the helper too, which may not have answered yet.
-    private func watch(_ run: Run) {
-        looked = Date()
-        queue.asyncAfter(deadline: .now() + configuration.watchdogEvery) { [weak self] in
-            guard let self, self.run === run, let link = run.link else { return }
-            let now = Date()
-            let slept = asleep || now.timeIntervalSince(looked) > configuration.watchdogEvery + configuration.watchdogLate
-            looked = now
-            if slept { asked = nil }
-            if let asked, now.timeIntervalSince(asked) > configuration.watchdogWait {
-                logger.warning("the engine stopped answering, so it's ended")
-                // Its session ends as it goes, and `ended` starts it again.
-                link.close()
-                return
-            }
-            if asked == nil, !asleep {
-                asked = now
-                link.send(json: Self.encode(["@type": "getOption", "name": "version", "@extra": "zuna:watchdog"]))
-            }
-            watch(run)
+    /// No client is left: TDLib's folder goes if unlinking asked for it, and a start that waited is made.
+    private func stopsDone() {
+        if eraseOwed {
+            eraseOwed = false
+            eraseFolder()
         }
+        resume()
     }
 
-    /// Erases everything of the account's on this device: the key, the files copied out, and the
-    /// helper's folder, which only a helper of its own can reach.
-    private func eraseAll() {
+    /// The door listens on another port, as when iOS took back its socket and the old port couldn't
+    /// be had again: TDLib is told, or it would reach Telegram no more.
+    private func doorMoved(_ door: TelegramDoor) {
+        guard let run, run.door === door else { return }
+        run.client?.send(Self.useDoor(door))
+    }
+
+    // MARK: TDLib's folder
+
+    /// Whether TDLib has a database in its folder: its binlog, where the account's session is kept,
+    /// or the copy TDLib was writing in its place when it last stopped.
+    func hasDatabase() -> Bool {
+        let binlog = folder.appendingPathComponent("db/td\(configuration.credentials.testDc ? "_test" : "").binlog").path
+        return FileManager.default.fileExists(atPath: binlog) || FileManager.default.fileExists(atPath: binlog + ".new")
+    }
+
+    /// The folder, made as the app's own data is: protected until the phone is first unlocked,
+    /// which is also what TDLib's files in it are, and left out of backups.
+    private func makeFolder() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var url = folder
+        try url.setResourceValues(values)
+    }
+
+    private func eraseKey() {
         try? FileManager.default.removeItem(at: keyFile)
-        try? FileManager.default.removeItem(at: filesDirectory)
-        let erased = DispatchSemaphore(value: 0)
-        let handlers = TelegramHelperHandlers(
-            json: { json in if json.contains("\"erased\"") { erased.signal() } },
-            data: { _, _, taken in taken() },
-            ended: { _ in erased.signal() }
-        )
-        let launcher = configuration.launcher
-        let helper = LinkBox()
-        Task {
-            do {
-                let link = try await launcher.launch(handlers)
-                helper.link = link
-                link.send(json: Self.encode(["zuna": "erase"]))
-            } catch {
-                erased.signal()
-            }
-        }
-        if erased.wait(timeout: .now() + 10) == .timedOut {
-            logger.warning("the engine's folder couldn't be erased in time")
-        }
-        helper.link?.close()
     }
 
-    private final class LinkBox: @unchecked Sendable {
-        var link: (any TelegramHelperLink)?
+    /// TDLib's folder: its database, its files and the marks its starts left. Only with no client.
+    private func eraseFolder() {
+        try? FileManager.default.removeItem(at: folder)
+        marks.forget()
     }
 
-    // MARK: Helpers
+    /// Everything of the account's on this device: the key and TDLib's folder. Only with no client.
+    private func eraseAll() {
+        eraseKey()
+        eraseFolder()
+    }
+
+    // MARK: Requests of the broker's own
+
+    /// The door, as TDLib's proxy: the only way it's given to Telegram.
+    private static func useDoor(_ door: TelegramDoor) -> String {
+        encode([
+            "@type": "addProxy",
+            "proxy": ["@type": "proxy", "server": "127.0.0.1", "port": Int(door.port), "type": ["@type": "proxyTypeSocks5", "username": door.username, "password": door.password]],
+            "enable": true,
+            "comment": "Zuna",
+            "@extra": "zuna:door",
+        ])
+    }
+
+    /// Tells TDLib the network changed, which it has to be told "even if the network type remains
+    /// the same", as that's what has it open every connection again at once.
+    static let setNetworkType = encode(["@type": "setNetworkType", "type": ["@type": "networkTypeOther"], "@extra": "zuna:network"])
 
     static func encode(_ object: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: object), let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
     }
+}
 
-    /// A file's extension as TDLib named it, if it's a plain one, so that what reads the copy knows its kind.
-    static func fileExtension(of path: String) -> String {
-        let found = (path as NSString).pathExtension.lowercased()
-        guard (1...8).contains(found.count), found.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return "" }
-        return "." + found
+// MARK: The marks starts leave
+
+/// What keeps a TDLib that ends the app as it starts from taking the app away for good: the
+/// database it ends it over would end it at every start, before the person could reach Settings
+/// and unlink. Each start leaves a mark before TDLib opens its database, taken back once it has
+/// and said where the account stands, or once it closed. One TDLib ended on purpose, its own checks
+/// having failed, is left again with what it said last, whenever it came. After `mostMarks` starts
+/// in a row left theirs, none is made until the person unlinks, which erases the folder with them.
+/// They're kept in TDLib's folder, across launches: the app coming back isn't the person acting.
+final class StartMarks: @unchecked Sendable {
+    struct Mark: Codable, Equatable {
+        /// How many starts in a row left their mark.
+        var starts: Int
+        /// What TDLib last said as it ended the app, if it said anything.
+        var said: String?
     }
 
-    static func copy(_ handle: FileHandle, to destination: URL) throws {
-        defer { try? handle.close() }
-        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.protectionKey: FileProtectionType.complete]),
-              let out = FileHandle(forWritingAtPath: destination.path) else {
-            throw CoreError(description: "Telegram's file couldn't be saved.")
+    let file: URL
+    private let lock = NSLock()
+    /// The mark this launch's start left, which TDLib's last words leave again.
+    private var current: Mark?
+
+    init(file: URL) {
+        self.file = file
+    }
+
+    func read() -> Mark {
+        guard let data = try? Data(contentsOf: file), let mark = try? JSONDecoder().decode(Mark.self, from: data) else { return Mark(starts: 0) }
+        return mark
+    }
+
+    /// The mark a start leaves before TDLib opens its database.
+    func leave(_ starts: Int, said: String?) {
+        let mark = Mark(starts: starts, said: said)
+        lock.withLock { current = mark }
+        write(mark)
+    }
+
+    /// The start got through, or its client closed: its mark goes, though TDLib's last words would leave it again.
+    func takeBack() {
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    /// Unlinking: nothing is left, nor left again by this launch.
+    func forget() {
+        lock.withLock { current = nil }
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    /// What TDLib said as it ends the app on purpose, on its thread, just before it does: the start
+    /// counts as one that ended the app, wherever it had got to.
+    func lastWords(_ said: String) {
+        guard var mark = lock.withLock({ current }) else { return }
+        mark.said = Self.plain(said)
+        write(mark)
+    }
+
+    /// TDLib's log line without what it puts before it: its level, thread, time, file and tags.
+    static func plain(_ line: String) -> String {
+        var text = Substring(line)
+        while text.first == "[", let end = text.firstIndex(of: "]") {
+            text = text[text.index(after: end)...].drop { $0 == " " || $0 == "\t" }
         }
-        defer { try? out.close() }
-        while let part = try handle.read(upToCount: 1 << 20), !part.isEmpty {
-            try out.write(contentsOf: part)
-        }
+        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))
+    }
+
+    private func write(_ mark: Mark) {
+        guard let data = try? JSONEncoder().encode(mark) else { return }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: file, options: [.atomic])
     }
 }
 
@@ -762,166 +804,6 @@ enum TelegramFunctions {
                 self = .object(fields.mapValues(JSON.init))
             default:
                 self = .null
-            }
-        }
-    }
-}
-
-// MARK: The door
-
-/// The app's end of the door (the helper's `Door.swift` is the other): each connection TDLib asks
-/// for is opened here, if it's to one of Telegram's own addresses on a port Telegram uses, and
-/// refused otherwise. A name is always refused: Telegram's servers are reached by address, and
-/// what TDLib does when it can't reach them, asking other companies' servers where they went,
-/// isn't Telegram's and doesn't go. Through the proxy set in Privacy where there is one, as
-/// everything else goes, and nowhere while it can't be reached.
-final class TelegramDoor: @unchecked Sendable {
-    /// The ranges Telegram publishes (https://core.telegram.org/resources/cidr.txt, read on
-    /// 2026-11-13), as the desktop's door has them: nine for IPv4, five for IPv6.
-    static let rangesV4: [(String, Int)] = [
-        ("91.108.56.0", 22), ("91.108.4.0", 22), ("91.108.8.0", 22), ("91.108.16.0", 22), ("91.108.12.0", 22),
-        ("149.154.160.0", 20), ("91.105.192.0", 23), ("91.108.20.0", 22), ("185.76.151.0", 24),
-    ]
-    static let rangesV6: [(String, Int)] = [
-        ("2001:b28:f23d::", 48), ("2001:b28:f23f::", 48), ("2001:67c:4e8::", 48), ("2001:b28:f23c::", 48), ("2a0a:f280::", 32),
-    ]
-    /// The ports Telegram's data centers answer on: 443 first, and 80 and 5222 where it's blocked.
-    static let ports: Set<Int> = [443, 80, 5222]
-    static let connectTimeout: TimeInterval = 15
-
-    /// Whether the door lets a connection to this address and port through.
-    static func allowed(host: String, port: Int) -> Bool {
-        guard ports.contains(port) else { return false }
-        if let address = IPv4Address(host) { return inRanges(address.rawValue, rangesV4.map { (IPv4Address($0.0)!.rawValue, $0.1) }) }
-        if let address = IPv6Address(host) {
-            // An IPv4 address written as IPv6 is judged as itself.
-            if let mapped = address.asIPv4 { return allowed(host: "\(mapped)", port: port) }
-            return inRanges(address.rawValue, rangesV6.map { (IPv6Address($0.0)!.rawValue, $0.1) })
-        }
-        return false
-    }
-
-    private static func inRanges(_ address: Data, _ ranges: [(Data, Int)]) -> Bool {
-        ranges.contains { network, bits in
-            guard network.count == address.count else { return false }
-            var left = bits
-            for (a, b) in zip(address, network) {
-                if left <= 0 { break }
-                let mask: UInt8 = left >= 8 ? 0xff : ~(0xff >> UInt8(left))
-                if a & mask != b & mask { return false }
-                left -= 8
-            }
-            return true
-        }
-    }
-
-    private weak var link: (any TelegramHelperLink)?
-    private let queue = DispatchQueue(label: "chat.zuna.telegram.door")
-    private var connections: [UInt32: NWConnection] = [:]
-    private let logger = Logger(subsystem: "chat.zuna", category: "telegram")
-
-    init(link: any TelegramHelperLink) {
-        self.link = link
-    }
-
-    /// Whether a connection asked for has been answered, opened or refused: only once.
-    private final class Asked: @unchecked Sendable {
-        var answered = false
-    }
-
-    private func refuse(_ id: UInt32, _ host: String, _ port: Int, _ why: String) {
-        logger.info("the door refused \(host, privacy: .public):\(port): \(why, privacy: .public)")
-        link?.send(json: TelegramBridge.encode(["zuna": "refused", "id": Int(id)]))
-    }
-
-    /// The helper asks for a connection.
-    func open(stream id: UInt32, host: String, port: Int) {
-        guard IPv4Address(host) != nil || IPv6Address(host) != nil else { return refuse(id, host, port, "not an address") }
-        guard Self.allowed(host: host, port: port), let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return refuse(id, host, port, "not one of Telegram's") }
-        let options = NWProtocolTCP.Options()
-        options.noDelay = true
-        options.connectionTimeout = Int(Self.connectTimeout)
-        let parameters = NWParameters(tls: nil, tcp: options)
-        NetworkProxy.apply(NetworkProxy.current, to: parameters)
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: parameters)
-        let asked = Asked()
-        // Every handler runs on the door's queue, which is what keeps `asked` and `connections` safe.
-        connection.stateUpdateHandler = { [weak self, weak connection] state in
-            guard let self, let connection else { return }
-            switch state {
-            case .ready where !asked.answered:
-                asked.answered = true
-                connections[id] = connection
-                link?.send(json: TelegramBridge.encode(["zuna": "opened", "id": Int(id)]))
-                receive(id, connection)
-            case .failed(let error) where !asked.answered, .waiting(let error) where !asked.answered:
-                asked.answered = true
-                connection.cancel()
-                refuse(id, host, port, error.localizedDescription)
-            case .failed, .cancelled:
-                if connections.removeValue(forKey: id) != nil {
-                    link?.send(json: TelegramBridge.encode(["zuna": "closed", "id": Int(id)]))
-                }
-            default:
-                break
-            }
-        }
-        queue.asyncAfter(deadline: .now() + Self.connectTimeout) { [weak self] in
-            guard let self, !asked.answered else { return }
-            asked.answered = true
-            connection.cancel()
-            refuse(id, host, port, "it took too long")
-        }
-        connection.start(queue: queue)
-    }
-
-    /// What Telegram sends, a part at a time, each waiting until the helper has written the one before.
-    private func receive(_ id: UInt32, _ connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 << 10) { [weak self] content, _, complete, error in
-            guard let self else { return }
-            if let content, !content.isEmpty, let link {
-                link.send(stream: id, bytes: content) { [weak self] taken in
-                    guard let self else { return }
-                    queue.async {
-                        if taken && !complete && error == nil { self.receive(id, connection) } else { self.finish(id) }
-                    }
-                }
-            } else if complete || error != nil {
-                finish(id)
-            } else {
-                receive(id, connection)
-            }
-        }
-    }
-
-    /// What TDLib sent on a connection, and `taken` once it's gone to Telegram's.
-    func data(stream id: UInt32, bytes: Data, taken: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            guard let connection = connections[id] else { return taken() }
-            connection.send(content: bytes, completion: .contentProcessed { _ in taken() })
-        }
-    }
-
-    /// The helper's end closed.
-    func closed(stream id: UInt32) {
-        queue.async { [self] in connections.removeValue(forKey: id)?.cancel() }
-    }
-
-    /// Telegram's end closed, or failed: the helper's end is told.
-    private func finish(_ id: UInt32) {
-        guard let connection = connections.removeValue(forKey: id) else { return }
-        connection.cancel()
-        link?.send(json: TelegramBridge.encode(["zuna": "closed", "id": Int(id)]))
-    }
-
-    /// Every connection ends, and the helper is told of each when `tell`, as when the proxy changed.
-    func closeAll(tell: Bool) {
-        queue.async { [self] in
-            let all = connections
-            connections.removeAll()
-            for (id, connection) in all {
-                connection.cancel()
-                if tell { link?.send(json: TelegramBridge.encode(["zuna": "closed", "id": Int(id)])) }
             }
         }
     }

@@ -44,33 +44,16 @@ export const PROFILES = {
   "chat.zuna.mobile.share": "IOS_PROFILE_SHARE",
 };
 
-/**
- * The Telegram helper's, which a build has only when it's given Telegram's api_id (apps/ios/telegram.yml,
- * docs/TELEGRAM_PLAN.md): its profile is needed only to sign an archive that holds it.
- */
-export const TELEGRAM_PROFILE = { "chat.zuna.mobile.telegram": "IOS_PROFILE_TELEGRAM" };
-
 /** Everything `upload` needs, as the environment's secrets. */
 export const SECRETS = ["IOS_DISTRIBUTION_P12", "IOS_DISTRIBUTION_P12_PASSWORD", ...Object.values(PROFILES), "APP_STORE_CONNECT_KEY", "APP_STORE_CONNECT_KEY_ID", "APP_STORE_CONNECT_ISSUER_ID"];
-
-/** The profiles an app's bundles need: every one's, and the Telegram helper's where it has one. */
-function profilesFor(app) {
-  return existsSync(join(app, "Extensions", "ZunaTelegram.appex")) ? { ...PROFILES, ...TELEGRAM_PROFILE } : PROFILES;
-}
 
 /** The team the app is signed for, from the XcodeGen spec. */
 const team = () => /^\s*DEVELOPMENT_TEAM:\s*(\w+)/m.exec(readFileSync(join(iosDir, "project.yml"), "utf8"))[1];
 
-/**
- * The app's extensions, then the app: the order a signature has to go in, inside out. The old kind
- * are in PlugIns, and ExtensionKit's, as the Telegram helper, in Extensions.
- */
+/** The app's extensions, in PlugIns, then the app: the order a signature has to go in, inside out. */
 function bundlesOf(app) {
-  const extensions = [];
-  for (const folder of ["PlugIns", "Extensions"]) {
-    const dir = join(app, folder);
-    if (existsSync(dir)) extensions.push(...readdirSync(dir).filter((name) => name.endsWith(".appex")).sort().map((name) => join(dir, name)));
-  }
+  const dir = join(app, "PlugIns");
+  const extensions = existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".appex")).sort().map((name) => join(dir, name)) : [];
   return [...extensions, app];
 }
 
@@ -146,7 +129,7 @@ async function archive() {
   if (!/^\d+$/.test(build)) fail(`"${build}" isn't a build number.`);
 
   // With Telegram where the build is given its api_id, as the release's archive is, and TDLib
-  // built for phones alone, which is all an archive links.
+  // built for phones alone, which is all an archive links into the app.
   const telegram = await iosTelegram({ sdks: ["iphoneos"] });
   const environment = { ...env, ...telegram };
   run("xcodegen", ["generate", "--spec", "project.yml", "--quiet"], { cwd: iosDir, env: environment });
@@ -194,9 +177,8 @@ async function archive() {
 // --- Signing, checking and uploading ---
 
 /** The certificate, profiles and App Store Connect key from the environment, put where Xcode and altool look. */
-function installSigning(work, teamId, app) {
-  const wanted = profilesFor(app);
-  needSecrets([...SECRETS, ...Object.values(wanted).filter((secret) => !SECRETS.includes(secret))], ENVIRONMENT, 'docs/RELEASES.md, "The iPhone app on TestFlight"');
+function installSigning(work, teamId) {
+  needSecrets(SECRETS, ENVIRONMENT, 'docs/RELEASES.md, "The iPhone app on TestFlight"');
   const undo = [];
   const remove = () => {
     for (const step of undo.reverse()) step();
@@ -210,7 +192,7 @@ function installSigning(work, teamId, app) {
     const folder = join(homedir(), "Library", "Developer", "Xcode", "UserData", "Provisioning Profiles");
     mkdirSync(folder, { recursive: true });
     const profiles = {};
-    for (const [bundle, secret] of Object.entries(wanted)) {
+    for (const [bundle, secret] of Object.entries(PROFILES)) {
       const file = join(work, `${secret}.mobileprovision`);
       writeFileSync(file, Buffer.from(process.env[secret], "base64"));
       const profile = profileOf(file);
@@ -265,14 +247,6 @@ function distribute(path, upload) {
   const app = join(archived, "Products", "Applications", "Zuna.app");
   if (!existsSync(app)) fail(`${archived} isn't an archive of Zuna: it has no Products/Applications/Zuna.app.`);
   const build = field(join(app, "Info.plist"), "CFBundleVersion");
-  // An archive with the Telegram helper goes up without it until the helper has its App Store
-  // profile in the environment (IOS_PROFILE_TELEGRAM), rather than not at all: the app then has no
-  // Telegram, as without the api_id (Zuna/Telegram/TelegramHelper.swift).
-  const helper = join(app, "Extensions", "ZunaTelegram.appex");
-  if (upload && existsSync(helper) && !process.env[TELEGRAM_PROFILE["chat.zuna.mobile.telegram"]]) {
-    console.log("The Telegram helper has no App Store profile in the environment yet (IOS_PROFILE_TELEGRAM), so this build goes to TestFlight without Telegram.");
-    rmSync(helper, { recursive: true, force: true });
-  }
   const teamId = team();
   const work = mkdtempSync(join(tmpdir(), "zuna-ios-"));
   let signing = null;
@@ -281,7 +255,7 @@ function distribute(path, upload) {
     const options = { method: "app-store-connect", destination: "export", teamID: teamId, uploadSymbols: true, manageAppVersionAndBuildNumber: false, testFlightInternalTestingOnly: true };
     const extra = [];
     if (upload) {
-      signing = installSigning(work, teamId, app);
+      signing = installSigning(work, teamId);
       Object.assign(options, { signingStyle: "manual", signingCertificate: "Apple Distribution", provisioningProfiles: signing.profiles });
     } else {
       Object.assign(options, { signingStyle: "automatic" });
@@ -331,9 +305,7 @@ async function secrets(args) {
     console.log(`${basename(p12)} holds ${signing.identity}.`);
     // The file's name kept apart from the profile's own, which is whatever it was called on the developer site.
     const profiles = files.filter((name) => name.endsWith(".mobileprovision")).map((file) => ({ ...profileOf(join(dir, file)), file }));
-    // The Telegram helper's too, once the folder has one for it.
-    const helper = profiles.some((profile) => profile.bundle in TELEGRAM_PROFILE);
-    for (const [bundle, secret] of Object.entries(helper ? { ...PROFILES, ...TELEGRAM_PROFILE } : PROFILES)) {
+    for (const [bundle, secret] of Object.entries(PROFILES)) {
       const usable = profiles.filter((profile) => !profileProblem(profile, { bundle, team: teamId, certificate: signing.certificate }));
       if (usable.length !== 1) {
         const others = profiles.filter((profile) => profile.bundle === bundle).map((profile) => `${profile.file}: ${profileProblem(profile, { bundle, team: teamId, certificate: signing.certificate }) ?? "one of several that would do"}`);
@@ -348,10 +320,9 @@ async function secrets(args) {
   Object.assign(values, { APP_STORE_CONNECT_KEY: key.text, APP_STORE_CONNECT_KEY_ID: key.id, APP_STORE_CONNECT_ISSUER_ID: issuer });
 
   holdEnvironment(ENVIRONMENT, TAGS);
-  const names = [...SECRETS, ...Object.values(TELEGRAM_PROFILE).filter((name) => values[name])];
-  setSecrets(ENVIRONMENT, Object.fromEntries(names.map((name) => [name, values[name]])));
+  setSecrets(ENVIRONMENT, Object.fromEntries(SECRETS.map((name) => [name, values[name]])));
   console.log(
-    `\nSet the ${names.length} secrets of the ${ENVIRONMENT} environment. The next nightly that changes the iPhone app goes to TestFlight.\n` +
+    `\nSet the ${SECRETS.length} secrets of the ${ENVIRONMENT} environment. The next nightly that changes the iPhone app goes to TestFlight.\n` +
       `Delete ${basename(p12)} and AuthKey_${key.id}.p8 now: GitHub has them, the certificate's key is in your keychain too, and a lost one is replaced by revoking it and making a new one.`,
   );
 }

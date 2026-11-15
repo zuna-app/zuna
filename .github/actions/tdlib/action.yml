@@ -7,7 +7,7 @@ description: >-
   needs it.
 inputs:
   system:
-    description: windows, linux or macos for the native app's, in apps/desktop/.deps/tdlib, or ios for the Telegram helper's, in apps/ios/.deps/tdlib
+    description: windows, linux or macos for the native app's, in apps/desktop/.deps/tdlib, or ios for the iPhone app's, in apps/ios/.deps/tdlib
     required: true
   lookup-only:
     description: Only says whether it's saved, fetching nothing

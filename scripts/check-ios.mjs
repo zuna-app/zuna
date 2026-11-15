@@ -16,7 +16,7 @@ run("npm", ["run", "typecheck"]);
 
 step("L0: the app, with warnings as errors");
 run(process.execPath, [join(iosDir, "core-bundle", "build.mjs")]);
-// With the Telegram helper where this machine has Telegram's api_id (scripts/tdlib.mjs).
+// With TDLib linked, and Telegram, where this machine has Telegram's api_id (scripts/tdlib.mjs).
 const telegram = await iosTelegram();
 const environment = { ...process.env, ...telegram };
 run("xcodegen", ["generate", "--spec", "project.yml", "--quiet"], { cwd: iosDir, env: environment });

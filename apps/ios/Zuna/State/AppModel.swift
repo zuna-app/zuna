@@ -315,7 +315,7 @@ final class AppModel {
     /// Tells the core the proxy changed, so it closes everything and opens it again the new way.
     @ObservationIgnored var onNetworkChanged: (() -> Void)?
 
-    /// This app can link a Telegram account (docs/TELEGRAM_PLAN.md): from iOS 26, in a build given Telegram's api_id.
+    /// This app can link a Telegram account (docs/TELEGRAM_PLAN.md): in a build given Telegram's api_id.
     var telegramAvailable = false
     /// Where linking the Telegram account stands, as the core last said, while the linking screens show it.
     var telegramLink: TelegramLink?

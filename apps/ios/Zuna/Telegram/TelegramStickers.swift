@@ -62,7 +62,7 @@ struct TelegramStickers: View {
     }
 }
 
-/// A sticker's picture, downloaded by Telegram's engine and copied out of its helper.
+/// A sticker's picture, downloaded by Telegram's engine and read where it keeps it.
 private struct StickerPicture: View {
     @Environment(ImageStore.self) private var images
     let fileId: String

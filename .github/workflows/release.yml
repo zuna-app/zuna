@@ -334,7 +334,7 @@ jobs:
     needs: [plan]
     if: ${{ needs.plan.outputs.ios == 'true' }}
     runs-on: xcode-27
-    # TDLib for the Telegram helper takes a while more when tdlib.yml hasn't saved it.
+    # TDLib for the iPhone takes a while more when tdlib.yml hasn't saved it.
     timeout-minutes: 150
     env:
       ZUNA_BUILD: ${{ needs.plan.outputs.build }}
@@ -352,7 +352,7 @@ jobs:
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Install XcodeGen
         run: brew install xcodegen
-      # TDLib for the Telegram helper as tdlib.yml saved it on main, or built here from source for
+      # TDLib for the iPhone app as tdlib.yml saved it on main, or built here from source for
       # phones alone if it's not there, with CMake.
       - uses: ./.github/actions/tdlib
         with:
@@ -360,8 +360,9 @@ jobs:
       - run: command -v cmake || brew install cmake
       - run: npm ci
       - run: npm run build:ios
-      # With the app's api_id the Telegram helper is built into the app (apps/ios/telegram.yml),
-      # and without it the archive has none, as the desktop's jobs build without their engine.
+      # With the app's api_id TDLib is linked into the app, which then has Telegram
+      # (apps/ios/telegram.yml), and without it the archive has none, as the desktop's jobs build
+      # without their engine.
       - run: node scripts/ios-dist.mjs archive
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -408,9 +409,6 @@ jobs:
           IOS_PROFILE_NOTIFICATIONS: ${{ secrets.IOS_PROFILE_NOTIFICATIONS }}
           IOS_PROFILE_BROADCAST: ${{ secrets.IOS_PROFILE_BROADCAST }}
           IOS_PROFILE_SHARE: ${{ secrets.IOS_PROFILE_SHARE }}
-          # The Telegram helper's, for an archive that has it; until it's set, the helper is left
-          # out of what's uploaded (scripts/ios-dist.mjs).
-          IOS_PROFILE_TELEGRAM: ${{ secrets.IOS_PROFILE_TELEGRAM }}
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

@@ -52,7 +52,7 @@ extension CoreConnection {
 
     // MARK: Telegram
 
-    /// Whether this app can link a Telegram account: from iOS 26, in a build given Telegram's api_id.
+    /// Whether this app can link a Telegram account: in a build given Telegram's api_id.
     public func telegramAvailable() async throws -> Bool { try await call("telegramAvailable") }
     /// Starts linking a Telegram account on this device, whose steps come as `telegram` events.
     public func linkTelegram() async throws { try await call("linkTelegram") }

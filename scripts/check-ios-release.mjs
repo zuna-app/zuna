@@ -29,6 +29,7 @@ export const forbidden = [
   "ZunaFakeCamera",
   "ZunaFakeScreen",
   "voipPush",
+  "ZunaTelegramEndAtStart",
 ];
 
 /** The test-only code a built Zuna.app holds, by the strings only that code has. Empty when there's none. */

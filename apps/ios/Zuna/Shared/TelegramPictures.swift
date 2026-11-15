@@ -2,8 +2,8 @@ import CryptoKit
 import Foundation
 
 /// The pictures of the linked Telegram account's chats, small, for its notifications, which the
-/// notification extension can't ask the engine for: it shares nothing with the helper, where
-/// TDLib keeps them. The app keeps them here as it lists the chats (`TelegramPictureKeeper`), in
+/// notification extension can't ask the engine for: it doesn't run TDLib, and can't read the
+/// app's own container, where TDLib keeps them. The app keeps them here as it lists the chats (`TelegramPictureKeeper`), in
 /// the App Group, each sealed with a key made from the device key, under a name made from the
 /// chat's with another, so nothing in the folder says whose a picture is. Without the device key,
 /// as before the phone's first unlock with the Zuna password, a notification has initials instead.
