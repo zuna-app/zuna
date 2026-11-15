@@ -181,9 +181,9 @@ export function ordered(data: Record<string, unknown>): Record<string, unknown> 
 export const ENGLISH_PLURAL = { one: "i = 1 and v = 0" };
 
 /**
- * CLDR's rules for whole numbers in common languages (unicode.org/cldr/charts/latest/supplemental/
+ * CLDR 49's rules for whole numbers in common languages (unicode.org/cldr/charts/latest/supplemental/
  * language_plural_rules.html), which `npm run i18n -- add` starts a catalog with. What's left out
- * only matters for fractions. The check holds each to Intl.PluralRules.
+ * only matters for fractions. The check holds each to Intl.PluralRules (`intlPlurals`).
  */
 export const KNOWN_RULES: Record<string, Record<string, string>> = {
   af: { one: "n = 1" },
@@ -206,7 +206,7 @@ export const KNOWN_RULES: Record<string, Record<string, string>> = {
   fi: { one: "i = 1 and v = 0" },
   fil: { one: "v = 0 and i = 1,2,3 or v = 0 and i % 10 != 4,6,9" },
   fr: { one: "i = 0,1", many: "e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5" },
-  gl: { one: "i = 1 and v = 0" },
+  gl: { one: "i = 1 and v = 0", many: "e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5" },
   he: { one: "i = 1 and v = 0", two: "i = 2 and v = 0" },
   hi: { one: "i = 0 or n = 1" },
   hr: { one: "v = 0 and i % 10 = 1 and i % 100 != 11", few: "v = 0 and i % 10 = 2..4 and i % 100 != 12..14" },
@@ -243,6 +243,19 @@ export const KNOWN_RULES: Record<string, Record<string, string>> = {
   uk: { one: "v = 0 and i % 10 = 1 and i % 100 != 11", few: "v = 0 and i % 10 = 2..4 and i % 100 != 12..14", many: "v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14" },
   ur: { one: "i = 1 and v = 0" },
   uz: { one: "n = 1" },
-  vi: {},
+  vi: { one: "i = 0 or n = 1" },
   zh: {},
 };
+
+/**
+ * The languages whose rules changed in a CLDR newer than 48, by the release that changed them.
+ * Node's own builds carry CLDR 48, and Homebrew's whatever ICU the system has, so Intl only knows
+ * these rules where its CLDR is as new.
+ */
+export const CHANGED_IN_CLDR: Record<string, number> = { gl: 49, vi: 49 };
+
+/** Intl's plural rules for a language, or null where this runtime's CLDR is older than the rules here. */
+export function intlPlurals(tag: string): Intl.PluralRules | null {
+  const changed = CHANGED_IN_CLDR[tag] ?? CHANGED_IN_CLDR[tag.split("-")[0]!] ?? 0;
+  return Number(process.versions.cldr ?? 0) >= changed ? new Intl.PluralRules(tag) : null;
+}

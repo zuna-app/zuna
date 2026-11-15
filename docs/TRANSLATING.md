@@ -59,7 +59,7 @@ Changing a text's English without changing its meaning keeps its key. When the m
 npm run i18n -- add pl Polski
 ```
 
-This makes `locales/pl.json` with the language's own name, its plural rules from CLDR, and every key set to `null`. Translate the values, leaving each `{name}` as it is and keeping every key; a count's text has a form for each category the language's rules name, and `other`. Run `npm run i18n` and `npm run test:i18n` again: the test holds the plural rules to the ones Node's ICU has, and fails on a placeholder the English doesn't have.
+This makes `locales/pl.json` with the language's own name, its plural rules from CLDR, and every key set to `null`. Translate the values, leaving each `{name}` as it is and keeping every key; a count's text has a form for each category the language's rules name, and `other`. Run `npm run i18n` and `npm run test:i18n` again: the test holds the plural rules to the ones Node's ICU has, unless its CLDR is older than the one the command's table follows and the language changed since (`CHANGED_IN_CLDR` in `src/extract.ts`), and fails on a placeholder the English doesn't have.
 
 A language not in the command's table needs its rules written under `$plural` from [CLDR's table](https://www.unicode.org/cldr/charts/latest/supplemental/language_plural_rules.html), for whole numbers, as `one`, `few` and so on, with `other` left out: it's everything else.
 

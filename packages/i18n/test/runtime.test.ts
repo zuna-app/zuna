@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_RULES, ordered, slug } from "../src/extract.ts";
+import { intlPlurals, KNOWN_RULES, ordered, slug } from "../src/extract.ts";
 import { compileRule, countOf, fill, matchLanguage, parseCatalog, placeholders, pluralCategory, Translator, type Catalog } from "../src/index.ts";
 import { withServerMessages } from "../scripts/i18n.ts";
 import vectors from "./vectors.json";
@@ -37,7 +37,8 @@ describe("plural rules", () => {
   it("that a new catalog starts with agree with Intl for every whole number up to 1,100 and at millions", () => {
     const counts = [...Array.from({ length: 1101 }, (_, i) => i), 1_000_000, 2_000_000, 1_000_001, 10_000_000];
     for (const [tag, sources] of Object.entries(KNOWN_RULES)) {
-      const intl = new Intl.PluralRules(tag);
+      const intl = intlPlurals(tag);
+      if (!intl) continue;
       const rules = rulesOf(sources);
       for (const count of counts) expect(pluralCategory(rules, count), `${tag} ${count}`).toBe(intl.select(count));
     }
