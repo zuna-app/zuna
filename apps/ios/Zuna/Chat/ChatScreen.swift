@@ -75,7 +75,7 @@ struct ChatScreen: View {
         return HStack(spacing: 0) {
             chat(server, conversation, list: list, listId: listId, peer: peer, isSaved: isSaved, channel: channel)
             if roomForMembers, !memberListHidden {
-                ChannelMemberList(server: server, bots: Bots.inChat(conversation, server)) { sheet = .verify(userId: $0) }
+                ChannelMemberList(server: server, adminsOnly: channel?.adminOnly ?? false, bots: Bots.inChat(conversation, server)) { sheet = .verify(userId: $0) }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }

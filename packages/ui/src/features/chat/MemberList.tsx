@@ -42,15 +42,17 @@ const MemberRow = memo(function MemberRow({ user, online }: { user: UserView; on
 });
 
 /**
- * Who can read a channel, which is everyone on the server, as Discord lists them on
- * the right: those online first, then the rest, faded. A bot only reads the channels it
- * was given, so the bots listed are the ones in this channel, by themselves.
+ * Who can read a channel, which is everyone on the server, or only its admins and owner
+ * when it's admin-only, as Discord lists them on the right: those online first, then the
+ * rest, faded. A bot only reads the channels it was given, so the bots listed are the ones
+ * in this channel, by themselves.
  */
-export function MemberList({ members }: { members: GroupMemberView[] }) {
+export function MemberList({ members, groupId }: { members: GroupMemberView[]; groupId: string | null }) {
   const everyone = useApp(
     useShallow((state) => {
       const server = state.activeServerId ? state.servers[state.activeServerId] : undefined;
-      return Object.values(server?.users ?? {}).filter((user) => !user.banned && !user.deleted);
+      const adminsOnly = !!server?.channels.find((channel) => channel.id === groupId)?.adminOnly;
+      return Object.values(server?.users ?? {}).filter((user) => !user.banned && !user.deleted && (!adminsOnly || user.role !== "member"));
     }),
   );
   const [online, offline, bots] = useMemo(() => {

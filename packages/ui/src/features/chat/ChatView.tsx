@@ -509,7 +509,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         {isChannel && <ChannelTyping conversation={conversation} />}
       </div>
 
-      {panel ? <SidePanel conversation={conversation} /> : isChannel && !voice && showMembers && <MemberList members={conversation.members} />}
+      {panel ? <SidePanel conversation={conversation} /> : isChannel && !voice && showMembers && <MemberList members={conversation.members} groupId={conversation.groupId} />}
 
       {dragging && (
         <div

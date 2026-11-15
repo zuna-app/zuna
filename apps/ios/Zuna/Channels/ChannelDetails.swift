@@ -110,7 +110,7 @@ struct ChannelDetails: View {
                 .listRowBackground(Theme.bg2)
             }
 
-            members(server, bots: conversation.map { Bots.inChat($0, server) } ?? [])
+            members(server, adminsOnly: channel.adminOnly, bots: conversation.map { Bots.inChat($0, server) } ?? [])
         }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier(A11y.Channels.details)
@@ -166,10 +166,11 @@ struct ChannelDetails: View {
         }
     }
 
-    /// Everyone who can read the channel, which is everyone on the server: online first, then the rest, faded.
+    /// Everyone who can read the channel, which is everyone on the server, or its admins when
+    /// it's admin-only: online first, then the rest, faded.
     @ViewBuilder
-    private func members(_ server: AppModel.ServerState, bots: [UserView]) -> some View {
-        let (online, offline) = server.channelMembers(model.live(server.entry.id))
+    private func members(_ server: AppModel.ServerState, adminsOnly: Bool, bots: [UserView]) -> some View {
+        let (online, offline) = server.channelMembers(model.live(server.entry.id), adminsOnly: adminsOnly)
         // A bot only reads the channels it was given, so the ones here stand by themselves.
         if !bots.isEmpty {
             Section(t("channels.members.bots", ["count": bots.count])) {

@@ -248,17 +248,19 @@ impl Render for MemberList {
     }
 }
 
-/// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
-/// A bot only reads the channels it was given, so the bots listed are the ones in the channel
-/// that's open, in a group of their own.
+/// Everyone on the server, or only its admins and owner in an admin-only channel, as Discord lists
+/// a channel's members: online first, then the rest, faded. A bot only reads the channels it was
+/// given, so the bots listed are the ones in the channel that's open, in a group of their own.
 fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::App) -> AnyElement {
     let theme = theme(cx);
     let state = state_entity.read(cx);
     let Some(server) = state.servers.get(server_id) else { return div().into_any_element() };
+    let chat = server.active_key.as_deref().and_then(|key| server.find_conversation(key));
+    let admins_only = chat.and_then(|chat| chat.group_id.as_ref()).is_some_and(|group| server.channels.iter().any(|channel| &channel.id == group && channel.admin_only));
     // Each name lowercased once rather than at every comparison, and sorted before being copied.
-    let mut users: Vec<&UserView> = server.users.values().filter(|user| !user.banned && !user.deleted).collect();
+    let mut users: Vec<&UserView> = server.users.values().filter(|user| !user.banned && !user.deleted && (!admins_only || user.role != "member")).collect();
     users.sort_by_cached_key(|user| user.display_name.to_lowercase());
-    let in_channel: std::collections::HashSet<&String> = server.active_key.as_deref().and_then(|key| server.find_conversation(key)).map(|chat| chat.members.iter().map(|member| &member.user_id).collect()).unwrap_or_default();
+    let in_channel: std::collections::HashSet<&String> = chat.map(|chat| chat.members.iter().map(|member| &member.user_id).collect()).unwrap_or_default();
     let (bots, users): (Vec<&UserView>, Vec<&UserView>) = users.into_iter().partition(|user| user.bot.is_some());
     let bots: Vec<UserView> = bots.into_iter().filter(|bot| in_channel.contains(&bot.id)).cloned().collect();
     let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().cloned().partition(|user| user.online || user.is_self);
@@ -277,8 +279,7 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
             let (menu_state, menu_id, is_self) = (state_entity.clone(), user.id.clone(), user.is_self);
             let group = SharedString::from(format!("member-item-{}", user.id));
             list = list.child(
-                div()
-                    .id(group.clone())
+                named_div(group.clone())
                     .group(group.clone())
                     .mx(px(8.))
                     .mt(px(1.))

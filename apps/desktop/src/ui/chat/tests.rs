@@ -251,6 +251,27 @@ fn a_long_message_in_a_channel_wraps_inside_its_row(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn an_admin_only_channel_lists_its_admins_alone(cx: &mut TestAppContext) {
+    let mut world = World::new("admin-only-members");
+    world.server["getCalls"] = json!([]);
+    world.server["getChannels"][0]["adminOnly"] = json!(true);
+    let (app, _) = open_chat(cx, &world, &format!("group:{GENERAL}"));
+    app.update(cx, |state, _| state.settings.reduce_motion = true);
+    app.settle(cx, |state| state.lists.get(GENERAL).is_some_and(|list| list.loaded));
+    app.run(cx);
+    // Alice owns the server and Carol is an admin; Bob is neither.
+    assert!(app.drawn(cx, "member-item-u-alice") && app.drawn(cx, "member-item-u-carol"));
+    assert!(!app.drawn(cx, "member-item-u-bob"), "only admins read it");
+    // Where everyone reads it, everyone is listed.
+    app.update(cx, |state, cx| {
+        state.servers.get_mut(SERVER).unwrap().channels.iter_mut().find(|channel| channel.id == GENERAL).unwrap().admin_only = false;
+        cx.notify();
+    });
+    app.run(cx);
+    assert!(app.drawn(cx, "member-item-u-bob"));
+}
+
+#[gpui::test]
 fn picking_messages_by_dragging_across_them(cx: &mut TestAppContext) {
     let (app, chat) = open_chat(cx, &World::new("picking-messages"), &format!("user:{BOB}"));
     app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));

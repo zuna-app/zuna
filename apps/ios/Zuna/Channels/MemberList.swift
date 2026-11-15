@@ -2,12 +2,13 @@ import SwiftUI
 import ZunaModels
 
 extension AppModel.ServerState {
-    /// Who can read a channel, which is everyone on the server, as the desktop lists
-    /// them: those online, and you, first, then the rest, each by name. A bot only reads the
-    /// channels it was given, so bots aren't among them: `Bots.inChat` has a channel's own.
-    @MainActor func channelMembers(_ live: LiveState) -> (online: [UserView], offline: [UserView]) {
+    /// Who can read a channel, which is everyone on the server, or only its admins and owner
+    /// when it's admin-only, as the desktop lists them: those online, and you, first, then the
+    /// rest, each by name. A bot only reads the channels it was given, so bots aren't among
+    /// them: `Bots.inChat` has a channel's own.
+    @MainActor func channelMembers(_ live: LiveState, adminsOnly: Bool) -> (online: [UserView], offline: [UserView]) {
         let people = users.values
-            .filter { !$0.banned && !$0.deleted && $0.bot == nil }
+            .filter { !$0.banned && !$0.deleted && $0.bot == nil && (!adminsOnly || $0.role != .member) }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         let here = people.filter { live.isOnline($0) || $0.isSelf }
         return (here, people.filter { !live.isOnline($0) && !$0.isSelf })
@@ -20,6 +21,8 @@ extension AppModel.ServerState {
 struct ChannelMemberList: View {
     @Environment(AppModel.self) private var model
     let server: AppModel.ServerState
+    /// Whether only the server's admins read the channel, and so are its only members.
+    var adminsOnly = false
     /// The bots in the channel that's open, which stand in a group of their own, without the dot.
     var bots: [UserView] = []
     let profile: (_ userId: String) -> Void
@@ -27,7 +30,7 @@ struct ChannelMemberList: View {
     static let width: CGFloat = 240
 
     var body: some View {
-        let members = server.channelMembers(model.live(server.entry.id))
+        let members = server.channelMembers(model.live(server.entry.id), adminsOnly: adminsOnly)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
                 if !bots.isEmpty {
