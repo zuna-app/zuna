@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         center.setNotificationCategories(Notifications.categories)
         // An iPad's chat list puts its five filters in a narrow column, where equal parts cut "Channels" short.
         if UIDevice.current.userInterfaceIdiom == .pad { UISegmentedControl.appearance().apportionsSegmentWidthsByContent = true }
+        // From the first keyboard on, so a phone's emoji panel knows one is up, and how tall they are.
+        if UIDevice.current.userInterfaceIdiom == .phone { _ = KeyboardWatch.shared }
         // PushKit has to have its delegate as the app launches, or a VoIP push that woke it is never handed over.
         core.listenForCalls()
         Task { await core.start() }

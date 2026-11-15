@@ -16,6 +16,8 @@ struct ChatScreen: View {
     @State private var bridge = MessageListBridge()
     @State private var emoteCard: EmoteCardInfo?
     @State private var sheet: ChatSheet?
+    /// The emoji panel under the message box, which the chat makes room for as it does for the keyboard.
+    @State private var panel = ComposerPanel()
     /// Messages picked to act on together, in the order picked, or nil when not picking.
     @State private var selection: [String]?
     @State private var confirmingDelete = false
@@ -367,9 +369,12 @@ struct ChatScreen: View {
             } else if let selection, let list {
                 selectionBar(selection, server: server, conversation: conversation, list: list)
             } else {
-                Composer(serverId: serverId, conversation: conversation, server: server)
+                Composer(serverId: serverId, conversation: conversation, server: server, panel: panel)
             }
         }
+        // The panel stands where the keyboard does, as tall, so the chat keeps out of the panel's way
+        // alone: a keyboard coming up over it or going from over it then moves nothing.
+        .ignoresSafeArea(panel.inKeyboardsPlace ? .keyboard : [], edges: .bottom)
     }
 
     private func messages(_ server: AppModel.ServerState, _ conversation: ConversationView, _ list: MessageList, listId: String) -> some View {

@@ -4,8 +4,104 @@ import ZunaModels
 /// The keyboard, whichever field it's typing into.
 @MainActor
 enum Keyboard {
+    /// Put away by hand, as with a tap on the chat, for what stands in its place to go with it.
+    static let dismissed = Notification.Name("zuna.keyboard.dismissed")
+
+    /// As the system's own comes and goes, for what moves the chat as it does: the spring the chat
+    /// follows a keyboard with, measured in a simulator's recording.
+    static let animation = Animation.spring(response: 0.344, dampingFraction: 1)
+
+    /// The screen's bottom safe area, under the home indicator, which no keyboard counts in.
+    static var bottomInset: CGFloat { window?.safeAreaInsets.bottom ?? 0 }
+
+    fileprivate static var window: UIWindow? {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+    }
+
     static func dismiss() {
+        resign()
+        NotificationCenter.default.post(name: dismissed, object: nil)
+    }
+
+    /// Only the keyboard, leaving what stands in its place.
+    static func resign() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+/// Where the on-screen keyboard is, for the emoji panel that takes its place under a phone's message box.
+@MainActor
+@Observable
+final class KeyboardWatch {
+    static let shared = KeyboardWatch()
+
+    /// On its way up or up, until it starts to go.
+    private(set) var up = false
+    /// Up, and done coming.
+    private(set) var settled = false
+    /// How far the last one reached above the screen's bottom safe area, which the panel reaches too.
+    private(set) var height: CGFloat
+
+    private static let heightKey = "zuna-keyboard-height"
+    /// Less than this is no keyboard, as the bar a hardware one leaves.
+    private static let least: CGFloat = 150
+
+    private init() {
+        // Until one has been seen: about an iPhone's, with a home indicator under it or without.
+        let saved = UserDefaults.standard.double(forKey: Self.heightKey)
+        height = saved >= Self.least ? saved : Keyboard.bottomInset > 0 ? 294 : 260
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { note in
+            let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+            MainActor.assumeIsolated { KeyboardWatch.shared.coming(frame) }
+        }
+        center.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { if KeyboardWatch.shared.up { KeyboardWatch.shared.settled = true } }
+        }
+        center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { KeyboardWatch.shared.going() }
+        }
+    }
+
+    private func coming(_ frame: CGRect?) {
+        guard let frame, let window = Keyboard.window else { return }
+        let reach = window.bounds.maxY - window.convert(frame, from: nil).minY - window.safeAreaInsets.bottom
+        guard reach >= Self.least else { return going() }
+        // In the transaction the system moves the chat in, so what follows this moves with it.
+        withAnimation(Keyboard.animation) {
+            up = true
+            height = reach
+        }
+        if window.windowScene?.interfaceOrientation.isPortrait == true { UserDefaults.standard.set(Double(reach), forKey: Self.heightKey) }
+    }
+
+    private func going() {
+        guard up else { return }
+        withAnimation(Keyboard.animation) {
+            up = false
+            settled = false
+        }
+    }
+}
+
+/// The emoji panel a phone's chat opens under its message box, where the keyboard goes, moving
+/// the chat up as the keyboard does. Kept by the chat's screen, which makes room for it.
+@MainActor
+@Observable
+final class ComposerPanel {
+    /// Open: in the keyboard's place, or under one that's coming up or going.
+    var open = false
+    /// Its search is being typed in.
+    var searching = false
+
+    /// Its search has the keyboard, so it stands above it, shorter.
+    var raised: Bool { open && searching && KeyboardWatch.shared.up }
+    /// It stands where the keyboard does, so the chat keeps out of its way and not the keyboard's.
+    var inKeyboardsPlace: Bool { open && !raised }
+
+    func close() {
+        open = false
+        searching = false
     }
 }
 
@@ -16,11 +112,14 @@ struct Composer: View {
     let serverId: String
     let conversation: ConversationView
     let server: AppModel.ServerState
+    /// The emoji panel under the message box, on a phone.
+    let panel: ComposerPanel
 
     @Environment(AppModel.self) private var model
     @FocusState private var focused: Bool
     @State private var selection: TextSelection?
     @State private var attaching = false
+    /// The emoji picker as a sheet, on an iPad.
     @State private var picking = false
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
@@ -54,7 +153,18 @@ struct Composer: View {
 
     private static let maxSuggestions = 8
 
+    /// How tall the panel is above the keyboard, while its search is typed in.
+    private static let searchingHeight: CGFloat = 248
+
     private var state: ComposerState { model.composer(serverId, conversation.key) }
+
+    private var keyboard: KeyboardWatch { .shared }
+
+    /// A phone's emoji picker is a panel in the keyboard's place, as Telegram's, and an iPad's a sheet.
+    private var picksInPanel: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
+    /// The panel is where the keyboard goes, so the emoji button brings the keyboard back.
+    private var offersKeyboard: Bool { panel.open && !keyboard.settled }
 
     private var text: Binding<String> {
         Binding(
@@ -85,6 +195,7 @@ struct Composer: View {
                 if state.editing == nil && !isRecording {
                     Button {
                         focused = false
+                        withAnimation(Keyboard.animation) { panel.close() }
                         attaching = true
                     } label: {
                         if conversation.kind == .channel {
@@ -120,15 +231,20 @@ struct Composer: View {
                             .accessibilityLabel(t("composer.label"))
                             .accessibilityIdentifier(A11y.Composer.input)
                         Button {
-                            picking = true
+                            if picksInPanel { togglePanel() } else { picking = true }
                         } label: {
-                            Image(systemName: "face.smiling")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Theme.text2)
-                                .frame(width: 30, height: 36)
+                            // The way back to the keyboard while the panel is in its place, as in Telegram. Both
+                            // are there and one shows: a picture that changes as the message box moves stays behind.
+                            ZStack {
+                                Image(systemName: "face.smiling").opacity(offersKeyboard ? 0 : 1)
+                                Image(systemName: "keyboard").opacity(offersKeyboard ? 1 : 0)
+                            }
+                            .font(.system(size: 20))
+                            .foregroundStyle(Theme.text2)
+                            .frame(width: 30, height: 36)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(t("composer.emoji"))
+                        .accessibilityLabel(offersKeyboard ? t("composer.keyboard") : t("composer.emoji"))
                         .accessibilityIdentifier(A11y.Composer.emoji)
                     }
                     .padding(.leading, 14)
@@ -166,6 +282,26 @@ struct Composer: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            if panel.open {
+                // As tall as the keyboard it stands in for, so one taking the other's place moves nothing.
+                let height = panel.raised ? Self.searchingHeight : keyboard.height
+                EmojiPicker(server: server, panel: panel, onPick: pick)
+                    .frame(height: height)
+                    // From under the screen's edge and back, past the safe area its background reaches into.
+                    .transition(.offset(y: height + Keyboard.bottomInset))
+                    // Here, not on the composer: with the panel shut nothing here hears the keyboard, which
+                    // a test's typing puts away and brings back, and a character typed as the composer was
+                    // drawn again for it went missing.
+                    .onChange(of: keyboard.settled) { _, settled in
+                        // A keyboard that came up over the panel, for the message box or a message edited where
+                        // it is, has taken its place, and the chat is where the panel had it.
+                        if settled, !panel.searching { panel.close() }
+                    }
+                    .onChange(of: focused) { _, focused in
+                        // From the panel's search to the message box, with the keyboard up already.
+                        if focused, keyboard.settled { withAnimation(Keyboard.animation) { panel.close() } }
+                    }
+            }
         }
         .task(id: slowUntil) {
             now = .now
@@ -226,21 +362,14 @@ struct Composer: View {
             )
         }
         .sheet(isPresented: $picking) {
-            EmojiPicker(server: server) { pick in
-                if case let .sticker(sticker) = pick {
-                    // Sent at once, as Telegram's apps send a sticker.
-                    picking = false
-                    let key = conversation.key
-                    Task {
-                        do { try await model.core.session(serverId).sendSticker(key, sticker) } catch { model.toast(ErrorText.describe(error), .error) }
-                    }
-                    return
-                }
-                insert(pick)
-                if case .emote = pick { picking = false }
-            }
-            .presentationDetents([.medium, .large])
+            EmojiPicker(server: server, onPick: pick)
+                .presentationDetents([.medium, .large])
         }
+        .onReceive(NotificationCenter.default.publisher(for: Keyboard.dismissed)) { _ in
+            // A tap on the chat puts the panel away as it does the keyboard.
+            if panel.open { withAnimation(Keyboard.animation) { panel.close() } }
+        }
+        .onDisappear { panel.close() }
         .onChange(of: trigger?.query) { selectedSuggestion = tentative ? -1 : 0 }
         .task(id: "\(model.settings.linkPreviews)|\(state.editing?.id ?? "")|\(state.text)") {
             await model.updateLinkPreview(serverId, conversation.key, text: state.text)
@@ -709,6 +838,45 @@ struct Composer: View {
     }
 
     // MARK: Emoji, emotes and suggestions
+
+    /// The emoji button on a phone: the panel in the keyboard's place, or the keyboard back in the panel's.
+    private func togglePanel() {
+        if offersKeyboard {
+            if focused { return withAnimation(Keyboard.animation) { panel.close() } }
+            focused = true
+            // A hardware keyboard brings none up to take the panel's place, so it just goes.
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if panel.open, !keyboard.up { withAnimation(Keyboard.animation) { panel.close() } }
+            }
+        } else if keyboard.up {
+            // Under the keyboard, which then goes and leaves the panel there: the chat stays where it is.
+            // From its own search, it comes back down to there.
+            if panel.open { withAnimation(Keyboard.animation) { panel.searching = false } } else { panel.open = true }
+            // Once the panel is drawn: laid out as the keyboard starts to go, its parts grow into place with it.
+            Task {
+                try? await Task.sleep(for: .milliseconds(50))
+                Keyboard.resign()
+            }
+        } else {
+            withAnimation(Keyboard.animation) { panel.open = true }
+        }
+    }
+
+    private func pick(_ pick: EmojiPick) {
+        if case let .sticker(sticker) = pick {
+            // Sent at once, as Telegram's apps send a sticker.
+            picking = false
+            let key = conversation.key
+            Task {
+                do { try await model.core.session(serverId).sendSticker(key, sticker) } catch { model.toast(ErrorText.describe(error), .error) }
+            }
+            return
+        }
+        insert(pick)
+        // The sheet is over the message box, so it goes to show the emote there. The panel is under it.
+        if case .emote = pick { picking = false }
+    }
 
     private func insert(_ pick: EmojiPick) {
         let current = state.text

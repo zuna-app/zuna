@@ -120,6 +120,76 @@ final class ComposerTests: XCTestCase {
         try waitFor("the keyboard to go") { !keyboard.exists }
     }
 
+    /// A phone's emoji panel opens under the message box, where the keyboard goes, and moves the chat up as it does.
+    func testTheEmojiPanelTakesTheKeyboardsPlace() throws {
+        try XCTSkipIf(zuna.isPad, "for iPhones: an iPad's picker is a sheet")
+        let alice = try Peer("alice")
+        let id = try alice.send(to: "user:\(bobId)", ["text": "Short \(UUID().uuidString.prefix(4))"])
+        try openAlice()
+        let text = zuna.element(A11y.Chat.text(id))
+        XCTAssertTrue(text.waitForExistence(timeout: 20))
+        let input = zuna.element(A11y.Composer.input)
+        let panel = zuna.element(A11y.Composer.picker)
+        let keyboard = zuna.app.keyboards.firstMatch
+        // Where the message box and the newest message are, once they've stopped moving.
+        func places() throws -> (input: CGFloat, text: CGFloat) {
+            var last = CGRect.null
+            var since = Date()
+            try waitFor("the message box to stay put", timeout: 10) {
+                let frame = input.frame.union(text.frame)
+                if frame != last { last = frame; since = Date() }
+                return Date().timeIntervalSince(since) > 0.6
+            }
+            return (input.frame.minY, text.frame.minY)
+        }
+        let resting = try places()
+
+        // With no keyboard up it comes up as one does: the message box and the chat above it go up together.
+        zuna.element(A11y.Composer.emoji).tap()
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        let open = try places()
+        XCTAssertLessThan(open.input, resting.input - 200)
+        XCTAssertEqual(open.text - open.input, resting.text - resting.input, accuracy: 1)
+        XCTAssertTrue(text.isHittable)
+        zuna.screenshot("72-composer-emoji-panel")
+
+        // An emote goes into the message box, in sight above the panel, which stays for the next.
+        zuna.element(A11y.Composer.pickerEmote("zunaDance")).tap()
+        XCTAssertEqual(input.value as? String, "zunaDance ")
+        XCTAssertTrue(panel.exists)
+
+        // The keyboard takes the panel's place, and the panel the keyboard's, with the message box where it was.
+        input.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        try waitFor("the keyboard to take the panel's place") { !panel.exists }
+        let typing = try places()
+        zuna.element(A11y.Composer.emoji).tap()
+        try waitFor("the keyboard to go") { !keyboard.exists }
+        XCTAssertTrue(panel.exists)
+        XCTAssertEqual(try places().input, typing.input, accuracy: 1)
+
+        // Its search is typed above the keyboard, and finds an emote by a part of its name.
+        zuna.element(A11y.Composer.pickerSearch).tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        zuna.element(A11y.Composer.pickerSearch).typeText("dance")
+        let found = zuna.element(A11y.Composer.pickerEmote("zunaDance"))
+        try waitFor("the emote to be found above the keyboard") { found.isHittable && found.frame.maxY <= keyboard.frame.minY + 1 }
+        zuna.screenshot("73-composer-emoji-search")
+
+        // Cancel brings the whole panel back to where the keyboard was.
+        zuna.element(A11y.Composer.pickerCancelSearch).tap()
+        try waitFor("the keyboard to go") { !keyboard.exists }
+        XCTAssertTrue(panel.exists)
+        XCTAssertEqual(try places().input, typing.input, accuracy: 1)
+
+        // A tap on the chat puts it away, as it does the keyboard.
+        let frame = text.frame
+        zuna.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.maxX + 60, dy: frame.midY)).tap()
+        try waitFor("the panel to go") { !panel.exists }
+        XCTAssertEqual(try places().input, resting.input, accuracy: 1)
+        zuna.screenshot("74-composer-emoji-panel-gone")
+    }
+
     func testRepliesEditsAndDeletes() throws {
         let alice = try Peer("alice")
         let tag = String(UUID().uuidString.prefix(4))

@@ -199,6 +199,8 @@ enum A11y {
         static let context = "composer.context"
         static let cancelContext = "composer.cancelContext"
         static let picker = "composer.picker"
+        static let pickerSearch = "composer.picker.search"
+        static let pickerCancelSearch = "composer.picker.cancelSearch"
         static let disabled = "composer.disabled"
         static let linkPreview = "composer.linkPreview"
         static let removeLinkPreview = "composer.removeLinkPreview"

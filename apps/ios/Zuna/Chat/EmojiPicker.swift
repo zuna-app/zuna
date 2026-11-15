@@ -23,7 +23,8 @@ enum EmojiPick {
     case sticker(TelegramSticker)
 }
 
-/// The server's emotes and the emoji, with search, as on the desktop. Opens as a sheet.
+/// The server's emotes and the emoji, with search, as on the desktop. Opens as a sheet, or as
+/// the panel under a phone's message box, in the keyboard's place.
 struct EmojiPicker: View {
     let server: AppModel.ServerState
     let onPick: (EmojiPick) -> Void
@@ -33,52 +34,118 @@ struct EmojiPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab
     @State private var query = ""
+    @FocusState private var searching: Bool
 
     /// Picking a reaction, which a sticker can't be.
     private let reacting: Bool
+    /// The panel it's in, which hears when its search is typed in, or nil in a sheet.
+    private let panel: ComposerPanel?
 
-    init(server: AppModel.ServerState, reacting: Bool = false, onPick: @escaping (EmojiPick) -> Void) {
+    init(server: AppModel.ServerState, reacting: Bool = false, panel: ComposerPanel? = nil, onPick: @escaping (EmojiPick) -> Void) {
         self.server = server
         self.reacting = reacting
+        self.panel = panel
         self.onPick = onPick
         let stickers = server.entry.isTelegram && !reacting
         _tab = State(initialValue: stickers ? .stickers : server.emotes.emotes.isEmpty ? .emoji : .emotes)
     }
 
     var body: some View {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        NavigationStack {
-            VStack(spacing: 10) {
-                Picker(t("emoji.picker.show"), selection: $tab) {
-                    // A Telegram account has its own sticker sets, and no server's emotes.
-                    if server.entry.isTelegram {
-                        if !reacting { Text(t("emoji.stickers")).tag(Tab.stickers) }
-                    } else {
-                        Text(server.emotes.setName.isEmpty ? t("emoji.serverEmotes") : server.emotes.setName).tag(Tab.emotes)
-                    }
-                    Text(t("emoji.tab")).tag(Tab.emoji)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                ScrollView {
-                    switch tab {
-                    case .emotes: emotes(needle)
-                    case .emoji: emoji(needle)
-                    case .stickers: TelegramStickers(onPick: { onPick(.sticker($0)) })
-                    }
-                }
+        if let panel {
+            VStack(spacing: 8) {
+                // Stickers aren't searched.
+                if tab != .stickers { searchField }
+                content
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: t("common.search"))
-            .navigationTitle(t("composer.emoji"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(t("common.close")) { dismiss() }
-                }
+            .padding(.top, 8)
+            .background(Theme.bg1.ignoresSafeArea(.container, edges: .bottom))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(A11y.Composer.picker)
+            .onChange(of: searching) { _, searching in
+                withAnimation(Keyboard.animation) { panel.searching = searching }
             }
-            .background(Theme.bg1)
+        } else {
+            NavigationStack {
+                content
+                    .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: t("common.search"))
+                    .navigationTitle(t("composer.emoji"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(t("common.close")) { dismiss() }
+                        }
+                    }
+                    .background(Theme.bg1)
+            }
+            .accessibilityIdentifier(A11y.Composer.picker)
         }
-        .accessibilityIdentifier(A11y.Composer.picker)
+    }
+
+    /// The panel's own search, as it has no bar for the system's.
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.text3)
+                TextField(t("common.search"), text: $query)
+                    .focused($searching)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    // Down to the keyboard's place before the keyboard goes, which then moves nothing.
+                    .onSubmit { withAnimation(Keyboard.animation) { panel?.searching = false } }
+                    .foregroundStyle(Theme.text1)
+                    .accessibilityIdentifier(A11y.Composer.pickerSearch)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.text3)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(t("common.clear"))
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(Theme.bg3, in: .rect(cornerRadius: 10, style: .continuous))
+            if searching {
+                // Back to the whole panel, where the keyboard was.
+                Button(t("common.cancel")) {
+                    query = ""
+                    // Down to the keyboard's place first, so the keyboard going then moves nothing.
+                    withAnimation(Keyboard.animation) { panel?.searching = false }
+                    searching = false
+                }
+                .accessibilityIdentifier(A11y.Composer.pickerCancelSearch)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var content: some View {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return VStack(spacing: 10) {
+            Picker(t("emoji.picker.show"), selection: $tab) {
+                // A Telegram account has its own sticker sets, and no server's emotes.
+                if server.entry.isTelegram {
+                    if !reacting { Text(t("emoji.stickers")).tag(Tab.stickers) }
+                } else {
+                    Text(server.emotes.setName.isEmpty ? t("emoji.serverEmotes") : server.emotes.setName).tag(Tab.emotes)
+                }
+                Text(t("emoji.tab")).tag(Tab.emoji)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            ScrollView {
+                switch tab {
+                case .emotes: emotes(needle)
+                case .emoji: emoji(needle)
+                case .stickers: TelegramStickers(onPick: { onPick(.sticker($0)) })
+                }
+            }
+        }
     }
 
     @ViewBuilder
