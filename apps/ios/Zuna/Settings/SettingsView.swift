@@ -244,13 +244,15 @@ struct AppearanceView: View {
         let languages = I18n.languages
         List {
             Section {
-                Picker(t("settings.appearance.language"), selection: Binding(get: { language }, set: { choice in
+                // The language shown, the system's until another is picked. Picking the system's
+                // own keeps none, so that the app goes on following it.
+                Picker(t("settings.appearance.language"), selection: Binding(get: { I18n.resolve(language) }, set: { tag in
+                    let choice = tag == I18n.resolve(nil) ? nil : tag
                     language = choice
                     core.chooseLanguage(choice)
                 })) {
-                    Text(t("settings.appearance.languageSystem")).tag(String?.none)
                     ForEach(languages.indices, id: \.self) { index in
-                        Text(verbatim: languages[index].name).tag(languages[index].tag as String?)
+                        Text(verbatim: languages[index].name).tag(languages[index].tag)
                     }
                 }
                 .tint(Theme.text2)

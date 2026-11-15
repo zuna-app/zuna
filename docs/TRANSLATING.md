@@ -67,7 +67,7 @@ Each app finds the new file by itself: the native app and the iPhone app the nex
 
 ## Choosing one
 
-Each app follows the device's language, or its browser's, when there's a catalog for it, and English when there isn't. The person can pick one in Settings, under Appearance, by each language's own name. It's kept on the device: in the native app's settings file, the web app's local storage, and the iPhone's App Group, where the notification and share extensions read it too. Dates and times follow the device's region while the language follows the device, and the chosen language's when one is picked.
+Each app follows the device's language, or its browser's, when there's a catalog for it, and English when there isn't. Settings, under Appearance, shows the language in use by its own name, and the person can pick another there. Picking the device's own language again goes back to following it, so there's no separate choice for that. It's kept on the device: in the native app's settings file, the web app's local storage, and the iPhone's App Group, where the notification and share extensions read it too. Dates and times follow the device's region while the language follows the device, and the chosen language's when one is picked.
 
 ## Limits
 

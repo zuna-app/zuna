@@ -225,13 +225,9 @@ impl SettingsView {
             }
             Self::row(t("settings.appearance.theme"), Some(t("settings.appearance.themeHint")), div().w(px(220.)).child(select_box("plugin-theme", chosen, choices, cx)), &theme)
         });
-        // The language the app is shown in: the system's, or one of those there are, each by its own name.
-        let same_as_system = t("settings.appearance.languageSystem");
-        let language_label = settings
-            .language
-            .as_deref()
-            .and_then(|tag| crate::i18n::languages().into_iter().find(|(have, _)| *have == tag).map(|(_, name)| name))
-            .unwrap_or_else(|| same_as_system.to_string());
+        // The language the app is shown in, by its own name: the system's until another is picked.
+        let shown = crate::i18n::resolve(settings.language.as_deref());
+        let language_label = crate::i18n::languages().into_iter().find(|(tag, _)| *tag == shown).map(|(_, name)| name).unwrap_or_default();
         let language_state = self.state.clone();
         // As the notifications' select: the choice, and a menu of them under it.
         let (language_bounds, language_probe) = bounds_probe();
@@ -258,8 +254,9 @@ impl SettingsView {
                         state.update(cx, |state, cx| state.update_settings(|settings| settings.language = value, cx))
                     })
                 };
-                let mut entries = vec![choice(same_as_system.to_string(), None)];
-                entries.extend(crate::i18n::languages().into_iter().map(|(tag, name)| choice(name, Some(tag.to_string()))));
+                // Picking the system's own language keeps none, so that the app goes on following it.
+                let system = crate::i18n::resolve(None);
+                let entries = crate::i18n::languages().into_iter().map(|(tag, name)| choice(name, (tag != system).then(|| tag.to_string()))).collect();
                 let at = language_bounds.get();
                 crate::ui::menu::open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
             })

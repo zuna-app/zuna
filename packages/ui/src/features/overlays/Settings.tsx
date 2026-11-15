@@ -26,7 +26,7 @@ import { platform } from "@/platform";
 import { Avatar, Confirm, ConfirmPasswordField, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { useEscape } from "@/lib/escape";
-import { LANGUAGES, mark, t, tx, type MessageKey } from "@/lib/i18n";
+import { LANGUAGES, languageChoice, mark, resolveLanguage, t, tx, type MessageKey } from "@/lib/i18n";
 import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
@@ -307,15 +307,15 @@ function AppearanceSection() {
         <select
           className="select"
           style={{ width: 180 }}
-          value={settings.language}
+          // The language shown, the browser's until another is picked.
+          value={resolveLanguage(settings.language)}
           onChange={(event) => {
             // The app is drawn again in the new language, Settings with it, which then opens here.
             setOverlay({ type: "settings", section: "appearance" });
-            update({ language: event.target.value });
+            update({ language: languageChoice(event.target.value) });
           }}
           aria-label={t("settings.appearance.language")}
         >
-          <option value="system">{t("settings.appearance.languageBrowser")}</option>
           {/* Each language by its own name, which is never translated. */}
           {LANGUAGES.map((language) => (
             <option key={language.tag} value={language.tag} lang={language.tag}>

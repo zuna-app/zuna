@@ -74,6 +74,12 @@ export function resolveLanguage(choice: string): string {
 }
 
 /**
+ * What picking a language in Settings keeps: "system" for the one the browser comes to, so that
+ * the app goes on following it, or the language's tag.
+ */
+export const languageChoice = (tag: string): string => (tag === resolveLanguage("system") ? "system" : tag);
+
+/**
  * Shows the app in a language from now on: a tag from LANGUAGES, or "system" for the browser's.
  * Gives the catalog it loaded, or null for English, for the core.
  */
