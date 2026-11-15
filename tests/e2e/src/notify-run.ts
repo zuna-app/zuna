@@ -217,7 +217,7 @@ try {
   await ipad.session.setPush({ relay: relayUrl, handle: "ipad", key: ipadKey, registration: randomBytes(16).toString("hex"), sendMuted: true });
   // The desktop asks whether the phone and the iPad were bob, over everything, until he says so.
   // The phone is asked about the iPad too, which the run never taps through, as it drives the core.
-  for (let asked = 0; asked < 2; asked++) await page.getByRole("button", { name: "Yes, it was me" }).click({ timeout: 30_000 });
+  for (let asked = 0; asked < 2; asked++) await page.getByRole("button", { name: "Yes, that was me" }).click({ timeout: 30_000 });
   await page.locator(".new-device").waitFor({ state: "detached", timeout: 10_000 });
   // The clicks were input, so bob is away from the desktop again.
   await input("idle");

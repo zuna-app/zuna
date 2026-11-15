@@ -96,13 +96,13 @@ func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, se
 		// A last-resort package may be left out. Anything else has to be of the one suite.
 		lastResortLeftOut := i == len(body.KeyPackages) && len(data) == 0
 		if !lastResortLeftOut && !validKeyPackageFrame(data) {
-			writeError(w, http.StatusBadRequest, "bad_request", "That isn't a key package this server takes.")
+			writeError(w, http.StatusBadRequest, "bad_request", "This server doesn't accept that key package.")
 			return
 		}
 	}
 	err := s.db.AddKeyPackages(r.Context(), sess.DeviceID, body.KeyPackages, body.LastResort, maxKeyPackagesKept)
 	if errors.Is(err, store.ErrLimit) {
-		writeError(w, http.StatusBadRequest, "bad_request", "This device already has plenty of key packages.")
+		writeError(w, http.StatusBadRequest, "bad_request", "This device already has enough key packages.")
 		return
 	}
 	if err != nil {

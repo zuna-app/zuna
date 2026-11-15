@@ -74,7 +74,7 @@ final class ChannelsTests: XCTestCase {
 
         // Something said to bob is counted on the row; the rest only marks it.
         try carol.send(to: "group:\(general)", ["text": "@bob are you around this weekend?", "mentions": [bobId]])
-        try waitFor("the mention on the row") { row.label.contains("1 mentioning you") }
+        try waitFor("the mention on the row") { row.label.contains("1 mention") }
         zuna.screenshot("90-channels-tab")
 
         // The chats leave them out, unless a search names one.
@@ -233,7 +233,7 @@ final class ChannelsTests: XCTestCase {
         zuna.element(A11y.Channels.add("Text channels")).tap()
         XCTAssertTrue(zuna.element(A11y.Channels.editor).waitForExistence(timeout: 5))
         zuna.type("Road Trip", into: A11y.Channels.editorName)
-        XCTAssertEqual(zuna.element(A11y.Channels.editorFinalName).label, "It'll be #road-trip")
+        XCTAssertEqual(zuna.element(A11y.Channels.editorFinalName).label, "Channel name: #road-trip")
         zuna.type("Plans for the summer", into: A11y.Channels.editorTopic)
         zuna.screenshot("93-new-channel")
         zuna.element(A11y.Channels.editorSave).tap()

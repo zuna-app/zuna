@@ -797,7 +797,7 @@ mod tests {
         let app = open(cx, &world);
         app.click(cx, "new-bot");
         let view = bots(&app, cx);
-        assert!(cx.read(|cx| view.read(cx).creating.is_none()), "You've reached this server's limit of bots per person.");
+        assert!(cx.read(|cx| view.read(cx).creating.is_none()), "You've reached the per-person bot limit on this server.");
         let mut world = World::new("bots-member");
         world.server["getSelf"]["role"] = json!("member");
         world.server["getUsers"][0]["role"] = json!("member");

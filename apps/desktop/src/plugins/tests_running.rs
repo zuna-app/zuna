@@ -653,7 +653,7 @@ fn filters_change_stop_or_hold_what_the_app_does(cx: &mut TestAppContext) {
     cx.executor().advance_clock(Duration::from_millis(600));
     cx.run_until_parked();
     assert_eq!(*slot.borrow(), Some(Some(Verdict::Go(json!({ "serverId": SERVER })))));
-    assert_eq!(harness.off_reason(cx).as_deref(), Some("It didn't respond in time three times in a row."));
+    assert_eq!(harness.off_reason(cx).as_deref(), Some("The plugin timed out three times in a row."));
     harness.app.run(cx);
     assert!(harness.app.toasts(cx).iter().any(|toast| toast.starts_with("Plugin filterer was turned off.")));
     assert_eq!(*verdict(cx, FilterKind::Outgoing, draft).borrow(), Some(None), "and its filters with it");
@@ -783,11 +783,11 @@ fn decorations_are_asked_for_once_and_dropped_as_messages_change(cx: &mut TestAp
 fn a_host_that_crashes_overreaches_or_talks_nonsense_is_turned_off(cx: &mut TestAppContext) {
     let cases: Vec<(&str, Option<String>, &str)> = vec![
         ("crasher", None, "It stopped working."),
-        ("garbler", Some("{not json".into()), "It sent something plugins aren't allowed to send."),
-        ("stranger", Some(json!({ "t": "hello" }).to_string()), "It sent something plugins aren't allowed to send."),
+        ("garbler", Some("{not json".into()), "The plugin sent a disallowed message."),
+        ("stranger", Some(json!({ "t": "hello" }).to_string()), "The plugin sent a disallowed message."),
         ("failer", Some(json!({ "t": "failed", "error": "x".repeat(400) }).to_string()), "It didn't start: "),
-        ("glutton", Some(json!({ "t": "fault", "reason": "memory" }).to_string()), "It used more memory than plugins are allowed."),
-        ("flooder", Some(json!({ "t": "fault", "reason": "flood" }).to_string()), "It sent more data than plugins are allowed."),
+        ("glutton", Some(json!({ "t": "fault", "reason": "memory" }).to_string()), "The plugin exceeded its memory limit."),
+        ("flooder", Some(json!({ "t": "fault", "reason": "flood" }).to_string()), "The plugin exceeded its data limit."),
     ];
     for (id, message, reason) in cases {
         let harness = Harness::open(cx, id, &[], |_| {});
@@ -816,7 +816,7 @@ fn files_are_installed_checked_again_and_removed_with_all_they_kept(cx: &mut Tes
     let plugins = plugins_in(cx, &data, false);
     let first = package(&manifest("installed", &["messages.read"], |_| {}), b"globalThis.__zunaDefine(() => {});");
     plugins.update(cx, |plugins, cx| {
-        assert!(plugins.install(&first, None, cx).unwrap_err().contains("hasn't checked are off"));
+        assert!(plugins.install(&first, None, cx).unwrap_err().contains("hasn't reviewed, enable them"));
         assert!(plugins.propose_file(first.clone(), cx).unwrap_err().contains("Allow plugins Zuna hasn't checked"));
         plugins.set_allow_unverified(true, cx);
         plugins.start_all(cx);
@@ -854,7 +854,7 @@ fn files_are_installed_checked_again_and_removed_with_all_they_kept(cx: &mut Tes
     assert_eq!(cx.read(|cx| again.read(cx).loaded[&uid].manifest().version.clone()), "1.1.0");
     std::fs::write(super::store::packages(&data).join("file-installed-1.1.0.zunaplugin"), &first).unwrap();
     let tampered = plugins_in(cx, &data, false);
-    assert!(cx.read(|cx| tampered.read(cx).problems[&uid].contains("has changed since it was installed")));
+    assert!(cx.read(|cx| tampered.read(cx).problems[&uid].contains("its package changed after installation")));
     std::fs::remove_file(super::store::packages(&data).join("file-installed-1.1.0.zunaplugin")).unwrap();
     let missing = plugins_in(cx, &data, false);
     assert_eq!(cx.read(|cx| missing.read(cx).problems[&uid].clone()), "Its package is missing.");
@@ -926,7 +926,7 @@ fn the_index_withdraws_what_it_names_and_holds_updates_that_ask_for_more(cx: &mu
         assert!(proposal.verified);
         assert_eq!(proposal.update_of, Some(("1.0.0".into(), vec![super::manifest::Permission::Network], vec!["api.example.com".into()])));
         assert_eq!(proposal.told()[0].0, "Read your messages and send them to api.example.com");
-        assert!(plugins.propose_market("unknown", cx).unwrap_err().contains("No version"));
+        assert!(plugins.propose_market("unknown", cx).unwrap_err().contains("No release"));
         plugins.market.index = None;
         assert!(plugins.propose_market("shown", cx).unwrap_err().contains("isn't loaded"));
     });

@@ -92,9 +92,9 @@ describe("a group's details and who runs it", () => {
   });
 
   it("lets only an admin change who's an admin, and only of someone in the group", async () => {
-    await expect(bob.session.setGroupRole(group, bob.userId, "admin")).rejects.toThrow("Only an admin of this group can change who its admins are.");
+    await expect(bob.session.setGroupRole(group, bob.userId, "admin")).rejects.toThrow("Only group admins can change who's an admin.");
     await expect(alice.session.setGroupRole(group, carol.userId, "admin")).rejects.toThrow("They aren't in this group.");
-    await expect(bob.session.addMembers(group, [carol.userId])).rejects.toThrow("Only an admin of this group can add people.");
+    await expect(bob.session.addMembers(group, [carol.userId])).rejects.toThrow("Only group admins can add people.");
     await alice.session.setGroupRole(group, bob.userId, "admin");
     await waitFor(() => bob.session.getConversations().find((chat) => chat.groupId === group)?.members.find((member) => member.userId === bob.userId)?.role === "admin", "bob to be an admin");
     await alice.session.setGroupRole(group, bob.userId, "member");

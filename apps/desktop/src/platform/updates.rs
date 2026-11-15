@@ -1046,7 +1046,7 @@ mod tests {
         updates.problem = Some("no connection".into());
         assert_eq!(status_line(&updates, now), "Couldn't check for updates: no connection");
         updates.not_installed = Some("0.12.0".into());
-        assert_eq!(status_line(&updates, now), "The update to 0.12.0 couldn't be installed. Zuna will try again.");
+        assert_eq!(status_line(&updates, now), "Zuna couldn't install the update to 0.12.0. It will try again.");
         updates.activity = Activity::Downloading("0.12.0 nightly 1120".into());
         assert_eq!(status_line(&updates, now), "Downloading 0.12.0 nightly 1120");
         updates.ready = Some(Update { version: "0.12.0".into(), build: 1120, channel: Channel::Nightly, tag: "v0.12.0-nightly.1120".into(), name: "x.exe".into(), size: 1, sha256: String::new() });

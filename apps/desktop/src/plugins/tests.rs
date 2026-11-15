@@ -175,7 +175,7 @@ fn a_developers_folder_loads_as_it_was_built() {
     let dir = std::env::temp_dir().join(format!("zuna-plugin-folder-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("dist")).unwrap();
     std::fs::write(dir.join("plugin.json"), manifest(|_| {})).unwrap();
-    assert!(Package::open_folder(&dir).unwrap_err().contains("isn't built"));
+    assert!(Package::open_folder(&dir).unwrap_err().contains("Build the plugin script"));
     std::fs::write(dir.join("dist").join("main.js"), "definePlugin(() => {})").unwrap();
     let package = Package::open_folder(&dir).expect("it loads");
     assert!(package.sha256.is_none() && package.signature.is_none());

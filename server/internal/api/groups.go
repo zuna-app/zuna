@@ -129,7 +129,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	// Every commit makes everyone do work, and one nobody can apply stops the group
 	// until it's undone, so sending those is what earns a wait.
 	if !s.commitHolds.Allowed(groupID+"/"+sess.UserID) || !s.commitLimiter.Allow(groupID+"/"+sess.UserID) || !s.userCommitLimiter.Allow(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this conversation at once. Please wait a moment.")
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "This conversation has had too many changes at once. Try again in a moment.")
 		return
 	}
 	var body struct {
@@ -234,7 +234,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 	groupID := r.PathValue("id")
 	if !s.voidLimiter.Allow(groupID + "/" + sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this conversation at once. Please wait a moment.")
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "This conversation has had too many changes at once. Try again in a moment.")
 		return
 	}
 	var body struct {

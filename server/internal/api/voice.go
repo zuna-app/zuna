@@ -338,7 +338,7 @@ func (s *Server) voiceChannel(w http.ResponseWriter, r *http.Request) *store.Cha
 func (s *Server) handleVoiceToken(call bool) memberHandler {
 	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 		if !s.liveKitConfigured() {
-			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
+			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "Voice isn't set up on this server yet.")
 			return
 		}
 		// Bots stay out of voice channels and calls.

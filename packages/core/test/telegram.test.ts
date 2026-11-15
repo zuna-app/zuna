@@ -61,7 +61,7 @@ describe("linking a Telegram account", () => {
     client.linkTelegram();
     await until(() => link()?.step === "phone", "the phone step");
     await expect(client.telegramSession.linkWithPhone("12")).rejects.toThrow("country code");
-    await expect(client.telegramSession.linkWithPhone("+1 555 0100")).rejects.toThrow("isn't a phone number Telegram knows");
+    await expect(client.telegramSession.linkWithPhone("+1 555 0100")).rejects.toThrow("doesn't recognize this phone number");
     await client.telegramSession.linkWithPhone("+999 66 2 1234");
     const code = await until(() => (link()?.step === "code" ? (link() as Extract<TelegramLink, { step: "code" }>) : null), "the code step");
     expect(code).toMatchObject({ length: 5, via: "telegram", canResend: true });
@@ -224,7 +224,7 @@ describe("a linked account's chats", () => {
     expect(engine.requests("openChat")).toEqual([expect.objectContaining({ chat_id: GRACE })]);
     const older = await session.loadMessages(String(GRACE), serverId(2));
     expect(older.messages.map((message) => message.id)).toEqual([String(serverId(1))]);
-    await expect(session.loadMessages(String(CHANNEL))).rejects.toThrow("isn't on Telegram here");
+    await expect(session.loadMessages(String(CHANNEL))).rejects.toThrow("Telegram chat isn't available here");
   });
 
   it("sends with Zuna's markup as Telegram's entities, and the sent message takes Telegram's number", async () => {
@@ -238,7 +238,7 @@ describe("a linked account's chats", () => {
     // In one event, which says whose place it takes, so the chat swaps the row where it is.
     expect(events.some((event) => event.type === "message_removed" && event.id === pending.id)).toBe(false);
     expect(moved).toMatchObject({ message: { status: "sent", text: "**On** my way" }, isNew: false, replaces: pending.id });
-    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Those files were uploaded to a Zuna server");
+    await expect(session.sendMessage(`user:${GRACE}`, { text: "a file", attachments: [{} as never] })).rejects.toThrow("Files uploaded to a Zuna server can't be sent to Telegram");
   });
 
   it("reads up to a message on every device, and hears when another device read", async () => {
@@ -363,7 +363,7 @@ describe("kept apart from Zuna's chats", () => {
     expect((await call(1, "getConversations")).ok).toBe(true);
     // A server's own methods aren't the Telegram account's.
     for (const [id, method] of [[2, "getDevices"], [3, "createChannel"], [4, "voiceAccess"], [5, "forwardMessage"]] as const) {
-      expect(await call(id, method)).toMatchObject({ ok: false, error: { message: "The core has no such thing to do." } });
+      expect(await call(id, method)).toMatchObject({ ok: false, error: { message: "This operation isn't supported." } });
     }
     await expect(client.forwardMessages(TELEGRAM_ID, String(GRACE), [String(serverId(1))], "some-server", "user:x")).rejects.toThrow("Nothing is forwarded between Zuna and Telegram.");
     await expect(client.forwardMessages("some-server", "g", ["m"], TELEGRAM_ID, `user:${GRACE}`)).rejects.toThrow("Nothing is forwarded between Zuna and Telegram.");
@@ -456,9 +456,9 @@ describe("what the engine says is checked", () => {
 
   it("says what Zuna can't show yet, and keeps its words", () => {
     const photo = messageView({ ...textMessage(GRACE, serverId(1), GRACE, ""), content: { "@type": "messagePhoto", caption: { text: "Sunset", entities: [] } } }, context)!;
-    expect(photo.text).toBe("Sunset\n_Photo, which Zuna can't show yet. It's in Telegram's app._");
+    expect(photo.text).toBe("Sunset\n_Zuna can't display this yet: Photo. You can see it in the Telegram app._");
     const once = messageView({ ...textMessage(GRACE, serverId(2), GRACE, ""), content: { "@type": "messagePhoto", caption: { text: "", entities: [] }, self_destruct_type: { "@type": "messageSelfDestructTypeImmediately" } } }, context)!;
-    expect(once.text).toContain("Photo, to be seen once");
+    expect(once.text).toContain("Photo (view once)");
     const joined = messageView({ ...textMessage(GROUP, serverId(3), GRACE, ""), content: { "@type": "messageChatAddMembers", member_user_ids: [BOT, "x"] } }, context)!;
     expect(joined.system).toEqual({ type: "member_added", actorId: String(GRACE), targetIds: [String(BOT)] });
     const call = messageView({ ...textMessage(GRACE, serverId(4), GRACE, ""), content: { "@type": "messageCall", is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 } }, context)!;
@@ -527,7 +527,7 @@ describe("media, stickers and groups", () => {
     const file = await session.downloadFile({ fileId: "tg:12", mime: "image/jpeg" });
     expect(file.type).toBe("image/jpeg");
     expect(await file.text()).toBe("C:/zuna/telegram/photos/12.jpg");
-    await expect(session.downloadFile({ fileId: "abc" })).rejects.toThrow("That isn't one of Telegram's files.");
+    await expect(session.downloadFile({ fileId: "abc" })).rejects.toThrow("This file isn't from Telegram.");
     await expect(session.downloadFile({ fileId: "tg:404" })).rejects.toThrow();
   });
 
@@ -617,7 +617,7 @@ describe("media, stickers and groups", () => {
 
   it("makes groups, changes who's in them, and joins one by its link", async () => {
     const { engine, session } = await ready();
-    await expect(session.createGroup("  ", [String(GRACE)])).rejects.toThrow("A group needs a name.");
+    await expect(session.createGroup("  ", [String(GRACE)])).rejects.toThrow("Enter a group name.");
     const id = await session.createGroup("Book club", [String(GRACE), "x"]);
     expect(id).toBe("-400");
     expect(engine.requests("createNewBasicGroupChat")[0]).toMatchObject({ title: "Book club", user_ids: [GRACE] });
@@ -627,7 +627,7 @@ describe("media, stickers and groups", () => {
     expect(engine.requests("setChatMemberStatus")[0]).toMatchObject({ chat_id: -400, member_id: { user_id: BOT }, status: { "@type": "chatMemberStatusLeft" } });
     await session.updateGroupMeta(id, { name: "Books" });
     expect(engine.requests("setChatTitle")[0]).toMatchObject({ title: "Books" });
-    await expect(session.updateGroupMeta(id, { name: "" })).rejects.toThrow("A group needs a name.");
+    await expect(session.updateGroupMeta(id, { name: "" })).rejects.toThrow("Enter a group name.");
     expect(await session.createInvite(id)).toBe("https://t.me/+AbCdEf123");
     await session.leaveGroup(id);
     expect(engine.requests("leaveChat")[0]).toMatchObject({ chat_id: -400 });
@@ -643,8 +643,8 @@ describe("media, stickers and groups", () => {
     expect(engine.requests("joinChatByInviteLink")).toEqual([]);
     expect(await session.joinByLink("tg://join?invite=XyZ")).toBe(String(GROUP));
     await expect(session.joinByLink("https://t.me/+club-ask")).rejects.toThrow("Request sent.");
-    await expect(session.joinByLink("https://example.com/+AbCdEf123")).rejects.toThrow("That isn't a link to a Telegram group.");
-    await expect(session.joinByLink("t.me/+news")).rejects.toThrow("Channels are only in Telegram's own app");
+    await expect(session.joinByLink("https://example.com/+AbCdEf123")).rejects.toThrow("Enter a link to a Telegram group.");
+    await expect(session.joinByLink("t.me/+news")).rejects.toThrow("To open this Telegram channel, use the Telegram app");
   });
 
   it("presses a bot's button, forwards inside Telegram, and deletes as Telegram allows", async () => {
@@ -655,7 +655,7 @@ describe("media, stickers and groups", () => {
     await session.loadMessages(String(BOT));
     expect(await session.pressButton(String(BOT), String(serverId(5)), 0, 0)).toBe("It's sunny");
     expect(engine.requests("getCallbackQueryAnswer")[0]).toMatchObject({ chat_id: BOT, message_id: serverId(5), payload: { data: "AQID" } });
-    await expect(session.pressButton(String(BOT), String(serverId(5)), 0, 1)).rejects.toThrow("That button isn't there any more.");
+    await expect(session.pressButton(String(BOT), String(serverId(5)), 0, 1)).rejects.toThrow("This button is no longer available.");
 
     await client.forwardMessages(TELEGRAM_ID, String(GRACE), [String(serverId(1))], TELEGRAM_ID, `group:${GROUP}`);
     expect(engine.requests("forwardMessages")[0]).toMatchObject({ chat_id: GROUP, from_chat_id: GRACE, message_ids: [serverId(1)], send_copy: false });

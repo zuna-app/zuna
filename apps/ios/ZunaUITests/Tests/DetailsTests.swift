@@ -159,7 +159,7 @@ final class DetailsTests: XCTestCase {
         try start()
         zuna.element(A11y.Shell.title).tap()
         zuna.app.buttons["Invite people"].tap()
-        XCTAssertTrue(zuna.app.staticTexts["On this server, only admins can create invite links. Ask one of them for a link."].waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.app.staticTexts["Only admins can create invites on this server. Ask an admin for a link."].waitForExistence(timeout: 10))
         XCTAssertFalse(zuna.element(A11y.Invites.create).exists)
 
         // The owner, on a new phone, creates a link.

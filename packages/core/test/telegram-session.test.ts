@@ -182,7 +182,7 @@ describe("linking, the rest of the way", () => {
     await session.resendCode();
     expect(engine.requests("resendAuthenticationCode")).toHaveLength(1);
     engine.refuse("resendAuthenticationCode", "Too Many Requests: retry after 61", 429);
-    await expect(session.resendCode()).rejects.toThrow("Telegram asks to wait 2 minutes before trying again.");
+    await expect(session.resendCode()).rejects.toThrow("Telegram requires you to wait 2 minutes before trying again.");
   });
 
   it("shows no QR code that isn't Telegram's, and says what it can't do here", async () => {
@@ -201,7 +201,7 @@ describe("linking, the rest of the way", () => {
     engine.refuse("setAuthenticationPhoneNumber", "CHAT_ADMIN_REQUIRED", 403);
     await expect(session.linkWithPhone("+99966 12345")).rejects.toThrow("Only the group's admins can do that.");
     engine.refuse("checkAuthenticationPassword", "Something nobody's heard of");
-    await expect(session.enterPassword("x")).rejects.toThrow("Telegram said: Something nobody's heard of");
+    await expect(session.enterPassword("x")).rejects.toThrow("Telegram reported: Something nobody's heard of");
     engine.refuse("checkAuthenticationCode", "FORBIDDEN", 403);
     await expect(session.enterCode("1")).rejects.toThrow("Zuna doesn't support that on Telegram.");
   });
@@ -410,15 +410,15 @@ describe("what changes in a chat", () => {
     expect(engine.requests("setChatNotificationSettings").at(-1)!.notification_settings).toEqual({ "@type": "chatNotificationSettings", use_default_mute_for: false, mute_for: 0x7fffffff });
 
     engine.refuse("setChatNotificationSettings", "CHAT_WRITE_FORBIDDEN");
-    await expect(session.unmute(`user:${GRACE}`)).rejects.toThrow("You can't write in this chat.");
+    await expect(session.unmute(`user:${GRACE}`)).rejects.toThrow("You can't send messages in this chat.");
     engine.refuse("toggleChatIsMarkedAsUnread", "USER_IS_BLOCKED");
-    await expect(session.setMarkedUnread(`user:${GRACE}`, true)).rejects.toThrow("You can't write to this person.");
+    await expect(session.setMarkedUnread(`user:${GRACE}`, true)).rejects.toThrow("You can't send messages to this person.");
     engine.refuse("toggleChatIsPinned", "Too Many Requests: retry after 600", 429);
-    await expect(session.updatePreferences({ pinned: [] })).rejects.toThrow("Telegram asks to wait 10 minutes");
+    await expect(session.updatePreferences({ pinned: [] })).rejects.toThrow("Telegram requires you to wait 10 minutes");
     engine.refuse("addChatToList", "CHANNELS_TOO_MUCH");
-    await expect(session.updatePreferences({ hidden: [`user:${GRACE}`] })).rejects.toThrow("You're in as many groups as Telegram allows.");
+    await expect(session.updatePreferences({ hidden: [`user:${GRACE}`] })).rejects.toThrow("You've reached Telegram's group limit.");
     engine.refuse("createPrivateChat", "USER_PRIVACY_RESTRICTED");
-    await expect(session.saveDraft("user:4040", "hi")).rejects.toThrow("Their privacy settings on Telegram don't let you add them.");
+    await expect(session.saveDraft("user:4040", "hi")).rejects.toThrow("Their Telegram privacy settings prevent you from adding them.");
   });
 
   it("reads a chat all the way, its mentions and its mark, but asks nothing for what's read", async () => {
@@ -648,11 +648,11 @@ describe("history, media and search", () => {
 
     // A file nothing here brought, or that what brought it no longer has, is still never another's in its place.
     const downloads = engine.requests("downloadFile").length;
-    await expect(session.downloadFile({ fileId: "tg:70:AQADunknown" })).rejects.toThrow("That file isn't here any more.");
+    await expect(session.downloadFile({ fileId: "tg:70:AQADunknown" })).rejects.toThrow("This file is no longer available.");
     files.delete(90);
     files.set(91, "AQADnewer");
     engine.answer("getUser", pictured(91));
-    await expect(session.downloadFile({ fileId: "tg:71:AQADavatar" })).rejects.toThrow("That file isn't here any more.");
+    await expect(session.downloadFile({ fileId: "tg:71:AQADavatar" })).rejects.toThrow("This file is no longer available.");
     expect(engine.requests("downloadFile")).toHaveLength(downloads);
   });
 
@@ -710,9 +710,9 @@ describe("sending, and what Telegram refuses", () => {
     expect(engine.requests("createPrivateChat").at(-1)).toMatchObject({ user_id: 5000 });
     expect(await session.messageById("5000", "1")).toBeNull();
     engine.answer("createPrivateChat", { "@type": "chat", id: 0 });
-    await expect(session.sendMessage("user:6000", { text: "hi" })).rejects.toThrow("That chat isn't on Telegram here.");
-    await expect(session.sendMessage("channel:1", { text: "hi" })).rejects.toThrow("That chat isn't on Telegram here.");
-    await expect(session.sendMessage(String(CHANNEL), { text: "hi" })).rejects.toThrow("That chat isn't on Telegram here.");
+    await expect(session.sendMessage("user:6000", { text: "hi" })).rejects.toThrow("This Telegram chat isn't available here.");
+    await expect(session.sendMessage("channel:1", { text: "hi" })).rejects.toThrow("This Telegram chat isn't available here.");
+    await expect(session.sendMessage(String(CHANNEL), { text: "hi" })).rejects.toThrow("This Telegram chat isn't available here.");
   });
 
   it("edits, deletes, reacts and pins as Telegram does, and says what it refuses", async () => {
@@ -733,7 +733,7 @@ describe("sending, and what Telegram refuses", () => {
     await session.toggleReaction(String(GRACE), "12345", "🔥");
     expect(engine.requests("addMessageReaction")[0]).toMatchObject({ chat_id: GRACE, message_id: 12345, reaction_type: { emoji: "🔥" } });
     engine.refuse("addMessageReaction", "REACTION_INVALID");
-    await expect(session.toggleReaction(String(GRACE), "12345", "🔥")).rejects.toThrow("Telegram said: REACTION_INVALID");
+    await expect(session.toggleReaction(String(GRACE), "12345", "🔥")).rejects.toThrow("Telegram reported: REACTION_INVALID");
 
     await session.setPinned(String(GRACE), String(serverId(1)), true);
     await session.setPinned(String(GRACE), String(serverId(1)), false);
@@ -751,13 +751,13 @@ describe("sending, and what Telegram refuses", () => {
     engine.history.set(BOT, [{ ...textMessage(BOT, serverId(5), BOT, "?"), reply_markup: { "@type": "replyMarkupInlineKeyboard", rows: [[{ text: "Go", type: { "@type": "inlineKeyboardButtonTypeCallback", data: "AQ==" } }]] } }]);
     await session.loadMessages(String(BOT));
     engine.refuse("getCallbackQueryAnswer", "BOT_RESPONSE_TIMEOUT");
-    await expect(session.pressButton(String(BOT), String(serverId(5)), 0, 0)).rejects.toThrow("Telegram said: BOT_RESPONSE_TIMEOUT");
-    await expect(session.pressButton(String(BOT), "1", 0, 0)).rejects.toThrow("That button isn't there any more.");
+    await expect(session.pressButton(String(BOT), String(serverId(5)), 0, 0)).rejects.toThrow("Telegram reported: BOT_RESPONSE_TIMEOUT");
+    await expect(session.pressButton(String(BOT), "1", 0, 0)).rejects.toThrow("This button is no longer available.");
     engine.refuse("forwardMessages", "CHAT_WRITE_FORBIDDEN");
-    await expect(session.forwardMessages(String(GRACE), [String(serverId(1)), "-1"], `group:${GROUP}`)).rejects.toThrow("You can't write in this chat.");
+    await expect(session.forwardMessages(String(GRACE), [String(serverId(1)), "-1"], `group:${GROUP}`)).rejects.toThrow("You can't send messages in this chat.");
     expect(engine.requests("forwardMessages")[0]!.message_ids).toEqual([serverId(1)]);
     engine.refuse("sendMessage", "CHAT_WRITE_FORBIDDEN");
-    await expect(session.sendSticker(`user:${GRACE}`, 801, "🐱", 512, 512)).rejects.toThrow("You can't write in this chat.");
+    await expect(session.sendSticker(`user:${GRACE}`, 801, "🐱", 512, 512)).rejects.toThrow("You can't send messages in this chat.");
     engine.answer("downloadFile", { "@type": "file", id: 7, local: { path: "C:/x", is_downloading_completed: false } });
     await expect(session.downloadFile({ fileId: "tg:7" })).rejects.toThrow("Telegram didn't send that file.");
     engine.answer("downloadFile", { "@type": "file", id: 7, local: { path: "C:/x", is_downloading_completed: true } });
@@ -765,7 +765,7 @@ describe("sending, and what Telegram refuses", () => {
     // A number from before the engine started again, which is another file's now: never that file in its place.
     engine.answer("getFile", { "@type": "file", id: 7, remote: { unique_id: "AQADother" } });
     const downloads = engine.requests("downloadFile").length;
-    await expect(session.downloadFile({ fileId: "tg:7:AQADmine" })).rejects.toThrow("That file isn't here any more.");
+    await expect(session.downloadFile({ fileId: "tg:7:AQADmine" })).rejects.toThrow("This file is no longer available.");
     expect(engine.requests("downloadFile")).toHaveLength(downloads);
     engine.answer("getFile", { "@type": "file", id: 7, remote: { unique_id: "AQADmine" } });
     expect((await session.downloadFile({ fileId: "tg:7:AQADmine" })).type).toBe("application/octet-stream");
@@ -785,7 +785,7 @@ describe("sending, and what Telegram refuses", () => {
     const { engine, session } = await ready({ files });
     const huge = new Blob(["x"]);
     sizes.set(huge, 2001 * 1024 * 1024);
-    await expect(session.sendWithAttachments(`user:${GRACE}`, [{ blob: huge, name: "film.mkv", mime: "video/x-matroska" }], { text: "" })).rejects.toThrow("film.mkv is larger than Telegram's 2 GB limit.");
+    await expect(session.sendWithAttachments(`user:${GRACE}`, [{ blob: huge, name: "film.mkv", mime: "video/x-matroska" }], { text: "" })).rejects.toThrow("film.mkv exceeds Telegram's 2 GB file size limit.");
 
     // With no files, it's a message.
     await session.sendWithAttachments(`user:${GRACE}`, [], { text: "just words" });
@@ -816,9 +816,9 @@ describe("sending, and what Telegram refuses", () => {
     expect(engine.requests("sendMessage").at(-1)!.input_message_content.document.document.original_path).toMatch(/\/file$/);
 
     engine.refuse("sendMessageAlbum", "CHAT_WRITE_FORBIDDEN");
-    await expect(session.sendWithAttachments(`user:${GRACE}`, [file("a.png", "image/png"), file("b.png", "image/png")], { text: "" }, { keepMetadata: true })).rejects.toThrow("You can't write in this chat.");
+    await expect(session.sendWithAttachments(`user:${GRACE}`, [file("a.png", "image/png"), file("b.png", "image/png")], { text: "" }, { keepMetadata: true })).rejects.toThrow("You can't send messages in this chat.");
     engine.refuse("sendMessage", "USER_IS_BLOCKED");
-    await expect(session.sendWithAttachments(`user:${GRACE}`, [file("a.txt", "text/plain")], { text: "" }, { keepMetadata: true })).rejects.toThrow("You can't write to this person.");
+    await expect(session.sendWithAttachments(`user:${GRACE}`, [file("a.txt", "text/plain")], { text: "" }, { keepMetadata: true })).rejects.toThrow("You can't send messages to this person.");
   });
 
   it("strips a picture's metadata unless asked not to, and tells TDLib when a file can't be read", async () => {
@@ -859,9 +859,9 @@ describe("groups, the rest of the way", () => {
     await expect(session.addMembers(String(GROUP), [String(BOT), "-5"])).rejects.toThrow("Only their contacts can add them.");
     expect(engine.requests("addChatMembers")[0]!.user_ids).toEqual([BOT]);
     engine.refuse("setChatMemberStatus", "USER_CHANNELS_TOO_MUCH");
-    await expect(session.removeMember(String(GROUP), String(GRACE))).rejects.toThrow("They're in as many groups as Telegram allows.");
+    await expect(session.removeMember(String(GROUP), String(GRACE))).rejects.toThrow("They've reached Telegram's group limit.");
     engine.refuse("leaveChat", "INTERNAL", 500);
-    await expect(session.leaveGroup(String(GROUP))).rejects.toThrow("Telegram said: INTERNAL");
+    await expect(session.leaveGroup(String(GROUP))).rejects.toThrow("Telegram reported: INTERNAL");
     engine.refuse("setChatTitle", "CHAT_ADMIN_REQUIRED");
     await expect(session.updateGroupMeta(String(GROUP), { name: "New" })).rejects.toThrow("Only the group's admins can do that.");
     engine.refuse("createChatInviteLink", "CHAT_ADMIN_REQUIRED");
@@ -884,12 +884,12 @@ describe("groups, the rest of the way", () => {
   it("joins by a link only where Telegram lets this account in here", async () => {
     const { engine, session } = await ready();
     engine.refuse("checkChatInviteLink", "INVITE_HASH_EXPIRED");
-    await expect(session.joinByLink("https://t.me/+old")).rejects.toThrow("That link doesn't work anymore.");
+    await expect(session.joinByLink("https://t.me/+old")).rejects.toThrow("This link is no longer valid.");
     engine.answer("checkChatInviteLink", { "@type": "chatInviteLinkInfo", chat_id: 0, type: { "@type": "inviteLinkChatTypeSupergroup" }, subscription_info: { "@type": "chatInviteLinkSubscriptionInfo" } });
     await expect(session.joinByLink("https://t.me/+paid")).rejects.toThrow("requires a payment");
     engine.answer("checkChatInviteLink", { "@type": "chatInviteLinkInfo", chat_id: 0, type: { "@type": "inviteLinkChatTypeSupergroup" }, subscription_info: null });
     engine.answer("joinChatByInviteLink", { "@type": "chatJoinResultGuardBotApprovalRequired" });
-    await expect(session.joinByLink("https://telegram.me/joinchat/guarded")).rejects.toThrow("That group's bot needs to let you in first");
+    await expect(session.joinByLink("https://telegram.me/joinchat/guarded")).rejects.toThrow("This group's bot needs to approve your request");
     engine.answer("joinChatByInviteLink", { "@type": "chatJoinResultSomethingNew" });
     await expect(session.joinByLink("https://t.me/+new")).rejects.toThrow("Telegram didn't let you in.");
     engine.refuse("joinChatByInviteLink", "USERS_TOO_MUCH");

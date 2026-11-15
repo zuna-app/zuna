@@ -36,7 +36,7 @@ describe("a server with its own certificate", () => {
     const stranger = await app("stranger");
     await expect(stranger.client.previewInvite(bare)).rejects.toThrow();
     await expect(stranger.client.previewInvite(`${bare}#pin=${"A".repeat(43)}`)).rejects.toThrow();
-    await expect(stranger.client.previewInvite(`${bare}#pin=cut-short`)).rejects.toThrow(/isn't complete/);
+    await expect(stranger.client.previewInvite(`${bare}#pin=cut-short`)).rejects.toThrow(/Copy the full link/);
   });
 
   it("is joined by its links, which carry the pin on", async () => {
@@ -73,15 +73,15 @@ describe("a server with its own certificate", () => {
   it("can't be given another pin by a link, once a device is on it", async () => {
     const alice = apps.find((made) => made.name === "alice")!;
     const forged = `${(await alice.session.createInvite(0, 0)).replace(/&pin=.*$/, "")}&pin=${"B".repeat(43)}`;
-    await expect(alice.client.previewInvite(forged)).rejects.toThrow(/another certificate/);
-    await expect(alice.client.login(`${server.url}#pin=${"B".repeat(43)}`, "alice", "correct horse battery")).rejects.toThrow(/another certificate/);
+    await expect(alice.client.previewInvite(forged)).rejects.toThrow(/The certificate in this link differs/);
+    await expect(alice.client.login(`${server.url}#pin=${"B".repeat(43)}`, "alice", "correct horse battery")).rejects.toThrow(/The certificate in this link differs/);
     // Nor by a link that names another port of its address, or a path in front of its invite: the
     // hosts trust a pin for an address, so that one would be trusted for this server too (Z-75).
     const { hostname, port } = new URL(server.url);
     const elsewhere = [`https://${hostname}:${Number(port) + 1}/invite/abc`, `${server.url}/x/invite/abc`];
     for (const link of elsewhere) {
-      await expect(alice.client.previewInvite(`${link}#k=AAAA&pin=${"B".repeat(43)}`)).rejects.toThrow(/another certificate/);
-      await expect(alice.client.previewInvite(`zuna://join?link=${encodeURIComponent(`${link}#k=AAAA&pin=${"B".repeat(43)}`)}`)).rejects.toThrow(/another certificate/);
+      await expect(alice.client.previewInvite(`${link}#k=AAAA&pin=${"B".repeat(43)}`)).rejects.toThrow(/The certificate in this link differs/);
+      await expect(alice.client.previewInvite(`zuna://join?link=${encodeURIComponent(`${link}#k=AAAA&pin=${"B".repeat(43)}`)}`)).rejects.toThrow(/The certificate in this link differs/);
     }
     expect(alice.pinned.some(([, given]) => given !== pin)).toBe(false);
     const bob = apps.find((made) => made.name === "bob")!;
@@ -92,8 +92,8 @@ describe("a server with its own certificate", () => {
   it("isn't reached from a browser, which can't check its certificate", async () => {
     const alice = apps.find((made) => made.name === "alice")!;
     const browser = await app("browser", false);
-    await expect(browser.client.previewInvite(await alice.session.createInvite(0, 0))).rejects.toThrow(/browsers can't verify/);
-    await expect(browser.client.login(alice.client.listServers()[0]!.address, "alice", "correct horse battery")).rejects.toThrow(/browsers can't verify/);
+    await expect(browser.client.previewInvite(await alice.session.createInvite(0, 0))).rejects.toThrow(/Browsers can't verify/);
+    await expect(browser.client.login(alice.client.listServers()[0]!.address, "alice", "correct horse battery")).rejects.toThrow(/Browsers can't verify/);
   });
 });
 
@@ -109,8 +109,8 @@ describe("a server's address", () => {
   });
 
   it("has a pin only when it's an IP address, over HTTPS", () => {
-    expect(() => parseServerAddress(`http://localhost:8080#pin=${key}`)).toThrow(/by IP address/);
-    expect(() => parseServerAddress(`https://chat.example.com#pin=${key}`)).toThrow(/by IP address/);
-    expect(() => parseServerAddress(`https://chat.example.com/invite/abc#k=key&pin=${key}`)).toThrow(/by IP address/);
+    expect(() => parseServerAddress(`http://localhost:8080#pin=${key}`)).toThrow(/use a server's IP address/);
+    expect(() => parseServerAddress(`https://chat.example.com#pin=${key}`)).toThrow(/use a server's IP address/);
+    expect(() => parseServerAddress(`https://chat.example.com/invite/abc#k=key&pin=${key}`)).toThrow(/use a server's IP address/);
   });
 });

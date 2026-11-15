@@ -107,7 +107,7 @@ func (s *Server) sealed(next sealedHandler) http.HandlerFunc {
 		}
 		input := sealedInput(r.Method, r.URL.EscapedPath(), at, epoch, token, body)
 		if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, input, seal) {
-			writeError(w, http.StatusForbidden, "not_sealed", "That isn't from a member of this conversation as it is now.")
+			writeError(w, http.StatusForbidden, "not_sealed", "The sender isn't a current member of this conversation.")
 			return
 		}
 		now := time.Now()
@@ -139,7 +139,7 @@ func (s *Server) itemSigned(w http.ResponseWriter, r *http.Request, q *sealedReq
 		return false
 	}
 	if !q.signedByItem(key) {
-		writeError(w, http.StatusForbidden, "forbidden", "Only whoever added it can change or delete it.")
+		writeError(w, http.StatusForbidden, "forbidden", "Only the person who added it can change or delete it.")
 		return false
 	}
 	return true
@@ -167,7 +167,7 @@ func (s *Server) handleSealedSend(w http.ResponseWriter, r *http.Request, q *sea
 		return
 	}
 	if body.ExpiresIn < 0 || body.ExpiresIn > maxExpiresIn {
-		writeError(w, http.StatusBadRequest, "bad_request", "That message can't disappear after so long.")
+		writeError(w, http.StatusBadRequest, "bad_request", "The expiration time for this message is too long.")
 		return
 	}
 	if len(body.Envelope) > maxEnvelopeBytes {

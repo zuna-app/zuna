@@ -114,7 +114,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		return
 	}
 	if !s.rotateLimiter.Allow(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this account's keys. Please wait a moment.")
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "This account's keys have changed too many times. Try again in a moment.")
 		return
 	}
 	valid := len(body.VaultCore) > 0 && len(body.VaultCore) <= maxVaultCoreBytes && len(body.ProfileSig) <= hybrid.LastingSignatureSize && validVaultItems(body.Items)
@@ -149,7 +149,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		return
 	}
 	if !checkLink(payload, body.Link, sess.UserID, sess.DeviceID, body.ExpectedGeneration, head, previous) {
-		writeError(w, http.StatusBadRequest, "bad_request", "That rotation doesn't follow from the one before.")
+		writeError(w, http.StatusBadRequest, "bad_request", "This key rotation doesn't follow the previous one.")
 		return
 	}
 

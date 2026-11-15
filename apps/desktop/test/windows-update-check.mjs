@@ -191,12 +191,12 @@ try {
   await refuses("a manifest whose ML-DSA-65 signature is someone else's", [release({ signer2: keys.stranger })], "isn't signed with one of Zuna's keys");
   await refuses("a manifest whose ML-DSA-65 signature is the other channel's", [release({ signer2: keys.stable })], "isn't signed with one of Zuna's keys");
   await refuses("a stable release the nightly key signed", [release({ channel: "stable", signer: keys.nightly })], "signed for the other update channel");
-  await refuses("a nightly, for an app on stable", [release({})], "it's a nightly, and this app is set to stable releases", "stable");
+  await refuses("a nightly, for an app on stable", [release({})], "this nightly build is unavailable on the stable update channel", "stable");
   await refuses("an older build", [release({ build: OLD - 1 })], null);
   await refuses("this build again", [release({ build: OLD })], null);
   const changed = Buffer.from(installer);
   changed[changed.length >> 1] ^= 1;
-  await refuses("a file that was changed", [release({ file: changed })], "the file isn't the one its manifest names");
+  await refuses("a file that was changed", [release({ file: changed })], "the file doesn't match the manifest");
   await refuses("a file larger than its manifest says", [release({ file: Buffer.concat([installer, Buffer.alloc(1)]) })], "is larger than its manifest says");
   check("none of that changed what's installed", installedBuild() === OLD, `build ${installedBuild()}`);
 

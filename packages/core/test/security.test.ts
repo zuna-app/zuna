@@ -402,7 +402,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     await apiOf(erin).commit(groupId, { expected_epoch: epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
 
     // The admin's app puts it right by itself, and nobody's keys or messages are lost.
-    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /broken update/.test(event.message)), "it to be undone");
+    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /invalid update/.test(event.message)), "it to be undone");
     await waitFor(async () => (await apiOf(dave).groupInfo(groupId)).epoch === epoch, "the group to go back");
     alice.session.sendMessage(`group:${groupId}`, { text: "after the attack" });
     await waitFor(() => dave.texts(`group:${groupId}`).includes("after the attack"), "delivery to dave");
@@ -424,7 +424,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
 
     const { commit, info } = brokenFrames(groupId, epoch);
     await apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
-    await waitFor(() => securityEvents(eve).some((event) => /broken update from sam/.test((event as { message: string }).message)), "it to be undone, and who sent it named");
+    await waitFor(() => securityEvents(eve).some((event) => /invalid update from sam/.test((event as { message: string }).message)), "it to be undone, and who sent it named");
 
     const latest = await apiOf(eve).groupInfo(groupId);
     expect(latest.epoch).toBe(epoch);
@@ -572,7 +572,7 @@ describe("a server that calls a group or a direct message a channel (Z-64)", () 
     await phone.login(server.url, username);
     await waitFor(async () => (await read(phone, groupId)).includes("the alarm code is 4471"), "bob's new device to read its own history");
     await waitFor(async () => (await read(phone, dmId)).includes("my bank PIN, just for you: 9920"), "bob's new device to read the direct message");
-    await waitFor(() => warned(phone, "pass one of your conversations off"), "bob's new device to be told");
+    await waitFor(() => warned(phone, "reported the wrong type for one of your conversations"), "bob's new device to be told");
     const kinds = sessionOf(phone).groups as Map<string, { kind: string; peerId: string | null }>;
     expect(kinds.get(groupId)?.kind).toBe("group");
     expect(kinds.get(dmId)).toMatchObject({ kind: "dm", peerId: ann.userId });

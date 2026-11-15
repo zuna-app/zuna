@@ -100,7 +100,7 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 	}
 	encoded := r.Header.Get("X-Zuna-Proof")
 	if encoded == "" {
-		writeError(w, http.StatusUnauthorized, "proof_required", "This needs to come from the app on your device. Please try again.")
+		writeError(w, http.StatusUnauthorized, "proof_required", "Retry this action from the app on your device.")
 		return false
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProvenBody))

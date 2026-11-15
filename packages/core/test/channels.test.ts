@@ -429,7 +429,7 @@ describe("what a screen share uses", () => {
     expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "nobody", admins_exempt: true }, "owner")).toContain("off on this server");
     expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "admins" }, "member")).toContain("Only admins");
     expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "admins" }, "admin")).toBeNull();
-    expect(screenRefusal(undefined, "owner", -1)).toContain("off in this voice channel");
+    expect(screenRefusal(undefined, "owner", -1)).toContain("disabled in this voice channel");
     expect(screenRefusal(undefined, "member", 2)).toBeNull();
   });
 });

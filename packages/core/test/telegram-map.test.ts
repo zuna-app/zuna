@@ -269,9 +269,9 @@ describe("Telegram's messages as the app's", () => {
     expect(view({ "@type": "messageSticker", sticker: { format: { "@type": "stickerFormatTgs" } } }).text).toBe("Sticker");
     expect(view({ "@type": "messageContact", contact: { first_name: "Alan", last_name: "Turing" } }).text).toBe("Contact: Alan Turing");
     expect(view({ "@type": "messageContact", contact: {} }).text).toBe("Contact: someone");
-    expect(view({ "@type": "messagePoll", caption: { text: "Vote", entities: [] } }).text).toBe("Vote\n_Poll, which Zuna can't show yet. It's in Telegram's app._");
-    expect(view({ "@type": "messageVideo", is_secret: true, video: { video: file(1) } }).text).toBe("_Video, to be seen once, which Zuna can't show yet. It's in Telegram's app._");
-    expect(view({ "@type": "messageSomethingNew" }).text).toBe("_A message Zuna can't show, which Zuna can't show yet. It's in Telegram's app._");
+    expect(view({ "@type": "messagePoll", caption: { text: "Vote", entities: [] } }).text).toBe("Vote\n_Zuna can't display this yet: Poll. You can see it in the Telegram app._");
+    expect(view({ "@type": "messageVideo", is_secret: true, video: { video: file(1) } }).text).toBe("_Zuna can't display this yet: Video (view once). You can see it in the Telegram app._");
+    expect(view({ "@type": "messageSomethingNew" }).text).toBe("_Zuna can't display this yet: A message Zuna can't show. You can see it in the Telegram app._");
     expect(view({ "@type": "messageLocation", location: { latitude: 52.2, longitude: 21 } })).toMatchObject({ text: "", location: { lat: 52.2, lon: 21 } });
     expect(view({ "@type": "messageLocation", location: { latitude: 0, longitude: 181 } }).location).toBeNull();
     expect(view({ "@type": "messageLocation", location: { latitude: "0", longitude: 0 } }).location).toBeNull();

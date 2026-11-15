@@ -581,10 +581,10 @@ async function runIn(name) {
     check("a second tab says Zuna is open elsewhere", (await page.locator(".conv-row").count()) > 0);
     await second.screenshot({ path: prefix("04-other-tab") });
     leaving.add(page);
-    await second.getByRole("button", { name: "Use here" }).click();
+    await second.getByRole("button", { name: "Use this tab" }).click();
     await second.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 30_000 });
     await page.getByText("Zuna is open in another tab").waitFor({ timeout: 15_000 });
-    check("Use here moves the app to the second tab", (await page.title()) === "Zuna", `first tab's title: ${await page.title()}`);
+    check("Use this tab moves the app to the second tab", (await page.title()) === "Zuna", `first tab's title: ${await page.title()}`);
     await second.locator(".conv-row", { hasText: "Priya" }).click();
     await second.locator(".msg.is-own .link-card", { hasText: "The quiet side of the lake" }).waitFor({ timeout: 15_000 });
     check("the second tab has the same messages", true);
@@ -604,7 +604,7 @@ async function runIn(name) {
     await sleep(400);
     await second.screenshot({ path: prefix("05b-notifications") });
     await second.getByText("Security", { exact: true }).first().click();
-    check("Security warns that the browser can't protect the key", (await second.getByText("Browsers can't lock Zuna's local data").count()) === 1);
+    check("Security warns that the browser can't protect the key", (await second.getByText("Browsers can't protect Zuna's local data").count()) === 1);
     const deviceName = await second.locator(".device-row", { hasText: "This device" }).innerText();
     check("this browser is named in Devices", /(Chrome|Firefox|Safari|Edge|Browser) on \w+/.test(deviceName), deviceName.split("\n")[0]);
     await second.screenshot({ path: prefix("06-security") });
@@ -747,10 +747,10 @@ async function runIn(name) {
     await taker.goto(appUrl);
     await taker.getByText("Zuna is open in another tab").waitFor({ timeout: 15_000 });
     leaving.add(again);
-    await taker.getByRole("button", { name: "Use here" }).click();
+    await taker.getByRole("button", { name: "Use this tab" }).click();
     await again.getByText("Zuna is open in another tab").waitFor({ timeout: 30_000 });
     const liveAfter = await live();
-    check("Use here leaves voice in the tab it took over from", liveAfter.length === 0, `live before: ${liveBefore.join(" ") || "none"}, after: ${liveAfter.join(" ") || "none"}`);
+    check("Use this tab leaves voice in the tab it took over from", liveAfter.length === 0, `live before: ${liveBefore.join(" ") || "none"}, after: ${liveAfter.join(" ") || "none"}`);
     await taker.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 45_000 });
     await again.close();
     again = taker;
@@ -776,7 +776,7 @@ async function runIn(name) {
       (await newDevice.count()) === 1 && (await newDevice.innerText()).includes("Was this you?"),
     );
     await again.screenshot({ path: prefix("08-new-device") });
-    await newDevice.getByRole("button", { name: "Yes, it was me" }).click();
+    await newDevice.getByRole("button", { name: "Yes, that was me" }).click();
     await newDevice.waitFor({ state: "detached", timeout: 10_000 });
     await other.locator(".channel-row", { hasText: "Lounge" }).click({ timeout: 45_000 });
     await other.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
@@ -978,7 +978,7 @@ async function runIn(name) {
       await again.getByRole("button", { name: "New bot" }).click();
       await fill(again.getByLabel("Name", { exact: true }), "Check Bot");
       await fill(again.getByLabel("Username"), "check.bot");
-      await again.getByRole("switch", { name: "List it for everyone" }).click();
+      await again.getByRole("switch", { name: "List this bot for everyone" }).click();
       await again.getByRole("button", { name: "Create bot" }).click();
       const command = await again.locator(".bot-setup .invite-link span").innerText({ timeout: 10_000 });
       const setupLink = /^zuna-bot init "(.+)"$/.exec(command)?.[1] ?? "";
@@ -1092,8 +1092,8 @@ async function runIn(name) {
       const privateBrowser = await webkit.launch();
       const privatePage = await (await privateBrowser.newContext()).newPage();
       await privatePage.goto(appUrl);
-      await privatePage.getByText("which happens in private windows").waitFor({ timeout: 15_000 }).catch(() => undefined);
-      check("a private window says why Zuna can't run there", await privatePage.getByText("which happens in private windows").isVisible());
+      await privatePage.getByText("If you're in a private window").waitFor({ timeout: 15_000 }).catch(() => undefined);
+      check("a private window says why Zuna can't run there", await privatePage.getByText("If you're in a private window").isVisible());
       await privatePage.screenshot({ path: prefix("09-private-window") });
       await privateBrowser.close();
     }

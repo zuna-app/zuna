@@ -272,8 +272,8 @@ try {
   await first.shot("new-device-kept");
   check("a device signing in to the account is asked about, and Escape or a click outside doesn't send it away", (await asked()).includes(laptopId));
   await first.click(NEW_DEVICE_YES[0], NEW_DEVICE_YES[1]);
-  const answered = await until(async () => (await asked()).length === 0, "Yes, it was me to answer it", 10_000).then(() => true, () => false);
-  check("Yes, it was me answers it, and keeps the device", answered && ((await first.core("getDevices", [], serverId)).ok ?? []).some((device) => device.id === laptopId));
+  const answered = await until(async () => (await asked()).length === 0, "Yes, that was me to answer it", 10_000).then(() => true, () => false);
+  check("Yes, that was me answers it, and keeps the device", answered && ((await first.core("getDevices", [], serverId)).ok ?? []).some((device) => device.id === laptopId));
   if (!answered) await first.core("answerNewDevice", [laptopId, true], serverId);
   await sleep(800);
   laptop.stdin.write(`${JSON.stringify({ voice: channel.ok })}\n`);

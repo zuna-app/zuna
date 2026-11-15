@@ -1,6 +1,6 @@
 // Zuna runs in one tab at a time, as Telegram's and WhatsApp's web apps do. Its
 // database can only be open once, and two cores on one device would compete.
-// The tab running it holds a Web Lock. Another tab offers "Use here", which asks
+// The tab running it holds a Web Lock. Another tab offers "Use this tab", which asks
 // the first to stop over a BroadcastChannel and then takes the lock.
 
 import { t } from "@/lib/i18n";
@@ -16,7 +16,7 @@ export function holdTab(start: () => () => void): void {
     taking = sessionStorage.getItem(TAKE) === "1";
     sessionStorage.removeItem(TAKE);
   } catch {
-    // Without session storage, "Use here" just waits its turn.
+    // Without session storage, "Use this tab" just waits its turn.
   }
   if (taking) {
     channel.postMessage("take");

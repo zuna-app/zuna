@@ -127,8 +127,8 @@ describe("a preview the server or the device doesn't allow", () => {
 
   it("clears nothing when the server doesn't say which chats it notified about", async () => {
     expect(Array.isArray(await notifiedChats(extension(bob), bob.serverId))).toBe(true);
-    await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: "everything" }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't say which chats this device was notified about.");
-    await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: ["a", 1] }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't say");
+    await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: "everything" }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't identify the chats that triggered notifications on this device.");
+    await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: ["a", 1] }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't identify the chats");
   });
 });
 

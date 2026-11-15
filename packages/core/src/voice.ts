@@ -93,7 +93,7 @@ export interface ScreenTerms {
 export function screenRefusal(rules: ScreenRules = DEFAULT_SCREEN_RULES, role: Role | undefined, channelLimit = 0): string | null {
   if (rules.who === "nobody") return "Screen sharing is off on this server";
   if (rules.who === "admins" && role !== "owner" && role !== "admin") return "Only admins can share a screen on this server";
-  if (channelLimit < 0) return "Screen sharing is off in this voice channel";
+  if (channelLimit < 0) return "Screen sharing is disabled in this voice channel";
   return null;
 }
 

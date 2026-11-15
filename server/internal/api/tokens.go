@@ -79,7 +79,7 @@ func (s *Server) handleIssueTokens(w http.ResponseWriter, r *http.Request, sess 
 	limit *= s.cfg.TokenScale
 	if err := s.db.IssueTokens(r.Context(), sess.UserID, period, body.Size, len(body.Blinded), limit); err != nil {
 		if err == store.ErrLimit {
-			writeError(w, http.StatusTooManyRequests, "token_limit", "You've sent all this server allows for a while. Please wait a few hours.")
+			writeError(w, http.StatusTooManyRequests, "token_limit", "You've reached this server's sending limit. Try again in a few hours.")
 			return
 		}
 		writeFailure(w, err)

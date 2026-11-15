@@ -603,7 +603,7 @@ mod tests {
         harness.plugins.update(cx, |plugins, cx| {
             cx.notify();
             plugins.market.index = Some(index.clone());
-            plugins.market.error = Some("The marketplace sent an older list than this device has already seen.".into());
+            plugins.market.error = Some("The marketplace sent a list older than the one this device has already received.".into());
         });
         section(&harness, cx, "plugins");
         let view = settings(&harness, cx);
@@ -631,7 +631,7 @@ mod tests {
         });
         harness.app.run(cx);
         harness.app.click(cx, &format!("plugin-update-{uid}"));
-        assert!(harness.app.toasts(cx).contains(&"No version of it works with this version of Zuna.".to_string()), "a folder's plugin isn't the marketplace's to update");
+        assert!(harness.app.toasts(cx).contains(&"No release of this plugin is compatible with this version of Zuna.".to_string()), "a folder's plugin isn't the marketplace's to update");
     }
 
     #[gpui::test]

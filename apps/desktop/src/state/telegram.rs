@@ -313,7 +313,7 @@ mod tests {
         // Ended from another device.
         step(&app, cx, json!({ "step": "unlinked" }));
         assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)));
-        assert!(app.toasts(cx).contains(&"Your Telegram session was ended, so Telegram was unlinked from this device.".to_string()));
+        assert!(app.toasts(cx).contains(&"Your Telegram session ended, so Zuna unlinked this device.".to_string()));
     }
 
     /// The app as it starts with an account linked before: its engine says it's ready a moment
@@ -355,7 +355,7 @@ mod tests {
         app.answer("unlinkTelegram", |_| Ok(json!({ "signedOut": false })));
         app.update(cx, |state, cx| state.unlink_telegram(cx));
         assert!(!app.read(cx, |state| state.servers.contains_key(SERVER_ID)), "erased here either way");
-        assert!(app.toasts(cx).iter().any(|toast| toast.starts_with("Telegram was unlinked from this device, but Zuna couldn't tell Telegram.")));
+        assert!(app.toasts(cx).iter().any(|toast| toast.starts_with("Telegram was unlinked here, but Zuna couldn't notify Telegram.")));
         app.answer("unlinkTelegram", |_| Err(refused("The engine stopped.")));
         app.update(cx, |state, cx| state.unlink_telegram(cx));
         assert!(app.toasts(cx).contains(&"The engine stopped.".to_string()));
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(app.calls_of("deleteMessages")[1][2], json!(false));
         assert_eq!(app.toasts(cx).last().unwrap(), "Deleted only for you. Others in the chat can still see it.");
         delete(cx, json!({}));
-        assert_eq!(app.toasts(cx).last().unwrap(), "Telegram doesn't let this message be deleted.");
+        assert_eq!(app.toasts(cx).last().unwrap(), "Telegram doesn't allow you to delete this message.");
         app.answer("deleteMessages", |_| Err(refused("MESSAGE_DELETE_FORBIDDEN")));
         delete(cx, json!({ "forEveryone": true }));
         assert_eq!(app.toasts(cx).last().unwrap(), "MESSAGE_DELETE_FORBIDDEN");

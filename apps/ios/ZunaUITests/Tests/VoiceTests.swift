@@ -291,7 +291,7 @@ final class VoiceTests: XCTestCase {
         voiceSettings.tap()
         let bitrate = zuna.element(A11y.Settings.screenBitrate)
         XCTAssertTrue(bitrate.waitForExistence(timeout: 5))
-        XCTAssertTrue(zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "It sends less when the picture")).firstMatch.exists)
+        XCTAssertTrue(zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Zuna uses less bandwidth when the picture")).firstMatch.exists)
         bitrate.tap()
         let choice = zuna.app.buttons["2 Mbps"]
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
@@ -353,7 +353,7 @@ final class VoiceTests: XCTestCase {
         zuna.screenshot("99b-voice-stats")
         // The screen's against the frame rate it was asked for.
         reveal(headline("Your screen"))
-        XCTAssertTrue(headline("Your screen").label.contains("fps sent of "), headline("Your screen").label)
+        XCTAssertTrue(headline("Your screen").label.contains("fps sent (target: "), headline("Your screen").label)
 
         // Further down, how the screen goes out, the connection, and the microphone.
         for (start, what) in [("Encoded by, Moving bars", "how the screen goes out"), ("Media server", "the media server"), ("Encryption, End-to-end, key", "the room's key"), ("Your microphone", "the microphone")] {

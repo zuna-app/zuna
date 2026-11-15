@@ -924,7 +924,7 @@ describe("seeing what the server keeps", () => {
     const chat = section("conversations").rows.find((row) => row.label === "Direct message with @alice")!;
     expect(chat.kind).toBe("readable");
     expect(chat.note).toContain(`On your devices: “${wren.session.getUsers().find((user) => user.id === alice.userId)!.displayName}”`);
-    expect(chat.note).toMatch(/\d+ messages?, [\d.]+ (bytes|KB) encrypted/);
+    expect(chat.note).toMatch(/\d+ messages? \([\d.]+ (bytes|KB), encrypted\)/);
     expect(section("sending").rows[0]!.value).not.toBe("None kept");
     expect(section("not-kept").rows.every((row) => row.kind === "none")).toBe(true);
 

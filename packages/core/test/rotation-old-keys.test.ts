@@ -82,7 +82,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest:1'").run(dave.userId);
     db.close();
     const laptop = await secondDevice(dave, "dave-laptop");
-    expect(securityEvents(laptop).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
+    expect(securityEvents(laptop).some((event) => event.message.includes("didn't send the full list of people your account trusts"))).toBe(true);
     expect(laptop.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
   });
 
@@ -116,7 +116,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
     db.close();
     const phone = await secondDevice(dave, "dave-phone");
-    expect(securityEvents(phone).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
+    expect(securityEvents(phone).some((event) => event.message.includes("didn't send the full list of people your account trusts"))).toBe(true);
     expect(phone.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
   });
 
@@ -152,7 +152,7 @@ describe("someone holding old keys, with the server's help", () => {
     db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
     db.close();
     const phone = await secondDevice(dave, "dave-phone");
-    expect(securityEvents(phone).some((event) => event.message.includes("Not all of your account's trusted people"))).toBe(true);
+    expect(securityEvents(phone).some((event) => event.message.includes("didn't send the full list of people your account trusts"))).toBe(true);
   });
 
   it("doesn't lose what one device changed when another writes the manifest next", async () => {
@@ -257,7 +257,7 @@ describe("someone holding old keys, with the server's help", () => {
 
     await phone.open();
     await phone.online();
-    await waitFor(() => securityEvents(phone).some((event) => event.message.includes("different history of your account's keys")), "the phone to say what it was shown");
+    await waitFor(() => securityEvents(phone).some((event) => event.message.includes("different history of your account keys")), "the phone to say what it was shown");
     // It isn't the link the log names, and its signer isn't this device, whatever ID it carries.
     expect(generationOf(phone)).toBe(0);
     expect(toBase64(accountKeyOf(phone))).not.toBe(toBase64(chosen));
@@ -577,6 +577,6 @@ describe("two details of rotation (Z-61)", () => {
     clearTimeout(session.rotationTimer);
     session.rotationTimer = undefined;
     expect(generationOf(dave)).toBe(generation);
-    expect(securityEvents(dave).some((event) => event.message.includes("slowed down"))).toBe(true);
+    expect(securityEvents(dave).some((event) => event.message.includes("replacing your keys less often"))).toBe(true);
   });
 });

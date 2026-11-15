@@ -1,6 +1,6 @@
 # Languages
 
-Every word Zuna shows comes from a catalog, one per language, in `packages/i18n/locales`. The native desktop app, the web app, the iPhone app and the core read the same files, so a language added there reaches them all. English is the only one so far.
+Every word Zuna shows comes from a catalog, one per language, in `packages/i18n/locales`. The native desktop app, the web app, the iPhone app and the core read the same files, so a language added there reaches them all. There are seven: English, German, Spanish, French, Japanese, Polish and Simplified Chinese.
 
 ```
 packages/i18n/locales/en.json     English: every key, and the words every other language translates

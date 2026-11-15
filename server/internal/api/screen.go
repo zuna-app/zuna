@@ -175,7 +175,7 @@ func (s *Server) updateRoomSources(ctx context.Context, roomID string, call bool
 func (s *Server) handleStartScreen(call bool) memberHandler {
 	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 		if !s.liveKitConfigured() {
-			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
+			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "Voice isn't set up on this server yet.")
 			return
 		}
 		if !s.voiceLimiter.Allow(sess.UserID) {
@@ -229,7 +229,7 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 		switch s.voice.reserveShare(sess.DeviceID, share, perChannel, perServer) {
 		case "channel":
 			if call {
-				writeError(w, http.StatusConflict, "screen_full", "As many people as this server allows in a call are already sharing.")
+				writeError(w, http.StatusConflict, "screen_full", "This call has reached the server's screen sharing limit.")
 			} else {
 				writeError(w, http.StatusConflict, "screen_full", "As many people as this voice channel allows are already sharing.")
 			}

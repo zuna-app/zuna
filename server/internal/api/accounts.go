@@ -259,7 +259,7 @@ func (s *Server) trySignIn(w http.ResponseWriter, r *http.Request, username stri
 	)
 	if !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "This account has had too many attempts. Wait a few minutes and try again.")
 		return false
 	}
 	if entry, ok := s.accountAttempts.Entry(account); ok {

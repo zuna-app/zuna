@@ -42,7 +42,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     const { group } = await apiOf(carol).createDm(bob.userId);
     addToRoster(group.id, ghost.userId);
     const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "for bob's eyes only" });
-    await waitFor(() => warned(carol, "wrong people"), "the warning");
+    await waitFor(() => warned(carol, "wrong participants"), "the warning");
     await waitFor(() => [`pending:user:${bob.userId}`, group.id].some((id) => sessionOf(carol).messageRow(id, sent.id)?.status === "failed"), "the send to fail");
     await sleep(300);
     expect(heldBy(ghost, group.id)).toBe(false);
@@ -65,7 +65,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     await waitFor(() => sessionOf(bob).messageRow(group.id, sent.id)?.status === "sent", "bob to read it");
     await sleep(500);
     expect(heldBy(ghost, group.id)).toBe(false);
-    expect(warned(carol, "someone else")).toBe(true);
+    expect(warned(carol, "listed an extra person")).toBe(true);
     expect(sessionOf(carol).treeMembers(group.id).map((member: { userId: string }) => member.userId)).not.toContain(ghost.userId);
     expect(carol.session.getConversations().find((item) => item.groupId === group.id)!.members.map((member) => member.userId).sort()).toEqual([bob.userId, carol.userId].sort());
   });
@@ -81,7 +81,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
 
   const expectNothingSent = async (carol: TestApp, peer: TestApp, listener: TestApp, groupId: string) => {
     const sent = carol.session.sendMessage(`user:${peer.userId}`, { text: `only for ${peer.userId}` });
-    await waitFor(() => warned(carol, "wrong people"), "the warning");
+    await waitFor(() => warned(carol, "wrong participants"), "the warning");
     await waitFor(() => [`pending:user:${peer.userId}`, groupId].some((id) => sessionOf(carol).messageRow(id, sent.id)?.status === "failed"), "the send to fail");
     await sleep(300);
     expect(sessionOf(listener).messageRow(groupId, sent.id)).toBeFalsy();
@@ -276,7 +276,7 @@ describe("a server rewriting who said what (Z-40)", () => {
     );
     const view = sessionOf(eve).toMessageView(sessionOf(eve).messageRow(groupId, sent.id));
     expect(view).toMatchObject({ senderId: ann.userId, text: "I agree with the plan", status: "sent" });
-    expect(warned(eve, "who wrote a message")).toBe(true);
+    expect(warned(eve, "change the sender of a message")).toBe(true);
   });
 
   it("shows nowhere a body that says someone else sent it, as nobody's", async () => {

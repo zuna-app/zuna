@@ -31,10 +31,10 @@ export interface WatchEvents {
 
 /** What each error is, in words for people, so they know it isn't Zuna. */
 export const WATCH_ERRORS: Record<WatchError, string> = {
-  gone: "This video is gone, or private.",
-  "not-embeddable": "Its owner only lets it play on YouTube.",
+  gone: "This video was removed or is private.",
+  "not-embeddable": "The owner allows this video to play only on YouTube.",
   unplayable: "YouTube won't play this video here.",
-  "no-referrer": "YouTube refused to play it here. That's a bug in Zuna.",
+  "no-referrer": "A bug in Zuna prevented YouTube from playing this video here.",
   unknown: "YouTube couldn't play this video.",
 };
 

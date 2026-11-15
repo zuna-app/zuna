@@ -34,7 +34,7 @@ final class CoreConnectionTests: XCTestCase {
             _ = try await connection.previewInvite("not a link at all")
             XCTFail("expected an error")
         } catch let error as CoreCallError {
-            XCTAssertEqual(error.message, "That doesn't look like a Zuna invite link.")
+            XCTAssertEqual(error.message, "Enter a valid Zuna invite link.")
         }
     }
 

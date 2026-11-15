@@ -528,7 +528,7 @@ mod tests {
         app.run(cx);
         app.click(cx, "add-sound");
         app.run(cx);
-        assert!(app.toasts(cx).contains(&"That file isn't a sound Zuna can read.".to_string()));
+        assert!(app.toasts(cx).contains(&"Zuna couldn't read this audio file.".to_string()));
 
         // Renamed in its row.
         app.click(cx, "rename-s1");

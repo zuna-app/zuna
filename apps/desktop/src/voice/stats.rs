@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(native.headline.as_ref().unwrap().wanted, Some(60));
         let value = |label: &str| native.rows.iter().find(|row| row.label == label).map(|row| row.value.clone());
         assert_eq!(value("Codec").as_deref(), Some("AV1 (experimental, desktop app only)"));
-        assert_eq!(value("Keyframes").as_deref(), Some("1,234, 2 asked for, 3 for a new bitrate"));
+        assert_eq!(value("Keyframes").as_deref(), Some("1,234, 2 requested, 3 for bitrate changes"));
         assert_eq!(value("Bitrate").as_deref(), Some("6.0 Mbit/s"));
         assert!(native.rows.iter().any(|row| row.label == "Frames rejected" && row.warn));
         // Unencrypted, it says so.

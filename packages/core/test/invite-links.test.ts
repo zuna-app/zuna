@@ -62,16 +62,16 @@ describe("a server's address", () => {
   it("is an invite's server, or the address itself, and nothing that leads nowhere", () => {
     expect(parseServerAddress(inviteLink("https://chat.example.com", "c", key, undefined))).toEqual({ url: "https://chat.example.com", pin: null });
     expect(parseServerAddress("  chat.example.com/  ")).toEqual({ url: "https://chat.example.com", pin: null });
-    expect(() => parseServerAddress("zuna://open")).toThrow("That doesn't look like a server's address.");
-    expect(() => parseServerAddress("http://chat.example.com")).toThrow("Zuna servers must use HTTPS.");
+    expect(() => parseServerAddress("zuna://open")).toThrow("Enter a valid server address.");
+    expect(() => parseServerAddress("http://chat.example.com")).toThrow("Zuna servers require HTTPS.");
     // A pin is only for a server reached by its IP address.
-    expect(() => parseServerAddress(`chat.example.com#pin=${"A".repeat(43)}`)).toThrow("Only servers reached over HTTPS by IP address");
+    expect(() => parseServerAddress(`chat.example.com#pin=${"A".repeat(43)}`)).toThrow("use a server's IP address can include a certificate pin");
   });
 
   it("previews nothing for an address no server answers at, or a bot's link", async () => {
     const pin = async () => undefined;
-    await expect(previewInvite("http://[bad", pin)).rejects.toThrow("That doesn't look like a Zuna invite link.");
-    await expect(previewInvite("http://127.0.0.1:9", pin)).rejects.toThrow("That doesn't look like a Zuna invite link.");
-    await expect(previewInvite(botSetupLink("http://127.0.0.1:9", "code", key, undefined, bot()), pin)).rejects.toThrow("That link sets up a bot.");
+    await expect(previewInvite("http://[bad", pin)).rejects.toThrow("Enter a valid Zuna invite link.");
+    await expect(previewInvite("http://127.0.0.1:9", pin)).rejects.toThrow("Enter a valid Zuna invite link.");
+    await expect(previewInvite(botSetupLink("http://127.0.0.1:9", "code", key, undefined, bot()), pin)).rejects.toThrow("To use this bot setup link");
   });
 });

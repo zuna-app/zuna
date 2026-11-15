@@ -51,7 +51,7 @@ describe("a bot", () => {
   });
 
   it("has a link that works once, and only for the bot's program", async () => {
-    await expect(alice.client.previewInvite(helper.link)).rejects.toThrow(/sets up a bot/);
+    await expect(alice.client.previewInvite(helper.link)).rejects.toThrow(/To use this bot setup link/);
     const again = await new TestApp("again").open();
     await expect(again.registerBot(helper.link)).rejects.toThrow();
     again.client.stop();

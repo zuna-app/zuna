@@ -608,7 +608,7 @@ describe("rejoining", () => {
 describe("open sign-ups", () => {
   it("lets people join by address only after an admin opens the server", async () => {
     const joining = await new TestApp("open-user").open();
-    await expect(joining.client.previewInvite(server.url)).rejects.toThrow(/only accepts invite links/);
+    await expect(joining.client.previewInvite(server.url)).rejects.toThrow(/You need an invite link to join/);
 
     await alice.session.updateServerSettings({ registration: "open" });
     const preview = await joining.client.previewInvite(server.url);
@@ -620,7 +620,7 @@ describe("open sign-ups", () => {
 
     await alice.session.updateServerSettings({ registration: "invite" });
     const another = await new TestApp("late").open();
-    await expect(another.client.previewInvite(server.url)).rejects.toThrow(/only accepts invite links/);
+    await expect(another.client.previewInvite(server.url)).rejects.toThrow(/You need an invite link to join/);
     joining.client.stop();
   });
 });

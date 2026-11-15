@@ -158,7 +158,7 @@ func (s *Server) handleCreateBot(w http.ResponseWriter, r *http.Request, sess *s
 	code := randomToken(18)
 	err = s.db.CreateBot(r.Context(), bot, code, store.Now()+botSetupLife.Milliseconds(), most)
 	if errors.Is(err, store.ErrLimit) {
-		writeError(w, http.StatusForbidden, "too_many_bots", "You have as many bots as this server lets one person have.")
+		writeError(w, http.StatusForbidden, "too_many_bots", "You've reached the per-person bot limit on this server.")
 		return
 	}
 	if errors.Is(err, store.ErrConflict) {

@@ -32,7 +32,7 @@ func (s *Server) handleWatch(call bool) memberHandler {
 			return
 		}
 		if len(body.Data) == 0 || len(body.Data) > maxWatchSignal || (body.To != "" && !store.ValidID(body.To)) {
-			writeError(w, http.StatusBadRequest, "bad_request", "That isn't something to watch.")
+			writeError(w, http.StatusBadRequest, "bad_request", "This content can't be played in Watch together.")
 			return
 		}
 		room := s.roomFor(w, r, call)

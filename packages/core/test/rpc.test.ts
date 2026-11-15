@@ -60,7 +60,7 @@ describe("the interface's side of it", () => {
     const failure = await remote.getUsers().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(CoreError);
     expect(failure).toMatchObject({ message: "not now", code: "busy", status: 503, name: "CoreError" });
-    await expect((core.client as unknown as { noSuchThing(): Promise<void> }).noSuchThing()).rejects.toThrow("The core has no such thing to do.");
+    await expect((core.client as unknown as { noSuchThing(): Promise<void> }).noSuchThing()).rejects.toThrow("This operation isn't supported.");
     send({ type: "connection", serverId: "server", state: "online" } as never);
     await new Promise((done) => setTimeout(done, 0));
     expect(events).toEqual([{ type: "connection", serverId: "server", state: "online" }]);
@@ -83,6 +83,6 @@ describe("the interface's side of it", () => {
     serveCore(worker, () => ({}) as never);
     await worker.onmessage!({ data: { kind: "event" } } as MessageEvent);
     await worker.onmessage!({ data: { kind: "call", id: 1, serverId: null, method: 5, args: [] } } as MessageEvent);
-    expect(replies).toEqual([{ kind: "reply", id: 1, ok: false, error: expect.objectContaining({ message: "The core has no such thing to do." }) }]);
+    expect(replies).toEqual([{ kind: "reply", id: 1, ok: false, error: expect.objectContaining({ message: "This operation isn't supported." }) }]);
   });
 });

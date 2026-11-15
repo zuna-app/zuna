@@ -46,8 +46,8 @@ describe("certificates and profiles that don't read", () => {
     expect(() => lastingKeyFromSeed(new Uint8Array(31))).toThrow("A key's seed is 32 bytes.");
     const identity = newLastingKey();
     const device = newDeviceKey();
-    expect(() => createCertificate(identity.secretKey, { userId: "u".repeat(256), deviceId: "d", signatureKey: device.publicKey })).toThrow("That isn't a device a certificate can be made for.");
-    expect(() => createCertificate(identity.secretKey, { userId: "u", deviceId: "d", signatureKey: identity.publicKey })).toThrow("That isn't a device a certificate can be made for.");
+    expect(() => createCertificate(identity.secretKey, { userId: "u".repeat(256), deviceId: "d", signatureKey: device.publicKey })).toThrow("A certificate can't be created for this device.");
+    expect(() => createCertificate(identity.secretKey, { userId: "u", deviceId: "d", signatureKey: identity.publicKey })).toThrow("A certificate can't be created for this device.");
   });
 
   it("reads a certificate only of its version, its exact length and a device's key", () => {

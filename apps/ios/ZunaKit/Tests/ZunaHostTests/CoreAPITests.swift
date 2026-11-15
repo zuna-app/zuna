@@ -12,7 +12,7 @@ final class CoreAPITests: XCTestCase {
     private var runtime: CoreRuntime!
     private var connection: CoreConnection!
 
-    private static let unknownMethod = "The core has no such thing to do."
+    private static let unknownMethod = "This operation isn't supported."
     private static let notConnected = "That server isn't connected."
 
     override func setUp() async throws {

@@ -84,7 +84,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrStaleVersion):
 		writeError(w, http.StatusConflict, "stale_version", "Another of your devices saved this first. Look again and retry.")
 	case errors.Is(err, store.ErrDevicesChanged):
-		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Look again and retry.")
+		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Check the current list and try again.")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "That doesn't exist anymore.")
 	case errors.Is(err, store.ErrForbidden):
@@ -92,16 +92,16 @@ func writeFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict", "That's already taken.")
 	case errors.Is(err, store.ErrUploadQuota):
-		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded", "You've uploaded all this server lets each person upload in 30 days.")
+		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded", "You've reached this server's per-person upload limit for the 30-day period.")
 	case errors.Is(err, store.ErrQuota):
 		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
-			"You've used all the storage this server gives each person. Deleting messages with files frees some.")
+			"You've reached this server's per-person storage limit. Delete messages with attachments to free up space.")
 	case errors.Is(err, store.ErrTokenInvalid):
-		writeError(w, http.StatusForbidden, "token_invalid", "That token isn't one this server issued for this, or it's too old.")
+		writeError(w, http.StatusForbidden, "token_invalid", "The server didn't issue this token for this action, or the token has expired.")
 	case errors.Is(err, store.ErrTokenSpent):
 		writeError(w, http.StatusConflict, "token_spent", "That token was used already.")
 	case errors.Is(err, store.ErrLargeToken):
-		writeError(w, http.StatusPaymentRequired, "large_token", "That takes a large token.")
+		writeError(w, http.StatusPaymentRequired, "large_token", "This action requires a large token.")
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusRequestEntityTooLarge, "limit_reached", "That's more than this server allows.")
 	default:

@@ -141,7 +141,7 @@ describe("reading the log", () => {
       try {
         await reader.open();
         await sessionOf(reader).syncLog().catch(() => undefined);
-        await waitFor(() => warned(reader, "is inconsistent"), `${change.what} to be refused`);
+        await waitFor(() => warned(reader, "key records are inconsistent"), `${change.what} to be refused`);
         expect(sessionOf(reader).logState().frontier.size, change.what).toBe(held);
         expect(sessionOf(reader).logCurrent(), change.what).toBe(false);
       } finally {
@@ -228,7 +228,7 @@ describe("watching your own account", () => {
     const other = await new TestApp("someone with bob's password").open();
     open.push(other);
     await other.login(server.url, bob.session.getSelf().username);
-    await waitFor(() => warned(bob, "record of who holds which keys is inconsistent"), "bob's device to refuse the page");
+    await waitFor(() => warned(bob, "key records are inconsistent"), "bob's device to refuse the page");
     // Nothing of it was read, so it can't have been read as old news.
     expect(session.logState().frontier.size).toBe(from);
     expect(session.loggedAccount(bob.userId)?.devices[other.session.getSelf().deviceId]).toBeUndefined();
@@ -329,7 +329,7 @@ describe("what the server keeps back", () => {
       // Erin signs in on another device, which the server would rather dave didn't know of.
       const phone = await new TestApp("erin-phone").open();
       await phone.login(sessionOf(erin).account.serverUrl, erin.session.getSelf().username);
-      await waitFor(() => warned(dave, "hiding part of its record"), "dave to notice");
+      await waitFor(() => warned(dave, "withholding part of someone's key record"), "dave to notice");
       phone.client.stop();
     } finally {
       session.api.log = log;
@@ -362,7 +362,7 @@ describe("what the server keeps back", () => {
     session.noteNewlyKnown(someone);
     await waitFor(() => asked === someone, "dave to ask");
     await sleep(50);
-    expect(warned(dave, "hiding part of its record")).toBe(true);
+    expect(warned(dave, "withholding part of someone's key record")).toBe(true);
   });
 });
 
@@ -496,9 +496,9 @@ describe("heads in messages", () => {
       expect(heldHead(dave).size).toBe(heldHead(erin).size);
       expect(equalBytes(heldHead(dave).root, heldHead(erin).root)).toBe(false);
       await sentAndSeen(erin, [dave], groupId, "hello from another log");
-      await waitFor(() => warned(dave, "different records"), "dave to notice");
+      await waitFor(() => warned(dave, "different key records"), "dave to notice");
       await sentAndSeen(dave, [erin], groupId, "hello back");
-      await waitFor(() => warned(erin, "different records"), "erin to notice");
+      await waitFor(() => warned(erin, "different key records"), "erin to notice");
       const key = sessionOf(dave).logState().key;
       for (const app of [dave, erin]) {
         const heads = sessionOf(app).logProof().map(fromWireHead);
@@ -525,7 +525,7 @@ describe("heads in messages", () => {
     await sentAndSeen(erin, [dave], groupId, "I'm ahead");
     await waitFor(() => heldHead(dave).size === held + 1, "dave to read on");
     expect(equalBytes(heldHead(dave).root, heldHead(erin).root)).toBe(true);
-    expect(securityEvents(dave).slice(before).filter((event) => event.message.includes("who holds which keys"))).toEqual([]);
+    expect(securityEvents(dave).slice(before).filter((event) => /who owns each key|key records/.test(event.message))).toEqual([]);
   });
 
   it("gives the milder warning, naming whose message it was, for a head under another key", async () => {
@@ -541,7 +541,7 @@ describe("heads in messages", () => {
     const event = securityEvents(dave).find((item) => item.message.includes("didn't sign for you")) as { userId: string; message: string };
     expect(event.userId).toBe(erin.userId);
     expect(event.message).toContain(erin.session.getSelf().username);
-    expect(warned(dave, "different records")).toBe(false);
+    expect(warned(dave, "different key records")).toBe(false);
   });
 
   it("does nothing with an old head sent again", async () => {
@@ -594,7 +594,7 @@ describe("the manifest, invite links and signing in", () => {
     expect(sessionOf(phone).manifest.log).toBeTruthy();
     expect(sessionOf(phone).logState().key).toBe(log.key);
     expect(sessionOf(phone).logState().floor).toBeNull();
-    expect(warned(phone, "record of who holds which keys")).toBe(false);
+    expect(warned(phone, "who owns each key") || warned(phone, "key records")).toBe(false);
     phone.client.stop();
   });
 
@@ -619,13 +619,13 @@ describe("the manifest, invite links and signing in", () => {
     const forged = link.replace(/log=[^&]+/, `log=${linkHead({ ...head, root: wasm.randomBytes(32) })}`);
     const newcomer = await new TestApp("newcomer").open();
     await newcomer.register(forged, `newcomer${randomId().slice(0, 8)}`);
-    await waitFor(() => warned(newcomer, "invite link you joined with"), "the warning");
+    await waitFor(() => warned(newcomer, "associated with your invite link"), "the warning");
     // Someone whose link holds up hears nothing of it.
     const fine = await new TestApp("fine").open();
     await fine.register(link, `fine${randomId().slice(0, 8)}`);
     expect(await caughtUp(fine)).toBe(true);
     expect(sessionOf(fine).account.log.size).toBe(head.size);
-    expect(warned(fine, "invite link you joined with")).toBe(false);
+    expect(warned(fine, "associated with your invite link")).toBe(false);
     newcomer.client.stop();
     fine.client.stop();
   });
@@ -654,7 +654,7 @@ describe("the manifest, invite links and signing in", () => {
       db.prepare("UPDATE account_slots SET sealed_key = ? WHERE user_id = ? AND kind = 'password'").run(kept.slot.sealed_key, dave.userId);
     });
     const phone = await new TestApp("dave-phone").open();
-    await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/match its own record of them/);
+    await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/differ from its own record/);
     phone.client.stop();
   });
 });
@@ -674,10 +674,10 @@ describe("eras and seal keys", () => {
     await sessionOf(dave).syncLog();
     expect(sessionOf(dave).logState().era).toBe(era + 1);
     expect(await caughtUp(dave)).toBe(true);
-    expect(securityEvents(dave).filter((event) => event.message.includes("started its record")).length).toBe(1);
+    expect(securityEvents(dave).filter((event) => event.message.includes("reset its record")).length).toBe(1);
     expect(sessionOf(dave).headGeneration(erin.userId)).toBe(1);
     expect(dave.session.safetyCheck(erin.userId)!.trust).toBe("unverified");
-    expect(securityEvents(dave).some((event) => event.message.includes("security key of"))).toBe(false);
+    expect(securityEvents(dave).some((event) => event.message.includes("'s security key"))).toBe(false);
   });
 
   it("shows a key changed across a new era as changed", async () => {

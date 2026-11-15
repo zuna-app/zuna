@@ -221,7 +221,7 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	if !store.ValidID(id) || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
-		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a way into this channel.")
+		writeError(w, http.StatusBadRequest, "bad_request", "You can't use this to join the channel.")
 		return
 	}
 	if sess.Bot {
@@ -231,7 +231,7 @@ func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request, sess 
 			return
 		}
 		if !given {
-			writeError(w, http.StatusForbidden, "bot", "This bot wasn't given that channel.")
+			writeError(w, http.StatusForbidden, "bot", "This bot doesn't have access to that channel.")
 			return
 		}
 		// A bot gets nothing from before it came in.

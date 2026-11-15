@@ -46,7 +46,7 @@ func (s *Server) diskIsFull(w http.ResponseWriter) bool {
 	if err != nil || free >= uint64(s.cfg.MinFreeDiskMB)<<20 {
 		return false
 	}
-	writeError(w, http.StatusInsufficientStorage, "storage_full", "This server is out of storage for files. Ask its admin to make some room.")
+	writeError(w, http.StatusInsufficientStorage, "storage_full", "This server has run out of file storage. Ask an admin to free up space.")
 	return true
 }
 
