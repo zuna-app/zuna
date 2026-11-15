@@ -71,6 +71,8 @@ public final class CoreRuntime: @unchecked Sendable {
     private var telegram: TelegramBridge?
     /// The app's push token, for Telegram's pushes, kept until the bridge is made.
     private var telegramPushToken: String?
+    /// Whether the app is out of sight, for a bridge made while it is.
+    private var telegramOutOfSight = false
     private var timers: [Int: DispatchSourceTimer] = [:]
     private var channels: [Int: Channel] = [:]
     private var nextChannel = 1
@@ -380,6 +382,7 @@ public final class CoreRuntime: @unchecked Sendable {
                 queue.async { self.call("__zunaTelegram", [json]) }
             }
             made.setPushToken(telegramPushToken)
+            if telegramOutOfSight { made.sleep() }
             telegram = made
             return made
         }
@@ -424,6 +427,16 @@ public final class CoreRuntime: @unchecked Sendable {
         queue.async { [self] in
             telegramPushToken = token
             telegram?.setPushToken(token)
+        }
+    }
+
+    /// The app left the screen, or is back on it: iOS suspends a linked Telegram account's helper
+    /// with the app, so its broker expects nothing of it meanwhile and starts none, and starts
+    /// one that's owed as the app comes back (`TelegramBridge.sleep`).
+    public func setTelegramOutOfSight(_ away: Bool) {
+        queue.async { [self] in
+            telegramOutOfSight = away
+            if away { telegram?.sleep() } else { telegram?.wake() }
         }
     }
 

@@ -167,6 +167,8 @@ final class CoreController {
         options.logToStandardError = true
         #endif
         let runtime = try CoreRuntime(options: options)
+        // Launched in the background, as for a push, the Telegram helper waits for the app to come on screen.
+        runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         // The share extension may be sending with a core of its own: this one starts once it's done.
         let lock = try self.lock ?? CoreLock(directory: directory)
         self.lock = lock
@@ -179,6 +181,8 @@ final class CoreController {
         }
         awake = true
         self.runtime = runtime
+        // Whatever the app did while the core started, which nothing told it of.
+        runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         #if DEBUG
         // Tests give a made-up token, as the relay's stand-in does, where the simulator gets none from Apple.
         runtime.setTelegramPushToken(pushToken ?? UserDefaults.standard.string(forKey: "ZunaPushToken"))
@@ -270,6 +274,8 @@ final class CoreController {
     /// connection had gone. Nor while sending what the share extension handed over.
     func didEnterBackground() {
         reportActivity()
+        // iOS suspends the Telegram helper with the app, and starts none for an app out of sight.
+        runtime?.setTelegramOutOfSight(true)
         guard connection != nil, suspendTask == nil, !keptAwake else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
             MainActor.assumeIsolated { self?.timeIsUp() }
@@ -331,6 +337,7 @@ final class CoreController {
 
     /// Back on screen: reconnect right away and catch up.
     func didBecomeActive() {
+        runtime?.setTelegramOutOfSight(false)
         Task { await notifications?.updateAuthorization() }
         suspendTask?.cancel()
         suspendTask = nil

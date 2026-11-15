@@ -128,6 +128,43 @@ describe("linking a Telegram account", () => {
     expect(engine.stops).toEqual([]);
   });
 
+  it("is connecting while its broker starts the engine again, and while it goes on trying", async () => {
+    const { engine, events, client, link } = await linkedClient({ authorized: true });
+    client.linkTelegram();
+    await until(() => link()?.step === "ready", "being linked");
+    const connection = () => [...events].reverse().find((event): event is Extract<CoreEvent, { type: "connection" }> => event.type === "connection" && event.serverId === TELEGRAM_ID)?.state;
+    await until(() => connection() === "online", "being online");
+    await until(() => client.telegramSession.getConversations().length > 0, "the list");
+    // The engine went and its broker started another, which hasn't said anything yet: what the
+    // one before it said of its connection isn't shown as this one's.
+    const asked = client.telegramSession.setPinned(String(GRACE), String(serverId(1)), true).then(
+      () => "answered",
+      (error: Error) => error.message,
+    );
+    engine.emit({ "@type": "zunaRestarted" });
+    expect(connection()).toBe("connecting");
+    expect(client.telegramSession.getConnectionState()).toBe("connecting");
+    // What was asked of the engine that went is answered by nobody.
+    expect(await asked).toContain("Telegram restarted.");
+    engine.emit({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });
+    expect(connection()).toBe("online");
+    // It kept failing, and the broker says so while it goes on trying by itself, as the iPhone's
+    // does: still connecting, never "waiting for network", and back on screen starts it now.
+    engine.emit({ "@type": "zunaFailed", reason: "Telegram's engine stopped.", retrying: true });
+    await until(() => link()?.step === "failed", "the failure");
+    expect(connection()).toBe("connecting");
+    // The broker's own next try came first: nothing is left for coming back on screen to start.
+    engine.emit({ "@type": "zunaRestarted" });
+    client.nudge();
+    expect(engine.started).toBe(1);
+    engine.emit({ "@type": "zunaFailed", reason: "Telegram's engine stopped.", retrying: true });
+    client.nudge();
+    expect(engine.started).toBe(2);
+    await until(() => link()?.step === "ready", "being back");
+    await until(() => connection() === "online", "being online again");
+    expect(engine.stops).toEqual([]);
+  });
+
   it("starts again with the app, without linking again", async () => {
     const { engine, client, db } = await linkedClient({ authorized: true });
     client.linkTelegram();

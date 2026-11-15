@@ -200,7 +200,10 @@ export class TelegramSession {
   private unlinking: ((signedOut: boolean) => void) | null = null;
   private signingOut = false;
   private ended = false;
-  /** The broker gave up on the engine, which stays off until `nudge` starts it again. */
+  /**
+   * The broker said the engine keeps failing (`zunaFailed`): `nudge` starts it again at once,
+   * whether the broker gave up on it or is waiting to try again itself.
+   */
   private stalled = false;
   private linking: boolean;
   /**
@@ -254,19 +257,23 @@ export class TelegramSession {
   resume(): void {}
 
   /**
-   * The app is back on screen, or its network is: an engine the broker gave up on is started
-   * again, as one that couldn't start while iOS held the app and its helper in the background.
+   * The app is back on screen, or its network is: an engine that keeps failing is started again
+   * now, rather than when its broker next tries, or never where the broker gave up on it.
    */
   nudge(): void {
     if (!this.stalled || this.ended || this.signingOut) return;
-    this.connection = "connecting";
-    this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: "connecting" });
+    this.setConnection("connecting");
     this.start();
   }
   async flushOutbox(): Promise<void> {}
 
   getConnectionState(): ConnectionState {
     return this.connection;
+  }
+
+  private setConnection(state: ConnectionState): void {
+    this.connection = state;
+    this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state });
   }
 
   /**
@@ -465,8 +472,7 @@ export class TelegramSession {
           connectionStateConnectingToProxy: "connecting",
           connectionStateWaitingForNetwork: "offline",
         };
-        this.connection = states[kindOf(update.state)] ?? "connecting";
-        this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: this.connection });
+        this.setConnection(states[kindOf(update.state)] ?? "connecting");
         return;
       }
       case "updateUser": {
@@ -614,11 +620,16 @@ export class TelegramSession {
       case "zunaFailed":
         this.engine.failAll(new TelegramError("Telegram stopped.", 503));
         this.stalled = true;
-        this.connection = "offline";
-        this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state: "offline" });
+        // A broker that goes on trying by itself, as the iPhone's does, is still connecting: only
+        // one that gave up, which nothing but `nudge` starts again, waits.
+        this.setConnection(update.retrying === true ? "connecting" : "offline");
         return this.setLink({ step: "failed", reason: `Telegram stopped working here: ${str(update.reason, 200)}` });
       case "zunaRestarted":
+        // A new engine, which says where it stands as it starts: until then it's connecting, and
+        // what the one before it said of its connection is nobody's.
         this.engine.failAll(new TelegramError("Telegram restarted.", 503));
+        this.stalled = false;
+        this.setConnection("connecting");
         return;
     }
   }

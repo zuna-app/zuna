@@ -78,6 +78,15 @@ public final class TelegramBridge: @unchecked Sendable {
         /// Whether the app's push token is for Apple's sandbox, as a development build's is, which
         /// Telegram has to know to push to it.
         public var pushSandbox = false
+        /// How long after each failure in a row the helper is started again: at once after the
+        /// first, then less and less often, and as often as the last of these for as long as it's
+        /// wanted. It's never given up on, as iOS ends a helper whenever it likes.
+        public var retryDelays: [TimeInterval] = [0, 1, 2, 5, 10, 20, 40, 60]
+        /// How often the helper is asked whether it's still there, and how long it has to answer.
+        public var watchdogEvery: TimeInterval = 30
+        public var watchdogWait: TimeInterval = 20
+        /// How late a look may come before the app is taken to have been suspended since the last.
+        public var watchdogLate: TimeInterval = 5
 
         public init(credentials: Credentials, launcher: any TelegramHelperLauncher, version: String, system: String, device: String) {
             self.credentials = credentials
@@ -92,12 +101,8 @@ public final class TelegramBridge: @unchecked Sendable {
     /// `burst`: a fault in the adapter can't become a flood, which is what Telegram bans for.
     static let rate = 100.0
     static let burst = 500.0
-    /// How often the helper is asked whether it's still there, and how long it has to answer.
-    static let watchdogEvery: TimeInterval = 30
-    static let watchdogWait: TimeInterval = 20
-    /// How late a look may come before the app is taken to have been suspended since the last.
-    static let watchdogLate: TimeInterval = 5
-    /// How many times the helper is started again after failing, in a row, before it stays off.
+    /// How many failures in a row the core isn't told of. Past them it's told why, each time
+    /// (`zunaFailed`), which the linking screens show, and the helper is started again all the same.
     static let mostRestarts = 3
     /// How long it must run before a failure counts as a new one rather than one more in a row.
     static let ranWell: TimeInterval = 120
@@ -135,6 +140,10 @@ public final class TelegramBridge: @unchecked Sendable {
     /// The core asked for it to run, and hasn't asked for it to stop.
     private var wanted = false
     private var failures = 0
+    /// The app is out of sight: iOS has suspended it, or is about to, and the helper with it (`sleep`).
+    private var asleep = false
+    /// Which wait to start the helper again is the current one: an older one does nothing.
+    private var waiting = 0
     private var tokens = TelegramBridge.burst
     private var filled = Date()
     /// When the watchdog last asked, while it waits for the answer, and when it last looked.
@@ -182,13 +191,40 @@ public final class TelegramBridge: @unchecked Sendable {
 
     // MARK: What the core asks
 
-    /// Starts the helper, if it isn't running. Requests made while it starts wait for it.
+    /// Starts the helper, if it isn't running. Requests made while it starts wait for it. With the
+    /// app out of sight, as when iOS started it for a push, it starts once the app is on screen (`wake`).
     public func start() -> String? {
         queue.sync {
             wanted = true
             failures = 0
-            if run != nil { return nil }
+            // Whatever waited to start it again is overtaken.
+            waiting += 1
+            if run != nil || asleep { return nil }
             return launch()
+        }
+    }
+
+    /// The app left the screen, where iOS soon suspends it and the helper with it, and may hold
+    /// the helper while the app still runs. A helper that answers nothing then hasn't failed. One
+    /// that goes meanwhile, as iOS ends those it has suspended when it wants their memory, isn't
+    /// started until the app is back, and nor is any other: a start iOS holds, or doesn't let
+    /// through, for an app in the background is what the broker used to give up after.
+    public func sleep() {
+        queue.async { [self] in
+            asleep = true
+            asked = nil
+        }
+    }
+
+    /// The app is back on screen. The helper is asked afresh whether it's there, and started now
+    /// if it went while the app was away, or was waiting to be started.
+    public func wake() {
+        queue.async { [self] in
+            guard asleep else { return }
+            asleep = false
+            asked = nil
+            looked = Date()
+            if wanted, run == nil { again() }
         }
     }
 
@@ -236,6 +272,7 @@ public final class TelegramBridge: @unchecked Sendable {
         queue.async { [self] in
             wanted = false
             generation += 1
+            waiting += 1
             let stopping = run
             run = nil
             copies.removeAll()
@@ -455,7 +492,10 @@ public final class TelegramBridge: @unchecked Sendable {
         deliver(json)
     }
 
-    /// The helper went. If nobody stopped it, it's started again, up to a few times in a row.
+    /// The helper went. If nobody stopped it, it's started again: at once the first time, and after
+    /// a wait that grows with each failure in a row, for as long as it's wanted. It's never given
+    /// up on, as iOS ends a helper for reasons that are no fault of its own, and an account left
+    /// off until the app started again showed as "Waiting for network…".
     private func ended(_ run: Run, _ why: String) {
         let why = run.failure ?? why
         run.door?.closeAll(tell: false)
@@ -463,15 +503,33 @@ public final class TelegramBridge: @unchecked Sendable {
         self.run = nil
         copies.removeAll()
         guard wanted else { return }
+        if asleep {
+            logger.notice("the engine stopped (\(why, privacy: .public)) with the app out of sight, and starts again as it comes back")
+            return
+        }
         if Date().timeIntervalSince(run.started) > Self.ranWell { failures = 0 }
         failures += 1
         logger.warning("the engine stopped (\(why, privacy: .public)), failure \(self.failures) in a row")
         if failures > Self.mostRestarts {
-            wanted = false
-            deliver(Self.encode(["@type": "zunaFailed", "reason": why]))
-            return
+            deliver(Self.encode(["@type": "zunaFailed", "reason": why, "retrying": true]))
         }
+        let delays = configuration.retryDelays
+        let delay = delays.isEmpty ? 0 : delays[min(failures, delays.count) - 1]
+        waiting += 1
+        guard delay > 0 else { return again() }
+        let mine = waiting
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            // Started or stopped meanwhile, or the app is out of sight, where `wake` starts it.
+            guard let self, mine == waiting, wanted, self.run == nil, !asleep else { return }
+            again()
+        }
+    }
+
+    /// Starts the helper again, and tells the core, whose requests of the one before go unanswered.
+    private func again() {
+        waiting += 1
         if let why = launch() {
+            // The key to its database can't be kept: nothing a new start would change.
             deliver(Self.encode(["@type": "zunaFailed", "reason": why]))
         } else {
             deliver(Self.encode(["@type": "zunaRestarted"]))
@@ -479,23 +537,24 @@ public final class TelegramBridge: @unchecked Sendable {
     }
 
     /// Asks the helper now and then whether it's still there, and ends one that doesn't answer.
-    /// A wait that spans the app's being suspended, when nothing runs, counts for nothing: a look
-    /// that comes late came after the app was, as the helper too, which may not have answered yet.
+    /// Not while the app is out of sight, when iOS holds the helper suspended and it can't. And a
+    /// wait that spans the app's being suspended, when nothing runs, counts for nothing: a look that
+    /// comes late came after the app was, as the helper too, which may not have answered yet.
     private func watch(_ run: Run) {
         looked = Date()
-        queue.asyncAfter(deadline: .now() + Self.watchdogEvery) { [weak self] in
+        queue.asyncAfter(deadline: .now() + configuration.watchdogEvery) { [weak self] in
             guard let self, self.run === run, let link = run.link else { return }
             let now = Date()
-            let slept = now.timeIntervalSince(looked) > Self.watchdogEvery + Self.watchdogLate
+            let slept = asleep || now.timeIntervalSince(looked) > configuration.watchdogEvery + configuration.watchdogLate
             looked = now
             if slept { asked = nil }
-            if let asked, now.timeIntervalSince(asked) > Self.watchdogWait {
+            if let asked, now.timeIntervalSince(asked) > configuration.watchdogWait {
                 logger.warning("the engine stopped answering, so it's ended")
                 // Its session ends as it goes, and `ended` starts it again.
                 link.close()
                 return
             }
-            if asked == nil {
+            if asked == nil, !asleep {
                 asked = now
                 link.send(json: Self.encode(["@type": "getOption", "name": "version", "@extra": "zuna:watchdog"]))
             }
