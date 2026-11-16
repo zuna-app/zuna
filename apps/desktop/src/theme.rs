@@ -247,3 +247,53 @@ impl Theme {
 }
 
 impl gpui::Global for Theme {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn the_text_size_is_how_large_messages_are() {
+        let [small, medium, large] = [TextSize::Small, TextSize::Medium, TextSize::Large].map(|size| Theme::new(Accent::Blue, size).message_size);
+        assert!(small < medium && medium < large);
+    }
+
+    #[test]
+    fn a_plugins_theme_sets_every_token_it_names() {
+        let tokens = [
+            "bg0", "bg1", "bg2", "bg3", "bg4", "bg5", "bgChat", "line", "lineStrong", "hover", "hoverStrong", "text1", "text2", "text3", "accent", "accentHover", "onAccent",
+            "accentSoft", "accentText", "bubbleOwn", "bubbleOwnText", "bubbleOther", "bubbleMeta", "link", "green", "red", "amber",
+        ];
+        let mut theme = Theme::new(Accent::Neutral, TextSize::Medium);
+        theme.apply(&tokens.iter().map(|token| (token.to_string(), "#102030".to_string())).collect());
+        let set = color(hex(0x102030));
+        let t = theme;
+        let read = [
+            t.bg0, t.bg1, t.bg2, t.bg3, t.bg4, t.bg5, t.bg_chat, t.line, t.line_strong, t.hover, t.hover_strong, t.text1, t.text2, t.text3, t.accent, t.accent_hover, t.on_accent,
+            t.accent_soft, t.accent_text, t.bubble_own, t.bubble_own_text, t.bubble_other, t.bubble_meta, t.link, t.green, t.red, t.amber,
+        ];
+        for (token, value) in tokens.iter().zip(read) {
+            assert_eq!(value, set, "{token} wasn't set");
+        }
+        // The pale backgrounds follow the colors they're beside, and an accent of its own isn't neutral.
+        assert_eq!(theme.red_soft, Hsla { a: 0.13, ..set });
+        assert_eq!(theme.amber_soft, Hsla { a: 0.12, ..set });
+        assert!(!theme.neutral);
+    }
+
+    #[test]
+    fn a_plugins_theme_takes_an_alpha_and_passes_over_what_it_cant_read() {
+        let before = Theme::new(Accent::Neutral, TextSize::Medium);
+        let mut theme = before;
+        theme.apply(&BTreeMap::from([
+            ("bg0".to_string(), "#10203080".to_string()),
+            ("bg1".to_string(), "#zzzzzz".to_string()),
+            ("bg2".to_string(), "#1234".to_string()),
+            ("nothing".to_string(), "#ffffff".to_string()),
+        ]));
+        assert_eq!(theme.bg0, color(Rgba { a: 128. / 255., ..hex(0x102030) }));
+        assert_eq!((theme.bg1, theme.bg2), (before.bg1, before.bg2));
+        assert!(theme.neutral, "a theme without an accent of its own made the neutral accent a color");
+    }
+}

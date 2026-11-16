@@ -285,3 +285,152 @@ impl Gate {
         Some(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(change: impl FnOnce(&mut VoiceSettings)) -> MicSettings {
+        let mut voice = VoiceSettings::default();
+        change(&mut voice);
+        MicSettings::from(&voice, false)
+    }
+
+    fn gate(settings: MicSettings) -> (Gate, Arc<AtomicBool>, Arc<Mutex<Reading>>) {
+        let key = Arc::new(AtomicBool::new(false));
+        let reading = Arc::new(Mutex::new(Reading::default()));
+        (Gate::new(Arc::new(Mutex::new(settings)), key.clone(), reading.clone()), key, reading)
+    }
+
+    /// A frame of 440 Hz, from 0 to 1 as loud as it can be.
+    fn tone(loudness: f32) -> Vec<i16> {
+        (0..FRAME).map(|i| ((i as f32 * 440. * std::f32::consts::TAU / 48000.).sin() * loudness * 32767.) as i16).collect()
+    }
+
+    #[test]
+    fn the_settings_are_read_as_the_gate_takes_them() {
+        let read = settings(|s| {
+            s.input_mode = "ptt".into();
+            s.noise_suppression = "zuna".into();
+            s.auto_sensitivity = false;
+            s.sensitivity = -40.;
+            s.input_volume = 1.5;
+            s.ptt_release = 95.;
+        });
+        assert!(read.ptt && read.suppress && !read.auto && !read.muted);
+        assert_eq!((read.threshold, read.gain, read.ptt_release), (-40., 1.5, 10));
+        let read = settings(|s| {
+            s.input_mode = "voice".into();
+            s.noise_suppression = "standard".into();
+        });
+        assert!(!read.ptt && !read.suppress);
+        let quiet = Reading::default();
+        assert!(!quiet.open && quiet.level == -100.);
+    }
+
+    #[test]
+    fn muted_nothing_goes_through_and_nothing_is_held_for_after() {
+        let (mut gate, _, _) = gate(settings(|_| {}));
+        let mut now = gate.settings.lock().clone();
+        assert!(gate.decide(&now, 0.9, -20.));
+        now.muted = true;
+        assert!(!gate.decide(&now, 0.9, -20.), "speech went through muted");
+        now.muted = false;
+        assert!(!gate.decide(&now, 0., -100.), "what was held from before being muted went through after it");
+    }
+
+    #[test]
+    fn push_to_talk_goes_through_while_the_key_is_down_and_for_its_release_after() {
+        let (mut gate, key, _) = gate(settings(|s| {
+            s.input_mode = "ptt".into();
+            s.ptt_release = 30.;
+        }));
+        let now = gate.settings.lock().clone();
+        assert!(!gate.decide(&now, 1., 0.), "speech went through with the key up");
+        key.store(true, Ordering::Relaxed);
+        assert!(gate.decide(&now, 0., -100.), "quiet didn't go through with the key down");
+        key.store(false, Ordering::Relaxed);
+        let after: Vec<bool> = (0..4).map(|_| gate.decide(&now, 0., -100.)).collect();
+        assert!(after[0], "it closed as soon as the key went up");
+        assert!(!after[3], "it was open 40 ms after the key went up, with 30 ms of release");
+    }
+
+    #[test]
+    fn by_its_level_what_is_louder_than_the_sensitivity_goes_through_and_is_held_in_pauses() {
+        let (mut gate, _, _) = gate(settings(|s| {
+            s.auto_sensitivity = false;
+            s.sensitivity = -50.;
+        }));
+        let now = gate.settings.lock().clone();
+        assert!(!gate.decide(&now, 1., -60.), "quiet speech went through");
+        assert!(gate.decide(&now, 0., -40.));
+        assert!((0..20).all(|_| gate.decide(&now, 0., -60.)), "it closed in a pause of 200 ms");
+        assert!((0..HOLD_LOUD).any(|_| !gate.decide(&now, 0., -60.)), "it never closed");
+    }
+
+    #[test]
+    fn by_itself_it_takes_sure_speech_or_a_few_likely_frames_and_less_keeps_it_open() {
+        let (mut gate, _, _) = gate(settings(|_| {}));
+        let now = gate.settings.lock().clone();
+        assert!(!gate.decide(&now, 0.6, -20.), "one frame that might be speech, a click, went through");
+        assert!(!gate.decide(&now, 0.1, -20.));
+        assert!(!gate.decide(&now, 0.6, -20.));
+        assert!(!gate.decide(&now, 0.6, -20.));
+        assert!(gate.decide(&now, 0.6, -20.), "three frames in a row that might be speech didn't go through");
+
+        let (mut sure, _, _) = self::gate(now.clone());
+        assert!(sure.decide(&now, 0.9, -20.), "what's surely speech didn't go through at once");
+        // Once open, what's less likely keeps it open, as the ends of words are.
+        sure.open = true;
+        assert!((0..HOLD_SPEECH * 2).all(|_| sure.decide(&now, 0.3, -30.)), "it closed on the end of a word");
+        sure.open = false;
+        assert!((0..HOLD_SPEECH).any(|_| !sure.decide(&now, 0.3, -30.)), "it never closed");
+    }
+
+    #[test]
+    fn what_leaves_is_held_back_so_the_gate_is_open_by_the_first_sound_of_a_word() {
+        let (mut gate, _, reading) = gate(settings(|s| {
+            s.auto_sensitivity = false;
+            s.sensitivity = -60.;
+            s.noise_suppression = "off".into();
+        }));
+        let quiet = vec![0i16; FRAME];
+        let loud = tone(0.5);
+        assert!(gate.process(&quiet).is_none() && gate.process(&quiet).is_none(), "something left before the lookahead was full");
+        // The word comes in: the quiet held before it leaves, while the gate opens.
+        for _ in 0..2 {
+            assert!(gate.process(&loud).unwrap().iter().all(|sample| *sample == 0));
+        }
+        assert!(reading.lock().open);
+        assert_eq!(gate.process(&loud).unwrap(), loud, "the word's first sound was faded");
+        for _ in 0..2 {
+            gate.process(&loud);
+        }
+        assert!(reading.lock().level > -20., "how loud it is wasn't reported: {:?}", reading.lock());
+
+        // Muted in the middle of a word, it fades out rather than cutting it off.
+        gate.settings.lock().muted = true;
+        let fading = gate.process(&loud).unwrap();
+        assert!(!reading.lock().open, "it stayed open muted");
+        assert!(fading.iter().any(|sample| *sample != 0), "the word was cut off");
+        let mut last = Vec::new();
+        for _ in 0..6 {
+            last = gate.process(&loud).unwrap();
+        }
+        assert!(last.iter().all(|sample| *sample == 0), "it went on muted");
+    }
+
+    #[test]
+    fn with_rnnoise_what_leaves_is_what_it_cleaned() {
+        let (mut gate, _, reading) = gate(settings(|s| {
+            s.noise_suppression = "zuna".into();
+            s.auto_sensitivity = false;
+            s.sensitivity = -100.;
+        }));
+        let loud = tone(0.5);
+        let out: Vec<Vec<i16>> = (0..10).filter_map(|_| gate.process(&loud)).collect();
+        assert_eq!(out.len(), 10 - LOOKAHEAD_FRAMES);
+        assert!(reading.lock().open);
+        assert_ne!(out.last().unwrap(), &loud, "RNNoise's cleaning wasn't what left");
+    }
+}
