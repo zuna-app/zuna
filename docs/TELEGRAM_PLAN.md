@@ -65,7 +65,7 @@ What this plan assumes until the owner answers. Each is a question at the end.
 4. **One Telegram account on a device.**
 5. **The engine comes with the app,** as a program beside it that only a linked device ever starts.
 6. **No plugin reaches the rail,** with any permission.
-7. **Secret chats and calls are left out** of the first version.
+7. **Secret chats and calls are left out** of the first version. One-to-one calls have a plan of their own since 2026-11-16, [TELEGRAM_CALLS_PLAN.md](TELEGRAM_CALLS_PLAN.md).
 8. **On an iPhone, TDLib runs inside the app,** from iOS 18, as the app does. From 2026-11-14 it ran in a second process of the app's own, which needed iOS 26, until iOS was found to end that process at 35 MB, and on 2026-11-15 the owner chose the app's own process, knowing what it gives up ("On the iPhone and iPad"). On every other system TDLib never runs inside the app.
 9. **An iPhone's pushes come from Telegram through Apple, with names and text,** as they have to work. They're encrypted to a key on the phone if Telegram allows a third-party app that, and readable by Apple if it doesn't.
 
@@ -443,7 +443,7 @@ In the commit that makes each true:
 
 - **A bridge on a server,** as Matrix bridges are. It would hold the Telegram session and read every message on a machine that today holds only ciphertext, and tell the server who writes to whom and when.
 - **Channels,** as asked, with stories.
-- **Calls and video chats.**
+- **Calls and video chats.** One-to-one calls are planned in [TELEGRAM_CALLS_PLAN.md](TELEGRAM_CALLS_PLAN.md), and not built.
 - **Secret chats,** in the first version. They're tied to the device that started them, so none from the phone could show anyway.
 - **Making a Telegram account, deleting one, and its privacy and security settings.** Telegram's own apps.
 - **More than one Telegram account.**
