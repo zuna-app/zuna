@@ -375,6 +375,10 @@ func TestFailingDatabase(t *testing.T) {
 			made := w.owner.makeBot(w.name("bot"), nil)
 			return w.status("DELETE", "/api/bots/"+made.Bot.ID, w.owner, nil)
 		}},
+
+		// Last, once the owner has made something of everything: chats, channels, files, invites and bots.
+		{"export", http.StatusOK, w.same("POST", "/api/account/export", w.owner, map[string]any{})},
+		{"export of someone with less", http.StatusOK, w.same("POST", "/api/account/export", w.carol, map[string]any{})},
 	}
 	for _, r := range recipes {
 		h.sweep(t, r)

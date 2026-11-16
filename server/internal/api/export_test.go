@@ -2,8 +2,10 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -111,5 +113,59 @@ func TestAnExportHoldsWhatsKeptAboutTheAccountAndNoSecrets(t *testing.T) {
 	}
 	if raw, _ := json.Marshal(theirs); bytes.Contains(raw, []byte(invite)) {
 		t.Fatal("the owner's export holds their invite's code")
+	}
+}
+
+// What's kept for the account's device in bulk, the keys it replaced, the bots it gave
+// channels and whom it banned are in its export too. A banned account's says who banned
+// it, and an account in no chat has none.
+func TestAnExportHoldsKeyChangesBotsAndBans(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signUp("owner", h.invite)
+	owner.rotate()
+	h.mustDo("POST", "/api/account/bundles", owner.token, map[string]any{"generation": 1, "bundles": []map[string]any{{"device_id": owner.client.device, "data": []byte("bundle")}}}, nil)
+	h.mustDo("POST", "/api/key-packages", owner.token, map[string]any{"key_packages": [][]byte{keyPackageFrame("kp1")}, "last_resort": keyPackageFrame("resort")}, nil)
+	bob := h.register("bob", owner.newInvite())
+	dm := bob.dm(owner.userID)
+	if status, _ := bob.commit(dm.ID, 0, map[string]any{"welcome": welcomeFrame("welcome"), "welcome_to": []string{owner.client.device}}); status != http.StatusOK {
+		t.Fatalf("welcoming the owner gave %d", status)
+	}
+	bot := owner.runBot("helper", map[string]any{"listed": true})
+	channel := owner.createChannel("text", 0)
+	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", owner.token, map[string]any{"channels": []string{channel.ID}}, nil)
+	carol := h.register("carol", owner.newInvite())
+	h.mustDo("POST", "/api/admin/users/"+carol.userID+"/ban", owner.token, nil, nil)
+
+	var export store.Export
+	h.mustDo("POST", "/api/account/export", owner.token, map[string]any{}, &export)
+	if len(export.Devices) != 1 {
+		t.Fatalf("devices: %+v", export.Devices)
+	}
+	device := export.Devices[0]
+	if device.KeyPackages.Count != 2 || device.KeyPackages.Bytes == 0 || device.Welcomes.Count != 1 || device.Welcomes.Bytes == 0 ||
+		device.AccountKey == nil || device.AccountKey.Generation != 1 || device.AccountKey.Size != int64(len("bundle")) {
+		t.Fatalf("what's kept for the device: %+v", device)
+	}
+	if export.Account.KeyGeneration != 1 || len(export.KeyChanges.Links) != 1 || export.KeyChanges.Links[0].Generation != 1 || export.KeyChanges.LogEntries == 0 {
+		t.Fatalf("the key changes: %+v, generation %d", export.KeyChanges, export.Account.KeyGeneration)
+	}
+	if len(export.Bots) != 1 || export.Bots[0].ID != bot.userID || export.Bots[0].Username != "helper" || export.Bots[0].SetUpAt == nil ||
+		len(export.Bots[0].Channels) != 1 || export.Bots[0].Channels[0] != channel.ID {
+		t.Fatalf("the bots: %+v", export.Bots)
+	}
+	if len(export.Admin.Channels) != 1 || export.Admin.Channels[0].ID != channel.ID || len(export.Admin.Banned) != 1 ||
+		export.Admin.Banned[0].ID != carol.userID || export.Admin.Banned[0].Username != "carol" {
+		t.Fatalf("what the owner did as an admin: %+v", export.Admin)
+	}
+
+	banned, err := h.db.Export(context.Background(), carol.userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if banned.Account.BannedAt == nil || banned.Account.BannedBy == nil || *banned.Account.BannedBy != owner.userID || len(banned.Conversations) != 0 {
+		t.Fatalf("the banned account's export: %+v, conversations %+v", banned.Account, banned.Conversations)
+	}
+	if _, err := h.db.Export(context.Background(), store.NewID()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("exporting nobody gave %v", err)
 	}
 }
