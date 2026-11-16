@@ -416,8 +416,7 @@ final class SignalSocket: @unchecked Sendable {
                 // LiveKit's protocol is binary: nothing it sends as text is read, so nothing passes unread.
                 logger.warning("Dropped a message from LiveKit sent as text")
             case .close:
-                writeFrame(8, Data([0x03, 0xe8]))
-                return close()
+                return writeFrame(8, Data([0x03, 0xe8])) { [weak self] in self?.close() }
             default:
                 break
             }
@@ -425,7 +424,8 @@ final class SignalSocket: @unchecked Sendable {
         }
     }
 
-    private func writeFrame(_ opcode: UInt8, _ payload: Data) {
+    /// Sends the SDK a frame, and then does what's next once it's gone, as closing would cut it off.
+    private func writeFrame(_ opcode: UInt8, _ payload: Data, then next: (@Sendable () -> Void)? = nil) {
         var frame = Data([0x80 | opcode])
         if payload.count < 126 {
             frame.append(UInt8(payload.count))
@@ -438,7 +438,8 @@ final class SignalSocket: @unchecked Sendable {
             for shift in stride(from: 56, through: 0, by: -8) { frame.append(UInt8((UInt64(payload.count) >> UInt64(shift)) & 0xff)) }
         }
         frame.append(payload)
-        local.send(content: frame, completion: .idempotent)
+        guard let next else { return local.send(content: frame, completion: .idempotent) }
+        local.send(content: frame, completion: .contentProcessed { _ in next() })
     }
 
     // MARK: From the SDK
@@ -487,8 +488,7 @@ final class SignalSocket: @unchecked Sendable {
             if fin { message(opcode, payload) } else { fragments = (opcode, payload) }
         case 8:
             sendUpstream(.close, Data())
-            writeFrame(8, payload.prefix(2))
-            close()
+            writeFrame(8, payload.prefix(2)) { [weak self] in self?.close() }
         case 9:
             writeFrame(10, payload)
         default:

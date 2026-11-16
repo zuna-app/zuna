@@ -117,6 +117,164 @@ final class ProxyTests: XCTestCase {
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 404)
     }
 
+    func testACallsSignallingGoesThroughTheProxyRewrittenBothWays() async throws {
+        // What LiveKit sends once the socket opens: a candidate, which is given a relay here, then
+        // what the relay drops, text and a kind it doesn't know, then what it passes as it is.
+        let pong = Data([0x90, 0x01, 0x05])
+        let response = message(field: 20, size: 200)
+        let longResponse = message(field: 20, size: 70000)
+        let livekit = try await FakeLiveKit.start(greeting: [
+            (false, trickle("candidate:1 1 tcp 2130706431 203.0.113.5 7881 typ host tcptype passive")),
+            (true, Data("hello".utf8)),
+            (false, Data([0x98, 0x03, 0x00])),
+            (false, pong),
+            (false, response),
+            (false, longResponse),
+        ])
+        defer { livekit.stop() }
+        let proxy = try await FakeProxy.start(username: "", password: "", forward: ["livekit.example": livekit.port])
+        defer { proxy.stop() }
+        let call = try await CallProxy.start(target: "ws://livekit.example:\(livekit.port)/", proxy: NetworkProxy(host: "127.0.0.1", port: proxy.port))
+        defer { call.close() }
+        let endpoint = try XCTUnwrap(URL(string: call.url))
+
+        let sdk = try await SDKSocket(port: UInt16(endpoint.port!))
+        let head = try await sdk.request(
+            "GET \(endpoint.path)/rtc?access_token=token HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer token\r\n\r\n")
+        XCTAssertTrue(head.hasPrefix("HTTP/1.1 101 "), head)
+        XCTAssertTrue(head.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), head)
+        XCTAssertEqual(proxy.asked, ["livekit.example:\(livekit.port)"])
+
+        let candidate = try await sdk.frame()
+        let relay = try XCTUnwrap(call.relay(for: "tcp", address: "203.0.113.5", port: 7881))
+        let text = String(decoding: candidate.payload, as: UTF8.self)
+        XCTAssertEqual(candidate.opcode, 2)
+        XCTAssertTrue(text.contains("127.0.0.1 \(relay.port) typ host"), text)
+        XCTAssertFalse(text.contains("203.0.113.5"), text)
+        let passed = try await sdk.frame()
+        XCTAssertEqual(passed.payload, pong, "what the relay drops went on")
+        let long = try await sdk.frame()
+        XCTAssertEqual(long.payload, response)
+        let longest = try await sdk.frame()
+        XCTAssertEqual(longest.payload, longResponse)
+
+        // A ping is answered here. What the SDK sends goes on to LiveKit, in pieces or whole and
+        // however long, but not as text, nor this device's own candidates.
+        try await sdk.send(opcode: 9, Data("are you there".utf8))
+        let answered = try await sdk.frame()
+        XCTAssertEqual(answered.opcode, 10)
+        XCTAssertEqual(answered.payload, Data("are you there".utf8))
+        let ping = Data([0x70, 0x01])
+        let request = message(field: 15, size: 200)
+        let longRequest = message(field: 15, size: 70000)
+        try await sdk.send(fin: false, opcode: 2, ping.prefix(1))
+        try await sdk.send(opcode: 0, ping.suffix(1))
+        try await sdk.send(opcode: 1, Data("text".utf8))
+        try await sdk.send(opcode: 3, Data())
+        try await sdk.send(opcode: 2, trickle("candidate:2 1 udp 2122260223 192.168.1.20 51234 typ host", field: 0x1a))
+        try await sdk.send(opcode: 2, request)
+        try await sdk.send(opcode: 2, longRequest)
+        try await eventually("everything reaching LiveKit") { livekit.received.count == 3 }
+        XCTAssertEqual(livekit.received, [ping, request, longRequest])
+        XCTAssertEqual(livekit.authorization, "Bearer token")
+
+        // The SDK's goodbye goes on to LiveKit too, and is answered.
+        try await sdk.send(opcode: 8, Data([0x03, 0xe8]))
+        let goodbye = try await sdk.frame()
+        XCTAssertEqual(goodbye.opcode, 8)
+        try await eventually("LiveKit hearing the socket close") { livekit.closed }
+    }
+
+    func testACallsEndpointAsksLiveKitWhyItWasRefusedThroughTheProxy() async throws {
+        let livekit = try await FakeRefusal.start()
+        defer { livekit.stop() }
+        let proxy = try await FakeProxy.start(username: "", password: "", forward: ["livekit.example": livekit.port])
+        defer { proxy.stop() }
+        let call = try await CallProxy.start(target: "ws://livekit.example:\(livekit.port)", proxy: NetworkProxy(host: "127.0.0.1", port: proxy.port))
+        defer { call.close() }
+        let endpoint = try XCTUnwrap(URL(string: call.url))
+        let sdk = try await SDKSocket(port: UInt16(endpoint.port!))
+        let head = try await sdk.request("GET \(endpoint.path)/rtc/validate?access_token=token HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer token\r\n\r\n")
+        XCTAssertTrue(head.hasPrefix("HTTP/1.1 401 "), head)
+        let body = try await sdk.read(13)
+        XCTAssertEqual(String(decoding: body, as: UTF8.self), "invalid token")
+        XCTAssertEqual(livekit.asked.first, "GET /rtc/validate?access_token=token HTTP/1.1")
+    }
+
+    func testACallsEndpointRefusesWhatIsntTheSDKsHandshake() async throws {
+        let proxy = try await FakeProxy.start(username: "", password: "")
+        defer { proxy.stop() }
+        let call = try await CallProxy.start(target: "wss://chat.example/livekit", proxy: NetworkProxy(host: "127.0.0.1", port: proxy.port))
+        defer { call.close() }
+        let endpoint = try XCTUnwrap(URL(string: call.url))
+        let port = UInt16(endpoint.port!)
+        func answer(_ request: String) async throws -> String {
+            try await SDKSocket(port: port).request(request)
+        }
+        let posted = try await answer("POST \(endpoint.path)/rtc HTTP/1.1\r\n\r\n")
+        XCTAssertTrue(posted.hasPrefix("HTTP/1.1 400 "), posted)
+        let keyless = try await answer("GET \(endpoint.path)/rtc HTTP/1.1\r\nUpgrade: websocket\r\n\r\n")
+        XCTAssertTrue(keyless.hasPrefix("HTTP/1.1 400 "), keyless)
+        let unreadable = try await answer("GET \(endpoint.path)/rtc?join_request=CAU HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+        XCTAssertTrue(unreadable.hasPrefix("HTTP/1.1 500 "), unreadable)
+        let endless = try await answer("GET \(endpoint.path)/rtc HTTP/1.1\r\nX-Long: " + String(repeating: "a", count: 1 << 18))
+        XCTAssertTrue(endless.hasPrefix("HTTP/1.1 431 "), endless)
+        XCTAssertTrue(proxy.asked.isEmpty, "\(proxy.asked)")
+    }
+
+    func testACallsRelaysCarryMediaOverTCPThroughTheProxy() async throws {
+        let proxy = try await FakeProxy.start(username: "", password: "")
+        defer { proxy.stop() }
+        let call = try await CallProxy.start(target: "wss://chat.example/livekit", proxy: NetworkProxy(host: "127.0.0.1", port: proxy.port))
+        defer { call.close() }
+        XCTAssertEqual(call.way, .unsure)
+        let relay = try XCTUnwrap(call.relay(for: "TCP", address: "203.0.113.5", port: 7881))
+        let media = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: relay.port)!, using: .tcp)
+        try await Socks.ready(media, queue: DispatchQueue(label: "media"))
+        try await Socks.send(Data("media".utf8), on: media)
+        // This proxy echoes, so what went to the candidate comes back.
+        let back = try await Socks.read(5, from: media)
+        XCTAssertEqual(String(decoding: back, as: UTF8.self), "media")
+        XCTAssertEqual(proxy.asked, ["203.0.113.5:7881"])
+        XCTAssertEqual(call.way, .tcp)
+
+        // Closed, the call ends its relays' connections and makes no more of them.
+        call.close()
+        do {
+            _ = try await Socks.read(1, from: media)
+            XCTFail("the relay's connection went on after the call closed")
+        } catch {}
+        XCTAssertNil(call.relay(for: "tcp", address: "203.0.113.6", port: 7881))
+        media.cancel()
+    }
+
+    /// Waits up to five seconds for something to be so.
+    private func eventually(_ what: String, _ condition: () -> Bool) async throws {
+        for _ in 0..<100 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("\(what) never happened")
+    }
+
+    /// A protobuf message of one field, of bytes this long, of which nothing is read.
+    private func message(field: Int, size: Int) -> Data {
+        var out = varint(field << 3 | 2) + varint(size)
+        out.append(Data(repeating: 0, count: size))
+        return out
+    }
+
+    private func varint(_ value: Int) -> Data {
+        var value = value, out = Data()
+        while value >= 0x80 {
+            out.append(UInt8(value & 0x7f) | 0x80)
+            value >>= 7
+        }
+        out.append(UInt8(value))
+        return out
+    }
+
     /// A `SignalResponse` holding a trickled candidate, as LiveKit sends one: field 4, a
     /// `TrickleRequest` whose field 1 is the candidate as JSON.
     private func trickle(_ candidate: String, field: UInt8 = 0x22) -> Data {
@@ -207,27 +365,29 @@ final class ProxyTests: XCTestCase {
 }
 
 /// A SOCKS5 proxy with a username and password, which answers CONNECT and echoes what it's sent,
-/// and refuses UDP associations.
+/// or passes it on to a port on loopback for a name in `forward`, and refuses UDP associations.
 private final class FakeProxy: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "fake-proxy")
     private let username: String
     private let password: String
+    private let forward: [String: UInt16]
     private let lock = NSLock()
     private var requests: [String] = []
     var port: UInt16 { listener.port?.rawValue ?? 0 }
     var asked: [String] { lock.withLock { requests } }
 
-    private init(listener: NWListener, username: String, password: String) {
+    private init(listener: NWListener, username: String, password: String, forward: [String: UInt16]) {
         self.listener = listener
         self.username = username
         self.password = password
+        self.forward = forward
     }
 
-    static func start(username: String, password: String) async throws -> FakeProxy {
+    static func start(username: String, password: String, forward: [String: UInt16] = [:]) async throws -> FakeProxy {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
-        let proxy = FakeProxy(listener: try NWListener(using: parameters), username: username, password: password)
+        let proxy = FakeProxy(listener: try NWListener(using: parameters), username: username, password: password, forward: forward)
         proxy.listener.newConnectionHandler = { connection in proxy.serve(connection) }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let once = Once()
@@ -276,6 +436,14 @@ private final class FakeProxy: @unchecked Sendable {
                     return connection.cancel()
                 }
                 lock.withLock { requests.append("\(host):\(Int(port[0]) << 8 | Int(port[1]))") }
+                if let onward = forward[host] {
+                    let server = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: onward)!, using: .tcp)
+                    try await Socks.ready(server, queue: queue)
+                    try await Socks.send(Data([5, 0, 0, 1, 127, 0, 0, 1, 0, 1]), on: connection)
+                    pipe(from: connection, to: server)
+                    pipe(from: server, to: connection)
+                    return
+                }
                 try await Socks.send(Data([5, 0, 0, 1, 127, 0, 0, 1, 0, 1]), on: connection)
                 while true {
                     try await Socks.send(try await Socks.read(1, from: connection), on: connection)
@@ -284,5 +452,197 @@ private final class FakeProxy: @unchecked Sendable {
                 connection.cancel()
             }
         }
+    }
+
+    private func pipe(from source: NWConnection, to sink: NWConnection) {
+        source.receive(minimumIncompleteLength: 1, maximumLength: 1 << 16) { [weak self] data, _, complete, error in
+            if let data, !data.isEmpty { sink.send(content: data, completion: .idempotent) }
+            if complete || error != nil {
+                source.cancel()
+                sink.cancel()
+            } else {
+                self?.pipe(from: source, to: sink)
+            }
+        }
+    }
+}
+
+/// LiveKit's signalling, as far as a call's endpoint reaches it: a WebSocket server on loopback that
+/// sends what it was given to once a socket opens, and keeps what comes and the headers it came with.
+private final class FakeLiveKit: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "fake-livekit")
+    private let greeting: [(text: Bool, data: Data)]
+    private let headers: Locked<[String: String]>
+    private let lock = NSLock()
+    private var messages: [Data] = []
+    private var ended = false
+    var port: UInt16 { listener.port?.rawValue ?? 0 }
+    var received: [Data] { lock.withLock { messages } }
+    var closed: Bool { lock.withLock { ended } }
+    var authorization: String? { headers.value["authorization"] }
+
+    private init(listener: NWListener, greeting: [(text: Bool, data: Data)], headers: Locked<[String: String]>) {
+        self.listener = listener
+        self.greeting = greeting
+        self.headers = headers
+    }
+
+    static func start(greeting: [(text: Bool, data: Data)]) async throws -> FakeLiveKit {
+        let headers = Locked<[String: String]>([:])
+        let options = NWProtocolWebSocket.Options()
+        options.autoReplyPing = true
+        options.maximumMessageSize = 1 << 20
+        options.setClientRequestHandler(DispatchQueue(label: "fake-livekit-request")) { _, additional in
+            headers.value = Dictionary(additional.map { ($0.name.lowercased(), $0.value) }, uniquingKeysWith: { $1 })
+            return NWProtocolWebSocket.Response(status: .accept, subprotocol: nil)
+        }
+        let parameters = NWParameters.tcp
+        parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        let server = FakeLiveKit(listener: try NWListener(using: parameters), greeting: greeting, headers: headers)
+        server.listener.newConnectionHandler = { connection in server.serve(connection) }
+        try await listen(server.listener, on: server.queue)
+        return server
+    }
+
+    func stop() { listener.cancel() }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        for (text, data) in greeting {
+            let context = NWConnection.ContentContext(identifier: "greeting", metadata: [NWProtocolWebSocket.Metadata(opcode: text ? .text : .binary)])
+            connection.send(content: data, contentContext: context, isComplete: true, completion: .idempotent)
+        }
+        receive(on: connection)
+    }
+
+    private func receive(on connection: NWConnection) {
+        connection.receiveMessage { [weak self] content, context, _, error in
+            guard let self, error == nil else { return }
+            let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
+            switch metadata?.opcode {
+            case .binary: lock.withLock { self.messages.append(content ?? Data()) }
+            case .close: return lock.withLock { self.ended = true }
+            default: break
+            }
+            receive(on: connection)
+        }
+    }
+}
+
+/// LiveKit refusing the SDK's token, as it answers the SDK asking why it couldn't connect: a
+/// server on loopback that answers every request so, and keeps each request's first line.
+private final class FakeRefusal: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "fake-refusal")
+    private let lock = NSLock()
+    private var requests: [String] = []
+    var port: UInt16 { listener.port?.rawValue ?? 0 }
+    var asked: [String] { lock.withLock { requests } }
+
+    private init(listener: NWListener) { self.listener = listener }
+
+    static func start() async throws -> FakeRefusal {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        let server = FakeRefusal(listener: try NWListener(using: parameters))
+        server.listener.newConnectionHandler = { connection in server.serve(connection) }
+        try await listen(server.listener, on: server.queue)
+        return server
+    }
+
+    func stop() { listener.cancel() }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        Task {
+            var head = Data()
+            while !head.ends(with: "\r\n\r\n") {
+                guard let byte = try? await Socks.read(1, from: connection) else { return connection.cancel() }
+                head.append(byte)
+            }
+            let first = String(decoding: head, as: UTF8.self).components(separatedBy: "\r\n")[0]
+            lock.withLock { requests.append(first) }
+            let answer = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: close\r\n\r\ninvalid token"
+            try? await Socks.send(Data(answer.utf8), on: connection)
+            connection.cancel()
+        }
+    }
+}
+
+/// The SDK's side of a call's socket, written out by hand so that each frame is as a test says:
+/// a client's, so masked.
+private final class SDKSocket: @unchecked Sendable {
+    private let connection: NWConnection
+
+    init(port: UInt16) async throws {
+        connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        try await Socks.ready(connection, queue: DispatchQueue(label: "sdk-socket"))
+    }
+
+    deinit { connection.cancel() }
+
+    /// Sends a request, and reads the head of what answers it.
+    func request(_ request: String) async throws -> String {
+        try await Socks.send(Data(request.utf8), on: connection)
+        var head = Data()
+        while !head.ends(with: "\r\n\r\n") {
+            head.append(try await Socks.read(1, from: connection))
+        }
+        return String(decoding: head, as: UTF8.self)
+    }
+
+    func read(_ count: Int) async throws -> Data {
+        try await Socks.read(count, from: connection)
+    }
+
+    func send(fin: Bool = true, opcode: UInt8, _ payload: Data) async throws {
+        let mask: [UInt8] = [0x12, 0x34, 0x56, 0x78]
+        var frame = Data([(fin ? 0x80 : 0) | opcode])
+        if payload.count < 126 {
+            frame.append(0x80 | UInt8(payload.count))
+        } else if payload.count <= 0xffff {
+            frame.append(contentsOf: [0x80 | 126, UInt8(payload.count >> 8), UInt8(payload.count & 0xff)])
+        } else {
+            frame.append(0x80 | 127)
+            for shift in stride(from: 56, through: 0, by: -8) { frame.append(UInt8((UInt64(payload.count) >> UInt64(shift)) & 0xff)) }
+        }
+        frame.append(contentsOf: mask)
+        frame.append(contentsOf: payload.enumerated().map { $0.element ^ mask[$0.offset & 3] })
+        try await Socks.send(frame, on: connection)
+    }
+
+    /// The next frame, as LiveKit's side sends it: whole, and not masked.
+    func frame() async throws -> (opcode: UInt8, payload: Data) {
+        let head = [UInt8](try await Socks.read(2, from: connection))
+        var length = Int(head[1] & 0x7f)
+        if length == 126 {
+            let more = [UInt8](try await Socks.read(2, from: connection))
+            length = Int(more[0]) << 8 | Int(more[1])
+        } else if length == 127 {
+            length = [UInt8](try await Socks.read(8, from: connection)).reduce(0) { $0 << 8 | Int($1) }
+        }
+        let payload = length > 0 ? try await Socks.read(length, from: connection) : Data()
+        return (head[0] & 0x0f, payload)
+    }
+}
+
+/// Starts a listener, once it's ready.
+private func listen(_ listener: NWListener, on queue: DispatchQueue) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let once = Once()
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { once.run { continuation.resume() } }
+            if case let .failed(error) = state { once.run { continuation.resume(throwing: error) } }
+        }
+        listener.start(queue: queue)
+    }
+}
+
+private extension Data {
+    func ends(with text: String) -> Bool {
+        let tail = Data(text.utf8)
+        return count >= tail.count && suffix(tail.count) == tail
     }
 }
