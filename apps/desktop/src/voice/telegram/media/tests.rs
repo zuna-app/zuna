@@ -5,6 +5,7 @@
 //! `UPDATE_TELEGRAM_CALL_FIXTURES=1`, then the answers with the core's test, and read the change.
 
 use super::*;
+use livekit::webrtc::stats::{IceRole, RtcStats};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/fixtures/telegram-calls");
 
@@ -22,6 +23,9 @@ async fn offer_of(caller: bool, camera: bool) -> (PeerConnection, SessionDescrip
         pc.add_transceiver(MediaStreamTrack::Video(track), RtpTransceiverInit { direction: RtpTransceiverDirection::SendOnly, stream_ids: vec!["zuna".into()], send_encodings: Vec::new() }).expect("a camera's transceiver");
     }
     receive(&pc, 1, 1).expect("transceivers taking the other side's");
+    if !caller {
+        answer_first(&pc).await.expect("the first offer answered");
+    }
     let offer = pc.create_offer(offering()).await.expect("an offer");
     (pc, offer)
 }
@@ -98,6 +102,11 @@ fn the_cores_answers_are_taken() {
             assert!(receiving >= 1, "{name}: nothing of the other side's is taken");
             let sending = pc.transceivers().iter().filter(|transceiver| transceiver.current_direction() == Some(RtpTransceiverDirection::SendOnly)).count();
             assert_eq!(sending, if *camera { 2 } else { 1 }, "{name}: this side's streams aren't all taken");
+            // The caller controls ICE, as Telegram's apps take it to, and the one called never
+            // claims to, which they'd answer with nothing but role conflicts.
+            let roles: Vec<IceRole> = pc.get_stats().await.expect("its stats").into_iter().filter_map(|stats| if let RtcStats::Transport(transport) = stats { Some(transport.transport.ice_role) } else { None }).collect();
+            let role = if *caller { IceRole::Controlling } else { IceRole::Controlled };
+            assert!(!roles.is_empty() && roles.iter().all(|each| *each == role), "{name}: ICE's roles are {roles:?}, not {role:?}");
             pc.close();
         }
     });

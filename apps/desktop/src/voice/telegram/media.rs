@@ -20,7 +20,7 @@ use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::data_channel::{DataChannel, DataChannelInit, DataChannelState};
 use livekit::webrtc::ice_candidate::IceCandidate;
 use livekit::webrtc::media_stream_track::MediaStreamTrack;
-use livekit::webrtc::peer_connection::{OfferOptions, PeerConnection, PeerConnectionState};
+use livekit::webrtc::peer_connection::{AnswerOptions, OfferOptions, PeerConnection, PeerConnectionState};
 use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt as _;
 use livekit::webrtc::peer_connection_factory::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration};
 use livekit::webrtc::prelude::{I420Buffer, VideoBuffer, VideoFrame, VideoResolution, VideoRotation};
@@ -158,6 +158,8 @@ impl Shared {
 /// One Telegram call's peer connection.
 pub struct TelegramMedia {
     pc: PeerConnection,
+    /// This side started the call.
+    caller: bool,
     /// The relays on this device it reaches Telegram's through, with a proxy set.
     proxied: Option<Arc<crate::voice::proxy::Relays>>,
     _runtime: Arc<LkRuntime>,
@@ -253,6 +255,22 @@ pub(crate) fn offering() -> OfferOptions {
     OfferOptions { ice_restart: false, offer_to_receive_audio: true, offer_to_receive_video: true }
 }
 
+/// The offer the one called answers before it makes its first: the data channel's section alone,
+/// with ICE and DTLS parameters that stand for the other side's until its first answer gives them.
+const FIRST_OFFER: &str = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=msid-semantic: WMS *\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:zuna\r\na=ice-pwd:zunazunazunazunazunazuna\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=setup:active\r\na=mid:0\r\na=sctp-port:5000\r\na=max-message-size:262144\r\n";
+
+/// Makes the one called ICE's controlled agent and DTLS's server, for the whole call, by answering
+/// an offer before it sets one of its own. WebRTC makes whoever sets an offer first the
+/// controlling agent, and so did the one called, which offers too; Telegram's own apps take the
+/// caller for that and never give way, so each of their checks was answered as a role conflict,
+/// their side never connected and DTLS never started. Its offers go on from here as the caller's do.
+pub(crate) async fn answer_first(pc: &PeerConnection) -> Result<(), String> {
+    let offer = SessionDescription::parse(FIRST_OFFER, SdpType::Offer).map_err(|error| error.to_string())?;
+    pc.set_remote_description(offer).await.map_err(|error| error.to_string())?;
+    let answer = pc.create_answer(AnswerOptions::default()).await.map_err(|error| error.to_string())?;
+    pc.set_local_description(answer).await.map_err(|error| error.to_string())
+}
+
 /// Adds transceivers that only take the other side's streams, until there are as many of each kind as asked.
 pub(crate) fn receive(pc: &PeerConnection, audio: usize, video: usize) -> Result<(), String> {
     for (kind, media_type, wanted) in [("audio", MediaType::Audio, audio), ("video", MediaType::Video, video)] {
@@ -333,7 +351,7 @@ impl TelegramMedia {
         })));
 
         let (commands, mut queue) = tokio::sync::mpsc::unbounded_channel::<Value>();
-        let media = Arc::new(TelegramMedia { pc, proxied, _runtime: runtime, shared, commands, camera: Mutex::new(None), camera_out: Mutex::new(None) });
+        let media = Arc::new(TelegramMedia { pc, caller, proxied, _runtime: runtime, shared, commands, camera: Mutex::new(None), camera_out: Mutex::new(None) });
         let doing = Arc::downgrade(&media);
         crate::host::tokio().spawn(async move {
             while let Some(command) = queue.recv().await {
@@ -374,6 +392,9 @@ impl TelegramMedia {
             "offer" => {
                 let wanted = |kind: &str| command.pointer(&format!("/receive/{kind}")).and_then(Value::as_u64).unwrap_or(1) as usize;
                 receive(&self.pc, wanted("audio"), wanted("video"))?;
+                if !self.caller && self.pc.current_local_description().is_none() {
+                    answer_first(&self.pc).await?;
+                }
                 let offer = self.pc.create_offer(offering()).await.map_err(|error| error.to_string())?;
                 let prepared = self.shared.tell("callOffer", vec![json!(offer.to_string())]).await.map_err(|error| error.message)?;
                 let prepared = prepared.as_str().ok_or("the core gave no offer")?;

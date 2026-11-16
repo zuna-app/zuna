@@ -160,7 +160,8 @@ function pair(): [Phone, Phone] {
 const of = <T extends CoreEvent["type"]>(events: CoreEvent[], type: T) => events.filter((event): event is Extract<CoreEvent, { type: T }> => event.type === type);
 
 /** The SSRC a section sends, from its lines. */
-const ssrcOf = (description: Description, mid: string) => description.sections.find((section) => section.mid === mid)?.ssrcs[0];
+/** The SSRC of the sound a side's offer sends, wherever its section is: the one called has the data channel's first. */
+const soundOf = (description: Description) => description.sections.find((section) => section.media === "audio" && section.direction === "sendonly")?.ssrcs[0];
 
 let phones: Phone[] = [];
 afterEach(() => {
@@ -211,7 +212,7 @@ describe("a call", () => {
       expect(sending.codecs.map((codec) => codec.name)).toEqual(["opus"]);
       expect(me.answers.at(-1)).toMatch(/a=fmtp:111 [^\r\n]*maxaveragebitrate=32000/);
       const taking = answer.sections.find((section) => section.direction === "sendonly" && section.media === "audio")!;
-      expect(taking.ssrcs).toEqual([ssrcOf(theirs, "0")]);
+      expect(taking.ssrcs).toEqual([soundOf(theirs)]);
       // Nothing of either side names a stream by MID or RID: each side numbers its own.
       for (const sdp of [me.answers.at(-1)!, me.offers.at(-1)!.prepared]) expect(sdp).not.toMatch(/sdes:mid|rtp-stream-id/);
       expect(of(me.events, "telegram_call_media").some((event) => event.media.do === "answer" && Object.values(event.media.tracks).includes("audio"))).toBe(true);
