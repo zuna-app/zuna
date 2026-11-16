@@ -6,7 +6,7 @@
 
   <p>
     <a href="https://github.com/zuna-app/zuna/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/zuna-app/zuna?include_prereleases&label=release&color=4c1"></a>
-    <a href="https://github.com/zuna-app/zuna/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/zuna-app/zuna/ci.yml?label=CI"></a>
+    <a href="https://github.com/zuna-app/zuna/actions/workflows/coverage.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/zuna-app/zuna/coverage.yml?branch=main&label=tests"></a>
     <a href="https://codecov.io/gh/zuna-app/zuna"><img alt="Coverage" src="https://codecov.io/gh/zuna-app/zuna/graph/badge.svg"></a>
     <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/zuna-app/zuna"></a>
     <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20web-555">
