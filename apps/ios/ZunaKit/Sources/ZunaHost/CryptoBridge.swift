@@ -41,6 +41,11 @@ final class CryptoBridge {
         }
         define("sha256", sha256)
 
+        let aes256Ctr: @convention(block) (JSValue, JSValue, JSValue) -> JSValue = { key, iv, input in
+            bytes { try ZunaCrypto.aes256Ctr(key: data(key), iv: data(iv), data: data(input)) }
+        }
+        define("aes256Ctr", aes256Ctr)
+
         let aeadSeal: @convention(block) (JSValue, JSValue, JSValue) -> JSValue = { key, plaintext, aad in
             bytes { try ZunaCrypto.aeadSeal(key: data(key), plaintext: data(plaintext), aad: data(aad)) }
         }

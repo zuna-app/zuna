@@ -75,6 +75,11 @@ pub fn sha256(data: &[u8]) -> Vec<u8> {
     primitives::sha256(data)
 }
 
+#[wasm_bindgen(js_name = aes256Ctr)]
+pub fn aes256_ctr(key: &[u8], iv: &[u8], data: &[u8]) -> JsResult<Vec<u8>> {
+    to_js(primitives::aes256_ctr(key, iv, data))
+}
+
 #[wasm_bindgen(js_name = aeadSeal)]
 pub fn aead_seal(key: &[u8], plaintext: &[u8], aad: &[u8]) -> JsResult<Vec<u8>> {
     to_js(primitives::aead_seal(key, plaintext, aad))

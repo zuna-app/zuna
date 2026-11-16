@@ -59,6 +59,10 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "sha256", |c, a| new_bytes(&c, primitives::sha256(&bytes_arg(&a, 0))));
+    define!(crypto, ctx, "aes256Ctr", |c, a| {
+        let out = check(&c, primitives::aes256_ctr(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))?;
+        new_bytes(&c, out)
+    });
     define!(crypto, ctx, "aeadSeal", |c, a| {
         let out = check(&c, primitives::aead_seal(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))?;
         new_bytes(&c, out)

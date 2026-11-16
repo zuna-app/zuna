@@ -21,6 +21,7 @@ export const argon2id = (
 export const hkdfSha256 = (ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, len: number): Uint8Array =>
   native.hkdfSha256(ikm, salt, info, len);
 export const sha256 = (data: Uint8Array): Uint8Array => native.sha256(data);
+export const aes256Ctr = (key: Uint8Array, iv: Uint8Array, data: Uint8Array): Uint8Array => native.aes256Ctr(key, iv, data);
 export const aeadSeal = (key: Uint8Array, plaintext: Uint8Array, aad: Uint8Array): Uint8Array => native.aeadSeal(key, plaintext, aad);
 export const aeadOpen = (key: Uint8Array, data: Uint8Array, aad: Uint8Array): Uint8Array => native.aeadOpen(key, data, aad);
 export const streamSeal = (key: Uint8Array, prefix: Uint8Array, index: number, last: boolean, plaintext: Uint8Array): Uint8Array =>

@@ -10537,9 +10537,11 @@ source = "git+https://github.com/zuna-app/zed?rev=fef5724c15b732c88af9428f14e28c
 name = "zuna-crypto"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "argon2",
  "chacha20poly1305",
  "console_error_panic_hook",
+ "ctr",
  "ed25519-dalek",
  "getrandom 0.2.17",
  "hkdf 0.12.4",

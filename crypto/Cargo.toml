@@ -33,6 +33,10 @@ chacha20poly1305 = "0.10"
 argon2 = "0.5"
 hkdf = "0.12"
 sha2 = "0.10"
+# AES-256 in counter mode, for a Telegram call's signalling alone (primitives.rs, `aes256_ctr`).
+# The versions OpenMLS's provider already brings.
+aes = "0.8"
+ctr = "0.9"
 # Tokens the server can't trace (RFC 9497), which limit what an unnamed sender may send.
 voprf = { version = "0.5", default-features = false, features = ["ristretto255-ciphersuite"] }
 rand_core = { version = "0.6", features = ["getrandom"] }

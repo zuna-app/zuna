@@ -79,6 +79,11 @@ pub fn sha256(data: Vec<u8>) -> Vec<u8> {
 }
 
 #[uniffi::export]
+pub fn aes256_ctr(key: Vec<u8>, iv: Vec<u8>, data: Vec<u8>) -> NativeResult<Vec<u8>> {
+    native(primitives::aes256_ctr(&key, &iv, &data))
+}
+
+#[uniffi::export]
 pub fn aead_seal(key: Vec<u8>, plaintext: Vec<u8>, aad: Vec<u8>) -> NativeResult<Vec<u8>> {
     native(primitives::aead_seal(&key, &plaintext, &aad))
 }

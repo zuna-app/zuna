@@ -3,9 +3,13 @@
 //! Nothing here invents new cryptography: these are thin, misuse-resistant
 //! wrappers around Argon2id (RFC 9106), HKDF-SHA-256 (RFC 5869),
 //! XChaCha20-Poly1305, Ed25519 with ML-DSA (`hybrid.rs`), and HPKE (RFC 9180)
-//! with X-Wing, ML-KEM-768 and X25519 together.
+//! with X-Wing, ML-KEM-768 and X25519 together. AES-256 in counter mode is
+//! here only for a Telegram call's signalling, which is sealed as Telegram's
+//! apps seal it.
 
+use aes::Aes256;
 use argon2::{Algorithm, Argon2, Params, Version};
+use ctr::cipher::{KeyIvInit as _, StreamCipher as _};
 use ed25519_dalek::Signer as _;
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
@@ -79,6 +83,24 @@ pub fn hkdf_sha256(ikm: &[u8], salt: &[u8], info: &[u8], len: usize) -> Result<V
 
 pub fn sha256(data: &[u8]) -> Vec<u8> {
     Sha256::digest(data).to_vec()
+}
+
+/// AES-256 in counter mode, the whole 16-byte IV counted up as one 128-bit big-endian
+/// number, as OpenSSL's `CRYPTO_ctr128_encrypt` counts it. Encrypting and decrypting are
+/// the same. It's MTProto 2.0's cipher, which a Telegram call's signalling is sealed with
+/// (`packages/core/src/telegram/calls/seal.ts`), and it keeps nothing whole by itself:
+/// whoever opens something with it checks a hash of what comes out.
+pub fn aes256_ctr(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if key.len() != 32 {
+        return Err("aes-ctr: the key must be 32 bytes".into());
+    }
+    if iv.len() != 16 {
+        return Err("aes-ctr: the IV must be 16 bytes".into());
+    }
+    let mut cipher = ctr::Ctr128BE::<Aes256>::new_from_slices(key, iv).map_err(err("aes-ctr"))?;
+    let mut out = data.to_vec();
+    cipher.try_apply_keystream(&mut out).map_err(err("aes-ctr"))?;
+    Ok(out)
 }
 
 fn cipher(key: &[u8]) -> Result<XChaCha20Poly1305> {
@@ -501,6 +523,53 @@ mod tests {
     fn sha256_is_fips_180_4s() {
         assert_eq!(sha256(b""), hex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
         assert_eq!(sha256(b"abc"), hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn aes256_ctr_is_nist_sp_800_38as() {
+        // F.5.5, CTR-AES256.Encrypt, and F.5.6, its decryption, which is the same call.
+        let key = hex("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4");
+        let counter = hex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
+        let plain = hex(concat!(
+            "6bc1bee22e409f96e93d7e117393172a",
+            "ae2d8a571e03ac9c9eb76fac45af8e51",
+            "30c81c46a35ce411e5fbc1191a0a52ef",
+            "f69f2445df4f9b17ad2b417be66c3710",
+        ));
+        let cipher = hex(concat!(
+            "601ec313775789a5b7a7f504bbf3d228",
+            "f443e3ca4d62b59aca84e990cacaf5c5",
+            "2b0930daa23de94ce87017ba2d84988d",
+            "dfc9c58db67aada613c2dd08457941a6",
+        ));
+        assert_eq!(aes256_ctr(&key, &counter, &plain).unwrap(), cipher);
+        assert_eq!(aes256_ctr(&key, &counter, &cipher).unwrap(), plain);
+        // Part of a block is the start of the whole one's.
+        assert_eq!(aes256_ctr(&key, &counter, &plain[..21]).unwrap(), cipher[..21]);
+        assert_eq!(aes256_ctr(&key, &counter, &[]).unwrap(), Vec::<u8>::new());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn aes256_ctrs_counter_is_all_sixteen_bytes() {
+        let key = hex("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4");
+        let zeros = [0u8; 32];
+        // The low four bytes run out and carry into the fifth from the end, which a
+        // 32-bit counter, as GCM's, would leave alone.
+        let before = hex("000102030405060708090a0bffffffff");
+        let after = hex("000102030405060708090a0c00000000");
+        let stream = aes256_ctr(&key, &before, &zeros).unwrap();
+        assert_eq!(stream[16..], aes256_ctr(&key, &after, &zeros[..16]).unwrap()[..]);
+        // And past every byte, back to nought, as OpenSSL's does.
+        let last = [0xffu8; 16];
+        let stream = aes256_ctr(&key, &last, &zeros).unwrap();
+        assert_eq!(stream[16..], aes256_ctr(&key, &[0u8; 16], &zeros[..16]).unwrap()[..]);
+        // A key or an IV of any other size is refused.
+        assert!(aes256_ctr(&key[..31], &before, &zeros).is_err());
+        assert!(aes256_ctr(&[0u8; 16], &before, &zeros).is_err());
+        assert!(aes256_ctr(&key, &before[..15], &zeros).is_err());
+        assert!(aes256_ctr(&key, &[0u8; 12], &zeros).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
