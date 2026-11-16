@@ -228,7 +228,9 @@ impl Voice {
         if self.telegram_media.is_some() || self.telegram_waiting.is_some() {
             return;
         }
-        let servers = media::relays(media.get("servers").unwrap_or(&Value::Null));
+        let given = media.get("servers").unwrap_or(&Value::Null);
+        let servers = media::relays(given);
+        log::info!("telegram call: {} of {} TURN servers are at Telegram's addresses{}", servers.len(), given.as_array().map_or(0, Vec::len), media::refused(given));
         if servers.is_empty() {
             // None of the relays is at one of Telegram's addresses: the call can't be had.
             self.tell_connection(id, "norelay", cx);
